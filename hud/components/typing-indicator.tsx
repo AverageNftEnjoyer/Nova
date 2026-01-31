@@ -11,7 +11,7 @@ export function TypingIndicator() {
 
       {/* Typing dots with enhanced animation */}
       <div
-        className="px-4 py-3 rounded-2xl rounded-bl-md bg-white/5 border border-white/5"
+        className="px-4 py-3 rounded-2xl rounded-bl-md bg-s-5 border border-s-5"
         style={{
           boxShadow: "rgba(0, 0, 0, 0.2) 0px 2px 8px",
         }}

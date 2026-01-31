@@ -136,14 +136,14 @@ export function MessageList({
       aria-live="polite"
     >
       {messages.length === 0 && !error && !isStreaming && (
-        <div className="flex flex-col items-center justify-center h-full text-center text-white/40">
+        <div className="flex flex-col items-center justify-center h-full text-center text-s-40">
           <div className={`mb-4 ${hasAnimated ? "orb-intro" : ""}`}>
             <AnimatedOrb size={180} />
           </div>
-          <p className={`text-lg font-medium text-white/60 ${hasAnimated ? "text-blur-intro" : ""}`}>
+          <p className={`text-lg font-medium text-s-60 ${hasAnimated ? "text-blur-intro" : ""}`}>
             Hi, my name is Nova
           </p>
-          <p className={`text-sm mt-1 text-white/30 ${hasAnimated ? "text-blur-intro-delay" : ""}`}>
+          <p className={`text-sm mt-1 text-s-30 ${hasAnimated ? "text-blur-intro-delay" : ""}`}>
             What can I help you with today?
           </p>
         </div>

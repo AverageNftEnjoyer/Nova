@@ -37,6 +37,16 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Theme-adaptive surface color (used for overlays, text, borders) */
+  --s: 0, 0, 0;
+  --page-bg: #ffffff;
+  --sidebar-page-bg: #f3f3f6;
+  --composer-shadow: rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 4px 16px;
+  --code-bg: rgba(0, 0, 0, 0.06);
+  --code-block-bg: rgba(0, 0, 0, 0.04);
+  --code-block-border: rgba(0, 0, 0, 0.08);
+  --code-block-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px;
 }
 
 .dark {
@@ -72,6 +82,16 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
+
+  /* Theme-adaptive surface color (used for overlays, text, borders) */
+  --s: 255, 255, 255;
+  --page-bg: #0a0a0f;
+  --sidebar-page-bg: #0d0d14;
+  --composer-shadow: rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.3) 0px 4px 16px;
+  --code-bg: rgba(255, 255, 255, 0.1);
+  --code-block-bg: rgba(255, 255, 255, 0.05);
+  --code-block-border: rgba(255, 255, 255, 0.05);
+  --code-block-shadow: rgba(0, 0, 0, 0.3) 0px 2px 8px;
 }
 
 @theme inline {
@@ -123,6 +143,49 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ===== Theme-adaptive surface utilities ===== */
+/* Text colors — adapts white(dark)/black(light) at various opacities */
+.text-s-90 { color: rgba(var(--s), 0.9); }
+.text-s-85 { color: rgba(var(--s), 0.85); }
+.text-s-80 { color: rgba(var(--s), 0.8); }
+.text-s-70 { color: rgba(var(--s), 0.7); }
+.text-s-60 { color: rgba(var(--s), 0.6); }
+.text-s-50 { color: rgba(var(--s), 0.5); }
+.text-s-40 { color: rgba(var(--s), 0.4); }
+.text-s-30 { color: rgba(var(--s), 0.3); }
+.text-s-25 { color: rgba(var(--s), 0.25); }
+.text-s-20 { color: rgba(var(--s), 0.2); }
+.text-s-15 { color: rgba(var(--s), 0.15); }
+.text-s-10 { color: rgba(var(--s), 0.1); }
+
+/* Background colors */
+.bg-s-2 { background-color: rgba(var(--s), 0.02); }
+.bg-s-3 { background-color: rgba(var(--s), 0.03); }
+.bg-s-5 { background-color: rgba(var(--s), 0.05); }
+.bg-s-10 { background-color: rgba(var(--s), 0.10); }
+.bg-s-15 { background-color: rgba(var(--s), 0.15); }
+
+/* Hover background */
+.hover\:bg-s-5:hover { background-color: rgba(var(--s), 0.05); }
+.hover\:bg-s-10:hover { background-color: rgba(var(--s), 0.10); }
+.hover\:bg-s-15:hover { background-color: rgba(var(--s), 0.15); }
+.hover\:bg-s-30:hover { background-color: rgba(var(--s), 0.30); }
+
+/* Border colors */
+.border-s-5 { border-color: rgba(var(--s), 0.05); }
+.border-s-10 { border-color: rgba(var(--s), 0.10); }
+
+/* Focus-within border */
+.focus-within\:border-s-10:focus-within { border-color: rgba(var(--s), 0.10); }
+
+/* Placeholder text */
+.placeholder\:text-s-20::placeholder { color: rgba(var(--s), 0.2); }
+.placeholder\:text-s-30::placeholder { color: rgba(var(--s), 0.3); }
+
+/* Page backgrounds */
+.bg-page { background-color: var(--page-bg); }
+.bg-sidebar-page { background-color: var(--sidebar-page-bg); }
 
 /* Replace gray gradient with colorful animated gradient for AI streaming responses */
 .gradient-text-animated {
@@ -1143,4 +1206,96 @@
 .party-strobe {
   background: white;
   animation: party-strobe 0.8s linear infinite;
+}
+
+/* ========== SECONDARY BOOT SCREEN — IRON MAN HUD ========== */
+
+/* Flying hacker text line entrance */
+@keyframes boot2-fly-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-30px);
+    filter: blur(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+.boot2-fly-line {
+  animation: boot2-fly-in 0.3s ease-out forwards;
+}
+
+/* Floating hex values drift across screen */
+@keyframes boot2-hex-drift {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--hex-opacity, 0.1);
+  }
+  90% {
+    opacity: var(--hex-opacity, 0.1);
+  }
+  100% {
+    transform: translateX(calc(var(--fly-dir, 1) * 200px));
+    opacity: 0;
+  }
+}
+
+.boot2-hex-fly {
+  animation: boot2-hex-drift var(--duration, 8s) linear infinite;
+}
+
+/* Arc ring rotations — 3 concentric rings at different speeds */
+@keyframes boot2-ring-spin-0 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes boot2-ring-spin-1 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes boot2-ring-spin-2 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.boot2-arc-ring-0 {
+  animation: boot2-ring-spin-0 12s linear infinite;
+}
+
+.boot2-arc-ring-1 {
+  animation: boot2-ring-spin-1 18s linear infinite;
+}
+
+.boot2-arc-ring-2 {
+  animation: boot2-ring-spin-2 25s linear infinite;
+}
+
+/* HUD readout pop-in */
+@keyframes boot2-readout-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+    filter: blur(6px);
+  }
+  60% {
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    filter: blur(0);
+  }
+}
+
+.boot2-readout-in {
+  animation: boot2-readout-pop 0.5s ease-out forwards;
+  opacity: 0;
 }

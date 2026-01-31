@@ -50,7 +50,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       const codeMatch = remaining.match(/^`([^`]+)`/)
       if (codeMatch) {
         elements.push(
-          <code key={keyIndex++} className="px-1.5 py-0.5 bg-white/10 text-violet-300 rounded text-sm font-mono">
+          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300" style={{ backgroundColor: "var(--code-bg)" }}>
             {codeMatch[1]}
           </code>,
         )
@@ -119,7 +119,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       const codeMatch = remaining.match(/^`([^`]+)`/)
       if (codeMatch) {
         elements.push(
-          <code key={keyIndex++} className="px-1.5 py-0.5 bg-white/10 text-violet-300 rounded text-sm font-mono">
+          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300" style={{ backgroundColor: "var(--code-bg)" }}>
             {codeMatch[1]}
           </code>,
         )
@@ -220,12 +220,14 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
     return (
       <pre
         key={partIndex}
-        className="my-2 p-3 bg-white/5 text-white/80 rounded-lg overflow-x-auto text-sm font-mono border border-white/5"
+        className="my-2 p-3 text-s-80 rounded-lg overflow-x-auto text-sm font-mono"
         style={{
-          boxShadow: "rgba(0, 0, 0, 0.3) 0px 2px 8px",
+          backgroundColor: "var(--code-block-bg)",
+          border: "1px solid var(--code-block-border)",
+          boxShadow: "var(--code-block-shadow)",
         }}
       >
-        {language && <span className="text-xs text-white/30 block mb-2">{language}</span>}
+        {language && <span className="text-xs text-s-30 block mb-2">{language}</span>}
         <code>{code}</code>
       </pre>
     )

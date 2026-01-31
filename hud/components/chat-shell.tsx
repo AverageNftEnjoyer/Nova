@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useNovaState } from "@/lib/useNovaState"
 import { ChatSidebar } from "./chat-sidebar"
-import { BootScreen } from "./boot-screen"
 import { PartyOverlay } from "./party-overlay"
+import { ThemeToggle } from "./theme-toggle"
 import {
   type Conversation,
   type ChatMessage,
@@ -38,8 +38,6 @@ export function ChatShell() {
   const [voiceMode, setVoiceMode] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [booting, setBooting] = useState(true)
-
   const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty } = useNovaState()
 
   const mergedCountRef = useRef(0)
@@ -213,10 +211,7 @@ export function ChatShell() {
   }, [activeConvo, conversations, clearAgentMessages, persist])
 
   return (
-    <div className="flex h-dvh bg-[#0a0a0f]">
-      {/* Boot screen */}
-      {booting && <BootScreen onComplete={() => setBooting(false)} />}
-
+    <div className="flex h-dvh bg-page">
       {/* Party mode */}
       <PartyOverlay active={partyMode} onEnd={stopParty} />
 
@@ -246,7 +241,7 @@ export function ChatShell() {
               onClick={() => setSidebarOpen(!sidebarOpen)}
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full bg-white/5 hover:bg-white/10 text-white/60"
+              className="h-9 w-9 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
               aria-label="Toggle sidebar"
             >
               {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
@@ -256,7 +251,7 @@ export function ChatShell() {
               onClick={clearChat}
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full bg-white/5 hover:bg-white/10 text-white/60"
+              className="h-9 w-9 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
               aria-label="Clear chat"
             >
               <MessageSquareDashed className="w-4 h-4" />
@@ -272,7 +267,7 @@ export function ChatShell() {
                   "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs transition-colors",
                   novaState === "speaking"
                     ? "bg-violet-500/20 text-violet-400 hover:bg-red-500/20 hover:text-red-400 cursor-pointer"
-                    : "bg-white/5 text-white/50 cursor-default",
+                    : "bg-s-5 text-s-50 cursor-default",
                 )}
                 aria-label={novaState === "speaking" ? "Click to interrupt Nova" : undefined}
               >
@@ -301,19 +296,20 @@ export function ChatShell() {
             )}
           </div>
 
-          {/* Right — Voice toggle */}
+          {/* Right — Voice toggle + Theme toggle */}
           <div className="flex items-center gap-2">
             <Button
               onClick={() => setVoiceMode(!voiceMode)}
               variant="ghost"
               size="icon"
               className={`h-9 w-9 rounded-full ${
-                voiceMode ? "bg-violet-500/20 hover:bg-violet-500/30 text-violet-400" : "bg-white/5 hover:bg-white/10 text-white/60"
+                voiceMode ? "bg-violet-500/20 hover:bg-violet-500/30 text-violet-400" : "bg-s-5 hover:bg-s-10 text-s-60"
               }`}
               aria-label={voiceMode ? "Disable voice mode" : "Enable voice mode"}
             >
               {voiceMode ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </Button>
+            <ThemeToggle />
           </div>
         </div>
 

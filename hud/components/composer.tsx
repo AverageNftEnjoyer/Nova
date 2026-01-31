@@ -159,12 +159,11 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
       <div className="relative max-w-2xl mx-auto pointer-events-auto">
         <div
           className={cn(
-            "flex flex-col gap-3 p-4 bg-white/5 border-white/10 transition-all duration-200 border border-white/5 overflow-hidden relative rounded-3xl backdrop-blur-xl",
+            "flex flex-col gap-3 p-4 bg-s-5 border-s-10 transition-all duration-200 border border-s-5 overflow-hidden relative rounded-3xl backdrop-blur-xl",
             "focus-within:border-violet-500/30 focus-within:ring-1 focus-within:ring-violet-500/20",
           )}
           style={{
-            boxShadow:
-              "rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.3) 0px 4px 16px",
+            boxShadow: "var(--composer-shadow)",
           }}
         >
           <div className="flex gap-2 items-center">
@@ -180,7 +179,7 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
               disabled={isStreaming || disabled}
               rows={1}
               className={cn(
-                "flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-white/90 placeholder:text-white/30",
+                "flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-s-90 placeholder:text-s-30",
                 "focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed",
                 "max-h-14 overflow-y-auto",
               )}
@@ -236,7 +235,7 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
                   "h-9 w-9 shrink-0 transition-all rounded-full relative z-10",
                   isRecording
                     ? "bg-red-500 hover:bg-red-600 text-white animate-bounce-subtle"
-                    : "bg-white/10 hover:bg-white/15 text-white/60",
+                    : "bg-s-10 hover:bg-s-15 text-s-60",
                 )}
                 aria-label={isRecording ? "Stop recording" : "Start voice input"}
               >

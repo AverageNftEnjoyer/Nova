@@ -33,26 +33,26 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
       <div
         className={cn(
           "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-          isUser ? "bg-white/10" : "bg-transparent",
+          isUser ? "bg-s-10" : "bg-transparent",
           !isUser && isStreaming && "sticky bottom-4 self-end transition-all duration-300",
         )}
         aria-hidden="true"
       >
-        {isUser ? <User className="w-4 h-4 text-white/70" /> : <AnimatedOrb className="w-8 h-8 shrink-0" size={32} />}
+        {isUser ? <User className="w-4 h-4 text-s-70" /> : <AnimatedOrb className="w-8 h-8 shrink-0" size={32} />}
       </div>
 
       {/* Message content */}
       <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
         {/* Role label */}
-        <span className="text-xs text-white/30 mb-1 hidden sm:block mt-2">{isUser ? "You" : "Nova"}</span>
+        <span className="text-xs text-s-30 mb-1 hidden sm:block mt-2">{isUser ? "You" : "Nova"}</span>
 
         {/* Bubble */}
         <div
           className={cn(
             "rounded-2xl border-none overflow-hidden",
             isUser
-              ? "bg-violet-500/15 text-white/90 rounded-br-md"
-              : "bg-transparent text-white/85 rounded-bl-md",
+              ? "bg-violet-500/15 text-s-90 rounded-br-md"
+              : "bg-transparent text-s-85 rounded-bl-md",
           )}
           style={{
             boxShadow: isUser
@@ -71,7 +71,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
             {isUser ? (
               <div className="flex flex-col gap-2">
                 {message.imageData && (
-                  <div className="w-20 h-20 rounded-lg overflow-hidden border border-white/10">
+                  <div className="w-20 h-20 rounded-lg overflow-hidden border border-s-10">
                     <Image
                       src={message.imageData || "/placeholder.svg"}
                       alt="Uploaded image"
@@ -90,7 +90,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
         </div>
 
         {/* Timestamp */}
-        <span className="text-xs text-white/20 mt-1">{formatTime(message.createdAt)}</span>
+        <span className="text-xs text-s-20 mt-1">{formatTime(message.createdAt)}</span>
       </div>
     </div>
   )
