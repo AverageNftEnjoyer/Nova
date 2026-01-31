@@ -1,0 +1,8 @@
+node_modules/
+.env
+.claude/
+nul
+*.exe
+agent/mpv/
+agent/mic.wav
+agent/assets/*.mp4

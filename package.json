@@ -1,0 +1,14 @@
+{
+  "name": "nova",
+  "version": "1.0.0",
+  "description": "Nova AI Assistant – voice agent + HUD unified launcher",
+  "type": "module",
+  "scripts": {
+    "start": "node nova.js",
+    "install:all": "cd agent && npm install && cd ../hud && npm install"
+  },
+  "dependencies": {
+    "concurrently": "^9.1.2",
+    "dotenv": "^17.2.3"
+  }
+}
