@@ -64,10 +64,30 @@ wss.on("connection", (ws) => {
         return;
       }
 
+      if (data.type === "greeting") {
+        console.log("[HUD] Greeting requested.");
+        if (!busy) {
+          busy = true;
+          try {
+            broadcastState("speaking");
+            await speak(data.text || "Hello! What are we working on today?");
+            broadcastState("idle");
+          } finally {
+            busy = false;
+          }
+        }
+        return;
+      }
+
       if (data.type === "hud_message" && data.content) {
         console.log("[HUD →]", data.content);
         stopSpeaking();
-        await handleInput(data.content, { voice: data.voice !== false });
+        busy = true;
+        try {
+          await handleInput(data.content, { voice: data.voice !== false });
+        } finally {
+          busy = false;
+        }
       }
     } catch (e) {
       console.error("[WS] Bad message from HUD:", e.message);
@@ -94,6 +114,7 @@ async function transcribe() {
 
 // ===== speech control =====
 let currentPlayer = null;
+let busy = false; // prevents main loop from overriding HUD-driven states
 
 function stopSpeaking() {
   if (currentPlayer) {
@@ -309,28 +330,51 @@ broadcastState("idle");
 // ===== main loop (HARD WAKE-WORD GATE) =====
 while (true) {
   try {
+    // Skip voice loop iteration if HUD is driving the conversation
+    if (busy) {
+      await new Promise(r => setTimeout(r, 500));
+      continue;
+    }
+
     broadcastState("listening");
     recordMic(3);
 
+    // Re-check after recording (HUD message may have arrived during the 3s block)
+    if (busy) continue;
+
     const text = await transcribe();
-    if (!text) {
-      broadcastState("idle");
+    if (!text || busy) {
+      if (!busy) broadcastState("idle");
+      // Broadcast empty transcript to clear HUD
+      if (!busy) broadcast({ type: "transcript", text: "", ts: Date.now() });
       continue;
     }
+
+    // Broadcast what was heard so the HUD can show it
+    broadcast({ type: "transcript", text, ts: Date.now() });
 
     const normalized = text.toLowerCase();
 
     if (!normalized.includes("nova")) {
-      broadcastState("idle");
+      if (!busy) broadcastState("idle");
       continue;
     }
 
+    // Clear transcript once we start processing
+    broadcast({ type: "transcript", text: "", ts: Date.now() });
+
     stopSpeaking();
     console.log("Heard:", text);
-    await handleInput(text);
+    busy = true;
+    try {
+      await handleInput(text);
+    } finally {
+      busy = false;
+    }
 
   } catch (e) {
     console.error("Loop error:", e);
+    busy = false;
     broadcastState("idle");
   }
 }

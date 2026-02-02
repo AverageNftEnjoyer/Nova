@@ -155,11 +155,11 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
   )
 
   return (
-    <div className={cn("fixed bottom-4 left-0 right-0 px-4 pointer-events-none z-10", hasAnimated && "composer-intro")}>
+    <div className={cn("fixed bottom-3 left-0 right-0 px-3 pointer-events-none z-10", hasAnimated && "composer-intro")}>
       <div className="relative max-w-2xl mx-auto pointer-events-auto">
         <div
           className={cn(
-            "flex flex-col gap-3 p-4 bg-s-5 border-s-10 transition-all duration-200 border border-s-5 overflow-hidden relative rounded-3xl backdrop-blur-xl",
+            "flex flex-col gap-2 p-3 bg-s-5 border-s-10 transition-all duration-200 border border-s-5 overflow-hidden relative rounded-2xl backdrop-blur-xl",
             "focus-within:border-violet-500/30 focus-within:ring-1 focus-within:ring-violet-500/20",
           )}
           style={{

@@ -7,13 +7,16 @@ import { TypingIndicator } from "./typing-indicator"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AnimatedOrb } from "./animated-orb"
+import type { NovaState } from "@/lib/useNovaState"
 
 interface MessageListProps {
   messages: Message[]
   isStreaming: boolean
+  novaState?: NovaState
   error: string | null
   onRetry: () => void
   isLoaded: boolean
+  zoom?: number
 }
 
 const LAUNCH_SOUND_URL = "/sounds/launch.mp3"
@@ -21,9 +24,11 @@ const LAUNCH_SOUND_URL = "/sounds/launch.mp3"
 export function MessageList({
   messages,
   isStreaming,
+  novaState,
   error,
   onRetry,
   isLoaded,
+  zoom = 100,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -112,11 +117,16 @@ export function MessageList({
   }
 
   const lastMessage = messages[messages.length - 1]
+  // Show typing indicator from when user sends a message until Nova starts speaking/TTS
+  // isStreaming = true means we're in thinking state (local or from agent)
+  // Keep showing even after assistant message arrives, until novaState becomes "speaking"
   const showTypingIndicator =
     isStreaming &&
+    novaState !== "speaking" &&
     (messages.length === 0 ||
       lastMessage?.role === "user" ||
-      (lastMessage?.role === "assistant" && lastMessage?.content === ""))
+      (lastMessage?.role === "assistant" && lastMessage?.content === "") ||
+      (novaState === "thinking"))
 
   if (!isLoaded) {
     return (
@@ -130,10 +140,19 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="absolute inset-0 overflow-y-auto pt-16 pb-32 space-y-4 border-none px-6"
+      className="absolute inset-0 overflow-y-auto pt-14 pb-28 border-none"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
+    >
+    <div
+      className="space-y-2 px-4 origin-top"
+      style={{
+        transform: `scale(${zoom / 100})`,
+        transformOrigin: "top left",
+        width: `${10000 / zoom}%`,
+        transition: "transform 0.2s ease",
+      }}
     >
       {messages.length === 0 && !error && !isStreaming && (
         <div className="flex flex-col items-center justify-center h-full text-center text-s-40">
@@ -188,7 +207,8 @@ export function MessageList({
         </div>
       )}
 
-      <div ref={bottomRef} aria-hidden="true" className="h-20" />
+      <div ref={bottomRef} aria-hidden="true" className="h-16" />
+    </div>
     </div>
   )
 }

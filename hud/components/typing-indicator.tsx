@@ -1,15 +1,12 @@
 "use client"
 
-import { AnimatedOrb } from "./animated-orb"
-
 export function TypingIndicator() {
   return (
-    <div className="flex gap-3 max-w-[90%] md:max-w-[80%] mr-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="shrink-0">
-        <AnimatedOrb size={32} />
-      </div>
+    <div className="flex gap-1.5 max-w-[90%] md:max-w-[80%] mr-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
+      {/* Spacer matching the avatar width in message-bubble so dots align with message text */}
+      <div className="w-8 shrink-0" />
 
-      {/* Typing dots with enhanced animation */}
+      {/* Typing dots */}
       <div
         className="px-4 py-3 rounded-2xl rounded-bl-md bg-s-5 border border-s-5"
         style={{

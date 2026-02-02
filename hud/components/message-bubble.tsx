@@ -23,7 +23,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
   return (
     <div
       className={cn(
-        "flex max-w-[90%] md:max-w-[80%] gap-2",
+        "flex max-w-[90%] md:max-w-[80%] gap-1.5",
         isUser
           ? "ml-auto flex-row-reverse user-message-enter"
           : "mr-auto animate-in fade-in slide-in-from-bottom-2 duration-300 items-end",
@@ -44,7 +44,7 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
       {/* Message content */}
       <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
         {/* Role label */}
-        <span className="text-xs text-s-30 mb-1 hidden sm:block mt-2">{isUser ? "You" : "Nova"}</span>
+        <span className="text-xs text-s-30 mb-0.5 hidden sm:block mt-1">{isUser ? "You" : "Nova"}</span>
 
         {/* Bubble */}
         <div

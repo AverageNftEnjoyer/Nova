@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { MessageSquareDashed, Volume2, VolumeX, PanelLeftOpen, PanelLeftClose } from "lucide-react"
+import { MessageSquareDashed, Volume2, VolumeX, PanelLeftOpen, PanelLeftClose, ZoomIn, ZoomOut } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "./composer"
 import { Button } from "@/components/ui/button"
@@ -38,7 +38,25 @@ export function ChatShell() {
   const [voiceMode, setVoiceMode] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty } = useNovaState()
+  const [chatZoom, setChatZoom] = useState(100)
+
+  // Load zoom preference from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("nova-chat-zoom")
+    if (saved) {
+      const val = parseInt(saved, 10)
+      if (val >= 70 && val <= 130) setChatZoom(val)
+    }
+  }, [])
+
+  const adjustZoom = useCallback((delta: number) => {
+    setChatZoom(prev => {
+      const next = Math.max(70, Math.min(130, prev + delta))
+      localStorage.setItem("nova-chat-zoom", String(next))
+      return next
+    })
+  }, [])
+  const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty, transcript } = useNovaState()
 
   const mergedCountRef = useRef(0)
 
@@ -114,7 +132,16 @@ export function ChatShell() {
       }))
     : []
 
-  const isThinking = novaState === "thinking"
+  const [localThinking, setLocalThinking] = useState(false)
+  const isThinking = novaState === "thinking" || localThinking
+
+  // Clear local thinking flag ONLY when agent starts speaking (TTS begins)
+  // This keeps the thinking animation visible through the full OpenAI response time
+  useEffect(() => {
+    if (novaState === "speaking") {
+      setLocalThinking(false)
+    }
+  }, [novaState])
 
   // Send a message
   const sendMessage = useCallback(
@@ -141,6 +168,9 @@ export function ChatShell() {
 
       // bump merged count so the user echo from WebSocket doesn't duplicate
       mergedCountRef.current += 1
+
+      // Show thinking animation immediately
+      setLocalThinking(true)
 
       sendToAgent(content.trim(), voiceMode)
     },
@@ -234,7 +264,7 @@ export function ChatShell() {
         }}
       >
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-3 py-2">
           {/* Left buttons */}
           <div className="flex items-center gap-2">
             <Button
@@ -296,8 +326,27 @@ export function ChatShell() {
             )}
           </div>
 
-          {/* Right — Voice toggle + Theme toggle */}
-          <div className="flex items-center gap-2">
+          {/* Right — Zoom + Voice toggle + Theme toggle */}
+          <div className="flex items-center gap-1.5">
+            <Button
+              onClick={() => adjustZoom(-10)}
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
+              aria-label="Zoom out"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </Button>
+            <span className="text-xs text-s-40 w-8 text-center select-none">{chatZoom}%</span>
+            <Button
+              onClick={() => adjustZoom(10)}
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </Button>
             <Button
               onClick={() => setVoiceMode(!voiceMode)}
               variant="ghost"
@@ -313,7 +362,7 @@ export function ChatShell() {
           </div>
         </div>
 
-        <MessageList messages={displayMessages} isStreaming={isThinking} error={null} onRetry={() => {}} isLoaded={isLoaded} />
+        <MessageList messages={displayMessages} isStreaming={isThinking} novaState={novaState} error={null} onRetry={() => {}} isLoaded={isLoaded} zoom={chatZoom} />
 
         <Composer
           onSend={sendMessage}

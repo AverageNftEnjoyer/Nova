@@ -132,15 +132,15 @@ if (-not $found) {
 
 // ===== 1. Play bootup sound =====
 const mpv = path.join(__dirname, "agent", "mpv", "mpv.exe");
-const bootSound = path.join(__dirname, "hud", "public", "sounds", "hth.mp3");
+const bootSound = path.join(__dirname, "hud", "public", "sounds", "maker.mp3");
 
 const bootAudio = spawn(mpv, [
   bootSound,
   "--no-video",
   "--really-quiet",
   "--keep-open=no",
-  `--end=26`,
-  `--volume=80`,
+  `--end=35`,
+  `--volume=50`,
 ]);
 bootAudio.on("exit", () => console.log("[Nova] Boot sound finished."));
 

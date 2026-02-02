@@ -1,12 +1,33 @@
 "use client"
 
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useRef } from "react"
 
 interface BootScreenSecondaryProps {
   onComplete: () => void
 }
 
-// Hacker-style flying text lines — sci-fi system output
+// ──────────────────────────────────────────
+// SUBSYSTEM BOOT SEQUENCE — appears as systems come online
+// ──────────────────────────────────────────
+const SUBSYSTEMS = [
+  { id: "KERNEL",   label: "KERNEL",          detail: "nova-core.sys v4.1",         time: 0.4 },
+  { id: "MEMORY",   label: "MEMORY",          detail: "2.1 GB persistent store",    time: 1.2 },
+  { id: "NEURAL",   label: "NEURAL ENGINE",   detail: "2,847 nodes mapped",         time: 2.0 },
+  { id: "VOICE",    label: "VOICE SYNTH",     detail: "fish-audio ref loaded",      time: 3.0 },
+  { id: "VISION",   label: "VISION PIPELINE", detail: "CUDA 4096 cores online",     time: 4.0 },
+  { id: "CRYPTO",   label: "ENCRYPTION",      detail: "quantum-E2E established",    time: 4.8 },
+  { id: "BRIDGE",   label: "WS BRIDGE",       detail: "tcp/8765 handshake OK",      time: 5.5 },
+  { id: "EMOTION",  label: "EMOTION ENGINE",  detail: "empathy_core.rs compiled",   time: 6.2 },
+  { id: "LLM",      label: "LLM INTERFACE",   detail: "gpt-4.1 stream pipe ready",  time: 7.0 },
+  { id: "PERSONA",  label: "PERSONALITY",     detail: "matrix.bin injected layer7", time: 7.8 },
+  { id: "HUD",      label: "HUD RENDERER",    detail: "60fps canvas lock",          time: 8.5 },
+  { id: "AUDIO",    label: "AUDIO I/O",       detail: "mic array + TTS bound",      time: 9.2 },
+  { id: "FIREWALL", label: "FIREWALL",        detail: "rules loaded — ALLOW NOVA",  time: 10.0 },
+  { id: "AWARENESS",label: "AWARENESS",       detail: "subroutines deployed",       time: 10.8 },
+  { id: "CORE",     label: "NOVA CORE",       detail: "PID 1 — FULLY CONSCIOUS",   time: 11.5 },
+]
+
+// Hacker-style flying text lines
 const FLYING_LINES = [
   "0xA7F3::KERNEL_INIT > loading neural_bridge.sys",
   "DECRYPT [AES-512] ████████████████ OK",
@@ -42,17 +63,17 @@ const FLYING_LINES = [
   "0xDEAD::BEEF > just kidding — NOVA IS ALIVE",
 ]
 
-// Iron Man style HUD readouts that appear around the arc reactor
+// HUD readouts orbiting the reactor
 const HUD_READOUTS = [
-  { text: "PWR OUTPUT", value: "3.21 GW", angle: -30, distance: 180, delay: 1 },
-  { text: "NEURAL SYNC", value: "99.7%", angle: 30, distance: 185, delay: 2 },
-  { text: "CORE TEMP", value: "42.1°C", angle: 150, distance: 175, delay: 3 },
-  { text: "LATENCY", value: "0.3ms", angle: 210, distance: 180, delay: 4 },
-  { text: "BANDWIDTH", value: "12.4 TB/s", angle: -60, distance: 200, delay: 5 },
-  { text: "ENCRYPTION", value: "QUANTUM", angle: 60, distance: 195, delay: 6 },
+  { text: "PWR OUTPUT", value: "3.21 GW", angle: -30, distance: 190, delay: 2 },
+  { text: "NEURAL SYNC", value: "99.7%", angle: 30, distance: 195, delay: 3 },
+  { text: "CORE TEMP", value: "42.1°C", angle: 150, distance: 185, delay: 4 },
+  { text: "LATENCY", value: "0.3ms", angle: 210, distance: 190, delay: 5 },
+  { text: "BANDWIDTH", value: "12.4 TB/s", angle: -60, distance: 210, delay: 6.5 },
+  { text: "ENCRYPTION", value: "QUANTUM", angle: 60, distance: 205, delay: 7.5 },
 ]
 
-// Arc segments for the Iron Man HUD rings
+// Arc segments for Iron Man HUD rings
 function makeArcSegments() {
   const segments = []
   for (let ring = 0; ring < 3; ring++) {
@@ -69,7 +90,6 @@ function makeArcSegments() {
   return segments
 }
 
-// Targeting reticle tick marks
 function makeTickMarks(count: number, radius: number) {
   const ticks = []
   for (let i = 0; i < count; i++) {
@@ -80,7 +100,6 @@ function makeTickMarks(count: number, radius: number) {
   return ticks
 }
 
-// Floating hex values in background
 function makeHexFloaters(count: number) {
   const floaters = []
   for (let i = 0; i < count; i++) {
@@ -122,15 +141,17 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
   const [flyingIdx, setFlyingIdx] = useState(0)
   const [visibleReadouts, setVisibleReadouts] = useState(0)
   const [sessionId, setSessionId] = useState("--------")
+  const [onlineSystems, setOnlineSystems] = useState<string[]>([])
+  const [orbReady, setOrbReady] = useState(false)
   const startTime = useRef(Date.now())
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
-  // Generate session ID client-side only to avoid hydration mismatch
+  // Generate session ID client-side only
   useEffect(() => {
     setSessionId(Math.random().toString(36).slice(2, 10).toUpperCase())
   }, [])
 
-  // Progress bar
+  // Progress bar — 14 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime.current
@@ -141,7 +162,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     return () => clearInterval(interval)
   }, [])
 
-  // Phases
+  // Phases for center reactor
   useEffect(() => {
     const timers = [
       setTimeout(() => setPhase(1), 200),
@@ -153,13 +174,18 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     return () => timers.forEach(clearTimeout)
   }, [])
 
+  // Subsystems come online on schedule
+  useEffect(() => {
+    const timers = SUBSYSTEMS.map((sys) =>
+      setTimeout(() => setOnlineSystems((prev) => [...prev, sys.id]), sys.time * 1000)
+    )
+    return () => timers.forEach(clearTimeout)
+  }, [])
+
   // Flying hacker text — rapid fire
   useEffect(() => {
     const interval = setInterval(() => {
-      setFlyingIdx((prev) => {
-        if (prev >= FLYING_LINES.length - 1) return prev
-        return prev + 1
-      })
+      setFlyingIdx((prev) => (prev >= FLYING_LINES.length - 1 ? prev : prev + 1))
     }, 420)
     return () => clearInterval(interval)
   }, [])
@@ -172,10 +198,15 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     return () => timers.forEach(clearTimeout)
   }, [])
 
+  // Orb "activates" at the end — starts pulsing/moving
+  useEffect(() => {
+    const t = setTimeout(() => setOrbReady(true), 12500)
+    return () => clearTimeout(t)
+  }, [])
+
   // Fade out and complete
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
-
   useEffect(() => {
     const fadeTimer = setTimeout(() => setFadeOut(true), 14200)
     const completeTimer = setTimeout(() => onCompleteRef.current(), 15000)
@@ -191,23 +222,16 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     if (!canvas) return
     const ctx = canvas.getContext("2d")
     if (!ctx) return
-
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
-
     let frame = 0
     let raf: number
-
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      // Horizontal scan lines
       ctx.fillStyle = "rgba(139, 92, 246, 0.015)"
       for (let y = 0; y < canvas.height; y += 3) {
-        if ((y + frame) % 6 < 3) {
-          ctx.fillRect(0, y, canvas.width, 1)
-        }
+        if ((y + frame) % 6 < 3) ctx.fillRect(0, y, canvas.width, 1)
       }
-      // Moving scan bar
       const scanY = ((frame * 2) % (canvas.height + 100)) - 50
       const grad = ctx.createLinearGradient(0, scanY - 30, 0, scanY + 30)
       grad.addColorStop(0, "transparent")
@@ -215,7 +239,6 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       grad.addColorStop(1, "transparent")
       ctx.fillStyle = grad
       ctx.fillRect(0, scanY - 30, canvas.width, 60)
-
       frame++
       raf = requestAnimationFrame(draw)
     }
@@ -224,7 +247,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
   }, [])
 
   const visibleLines = FLYING_LINES.slice(0, flyingIdx + 1)
-  const displayLines = visibleLines.slice(-12) // Show last 12 lines
+  const displayLines = visibleLines.slice(-14)
+
+  const allSystemsOnline = onlineSystems.length === SUBSYSTEMS.length
 
   return (
     <div
@@ -233,10 +258,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       }`}
     >
       {/* Scanline canvas overlay */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 pointer-events-none z-[1]"
-      />
+      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-[1]" />
 
       {/* Floating hex values background */}
       <div className="absolute inset-0 overflow-hidden">
@@ -258,7 +280,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         ))}
       </div>
 
-      {/* Center HUD — Iron Man style arc reactor + rings */}
+      {/* ═══════════════════════════════════════ */}
+      {/* CENTER HUD — Arc reactor + rings       */}
+      {/* ═══════════════════════════════════════ */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="relative" style={{ width: 500, height: 500 }}>
           <svg
@@ -267,7 +291,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 1s ease" }}
             suppressHydrationWarning
           >
-            {/* Tick marks — targeting reticle */}
+            {/* Tick marks */}
             {phase >= 2 && TICK_MARKS.map((tick, i) => {
               const rad = (tick.angle * Math.PI) / 180
               const x1 = +(250 + tick.radius * Math.cos(rad)).toFixed(4)
@@ -337,24 +361,28 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             })}
           </svg>
 
-          {/* Center orb */}
+          {/* Center orb — activates at the end */}
           <div className="absolute" style={{ inset: 195 }}>
             <div
               className="w-full h-full rounded-full"
               style={{
-                background: phase >= 4
+                background: orbReady
+                  ? "radial-gradient(circle at 40% 35%, #e9d5ff 0%, #c4b5fd 15%, #8b5cf6 40%, #6d28d9 65%, #4c1d95 100%)"
+                  : phase >= 4
                   ? "radial-gradient(circle at 40% 35%, #c4b5fd 0%, #8b5cf6 30%, #6d28d9 60%, #4c1d95 100%)"
                   : phase >= 2
                   ? "radial-gradient(circle at 40% 35%, rgba(196,181,253,0.5) 0%, rgba(139,92,246,0.3) 60%, transparent 100%)"
                   : "radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)",
-                boxShadow: phase >= 3
+                boxShadow: orbReady
+                  ? "0 0 80px rgba(139,92,246,0.7), 0 0 160px rgba(139,92,246,0.35), 0 0 240px rgba(139,92,246,0.15), inset 0 0 40px rgba(167,139,250,0.5)"
+                  : phase >= 3
                   ? "0 0 60px rgba(139,92,246,0.5), 0 0 120px rgba(139,92,246,0.25), inset 0 0 30px rgba(167,139,250,0.4)"
                   : "0 0 20px rgba(139,92,246,0.1)",
                 transition: "all 1.5s ease",
                 opacity: phase >= 1 ? 1 : 0,
+                animation: orbReady ? "boot-orb-ready-pulse 1.5s ease-in-out infinite" : "none",
               }}
             />
-            {/* Specular */}
             <div className="absolute inset-0 rounded-full"
               style={{
                 background: "linear-gradient(to bottom, rgba(255,255,255,0.35) 0%, transparent 55%)",
@@ -364,7 +392,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             />
           </div>
 
-          {/* HUD readouts floating around the reactor */}
+          {/* HUD readouts floating around reactor */}
           {HUD_READOUTS.slice(0, visibleReadouts).map((r, i) => {
             const rad = (r.angle * Math.PI) / 180
             const x = 250 + r.distance * Math.cos(rad)
@@ -373,10 +401,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
               <div
                 key={`readout-${i}`}
                 className="absolute font-mono boot2-readout-in"
-                style={{
-                  left: x, top: y,
-                  transform: "translate(-50%, -50%)",
-                }}
+                style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
               >
                 <div className="text-[8px] text-violet-400/40 tracking-widest">{r.text}</div>
                 <div className="text-[13px] text-white/70 tracking-wide">{r.value}</div>
@@ -391,7 +416,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
               style={{
                 opacity: phase >= 2 ? 1 : 0,
                 transition: "opacity 1.5s ease",
-                textShadow: "0 0 60px rgba(139,92,246,0.4), 0 0 120px rgba(139,92,246,0.15)",
+                textShadow: orbReady
+                  ? "0 0 80px rgba(139,92,246,0.6), 0 0 160px rgba(139,92,246,0.25)"
+                  : "0 0 60px rgba(139,92,246,0.4), 0 0 120px rgba(139,92,246,0.15)",
               }}
             >
               NOVA
@@ -404,12 +431,14 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
       </div>
 
-      {/* Flying hacker text — left side terminal */}
-      <div className="absolute left-6 top-16 bottom-20 w-[420px] overflow-hidden z-10">
+      {/* ═══════════════════════════════════════ */}
+      {/* LEFT — Terminal console                */}
+      {/* ═══════════════════════════════════════ */}
+      <div className="absolute left-6 top-16 bottom-20 w-105 overflow-hidden z-10">
         <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase font-mono">
           SYS.CONSOLE
         </div>
-        <div className="font-mono text-[11px] leading-[18px]">
+        <div className="font-mono text-[11px] leading-4.5">
           {displayLines.map((line, i) => {
             const isNewest = i === displayLines.length - 1
             const age = displayLines.length - 1 - i
@@ -437,12 +466,13 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
       </div>
 
-      {/* Right side — system diagnostics panel */}
+      {/* ═══════════════════════════════════════ */}
+      {/* RIGHT TOP — Diagnostics bars           */}
+      {/* ═══════════════════════════════════════ */}
       <div className="absolute right-6 top-16 w-52 z-10 font-mono">
         <div className="text-[9px] text-violet-500/30 mb-3 tracking-[0.3em] uppercase">
           DIAGNOSTICS
         </div>
-
         {[
           { label: "CPU", value: "12.4%", bar: 12, color: "#8b5cf6" },
           { label: "MEM", value: "2.1 GB", bar: 34, color: "#a78bfa" },
@@ -459,7 +489,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
               <span>{stat.label}</span>
               <span className="text-violet-400/50">{stat.value}</span>
             </div>
-            <div className="h-[2px] bg-white/5 rounded-full overflow-hidden">
+            <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-1000 ease-out"
                 style={{
@@ -471,29 +501,84 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             </div>
           </div>
         ))}
+      </div>
 
-        {/* Status lights */}
-        <div className="mt-4 space-y-1.5">
-          {["CORE", "BRIDGE", "VOICE", "MEMORY", "HUD", "AI"].map((sys, i) => {
-            const threshold = [5, 15, 25, 35, 50, 70]
-            const isOn = progress > threshold[i]
+      {/* ═══════════════════════════════════════ */}
+      {/* RIGHT BOTTOM — Subsystem boot status   */}
+      {/* ═══════════════════════════════════════ */}
+      <div className="absolute right-6 top-80 w-52 z-10 font-mono">
+        <div className="text-[9px] text-violet-500/30 mb-3 tracking-[0.3em] uppercase">
+          SUBSYSTEMS
+        </div>
+        <div className="space-y-1">
+          {SUBSYSTEMS.map((sys) => {
+            const isOn = onlineSystems.includes(sys.id)
             return (
-              <div key={sys} className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full" style={{
-                  backgroundColor: isOn ? "#34d399" : "rgba(255,255,255,0.08)",
+              <div key={sys.id} className="flex items-center gap-2" style={{
+                animation: isOn ? "boot-subsys-in 0.4s ease forwards" : "none",
+              }}>
+                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{
+                  backgroundColor: isOn ? "#34d399" : "rgba(255,255,255,0.06)",
                   boxShadow: isOn ? "0 0 8px rgba(52, 211, 153, 0.6)" : "none",
-                  transition: "all 0.5s ease",
+                  transition: "all 0.4s ease",
                 }} />
-                <span className={`text-[9px] ${isOn ? "text-emerald-400/50" : "text-white/10"} transition-colors`}>
-                  {sys}
+                <span className={`text-[9px] transition-colors duration-300 ${isOn ? "text-emerald-400/60" : "text-white/8"}`}>
+                  {sys.label}
                 </span>
+                {isOn && (
+                  <span className="text-[7px] text-white/15 ml-auto truncate max-w-25">
+                    {sys.detail}
+                  </span>
+                )}
               </div>
             )
           })}
         </div>
+
+        {/* All systems online flash */}
+        {allSystemsOnline && (
+          <div className="mt-3 px-2 py-1 border border-emerald-500/20 rounded bg-emerald-500/5 animate-in fade-in duration-500">
+            <span className="text-[9px] text-emerald-400/80 tracking-widest font-bold">
+              ● ALL SYSTEMS NOMINAL
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Bottom progress bar */}
+      {/* ═══════════════════════════════════════ */}
+      {/* BOTTOM LEFT — Network activity          */}
+      {/* ═══════════════════════════════════════ */}
+      <div className="absolute left-6 bottom-20 w-75 z-10 font-mono" style={{
+        opacity: phase >= 3 ? 1 : 0, transition: "opacity 0.8s ease",
+      }}>
+        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase">
+          NETWORK
+        </div>
+        <div className="space-y-1">
+          {[
+            { src: "10.0.42.1", dst: "HUD:3000", proto: "WSS", status: "CONNECTED" },
+            { src: "NOVA:8765", dst: "AGENT", proto: "TCP", status: "BOUND" },
+            { src: "API:443", dst: "GPT-4.1", proto: "TLS", status: "STREAM" },
+            { src: "FISH:443", dst: "TTS.V3", proto: "TLS", status: "CACHED" },
+            { src: "MEM:LOCAL", dst: "PERSIST", proto: "FS", status: "SYNCED" },
+          ].map((conn, i) => (
+            <div key={i} className="flex items-center gap-2 text-[9px]" style={{
+              opacity: progress > (i + 1) * 15 ? 1 : 0,
+              transition: "opacity 0.5s ease",
+            }}>
+              <span className="text-cyan-400/40">{conn.src}</span>
+              <span className="text-white/10">→</span>
+              <span className="text-violet-400/40">{conn.dst}</span>
+              <span className="text-white/8 ml-auto">{conn.proto}</span>
+              <span className="text-emerald-400/50">{conn.status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════ */}
+      {/* BOTTOM — Progress bar                  */}
+      {/* ═══════════════════════════════════════ */}
       <div className="absolute bottom-6 left-6 right-6 z-10">
         <div className="w-full h-[2px] bg-white/5 rounded-full overflow-hidden">
           <div
@@ -503,10 +588,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
         <div className="flex justify-between mt-1.5 font-mono">
           <p className="text-[10px] text-white/15">
-            {progress < 30 ? "BOOTSTRAPPING" : progress < 70 ? "LOADING SUBSYSTEMS" : progress < 100 ? "FINALIZING" : "SYSTEM ONLINE"}
+            {progress < 15 ? "BOOTSTRAPPING KERNEL" : progress < 30 ? "INITIALIZING NEURAL ENGINE" : progress < 50 ? "LOADING SUBSYSTEMS" : progress < 70 ? "CALIBRATING VOICE SYNTH" : progress < 85 ? "ESTABLISHING CONNECTIONS" : progress < 100 ? "ACTIVATING NOVA CORE" : "SYSTEM ONLINE — READY"}
           </p>
           <p className="text-[10px] text-violet-400/40">
-            {Math.round(progress)}%
+            {onlineSystems.length}/{SUBSYSTEMS.length} ONLINE — {Math.round(progress)}%
           </p>
         </div>
       </div>
@@ -514,11 +599,11 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* Corner HUD elements */}
       <div className="absolute top-4 left-6 font-mono text-[9px] text-white/10 leading-relaxed z-10">
         <div>NOVA.SYS.v4.1</div>
-        <div>BUILD.2026.01.31</div>
+        <div>BUILD.2026.02.01</div>
         <div className="text-violet-500/20">SESSION: {sessionId}</div>
       </div>
       <div className="absolute top-4 right-6 font-mono text-[9px] text-white/10 text-right leading-relaxed z-10">
-        <div>DISPLAY: SECONDARY</div>
+        <div>DISPLAY: PRIMARY</div>
         <div>PROTOCOL: QUANTUM-E2E</div>
       </div>
     </div>

@@ -18,6 +18,7 @@ export function useNovaState() {
   const [connected, setConnected] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [partyMode, setPartyMode] = useState(false);
+  const [transcript, setTranscript] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -37,6 +38,10 @@ export function useNovaState() {
 
         if (data.type === "party") {
           setPartyMode(true);
+        }
+
+        if (data.type === "transcript") {
+          setTranscript(data.text || "");
         }
 
         if (data.type === "message" && data.role && data.content) {
@@ -74,5 +79,12 @@ export function useNovaState() {
 
   const stopParty = useCallback(() => setPartyMode(false), []);
 
-  return { state, connected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty };
+  const sendGreeting = useCallback((text: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "greeting", text }));
+    }
+  }, []);
+
+  return { state, connected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty, transcript, sendGreeting };
 }
