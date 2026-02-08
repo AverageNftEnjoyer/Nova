@@ -88,10 +88,10 @@ export function useNovaState() {
     return () => ws.close();
   }, []);
 
-  const sendToAgent = useCallback((text: string, voice: boolean = true) => {
+  const sendToAgent = useCallback((text: string, voice: boolean = true, ttsVoice: string = "default") => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "hud_message", content: text, voice }));
+      ws.send(JSON.stringify({ type: "hud_message", content: text, voice, ttsVoice }));
     }
   }, []);
 
@@ -112,12 +112,19 @@ export function useNovaState() {
 
   const stopParty = useCallback(() => setPartyMode(false), []);
 
-  const sendGreeting = useCallback((text: string) => {
+  const sendGreeting = useCallback((text: string, ttsVoice: string = "default") => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "greeting", text }));
+      ws.send(JSON.stringify({ type: "greeting", text, ttsVoice }));
     }
   }, []);
 
-  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript, sendGreeting };
+  const setVoicePreference = useCallback((ttsVoice: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "set_voice", ttsVoice }));
+    }
+  }, []);
+
+  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript, sendGreeting, setVoicePreference };
 }

@@ -89,6 +89,21 @@
       "content": "Hey! I’m here to help—what’s up?",
       "source": "telegram",
       "ts": 1770577841506
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "what’s goooood",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770584432144
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Hey, what’s up? Everything’s good on my end! How about you? What’s going on?",
+      "source": "telegram",
+      "ts": 1770584437000
     }
   ]
 }

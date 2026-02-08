@@ -107,6 +107,7 @@ export function ChatSidebar({
   const showStatus = typeof agentConnected === "boolean" && typeof novaState !== "undefined"
   const light = {
     shellBg: "#f6f8fc",
+    subBg: "#f4f7fd",
     border: "#d9e0ea",
   }
   const hoverFx = isLight
@@ -195,7 +196,7 @@ export function ChatSidebar({
           <DropdownMenuContent
             align="end"
             className={cn(
-              "rounded-xl text-s-80 p-1.5 min-w-[170px] shadow-none data-[state=open]:animate-none data-[state=closed]:animate-none",
+              "rounded-xl text-s-80 p-1.5 min-w-42.5 shadow-none data-[state=open]:animate-none data-[state=closed]:animate-none",
               isLight ? "border bg-white" : "border border-white/10 bg-[rgba(9,14,24,0.96)]",
             )}
             style={isLight ? { borderColor: light.border } : undefined}
@@ -205,7 +206,7 @@ export function ChatSidebar({
                 e.stopPropagation()
                 beginRename(convo)
               }}
-              className="rounded-md text-s-70 hover:text-accent data-[highlighted]:bg-accent-10"
+              className="rounded-md text-s-70 hover:text-accent data-highlighted:bg-accent-10"
             >
               <Pencil className="w-4 h-4" />
               Rename
@@ -215,7 +216,7 @@ export function ChatSidebar({
                 e.stopPropagation()
                 onArchive?.(convo.id, !convo.archived)
               }}
-              className="rounded-md text-s-70 hover:text-accent data-[highlighted]:bg-accent-10"
+              className="rounded-md text-s-70 hover:text-accent data-highlighted:bg-accent-10"
             >
               <Archive className="w-4 h-4" />
               {convo.archived ? "Unarchive" : "Archive"}
@@ -225,7 +226,7 @@ export function ChatSidebar({
                 e.stopPropagation()
                 onPin?.(convo.id, !convo.pinned)
               }}
-              className="rounded-md text-s-70 hover:text-accent data-[highlighted]:bg-accent-10"
+              className="rounded-md text-s-70 hover:text-accent data-highlighted:bg-accent-10"
             >
               <Pin className="w-4 h-4" />
               {convo.pinned ? "Unpin" : "Pin"}
@@ -235,7 +236,7 @@ export function ChatSidebar({
                 e.stopPropagation()
                 onDelete(convo.id)
               }}
-              className="rounded-md text-red-400 hover:text-red-300 data-[highlighted]:bg-red-500/12"
+              className="rounded-md text-red-400 hover:text-red-300 data-highlighted:bg-red-500/12"
             >
               <Trash2 className="w-4 h-4 text-red-400" />
               Delete
@@ -257,7 +258,7 @@ export function ChatSidebar({
       >
         <div className={cn("px-5 pt-5 pb-4", isLight ? "border-b" : "border-b border-white/10")} style={isLight ? { borderColor: light.border } : undefined}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#00f5ff] to-[#ff00e5] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-linear-to-tr from-[#00f5ff] to-[#ff00e5] flex items-center justify-center">
               <span className="text-white text-xs font-bold">N</span>
             </div>
             <div>
@@ -413,7 +414,7 @@ export function ChatSidebar({
                 )}
                 aria-label="Settings"
               >
-                <Settings className="w-4 h-4 text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform transition-colors duration-200" />
+                <Settings className="w-4 h-4 text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
               </button>
             </div>
           </div>

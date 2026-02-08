@@ -530,7 +530,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           return (
                             <button
                               key={voice.id}
-                              onClick={() => updateApp("ttsVoice", voice.id)}
+                              onClick={() => {
+                                updateApp("ttsVoice", voice.id)
+                                // Send voice preference to agent immediately
+                                try {
+                                  const ws = new WebSocket("ws://localhost:8765")
+                                  ws.onopen = () => {
+                                    ws.send(JSON.stringify({ type: "set_voice", ttsVoice: voice.id }))
+                                    ws.close()
+                                  }
+                                } catch {}
+                              }}
                               className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border border-accent-30"

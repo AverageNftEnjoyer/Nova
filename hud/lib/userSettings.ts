@@ -251,9 +251,9 @@ export const ORB_COLORS: Record<
   },
 }
 
-// Available TTS voices (placeholder - will be populated with actual voices)
+// Available TTS voices
 export const TTS_VOICES = [
   { id: "default", name: "Default Voice", description: "Nova's standard voice" },
-  { id: "voice_1", name: "Voice 1", description: "Coming soon..." },
-  { id: "voice_2", name: "Voice 2", description: "Coming soon..." },
+  { id: "peter", name: "Peter", description: "Alternative male voice" },
+  { id: "mord", name: "Mord", description: "Deep authoritative voice" },
 ]

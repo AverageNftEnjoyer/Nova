@@ -303,7 +303,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       }`}
     >
       {/* Scanline canvas overlay */}
-      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-[1]" />
+      <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-1" />
 
       {/* Floating hex values background */}
       <div className="absolute inset-0 overflow-hidden">
@@ -326,7 +326,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       </div>
 
       {/* Shooting comets */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-[2]">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-2">
         {COMETS.map((comet) => (
           <div
             key={`comet-${comet.id}`}
@@ -570,7 +570,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* LEFT — Terminal console                */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-3 top-10 bottom-12 w-[380px] overflow-hidden z-10">
+      <div className="absolute left-3 top-10 bottom-12 w-95 overflow-hidden z-10">
         <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-mono font-medium">
           SYS.CONSOLE
         </div>
@@ -716,7 +716,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* RIGHT BOTTOM — Subsystem boot status   */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute right-3 top-[290px] w-72 z-10 font-mono">
+      <div className="absolute right-3 top-72.5 w-72 z-10 font-mono">
         <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
           SUBSYSTEMS
         </div>
@@ -758,7 +758,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* BOTTOM LEFT — Network activity          */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-3 bottom-12 w-[380px] z-10 font-mono" style={{
+      <div className="absolute left-3 bottom-12 w-95 z-10 font-mono" style={{
         opacity: phase >= 3 ? 1 : 0, transition: "opacity 0.8s ease",
       }}>
         <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
@@ -790,7 +790,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* BOTTOM — Progress bar                  */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute bottom-3 left-3 right-3 z-10">
-        <div className="w-full h-[3px] bg-white/8 rounded-full overflow-hidden">
+        <div className="w-full h-0.75 bg-white/8 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full boot-progress-bar transition-all duration-100 ease-linear"
             style={{ width: `${progress}%` }}

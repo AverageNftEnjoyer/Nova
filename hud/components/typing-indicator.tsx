@@ -16,9 +16,9 @@ export function TypingIndicator() {
         aria-label="Assistant is typing"
       >
         <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-gradient-to-r from-violet-400 to-purple-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "0.6s" }} />
-          <span className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-400 to-pink-500 animate-bounce" style={{ animationDelay: "150ms", animationDuration: "0.6s" }} />
-          <span className="w-2 h-2 rounded-full bg-gradient-to-r from-pink-400 to-rose-500 animate-bounce" style={{ animationDelay: "300ms", animationDuration: "0.6s" }} />
+          <span className="w-2 h-2 rounded-full bg-linear-to-rrom-violet-400 to-purple-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "0.6s" }} />
+          <span className="w-2 h-2 rounded-full bg-linear-to-r from-purple-400 to-pink-500 animate-bounce" style={{ animationDelay: "150ms", animationDuration: "0.6s" }} />
+          <span className="w-2 h-2 rounded-full bg-linear-to-r from-pink-400 to-rose-500 animate-bounce" style={{ animationDelay: "300ms", animationDuration: "0.6s" }} />
         </div>
       </div>
     </div>

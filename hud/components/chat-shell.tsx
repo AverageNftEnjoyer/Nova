@@ -22,6 +22,7 @@ import {
   createConversation,
   autoTitle,
 } from "@/lib/conversations"
+import { loadUserSettings } from "@/lib/userSettings"
 
 // Adapter: the MessageList expects this shape
 export interface Message {
@@ -212,7 +213,8 @@ export function ChatShell() {
       // Show thinking animation immediately
       setLocalThinking(true)
 
-      sendToAgent(content.trim(), voiceMode)
+      const settings = loadUserSettings()
+      sendToAgent(content.trim(), voiceMode, settings.app.ttsVoice)
     },
     [activeConvo, conversations, agentConnected, voiceMode, sendToAgent, persist],
   )

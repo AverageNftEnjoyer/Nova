@@ -58,12 +58,13 @@ const GREETINGS = [
 ]
 
 const SCHEDULE_KEY = "nova-home-daily-schedule-v1"
+const BOOT_MUSIC_KEY = "nova-boot-music-muted"
 
 export default function HomePage() {
   const router = useRouter()
   const { theme } = useTheme()
   const isLight = theme === "light"
-  const { state: novaState, connected, sendToAgent, sendGreeting } = useNovaState()
+  const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference } = useNovaState()
   const [hasAnimated, setHasAnimated] = useState(false)
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -107,7 +108,7 @@ export default function HomePage() {
       }
     }
 
-    const muted = localStorage.getItem("nova-boot-music-muted") === "true"
+    const muted = localStorage.getItem(BOOT_MUSIC_KEY) === "true"
     setBootMusicMuted(muted)
     setOrbColor(loadUserSettings().app.orbColor)
     audioRef.current = new Audio("/sounds/launch.mp3")
@@ -115,6 +116,24 @@ export default function HomePage() {
     if (!muted) {
       audioRef.current.play().catch(() => {})
     }
+
+    void fetch("/api/boot-music")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { muted?: boolean } | null) => {
+        if (!data || typeof data.muted !== "boolean") return
+        setBootMusicMuted(data.muted)
+        localStorage.setItem(BOOT_MUSIC_KEY, String(data.muted))
+        if (audioRef.current) {
+          if (data.muted) {
+            audioRef.current.pause()
+            audioRef.current.currentTime = 0
+          } else {
+            audioRef.current.currentTime = 0
+            audioRef.current.play().catch(() => {})
+          }
+        }
+      })
+      .catch(() => {})
 
     return () => {
       if (audioRef.current) {
@@ -135,11 +154,14 @@ export default function HomePage() {
   useEffect(() => {
     if (connected && !greetingSentRef.current) {
       greetingSentRef.current = true
+      const settings = loadUserSettings()
+      // Send voice preference to agent on connect
+      setVoicePreference(settings.app.ttsVoice)
       const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
-      const t = setTimeout(() => sendGreeting(greeting), 1500)
+      const t = setTimeout(() => sendGreeting(greeting, settings.app.ttsVoice), 1500)
       return () => clearTimeout(t)
     }
-  }, [connected, sendGreeting])
+  }, [connected, sendGreeting, setVoicePreference])
 
   const handleSend = useCallback(() => {
     const text = input.trim()
@@ -167,7 +189,8 @@ export default function HomePage() {
     persistConversations(next)
     setActiveId(convo.id)
 
-    sendToAgent(finalText, true)
+    const settings = loadUserSettings()
+    sendToAgent(finalText, true, settings.app.ttsVoice)
     setInput("")
     setAttachedFiles([])
     if (fileInputRef.current) fileInputRef.current.value = ""
@@ -202,7 +225,12 @@ export default function HomePage() {
   const toggleBootMusic = useCallback(() => {
     setBootMusicMuted((prev) => {
       const next = !prev
-      localStorage.setItem("nova-boot-music-muted", String(next))
+      localStorage.setItem(BOOT_MUSIC_KEY, String(next))
+      void fetch("/api/boot-music", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ muted: next }),
+      }).catch(() => {})
 
       if (audioRef.current) {
         if (next) {

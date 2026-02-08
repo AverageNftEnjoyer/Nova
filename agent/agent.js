@@ -31,8 +31,20 @@ const fishAudio = new FishAudioClient({
   apiKey: process.env.FISH_API_KEY
 });
 
-// ===== reference voice (from .env) =====
+// ===== reference voices (from .env) =====
 const REFERENCE_ID = process.env.REFERENCE_ID;
+const PETER_ID = process.env.PETER_ID;
+const MORD_ID = process.env.MORD_ID;
+
+// Map voice IDs to Fish Audio reference IDs
+const VOICE_MAP = {
+  default: REFERENCE_ID,
+  peter: PETER_ID,
+  mord: MORD_ID,
+};
+
+// Current voice preference (updated when HUD sends ttsVoice)
+let currentVoice = "default";
 
 // ===== paths =====
 const ROOT = __dirname;
@@ -82,11 +94,16 @@ wss.on("connection", (ws) => {
 
       if (data.type === "greeting") {
         console.log("[HUD] Greeting requested.");
+        // Update voice preference if provided
+        if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
+          currentVoice = data.ttsVoice;
+          console.log("[Voice] Preference updated to:", currentVoice);
+        }
         if (!busy) {
           busy = true;
           try {
             broadcastState("speaking");
-            await speak(data.text || "Hello! What are we working on today?");
+            await speak(data.text || "Hello! What are we working on today?", currentVoice);
             broadcastState("idle");
           } finally {
             busy = false;
@@ -96,14 +113,25 @@ wss.on("connection", (ws) => {
       }
 
       if (data.type === "hud_message" && data.content) {
-        console.log("[HUD →]", data.content);
+        // Update stored voice preference if provided
+        if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
+          currentVoice = data.ttsVoice;
+          console.log("[Voice] Preference updated to:", currentVoice);
+        }
+        console.log("[HUD →]", data.content, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
         stopSpeaking();
         busy = true;
         try {
-          await handleInput(data.content, { voice: data.voice !== false });
+          await handleInput(data.content, { voice: data.voice !== false, ttsVoice: data.ttsVoice || currentVoice });
         } finally {
           busy = false;
         }
+      }
+
+      // Allow HUD to update voice preference without sending a message
+      if (data.type === "set_voice" && data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
+        currentVoice = data.ttsVoice;
+        console.log("[Voice] Preference set to:", currentVoice);
       }
     } catch (e) {
       console.error("[WS] Bad message from HUD:", e.message);
@@ -141,12 +169,14 @@ function stopSpeaking() {
 }
 
 // ===== TTS (long-form safe) =====
-async function speak(text) {
+async function speak(text, voiceId = "default") {
   const out = path.join(ROOT, `speech_${Date.now()}.mp3`);
+  const referenceId = VOICE_MAP[voiceId] || REFERENCE_ID;
+  console.log(`[TTS] Using voice: ${voiceId} → ${referenceId}`);
 
   const audio = await fishAudio.textToSpeech.convert({
     text,
-    reference_id: REFERENCE_ID
+    reference_id: referenceId
   });
 
   fs.writeFileSync(out, Buffer.from(await new Response(audio).arrayBuffer()));
@@ -201,6 +231,7 @@ const COMMAND_ACKS = [
 // ===== input handler =====
 async function handleInput(text, opts = {}) {
   const useVoice = opts.voice !== false;
+  const ttsVoice = opts.ttsVoice || "default";
   const n = text.toLowerCase().trim();
 
   // ===== ABSOLUTE SHUTDOWN =====
@@ -211,7 +242,8 @@ async function handleInput(text, opts = {}) {
   ) {
     stopSpeaking();
     await speak(
-      "Shutting down now. If you need me again, just restart the system."
+      "Shutting down now. If you need me again, just restart the system.",
+      ttsVoice
     );
     process.exit(0);
   }
@@ -220,7 +252,7 @@ async function handleInput(text, opts = {}) {
   if (n.includes("party time") || n.includes("party mode")) {
     stopSpeaking();
     broadcast({ type: "party", ts: Date.now() });
-    if (useVoice) await speak("Let's go!");
+    if (useVoice) await speak("Let's go!", ttsVoice);
     else broadcastMessage("assistant", "Let's go!");
     broadcastState("idle");
     return;
@@ -263,7 +295,7 @@ Output ONLY valid JSON, nothing else.`
     try {
       const intent = JSON.parse(spotifyParse.choices[0].message.content.trim());
 
-      if (useVoice) await speak(intent.response);
+      if (useVoice) await speak(intent.response, ttsVoice);
       else broadcastMessage("assistant", intent.response);
 
       if (intent.action === "open") {
@@ -291,7 +323,7 @@ Output ONLY valid JSON, nothing else.`
     } catch (e) {
       console.error("[Spotify] Parse error:", e.message);
       const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
-      if (useVoice) await speak(ack);
+      if (useVoice) await speak(ack, ttsVoice);
       else broadcastMessage("assistant", ack);
       exec("start spotify:");
     }
@@ -334,7 +366,7 @@ Output ONLY valid JSON, nothing else.`
   broadcastMessage("assistant", reply);
 
   if (useVoice) {
-    await speak(reply);
+    await speak(reply, ttsVoice);
   } else {
     broadcastState("idle");
   }
@@ -394,7 +426,7 @@ while (true) {
     console.log("Heard:", text);
     busy = true;
     try {
-      await handleInput(text);
+      await handleInput(text, { voice: true, ttsVoice: currentVoice });
     } finally {
       busy = false;
     }

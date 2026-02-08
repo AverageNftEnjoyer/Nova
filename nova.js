@@ -133,16 +133,31 @@ if (-not $found) {
 // ===== 1. Play bootup sound =====
 const mpv = path.join(__dirname, "agent", "mpv", "mpv.exe");
 const bootSound = path.join(__dirname, "hud", "public", "sounds", "maker.mp3");
+const settingsFile = path.join(__dirname, "nova-settings.json");
 
-const bootAudio = spawn(mpv, [
-  bootSound,
-  "--no-video",
-  "--really-quiet",
-  "--keep-open=no",
-  `--end=95`,
-  `--volume=50`,
-]);
-bootAudio.on("exit", () => console.log("[Nova] Boot sound finished."));
+function isBootMusicMuted() {
+  try {
+    const raw = fs.readFileSync(settingsFile, "utf-8");
+    const parsed = JSON.parse(raw);
+    return parsed?.bootMusicMuted === true;
+  } catch {
+    return false;
+  }
+}
+
+if (isBootMusicMuted()) {
+  console.log("[Nova] Boot sound disabled by user setting.");
+} else {
+  const bootAudio = spawn(mpv, [
+    bootSound,
+    "--no-video",
+    "--really-quiet",
+    "--keep-open=no",
+    `--end=95`,
+    `--volume=50`,
+  ]);
+  bootAudio.on("exit", () => console.log("[Nova] Boot sound finished."));
+}
 
 console.log("[Nova] Boot sequence started.");
 
@@ -193,46 +208,9 @@ hud.stdout.on("data", (chunk) => {
     hudOpened = true;
 
     // Launch Edge in app mode — shows as its own program in the taskbar (no browser UI)
-    exec(`start msedge.exe --app=http://localhost:3000/boot-right --start-maximized --window-size=${primaryMonitor.width},${primaryMonitor.height} --window-position=${primaryMonitor.x},${primaryMonitor.y}`);
+    // Open directly maximized on primary monitor - no repositioning needed
+    exec(`start msedge.exe --app=http://localhost:3000/boot-right --start-maximized --window-position=${primaryMonitor.x},${primaryMonitor.y}`);
     console.log("[Nova] Opening Nova app on primary monitor");
-
-    // Maximize the window on the primary monitor after it appears
-    setTimeout(() => {
-      const psScript = path.join(__dirname, "_position.ps1");
-      fs.writeFileSync(psScript, `
-Add-Type @"
-  using System;
-  using System.Runtime.InteropServices;
-  public class Win32Pos {
-    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
-    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-  }
-"@
-
-Start-Sleep -Seconds 3
-
-$browsers = Get-Process | Where-Object {
-  $_.MainWindowHandle -ne 0 -and
-  ($_.ProcessName -like "*msedge*" -or $_.ProcessName -like "*chrome*") -and
-  $_.MainWindowTitle -like "*Nova*"
-} | Sort-Object -Property StartTime -Descending
-
-if ($browsers -and $browsers.Count -gt 0) {
-  $w = $browsers | Select-Object -First 1
-  [Win32Pos]::MoveWindow($w.MainWindowHandle, ${primaryMonitor.x}, ${primaryMonitor.y}, ${primaryMonitor.width}, ${primaryMonitor.height}, $true)
-  [Win32Pos]::ShowWindow($w.MainWindowHandle, 3)
-  Write-Output "Nova maximized on primary monitor"
-} else {
-  Write-Output "Nova window not found"
-}
-`, "utf-8");
-
-      exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${psScript}"`, (err, stdout) => {
-        if (stdout) console.log(`[Nova] ${stdout.trim()}`);
-        try { fs.unlinkSync(psScript); } catch {}
-      });
-    }, 2000);
-
     console.log("[Nova] Nova launched as standalone app.");
   }
 });
