@@ -4,6 +4,11 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Accent color variables - can be overridden dynamically */
+  --accent-primary: #8b5cf6;
+  --accent-secondary: #a78bfa;
+  --accent-rgb: 139, 92, 246;
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -186,6 +191,22 @@
 /* Page backgrounds */
 .bg-page { background-color: var(--page-bg); }
 .bg-sidebar-page { background-color: var(--sidebar-page-bg); }
+
+/* ===== Dynamic accent color utilities ===== */
+.text-accent { color: var(--accent-primary); }
+.text-accent-secondary { color: var(--accent-secondary); }
+.bg-accent { background-color: var(--accent-primary); }
+.bg-accent-10 { background-color: rgba(var(--accent-rgb), 0.1); }
+.bg-accent-15 { background-color: rgba(var(--accent-rgb), 0.15); }
+.bg-accent-20 { background-color: rgba(var(--accent-rgb), 0.2); }
+.border-accent { border-color: var(--accent-primary); }
+.border-accent-30 { border-color: rgba(var(--accent-rgb), 0.3); }
+.shadow-accent { box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.3); }
+.hover\:bg-accent-20:hover { background-color: rgba(var(--accent-rgb), 0.2); }
+.hover\:text-accent:hover { color: var(--accent-primary); }
+.hover\:border-accent-30:hover { border-color: rgba(var(--accent-rgb), 0.3); }
+.ring-accent { --tw-ring-color: var(--accent-primary); }
+.focus\:border-accent-50:focus { border-color: rgba(var(--accent-rgb), 0.5); }
 
 /* Replace gray gradient with colorful animated gradient for AI streaming responses */
 .gradient-text-animated {

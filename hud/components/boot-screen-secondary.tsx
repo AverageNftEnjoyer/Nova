@@ -75,12 +75,12 @@ const FLYING_LINES = [
 
 // HUD readouts orbiting the reactor - will be dynamic based on metrics
 const HUD_READOUT_CONFIG = [
-  { key: "cpu_temp", text: "CPU TEMP", angle: -30, distance: 160, delay: 2 },
-  { key: "memory", text: "MEMORY", angle: 30, distance: 165, delay: 3 },
-  { key: "gpu_temp", text: "GPU TEMP", angle: 150, distance: 155, delay: 4 },
-  { key: "cpu_load", text: "CPU LOAD", angle: 210, distance: 160, delay: 5 },
-  { key: "disk", text: "DISK", angle: -60, distance: 175, delay: 6.5 },
-  { key: "status", text: "STATUS", angle: 60, distance: 170, delay: 7.5 },
+  { key: "cpu_temp", text: "CPU TEMP", angle: -30, distance: 145, delay: 2 },
+  { key: "memory", text: "MEMORY", angle: 30, distance: 150, delay: 3 },
+  { key: "gpu_temp", text: "GPU TEMP", angle: 150, distance: 140, delay: 4 },
+  { key: "cpu_load", text: "CPU LOAD", angle: 210, distance: 145, delay: 5 },
+  { key: "disk", text: "DISK", angle: -60, distance: 160, delay: 6.5 },
+  { key: "status", text: "STATUS", angle: 60, distance: 155, delay: 7.5 },
 ]
 
 // Arc segments for Iron Man HUD rings
@@ -292,7 +292,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
   }, [])
 
   const visibleLines = FLYING_LINES.slice(0, flyingIdx + 1)
-  const displayLines = visibleLines.slice(-14)
+  const displayLines = visibleLines.slice(-18)
 
   const allSystemsOnline = onlineSystems.length === SUBSYSTEMS.length
 
@@ -387,9 +387,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* CENTER HUD — Arc reactor + rings       */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative" style={{ width: 420, height: 420 }}>
+        <div className="relative" style={{ width: 380, height: 380 }}>
           <svg
-            viewBox="0 0 420 420"
+            viewBox="0 0 380 380"
             className="absolute inset-0 w-full h-full"
             style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 1s ease" }}
             suppressHydrationWarning
@@ -397,10 +397,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {/* Tick marks */}
             {phase >= 2 && TICK_MARKS.map((tick, i) => {
               const rad = (tick.angle * Math.PI) / 180
-              const x1 = +(210 + tick.radius * 0.84 * Math.cos(rad)).toFixed(4)
-              const y1 = +(210 + tick.radius * 0.84 * Math.sin(rad)).toFixed(4)
-              const x2 = +(210 + (tick.radius + tick.length) * 0.84 * Math.cos(rad)).toFixed(4)
-              const y2 = +(210 + (tick.radius + tick.length) * 0.84 * Math.sin(rad)).toFixed(4)
+              const x1 = +(190 + tick.radius * 0.76 * Math.cos(rad)).toFixed(4)
+              const y1 = +(190 + tick.radius * 0.76 * Math.sin(rad)).toFixed(4)
+              const x2 = +(190 + (tick.radius + tick.length) * 0.76 * Math.cos(rad)).toFixed(4)
+              const y2 = +(190 + (tick.radius + tick.length) * 0.76 * Math.sin(rad)).toFixed(4)
               return (
                 <line
                   key={`tick-${i}`}
@@ -415,13 +415,13 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {ARC_SEGMENTS.map((seg, i) => (
               <path
                 key={`arc-${i}`}
-                d={arcPath(210, 210, seg.r * 0.84, seg.startAngle, seg.span)}
+                d={arcPath(190, 190, seg.r * 0.76, seg.startAngle, seg.span)}
                 fill="none"
                 stroke={`rgba(139, 92, 246, ${0.15 + seg.ring * 0.05})`}
                 strokeWidth={seg.ring === 0 ? 2 : 1}
                 className={`boot2-arc-ring-${seg.ring}`}
                 style={{
-                  transformOrigin: "210px 210px",
+                  transformOrigin: "190px 190px",
                   opacity: phase >= 2 ? 1 : 0,
                   transition: `opacity 0.5s ease ${seg.delay * 0.1}s`,
                 }}
@@ -429,34 +429,34 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             ))}
 
             {/* Inner circle */}
-            <circle cx="210" cy="210" r="50" fill="none"
+            <circle cx="190" cy="190" r="45" fill="none"
               stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1"
               style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
-            <circle cx="210" cy="210" r="52" fill="none"
+            <circle cx="190" cy="190" r="47" fill="none"
               stroke="rgba(139, 92, 246, 0.08)" strokeWidth="0.5"
               strokeDasharray="4 4"
               className="boot2-arc-ring-0"
-              style={{ transformOrigin: "210px 210px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
+              style={{ transformOrigin: "190px 190px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
 
             {/* Crosshairs */}
             {phase >= 2 && (
               <>
-                <line x1="210" y1="140" x2="210" y2="165" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="210" y1="255" x2="210" y2="280" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="140" y1="210" x2="165" y2="210" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="255" y1="210" x2="280" y2="210" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="190" y1="120" x2="190" y2="145" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="190" y1="235" x2="190" y2="260" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="120" y1="190" x2="145" y2="190" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="235" y1="190" x2="260" y2="190" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
               </>
             )}
 
             {/* Diagonal hash marks */}
             {phase >= 3 && [45, 135, 225, 315].map((a) => {
               const rad = (a * Math.PI) / 180
-              const x1 = +(210 + 60 * Math.cos(rad)).toFixed(4)
-              const y1 = +(210 + 60 * Math.sin(rad)).toFixed(4)
-              const x2 = +(210 + 70 * Math.cos(rad)).toFixed(4)
-              const y2 = +(210 + 70 * Math.sin(rad)).toFixed(4)
+              const x1 = +(190 + 55 * Math.cos(rad)).toFixed(4)
+              const y1 = +(190 + 55 * Math.sin(rad)).toFixed(4)
+              const x2 = +(190 + 65 * Math.cos(rad)).toFixed(4)
+              const y2 = +(190 + 65 * Math.sin(rad)).toFixed(4)
               return (
                 <line key={`diag-${a}`} x1={x1} y1={y1} x2={x2} y2={y2}
                   stroke="rgba(167, 139, 250, 0.25)" strokeWidth="1" />
@@ -465,7 +465,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
           </svg>
 
           {/* Center orb — activates at the end */}
-          <div className="absolute" style={{ inset: 160 }}>
+          <div className="absolute" style={{ inset: 145 }}>
             <div
               className="w-full h-full rounded-full"
               style={{
@@ -498,8 +498,8 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
           {/* HUD readouts floating around reactor - live metrics */}
           {HUD_READOUT_CONFIG.slice(0, visibleReadouts).map((r, i) => {
             const rad = (r.angle * Math.PI) / 180
-            const x = 210 + r.distance * Math.cos(rad)
-            const y = 210 + r.distance * Math.sin(rad)
+            const x = 190 + r.distance * Math.cos(rad)
+            const y = 190 + r.distance * Math.sin(rad)
 
             // Get dynamic value based on key
             let value = "--"
@@ -570,11 +570,11 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* LEFT — Terminal console                */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-4 top-12 bottom-16 w-[340px] overflow-hidden z-10">
-        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase font-mono">
+      <div className="absolute left-3 top-10 bottom-12 w-[380px] overflow-hidden z-10">
+        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-mono font-medium">
           SYS.CONSOLE
         </div>
-        <div className="font-mono text-[11px] leading-4.5">
+        <div className="font-mono text-[12px] leading-5">
           {displayLines.map((line, i) => {
             const isNewest = i === displayLines.length - 1
             const age = displayLines.length - 1 - i
@@ -605,18 +605,18 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* RIGHT TOP — Hardware Metrics           */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute right-4 top-12 w-64 z-10 font-mono">
-        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase">
+      <div className="absolute right-3 top-10 w-72 z-10 font-mono">
+        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
           HARDWARE STATUS
         </div>
 
         {/* CPU */}
-        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}>
-          <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-white/30">CPU LOAD</span>
-            <span className="text-violet-400/70">{metrics?.cpu.load ?? "--"}%</span>
+        <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">CPU LOAD</span>
+            <span className="text-violet-400/80 font-medium">{metrics?.cpu.load ?? "--"}%</span>
           </div>
-          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${metrics?.cpu.load ?? 0}%`,
               background: (metrics?.cpu.load ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.load ?? 0) > 50 ? "#f59e0b" : "#22c55e",
@@ -625,14 +625,14 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
 
         {/* CPU Temp */}
-        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.1s" }}>
-          <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-white/30">CPU TEMP</span>
-            <span style={{ color: (metrics?.cpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.temp ?? 0) > 60 ? "#f59e0b" : "#22c55e" }}>
+        <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.1s" }}>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">CPU TEMP</span>
+            <span className="font-medium" style={{ color: (metrics?.cpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.temp ?? 0) > 60 ? "#f59e0b" : "#22c55e" }}>
               {metrics?.cpu.temp ?? "--"}°C
             </span>
           </div>
-          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${Math.min((metrics?.cpu.temp ?? 0), 100)}%`,
               background: (metrics?.cpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.temp ?? 0) > 60 ? "#f59e0b" : "#22c55e",
@@ -641,12 +641,12 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
 
         {/* Memory */}
-        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.2s" }}>
-          <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-white/30">MEMORY</span>
-            <span className="text-violet-400/70">{metrics?.memory.used ?? "--"} / {metrics?.memory.total ?? "--"} GB</span>
+        <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.2s" }}>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">MEMORY</span>
+            <span className="text-violet-400/80 font-medium">{metrics?.memory.used ?? "--"} / {metrics?.memory.total ?? "--"} GB</span>
           </div>
-          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${metrics?.memory.percent ?? 0}%`,
               background: (metrics?.memory.percent ?? 0) > 85 ? "#ef4444" : (metrics?.memory.percent ?? 0) > 70 ? "#f59e0b" : "#a78bfa",
@@ -655,14 +655,14 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
 
         {/* GPU */}
-        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.3s" }}>
-          <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-white/30">GPU</span>
-            <span style={{ color: (metrics?.gpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.gpu.temp ?? 0) > 65 ? "#f59e0b" : "#22c55e" }}>
+        <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.3s" }}>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">GPU TEMP</span>
+            <span className="font-medium" style={{ color: (metrics?.gpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.gpu.temp ?? 0) > 65 ? "#f59e0b" : "#22c55e" }}>
               {metrics?.gpu.temp ?? "--"}°C
             </span>
           </div>
-          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${Math.min(metrics?.gpu.temp ?? 0, 100)}%`,
               background: (metrics?.gpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.gpu.temp ?? 0) > 65 ? "#f59e0b" : "#22c55e",
@@ -671,12 +671,12 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
 
         {/* Disk */}
-        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.4s" }}>
-          <div className="flex justify-between text-[10px] mb-0.5">
-            <span className="text-white/30">DISK</span>
-            <span className="text-violet-400/70">{metrics?.disk.percent ?? "--"}%</span>
+        <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.4s" }}>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span className="text-white/40">DISK USAGE</span>
+            <span className="text-violet-400/80 font-medium">{metrics?.disk.percent ?? "--"}%</span>
           </div>
-          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${metrics?.disk.percent ?? 0}%`,
               background: (metrics?.disk.percent ?? 0) > 90 ? "#ef4444" : (metrics?.disk.percent ?? 0) > 75 ? "#f59e0b" : "#818cf8",
@@ -686,27 +686,27 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
         {/* Network */}
         <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.5s" }}>
-          <div className="flex justify-between text-[10px]">
-            <span className="text-white/30">NETWORK</span>
-            <span className="text-cyan-400/70">↓{metrics?.network.rx ?? 0} ↑{metrics?.network.tx ?? 0} KB/s</span>
+          <div className="flex justify-between text-[11px]">
+            <span className="text-white/40">NETWORK I/O</span>
+            <span className="text-cyan-400/80 font-medium">↓{metrics?.network.rx ?? 0} ↑{metrics?.network.tx ?? 0} KB/s</span>
           </div>
         </div>
 
         {/* System Status Indicator */}
-        <div className="mt-2 pt-2 border-t border-white/5" style={{ opacity: phase >= 2 ? 1 : 0, transition: "opacity 0.5s ease 0.6s" }}>
+        <div className="mt-3 pt-2 border-t border-white/10" style={{ opacity: phase >= 2 ? 1 : 0, transition: "opacity 0.5s ease 0.6s" }}>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400" style={{
-              boxShadow: "0 0 8px rgba(52, 211, 153, 0.6)",
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" style={{
+              boxShadow: "0 0 10px rgba(52, 211, 153, 0.7)",
               animation: "boot-blink 2s ease-in-out infinite",
             }} />
-            <span className="text-[9px] text-emerald-400/70 tracking-wider">THERMAL OK</span>
+            <span className="text-[10px] text-emerald-400/80 tracking-wider font-medium">THERMAL OK</span>
           </div>
-          <div className="flex items-center gap-2 mt-1">
-            <div className="w-2 h-2 rounded-full" style={{
+          <div className="flex items-center gap-2 mt-1.5">
+            <div className="w-2.5 h-2.5 rounded-full" style={{
               backgroundColor: metrics ? "#22c55e" : "#f59e0b",
-              boxShadow: metrics ? "0 0 8px rgba(34, 197, 94, 0.6)" : "0 0 8px rgba(245, 158, 11, 0.6)",
+              boxShadow: metrics ? "0 0 10px rgba(34, 197, 94, 0.7)" : "0 0 10px rgba(245, 158, 11, 0.7)",
             }} />
-            <span className="text-[9px] tracking-wider" style={{ color: metrics ? "rgba(34, 197, 94, 0.7)" : "rgba(245, 158, 11, 0.7)" }}>
+            <span className="text-[10px] tracking-wider font-medium" style={{ color: metrics ? "rgba(34, 197, 94, 0.8)" : "rgba(245, 158, 11, 0.8)" }}>
               {metrics ? "SENSORS ACTIVE" : "CONNECTING..."}
             </span>
           </div>
@@ -716,27 +716,27 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* RIGHT BOTTOM — Subsystem boot status   */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute right-4 top-[280px] w-64 z-10 font-mono">
-        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase">
+      <div className="absolute right-3 top-[290px] w-72 z-10 font-mono">
+        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
           SUBSYSTEMS
         </div>
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           {SUBSYSTEMS.map((sys) => {
             const isOn = onlineSystems.includes(sys.id)
             return (
               <div key={sys.id} className="flex items-center gap-2" style={{
                 animation: isOn ? "boot-subsys-in 0.4s ease forwards" : "none",
               }}>
-                <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{
-                  backgroundColor: isOn ? "#34d399" : "rgba(255,255,255,0.06)",
-                  boxShadow: isOn ? "0 0 8px rgba(52, 211, 153, 0.6)" : "none",
+                <div className="w-2 h-2 rounded-full shrink-0" style={{
+                  backgroundColor: isOn ? "#34d399" : "rgba(255,255,255,0.08)",
+                  boxShadow: isOn ? "0 0 10px rgba(52, 211, 153, 0.7)" : "none",
                   transition: "all 0.4s ease",
                 }} />
-                <span className={`text-[9px] transition-colors duration-300 ${isOn ? "text-emerald-400/60" : "text-white/8"}`}>
+                <span className={`text-[10px] transition-colors duration-300 ${isOn ? "text-emerald-400/70" : "text-white/10"}`}>
                   {sys.label}
                 </span>
                 {isOn && (
-                  <span className="text-[7px] text-white/15 ml-auto truncate max-w-25">
+                  <span className="text-[8px] text-white/20 ml-auto truncate max-w-32">
                     {sys.detail}
                   </span>
                 )}
@@ -747,8 +747,8 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
         {/* All systems online flash */}
         {allSystemsOnline && (
-          <div className="mt-3 px-2 py-1 border border-emerald-500/20 rounded bg-emerald-500/5 animate-in fade-in duration-500">
-            <span className="text-[9px] text-emerald-400/80 tracking-widest font-bold">
+          <div className="mt-3 px-3 py-1.5 border border-emerald-500/30 rounded bg-emerald-500/10 animate-in fade-in duration-500">
+            <span className="text-[10px] text-emerald-400/90 tracking-widest font-bold">
               ● ALL SYSTEMS NOMINAL
             </span>
           </div>
@@ -758,13 +758,13 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* BOTTOM LEFT — Network activity          */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-4 bottom-14 w-[340px] z-10 font-mono" style={{
+      <div className="absolute left-3 bottom-12 w-[380px] z-10 font-mono" style={{
         opacity: phase >= 3 ? 1 : 0, transition: "opacity 0.8s ease",
       }}>
-        <div className="text-[9px] text-violet-500/30 mb-1 tracking-[0.3em] uppercase">
-          NETWORK
+        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
+          NETWORK CONNECTIONS
         </div>
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {[
             { src: "10.0.42.1", dst: "HUD:3000", proto: "WSS", status: "CONNECTED" },
             { src: "NOVA:8765", dst: "AGENT", proto: "TCP", status: "BOUND" },
@@ -772,15 +772,15 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             { src: "FISH:443", dst: "TTS.V3", proto: "TLS", status: "CACHED" },
             { src: "MEM:LOCAL", dst: "PERSIST", proto: "FS", status: "SYNCED" },
           ].map((conn, i) => (
-            <div key={i} className="flex items-center gap-2 text-[9px]" style={{
+            <div key={i} className="flex items-center gap-3 text-[11px]" style={{
               opacity: progress > (i + 1) * 15 ? 1 : 0,
               transition: "opacity 0.5s ease",
             }}>
-              <span className="text-cyan-400/40">{conn.src}</span>
-              <span className="text-white/10">→</span>
-              <span className="text-violet-400/40">{conn.dst}</span>
-              <span className="text-white/8 ml-auto">{conn.proto}</span>
-              <span className="text-emerald-400/50">{conn.status}</span>
+              <span className="text-cyan-400/50 font-medium">{conn.src}</span>
+              <span className="text-white/15">→</span>
+              <span className="text-violet-400/50">{conn.dst}</span>
+              <span className="text-white/15 ml-auto">{conn.proto}</span>
+              <span className="text-emerald-400/60 font-medium">{conn.status}</span>
             </div>
           ))}
         </div>
@@ -789,31 +789,31 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* BOTTOM — Progress bar                  */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute bottom-4 left-4 right-4 z-10">
-        <div className="w-full h-[2px] bg-white/5 rounded-full overflow-hidden">
+      <div className="absolute bottom-3 left-3 right-3 z-10">
+        <div className="w-full h-[3px] bg-white/8 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full boot-progress-bar transition-all duration-100 ease-linear"
             style={{ width: `${progress}%` }}
           />
         </div>
-        <div className="flex justify-between mt-1.5 font-mono">
-          <p className="text-[10px] text-white/15">
+        <div className="flex justify-between mt-2 font-mono">
+          <p className="text-[11px] text-white/25 font-medium">
             {progress < 15 ? "BOOTSTRAPPING KERNEL" : progress < 30 ? "INITIALIZING NEURAL ENGINE" : progress < 50 ? "LOADING SUBSYSTEMS" : progress < 70 ? "CALIBRATING VOICE SYNTH" : progress < 85 ? "ESTABLISHING CONNECTIONS" : progress < 100 ? "ACTIVATING NOVA CORE" : "SYSTEM ONLINE — READY"}
           </p>
-          <p className="text-[10px] text-violet-400/40">
+          <p className="text-[11px] text-violet-400/50 font-medium">
             {onlineSystems.length}/{SUBSYSTEMS.length} ONLINE — {Math.round(progress)}%
           </p>
         </div>
       </div>
 
       {/* Corner HUD elements */}
-      <div className="absolute top-3 left-4 font-mono text-[9px] text-white/10 leading-tight z-10">
-        <div>NOVA.SYS.v4.1</div>
+      <div className="absolute top-2 left-3 font-mono text-[10px] text-white/15 leading-tight z-10">
+        <div className="font-medium">NOVA.SYS.v4.1</div>
         <div>BUILD.2026.02.01</div>
-        <div className="text-violet-500/20">SESSION: {sessionId}</div>
+        <div className="text-violet-500/30">SESSION: {sessionId}</div>
       </div>
-      <div className="absolute top-3 right-4 font-mono text-[9px] text-white/10 text-right leading-tight z-10">
-        <div>DISPLAY: PRIMARY</div>
+      <div className="absolute top-2 right-3 font-mono text-[10px] text-white/15 text-right leading-tight z-10">
+        <div className="font-medium">DISPLAY: PRIMARY</div>
         <div>PROTOCOL: QUANTUM-E2E</div>
       </div>
     </div>

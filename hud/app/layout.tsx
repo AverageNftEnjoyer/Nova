@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/lib/theme-context"
+import { AccentProvider } from "@/lib/accent-context"
 import "./globals.css"
 
 const _geist = Geist({ subsets: ["latin"] })
@@ -43,7 +44,9 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased bg-page">
         <ThemeProvider>
-          {children}
+          <AccentProvider>
+            {children}
+          </AccentProvider>
         </ThemeProvider>
         <Analytics />
       </body>

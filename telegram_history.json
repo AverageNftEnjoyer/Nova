@@ -29,6 +29,36 @@
       "content": "Hello! How can I assist you today?",
       "source": "telegram",
       "ts": 1770515240087
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "are u still runninmg",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770515664209
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Yep, I’m here and running smoothly! How can I assist you today?",
+      "source": "telegram",
+      "ts": 1770515668766
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "whats ur token limit to answer me?",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770523816060
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "I can handle responses up to around 4,000 tokens in length, which includes both your input and my output. This allows me to provide detailed and thorough answers while keeping the conversation flowing smoothly. If you have something really extensive, we can always break it down into smaller parts!",
+      "source": "telegram",
+      "ts": 1770523818851
     }
   ]
 }
