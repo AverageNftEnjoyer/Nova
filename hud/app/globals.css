@@ -1330,3 +1330,31 @@
     transform: translateX(0);
   }
 }
+
+/* ========== SHOOTING COMETS ========== */
+@keyframes boot2-comet-fly {
+  0% {
+    opacity: 0;
+    transform: translateX(0) translateY(0) rotate(var(--comet-angle, 35deg));
+  }
+  3% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  97% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(120vw) translateY(80vh) rotate(var(--comet-angle, 35deg));
+  }
+}
+
+.boot2-comet {
+  animation: boot2-comet-fly var(--duration, 4s) ease-out infinite;
+  animation-delay: var(--delay, 0s);
+  opacity: 0;
+  will-change: transform, opacity;
+}

@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils"
 import type { Message } from "./chat-shell"
-import { User } from "lucide-react"
+import { User, Send } from "lucide-react"
 import { MarkdownRenderer } from "./markdown-renderer"
 import Image from "next/image"
 import { AnimatedOrb } from "./animated-orb"
@@ -44,19 +44,36 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
       {/* Message content */}
       <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
         {/* Role label */}
-        <span className="text-xs text-s-30 mb-0.5 hidden sm:block mt-1">{isUser ? "You" : "Nova"}</span>
+        <span className="text-xs text-s-30 mb-0.5 hidden sm:block mt-1 flex items-center gap-1">
+          {isUser ? (
+            message.source === "telegram" ? (
+              <>
+                <Send className="w-3 h-3 text-sky-400" />
+                <span className="text-sky-400">{message.sender || "Telegram"}</span>
+              </>
+            ) : (
+              "You"
+            )
+          ) : (
+            "Nova"
+          )}
+        </span>
 
         {/* Bubble */}
         <div
           className={cn(
             "rounded-2xl border-none overflow-hidden",
             isUser
-              ? "bg-violet-500/15 text-s-90 rounded-br-md"
+              ? message.source === "telegram"
+                ? "bg-sky-500/15 text-s-90 rounded-br-md"
+                : "bg-violet-500/15 text-s-90 rounded-br-md"
               : "bg-transparent text-s-85 rounded-bl-md",
           )}
           style={{
             boxShadow: isUser
-              ? "rgba(139, 92, 246, 0.1) 0px 0px 0px 1px, rgba(0, 0, 0, 0.15) 0px 2px 8px"
+              ? message.source === "telegram"
+                ? "rgba(14, 165, 233, 0.1) 0px 0px 0px 1px, rgba(0, 0, 0, 0.15) 0px 2px 8px"
+                : "rgba(139, 92, 246, 0.1) 0px 0px 0px 1px, rgba(0, 0, 0, 0.15) 0px 2px 8px"
               : "none",
             willChange: isStreaming ? "height" : "auto",
             transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",

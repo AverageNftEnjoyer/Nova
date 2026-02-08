@@ -3,7 +3,8 @@ export interface ChatMessage {
   role: "user" | "assistant"
   content: string
   createdAt: string
-  source?: "hud" | "agent"
+  source?: "hud" | "agent" | "voice" | "telegram"
+  sender?: string
 }
 
 export interface Conversation {

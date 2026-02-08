@@ -1,0 +1,34 @@
+{
+  "messages": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": "hello",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770513817113
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Hello! How can I assist you today?",
+      "source": "telegram",
+      "ts": 1770513821316
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "hello",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770515239223
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Hello! How can I assist you today?",
+      "source": "telegram",
+      "ts": 1770515240087
+    }
+  ]
+}

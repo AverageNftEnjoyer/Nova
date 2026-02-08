@@ -139,7 +139,7 @@ const bootAudio = spawn(mpv, [
   "--no-video",
   "--really-quiet",
   "--keep-open=no",
-  `--end=35`,
+  `--end=95`,
   `--volume=50`,
 ]);
 bootAudio.on("exit", () => console.log("[Nova] Boot sound finished."));
@@ -153,6 +153,35 @@ const secondaryMonitor = monitors.length > 1 ? monitors[1] : null;
 
 // ===== 3. Start the AI agent =====
 launch("Agent", "node", ["agent.js"], path.join(__dirname, "agent"));
+
+// ===== 3.5. Open Telegram Desktop =====
+setTimeout(() => {
+  // Try common Telegram Desktop paths
+  const telegramPaths = [
+    `"${process.env.APPDATA}\\Telegram Desktop\\Telegram.exe"`,
+    `"${process.env.LOCALAPPDATA}\\Telegram Desktop\\Telegram.exe"`,
+    `"C:\\Users\\${process.env.USERNAME}\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe"`,
+  ];
+
+  let launched = false;
+  for (const tgPath of telegramPaths) {
+    try {
+      if (fs.existsSync(tgPath.replace(/"/g, ''))) {
+        exec(`start "" ${tgPath}`);
+        launched = true;
+        console.log("[Nova] Telegram Desktop opened.");
+        break;
+      }
+    } catch {}
+  }
+
+  if (!launched) {
+    // Fallback: try Start Menu shortcut
+    exec('start "" "Telegram"', (err) => {
+      if (!err) console.log("[Nova] Telegram opened via Start Menu.");
+    });
+  }
+}, 3000);
 
 // ===== 4. Start the HUD dev server =====
 const hud = launch("HUD", "npm", ["run", "dev"], path.join(__dirname, "hud"));

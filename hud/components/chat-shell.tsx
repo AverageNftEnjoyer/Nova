@@ -29,7 +29,8 @@ export interface Message {
   content: string
   createdAt: Date
   imageData?: string
-  source?: "hud" | "agent"
+  source?: "hud" | "agent" | "voice" | "telegram"
+  sender?: string
 }
 
 export function ChatShell() {
@@ -56,9 +57,10 @@ export function ChatShell() {
       return next
     })
   }, [])
-  const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty, transcript } = useNovaState()
+  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript } = useNovaState()
 
   const mergedCountRef = useRef(0)
+  const telegramMergedCountRef = useRef(0)
 
   // Load conversations on mount
   useEffect(() => {
@@ -107,7 +109,8 @@ export function ChatShell() {
       role: am.role,
       content: am.content,
       createdAt: new Date(am.ts).toISOString(),
-      source: "agent",
+      source: am.source || "agent",
+      sender: am.sender,
     }))
 
     const updated: Conversation = {
@@ -121,6 +124,56 @@ export function ChatShell() {
     persist(convos, updated)
   }, [agentMessages])
 
+  // Handle Telegram messages - create new conversation for each session
+  useEffect(() => {
+    if (telegramMessages.length <= telegramMergedCountRef.current) return
+
+    const newOnes = telegramMessages.slice(telegramMergedCountRef.current)
+    telegramMergedCountRef.current = telegramMessages.length
+
+    const newMsgs: ChatMessage[] = newOnes.map((am) => ({
+      id: am.id,
+      role: am.role,
+      content: am.content,
+      createdAt: new Date(am.ts).toISOString(),
+      source: "telegram" as const,
+      sender: am.sender,
+    }))
+
+    // Find or create a Telegram conversation
+    let telegramConvo = conversations.find((c) => c.title.startsWith("Telegram"))
+
+    if (!telegramConvo) {
+      // Create new Telegram conversation
+      const now = new Date()
+      const dateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      telegramConvo = {
+        id: generateId(),
+        title: `Telegram - ${dateStr}`,
+        messages: [],
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+    }
+
+    const updated: Conversation = {
+      ...telegramConvo,
+      messages: [...telegramConvo.messages, ...newMsgs],
+      updatedAt: new Date().toISOString(),
+    }
+
+    // Update or add the Telegram conversation
+    const existingIdx = conversations.findIndex((c) => c.id === updated.id)
+    let convos: Conversation[]
+    if (existingIdx >= 0) {
+      convos = conversations.map((c) => (c.id === updated.id ? updated : c))
+    } else {
+      convos = [updated, ...conversations]
+    }
+
+    persist(convos, activeConvo)
+  }, [telegramMessages])
+
   // Convert ChatMessage[] to Message[] for MessageList
   const displayMessages: Message[] = activeConvo
     ? activeConvo.messages.map((m) => ({
@@ -129,6 +182,7 @@ export function ChatShell() {
         content: m.content,
         createdAt: new Date(m.createdAt),
         source: m.source,
+        sender: m.sender,
       }))
     : []
 

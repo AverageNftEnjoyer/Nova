@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { PanelLeftOpen, PanelLeftClose } from "lucide-react"
+import { PanelLeftOpen, PanelLeftClose, RotateCcw } from "lucide-react"
 import { AnimatedOrb } from "@/components/animated-orb"
 import { useNovaState } from "@/lib/useNovaState"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -201,6 +201,15 @@ export default function HomePage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => router.push("/boot-right")}
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-full bg-s-5 hover:bg-s-10 text-s-40 hover:text-violet-400"
+              title="Replay boot sequence"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </Button>
             <ThemeToggle />
           </div>
         </div>

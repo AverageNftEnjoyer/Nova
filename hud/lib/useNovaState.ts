@@ -11,12 +11,15 @@ export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
   ts: number;
+  source?: "voice" | "hud" | "telegram";
+  sender?: string;
 }
 
 export function useNovaState() {
   const [state, setState] = useState<NovaState>("idle");
   const [connected, setConnected] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [telegramMessages, setTelegramMessages] = useState<AgentMessage[]>([]);
   const [partyMode, setPartyMode] = useState(false);
   const [transcript, setTranscript] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
@@ -50,8 +53,34 @@ export function useNovaState() {
             role: data.role,
             content: data.content,
             ts: data.ts,
+            source: data.source || "voice",
+            sender: data.sender,
           };
-          setAgentMessages((prev) => [...prev, msg]);
+
+          // Separate Telegram messages from regular messages
+          if (data.source === "telegram") {
+            setTelegramMessages((prev) => [...prev, msg]);
+          } else {
+            setAgentMessages((prev) => [...prev, msg]);
+          }
+        }
+
+        // Handle history sync from Telegram
+        if (data.type === "history_sync" && Array.isArray(data.messages)) {
+          const historyMsgs: AgentMessage[] = data.messages.map((m: any) => ({
+            id: `history-${m.ts}-${Math.random().toString(36).slice(2, 7)}`,
+            role: m.role,
+            content: m.content,
+            ts: m.ts,
+            source: m.source || "telegram",
+            sender: m.sender,
+          }));
+          setTelegramMessages((prev) => {
+            // Merge history, avoiding duplicates by timestamp
+            const existingTs = new Set(prev.map(p => p.ts));
+            const newMsgs = historyMsgs.filter(m => !existingTs.has(m.ts));
+            return [...newMsgs, ...prev].sort((a, b) => a.ts - b.ts);
+          });
         }
       } catch {}
     };
@@ -77,6 +106,10 @@ export function useNovaState() {
     setAgentMessages([]);
   }, []);
 
+  const clearTelegramMessages = useCallback(() => {
+    setTelegramMessages([]);
+  }, []);
+
   const stopParty = useCallback(() => setPartyMode(false), []);
 
   const sendGreeting = useCallback((text: string) => {
@@ -86,5 +119,5 @@ export function useNovaState() {
     }
   }, []);
 
-  return { state, connected, agentMessages, sendToAgent, interrupt, clearAgentMessages, partyMode, stopParty, transcript, sendGreeting };
+  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript, sendGreeting };
 }

@@ -6,6 +6,16 @@ interface BootScreenSecondaryProps {
   onComplete: () => void
 }
 
+interface SystemMetrics {
+  cpu: { load: number; temp: number; cores: number }
+  memory: { used: number; total: number; percent: number }
+  gpu: { name: string; temp: number; vram: number; utilization: number }
+  disk: { used: number; size: number; percent: number }
+  network: { rx: number; tx: number }
+  battery: { percent: number; charging: boolean; hasBattery: boolean }
+  system: { manufacturer: string; model: string }
+}
+
 // ──────────────────────────────────────────
 // SUBSYSTEM BOOT SEQUENCE — appears as systems come online
 // ──────────────────────────────────────────
@@ -63,14 +73,14 @@ const FLYING_LINES = [
   "0xDEAD::BEEF > just kidding — NOVA IS ALIVE",
 ]
 
-// HUD readouts orbiting the reactor
-const HUD_READOUTS = [
-  { text: "PWR OUTPUT", value: "3.21 GW", angle: -30, distance: 190, delay: 2 },
-  { text: "NEURAL SYNC", value: "99.7%", angle: 30, distance: 195, delay: 3 },
-  { text: "CORE TEMP", value: "42.1°C", angle: 150, distance: 185, delay: 4 },
-  { text: "LATENCY", value: "0.3ms", angle: 210, distance: 190, delay: 5 },
-  { text: "BANDWIDTH", value: "12.4 TB/s", angle: -60, distance: 210, delay: 6.5 },
-  { text: "ENCRYPTION", value: "QUANTUM", angle: 60, distance: 205, delay: 7.5 },
+// HUD readouts orbiting the reactor - will be dynamic based on metrics
+const HUD_READOUT_CONFIG = [
+  { key: "cpu_temp", text: "CPU TEMP", angle: -30, distance: 160, delay: 2 },
+  { key: "memory", text: "MEMORY", angle: 30, distance: 165, delay: 3 },
+  { key: "gpu_temp", text: "GPU TEMP", angle: 150, distance: 155, delay: 4 },
+  { key: "cpu_load", text: "CPU LOAD", angle: 210, distance: 160, delay: 5 },
+  { key: "disk", text: "DISK", angle: -60, distance: 175, delay: 6.5 },
+  { key: "status", text: "STATUS", angle: 60, distance: 170, delay: 7.5 },
 ]
 
 // Arc segments for Iron Man HUD rings
@@ -123,6 +133,22 @@ const ARC_SEGMENTS = makeArcSegments()
 const TICK_MARKS = makeTickMarks(48, 85)
 const HEX_FLOATERS = makeHexFloaters(25)
 
+// Shooting comets configuration - deterministic to avoid hydration mismatch
+const COMETS = [
+  { id: 0, startX: -5, startY: -10, angle: 32, speed: 4.5, delay: 0.5, length: 120, color: "#c084fc", secondaryColor: "#e879f9" },
+  { id: 1, startX: 15, startY: -15, angle: 38, speed: 5.2, delay: 2.0, length: 90, color: "#a855f7", secondaryColor: "#f0abfc" },
+  { id: 2, startX: 35, startY: -8, angle: 28, speed: 3.8, delay: 4.5, length: 150, color: "#ec4899", secondaryColor: "#f9a8d4" },
+  { id: 3, startX: 55, startY: -12, angle: 42, speed: 6.0, delay: 1.2, length: 100, color: "#d946ef", secondaryColor: "#e879f9" },
+  { id: 4, startX: 75, startY: -5, angle: 25, speed: 4.0, delay: 6.0, length: 130, color: "#a855f7", secondaryColor: "#c4b5fd" },
+  { id: 5, startX: 95, startY: -18, angle: 35, speed: 5.5, delay: 3.5, length: 110, color: "#ec4899", secondaryColor: "#fbcfe8" },
+  { id: 6, startX: 10, startY: -20, angle: 30, speed: 4.2, delay: 7.5, length: 140, color: "#c084fc", secondaryColor: "#ddd6fe" },
+  { id: 7, startX: 45, startY: -6, angle: 40, speed: 3.5, delay: 9.0, length: 85, color: "#d946ef", secondaryColor: "#f5d0fe" },
+  { id: 8, startX: 65, startY: -14, angle: 33, speed: 5.8, delay: 5.0, length: 160, color: "#a855f7", secondaryColor: "#e9d5ff" },
+  { id: 9, startX: 25, startY: -8, angle: 45, speed: 4.8, delay: 10.5, length: 95, color: "#ec4899", secondaryColor: "#fce7f3" },
+  { id: 10, startX: 85, startY: -12, angle: 27, speed: 6.5, delay: 8.0, length: 175, color: "#c084fc", secondaryColor: "#ede9fe" },
+  { id: 11, startX: 5, startY: -16, angle: 36, speed: 4.0, delay: 11.5, length: 105, color: "#d946ef", secondaryColor: "#fae8ff" },
+]
+
 function arcPath(cx: number, cy: number, r: number, startAngle: number, span: number) {
   const s = (startAngle * Math.PI) / 180
   const e = ((startAngle + span) * Math.PI) / 180
@@ -143,8 +169,27 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
   const [sessionId, setSessionId] = useState("--------")
   const [onlineSystems, setOnlineSystems] = useState<string[]>([])
   const [orbReady, setOrbReady] = useState(false)
+  const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
   const startTime = useRef(Date.now())
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wsRef = useRef<WebSocket | null>(null)
+
+  // Connect to agent WebSocket for live metrics
+  useEffect(() => {
+    const ws = new WebSocket("ws://localhost:8765")
+    wsRef.current = ws
+
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        if (data.type === "system_metrics" && data.metrics) {
+          setMetrics(data.metrics)
+        }
+      } catch {}
+    }
+
+    return () => ws.close()
+  }, [])
 
   // Generate session ID client-side only
   useEffect(() => {
@@ -192,7 +237,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
   // HUD readouts appear over time
   useEffect(() => {
-    const timers = HUD_READOUTS.map((r, i) =>
+    const timers = HUD_READOUT_CONFIG.map((r, i) =>
       setTimeout(() => setVisibleReadouts(i + 1), r.delay * 1000)
     )
     return () => timers.forEach(clearTimeout)
@@ -280,13 +325,71 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         ))}
       </div>
 
+      {/* Shooting comets */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-[2]">
+        {COMETS.map((comet) => (
+          <div
+            key={`comet-${comet.id}`}
+            className="absolute boot2-comet"
+            style={{
+              left: `${comet.startX}%`,
+              top: `${comet.startY}%`,
+              ["--comet-angle" as string]: `${comet.angle}deg`,
+              ["--duration" as string]: `${comet.speed}s`,
+              ["--delay" as string]: `${comet.delay}s`,
+            }}
+          >
+            {/* Main comet tail - gradient with multiple color stops */}
+            <div
+              style={{
+                width: `${comet.length}px`,
+                height: "1.5px",
+                background: `linear-gradient(90deg,
+                  transparent 0%,
+                  ${comet.color}15 10%,
+                  ${comet.color}40 30%,
+                  ${comet.color}80 60%,
+                  ${comet.secondaryColor} 85%,
+                  white 100%)`,
+                borderRadius: "1px",
+              }}
+            />
+            {/* Secondary inner trail - brighter core */}
+            <div
+              className="absolute top-0"
+              style={{
+                width: `${comet.length * 0.6}px`,
+                height: "1px",
+                right: 0,
+                background: `linear-gradient(90deg,
+                  transparent 0%,
+                  ${comet.secondaryColor}60 50%,
+                  white 100%)`,
+              }}
+            />
+            {/* Comet head - small bright point */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2"
+              style={{
+                right: "-1px",
+                width: "3px",
+                height: "3px",
+                borderRadius: "50%",
+                background: `radial-gradient(circle, white 0%, ${comet.secondaryColor} 60%, transparent 100%)`,
+                boxShadow: `0 0 2px white, 0 0 4px ${comet.secondaryColor}`,
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
       {/* ═══════════════════════════════════════ */}
       {/* CENTER HUD — Arc reactor + rings       */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative" style={{ width: 500, height: 500 }}>
+        <div className="relative" style={{ width: 420, height: 420 }}>
           <svg
-            viewBox="0 0 500 500"
+            viewBox="0 0 420 420"
             className="absolute inset-0 w-full h-full"
             style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 1s ease" }}
             suppressHydrationWarning
@@ -294,10 +397,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {/* Tick marks */}
             {phase >= 2 && TICK_MARKS.map((tick, i) => {
               const rad = (tick.angle * Math.PI) / 180
-              const x1 = +(250 + tick.radius * Math.cos(rad)).toFixed(4)
-              const y1 = +(250 + tick.radius * Math.sin(rad)).toFixed(4)
-              const x2 = +(250 + (tick.radius + tick.length) * Math.cos(rad)).toFixed(4)
-              const y2 = +(250 + (tick.radius + tick.length) * Math.sin(rad)).toFixed(4)
+              const x1 = +(210 + tick.radius * 0.84 * Math.cos(rad)).toFixed(4)
+              const y1 = +(210 + tick.radius * 0.84 * Math.sin(rad)).toFixed(4)
+              const x2 = +(210 + (tick.radius + tick.length) * 0.84 * Math.cos(rad)).toFixed(4)
+              const y2 = +(210 + (tick.radius + tick.length) * 0.84 * Math.sin(rad)).toFixed(4)
               return (
                 <line
                   key={`tick-${i}`}
@@ -312,13 +415,13 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {ARC_SEGMENTS.map((seg, i) => (
               <path
                 key={`arc-${i}`}
-                d={arcPath(250, 250, seg.r, seg.startAngle, seg.span)}
+                d={arcPath(210, 210, seg.r * 0.84, seg.startAngle, seg.span)}
                 fill="none"
                 stroke={`rgba(139, 92, 246, ${0.15 + seg.ring * 0.05})`}
                 strokeWidth={seg.ring === 0 ? 2 : 1}
                 className={`boot2-arc-ring-${seg.ring}`}
                 style={{
-                  transformOrigin: "250px 250px",
+                  transformOrigin: "210px 210px",
                   opacity: phase >= 2 ? 1 : 0,
                   transition: `opacity 0.5s ease ${seg.delay * 0.1}s`,
                 }}
@@ -326,34 +429,34 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             ))}
 
             {/* Inner circle */}
-            <circle cx="250" cy="250" r="60" fill="none"
+            <circle cx="210" cy="210" r="50" fill="none"
               stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1"
               style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
-            <circle cx="250" cy="250" r="62" fill="none"
+            <circle cx="210" cy="210" r="52" fill="none"
               stroke="rgba(139, 92, 246, 0.08)" strokeWidth="0.5"
               strokeDasharray="4 4"
               className="boot2-arc-ring-0"
-              style={{ transformOrigin: "250px 250px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
+              style={{ transformOrigin: "210px 210px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
 
             {/* Crosshairs */}
             {phase >= 2 && (
               <>
-                <line x1="250" y1="170" x2="250" y2="195" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="250" y1="305" x2="250" y2="330" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="170" y1="250" x2="195" y2="250" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="305" y1="250" x2="330" y2="250" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="210" y1="140" x2="210" y2="165" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="210" y1="255" x2="210" y2="280" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="140" y1="210" x2="165" y2="210" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="255" y1="210" x2="280" y2="210" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
               </>
             )}
 
             {/* Diagonal hash marks */}
             {phase >= 3 && [45, 135, 225, 315].map((a) => {
               const rad = (a * Math.PI) / 180
-              const x1 = +(250 + 72 * Math.cos(rad)).toFixed(4)
-              const y1 = +(250 + 72 * Math.sin(rad)).toFixed(4)
-              const x2 = +(250 + 82 * Math.cos(rad)).toFixed(4)
-              const y2 = +(250 + 82 * Math.sin(rad)).toFixed(4)
+              const x1 = +(210 + 60 * Math.cos(rad)).toFixed(4)
+              const y1 = +(210 + 60 * Math.sin(rad)).toFixed(4)
+              const x2 = +(210 + 70 * Math.cos(rad)).toFixed(4)
+              const y2 = +(210 + 70 * Math.sin(rad)).toFixed(4)
               return (
                 <line key={`diag-${a}`} x1={x1} y1={y1} x2={x2} y2={y2}
                   stroke="rgba(167, 139, 250, 0.25)" strokeWidth="1" />
@@ -362,7 +465,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
           </svg>
 
           {/* Center orb — activates at the end */}
-          <div className="absolute" style={{ inset: 195 }}>
+          <div className="absolute" style={{ inset: 160 }}>
             <div
               className="w-full h-full rounded-full"
               style={{
@@ -392,11 +495,44 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             />
           </div>
 
-          {/* HUD readouts floating around reactor */}
-          {HUD_READOUTS.slice(0, visibleReadouts).map((r, i) => {
+          {/* HUD readouts floating around reactor - live metrics */}
+          {HUD_READOUT_CONFIG.slice(0, visibleReadouts).map((r, i) => {
             const rad = (r.angle * Math.PI) / 180
-            const x = 250 + r.distance * Math.cos(rad)
-            const y = 250 + r.distance * Math.sin(rad)
+            const x = 210 + r.distance * Math.cos(rad)
+            const y = 210 + r.distance * Math.sin(rad)
+
+            // Get dynamic value based on key
+            let value = "--"
+            let color = "text-white/70"
+            if (metrics) {
+              switch (r.key) {
+                case "cpu_temp":
+                  value = `${metrics.cpu.temp}°C`
+                  color = metrics.cpu.temp > 80 ? "text-red-400" : metrics.cpu.temp > 60 ? "text-amber-400" : "text-emerald-400"
+                  break
+                case "memory":
+                  value = `${metrics.memory.percent}%`
+                  color = metrics.memory.percent > 85 ? "text-red-400" : metrics.memory.percent > 70 ? "text-amber-400" : "text-violet-400"
+                  break
+                case "gpu_temp":
+                  value = `${metrics.gpu.temp}°C`
+                  color = metrics.gpu.temp > 80 ? "text-red-400" : metrics.gpu.temp > 65 ? "text-amber-400" : "text-emerald-400"
+                  break
+                case "cpu_load":
+                  value = `${metrics.cpu.load}%`
+                  color = metrics.cpu.load > 80 ? "text-red-400" : metrics.cpu.load > 50 ? "text-amber-400" : "text-emerald-400"
+                  break
+                case "disk":
+                  value = `${metrics.disk.percent}%`
+                  color = metrics.disk.percent > 90 ? "text-red-400" : metrics.disk.percent > 75 ? "text-amber-400" : "text-violet-400"
+                  break
+                case "status":
+                  value = "NOMINAL"
+                  color = "text-emerald-400"
+                  break
+              }
+            }
+
             return (
               <div
                 key={`readout-${i}`}
@@ -404,7 +540,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                 style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
               >
                 <div className="text-[8px] text-violet-400/40 tracking-widest">{r.text}</div>
-                <div className="text-[13px] text-white/70 tracking-wide">{r.value}</div>
+                <div className={`text-[13px] tracking-wide ${color}`}>{value}</div>
               </div>
             )
           })}
@@ -434,7 +570,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* LEFT — Terminal console                */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-6 top-16 bottom-20 w-105 overflow-hidden z-10">
+      <div className="absolute left-4 top-12 bottom-16 w-[340px] overflow-hidden z-10">
         <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase font-mono">
           SYS.CONSOLE
         </div>
@@ -467,50 +603,124 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       </div>
 
       {/* ═══════════════════════════════════════ */}
-      {/* RIGHT TOP — Diagnostics bars           */}
+      {/* RIGHT TOP — Hardware Metrics           */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute right-6 top-16 w-52 z-10 font-mono">
-        <div className="text-[9px] text-violet-500/30 mb-3 tracking-[0.3em] uppercase">
-          DIAGNOSTICS
+      <div className="absolute right-4 top-12 w-64 z-10 font-mono">
+        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase">
+          HARDWARE STATUS
         </div>
-        {[
-          { label: "CPU", value: "12.4%", bar: 12, color: "#8b5cf6" },
-          { label: "MEM", value: "2.1 GB", bar: 34, color: "#a78bfa" },
-          { label: "GPU", value: "87.3%", bar: 87, color: "#c084fc" },
-          { label: "NET", value: "42 ms", bar: 8, color: "#818cf8" },
-          { label: "NEURAL", value: "99.7%", bar: 99, color: "#34d399" },
-          { label: "VOICE", value: "READY", bar: 100, color: "#34d399" },
-        ].map((stat, i) => (
-          <div key={i} className="mb-2.5" style={{
-            opacity: phase >= 1 ? 1 : 0,
-            transition: `opacity 0.5s ease ${i * 0.3}s`,
-          }}>
-            <div className="flex justify-between text-[10px] text-white/25 mb-0.5">
-              <span>{stat.label}</span>
-              <span className="text-violet-400/50">{stat.value}</span>
-            </div>
-            <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-1000 ease-out"
-                style={{
-                  width: `${Math.min(progress * (stat.bar / 100) * 2, stat.bar)}%`,
-                  background: stat.color,
-                  opacity: 0.6,
-                }}
-              />
-            </div>
+
+        {/* CPU */}
+        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}>
+          <div className="flex justify-between text-[10px] mb-0.5">
+            <span className="text-white/30">CPU LOAD</span>
+            <span className="text-violet-400/70">{metrics?.cpu.load ?? "--"}%</span>
           </div>
-        ))}
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{
+              width: `${metrics?.cpu.load ?? 0}%`,
+              background: (metrics?.cpu.load ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.load ?? 0) > 50 ? "#f59e0b" : "#22c55e",
+            }} />
+          </div>
+        </div>
+
+        {/* CPU Temp */}
+        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.1s" }}>
+          <div className="flex justify-between text-[10px] mb-0.5">
+            <span className="text-white/30">CPU TEMP</span>
+            <span style={{ color: (metrics?.cpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.temp ?? 0) > 60 ? "#f59e0b" : "#22c55e" }}>
+              {metrics?.cpu.temp ?? "--"}°C
+            </span>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{
+              width: `${Math.min((metrics?.cpu.temp ?? 0), 100)}%`,
+              background: (metrics?.cpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.temp ?? 0) > 60 ? "#f59e0b" : "#22c55e",
+            }} />
+          </div>
+        </div>
+
+        {/* Memory */}
+        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.2s" }}>
+          <div className="flex justify-between text-[10px] mb-0.5">
+            <span className="text-white/30">MEMORY</span>
+            <span className="text-violet-400/70">{metrics?.memory.used ?? "--"} / {metrics?.memory.total ?? "--"} GB</span>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{
+              width: `${metrics?.memory.percent ?? 0}%`,
+              background: (metrics?.memory.percent ?? 0) > 85 ? "#ef4444" : (metrics?.memory.percent ?? 0) > 70 ? "#f59e0b" : "#a78bfa",
+            }} />
+          </div>
+        </div>
+
+        {/* GPU */}
+        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.3s" }}>
+          <div className="flex justify-between text-[10px] mb-0.5">
+            <span className="text-white/30">GPU</span>
+            <span style={{ color: (metrics?.gpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.gpu.temp ?? 0) > 65 ? "#f59e0b" : "#22c55e" }}>
+              {metrics?.gpu.temp ?? "--"}°C
+            </span>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{
+              width: `${Math.min(metrics?.gpu.temp ?? 0, 100)}%`,
+              background: (metrics?.gpu.temp ?? 0) > 80 ? "#ef4444" : (metrics?.gpu.temp ?? 0) > 65 ? "#f59e0b" : "#22c55e",
+            }} />
+          </div>
+        </div>
+
+        {/* Disk */}
+        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.4s" }}>
+          <div className="flex justify-between text-[10px] mb-0.5">
+            <span className="text-white/30">DISK</span>
+            <span className="text-violet-400/70">{metrics?.disk.percent ?? "--"}%</span>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500" style={{
+              width: `${metrics?.disk.percent ?? 0}%`,
+              background: (metrics?.disk.percent ?? 0) > 90 ? "#ef4444" : (metrics?.disk.percent ?? 0) > 75 ? "#f59e0b" : "#818cf8",
+            }} />
+          </div>
+        </div>
+
+        {/* Network */}
+        <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.5s" }}>
+          <div className="flex justify-between text-[10px]">
+            <span className="text-white/30">NETWORK</span>
+            <span className="text-cyan-400/70">↓{metrics?.network.rx ?? 0} ↑{metrics?.network.tx ?? 0} KB/s</span>
+          </div>
+        </div>
+
+        {/* System Status Indicator */}
+        <div className="mt-2 pt-2 border-t border-white/5" style={{ opacity: phase >= 2 ? 1 : 0, transition: "opacity 0.5s ease 0.6s" }}>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400" style={{
+              boxShadow: "0 0 8px rgba(52, 211, 153, 0.6)",
+              animation: "boot-blink 2s ease-in-out infinite",
+            }} />
+            <span className="text-[9px] text-emerald-400/70 tracking-wider">THERMAL OK</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <div className="w-2 h-2 rounded-full" style={{
+              backgroundColor: metrics ? "#22c55e" : "#f59e0b",
+              boxShadow: metrics ? "0 0 8px rgba(34, 197, 94, 0.6)" : "0 0 8px rgba(245, 158, 11, 0.6)",
+            }} />
+            <span className="text-[9px] tracking-wider" style={{ color: metrics ? "rgba(34, 197, 94, 0.7)" : "rgba(245, 158, 11, 0.7)" }}>
+              {metrics ? "SENSORS ACTIVE" : "CONNECTING..."}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* ═══════════════════════════════════════ */}
       {/* RIGHT BOTTOM — Subsystem boot status   */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute right-6 top-80 w-52 z-10 font-mono">
-        <div className="text-[9px] text-violet-500/30 mb-3 tracking-[0.3em] uppercase">
+      <div className="absolute right-4 top-[280px] w-64 z-10 font-mono">
+        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase">
           SUBSYSTEMS
         </div>
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {SUBSYSTEMS.map((sys) => {
             const isOn = onlineSystems.includes(sys.id)
             return (
@@ -548,10 +758,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* BOTTOM LEFT — Network activity          */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-6 bottom-20 w-75 z-10 font-mono" style={{
+      <div className="absolute left-4 bottom-14 w-[340px] z-10 font-mono" style={{
         opacity: phase >= 3 ? 1 : 0, transition: "opacity 0.8s ease",
       }}>
-        <div className="text-[9px] text-violet-500/30 mb-2 tracking-[0.3em] uppercase">
+        <div className="text-[9px] text-violet-500/30 mb-1 tracking-[0.3em] uppercase">
           NETWORK
         </div>
         <div className="space-y-1">
@@ -579,7 +789,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* BOTTOM — Progress bar                  */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute bottom-6 left-6 right-6 z-10">
+      <div className="absolute bottom-4 left-4 right-4 z-10">
         <div className="w-full h-[2px] bg-white/5 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full boot-progress-bar transition-all duration-100 ease-linear"
@@ -597,12 +807,12 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       </div>
 
       {/* Corner HUD elements */}
-      <div className="absolute top-4 left-6 font-mono text-[9px] text-white/10 leading-relaxed z-10">
+      <div className="absolute top-3 left-4 font-mono text-[9px] text-white/10 leading-tight z-10">
         <div>NOVA.SYS.v4.1</div>
         <div>BUILD.2026.02.01</div>
         <div className="text-violet-500/20">SESSION: {sessionId}</div>
       </div>
-      <div className="absolute top-4 right-6 font-mono text-[9px] text-white/10 text-right leading-relaxed z-10">
+      <div className="absolute top-3 right-4 font-mono text-[9px] text-white/10 text-right leading-tight z-10">
         <div>DISPLAY: PRIMARY</div>
         <div>PROTOCOL: QUANTUM-E2E</div>
       </div>

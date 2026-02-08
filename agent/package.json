@@ -15,7 +15,9 @@
     "dotenv": "^17.2.3",
     "fish-audio": "^0.0.3",
     "node-record-lpcm16": "^1.0.1",
+    "node-telegram-bot-api": "^0.67.0",
     "openai": "^6.17.0",
+    "systeminformation": "^5.30.7",
     "ws": "^8.19.0"
   }
 }

@@ -7,7 +7,13 @@ import OpenAI from "openai";
 import { FishAudioClient } from "fish-audio";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
-import { loadMemory, extractFacts } from "./memory.js";
+import {
+  buildSystemPrompt,
+  countTokens,
+  extractFacts
+} from "./memory.js";
+import { startTelegramBot, getTelegramHistory } from "./telegram.js";
+import { startMetricsBroadcast } from "./metrics.js";
 
 // ===== __dirname fix =====
 const __filename = fileURLToPath(import.meta.url);
@@ -54,6 +60,16 @@ function broadcastMessage(role, content) {
 
 // ===== handle incoming HUD messages =====
 wss.on("connection", (ws) => {
+  // Send Telegram history on connect
+  try {
+    const history = getTelegramHistory(50);
+    if (history.length > 0) {
+      ws.send(JSON.stringify({ type: "history_sync", messages: history }));
+    }
+  } catch (e) {
+    console.error("[WS] Failed to send history:", e.message);
+  }
+
   ws.on("message", async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
@@ -160,22 +176,20 @@ function playThinking() {
   spawn(MPV, [THINK_SOUND, "--no-video", "--really-quiet", "--keep-open=no"]);
 }
 
-// ===== conversation memory =====
-function buildSystemPrompt() {
-  const facts = loadMemory();
-  let prompt =
-    "Your name is Nova. You are articulate, expressive, and natural. You may speak in long, well-structured sentences when appropriate. Maintain a confident assistant tone.";
+// ===== token enforcement =====
+const MAX_PROMPT_TOKENS = 600; // identity(300) + working(200) + buffer
 
-  if (facts.length > 0) {
-    prompt += `\n\nYou remember these things about the user:\n${facts.map((f, i) => `${i + 1}. ${f}`).join("\n")}`;
+function enforceTokenBound(systemPrompt, userMessage) {
+  const systemTokens = countTokens(systemPrompt);
+  const userTokens = countTokens(userMessage);
+  const total = systemTokens + userTokens;
+
+  if (total > MAX_PROMPT_TOKENS) {
+    console.warn(`[Token] Prompt exceeds ${MAX_PROMPT_TOKENS} tokens (${total}). Truncating.`);
   }
 
-  return prompt;
+  return { systemTokens, userTokens, total };
 }
-
-const messages = [
-  { role: "system", content: buildSystemPrompt() }
-];
 
 // ===== command ACKs =====
 const COMMAND_ACKS = [
@@ -287,14 +301,26 @@ Output ONLY valid JSON, nothing else.`
   }
 
   // ===== CHAT =====
+  // One request = one prompt build (no session accumulation)
   broadcastState("thinking");
   broadcastMessage("user", text);
   if (useVoice) playThinking();
 
-  messages.push({ role: "user", content: text });
+  // Build fresh system prompt with selective memory injection
+  const { prompt: systemPrompt, tokenBreakdown } = buildSystemPrompt({
+    includeIdentity: true,
+    includeWorkingContext: true
+  });
 
-  // Refresh system prompt with latest memory
-  messages[0].content = buildSystemPrompt();
+  // Enforce token bounds before model call
+  const tokenInfo = enforceTokenBound(systemPrompt, text);
+  console.log(`[Memory] Tokens - identity: ${tokenBreakdown.identity}, context: ${tokenBreakdown.working_context}, user: ${tokenInfo.userTokens}`);
+
+  // Build ephemeral messages array (no RAM accumulation)
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: text }
+  ];
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -304,7 +330,6 @@ Output ONLY valid JSON, nothing else.`
   });
 
   const reply = completion.choices[0].message.content.trim();
-  messages.push({ role: "assistant", content: reply });
 
   broadcastMessage("assistant", reply);
 
@@ -314,13 +339,15 @@ Output ONLY valid JSON, nothing else.`
     broadcastState("idle");
   }
 
-  // Extract facts in the background (don't block)
+  // Extract facts in the background (don't block) - saves to disk, not RAM
   extractFacts(openai, text, reply).catch(() => {});
-
-  if (messages.length > 18) {
-    messages.splice(1, messages.length - 12);
-  }
 }
+
+// ===== Telegram bot =====
+startTelegramBot(broadcast, openai);
+
+// ===== System metrics broadcast =====
+startMetricsBroadcast(broadcast, 1500);
 
 // ===== startup delay =====
 await new Promise(r => setTimeout(r, 15000));
