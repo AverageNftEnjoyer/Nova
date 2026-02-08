@@ -43,6 +43,30 @@ export default function HistoryPage() {
     saveConversations(remaining)
   }, [conversations])
 
+  const handleRename = useCallback((id: string, title: string) => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    const next = conversations.map((c) =>
+      c.id === id ? { ...c, title: trimmed, updatedAt: new Date().toISOString() } : c,
+    )
+    setConversations(next)
+    saveConversations(next)
+  }, [conversations])
+
+  const handleArchive = useCallback((id: string, archived: boolean) => {
+    const next = conversations.map((c) =>
+      c.id === id ? { ...c, archived, updatedAt: new Date().toISOString() } : c,
+    )
+    setConversations(next)
+    saveConversations(next)
+  }, [conversations])
+
+  const handlePin = useCallback((id: string, pinned: boolean) => {
+    const next = conversations.map((c) => (c.id === id ? { ...c, pinned } : c))
+    setConversations(next)
+    saveConversations(next)
+  }, [conversations])
+
   const handleNewChat = useCallback(() => {
     const fresh = createConversation()
     const convos = [fresh, ...conversations]
@@ -70,6 +94,9 @@ export default function HistoryPage() {
         onSelect={handleSelectConvo}
         onNew={handleNewChat}
         onDelete={handleDelete}
+        onRename={handleRename}
+        onArchive={handleArchive}
+        onPin={handlePin}
       />
 
       {/* Main content */}

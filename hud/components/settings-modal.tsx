@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react"
 import {
   X,
   User,
@@ -23,7 +23,9 @@ import {
   type UserSettings,
   type AccessTier,
   type AccentColor,
+  type OrbColor,
   ACCENT_COLORS,
+  ORB_COLORS,
   TTS_VOICES,
 } from "@/lib/userSettings"
 
@@ -34,11 +36,43 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
+type CropOffset = { x: number; y: number }
+
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [activeSection, setActiveSection] = useState<string>("profile")
-  const { setThemeSetting } = useTheme()
+  const [avatarError, setAvatarError] = useState<string | null>(null)
+  const [cropSource, setCropSource] = useState<string | null>(null)
+  const [cropZoom, setCropZoom] = useState(1)
+  const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 })
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null)
+  const [dragStart, setDragStart] = useState<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null)
+  const { theme, setThemeSetting } = useTheme()
   const { setAccentColor } = useAccent()
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const isLight = theme === "light"
+
+  const palette = {
+    bg: isLight ? "#f6f8fc" : "#0f1117",
+    border: isLight ? "#d9e0ea" : "#252b36",
+    hover: isLight ? "#eef3fb" : "#141923",
+    cardBg: isLight ? "#ffffff" : "#121620",
+    cardHover: isLight ? "#f7faff" : "#151a25",
+    subBg: isLight ? "#f4f7fd" : "#0f1117",
+    subBorder: isLight ? "#d5dce8" : "#2b3240",
+    selectedBg: isLight ? "#edf3ff" : "#161b25",
+  }
+
+  const paletteVars = {
+    "--settings-bg": palette.bg,
+    "--settings-border": palette.border,
+    "--settings-hover": palette.hover,
+    "--settings-card-bg": palette.cardBg,
+    "--settings-card-hover": palette.cardHover,
+    "--settings-sub-bg": palette.subBg,
+    "--settings-sub-border": palette.subBorder,
+    "--settings-selected-bg": palette.selectedBg,
+  } as CSSProperties
 
   useEffect(() => {
     if (isOpen) {
@@ -57,7 +91,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setSettings(fresh)
   }, [])
 
-  const updateProfile = (key: string, value: string) => {
+  const updateProfile = (key: string, value: string | null) => {
     if (!settings) return
     const newSettings = {
       ...settings,
@@ -65,6 +99,112 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
     autoSave(newSettings)
   }
+
+  const CROP_FRAME = 240
+  const EXPORT_SIZE = 320
+  const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+
+  const getBaseScale = useCallback(
+    (size: { width: number; height: number } | null) => {
+      if (!size) return 1
+      return Math.max(CROP_FRAME / size.width, CROP_FRAME / size.height)
+    },
+    [],
+  )
+
+  const clampOffset = useCallback(
+    (next: CropOffset, zoom: number, size: { width: number; height: number } | null): CropOffset => {
+      if (!size) return { x: 0, y: 0 }
+      const displayScale = getBaseScale(size) * zoom
+      const displayedWidth = size.width * displayScale
+      const displayedHeight = size.height * displayScale
+      const maxX = Math.max(0, (displayedWidth - CROP_FRAME) / 2)
+      const maxY = Math.max(0, (displayedHeight - CROP_FRAME) / 2)
+      return {
+        x: Math.max(-maxX, Math.min(maxX, next.x)),
+        y: Math.max(-maxY, Math.min(maxY, next.y)),
+      }
+    },
+    [getBaseScale],
+  )
+
+  const handleAvatarUpload = useCallback(async (file: File) => {
+    if (!settings) return
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      setAvatarError("Only JPG, PNG, or WEBP images are allowed.")
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setAvatarError("Image is too large. Max size is 8MB.")
+      return
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ""))
+      reader.onerror = () => reject(new Error("Could not read image file."))
+      reader.readAsDataURL(file)
+    })
+
+    const size = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+      img.onerror = () => reject(new Error("Invalid image file."))
+      img.src = dataUrl
+    })
+
+    setImageSize(size)
+    setCropSource(dataUrl)
+    setCropZoom(1)
+    setCropOffset({ x: 0, y: 0 })
+    setAvatarError(null)
+  }, [settings])
+
+  const saveCroppedAvatar = useCallback(async () => {
+    if (!cropSource || !imageSize) return
+
+    const output = await new Promise<string>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        const baseScale = getBaseScale(imageSize)
+        const displayScale = baseScale * cropZoom
+        const displayedWidth = imageSize.width * displayScale
+        const displayedHeight = imageSize.height * displayScale
+        const imageLeft = CROP_FRAME / 2 - displayedWidth / 2 + cropOffset.x
+        const imageTop = CROP_FRAME / 2 - displayedHeight / 2 + cropOffset.y
+
+        let sx = ((0 - imageLeft) / displayedWidth) * imageSize.width
+        let sy = ((0 - imageTop) / displayedHeight) * imageSize.height
+        let sw = (CROP_FRAME / displayedWidth) * imageSize.width
+        let sh = (CROP_FRAME / displayedHeight) * imageSize.height
+
+        sx = Math.max(0, Math.min(imageSize.width - 1, sx))
+        sy = Math.max(0, Math.min(imageSize.height - 1, sy))
+        sw = Math.max(1, Math.min(imageSize.width - sx, sw))
+        sh = Math.max(1, Math.min(imageSize.height - sy, sh))
+
+        const canvas = document.createElement("canvas")
+        canvas.width = EXPORT_SIZE
+        canvas.height = EXPORT_SIZE
+        const ctx = canvas.getContext("2d")
+        if (!ctx) {
+          reject(new Error("Could not process image."))
+          return
+        }
+
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, EXPORT_SIZE, EXPORT_SIZE)
+        resolve(canvas.toDataURL("image/jpeg", 0.9))
+      }
+      img.onerror = () => reject(new Error("Could not process image."))
+      img.src = cropSource
+    })
+
+    updateProfile("avatar", output)
+    setCropSource(null)
+    setImageSize(null)
+    setCropZoom(1)
+    setCropOffset({ x: 0, y: 0 })
+  }, [cropOffset.x, cropOffset.y, cropSource, cropZoom, getBaseScale, imageSize])
 
   const updateApp = (key: string, value: boolean | string) => {
     if (!settings) return
@@ -105,19 +245,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   ]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div style={paletteVars} className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className={`absolute inset-0 ${isLight ? "bg-black/45" : "bg-black/75"}`}
         onClick={onClose}
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-3xl max-h-[85vh] bg-page border border-s-10 rounded-2xl shadow-2xl flex overflow-hidden">
+      <div className="relative w-full max-w-3xl max-h-[85vh] bg-[var(--settings-bg)] border border-[var(--settings-border)] rounded-2xl flex overflow-hidden">
         {/* Left Nav */}
-        <div className="w-48 bg-s-2 border-r border-s-5 flex flex-col shrink-0">
-          <div className="p-4 border-b border-s-5">
-            <h2 className="text-lg font-medium text-white">Settings</h2>
+        <div className="w-48 bg-[var(--settings-bg)] border-r border-[var(--settings-border)] flex flex-col shrink-0">
+          <div className="p-4 border-b border-[var(--settings-border)]">
+            <h2 className="text-lg font-medium text-s-90">Settings</h2>
           </div>
 
           <div className="flex-1 py-2 px-2 overflow-y-auto">
@@ -128,13 +268,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <button
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 mb-0.5 group ${
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 mb-0.5 ${
                     isActive
-                      ? "bg-accent-20 text-accent shadow-sm"
-                      : "text-s-50 hover:bg-s-8 hover:text-white hover:translate-x-0.5"
+                      ? "bg-[var(--settings-selected-bg)] text-accent border border-accent-30"
+                      : "text-s-50 border border-transparent hover:bg-[var(--settings-hover)] hover:text-s-80 hover:border-[var(--settings-sub-border)]"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 transition-transform duration-200 ${!isActive ? "group-hover:scale-110" : ""}`} />
+                  <Icon className="w-4 h-4" />
                   {section.label}
                 </button>
               )
@@ -142,12 +282,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
 
           {/* Reset Button Only */}
-          <div className="p-3 border-t border-s-5">
+          <div className="p-3 border-t border-[var(--settings-border)]">
             <Button
               onClick={handleReset}
               variant="ghost"
               size="sm"
-              className="w-full gap-2 text-s-40 hover:text-s-60 hover:bg-s-8 h-9 transition-all duration-200"
+              className="w-full gap-2 text-s-40 hover:text-s-60 hover:bg-[var(--settings-hover)] h-9 transition-colors duration-150"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Reset to Default
@@ -156,22 +296,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         {/* Right Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden bg-[var(--settings-bg)]">
           {/* Header with close */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-s-5">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--settings-border)] bg-[var(--settings-bg)]">
             <h3 className="text-sm font-medium text-s-50 uppercase tracking-wider">
               {sections.find((s) => s.id === activeSection)?.label}
             </h3>
             <button
               onClick={onClose}
-              className="p-2 rounded-xl hover:bg-s-5 text-s-40 hover:text-s-70 transition-colors"
+              className="p-2 rounded-xl hover:bg-[var(--settings-hover)] text-s-40 hover:text-s-70 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-6 bg-[var(--settings-bg)]">
             {!settings ? (
               <div className="flex items-center justify-center py-20">
                 <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -182,9 +322,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {activeSection === "profile" && (
                   <div className="space-y-5">
                     {/* Avatar */}
-                    <div className="flex items-center gap-4 p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200 group">
+                    <div className="flex items-center gap-4 p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <div
-                        className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden shadow-lg transition-all duration-200"
+                        className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
                         style={{
                           background: `linear-gradient(to bottom right, var(--accent-primary), var(--accent-secondary))`,
                           boxShadow: `0 10px 15px -3px rgba(var(--accent-rgb), 0.2)`
@@ -201,10 +341,37 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         )}
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm text-s-70 group-hover:text-s-90 transition-colors">Profile Picture</p>
+                        <p className="text-sm text-s-70">Profile Picture</p>
                         <p className="text-xs text-s-30">Upload a custom avatar</p>
+                        {avatarError && (
+                          <p className="text-xs text-red-400 mt-1">{avatarError}</p>
+                        )}
                       </div>
-                      <Button variant="outline" size="sm" className="gap-2 text-s-50 border-s-10 hover:border-accent-30 hover:text-accent hover:bg-accent-10 transition-all duration-200">
+                      <input
+                        ref={avatarInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const inputEl = e.currentTarget
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          try {
+                            await handleAvatarUpload(file)
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : "Failed to upload image."
+                            setAvatarError(msg)
+                          } finally {
+                            inputEl.value = ""
+                          }
+                        }}
+                      />
+                      <Button
+                        onClick={() => avatarInputRef.current?.click()}
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-s-50 border-[var(--settings-sub-border)] hover:border-accent-30 hover:text-accent hover:bg-accent-10 transition-colors duration-150"
+                      >
                         <Camera className="w-4 h-4" />
                         Upload
                       </Button>
@@ -241,7 +408,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     {/* Accent Color */}
-                    <div className="p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200">
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Accent Color</p>
                       <p className="text-xs text-s-30 mb-4">Choose your UI accent color</p>
                       <div className="flex gap-3 flex-wrap">
@@ -255,17 +422,49 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 // Also update local state so UI stays in sync
                                 setSettings(prev => prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev)
                               }}
-                              className={`w-10 h-10 rounded-xl transition-all duration-200 hover:scale-110 hover:shadow-lg ${
-                                isSelected ? "ring-2 ring-white ring-offset-2 ring-offset-s-3 scale-110" : "hover:ring-1 hover:ring-white/30"
+                              className={`w-10 h-10 rounded-xl transition-colors duration-150 border ${
+                                isSelected ? "border-accent-30" : "border-[var(--settings-sub-border)]"
                               }`}
                               style={{
                                 backgroundColor: ACCENT_COLORS[color].primary,
-                                boxShadow: isSelected ? `0 4px 20px ${ACCENT_COLORS[color].primary}50` : undefined
                               }}
                               title={ACCENT_COLORS[color].name}
                             >
                               {isSelected && (
-                                <Check className="w-5 h-5 text-white mx-auto drop-shadow-md" />
+                                <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/25">
+                                  <Check className="w-3.5 h-3.5 text-white" />
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Orb Color */}
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                      <p className="text-sm text-s-70 mb-1">Nova Orb Color</p>
+                      <p className="text-xs text-s-30 mb-4">Choose the orb color on the home screen</p>
+                      <div className="flex gap-3 flex-wrap">
+                        {(Object.keys(ORB_COLORS) as OrbColor[]).map((color) => {
+                          const palette = ORB_COLORS[color]
+                          const isSelected = settings.app.orbColor === color
+                          return (
+                            <button
+                              key={color}
+                              onClick={() => updateApp("orbColor", color)}
+                              className={`w-10 h-10 rounded-xl transition-colors duration-150 border ${
+                                isSelected ? "border-accent-30" : "border-[var(--settings-sub-border)]"
+                              }`}
+                              style={{
+                                background: `linear-gradient(135deg, ${palette.circle1}, ${palette.circle2})`,
+                              }}
+                              title={palette.name}
+                            >
+                              {isSelected && (
+                                <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/25">
+                                  <Check className="w-3.5 h-3.5 text-white" />
+                                </span>
                               )}
                             </button>
                           )
@@ -322,7 +521,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     {/* TTS Voice Selection */}
-                    <div className="p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200">
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">TTS Voice</p>
                       <p className="text-xs text-s-30 mb-3">Choose Nova's speaking voice</p>
                       <div className="space-y-2">
@@ -332,24 +531,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <button
                               key={voice.id}
                               onClick={() => updateApp("ttsVoice", voice.id)}
-                              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
+                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 ${
                                 isSelected
-                                  ? "bg-accent-15 border border-accent-30 shadow-sm shadow-accent"
-                                  : "bg-s-5 border border-s-5 hover:bg-s-8 hover:border-s-10"
+                                  ? "bg-[var(--settings-selected-bg)] border border-accent-30"
+                                  : "bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
                               }`}
                             >
-                              <div
-                                className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-                                  isSelected
-                                    ? "bg-accent shadow-sm shadow-accent"
-                                    : "bg-s-20 group-hover:bg-s-30"
-                                }`}
-                              />
                               <div className="flex-1 text-left">
                                 <span className={`text-sm transition-colors duration-200 ${
                                   isSelected
                                     ? "text-accent"
-                                    : "text-s-60 group-hover:text-s-80"
+                                    : "text-s-60"
                                 }`}>
                                   {voice.name}
                                 </span>
@@ -399,7 +591,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {/* Personalization Section */}
                 {activeSection === "personalization" && (
                   <div className="space-y-5">
-                    <div className="p-4 rounded-xl bg-accent-10 border border-accent-30 hover:bg-accent-15 transition-all duration-200 mb-4">
+                    <div className="p-4 rounded-xl bg-accent-10 border border-accent-30 transition-colors duration-150 hover:bg-accent-15 mb-4">
                       <p className="text-sm text-accent-secondary">
                         Help Nova understand you better by filling in these details.
                         This information helps personalize your experience.
@@ -478,7 +670,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {/* Access Level Section */}
                 {activeSection === "access" && (
                   <div className="space-y-5">
-                    <div className="p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200">
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <div className="flex items-center gap-3 mb-4">
                         <div className="w-10 h-10 rounded-xl bg-accent-15 flex items-center justify-center">
                           <Shield className="w-5 h-5 text-accent" />
@@ -498,24 +690,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <button
                               key={tier}
                               onClick={() => updateProfile("accessTier", tier)}
-                              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
+                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 ${
                                 isSelected
-                                  ? "bg-accent-15 border border-accent-30 shadow-sm shadow-accent"
-                                  : "bg-s-5 border border-s-5 hover:bg-s-8 hover:border-s-10"
+                                  ? "bg-[var(--settings-selected-bg)] border border-accent-30"
+                                  : "bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
                               }`}
                             >
-                              <div
-                                className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-                                  isSelected
-                                    ? "bg-accent shadow-sm shadow-accent"
-                                    : "bg-s-20 group-hover:bg-s-30"
-                                }`}
-                              />
                               <span
                                 className={`text-sm transition-colors duration-200 ${
                                   isSelected
                                     ? "text-accent"
-                                    : "text-s-50 group-hover:text-s-70"
+                                    : "text-s-50"
                                 }`}
                               >
                                 {tier}
@@ -532,6 +717,84 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       </div>
+
+      {cropSource && imageSize && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70">
+          <div className="w-[360px] rounded-2xl border border-[var(--settings-border)] bg-[var(--settings-card-bg)] p-4">
+            <h4 className="text-sm font-medium text-s-90">Adjust profile photo</h4>
+            <p className="mt-1 text-xs text-s-40">Drag to reposition. Use zoom to crop.</p>
+
+            <div className="mt-4 flex justify-center">
+              <div
+                className="relative h-[240px] w-[240px] overflow-hidden rounded-full border border-[var(--settings-sub-border)] bg-[var(--settings-sub-bg)] cursor-grab active:cursor-grabbing"
+                onPointerDown={(e) => {
+                  e.preventDefault()
+                  const target = e.currentTarget
+                  target.setPointerCapture(e.pointerId)
+                  setDragStart({ x: e.clientX, y: e.clientY, offsetX: cropOffset.x, offsetY: cropOffset.y })
+                }}
+                onPointerMove={(e) => {
+                  if (!dragStart) return
+                  const next = {
+                    x: dragStart.offsetX + (e.clientX - dragStart.x),
+                    y: dragStart.offsetY + (e.clientY - dragStart.y),
+                  }
+                  setCropOffset(clampOffset(next, cropZoom, imageSize))
+                }}
+                onPointerUp={(e) => {
+                  e.currentTarget.releasePointerCapture(e.pointerId)
+                  setDragStart(null)
+                }}
+                onPointerCancel={() => setDragStart(null)}
+              >
+                <img
+                  src={cropSource}
+                  alt="Crop preview"
+                  draggable={false}
+                  className="absolute left-1/2 top-1/2 select-none"
+                  style={{
+                    width: `${imageSize.width * getBaseScale(imageSize) * cropZoom}px`,
+                    height: `${imageSize.height * getBaseScale(imageSize) * cropZoom}px`,
+                    transform: `translate(calc(-50% + ${cropOffset.x}px), calc(-50% + ${cropOffset.y}px))`,
+                    maxWidth: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1 block text-xs text-s-50">Zoom</label>
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.01}
+                value={cropZoom}
+                onChange={(e) => {
+                  const nextZoom = Number(e.target.value)
+                  setCropZoom(nextZoom)
+                  setCropOffset((prev) => clampOffset(prev, nextZoom, imageSize))
+                }}
+                className="w-full accent-violet-500"
+              />
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCropSource(null)
+                  setImageSize(null)
+                  setDragStart(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={saveCroppedAvatar}>Save Photo</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -552,7 +815,7 @@ function SettingToggle({
   onChange: (v: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between p-4 rounded-xl bg-s-3 border border-s-5 hover:bg-s-5 hover:border-s-10 transition-all duration-200 cursor-pointer group"
+    <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] cursor-pointer group"
       onClick={() => onChange(!checked)}
     >
       <div>
@@ -560,12 +823,12 @@ function SettingToggle({
         <p className="text-xs text-s-30 mt-0.5">{description}</p>
       </div>
       <button
-        className={`relative w-11 h-6 rounded-full transition-all duration-200 ${
-          checked ? "bg-accent shadow-lg shadow-accent" : "bg-s-15 group-hover:bg-s-20"
+        className={`relative w-11 h-6 rounded-full transition-colors duration-150 ${
+          checked ? "bg-accent" : "bg-[var(--settings-sub-border)]"
         }`}
       >
         <div
-          className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-all duration-200 ${
+          className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-200 ${
             checked ? "left-6" : "left-1"
           }`}
         />
@@ -588,7 +851,7 @@ function SettingInput({
   placeholder?: string
 }) {
   return (
-    <div className="p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200">
+    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <input
@@ -596,7 +859,7 @@ function SettingInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg bg-s-5 border border-s-10 text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-s-8 transition-all duration-200"
+        className="w-full px-3 py-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-[var(--settings-hover)] transition-colors duration-150"
       />
     </div>
   )
@@ -618,7 +881,7 @@ function SettingTextarea({
   rows?: number
 }) {
   return (
-    <div className="p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200">
+    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <textarea
@@ -626,7 +889,7 @@ function SettingTextarea({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows}
-        className="w-full px-3 py-2 rounded-lg bg-s-5 border border-s-10 text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-s-8 transition-all duration-200 resize-none"
+        className="w-full px-3 py-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-[var(--settings-hover)] transition-colors duration-150 resize-none"
       />
     </div>
   )
@@ -646,21 +909,23 @@ function SettingSelect({
   onChange: (v: string) => void
 }) {
   return (
-    <div className="p-4 rounded-xl bg-s-3 border border-s-5 hover:border-s-10 transition-all duration-200">
+    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-wrap gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5">
         {options.map((opt) => (
           <button
             key={opt.value}
             onClick={() => onChange(opt.value)}
-            className={`px-4 py-2 rounded-lg text-sm transition-all duration-200 ${
+            className={`min-w-[92px] px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
               value === opt.value
-                ? "bg-accent-20 text-accent border border-accent-30 shadow-sm shadow-accent"
-                : "bg-s-5 text-s-50 border border-s-10 hover:bg-s-10 hover:text-s-70 hover:border-s-15"
+                ? "bg-[var(--settings-selected-bg)] text-accent border-accent-30"
+                : "bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)] hover:text-s-80"
             }`}
           >
-            {opt.label}
+            <span className="inline-flex items-center justify-center gap-1.5">
+              {opt.label}
+            </span>
           </button>
         ))}
       </div>

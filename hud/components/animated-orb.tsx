@@ -3,16 +3,38 @@
 import type React from "react"
 import { useNovaState } from "@/lib/useNovaState"
 
+type OrbPalette = {
+  bg: string
+  circle1: string
+  circle2: string
+  circle3: string
+  circle4: string
+  circle5: string
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 export function AnimatedOrb({
   className,
   variant = "default",
   size = 32,
+  palette,
 }: {
   className?: string
   variant?: "default" | "red"
   size?: number
+  palette?: OrbPalette
 }) {
   const { state, connected } = useNovaState()
+  const useCustomPalette = variant !== "red" && !!palette
 
   const isSpeaking = state === "speaking"
   const isListening = state === "listening"
@@ -28,6 +50,8 @@ export function AnimatedOrb({
           circle4: "#fca5a5",
           circle5: "#fb7185",
         }
+      : palette
+      ? palette
       : {
           bg: "#1a1a2e",
           circle1: "#9e9fef",
@@ -52,20 +76,28 @@ export function AnimatedOrb({
 
   // State-dependent glow colors
   const stateGlow = isSpeaking
-    ? "rgba(158, 159, 239, 0.5) 0px 0px 80px 20px, rgba(196, 113, 236, 0.4) 0px 0px 160px 40px, rgba(139, 92, 246, 0.2) 0px 0px 240px 60px"
+    ? `${hexToRgba(colors.circle1, 0.5)} 0px 0px 80px 20px, ${hexToRgba(colors.circle2, 0.4)} 0px 0px 160px 40px, ${hexToRgba(colors.circle4, 0.2)} 0px 0px 240px 60px`
     : isListening
-    ? "rgba(52, 211, 153, 0.35) 0px 0px 60px 15px, rgba(16, 185, 129, 0.2) 0px 0px 120px 30px"
+    ? `${hexToRgba(colors.circle3, 0.35)} 0px 0px 60px 15px, ${hexToRgba(colors.circle1, 0.2)} 0px 0px 120px 30px`
     : isThinking
-    ? "rgba(251, 191, 36, 0.3) 0px 0px 60px 15px, rgba(245, 158, 11, 0.15) 0px 0px 120px 30px"
-    : "rgba(139, 92, 246, 0.15) 0px 0px 40px 8px, rgba(99, 102, 241, 0.08) 0px 0px 80px 20px"
+    ? `${hexToRgba(colors.circle4, 0.3)} 0px 0px 60px 15px, ${hexToRgba(colors.circle2, 0.15)} 0px 0px 120px 30px`
+    : `${hexToRgba(colors.circle4, 0.15)} 0px 0px 40px 8px, ${hexToRgba(colors.circle3, 0.08)} 0px 0px 80px 20px`
 
   // State-dependent animation
   const stateAnimation = isSpeaking
-    ? "orb-hue-rotate 3s linear infinite, orb-pulse 1.5s ease-in-out infinite, orb-morph 2s ease-in-out infinite"
+    ? useCustomPalette
+      ? "orb-pulse 1.5s ease-in-out infinite, orb-morph 2s ease-in-out infinite, orb-custom-color-surge 1.25s ease-in-out infinite"
+      : "orb-hue-rotate 3s linear infinite, orb-pulse 1.5s ease-in-out infinite, orb-morph 2s ease-in-out infinite"
     : isListening
-    ? "orb-hue-rotate 4s linear infinite, orb-pulse 2s ease-in-out infinite, orb-listening-breathe 1.5s ease-in-out infinite"
+    ? useCustomPalette
+      ? "orb-pulse 2s ease-in-out infinite, orb-listening-breathe 1.5s ease-in-out infinite, orb-custom-color-breathe 2.2s ease-in-out infinite"
+      : "orb-hue-rotate 4s linear infinite, orb-pulse 2s ease-in-out infinite, orb-listening-breathe 1.5s ease-in-out infinite"
     : isThinking
-    ? "orb-hue-rotate 2s linear infinite, orb-thinking-spin 3s linear infinite"
+    ? useCustomPalette
+      ? "orb-thinking-spin 3s linear infinite, orb-custom-color-breathe 1.8s ease-in-out infinite"
+      : "orb-hue-rotate 2s linear infinite, orb-thinking-spin 3s linear infinite"
+    : useCustomPalette
+    ? "orb-idle-float 4s ease-in-out infinite, orb-custom-color-breathe 3.2s ease-in-out infinite"
     : "orb-hue-rotate 10s linear infinite, orb-idle-float 4s ease-in-out infinite"
 
   return (
@@ -77,10 +109,10 @@ export function AnimatedOrb({
           style={{
             inset: -4,
             border: `1px solid ${
-              isSpeaking ? "rgba(167, 139, 250, 0.4)"
-              : isListening ? "rgba(52, 211, 153, 0.4)"
-              : isThinking ? "rgba(251, 191, 36, 0.3)"
-              : "rgba(139, 92, 246, 0.1)"
+              isSpeaking ? hexToRgba(colors.circle4, 0.45)
+              : isListening ? hexToRgba(colors.circle1, 0.4)
+              : isThinking ? hexToRgba(colors.circle2, 0.35)
+              : hexToRgba(colors.circle4, 0.25)
             }`,
             animation: isSpeaking
               ? "orb-ring-pulse 1.5s ease-in-out infinite"
@@ -99,7 +131,7 @@ export function AnimatedOrb({
           className="absolute rounded-full pointer-events-none"
           style={{
             inset: -12,
-            border: "1px solid rgba(196, 113, 236, 0.2)",
+            border: `1px solid ${hexToRgba(colors.circle2, 0.25)}`,
             animation: "orb-ring-pulse 2s ease-in-out infinite 0.5s",
           }}
         />
@@ -124,15 +156,15 @@ export function AnimatedOrb({
             <div
               className="absolute inset-0 rounded-full orb-glow-ring"
               style={{
-                background:
-                  "radial-gradient(circle, transparent 40%, rgba(158, 159, 239, 0.3) 70%, transparent 100%)",
+              background:
+                  `radial-gradient(circle, transparent 40%, ${hexToRgba(colors.circle1, 0.3)} 70%, transparent 100%)`,
               }}
             />
             <div
               className="absolute inset-0 rounded-full orb-glow-ring-2"
               style={{
                 background:
-                  "radial-gradient(circle, transparent 50%, rgba(196, 113, 236, 0.25) 80%, transparent 100%)",
+                  `radial-gradient(circle, transparent 50%, ${hexToRgba(colors.circle2, 0.25)} 80%, transparent 100%)`,
               }}
             />
           </>
@@ -144,7 +176,7 @@ export function AnimatedOrb({
             className="absolute inset-0 rounded-full"
             style={{
               background:
-                "radial-gradient(circle, rgba(52, 211, 153, 0.15) 0%, transparent 70%)",
+                `radial-gradient(circle, ${hexToRgba(colors.circle1, 0.2)} 0%, transparent 70%)`,
               animation: "orb-glow-pulse 2s ease-in-out infinite",
             }}
           />
@@ -156,7 +188,7 @@ export function AnimatedOrb({
             className="absolute inset-0 rounded-full"
             style={{
               background:
-                "conic-gradient(from 0deg, transparent, rgba(251, 191, 36, 0.2), transparent, rgba(139, 92, 246, 0.15), transparent)",
+                `conic-gradient(from 0deg, transparent, ${hexToRgba(colors.circle4, 0.2)}, transparent, ${hexToRgba(colors.circle2, 0.15)}, transparent)`,
               animation: "orb-thinking-conic 2s linear infinite",
             }}
           />
@@ -168,7 +200,11 @@ export function AnimatedOrb({
           style={
             {
               "--orb-blur": `${isSpeaking ? blurAmount * 1.6 : blurAmount}px`,
-              animation: isSpeaking
+              animation: useCustomPalette
+                ? isSpeaking
+                  ? "orb-custom-blur-surge 1.1s ease-in-out infinite"
+                  : "orb-custom-blur-drift 2.8s ease-in-out infinite"
+                : isSpeaking
                 ? "orb-hue-rotate-blur 2s linear infinite reverse"
                 : "orb-hue-rotate-blur 6s linear infinite reverse",
               transition: "filter 0.3s ease-out",
@@ -220,11 +256,11 @@ export function AnimatedOrb({
           className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] font-mono tracking-wider uppercase whitespace-nowrap"
           style={{
             color: isSpeaking
-              ? "rgba(167, 139, 250, 0.7)"
+              ? hexToRgba(colors.circle4, 0.75)
               : isListening
-              ? "rgba(52, 211, 153, 0.7)"
+              ? hexToRgba(colors.circle1, 0.75)
               : isThinking
-              ? "rgba(251, 191, 36, 0.7)"
+              ? hexToRgba(colors.circle2, 0.75)
               : "rgba(255, 255, 255, 0.3)",
           }}
         >

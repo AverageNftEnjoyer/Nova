@@ -1,15 +1,16 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { MessageSquareDashed, Volume2, VolumeX, PanelLeftOpen, PanelLeftClose, ZoomIn, ZoomOut } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { MessageSquareDashed, PanelLeftOpen, PanelLeftClose, House } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "./composer"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import { useNovaState } from "@/lib/useNovaState"
 import { ChatSidebar } from "./chat-sidebar"
 import { PartyOverlay } from "./party-overlay"
-import { ThemeToggle } from "./theme-toggle"
+import { useTheme } from "@/lib/theme-context"
+import { cn } from "@/lib/utils"
 import {
   type Conversation,
   type ChatMessage,
@@ -34,30 +35,15 @@ export interface Message {
 }
 
 export function ChatShell() {
+  const router = useRouter()
+  const { theme } = useTheme()
+  const isLight = theme === "light"
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [voiceMode, setVoiceMode] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [chatZoom, setChatZoom] = useState(100)
-
-  // Load zoom preference from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("nova-chat-zoom")
-    if (saved) {
-      const val = parseInt(saved, 10)
-      if (val >= 70 && val <= 130) setChatZoom(val)
-    }
-  }, [])
-
-  const adjustZoom = useCallback((delta: number) => {
-    setChatZoom(prev => {
-      const next = Math.max(70, Math.min(130, prev + delta))
-      localStorage.setItem("nova-chat-zoom", String(next))
-      return next
-    })
-  }, [])
-  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript } = useNovaState()
+  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript } = useNovaState()
 
   const mergedCountRef = useRef(0)
   const telegramMergedCountRef = useRef(0)
@@ -278,6 +264,46 @@ export function ChatShell() {
     [conversations, activeConvo, clearAgentMessages, persist],
   )
 
+  const handleRenameConvo = useCallback(
+    (id: string, title: string) => {
+      const trimmed = title.trim()
+      if (!trimmed) return
+      const next = conversations.map((c) =>
+        c.id === id ? { ...c, title: trimmed, updatedAt: new Date().toISOString() } : c,
+      )
+      const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+      persist(next, nextActive)
+    },
+    [conversations, activeConvo, persist],
+  )
+
+  const handleArchiveConvo = useCallback(
+    (id: string, archived: boolean) => {
+      const next = conversations.map((c) =>
+        c.id === id ? { ...c, archived, updatedAt: new Date().toISOString() } : c,
+      )
+
+      if (activeConvo?.id === id && archived) {
+        const fallback = next.find((c) => !c.archived && c.id !== id) ?? next.find((c) => c.id !== id) ?? null
+        persist(next, fallback)
+        return
+      }
+
+      const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+      persist(next, nextActive)
+    },
+    [conversations, activeConvo, persist],
+  )
+
+  const handlePinConvo = useCallback(
+    (id: string, pinned: boolean) => {
+      const next = conversations.map((c) => (c.id === id ? { ...c, pinned } : c))
+      const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+      persist(next, nextActive)
+    },
+    [conversations, activeConvo, persist],
+  )
+
   // Clear current chat
   const clearChat = useCallback(() => {
     if (!activeConvo) return
@@ -307,25 +333,42 @@ export function ChatShell() {
         onSelect={handleSelectConvo}
         onNew={handleNewChat}
         onDelete={handleDeleteConvo}
+        onRename={handleRenameConvo}
+        onArchive={handleArchiveConvo}
+        onPin={handlePinConvo}
+        onToggleAudio={() => setVoiceMode((v) => !v)}
+        audioEnabled={voiceMode}
+        novaState={novaState}
+        agentConnected={agentConnected}
       />
 
       {/* Main chat area */}
       <div
-        className="relative flex-1 h-dvh"
+        className="flex flex-col flex-1 h-dvh"
         style={{
-          boxShadow:
-            "rgba(139, 92, 246, 0.03) 0px 0px 0px 1px, rgba(0, 0, 0, 0.2) 0px 1px 1px -0.5px",
+          boxShadow: isLight
+            ? "0 0 0 1px rgba(217, 224, 234, 1)"
+            : "rgba(139, 92, 246, 0.03) 0px 0px 0px 1px, rgba(0, 0, 0, 0.2) 0px 1px 1px -0.5px",
         }}
       >
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-3 py-2">
+        <div className={cn("z-20 flex items-center px-3 py-2 border-b", isLight ? "border-[#d9e0ea] bg-[#f6f8fc]" : "border-s-5 bg-page/90 backdrop-blur-md")}>
           {/* Left buttons */}
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => router.push("/home")}
+              variant="ghost"
+              size="icon"
+              className={cn("h-9 w-9 rounded-full text-s-60", isLight ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "bg-s-5 hover:bg-s-10")}
+              aria-label="Go to home"
+            >
+              <House className="w-4 h-4" />
+            </Button>
             <Button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
+              className={cn("h-9 w-9 rounded-full text-s-60", isLight ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "bg-s-5 hover:bg-s-10")}
               aria-label="Toggle sidebar"
             >
               {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
@@ -335,88 +378,20 @@ export function ChatShell() {
               onClick={clearChat}
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
+              className={cn("h-9 w-9 rounded-full text-s-60", isLight ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "bg-s-5 hover:bg-s-10")}
               aria-label="Clear chat"
             >
               <MessageSquareDashed className="w-4 h-4" />
             </Button>
           </div>
+          <div className="flex-1" />
 
-          {/* Center — Nova status */}
-          <div className="flex-1 flex justify-center">
-            {agentConnected && (
-              <button
-                onClick={novaState === "speaking" ? interrupt : undefined}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-1.5 rounded-full text-xs transition-colors",
-                  novaState === "speaking"
-                    ? "bg-violet-500/20 text-violet-400 hover:bg-red-500/20 hover:text-red-400 cursor-pointer"
-                    : "bg-s-5 text-s-50 cursor-default",
-                )}
-                aria-label={novaState === "speaking" ? "Click to interrupt Nova" : undefined}
-              >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{
-                    backgroundColor:
-                      novaState === "speaking"
-                        ? "#a78bfa"
-                        : novaState === "thinking"
-                        ? "#fbbf24"
-                        : novaState === "listening"
-                        ? "#34d399"
-                        : "#94a3b8",
-                  }}
-                />
-                {novaState === "speaking" ? "Nova speaking — click to stop" : `Nova ${novaState}`}
-              </button>
-            )}
-
-            {!agentConnected && (
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-500/10 text-xs text-red-400">
-                <span className="w-2 h-2 rounded-full bg-red-400" />
-                Agent offline
-              </div>
-            )}
-          </div>
-
-          {/* Right — Zoom + Voice toggle + Theme toggle */}
-          <div className="flex items-center gap-1.5">
-            <Button
-              onClick={() => adjustZoom(-10)}
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
-              aria-label="Zoom out"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </Button>
-            <span className="text-xs text-s-40 w-8 text-center select-none">{chatZoom}%</span>
-            <Button
-              onClick={() => adjustZoom(10)}
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-full bg-s-5 hover:bg-s-10 text-s-60"
-              aria-label="Zoom in"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              onClick={() => setVoiceMode(!voiceMode)}
-              variant="ghost"
-              size="icon"
-              className={`h-9 w-9 rounded-full ${
-                voiceMode ? "bg-violet-500/20 hover:bg-violet-500/30 text-violet-400" : "bg-s-5 hover:bg-s-10 text-s-60"
-              }`}
-              aria-label={voiceMode ? "Disable voice mode" : "Enable voice mode"}
-            >
-              {voiceMode ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-            </Button>
-            <ThemeToggle />
-          </div>
+          <div className="w-[120px]" />
         </div>
 
-        <MessageList messages={displayMessages} isStreaming={isThinking} novaState={novaState} error={null} onRetry={() => {}} isLoaded={isLoaded} zoom={chatZoom} />
+        <div className="relative flex-1 min-h-0">
+        <MessageList messages={displayMessages} isStreaming={isThinking} novaState={novaState} error={null} onRetry={() => {}} isLoaded={isLoaded} zoom={100} />
+        </div>
 
         <Composer
           onSend={sendMessage}
@@ -428,3 +403,4 @@ export function ChatShell() {
     </div>
   )
 }
+

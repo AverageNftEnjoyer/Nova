@@ -10,6 +10,8 @@ export interface ChatMessage {
 export interface Conversation {
   id: string
   title: string
+  pinned?: boolean
+  archived?: boolean
   messages: ChatMessage[]
   createdAt: string
   updatedAt: string

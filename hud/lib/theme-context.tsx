@@ -1,10 +1,11 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { loadUserSettings, updateAppSettings } from "./userSettings"
+import { loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT } from "./userSettings"
 
 type Theme = "dark" | "light"
 type ThemeSetting = "dark" | "light" | "system"
+type FontSizeSetting = "small" | "medium" | "large"
 
 interface ThemeContextValue {
   theme: Theme
@@ -23,7 +24,19 @@ const ThemeContext = createContext<ThemeContextValue>({
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark")
   const [themeSetting, setThemeSettingState] = useState<ThemeSetting>("dark")
+  const [fontSizeSetting, setFontSizeSetting] = useState<FontSizeSetting>("medium")
   const [mounted, setMounted] = useState(false)
+
+  const applyFontScale = (setting: FontSizeSetting) => {
+    if (typeof window === "undefined") return
+
+    // Medium is the responsive baseline based on viewport width.
+    const basePx = Math.max(14, Math.min(18, window.innerWidth / 90))
+    const multiplier = setting === "small" ? 0.92 : setting === "large" ? 1.12 : 1
+    const sizePx = basePx * multiplier
+
+    document.documentElement.style.fontSize = `${sizePx.toFixed(2)}px`
+  }
 
   // Resolve the actual theme from setting (handles "system")
   const resolveTheme = (setting: ThemeSetting): Theme => {
@@ -39,9 +52,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Read persisted theme on mount from user settings
   useEffect(() => {
     const settings = loadUserSettings()
-    const setting = settings.app.theme
-    setThemeSettingState(setting)
-    setTheme(resolveTheme(setting))
+    setThemeSettingState(settings.app.theme)
+    setTheme(resolveTheme(settings.app.theme))
+    setFontSizeSetting(settings.app.fontSize)
+    applyFontScale(settings.app.fontSize)
     setMounted(true)
   }, [])
 
@@ -70,6 +84,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       html.classList.add("light")
     }
   }, [theme, mounted])
+
+  // Keep global font scale synced with setting and viewport changes.
+  useEffect(() => {
+    if (!mounted) return
+
+    const syncFromSettings = () => {
+      const next = loadUserSettings().app.fontSize
+      setFontSizeSetting(next)
+      applyFontScale(next)
+    }
+
+    const handleResize = () => applyFontScale(fontSizeSetting)
+
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
+    window.addEventListener("resize", handleResize)
+
+    return () => {
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
+      window.removeEventListener("resize", handleResize)
+    }
+  }, [mounted, fontSizeSetting])
 
   // Update theme setting (called from settings modal)
   const setThemeSetting = (setting: ThemeSetting) => {

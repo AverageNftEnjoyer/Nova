@@ -59,6 +59,36 @@
       "content": "I can handle responses up to around 4,000 tokens in length, which includes both your input and my output. This allows me to provide detailed and thorough answers while keeping the conversation flowing smoothly. If you have something really extensive, we can always break it down into smaller parts!",
       "source": "telegram",
       "ts": 1770523818851
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "hello nova",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770575662229
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Hello! It’s great to hear from you. How can I assist you today?",
+      "source": "telegram",
+      "ts": 1770575663819
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "sup bitch",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770577836815
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Hey! I’m here to help—what’s up?",
+      "source": "telegram",
+      "ts": 1770577841506
     }
   ]
 }

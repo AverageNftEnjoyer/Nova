@@ -140,7 +140,7 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="absolute inset-0 overflow-y-auto pt-14 pb-28 border-none"
+      className="absolute inset-0 overflow-y-auto pt-3 pb-28 border-none"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"

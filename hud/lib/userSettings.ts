@@ -4,6 +4,7 @@
 export type AccessTier = "Core Access" | "Developer" | "Admin" | "Operator"
 
 export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange"
+export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange"
 
 export interface UserProfile {
   name: string
@@ -32,6 +33,7 @@ export interface NotificationSettings {
 export interface AppSettings {
   theme: "dark" | "light" | "system"
   accentColor: AccentColor
+  orbColor: OrbColor
   soundEnabled: boolean
   voiceEnabled: boolean
   ttsVoice: string // Voice ID for TTS
@@ -49,6 +51,7 @@ export interface UserSettings {
 }
 
 const STORAGE_KEY = "nova_user_settings"
+export const USER_SETTINGS_UPDATED_EVENT = "nova:user-settings-updated"
 
 const DEFAULT_SETTINGS: UserSettings = {
   profile: {
@@ -59,6 +62,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   app: {
     theme: "dark",
     accentColor: "violet",
+    orbColor: "violet",
     soundEnabled: true,
     voiceEnabled: true,
     ttsVoice: "default",
@@ -115,6 +119,11 @@ export function saveUserSettings(settings: UserSettings): void {
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+  window.dispatchEvent(
+    new CustomEvent(USER_SETTINGS_UPDATED_EVENT, {
+      detail: updated,
+    }),
+  )
 }
 
 export function updateProfile(profile: Partial<UserProfile>): UserSettings {
@@ -171,6 +180,75 @@ export const ACCENT_COLORS: Record<AccentColor, { primary: string; secondary: st
   amber: { primary: "#f59e0b", secondary: "#fbbf24", name: "Amber" },
   rose: { primary: "#f43f5e", secondary: "#fb7185", name: "Rose" },
   orange: { primary: "#f97316", secondary: "#fb923c", name: "Orange" },
+}
+
+export const ORB_COLORS: Record<
+  OrbColor,
+  { name: string; bg: string; circle1: string; circle2: string; circle3: string; circle4: string; circle5: string }
+> = {
+  violet: {
+    name: "Violet",
+    bg: "#1a1a2e",
+    circle1: "#9e9fef",
+    circle2: "#c471ec",
+    circle3: "#818cf8",
+    circle4: "#a78bfa",
+    circle5: "#f472b6",
+  },
+  blue: {
+    name: "Blue",
+    bg: "#0b1426",
+    circle1: "#3b82f6",
+    circle2: "#60a5fa",
+    circle3: "#2563eb",
+    circle4: "#38bdf8",
+    circle5: "#93c5fd",
+  },
+  cyan: {
+    name: "Cyan",
+    bg: "#071a1f",
+    circle1: "#06b6d4",
+    circle2: "#22d3ee",
+    circle3: "#0891b2",
+    circle4: "#67e8f9",
+    circle5: "#0ea5e9",
+  },
+  emerald: {
+    name: "Emerald",
+    bg: "#071a14",
+    circle1: "#10b981",
+    circle2: "#34d399",
+    circle3: "#059669",
+    circle4: "#6ee7b7",
+    circle5: "#2dd4bf",
+  },
+  amber: {
+    name: "Amber",
+    bg: "#1f1607",
+    circle1: "#f59e0b",
+    circle2: "#fbbf24",
+    circle3: "#d97706",
+    circle4: "#fde68a",
+    circle5: "#fb923c",
+  },
+  rose: {
+    name: "Rose",
+    bg: "#210b14",
+    circle1: "#f43f5e",
+    circle2: "#fb7185",
+    circle3: "#e11d48",
+    circle4: "#fda4af",
+    circle5: "#ec4899",
+  },
+  orange: {
+    name: "Orange",
+    bg: "#1f1208",
+    circle1: "#f97316",
+    circle2: "#fb923c",
+    circle3: "#ea580c",
+    circle4: "#fdba74",
+    circle5: "#fb7185",
+  },
 }
 
 // Available TTS voices (placeholder - will be populated with actual voices)

@@ -716,6 +716,43 @@
   animation: orb-glow-pulse-2 2.5s ease-in-out infinite 0.5s;
 }
 
+/* Palette-safe orb animation layers (keep hue family, add energy) */
+@keyframes orb-custom-color-breathe {
+  0%, 100% {
+    filter: brightness(0.95) saturate(1.05);
+  }
+  50% {
+    filter: brightness(1.08) saturate(1.22);
+  }
+}
+
+@keyframes orb-custom-color-surge {
+  0%, 100% {
+    filter: brightness(0.9) saturate(1.05) contrast(1);
+  }
+  50% {
+    filter: brightness(1.18) saturate(1.35) contrast(1.08);
+  }
+}
+
+@keyframes orb-custom-blur-drift {
+  0%, 100% {
+    filter: blur(var(--orb-blur, 6px)) brightness(0.95) saturate(1.05);
+  }
+  50% {
+    filter: blur(calc(var(--orb-blur, 6px) * 1.15)) brightness(1.08) saturate(1.18);
+  }
+}
+
+@keyframes orb-custom-blur-surge {
+  0%, 100% {
+    filter: blur(calc(var(--orb-blur, 6px) * 1.1)) brightness(1) saturate(1.15);
+  }
+  50% {
+    filter: blur(calc(var(--orb-blur, 6px) * 1.45)) brightness(1.22) saturate(1.35);
+  }
+}
+
 /* Inner glow pulsing */
 @keyframes orb-inner-glow-pulse {
   0%, 100% {

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { AnimatedOrb } from "./animated-orb"
 import { AudioWaveform } from "./audio-waveform"
+import { useTheme } from "@/lib/theme-context"
 
 interface ComposerProps {
   onSend: (content: string) => void
@@ -17,6 +18,8 @@ interface ComposerProps {
 }
 
 export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProps) {
+  const { theme } = useTheme()
+  const isLight = theme === "light"
   const [value, setValue] = useState("")
   const [isRecording, setIsRecording] = useState(false)
   const [hasAnimated, setHasAnimated] = useState(false)
@@ -159,11 +162,13 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
       <div className="relative max-w-2xl mx-auto pointer-events-auto">
         <div
           className={cn(
-            "flex flex-col gap-2 p-3 bg-s-5 border-s-10 transition-all duration-200 border border-s-5 overflow-hidden relative rounded-2xl backdrop-blur-xl",
-            "focus-within:border-violet-500/30 focus-within:ring-1 focus-within:ring-violet-500/20",
+            "flex flex-col gap-2 p-3 transition-all duration-200 border overflow-hidden relative rounded-2xl",
+            isLight
+              ? "bg-white border-[#d9e0ea] focus-within:border-accent-30"
+              : "bg-s-5 border-s-5 backdrop-blur-xl focus-within:border-violet-500/30 focus-within:ring-1 focus-within:ring-violet-500/20",
           )}
           style={{
-            boxShadow: "var(--composer-shadow)",
+            boxShadow: isLight ? "none" : "var(--composer-shadow)",
           }}
         >
           <div className="flex gap-2 items-center">
@@ -235,6 +240,8 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
                   "h-9 w-9 shrink-0 transition-all rounded-full relative z-10",
                   isRecording
                     ? "bg-red-500 hover:bg-red-600 text-white animate-bounce-subtle"
+                    : isLight
+                    ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] text-s-60"
                     : "bg-s-10 hover:bg-s-15 text-s-60",
                 )}
                 aria-label={isRecording ? "Stop recording" : "Start voice input"}
