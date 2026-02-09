@@ -73,14 +73,14 @@ const FLYING_LINES = [
   "0xDEAD::BEEF > just kidding — NOVA IS ALIVE",
 ]
 
-// HUD readouts orbiting the reactor - will be dynamic based on metrics
+// HUD readouts orbiting the reactor - will be dynamic based on metrics (2.5x bigger)
 const HUD_READOUT_CONFIG = [
-  { key: "cpu_temp", text: "CPU TEMP", angle: -30, distance: 145, delay: 2 },
-  { key: "memory", text: "MEMORY", angle: 30, distance: 150, delay: 3 },
-  { key: "gpu_temp", text: "GPU TEMP", angle: 150, distance: 140, delay: 4 },
-  { key: "cpu_load", text: "CPU LOAD", angle: 210, distance: 145, delay: 5 },
-  { key: "disk", text: "DISK", angle: -60, distance: 160, delay: 6.5 },
-  { key: "status", text: "STATUS", angle: 60, distance: 155, delay: 7.5 },
+  { key: "cpu_temp", text: "CPU TEMP", angle: -30, distance: 320, delay: 2 },
+  { key: "memory", text: "MEMORY", angle: 30, distance: 330, delay: 3 },
+  { key: "gpu_temp", text: "GPU TEMP", angle: 150, distance: 310, delay: 4 },
+  { key: "cpu_load", text: "CPU LOAD", angle: 210, distance: 320, delay: 5 },
+  { key: "disk", text: "DISK", angle: -60, distance: 340, delay: 6.5 },
+  { key: "status", text: "STATUS", angle: 60, distance: 335, delay: 7.5 },
 ]
 
 // Arc segments for Iron Man HUD rings
@@ -387,9 +387,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* CENTER HUD — Arc reactor + rings       */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative" style={{ width: 380, height: 380 }}>
+        <div className="relative" style={{ width: 700, height: 700 }}>
           <svg
-            viewBox="0 0 380 380"
+            viewBox="0 0 700 700"
             className="absolute inset-0 w-full h-full"
             style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 1s ease" }}
             suppressHydrationWarning
@@ -397,16 +397,17 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {/* Tick marks */}
             {phase >= 2 && TICK_MARKS.map((tick, i) => {
               const rad = (tick.angle * Math.PI) / 180
-              const x1 = +(190 + tick.radius * 0.76 * Math.cos(rad)).toFixed(4)
-              const y1 = +(190 + tick.radius * 0.76 * Math.sin(rad)).toFixed(4)
-              const x2 = +(190 + (tick.radius + tick.length) * 0.76 * Math.cos(rad)).toFixed(4)
-              const y2 = +(190 + (tick.radius + tick.length) * 0.76 * Math.sin(rad)).toFixed(4)
+              const scale = 1.4
+              const x1 = +(350 + tick.radius * scale * Math.cos(rad)).toFixed(4)
+              const y1 = +(350 + tick.radius * scale * Math.sin(rad)).toFixed(4)
+              const x2 = +(350 + (tick.radius + tick.length) * scale * Math.cos(rad)).toFixed(4)
+              const y2 = +(350 + (tick.radius + tick.length) * scale * Math.sin(rad)).toFixed(4)
               return (
                 <line
                   key={`tick-${i}`}
                   x1={x1} y1={y1} x2={x2} y2={y2}
                   stroke={tick.isMajor ? "rgba(139, 92, 246, 0.3)" : "rgba(139, 92, 246, 0.12)"}
-                  strokeWidth={tick.isMajor ? 1.5 : 0.5}
+                  strokeWidth={tick.isMajor ? 2 : 1}
                 />
               )
             })}
@@ -415,13 +416,13 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {ARC_SEGMENTS.map((seg, i) => (
               <path
                 key={`arc-${i}`}
-                d={arcPath(190, 190, seg.r * 0.76, seg.startAngle, seg.span)}
+                d={arcPath(350, 350, seg.r * 1.4, seg.startAngle, seg.span)}
                 fill="none"
                 stroke={`rgba(139, 92, 246, ${0.15 + seg.ring * 0.05})`}
-                strokeWidth={seg.ring === 0 ? 2 : 1}
+                strokeWidth={seg.ring === 0 ? 3 : 2}
                 className={`boot2-arc-ring-${seg.ring}`}
                 style={{
-                  transformOrigin: "190px 190px",
+                  transformOrigin: "350px 350px",
                   opacity: phase >= 2 ? 1 : 0,
                   transition: `opacity 0.5s ease ${seg.delay * 0.1}s`,
                 }}
@@ -429,43 +430,43 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             ))}
 
             {/* Inner circle */}
-            <circle cx="190" cy="190" r="45" fill="none"
-              stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1"
+            <circle cx="350" cy="350" r="90" fill="none"
+              stroke="rgba(139, 92, 246, 0.2)" strokeWidth="2"
               style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
-            <circle cx="190" cy="190" r="47" fill="none"
-              stroke="rgba(139, 92, 246, 0.08)" strokeWidth="0.5"
-              strokeDasharray="4 4"
+            <circle cx="350" cy="350" r="94" fill="none"
+              stroke="rgba(139, 92, 246, 0.08)" strokeWidth="1"
+              strokeDasharray="6 6"
               className="boot2-arc-ring-0"
-              style={{ transformOrigin: "190px 190px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
+              style={{ transformOrigin: "350px 350px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
 
             {/* Crosshairs */}
             {phase >= 2 && (
               <>
-                <line x1="190" y1="120" x2="190" y2="145" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="190" y1="235" x2="190" y2="260" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="120" y1="190" x2="145" y2="190" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
-                <line x1="235" y1="190" x2="260" y2="190" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="0.5" />
+                <line x1="350" y1="200" x2="350" y2="250" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
+                <line x1="350" y1="450" x2="350" y2="500" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
+                <line x1="200" y1="350" x2="250" y2="350" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
+                <line x1="450" y1="350" x2="500" y2="350" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
               </>
             )}
 
             {/* Diagonal hash marks */}
             {phase >= 3 && [45, 135, 225, 315].map((a) => {
               const rad = (a * Math.PI) / 180
-              const x1 = +(190 + 55 * Math.cos(rad)).toFixed(4)
-              const y1 = +(190 + 55 * Math.sin(rad)).toFixed(4)
-              const x2 = +(190 + 65 * Math.cos(rad)).toFixed(4)
-              const y2 = +(190 + 65 * Math.sin(rad)).toFixed(4)
+              const x1 = +(350 + 110 * Math.cos(rad)).toFixed(4)
+              const y1 = +(350 + 110 * Math.sin(rad)).toFixed(4)
+              const x2 = +(350 + 130 * Math.cos(rad)).toFixed(4)
+              const y2 = +(350 + 130 * Math.sin(rad)).toFixed(4)
               return (
                 <line key={`diag-${a}`} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke="rgba(167, 139, 250, 0.25)" strokeWidth="1" />
+                  stroke="rgba(167, 139, 250, 0.25)" strokeWidth="2" />
               )
             })}
           </svg>
 
           {/* Center orb — activates at the end */}
-          <div className="absolute" style={{ inset: 145 }}>
+          <div className="absolute" style={{ inset: 260 }}>
             <div
               className="w-full h-full rounded-full"
               style={{
@@ -477,10 +478,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                   ? "radial-gradient(circle at 40% 35%, rgba(196,181,253,0.5) 0%, rgba(139,92,246,0.3) 60%, transparent 100%)"
                   : "radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)",
                 boxShadow: orbReady
-                  ? "0 0 80px rgba(139,92,246,0.7), 0 0 160px rgba(139,92,246,0.35), 0 0 240px rgba(139,92,246,0.15), inset 0 0 40px rgba(167,139,250,0.5)"
+                  ? "0 0 120px rgba(139,92,246,0.7), 0 0 240px rgba(139,92,246,0.35), 0 0 360px rgba(139,92,246,0.15), inset 0 0 60px rgba(167,139,250,0.5)"
                   : phase >= 3
-                  ? "0 0 60px rgba(139,92,246,0.5), 0 0 120px rgba(139,92,246,0.25), inset 0 0 30px rgba(167,139,250,0.4)"
-                  : "0 0 20px rgba(139,92,246,0.1)",
+                  ? "0 0 100px rgba(139,92,246,0.5), 0 0 180px rgba(139,92,246,0.25), inset 0 0 50px rgba(167,139,250,0.4)"
+                  : "0 0 40px rgba(139,92,246,0.1)",
                 transition: "all 1.5s ease",
                 opacity: phase >= 1 ? 1 : 0,
                 animation: orbReady ? "boot-orb-ready-pulse 1.5s ease-in-out infinite" : "none",
@@ -498,8 +499,8 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
           {/* HUD readouts floating around reactor - live metrics */}
           {HUD_READOUT_CONFIG.slice(0, visibleReadouts).map((r, i) => {
             const rad = (r.angle * Math.PI) / 180
-            const x = 190 + r.distance * Math.cos(rad)
-            const y = 190 + r.distance * Math.sin(rad)
+            const x = 350 + r.distance * Math.cos(rad)
+            const y = 350 + r.distance * Math.sin(rad)
 
             // Get dynamic value based on key
             let value = "--"
@@ -539,31 +540,33 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                 className="absolute font-mono boot2-readout-in"
                 style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
               >
-                <div className="text-[8px] text-violet-400/40 tracking-widest">{r.text}</div>
-                <div className={`text-[13px] tracking-wide ${color}`}>{value}</div>
+                <div className="text-sm text-violet-400/50 tracking-widest">{r.text}</div>
+                <div className={`text-2xl tracking-wide font-medium ${color}`}>{value}</div>
               </div>
             )
           })}
 
-          {/* NOVA title */}
-          <div className="absolute inset-0 flex flex-col items-center justify-end pb-2 pointer-events-none">
-            <h1
-              className="text-5xl font-extralight tracking-[0.6em] text-white/90 ml-4"
-              style={{
-                opacity: phase >= 2 ? 1 : 0,
-                transition: "opacity 1.5s ease",
-                textShadow: orbReady
-                  ? "0 0 80px rgba(139,92,246,0.6), 0 0 160px rgba(139,92,246,0.25)"
-                  : "0 0 60px rgba(139,92,246,0.4), 0 0 120px rgba(139,92,246,0.15)",
-              }}
-            >
-              NOVA
-            </h1>
-            <p className="text-[10px] tracking-[0.4em] text-violet-400/40 mt-1 uppercase font-mono"
-              style={{ opacity: phase >= 3 ? 1 : 0, transition: "opacity 1s ease" }}>
-              Autonomous Intelligence System
-            </p>
-          </div>
+        </div>
+
+        {/* NOVA title - positioned below the orb */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none" style={{ top: "calc(50% + 330px)" }}>
+          <h1
+            className="text-7xl font-extralight tracking-[0.7em] text-white/90 ml-6 boot-nova-title"
+            style={{
+              opacity: phase >= 2 ? 1 : 0,
+              transition: "opacity 1.5s ease",
+              textShadow: orbReady
+                ? "0 0 100px rgba(139,92,246,0.7), 0 0 200px rgba(139,92,246,0.3)"
+                : "0 0 80px rgba(139,92,246,0.5), 0 0 160px rgba(139,92,246,0.2)",
+              animation: orbReady ? "boot-nova-glow 2s ease-in-out infinite" : "none",
+            }}
+          >
+            NOVA
+          </h1>
+          <p className="text-sm tracking-[0.5em] text-violet-400/50 mt-2 uppercase font-mono"
+            style={{ opacity: phase >= 3 ? 1 : 0, transition: "opacity 1s ease" }}>
+            Autonomous Intelligence System
+          </p>
         </div>
       </div>
 
