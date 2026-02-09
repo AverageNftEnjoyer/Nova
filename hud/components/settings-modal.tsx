@@ -31,6 +31,17 @@ import {
 
 const ACCESS_TIERS: AccessTier[] = ["Core Access", "Developer", "Admin", "Operator"]
 
+// Play click sound for settings interactions (respects soundEnabled setting)
+function playClickSound() {
+  try {
+    const settings = loadUserSettings()
+    if (!settings.app.soundEnabled) return
+    const audio = new Audio("/sounds/click.mp3")
+    audio.volume = 0.5
+    audio.play().catch(() => {})
+  } catch {}
+}
+
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
@@ -418,15 +429,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <button
                               key={color}
                               onClick={() => {
+                                playClickSound()
                                 setAccentColor(color)
                                 // Also update local state so UI stays in sync
                                 setSettings(prev => prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev)
                               }}
-                              className={`w-10 h-10 rounded-xl transition-colors duration-150 border ${
-                                isSelected ? "border-accent-30" : "border-[var(--settings-sub-border)]"
+                              className={`w-10 h-10 rounded-xl border transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg active:scale-95 ${
+                                isSelected
+                                  ? "border-white/40 ring-2 ring-white/20 shadow-md"
+                                  : "border-transparent hover:border-white/30"
                               }`}
                               style={{
                                 backgroundColor: ACCENT_COLORS[color].primary,
+                                boxShadow: isSelected
+                                  ? `0 4px 14px ${ACCENT_COLORS[color].primary}50`
+                                  : undefined,
                               }}
                               title={ACCENT_COLORS[color].name}
                             >
@@ -452,12 +469,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           return (
                             <button
                               key={color}
-                              onClick={() => updateApp("orbColor", color)}
-                              className={`w-10 h-10 rounded-xl transition-colors duration-150 border ${
-                                isSelected ? "border-accent-30" : "border-[var(--settings-sub-border)]"
+                              onClick={() => {
+                                playClickSound()
+                                updateApp("orbColor", color)
+                              }}
+                              className={`w-10 h-10 rounded-xl border transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg active:scale-95 ${
+                                isSelected
+                                  ? "border-white/40 ring-2 ring-white/20 shadow-md"
+                                  : "border-transparent hover:border-white/30"
                               }`}
                               style={{
                                 background: `linear-gradient(135deg, ${palette.circle1}, ${palette.circle2})`,
+                                boxShadow: isSelected
+                                  ? `0 4px 14px ${palette.circle1}50`
+                                  : undefined,
                               }}
                               title={palette.name}
                             >
@@ -517,7 +542,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       label="Voice Responses"
                       description="Enable Nova's voice synthesis"
                       checked={settings.app.voiceEnabled}
-                      onChange={(v) => updateApp("voiceEnabled", v)}
+                      onChange={(v) => {
+                        updateApp("voiceEnabled", v)
+                        // Send voiceEnabled preference to agent immediately
+                        try {
+                          const ws = new WebSocket("ws://localhost:8765")
+                          ws.onopen = () => {
+                            ws.send(JSON.stringify({ type: "set_voice", ttsVoice: settings.app.ttsVoice, voiceEnabled: v }))
+                            ws.close()
+                          }
+                        } catch {}
+                      }}
                     />
 
                     {/* TTS Voice Selection */}
@@ -531,6 +566,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             <button
                               key={voice.id}
                               onClick={() => {
+                                playClickSound()
                                 updateApp("ttsVoice", voice.id)
                                 // Send voice preference to agent immediately
                                 try {
@@ -699,7 +735,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           return (
                             <button
                               key={tier}
-                              onClick={() => updateProfile("accessTier", tier)}
+                              onClick={() => {
+                                playClickSound()
+                                updateProfile("accessTier", tier)
+                              }}
                               className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border border-accent-30"
@@ -826,7 +865,10 @@ function SettingToggle({
 }) {
   return (
     <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] cursor-pointer group"
-      onClick={() => onChange(!checked)}
+      onClick={() => {
+        playClickSound()
+        onChange(!checked)
+      }}
     >
       <div>
         <p className="text-sm text-s-70 group-hover:text-s-90 transition-colors">{label}</p>
@@ -926,7 +968,10 @@ function SettingSelect({
         {options.map((opt) => (
           <button
             key={opt.value}
-            onClick={() => onChange(opt.value)}
+            onClick={() => {
+              playClickSound()
+              onChange(opt.value)
+            }}
             className={`min-w-[92px] px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
               value === opt.value
                 ? "bg-[var(--settings-selected-bg)] text-accent border-accent-30"

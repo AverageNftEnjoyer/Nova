@@ -1,0 +1,46 @@
+[Nova] Boot sequence started.
+[Nova] Detected 2 monitor(s): 2560x1440 at (0,0) [PRIMARY], 1920x1080 at (-1920,191)
+[Nova] All systems starting...
+(node:40612) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[HUD] 
+> my-v0-project@0.1.0 dev
+> next dev
+
+[Agent] [dotenv@17.2.3] injecting env (7) from ..\.env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[Agent] [Telegram] Bot starting...
+[Agent] [Telegram] Bot ready and listening
+[HUD] [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[HUD]    ▲ Next.js 16.0.10 (Turbopack)
+[HUD]    - Local:         http://localhost:3000
+   - Network:       http://10.5.0.2:3000
+
+ ✓ Starting...
+[Nova] Telegram Desktop opened.
+[HUD]  ✓ Ready in 2.1s
+[Nova] Opening Nova app on primary monitor
+[Nova] Nova launched as standalone app.
+[HUD]  ○ Compiling /home ...
+[Nova] Window move: True
+True
+True
+[HUD]  GET /boot-right 200 in 5.8s (compile: 4.8s, render: 990ms)
+[Agent] Nova online.
+[HUD]  GET /home 200 in 341ms (compile: 74ms, render: 267ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Agent] [Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 20ms (compile: 3ms, render: 16ms)
+[HUD]  ✓ Compiled in 112ms
+[HUD]  GET /home 200 in 38ms (compile: 3ms, render: 35ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 251ms (compile: 120ms, render: 131ms)
+[HUD]  GET /home 200 in 34ms (compile: 3ms, render: 31ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter

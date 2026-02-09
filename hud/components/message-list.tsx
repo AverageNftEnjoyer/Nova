@@ -8,6 +8,7 @@ import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AnimatedOrb } from "./animated-orb"
 import type { NovaState } from "@/lib/useNovaState"
+import { loadUserSettings } from "@/lib/userSettings"
 
 interface MessageListProps {
   messages: Message[]
@@ -46,9 +47,11 @@ export function MessageList({
       setHasAnimated(true)
       hasPlayedIntroRef.current = true
 
-      audioRef.current = new Audio(LAUNCH_SOUND_URL)
-      audioRef.current.volume = 0.5
-      audioRef.current.play().catch(() => {})
+      if (loadUserSettings().app.soundEnabled) {
+        audioRef.current = new Audio(LAUNCH_SOUND_URL)
+        audioRef.current.volume = 0.5
+        audioRef.current.play().catch(() => {})
+      }
     } else if (messages.length > 0) {
       setHasAnimated(false)
       hasPlayedIntroRef.current = true

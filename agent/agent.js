@@ -35,16 +35,20 @@ const fishAudio = new FishAudioClient({
 const REFERENCE_ID = process.env.REFERENCE_ID;
 const PETER_ID = process.env.PETER_ID;
 const MORD_ID = process.env.MORD_ID;
+const ULTRON_ID = process.env.ULTRON_ID;
 
 // Map voice IDs to Fish Audio reference IDs
 const VOICE_MAP = {
   default: REFERENCE_ID,
   peter: PETER_ID,
   mord: MORD_ID,
+  ultron: ULTRON_ID,
 };
 
 // Current voice preference (updated when HUD sends ttsVoice)
 let currentVoice = "default";
+// Whether TTS is enabled (updated when HUD sends voiceEnabled setting)
+let voiceEnabled = true;
 
 // ===== paths =====
 const ROOT = __dirname;
@@ -66,8 +70,8 @@ function broadcastState(state) {
   broadcast({ type: "state", state, ts: Date.now() });
 }
 
-function broadcastMessage(role, content) {
-  broadcast({ type: "message", role, content, ts: Date.now() });
+function broadcastMessage(role, content, source = "hud") {
+  broadcast({ type: "message", role, content, source, ts: Date.now() });
 }
 
 // ===== handle incoming HUD messages =====
@@ -93,7 +97,7 @@ wss.on("connection", (ws) => {
       }
 
       if (data.type === "greeting") {
-        console.log("[HUD] Greeting requested.");
+        console.log("[HUD] Greeting requested. voiceEnabled:", data.voiceEnabled);
         // Update voice preference if provided
         if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
           currentVoice = data.ttsVoice;
@@ -102,8 +106,14 @@ wss.on("connection", (ws) => {
         if (!busy) {
           busy = true;
           try {
-            broadcastState("speaking");
-            await speak(data.text || "Hello! What are we working on today?", currentVoice);
+            const greetingText = data.text || "Hello! What are we working on today?";
+            if (data.voiceEnabled !== false) {
+              broadcastState("speaking");
+              await speak(greetingText, currentVoice);
+            } else {
+              // Voice disabled - just broadcast text message
+              broadcastMessage("assistant", greetingText);
+            }
             broadcastState("idle");
           } finally {
             busy = false;
@@ -128,10 +138,16 @@ wss.on("connection", (ws) => {
         }
       }
 
-      // Allow HUD to update voice preference without sending a message
-      if (data.type === "set_voice" && data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
-        currentVoice = data.ttsVoice;
-        console.log("[Voice] Preference set to:", currentVoice);
+      // Allow HUD to update voice preferences without sending a message
+      if (data.type === "set_voice") {
+        if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
+          currentVoice = data.ttsVoice;
+          console.log("[Voice] TTS voice set to:", currentVoice);
+        }
+        if (typeof data.voiceEnabled === "boolean") {
+          voiceEnabled = data.voiceEnabled;
+          console.log("[Voice] Voice responses enabled:", voiceEnabled);
+        }
       }
     } catch (e) {
       console.error("[WS] Bad message from HUD:", e.message);
@@ -232,6 +248,7 @@ const COMMAND_ACKS = [
 async function handleInput(text, opts = {}) {
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
+  const source = opts.source || "hud";
   const n = text.toLowerCase().trim();
 
   // ===== ABSOLUTE SHUTDOWN =====
@@ -246,16 +263,6 @@ async function handleInput(text, opts = {}) {
       ttsVoice
     );
     process.exit(0);
-  }
-
-  // ===== PARTY MODE =====
-  if (n.includes("party time") || n.includes("party mode")) {
-    stopSpeaking();
-    broadcast({ type: "party", ts: Date.now() });
-    if (useVoice) await speak("Let's go!", ttsVoice);
-    else broadcastMessage("assistant", "Let's go!");
-    broadcastState("idle");
-    return;
   }
 
   // ===== SPOTIFY =====
@@ -296,7 +303,7 @@ Output ONLY valid JSON, nothing else.`
       const intent = JSON.parse(spotifyParse.choices[0].message.content.trim());
 
       if (useVoice) await speak(intent.response, ttsVoice);
-      else broadcastMessage("assistant", intent.response);
+      else broadcastMessage("assistant", intent.response, source);
 
       if (intent.action === "open") {
         exec("start spotify:");
@@ -324,7 +331,7 @@ Output ONLY valid JSON, nothing else.`
       console.error("[Spotify] Parse error:", e.message);
       const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
       if (useVoice) await speak(ack, ttsVoice);
-      else broadcastMessage("assistant", ack);
+      else broadcastMessage("assistant", ack, source);
       exec("start spotify:");
     }
 
@@ -335,7 +342,7 @@ Output ONLY valid JSON, nothing else.`
   // ===== CHAT =====
   // One request = one prompt build (no session accumulation)
   broadcastState("thinking");
-  broadcastMessage("user", text);
+  broadcastMessage("user", text, source);
   if (useVoice) playThinking();
 
   // Build fresh system prompt with selective memory injection
@@ -363,7 +370,7 @@ Output ONLY valid JSON, nothing else.`
 
   const reply = completion.choices[0].message.content.trim();
 
-  broadcastMessage("assistant", reply);
+  broadcastMessage("assistant", reply, source);
 
   if (useVoice) {
     await speak(reply, ttsVoice);
@@ -426,7 +433,7 @@ while (true) {
     console.log("Heard:", text);
     busy = true;
     try {
-      await handleInput(text, { voice: true, ttsVoice: currentVoice });
+      await handleInput(text, { voice: voiceEnabled, ttsVoice: currentVoice, source: "voice" });
     } finally {
       busy = false;
     }

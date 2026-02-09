@@ -1,21 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { BootScreen } from "@/components/boot-screen"
+import { useEffect } from "react"
 
-export default function BootOrchestrator() {
-  const [booting, setBooting] = useState(true)
-
+export default function RootPage() {
   useEffect(() => {
     // Clear active conversation so we always start fresh
     localStorage.removeItem("nova-active-conversation")
+    // Redirect to boot sequence
+    window.location.replace("/boot-right")
   }, [])
 
-  useEffect(() => {
-    if (!booting) {
-      window.location.replace("/history")
-    }
-  }, [booting])
-
-  return booting ? <BootScreen onComplete={() => setBooting(false)} /> : null
+  return null
 }

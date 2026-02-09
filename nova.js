@@ -115,6 +115,7 @@ for ($i = 0; $i -lt 20; $i++) {
     $p = $procs | Select-Object -First 1
     [Win32]::MoveWindow($p.MainWindowHandle, ${x}, ${y}, ${width}, ${height}, $true)
     [Win32]::ShowWindow($p.MainWindowHandle, 3)
+    [Win32]::SetForegroundWindow($p.MainWindowHandle)
     $found = $true
     break
   }
@@ -128,35 +129,6 @@ if (-not $found) {
     if (stdout && stdout.trim()) console.log(`[Nova] Window move: ${stdout.trim()}`);
     try { fs.unlinkSync(psScript); } catch {}
   });
-}
-
-// ===== 1. Play bootup sound =====
-const mpv = path.join(__dirname, "agent", "mpv", "mpv.exe");
-const bootSound = path.join(__dirname, "hud", "public", "sounds", "maker.mp3");
-const settingsFile = path.join(__dirname, "nova-settings.json");
-
-function isBootMusicMuted() {
-  try {
-    const raw = fs.readFileSync(settingsFile, "utf-8");
-    const parsed = JSON.parse(raw);
-    return parsed?.bootMusicMuted === true;
-  } catch {
-    return false;
-  }
-}
-
-if (isBootMusicMuted()) {
-  console.log("[Nova] Boot sound disabled by user setting.");
-} else {
-  const bootAudio = spawn(mpv, [
-    bootSound,
-    "--no-video",
-    "--really-quiet",
-    "--keep-open=no",
-    `--end=95`,
-    `--volume=50`,
-  ]);
-  bootAudio.on("exit", () => console.log("[Nova] Boot sound finished."));
 }
 
 console.log("[Nova] Boot sequence started.");
@@ -207,10 +179,16 @@ hud.stdout.on("data", (chunk) => {
   if (chunk.toString().includes("Ready") && !hudOpened) {
     hudOpened = true;
 
-    // Launch Edge in app mode — shows as its own program in the taskbar (no browser UI)
-    // Open directly maximized on primary monitor - no repositioning needed
-    exec(`start msedge.exe --app=http://localhost:3000/boot-right --start-maximized --window-position=${primaryMonitor.x},${primaryMonitor.y}`);
+    // Launch Edge in app mode with explicit fullscreen size
+    const { x, y, width, height } = primaryMonitor;
+    exec(`start msedge.exe --app=http://localhost:3000/boot-right --window-position=${x},${y} --window-size=${width},${height}`);
     console.log("[Nova] Opening Nova app on primary monitor");
+
+    // Force maximize after launch
+    setTimeout(() => {
+      moveWindowToMonitor("localhost:3000", primaryMonitor);
+    }, 2000);
+
     console.log("[Nova] Nova launched as standalone app.");
   }
 });

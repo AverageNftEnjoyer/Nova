@@ -7,8 +7,6 @@ import {
   MessageSquare,
   Settings,
   RotateCcw,
-  Volume2,
-  VolumeX,
   User,
   MoreHorizontal,
   Pencil,
@@ -37,10 +35,6 @@ interface ChatSidebarProps {
   onArchive?: (id: string, archived: boolean) => void
   onPin?: (id: string, pinned: boolean) => void
   onReplayBoot?: () => void
-  onToggleBootMusic?: () => void
-  bootMusicMuted?: boolean
-  onToggleAudio?: () => void
-  audioEnabled?: boolean
   novaState?: NovaState
   agentConnected?: boolean
 }
@@ -68,10 +62,6 @@ export function ChatSidebar({
   onArchive,
   onPin,
   onReplayBoot,
-  onToggleBootMusic,
-  bootMusicMuted,
-  onToggleAudio,
-  audioEnabled,
   novaState,
   agentConnected,
 }: ChatSidebarProps) {
@@ -364,44 +354,6 @@ export function ChatSidebar({
                   title="Replay boot sequence"
                 >
                   <RotateCcw className="w-4 h-4 text-s-50 hover:text-accent transition-colors" />
-                </button>
-              )}
-              {onToggleBootMusic && (
-                <button
-                  onClick={onToggleBootMusic}
-                  className={cn(
-                    "appearance-none h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
-                    isLight
-                      ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] hover:border-[#d5dce8]"
-                      : "border border-white/10 bg-[rgba(255,255,255,0.02)] hover:bg-[#141923] hover:border-[#2b3240]",
-                  )}
-                  aria-label={bootMusicMuted ? "Enable boot music" : "Mute boot music"}
-                  title={bootMusicMuted ? "Enable boot music" : "Mute boot music"}
-                >
-                  {bootMusicMuted ? (
-                    <VolumeX className="w-4 h-4 text-s-50 hover:text-accent transition-colors" />
-                  ) : (
-                    <Volume2 className="w-4 h-4 text-accent transition-colors" />
-                  )}
-                </button>
-              )}
-              {onToggleAudio && (
-                <button
-                  onClick={onToggleAudio}
-                  className={cn(
-                    "appearance-none h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
-                    isLight
-                      ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] hover:border-[#d5dce8]"
-                      : "border border-white/10 bg-[rgba(255,255,255,0.02)] hover:bg-[#141923] hover:border-[#2b3240]",
-                  )}
-                  aria-label={audioEnabled ? "Disable audio" : "Enable audio"}
-                  title={audioEnabled ? "Disable audio" : "Enable audio"}
-                >
-                  {audioEnabled ? (
-                    <Volume2 className="w-4 h-4 text-accent transition-colors" />
-                  ) : (
-                    <VolumeX className="w-4 h-4 text-s-50 hover:text-accent transition-colors" />
-                  )}
                 </button>
               )}
               <button

@@ -256,4 +256,5 @@ export const TTS_VOICES = [
   { id: "default", name: "Default Voice", description: "Nova's standard voice" },
   { id: "peter", name: "Peter", description: "Alternative male voice" },
   { id: "mord", name: "Mord", description: "Deep authoritative voice" },
+  { id: "ultron", name: "Ultron", description: "Dark tone" },
 ]

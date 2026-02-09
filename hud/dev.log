@@ -1,0 +1,18 @@
+
+> my-v0-project@0.1.0 dev
+> next dev
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+   ▲ Next.js 16.0.10 (Turbopack)
+   - Local:         http://localhost:3000
+   - Network:       http://10.5.0.2:3000
+
+ ✓ Starting...
+ ✓ Ready in 882ms
+ GET /boot-right 200 in 1994ms (compile: 1867ms, render: 127ms)
+ GET / 200 in 381ms (compile: 342ms, render: 38ms)
+ GET /boot-right 200 in 56ms (compile: 5ms, render: 51ms)
+ GET / 200 in 35ms (compile: 4ms, render: 31ms)
+ GET /home 200 in 598ms (compile: 490ms, render: 107ms)
+ GET /boot-right 200 in 22ms (compile: 4ms, render: 18ms)
+ GET /home 200 in 46ms (compile: 4ms, render: 42ms)

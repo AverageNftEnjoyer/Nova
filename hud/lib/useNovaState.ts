@@ -20,7 +20,6 @@ export function useNovaState() {
   const [connected, setConnected] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [telegramMessages, setTelegramMessages] = useState<AgentMessage[]>([]);
-  const [partyMode, setPartyMode] = useState(false);
   const [transcript, setTranscript] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -37,10 +36,6 @@ export function useNovaState() {
 
         if (data.type === "state" && data.state) {
           setState(data.state);
-        }
-
-        if (data.type === "party") {
-          setPartyMode(true);
         }
 
         if (data.type === "transcript") {
@@ -110,21 +105,23 @@ export function useNovaState() {
     setTelegramMessages([]);
   }, []);
 
-  const stopParty = useCallback(() => setPartyMode(false), []);
-
-  const sendGreeting = useCallback((text: string, ttsVoice: string = "default") => {
+  const sendGreeting = useCallback((text: string, ttsVoice: string = "default", voiceEnabled: boolean = true) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "greeting", text, ttsVoice }));
+      ws.send(JSON.stringify({ type: "greeting", text, ttsVoice, voiceEnabled }));
     }
   }, []);
 
-  const setVoicePreference = useCallback((ttsVoice: string) => {
+  const setVoicePreference = useCallback((ttsVoice: string, voiceEnabled?: boolean) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "set_voice", ttsVoice }));
+      const payload: { type: string; ttsVoice: string; voiceEnabled?: boolean } = { type: "set_voice", ttsVoice };
+      if (typeof voiceEnabled === "boolean") {
+        payload.voiceEnabled = voiceEnabled;
+      }
+      ws.send(JSON.stringify(payload));
     }
   }, []);
 
-  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript, sendGreeting, setVoicePreference };
+  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, transcript, sendGreeting, setVoicePreference };
 }

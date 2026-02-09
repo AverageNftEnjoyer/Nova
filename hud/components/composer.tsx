@@ -6,6 +6,7 @@ import { useState, useRef, useCallback, type KeyboardEvent, useEffect } from "re
 import { Square, Mic, MicOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { loadUserSettings } from "@/lib/userSettings"
 import { AnimatedOrb } from "./animated-orb"
 import { AudioWaveform } from "./audio-waveform"
 import { useTheme } from "@/lib/theme-context"
@@ -78,12 +79,14 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
   }, [])
 
   const playClickSound = useCallback(() => {
+    if (!loadUserSettings().app.soundEnabled) return
     const audio = new Audio("/sounds/click.mp3")
     audio.volume = 0.5
     audio.play().catch(() => {})
   }, [])
 
   const playRecordSound = useCallback(() => {
+    if (!loadUserSettings().app.soundEnabled) return
     const audio = new Audio("/sounds/record.mp3")
     audio.volume = 0.5
     audio.play().catch(() => {})

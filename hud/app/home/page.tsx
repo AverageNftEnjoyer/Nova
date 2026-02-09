@@ -54,21 +54,19 @@ const GREETINGS = [
   "Hey there! Ready when you are.",
   "Welcome back! What can I help with?",
   "Hi! What would you like to tackle today?",
-  "Hello! I'm all yours. What do you need?",
+  "Lets get to work!",
 ]
 
 const SCHEDULE_KEY = "nova-home-daily-schedule-v1"
-const BOOT_MUSIC_KEY = "nova-boot-music-muted"
 
 export default function HomePage() {
   const router = useRouter()
   const { theme } = useTheme()
   const isLight = theme === "light"
-  const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference } = useNovaState()
+  const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference, agentMessages, clearAgentMessages } = useNovaState()
   const [hasAnimated, setHasAnimated] = useState(false)
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [bootMusicMuted, setBootMusicMuted] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([])
   const [welcomeMessage, setWelcomeMessage] = useState("Welcome back! What can I help with?")
@@ -108,32 +106,17 @@ export default function HomePage() {
       }
     }
 
-    const muted = localStorage.getItem(BOOT_MUSIC_KEY) === "true"
-    setBootMusicMuted(muted)
-    setOrbColor(loadUserSettings().app.orbColor)
-    audioRef.current = new Audio("/sounds/launch.mp3")
-    audioRef.current.volume = 0.5
-    if (!muted) {
+    const settings = loadUserSettings()
+    setOrbColor(settings.app.orbColor)
+
+    // Play launch sound only once per boot session (not every home page visit)
+    const alreadyPlayed = sessionStorage.getItem("nova-launch-sound-played")
+    if (settings.app.soundEnabled && !alreadyPlayed) {
+      sessionStorage.setItem("nova-launch-sound-played", "true")
+      audioRef.current = new Audio("/sounds/launch.mp3")
+      audioRef.current.volume = 0.5
       audioRef.current.play().catch(() => {})
     }
-
-    void fetch("/api/boot-music")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { muted?: boolean } | null) => {
-        if (!data || typeof data.muted !== "boolean") return
-        setBootMusicMuted(data.muted)
-        localStorage.setItem(BOOT_MUSIC_KEY, String(data.muted))
-        if (audioRef.current) {
-          if (data.muted) {
-            audioRef.current.pause()
-            audioRef.current.currentTime = 0
-          } else {
-            audioRef.current.currentTime = 0
-            audioRef.current.play().catch(() => {})
-          }
-        }
-      })
-      .catch(() => {})
 
     return () => {
       if (audioRef.current) {
@@ -155,13 +138,48 @@ export default function HomePage() {
     if (connected && !greetingSentRef.current) {
       greetingSentRef.current = true
       const settings = loadUserSettings()
-      // Send voice preference to agent on connect
-      setVoicePreference(settings.app.ttsVoice)
+      // Send voice preference to agent on connect (includes voiceEnabled)
+      setVoicePreference(settings.app.ttsVoice, settings.app.voiceEnabled)
       const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
-      const t = setTimeout(() => sendGreeting(greeting, settings.app.ttsVoice), 1500)
+      const t = setTimeout(() => sendGreeting(greeting, settings.app.ttsVoice, settings.app.voiceEnabled), 1500)
       return () => clearTimeout(t)
     }
   }, [connected, sendGreeting, setVoicePreference])
+
+  // Watch for voice-triggered messages and open chat
+  const voiceConvoCreatedRef = useRef(false)
+  useEffect(() => {
+    // Skip greeting messages (first message after connect)
+    if (agentMessages.length === 0) {
+      voiceConvoCreatedRef.current = false
+      return
+    }
+
+    // Check if we have a user message from voice (not from HUD)
+    const voiceUserMsg = agentMessages.find(m => m.role === "user" && m.source === "voice")
+    if (voiceUserMsg && !voiceConvoCreatedRef.current) {
+      voiceConvoCreatedRef.current = true
+
+      // Create conversation with voice messages
+      const convo = createConversation()
+      convo.messages = agentMessages.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: new Date(m.ts).toISOString(),
+        source: m.source || "voice",
+      }))
+      convo.title = voiceUserMsg.content.length > 40
+        ? voiceUserMsg.content.slice(0, 40) + "..."
+        : voiceUserMsg.content
+
+      const next = [convo, ...conversations]
+      persistConversations(next)
+      setActiveId(convo.id)
+      clearAgentMessages()
+      router.push("/chat")
+    }
+  }, [agentMessages, conversations, persistConversations, clearAgentMessages, router])
 
   const handleSend = useCallback(() => {
     const text = input.trim()
@@ -190,7 +208,7 @@ export default function HomePage() {
     setActiveId(convo.id)
 
     const settings = loadUserSettings()
-    sendToAgent(finalText, true, settings.app.ttsVoice)
+    sendToAgent(finalText, settings.app.voiceEnabled, settings.app.ttsVoice)
     setInput("")
     setAttachedFiles([])
     if (fileInputRef.current) fileInputRef.current.value = ""
@@ -221,30 +239,6 @@ export default function HomePage() {
     const remaining = conversations.filter((c) => c.id !== id)
     persistConversations(remaining)
   }, [conversations, persistConversations])
-
-  const toggleBootMusic = useCallback(() => {
-    setBootMusicMuted((prev) => {
-      const next = !prev
-      localStorage.setItem(BOOT_MUSIC_KEY, String(next))
-      void fetch("/api/boot-music", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ muted: next }),
-      }).catch(() => {})
-
-      if (audioRef.current) {
-        if (next) {
-          audioRef.current.pause()
-          audioRef.current.currentTime = 0
-        } else {
-          audioRef.current.currentTime = 0
-          audioRef.current.play().catch(() => {})
-        }
-      }
-
-      return next
-    })
-  }, [])
 
   const togglePinConversation = useCallback((id: string) => {
     const next = conversations.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c))
@@ -367,8 +361,6 @@ export default function HomePage() {
         onArchive={handleArchiveConvo}
         onPin={handlePinConvo}
         onReplayBoot={() => router.push("/boot-right")}
-        onToggleBootMusic={toggleBootMusic}
-        bootMusicMuted={bootMusicMuted}
         novaState={novaState}
         agentConnected={connected}
       />
@@ -402,7 +394,7 @@ export default function HomePage() {
                 "h-9 w-9 rounded-full",
                 isLight
                   ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] text-s-70"
-                  : "border border-white/10 bg-white/[0.04] hover:bg-cyan-400/10 text-slate-300",
+                  : "border border-white/10 bg-white/4 hover:bg-cyan-400/10 text-slate-300",
               )}
               aria-label="Toggle sidebar"
             >
@@ -419,11 +411,11 @@ export default function HomePage() {
               <div className="flex-1 flex flex-col items-center justify-center gap-6">
                 <div className={`relative ${hasAnimated ? "orb-intro" : ""}`}>
                   <div
-                    className="absolute -inset-6 rounded-full animate-spin [animation-duration:16s]"
+                    className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
                     style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, 0.22)}` }}
                   />
                   <div
-                    className="absolute -inset-12 rounded-full animate-spin [animation-duration:26s] [animation-direction:reverse]"
+                    className="absolute -inset-12 rounded-full animate-spin animation-duration-[26s] direction-[reverse]"
                     style={{ border: `1px solid ${hexToRgba(orbPalette.circle2, 0.18)}` }}
                   />
                   <div
@@ -449,7 +441,7 @@ export default function HomePage() {
                     {attachedFiles.length > 0 && (
                       <div className="px-4 pt-3 flex flex-wrap gap-2">
                         {attachedFiles.map((file, index) => (
-                          <div key={`${file.name}-${file.size}-${index}`} className="inline-flex items-center gap-1.5 rounded-md border border-accent-30 bg-accent-10 px-2 py-1 max-w-[220px]">
+                          <div key={`${file.name}-${file.size}-${index}`} className="inline-flex items-center gap-1.5 rounded-md border border-accent-30 bg-accent-10 px-2 py-1 max-w-55">
                             <span className="truncate text-xs text-accent">{file.name}</span>
                             <button
                               onClick={() => removeAttachedFile(index)}
@@ -495,7 +487,7 @@ export default function HomePage() {
                       placeholder={connected ? "Enter your command..." : "Waiting for agent..."}
                       disabled={!connected}
                       rows={1}
-                      className={cn("w-full bg-transparent text-sm pl-12 pt-[18px] pb-[10px] pr-14 resize-none outline-none disabled:opacity-40", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
+                      className={cn("w-full bg-transparent text-sm pl-12 pt-4.5 pb-2.5 pr-14 resize-none outline-none disabled:opacity-40", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
                       style={{ maxHeight: 120 }}
                     />
                     <button

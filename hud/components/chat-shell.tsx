@@ -8,7 +8,6 @@ import { Composer } from "./composer"
 import { Button } from "@/components/ui/button"
 import { useNovaState } from "@/lib/useNovaState"
 import { ChatSidebar } from "./chat-sidebar"
-import { PartyOverlay } from "./party-overlay"
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import {
@@ -41,10 +40,9 @@ export function ChatShell() {
   const isLight = theme === "light"
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
-  const [voiceMode, setVoiceMode] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, partyMode, stopParty, transcript } = useNovaState()
+  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, transcript } = useNovaState()
 
   const mergedCountRef = useRef(0)
   const telegramMergedCountRef = useRef(0)
@@ -214,9 +212,9 @@ export function ChatShell() {
       setLocalThinking(true)
 
       const settings = loadUserSettings()
-      sendToAgent(content.trim(), voiceMode, settings.app.ttsVoice)
+      sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice)
     },
-    [activeConvo, conversations, agentConnected, voiceMode, sendToAgent, persist],
+    [activeConvo, conversations, agentConnected, sendToAgent, persist],
   )
 
   // New conversation
@@ -324,9 +322,6 @@ export function ChatShell() {
 
   return (
     <div className="flex h-dvh bg-page">
-      {/* Party mode */}
-      <PartyOverlay active={partyMode} onEnd={stopParty} />
-
       {/* Sidebar */}
       <ChatSidebar
         conversations={conversations}
@@ -338,8 +333,6 @@ export function ChatShell() {
         onRename={handleRenameConvo}
         onArchive={handleArchiveConvo}
         onPin={handlePinConvo}
-        onToggleAudio={() => setVoiceMode((v) => !v)}
-        audioEnabled={voiceMode}
         novaState={novaState}
         agentConnected={agentConnected}
       />
