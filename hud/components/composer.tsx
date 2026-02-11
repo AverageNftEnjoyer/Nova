@@ -16,9 +16,11 @@ interface ComposerProps {
   onStop: () => void
   isStreaming: boolean
   disabled?: boolean
+  novaMuted?: boolean
+  onMuteToggle?: () => void
 }
 
-export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProps) {
+export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onMuteToggle }: ComposerProps) {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const [value, setValue] = useState("")
@@ -252,6 +254,24 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: ComposerProp
                 {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </Button>
             </div>
+            <div className="flex-1" />
+            {onMuteToggle && (
+              <Button
+                onClick={onMuteToggle}
+                size="icon"
+                className={cn(
+                  "h-9 w-9 shrink-0 transition-all rounded-full",
+                  novaMuted
+                    ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/40"
+                    : isLight
+                    ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] text-s-60"
+                    : "bg-s-10 hover:bg-s-15 text-s-60",
+                )}
+                aria-label={novaMuted ? "Unmute Nova" : "Mute Nova"}
+              >
+                {novaMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </Button>
+            )}
           </div>
         </div>
       </div>

@@ -9,6 +9,7 @@ import {
   Bell,
   Sparkles,
   Shield,
+  Power,
   RotateCcw,
   Camera,
   Check,
@@ -16,6 +17,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { useTheme } from "@/lib/theme-context"
 import { useAccent } from "@/lib/accent-context"
+import { cn } from "@/lib/utils"
+import { saveBootMusicBlob, removeBootMusicBlob } from "@/lib/bootMusicStorage"
 import {
   loadUserSettings,
   saveUserSettings,
@@ -24,9 +27,11 @@ import {
   type AccessTier,
   type AccentColor,
   type OrbColor,
+  type BackgroundType,
   ACCENT_COLORS,
   ORB_COLORS,
   TTS_VOICES,
+  BACKGROUNDS,
 } from "@/lib/userSettings"
 
 const ACCESS_TIERS: AccessTier[] = ["Core Access", "Developer", "Admin", "Operator"]
@@ -53,6 +58,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState<UserSettings | null>(null)
   const [activeSection, setActiveSection] = useState<string>("profile")
   const [avatarError, setAvatarError] = useState<string | null>(null)
+  const [bootMusicError, setBootMusicError] = useState<string | null>(null)
   const [cropSource, setCropSource] = useState<string | null>(null)
   const [cropZoom, setCropZoom] = useState(1)
   const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 })
@@ -61,6 +67,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { theme, setThemeSetting } = useTheme()
   const { setAccentColor } = useAccent()
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const bootMusicInputRef = useRef<HTMLInputElement | null>(null)
   const isLight = theme === "light"
 
   const palette = {
@@ -217,7 +224,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setCropOffset({ x: 0, y: 0 })
   }, [cropOffset.x, cropOffset.y, cropSource, cropZoom, getBaseScale, imageSize])
 
-  const updateApp = (key: string, value: boolean | string) => {
+  const updateApp = (key: string, value: boolean | string | null) => {
     if (!settings) return
     const newSettings = {
       ...settings,
@@ -225,6 +232,51 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
     autoSave(newSettings)
   }
+
+  const handleBootMusicUpload = useCallback(async (file: File) => {
+    if (!settings) return
+
+    const isMp3 = file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
+    if (!isMp3) {
+      setBootMusicError("Only MP3 files are supported.")
+      return
+    }
+
+    // Soft upper bound to avoid excessive memory/disk usage.
+    if (file.size > 20 * 1024 * 1024) {
+      setBootMusicError("File is too large. Max size is 20MB.")
+      return
+    }
+    await saveBootMusicBlob(file)
+
+    const newSettings = {
+      ...settings,
+      app: {
+        ...settings.app,
+        // Keep this null going forward; IndexedDB stores the actual file.
+        // Legacy installations may still have a previous data URL fallback.
+        bootMusicDataUrl: null,
+        bootMusicFileName: file.name,
+      },
+    }
+    autoSave(newSettings)
+    setBootMusicError(null)
+  }, [settings, autoSave])
+
+  const removeBootMusic = useCallback(() => {
+    if (!settings) return
+    removeBootMusicBlob().catch(() => {})
+    const newSettings = {
+      ...settings,
+      app: {
+        ...settings.app,
+        bootMusicDataUrl: null,
+        bootMusicFileName: null,
+      },
+    }
+    autoSave(newSettings)
+    setBootMusicError(null)
+  }, [settings, autoSave])
 
   const updateNotifications = (key: string, value: boolean) => {
     if (!settings) return
@@ -252,7 +304,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     { id: "audio", label: "Audio & Voice", icon: Volume2 },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "personalization", label: "Personalization", icon: Sparkles },
-    { id: "access", label: "Access Level", icon: Shield },
+    { id: "bootup", label: "Bootup", icon: Power },
+    { id: "access", label: "Account", icon: Shield },
   ]
 
   return (
@@ -434,22 +487,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 // Also update local state so UI stays in sync
                                 setSettings(prev => prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev)
                               }}
-                              className={`w-10 h-10 rounded-xl border transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg active:scale-95 ${
+                              className={`w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                                 isSelected
-                                  ? "border-white/40 ring-2 ring-white/20 shadow-md"
-                                  : "border-transparent hover:border-white/30"
+                                  ? "bg-[var(--settings-selected-bg)] border-accent-30"
+                                  : "bg-[var(--settings-sub-bg)] border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
                               }`}
                               style={{
                                 backgroundColor: ACCENT_COLORS[color].primary,
-                                boxShadow: isSelected
-                                  ? `0 4px 14px ${ACCENT_COLORS[color].primary}50`
-                                  : undefined,
                               }}
                               title={ACCENT_COLORS[color].name}
                             >
                               {isSelected && (
-                                <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/25">
-                                  <Check className="w-3.5 h-3.5 text-white" />
+                                <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent/20">
+                                  <Check className="w-3.5 h-3.5 text-accent" />
                                 </span>
                               )}
                             </button>
@@ -473,22 +523,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 playClickSound()
                                 updateApp("orbColor", color)
                               }}
-                              className={`w-10 h-10 rounded-xl border transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg active:scale-95 ${
+                              className={`w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                                 isSelected
-                                  ? "border-white/40 ring-2 ring-white/20 shadow-md"
-                                  : "border-transparent hover:border-white/30"
+                                  ? "bg-[var(--settings-selected-bg)] border-accent-30"
+                                  : "bg-[var(--settings-sub-bg)] border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
                               }`}
                               style={{
                                 background: `linear-gradient(135deg, ${palette.circle1}, ${palette.circle2})`,
-                                boxShadow: isSelected
-                                  ? `0 4px 14px ${palette.circle1}50`
-                                  : undefined,
                               }}
                               title={palette.name}
                             >
                               {isSelected && (
-                                <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/25">
-                                  <Check className="w-3.5 h-3.5 text-white" />
+                                <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent/20">
+                                  <Check className="w-3.5 h-3.5 text-accent" />
                                 </span>
                               )}
                             </button>
@@ -496,6 +543,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         })}
                       </div>
                     </div>
+
+                    <SettingSelect
+                      label="Background"
+                      description="Choose your home screen background"
+                      value={settings.app.background}
+                      options={(Object.entries(BACKGROUNDS) as [BackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
+                        value,
+                        label: info.name,
+                      }))}
+                      onChange={(v) => updateApp("background", v)}
+                    />
 
                     {/* Font Size */}
                     <SettingSelect
@@ -518,13 +576,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(v) => updateApp("compactMode", v)}
                     />
 
-                    {/* Boot Animation */}
-                    <SettingToggle
-                      label="Boot Animation"
-                      description="Show startup sequence on launch"
-                      checked={settings.app.bootAnimationEnabled}
-                      onChange={(v) => updateApp("bootAnimationEnabled", v)}
-                    />
                   </div>
                 )}
 
@@ -713,6 +764,107 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
                 )}
 
+                {/* Bootup Section */}
+                {activeSection === "bootup" && (
+                  <div className="space-y-5">
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] mb-4">
+                      <p className="text-sm text-s-70">
+                        Configure Nova startup behavior. This section is dedicated to boot experience settings.
+                      </p>
+                    </div>
+
+                    <SettingToggle
+                      label="Boot Animation"
+                      description="Show startup sequence on launch"
+                      checked={settings.app.bootAnimationEnabled}
+                      onChange={(v) => updateApp("bootAnimationEnabled", v)}
+                    />
+
+                    <SettingToggle
+                      label="Bootup Music"
+                      description="Enable custom boot music on launch"
+                      checked={settings.app.bootMusicEnabled}
+                      onChange={(v) => updateApp("bootMusicEnabled", v)}
+                    />
+
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                      <p className="text-sm text-s-70 mb-1">Bootup Music</p>
+                      <p className="text-xs text-s-30 mb-3">Plays the first 30 seconds on launch.</p>
+                      <input
+                        ref={bootMusicInputRef}
+                        type="file"
+                        accept=".mp3,audio/mpeg"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const inputEl = e.currentTarget
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          try {
+                            await handleBootMusicUpload(file)
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : "Failed to upload boot music."
+                            setBootMusicError(msg)
+                          } finally {
+                            inputEl.value = ""
+                          }
+                        }}
+                      />
+                      <div className="flex items-center gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5 max-w-[560px] mx-auto">
+                        <div className={`flex-1 px-3 py-2 rounded-md text-sm border ${SETTINGS_SEGMENTED_BUTTON_UNSELECTED}`}>
+                          {settings.app.bootMusicFileName || "No MP3 selected"}
+                        </div>
+                        <button
+                          onClick={() => {
+                            playClickSound()
+                            bootMusicInputRef.current?.click()
+                          }}
+                          className={cn(
+                            "group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
+                            isLight ? "text-s-50" : "text-s-40",
+                          )}
+                          aria-label={settings.app.bootMusicDataUrl ? "Replace MP3" : "Upload MP3"}
+                          title={settings.app.bootMusicDataUrl ? "Replace MP3" : "Upload MP3"}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+                              isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
+                            )}
+                          >
+                            Upload MP3
+                          </span>
+                          +
+                        </button>
+                      </div>
+                      {settings.app.bootMusicDataUrl && (
+                        <div className="mt-2">
+                          <Button
+                            onClick={() => {
+                              playClickSound()
+                              removeBootMusic()
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      )}
+                      {bootMusicError && (
+                        <p className="text-xs text-red-400 mt-2">{bootMusicError}</p>
+                      )}
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                      <p className="text-sm text-s-70 mb-1">More Boot Settings</p>
+                      <p className="text-xs text-s-30">
+                        Additional bootup options will appear here as they are added.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Access Level Section */}
                 {activeSection === "access" && (
                   <div className="space-y-5">
@@ -852,6 +1004,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
+const SETTINGS_SEGMENTED_BUTTON_BASE =
+  "px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+const SETTINGS_SEGMENTED_BUTTON_SELECTED =
+  "bg-[var(--settings-selected-bg)] text-accent border-accent-30"
+const SETTINGS_SEGMENTED_BUTTON_UNSELECTED =
+  "bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)] hover:text-s-80"
+
 function SettingToggle({
   label,
   description,
@@ -972,10 +1131,10 @@ function SettingSelect({
               playClickSound()
               onChange(opt.value)
             }}
-            className={`min-w-[92px] px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+            className={`min-w-[92px] ${SETTINGS_SEGMENTED_BUTTON_BASE} ${
               value === opt.value
-                ? "bg-[var(--settings-selected-bg)] text-accent border-accent-30"
-                : "bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)] hover:text-s-80"
+                ? SETTINGS_SEGMENTED_BUTTON_SELECTED
+                : SETTINGS_SEGMENTED_BUTTON_UNSELECTED
             }`}
           >
             <span className="inline-flex items-center justify-center gap-1.5">

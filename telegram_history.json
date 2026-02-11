@@ -180,6 +180,21 @@
       "source": "telegram",
       "sender": "Jack",
       "ts": 1770599297346
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "hello",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770739411290
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Hello! How can I assist you today?",
+      "source": "telegram",
+      "ts": 1770739413211
     }
   ]
 }

@@ -1,11 +1,4 @@
 import { streamText } from "ai"
-
-/**
- * POST /api/chat
- *
- * This route handler proxies requests to the Vercel AI Gateway.
- * It receives messages from the frontend and streams the AI response back.
- */
 export async function POST(req: Request) {
   try {
     const { messages, model } = await req.json()

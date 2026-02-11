@@ -106,10 +106,14 @@ export function ChatSidebar({
 
   const statusText = !agentConnected
     ? "Agent offline"
+    : novaState === "muted"
+    ? "Nova muted"
     : novaState === "listening"
     ? "Nova online"
     : `Nova ${novaState}`
   const statusDotClass = !agentConnected
+    ? "bg-red-400"
+    : novaState === "muted"
     ? "bg-red-400"
     : novaState === "speaking"
     ? "bg-violet-400"
@@ -177,10 +181,10 @@ export function ChatSidebar({
           <DropdownMenuTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
-              className="opacity-0 group-hover:opacity-100 h-7 w-7 rounded-full border border-transparent hover:border-accent-30 hover:bg-accent-10 flex items-center justify-center transition-all"
+              className="opacity-0 group-hover:opacity-100 h-7 w-7 flex items-center justify-center transition-all text-s-40 hover:text-accent outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0"
               aria-label="Conversation options"
             >
-              <MoreHorizontal className="w-4 h-4 text-s-40" />
+              <MoreHorizontal className="w-4 h-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent

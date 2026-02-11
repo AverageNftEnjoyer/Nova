@@ -27,11 +27,13 @@ export function AnimatedOrb({
   variant = "default",
   size = 32,
   palette,
+  showStateLabel = true,
 }: {
   className?: string
   variant?: "default" | "red"
   size?: number
   palette?: OrbPalette
+  showStateLabel?: boolean
 }) {
   const { state, connected } = useNovaState()
   const useCustomPalette = variant !== "red" && !!palette
@@ -251,7 +253,7 @@ export function AnimatedOrb({
       </div>
 
       {/* State label for large orbs */}
-      {size >= 120 && state !== "idle" && (
+      {showStateLabel && size >= 120 && state !== "idle" && (
         <div
           className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[10px] font-mono tracking-wider uppercase whitespace-nowrap"
           style={{

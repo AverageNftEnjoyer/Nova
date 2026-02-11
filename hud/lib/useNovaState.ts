@@ -4,7 +4,8 @@ export type NovaState =
   | "idle"
   | "listening"
   | "thinking"
-  | "speaking";
+  | "speaking"
+  | "muted";
 
 export interface AgentMessage {
   id: string;
@@ -123,5 +124,12 @@ export function useNovaState() {
     }
   }, []);
 
-  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, transcript, sendGreeting, setVoicePreference };
+  const setMuted = useCallback((muted: boolean) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "set_mute", muted }));
+    }
+  }, []);
+
+  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, transcript, sendGreeting, setVoicePreference, setMuted };
 }

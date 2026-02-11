@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import {
   PanelLeftOpen,
@@ -13,8 +13,12 @@ import {
   Pencil,
   Check,
   X,
+  ArrowRight,
+  Mic,
+  MicOff,
 } from "lucide-react"
 import { AnimatedOrb } from "@/components/animated-orb"
+import TextType from "@/components/TextType"
 import { useNovaState } from "@/lib/useNovaState"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { Button } from "@/components/ui/button"
@@ -29,7 +33,9 @@ import {
   type ChatMessage,
   type Conversation,
 } from "@/lib/conversations"
-import { loadUserSettings, ORB_COLORS, type OrbColor, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import FloatingLines from "@/components/FloatingLines"
+import "@/components/FloatingLines.css"
 
 interface ScheduleItem {
   id: string
@@ -58,12 +64,19 @@ const GREETINGS = [
 ]
 
 const SCHEDULE_KEY = "nova-home-daily-schedule-v1"
+const FLOATING_LINES_ENABLED_WAVES: string[] = ["top", "middle", "bottom"]
+const FLOATING_LINES_LINE_COUNT: number[] = [5, 5, 5]
+const FLOATING_LINES_LINE_DISTANCE: number[] = [5, 5, 5]
+const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
+const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
+const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
 export default function HomePage() {
   const router = useRouter()
   const { theme } = useTheme()
   const isLight = theme === "light"
-  const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference, agentMessages, clearAgentMessages } = useNovaState()
+  const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference, setMuted, agentMessages, clearAgentMessages } = useNovaState()
+  const [isMuted, setIsMuted] = useState(false)
   const [hasAnimated, setHasAnimated] = useState(false)
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -73,6 +86,8 @@ export default function HomePage() {
   const [newEventTitle, setNewEventTitle] = useState("")
   const [newEventTime, setNewEventTime] = useState("")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [background, setBackground] = useState<BackgroundType>("default")
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState("")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -108,6 +123,7 @@ export default function HomePage() {
 
     const settings = loadUserSettings()
     setOrbColor(settings.app.orbColor)
+    setBackground(settings.app.background || "default")
 
     // Play launch sound only once per boot session (not every home page visit)
     const alreadyPlayed = sessionStorage.getItem("nova-launch-sound-played")
@@ -117,6 +133,13 @@ export default function HomePage() {
       audioRef.current.volume = 0.5
       audioRef.current.play().catch(() => {})
     }
+
+    // Load muted state from localStorage
+    const savedMuted = localStorage.getItem("nova-muted") === "true"
+    setIsMuted(savedMuted)
+
+    // Mark settings as loaded so FloatingLines doesn't restart
+    setSettingsLoaded(true)
 
     return () => {
       if (audioRef.current) {
@@ -128,7 +151,9 @@ export default function HomePage() {
 
   useEffect(() => {
     const refresh = () => {
-      setOrbColor(loadUserSettings().app.orbColor)
+      const settings = loadUserSettings()
+      setOrbColor(settings.app.orbColor)
+      setBackground(settings.app.background || "default")
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
@@ -145,6 +170,28 @@ export default function HomePage() {
       return () => clearTimeout(t)
     }
   }, [connected, sendGreeting, setVoicePreference])
+
+  // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
+  useEffect(() => {
+    if (novaState === "muted") {
+      setIsMuted(true)
+    }
+    // Never auto-unmute - only user click should unmute
+  }, [novaState])
+
+  const handleMuteToggle = useCallback(() => {
+    const newMuted = !isMuted
+    setIsMuted(newMuted) // Immediate local update
+    localStorage.setItem("nova-muted", String(newMuted)) // Persist
+    setMuted(newMuted) // Send to agent
+  }, [isMuted, setMuted])
+
+  // Send muted state to agent on connect if we were muted
+  useEffect(() => {
+    if (connected && isMuted) {
+      setMuted(true)
+    }
+  }, [connected, isMuted, setMuted])
 
   // Watch for voice-triggered messages and open chat
   const voiceConvoCreatedRef = useRef(false)
@@ -347,6 +394,10 @@ export default function HomePage() {
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
     : "hover:bg-[#141923] hover:border-[#2b3240]"
   const orbPalette = ORB_COLORS[orbColor]
+  const floatingLinesGradient = useMemo(
+    () => [orbPalette.circle1, orbPalette.circle2],
+    [orbPalette.circle1, orbPalette.circle2],
+  )
 
   return (
     <div className={cn("flex h-dvh", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
@@ -366,23 +417,45 @@ export default function HomePage() {
       />
 
       <div className="flex-1 relative overflow-hidden">
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background:
-              `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
-          }}
-        />
-        <div className="absolute inset-0 pointer-events-none">
-          <div
-            className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
-            style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
-          />
-          <div
-            className="absolute bottom-[8%] right-[18%] h-80 w-80 rounded-full blur-[130px]"
-            style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
-          />
-        </div>
+        {/* FloatingLines background - only render after settings loaded to prevent restart */}
+        {settingsLoaded && background === "default" && (
+          <div className="absolute inset-0 opacity-30 z-0">
+            <FloatingLines
+              linesGradient={floatingLinesGradient}
+              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
+              lineCount={FLOATING_LINES_LINE_COUNT}
+              lineDistance={FLOATING_LINES_LINE_DISTANCE}
+              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
+              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
+              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
+              bendRadius={5}
+              bendStrength={-0.5}
+              interactive={true}
+              parallax={true}
+            />
+          </div>
+        )}
+        {settingsLoaded && (
+          <>
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
+              }}
+            />
+            <div className="absolute inset-0 pointer-events-none">
+              <div
+                className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
+                style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
+              />
+              <div
+                className="absolute bottom-[8%] right-[18%] h-80 w-80 rounded-full blur-[130px]"
+                style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
+              />
+            </div>
+          </>
+        )}
 
         <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
           <div className="flex items-center gap-2">
@@ -402,34 +475,43 @@ export default function HomePage() {
             </Button>
           </div>
           <div className="flex-1" />
-          <div />
         </div>
 
         <div className="relative z-10 h-full w-full px-6 pt-4 pb-6">
           <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] gap-6">
             <div className="min-h-0 flex flex-col">
               <div className="flex-1 flex flex-col items-center justify-center gap-6">
-                <div className={`relative ${hasAnimated ? "orb-intro" : ""}`}>
-                  <div
-                    className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
-                    style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, 0.22)}` }}
-                  />
-                  <div
-                    className="absolute -inset-12 rounded-full animate-spin animation-duration-[26s] direction-[reverse]"
-                    style={{ border: `1px solid ${hexToRgba(orbPalette.circle2, 0.18)}` }}
-                  />
-                  <div
-                    className="absolute -inset-4 rounded-full"
-                    style={{ boxShadow: `0 0 80px -15px ${hexToRgba(orbPalette.circle1, 0.55)}` }}
-                  />
-                  <AnimatedOrb size={280} palette={orbPalette} />
+                <div className={`relative h-[280px] w-[280px] ${hasAnimated ? "orb-intro" : ""}`}>
+                  {settingsLoaded && (
+                    <>
+                      <div
+                        className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
+                        style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, 0.22)}` }}
+                      />
+                      <div
+                        className="absolute -inset-4 rounded-full"
+                        style={{ boxShadow: `0 0 80px -15px ${hexToRgba(orbPalette.circle1, 0.55)}` }}
+                      />
+                      <AnimatedOrb size={280} palette={orbPalette} showStateLabel={false} />
+                    </>
+                  )}
                 </div>
                 <div className="text-center">
                   <p className={cn(`mt-2 text-5xl font-semibold ${hasAnimated ? "text-blur-intro" : ""}`, isLight ? "text-s-90" : "text-white")}>
                     Hi, I&apos;m Nova
                   </p>
                   <p className={cn(`mt-3 text-lg ${hasAnimated ? "text-blur-intro-delay" : ""}`, isLight ? "text-s-50" : "text-slate-400")}>
-                    {welcomeMessage}
+                    <TextType
+                      as="span"
+                      text={[welcomeMessage]}
+                      typingSpeed={75}
+                      pauseDuration={1500}
+                      showCursor
+                      cursorCharacter="_"
+                      deletingSpeed={50}
+                      loop={false}
+                      className="inline-block"
+                    />
                   </p>
                 </div>
               </div>
@@ -487,17 +569,42 @@ export default function HomePage() {
                       placeholder={connected ? "Enter your command..." : "Waiting for agent..."}
                       disabled={!connected}
                       rows={1}
-                      className={cn("w-full bg-transparent text-sm pl-12 pt-4.5 pb-2.5 pr-14 resize-none outline-none disabled:opacity-40", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
+                      className={cn("w-full bg-transparent text-sm pl-12 pt-4.5 pb-2.5 pr-24 resize-none outline-none disabled:opacity-40", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
                       style={{ maxHeight: 120 }}
                     />
-                    <button
-                      onClick={handleSend}
-                      disabled={(!input.trim() && attachedFiles.length === 0) || !connected}
-                      className="absolute right-3 bottom-3 p-2 rounded-xl transition-colors disabled:opacity-20 border border-accent-30 bg-accent-10 hover:bg-accent-20 disabled:hover:bg-accent-10"
-                      aria-label="Send message"
-                    >
-                      <span className="sr-only">Send</span>
-                    </button>
+                    <div className="absolute right-3 bottom-3 flex items-center gap-2">
+                      <button
+                        onClick={handleSend}
+                        disabled={(!input.trim() && attachedFiles.length === 0) || !connected}
+                        className={cn(
+                          "group p-1.5 transition-colors disabled:opacity-20",
+                          isLight ? "text-s-60 hover:text-accent" : "text-slate-400 hover:text-accent",
+                        )}
+                        aria-label="Send message"
+                      >
+                        <ArrowRight className="w-5 h-5 transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+                      </button>
+                      <button
+                        onClick={handleMuteToggle}
+                        className={cn(
+                          "group relative h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 hover:rotate-12",
+                          isMuted
+                            ? "text-red-400 hover:text-red-300"
+                            : "border border-accent-30 bg-accent-10 hover:bg-accent-20 text-accent"
+                        )}
+                        aria-label={isMuted ? "Unmute Nova" : "Mute Nova"}
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+                            isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
+                          )}
+                        >
+                          Mute Nova From Listening
+                        </span>
+                        {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

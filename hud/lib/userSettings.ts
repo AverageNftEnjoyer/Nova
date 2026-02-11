@@ -3,8 +3,9 @@
 
 export type AccessTier = "Core Access" | "Developer" | "Admin" | "Operator"
 
-export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange"
-export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange"
+export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange" | "pastelPink"
+export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange" | "pastelPink"
+export type BackgroundType = "default" | "none"
 
 export interface UserProfile {
   name: string
@@ -34,10 +35,14 @@ export interface AppSettings {
   theme: "dark" | "light" | "system"
   accentColor: AccentColor
   orbColor: OrbColor
+  background: BackgroundType
   soundEnabled: boolean
   voiceEnabled: boolean
   ttsVoice: string // Voice ID for TTS
   bootAnimationEnabled: boolean
+  bootMusicEnabled: boolean
+  bootMusicDataUrl: string | null
+  bootMusicFileName: string | null
   compactMode: boolean
   fontSize: "small" | "medium" | "large"
 }
@@ -63,10 +68,14 @@ const DEFAULT_SETTINGS: UserSettings = {
     theme: "dark",
     accentColor: "violet",
     orbColor: "violet",
+    background: "default",
     soundEnabled: true,
     voiceEnabled: true,
     ttsVoice: "default",
     bootAnimationEnabled: true,
+    bootMusicEnabled: true,
+    bootMusicDataUrl: null,
+    bootMusicFileName: null,
     compactMode: false,
     fontSize: "medium",
   },
@@ -180,6 +189,7 @@ export const ACCENT_COLORS: Record<AccentColor, { primary: string; secondary: st
   amber: { primary: "#f59e0b", secondary: "#fbbf24", name: "Amber" },
   rose: { primary: "#f43f5e", secondary: "#fb7185", name: "Rose" },
   orange: { primary: "#f97316", secondary: "#fb923c", name: "Orange" },
+  pastelPink: { primary: "#f9a8d4", secondary: "#fbcfe8", name: "Pastel Pink" },
 }
 
 export const ORB_COLORS: Record<
@@ -249,6 +259,15 @@ export const ORB_COLORS: Record<
     circle4: "#fdba74",
     circle5: "#fb7185",
   },
+  pastelPink: {
+    name: "Pastel Pink",
+    bg: "#1f0f18",
+    circle1: "#f9a8d4",
+    circle2: "#fbcfe8",
+    circle3: "#f472b6",
+    circle4: "#fce7f3",
+    circle5: "#fda4af",
+  },
 }
 
 // Available TTS voices
@@ -258,3 +277,9 @@ export const TTS_VOICES = [
   { id: "mord", name: "Mord", description: "Deep authoritative voice" },
   { id: "ultron", name: "Ultron", description: "Dark tone" },
 ]
+
+// Available backgrounds
+export const BACKGROUNDS: Record<BackgroundType, { name: string; description: string }> = {
+  default: { name: "Floating Lines", description: "Interactive wave lines" },
+  none: { name: "None", description: "No background animation" },
+}

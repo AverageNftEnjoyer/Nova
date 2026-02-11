@@ -44,3 +44,675 @@ True
 [Agent] [Voice] Voice responses enabled: false
 [Agent] [HUD] Greeting requested. voiceEnabled: false
 [Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 191ms
+[HUD] ^C[HUD] npm error A complete log of this run can be found in: C:\Users\Jack\AppData\Local\npm-cache\_logs\2026-02-09T21_12_09_931Z-debug-0.log
+[HUD] exited with code 1
+[Agent] ^C^C[Nova] Boot sequence started.
+[Nova] Detected 2 monitor(s): 2560x1440 at (0,0) [PRIMARY], 1920x1080 at (-1920,191)
+[Nova] All systems starting...
+(node:33492) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[HUD] 
+> my-v0-project@0.1.0 dev
+> next dev
+
+[Agent] [dotenv@17.2.3] injecting env (7) from ..\.env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[Agent] [Telegram] Bot starting...
+[Agent] [Telegram] Bot ready and listening
+[Agent] node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::8765
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at new WebSocketServer (C:\Nova\agent\node_modules\ws\lib\websocket-server.js:106:20)
+    at file:///C:/Nova/agent/agent.js:62:13
+    at ModuleJob.run (node:internal/modules/esm/module_job:413:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:660:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+Emitted 'error' event on WebSocketServer instance at:
+    at Server.emit (node:events:508:28)
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 8765
+}
+
+Node.js v24.13.0
+[Agent] exited with code 1
+[HUD] [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[HUD]    ▲ Next.js 16.0.10 (Turbopack)
+[HUD]    - Local:         http://localhost:3000
+   - Network:       http://10.5.0.2:3000
+[HUD] 
+ ✓ Starting...
+[Nova] Telegram Desktop opened.
+[HUD]  ✓ Ready in 2.3s
+[Nova] Opening Nova app on primary monitor
+[Nova] Nova launched as standalone app.
+[HUD]  GET /boot-right 200 in 2.3s (compile: 2.2s, render: 125ms)
+[Nova] Window move: Window with title *localhost:3000* not found
+[HUD]  GET /home 200 in 2.8s (compile: 2.5s, render: 337ms)
+[HUD] exited with code 4294967295
+
+Shutting down Nova...
+[Nova] Boot sequence started.
+[Nova] Detected 2 monitor(s): 2560x1440 at (0,0) [PRIMARY], 1920x1080 at (-1920,191)
+[Nova] All systems starting...
+(node:19616) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[HUD] 
+> my-v0-project@0.1.0 dev
+> next dev
+
+[Agent] [dotenv@17.2.3] injecting env (7) from ..\.env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[Agent] [Telegram] Bot starting...
+[Agent] [Telegram] Bot ready and listening
+[HUD] [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[HUD]    ▲ Next.js 16.0.10 (Turbopack)
+   - Local:         http://localhost:3000
+   - Network:       http://10.5.0.2:3000
+[HUD] 
+[HUD]  ✓ Starting...
+[Nova] Telegram Desktop opened.
+[HUD]  ✓ Ready in 2.7s
+[Nova] Opening Nova app on primary monitor
+[Nova] Nova launched as standalone app.
+[HUD]  ○ Compiling /home ...
+[HUD]  GET /boot-right 200 in 5.1s (compile: 4.2s, render: 862ms)
+[HUD]  GET /home 200 in 5.5s (compile: 5.0s, render: 507ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Agent] [Voice] Preference updated to: peter
+[Agent] Nova online.
+[Nova] Window move: Window with title *localhost:3000* not found
+[HUD]  GET /home 200 in 108ms (compile: 6ms, render: 102ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Agent] [Voice] Preference updated to: peter
+[Agent] [Nova] Muted: true
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 242ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 165ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 98ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 196ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 121ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 161ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 96ms
+[Agent] [Nova] Muted: true
+[Agent] [Nova] Muted: false
+[Agent] [Nova] Muted: true
+[Agent] [Nova] Muted: true
+[Agent] [Nova] Muted: false
+[Agent] [Nova] Muted: true
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 69ms
+[Agent] [Nova] Muted: true
+[HUD]  GET /boot-right 200 in 85ms (compile: 66ms, render: 19ms)
+[HUD]  GET /home 200 in 403ms (compile: 84ms, render: 319ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Agent] [Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 97ms (compile: 11ms, render: 86ms)
+[HUD]  GET /home 200 in 188ms (compile: 6ms, render: 182ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 146ms (compile: 102ms, render: 44ms)
+[HUD]  GET /home 200 in 187ms (compile: 8ms, render: 179ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 267ms (compile: 141ms, render: 125ms)
+[HUD]  GET /home 200 in 102ms (compile: 8ms, render: 93ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /home 200 in 40ms (compile: 9ms, render: 31ms)
+[HUD]  ✓ Compiled in 568ms
+[HUD]  GET /boot-right 200 in 132ms (compile: 97ms, render: 35ms)
+[HUD]  GET /home 200 in 69ms (compile: 7ms, render: 63ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 43ms (compile: 10ms, render: 33ms)
+[HUD]  ✓ Compiled in 110ms
+[HUD]  GET /home 200 in 125ms (compile: 5ms, render: 120ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 236ms (compile: 134ms, render: 102ms)
+[HUD]  GET /home 200 in 183ms (compile: 5ms, render: 178ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 80ms
+[HUD]  ✓ Compiled in 226ms
+[Agent] [Nova] Muted: true
+[HUD]  ✓ Compiled in 203ms
+[HUD]  GET /home 200 in 116ms (compile: 84ms, render: 32ms)
+[HUD]  GET /boot-right 200 in 68ms (compile: 53ms, render: 15ms)
+[HUD]  GET /home 200 in 189ms (compile: 5ms, render: 183ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 21ms (compile: 5ms, render: 16ms)
+[HUD]  GET /home 200 in 91ms (compile: 7ms, render: 83ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 30ms (compile: 6ms, render: 23ms)
+[HUD]  GET /home 200 in 42ms (compile: 3ms, render: 39ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 77ms
+[HUD]  GET /boot-right 200 in 294ms (compile: 173ms, render: 122ms)
+[HUD]  GET /home 200 in 423ms (compile: 148ms, render: 275ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 82ms
+[HUD]  ✓ Compiled in 80ms
+[HUD]  ✓ Compiled in 71ms
+[HUD]  ✓ Compiled in 150ms
+[HUD]  GET /boot-right 200 in 128ms (compile: 8ms, render: 120ms)
+[HUD]  GET /home 200 in 467ms (compile: 167ms, render: 301ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 74ms (compile: 10ms, render: 63ms)
+[HUD]  GET /home 200 in 83ms (compile: 5ms, render: 78ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[HUD]  ✓ Compiled in 188ms
+[HUD]  ⚠ Fast Refresh had to perform a full reload when ./lib/userSettings.ts changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /home 200 in 59ms (compile: 5ms, render: 53ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 227ms
+[HUD]  ✓ Compiled in 258ms
+[HUD]  ⚠ Fast Refresh had to perform a full reload when ./lib/userSettings.ts changed. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+[HUD]  ✓ Compiled in 182ms
+[HUD]  GET /home 200 in 98ms (compile: 7ms, render: 92ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 67ms
+[HUD]  ✓ Compiled in 182ms
+[HUD]  ✓ Compiled in 118ms
+[HUD]  ✓ Compiled in 244ms
+[HUD]  ✓ Compiled in 239ms
+[HUD]  ✓ Compiled in 128ms
+[HUD]  ✓ Compiled in 274ms
+[HUD]  ✓ Compiled in 338ms
+[HUD]  ✓ Compiled in 271ms
+[HUD]  ✓ Compiled in 213ms
+[HUD]  ✓ Compiled in 85ms
+[HUD]  ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+[HUD]  ✓ Compiled in 69ms
+[HUD]  GET /home 200 in 460ms (compile: 129ms, render: 332ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 236ms
+[HUD]  ✓ Compiled in 75ms
+[HUD]  ✓ Compiled in 192ms
+[HUD]  GET /home 200 in 179ms (compile: 133ms, render: 46ms)
+[HUD]  GET /boot-right 200 in 170ms (compile: 143ms, render: 26ms)
+[HUD]  GET /home 200 in 140ms (compile: 4ms, render: 136ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 227ms (compile: 178ms, render: 49ms)
+[HUD]  GET /home 200 in 24ms (compile: 5ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 81ms
+[HUD]  GET /boot-right 200 in 226ms (compile: 159ms, render: 67ms)
+[HUD]  GET /home 200 in 25ms (compile: 5ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 28ms (compile: 6ms, render: 22ms)
+[HUD]  GET /home 200 in 25ms (compile: 5ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 116ms
+[HUD]  GET /boot-right 200 in 293ms (compile: 205ms, render: 89ms)
+[HUD]  GET /home 200 in 29ms (compile: 5ms, render: 24ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 168ms
+[HUD]  GET /boot-right 200 in 148ms (compile: 105ms, render: 43ms)
+[HUD]  GET /home 200 in 41ms (compile: 20ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[HUD]  GET /boot-right 200 in 16ms (compile: 3ms, render: 13ms)
+[HUD]  GET /home 200 in 21ms (compile: 4ms, render: 17ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 202ms
+[HUD]  GET /boot-right 200 in 109ms (compile: 86ms, render: 23ms)
+[HUD]  GET /home 200 in 16ms (compile: 3ms, render: 13ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 67ms
+[HUD]  GET /boot-right 200 in 246ms (compile: 200ms, render: 46ms)
+[HUD]  GET /home 200 in 25ms (compile: 4ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 172ms
+[HUD]  GET /boot-right 200 in 189ms (compile: 148ms, render: 41ms)
+[HUD]  GET /home 200 in 15ms (compile: 3ms, render: 12ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD] 
+-----
+[1m[31mFATAL[39m[0m: An unexpected Turbopack error occurred. A panic log has been written to C:\Users\Jack\AppData\Local\Temp\next-panic-f5a5c83bc7eadfdbf196c5ce4dcf3c74.log.
+
+To help make Turbopack better, report this error by clicking here: https://github.com/vercel/next.js/discussions/new?category=turbopack-error-report&title=Turbopack%20Error%3A%20%5Bproject%5D%2Fapp%2Fglobals.css%20%5Bapp-client%5D%20%28css%29&body=Turbopack%20version%3A%20%603f6a39f6%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0ATurbopack%20Error%3A%20%5Bproject%5D%2Fapp%2Fglobals.css%20%5Bapp-client%5D%20%28css%29%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace
+-----
+
+[HUD]  ✓ Compiled in 356ms
+[HUD]  GET /home 500 in 1558ms (compile: 1537ms, render: 21ms)
+[HUD]  GET /home 200 in 2.5s (compile: 753ms, render: 1732ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 1405ms (compile: 1376ms, render: 29ms)
+[HUD]  GET /home 200 in 35ms (compile: 15ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 103ms
+[HUD]  ✓ Compiled in 60ms
+[HUD]  GET /boot-right 200 in 249ms (compile: 205ms, render: 44ms)
+[HUD]  GET /home 200 in 16ms (compile: 3ms, render: 13ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 80ms
+[HUD]  GET /boot-right 200 in 455ms (compile: 325ms, render: 130ms)
+[HUD]  GET /home 200 in 46ms (compile: 22ms, render: 24ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Agent] [Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 38ms (compile: 12ms, render: 26ms)
+[HUD]  GET /home 200 in 37ms (compile: 16ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 24ms
+[HUD]  ✓ Compiled in 8ms
+[HUD]  ✓ Compiled in 60ms
+[HUD]  GET /boot-right 200 in 339ms (compile: 250ms, render: 89ms)
+[HUD]  GET /home 200 in 29ms (compile: 6ms, render: 23ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 46ms
+[HUD]  GET /boot-right 200 in 311ms (compile: 198ms, render: 113ms)
+[HUD]  GET /home 200 in 30ms (compile: 7ms, render: 23ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /home 200 in 47ms (compile: 3ms, render: 44ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 42ms (compile: 12ms, render: 30ms)
+[HUD]  ✓ Compiled in 46ms
+[HUD]  GET /home 200 in 160ms (compile: 10ms, render: 149ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 187ms (compile: 149ms, render: 38ms)
+[HUD]  GET /home 200 in 40ms (compile: 20ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 27ms
+[HUD]  ✓ Compiled in 70ms
+[HUD]  GET /boot-right 200 in 252ms (compile: 193ms, render: 60ms)
+[HUD]  GET /home 200 in 19ms (compile: 5ms, render: 14ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 34ms
+[HUD]  GET /boot-right 200 in 129ms (compile: 101ms, render: 28ms)
+[HUD]  GET /home 200 in 19ms (compile: 4ms, render: 15ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 21ms
+[HUD]  ✓ Compiled in 10ms
+[HUD]  GET /boot-right 200 in 148ms (compile: 111ms, render: 37ms)
+[HUD]  GET /home 200 in 39ms (compile: 18ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 67ms
+[HUD]  ✓ Compiled in 31ms
+[HUD]  GET /boot-right 200 in 119ms (compile: 94ms, render: 25ms)
+[HUD]  GET /home 200 in 15ms (compile: 3ms, render: 12ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 17ms (compile: 3ms, render: 13ms)
+[HUD]  ✓ Compiled in 50ms
+[HUD]  GET /home 200 in 15ms (compile: 3ms, render: 12ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Agent] [Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 66ms
+[HUD]  GET /boot-right 200 in 403ms (compile: 251ms, render: 151ms)
+[HUD]  GET /home 200 in 45ms (compile: 4ms, render: 41ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 96ms
+[HUD]  GET /boot-right 200 in 132ms (compile: 100ms, render: 32ms)
+[HUD]  ✓ Compiled in 78ms
+[HUD]  ✓ Compiled in 67ms
+[HUD]  GET /home 200 in 23ms (compile: 4ms, render: 19ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 46ms
+[HUD]  GET /boot-right 200 in 303ms (compile: 247ms, render: 56ms)
+[HUD]  GET /home 200 in 32ms (compile: 6ms, render: 26ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 30ms (compile: 7ms, render: 23ms)
+[HUD]  GET /home 200 in 18ms (compile: 4ms, render: 14ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 78ms
+[HUD]  GET /boot-right 200 in 273ms (compile: 206ms, render: 66ms)
+[HUD]  ✓ Compiled in 139ms
+[HUD]  GET /home 200 in 31ms (compile: 10ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[HUD]  GET /boot-right 200 in 214ms (compile: 174ms, render: 40ms)
+[HUD]  GET /home 200 in 16ms (compile: 3ms, render: 13ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 28ms
+[HUD]  GET /boot-right 200 in 207ms (compile: 166ms, render: 41ms)
+[HUD]  ✓ Compiled in 75ms
+[HUD]  GET /home 200 in 22ms (compile: 4ms, render: 18ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 28ms
+[HUD]  GET /boot-right 200 in 116ms (compile: 92ms, render: 24ms)
+[HUD]  GET /home 200 in 24ms (compile: 4ms, render: 19ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 19ms
+[HUD]  GET /boot-right 200 in 299ms (compile: 238ms, render: 61ms)
+[HUD]  GET /home 200 in 19ms (compile: 3ms, render: 16ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 35ms
+[HUD]  GET /boot-right 200 in 169ms (compile: 135ms, render: 34ms)
+[HUD]  GET /home 200 in 33ms (compile: 11ms, render: 22ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 23ms
+[HUD]  GET /boot-right 200 in 305ms (compile: 238ms, render: 67ms)
+[HUD]  GET /home 200 in 29ms (compile: 5ms, render: 25ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 54ms
+[HUD]  ✓ Compiled in 19ms
+[HUD]  GET /boot-right 200 in 309ms (compile: 250ms, render: 59ms)
+[HUD]  GET /home 200 in 15ms (compile: 3ms, render: 12ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 19ms (compile: 4ms, render: 14ms)
+[HUD]  GET /home 200 in 17ms (compile: 3ms, render: 14ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 7ms
+[HUD]  GET /boot-right 200 in 220ms (compile: 179ms, render: 40ms)
+[HUD]  GET /home 200 in 35ms (compile: 13ms, render: 22ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 56ms
+[HUD]  GET /boot-right 200 in 274ms (compile: 217ms, render: 57ms)
+[HUD]  GET /home 200 in 26ms (compile: 5ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  GET /boot-right 200 in 20ms (compile: 5ms, render: 16ms)
+[HUD]  ✓ Compiled in 33ms
+[HUD]  GET /home 200 in 27ms (compile: 7ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Agent] [Voice] Voice responses enabled: false
+[Nova] Muted: true
+[HUD]  GET /boot-right 200 in 288ms (compile: 227ms, render: 61ms)
+[HUD]  GET /home 200 in 21ms (compile: 6ms, render: 15ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 8ms
+[HUD]  ✓ Compiled in 93ms
+[HUD]  GET /boot-right 200 in 407ms (compile: 285ms, render: 122ms)
+[HUD]  GET /home 200 in 25ms (compile: 5ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 51ms
+[HUD]  ✓ Compiled in 27ms
+[HUD]  GET /boot-right 200 in 203ms (compile: 162ms, render: 41ms)
+[HUD]  ✓ Compiled in 34ms
+[HUD]  GET /home 200 in 25ms (compile: 5ms, render: 20ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[HUD]  GET /boot-right 200 in 162ms (compile: 133ms, render: 28ms)
+[HUD]  ✓ Compiled in 23ms
+[HUD]  GET /home 200 in 26ms (compile: 5ms, render: 21ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[HUD]  GET /boot-right 200 in 212ms (compile: 168ms, render: 44ms)
+[HUD]  GET /home 200 in 17ms (compile: 3ms, render: 14ms)
+[Agent] [Voice] TTS voice set to: peter
+[Voice] Voice responses enabled: false
+[Agent] [Nova] Muted: true
+[Agent] [HUD] Greeting requested. voiceEnabled: false
+[Voice] Preference updated to: peter
+[HUD]  ✓ Compiled in 39ms
+[HUD]  GET /boot-right 200 in 329ms (compile: 245ms, render: 84ms)
+[HUD]  ✓ Compiled in 137ms
+[HUD]  GET /boot-right 200 in 507ms (compile: 244ms, render: 263ms)
+[HUD]  ✓ Compiled in 10ms
+[HUD]  GET /boot-right 200 in 503ms (compile: 270ms, render: 234ms)
+[HUD]  ✓ Compiled in 46ms
+[HUD]  ✓ Compiled in 31ms
+[HUD]  ✓ Compiled in 8ms
+[HUD]  ✓ Compiled in 19ms
+[HUD]  GET /boot-right 200 in 236ms (compile: 142ms, render: 95ms)
+[HUD]  ✓ Compiled in 61ms
+[HUD]  ✓ Compiled in 46ms
+[HUD]  ✓ Compiled in 90ms
+[HUD]  ✓ Compiled in 10ms
+[HUD]  GET /boot-right 200 in 194ms (compile: 99ms, render: 95ms)
+[HUD]  ✓ Compiled in 87ms
+[HUD]  GET /boot-right 200 in 474ms (compile: 231ms, render: 243ms)
+[HUD]  GET /boot-right 200 in 85ms (compile: 6ms, render: 79ms)
+[HUD]  ✓ Compiled in 21ms
+[HUD]  ✓ Compiled in 24ms
+[HUD]  ✓ Compiled in 42ms
+[HUD]  GET /boot-right 200 in 510ms (compile: 129ms, render: 381ms)
+[HUD]  ✓ Compiled in 11ms
+[HUD]  ✓ Compiled in 53ms
+[HUD]  ✓ Compiled in 84ms
+[HUD]  GET /boot-right 200 in 726ms (compile: 368ms, render: 358ms)
+[HUD]  ✓ Compiled in 57ms
+[HUD]  GET /boot-right 200 in 538ms (compile: 226ms, render: 312ms)
+[HUD]  ✓ Compiled in 9ms
+[HUD]  ✓ Compiled in 65ms
+[HUD]  GET /boot-right 200 in 446ms (compile: 250ms, render: 196ms)
+[HUD]  GET /boot-right 200 in 75ms (compile: 9ms, render: 66ms)
+[HUD]  ✓ Compiled in 22ms
+[HUD]  GET /boot-right 200 in 581ms (compile: 250ms, render: 331ms)
+[HUD]  GET /boot-right 200 in 95ms (compile: 10ms, render: 85ms)
+[HUD]  GET /boot-right 200 in 245ms (compile: 6ms, render: 239ms)
+[HUD]  GET /boot-right 200 in 105ms (compile: 6ms, render: 100ms)
+[HUD]  GET /boot-right 200 in 168ms (compile: 9ms, render: 159ms)
+[HUD] [baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[HUD] [?25h
+[HUD] exited with code 4294967295
+[Agent] exited with code 4294967295
+
+Shutting down Nova...

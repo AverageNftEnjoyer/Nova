@@ -1,10 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { BootScreenSecondary } from "@/components/boot-screen-secondary"
 import { loadUserSettings } from "@/lib/userSettings"
 
 export default function BootRightPage() {
+  const router = useRouter()
   const [booting, setBooting] = useState(true)
   const [checked, setChecked] = useState(false)
 
@@ -13,17 +15,17 @@ export default function BootRightPage() {
     const settings = loadUserSettings()
     if (!settings.app.bootAnimationEnabled) {
       // Skip boot animation, go directly to home
-      window.location.replace("/home")
+      router.replace("/home")
       return
     }
     setChecked(true)
-  }, [])
+  }, [router])
 
   useEffect(() => {
     if (!booting && checked) {
-      window.location.replace("/home")
+      router.replace("/home")
     }
-  }, [booting, checked])
+  }, [booting, checked, router])
 
   if (!checked) return null
 

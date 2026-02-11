@@ -1,6 +1,13 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
+import DecryptedText from "@/components/DecryptedText"
+import GradientText from "@/components/GradientText"
+import { AnimatedOrb } from "@/components/animated-orb"
+import { BootRotatingGlobe } from "@/components/boot-rotating-globe"
+import { loadBootMusicBlob } from "@/lib/bootMusicStorage"
+import { playBootMusic } from "@/lib/bootMusicPlayer"
+import { loadUserSettings, ORB_COLORS, ACCENT_COLORS, type OrbColor, type AccentColor } from "@/lib/userSettings"
 
 interface BootScreenSecondaryProps {
   onComplete: () => void
@@ -16,25 +23,44 @@ interface SystemMetrics {
   system: { manufacturer: string; model: string }
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 // ──────────────────────────────────────────
 // SUBSYSTEM BOOT SEQUENCE — appears as systems come online
 // ──────────────────────────────────────────
 const SUBSYSTEMS = [
-  { id: "KERNEL",   label: "KERNEL",          detail: "nova-core.sys v4.1",         time: 0.4 },
-  { id: "MEMORY",   label: "MEMORY",          detail: "2.1 GB persistent store",    time: 1.2 },
-  { id: "NEURAL",   label: "NEURAL ENGINE",   detail: "2,847 nodes mapped",         time: 2.0 },
-  { id: "VOICE",    label: "VOICE SYNTH",     detail: "fish-audio ref loaded",      time: 3.0 },
-  { id: "VISION",   label: "VISION PIPELINE", detail: "CUDA 4096 cores online",     time: 4.0 },
-  { id: "CRYPTO",   label: "ENCRYPTION",      detail: "quantum-E2E established",    time: 4.8 },
-  { id: "BRIDGE",   label: "WS BRIDGE",       detail: "tcp/8765 handshake OK",      time: 5.5 },
-  { id: "EMOTION",  label: "EMOTION ENGINE",  detail: "empathy_core.rs compiled",   time: 6.2 },
-  { id: "LLM",      label: "LLM INTERFACE",   detail: "gpt-4.1 stream pipe ready",  time: 7.0 },
-  { id: "PERSONA",  label: "PERSONALITY",     detail: "matrix.bin injected layer7", time: 7.8 },
-  { id: "HUD",      label: "HUD RENDERER",    detail: "60fps canvas lock",          time: 8.5 },
-  { id: "AUDIO",    label: "AUDIO I/O",       detail: "mic array + TTS bound",      time: 9.2 },
-  { id: "FIREWALL", label: "FIREWALL",        detail: "rules loaded — ALLOW NOVA",  time: 10.0 },
-  { id: "AWARENESS",label: "AWARENESS",       detail: "subroutines deployed",       time: 10.8 },
-  { id: "CORE",     label: "NOVA CORE",       detail: "PID 1 — FULLY CONSCIOUS",   time: 11.5 },
+  { id: "KERNEL",    label: "KERNEL",            detail: "nova-core.sys v4.1",            time: 0.5 },
+  { id: "MEMORY",    label: "MEMORY",            detail: "2.1 GB persistent store",       time: 0.9 },
+  { id: "PCI_BUS",   label: "PCI BUS",           detail: "device map enumerated",         time: 1.2 },
+  { id: "SENSORS",   label: "SENSOR ARRAY",      detail: "thermal + voltage online",      time: 1.6 },
+  { id: "NEURAL",    label: "NEURAL ENGINE",     detail: "2,847 nodes mapped",            time: 1.9 },
+  { id: "CACHE",     label: "L3 CACHE",          detail: "predictive cache primed",       time: 2.3 },
+  { id: "VOICE",     label: "VOICE SYNTH",       detail: "fish-audio ref loaded",         time: 2.6 },
+  { id: "VISION",    label: "VISION PIPELINE",   detail: "CUDA 4096 cores online",        time: 3.0 },
+  { id: "NLP",       label: "NLP TOKENIZER",     detail: "semantic parser warmed",        time: 3.3 },
+  { id: "CRYPTO",    label: "ENCRYPTION",        detail: "quantum-E2E established",       time: 3.7 },
+  { id: "BRIDGE",    label: "WS BRIDGE",         detail: "tcp/8765 handshake OK",         time: 4.0 },
+  { id: "ROUTER",    label: "INTENT ROUTER",     detail: "pipeline graph resolved",       time: 4.4 },
+  { id: "EMOTION",   label: "EMOTION ENGINE",    detail: "empathy_core.rs compiled",      time: 4.7 },
+  { id: "LLM",       label: "LLM INTERFACE",     detail: "gpt-4.1 stream pipe ready",     time: 5.1 },
+  { id: "PERSONA",   label: "PERSONALITY",       detail: "matrix.bin injected layer7",    time: 5.4 },
+  { id: "RAG",       label: "RAG INDEX",         detail: "memory vectors mounted",        time: 5.8 },
+  { id: "HUD",       label: "HUD RENDERER",      detail: "60fps canvas lock",             time: 6.1 },
+  { id: "AUDIO",     label: "AUDIO I/O",         detail: "mic array + TTS bound",         time: 6.5 },
+  { id: "FIREWALL",  label: "FIREWALL",          detail: "rules loaded - ALLOW NOVA",     time: 6.8 },
+  { id: "FILES",     label: "FS INDEXER",        detail: "workspace inode map ready",     time: 7.2 },
+  { id: "TELEMETRY", label: "TELEMETRY BUS",     detail: "realtime stream active",        time: 7.5 },
+  { id: "AWARENESS", label: "AWARENESS",         detail: "subroutines deployed",          time: 7.9 },
+  { id: "SAFETY",    label: "SAFETY GUARD",      detail: "policy constraints locked",     time: 8.2 },
+  { id: "CORE",      label: "NOVA CORE",         detail: "PID 1 - FULLY CONSCIOUS",       time: 8.6 },
 ]
 
 // Hacker-style flying text lines
@@ -161,9 +187,13 @@ function arcPath(cx: number, cy: number, r: number, startAngle: number, span: nu
 }
 
 export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
+  const [bootOrbColor, setBootOrbColor] = useState<OrbColor | null>(null)
+  const [bootAccentColor, setBootAccentColor] = useState<AccentColor | null>(null)
   const [progress, setProgress] = useState(0)
   const [fadeOut, setFadeOut] = useState(false)
   const [phase, setPhase] = useState(0)
+  const [subtitleActive, setSubtitleActive] = useState(false)
+  const [novaTitleActive, setNovaTitleActive] = useState(false)
   const [flyingIdx, setFlyingIdx] = useState(0)
   const [visibleReadouts, setVisibleReadouts] = useState(0)
   const [sessionId, setSessionId] = useState("--------")
@@ -173,6 +203,35 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
   const startTime = useRef(Date.now())
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const orbPalette = bootOrbColor ? ORB_COLORS[bootOrbColor] : null
+  const accentPalette = bootAccentColor ? ACCENT_COLORS[bootAccentColor] : null
+
+  useEffect(() => {
+    let cancelled = false
+    const settings = loadUserSettings()
+    setBootOrbColor(settings.app.orbColor)
+    setBootAccentColor(settings.app.accentColor)
+    if (!settings.app.bootMusicEnabled) {
+      return () => {}
+    }
+
+    // Legacy fallback: previously persisted data URL.
+    if (settings.app.bootMusicDataUrl) {
+      playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds: 30, volume: 0.5 })
+    }
+
+    loadBootMusicBlob()
+      .then((blob) => {
+        if (cancelled || !blob) return
+        const objectUrl = URL.createObjectURL(blob)
+        playBootMusic(objectUrl, { maxSeconds: 30, volume: 0.5, objectUrl })
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Connect to agent WebSocket for live metrics
   useEffect(() => {
@@ -249,6 +308,18 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     return () => clearTimeout(t)
   }, [])
 
+  // Subtitle decrypt starts 3s into boot
+  useEffect(() => {
+    const t = setTimeout(() => setSubtitleActive(true), 3000)
+    return () => clearTimeout(t)
+  }, [])
+
+  // NOVA title appears after 10s
+  useEffect(() => {
+    const t = setTimeout(() => setNovaTitleActive(true), 10000)
+    return () => clearTimeout(t)
+  }, [])
+
   // Fade out and complete
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
@@ -263,6 +334,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
   // Scanline canvas effect
   useEffect(() => {
+    if (!accentPalette) return
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext("2d")
@@ -273,14 +345,14 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     let raf: number
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.fillStyle = "rgba(139, 92, 246, 0.015)"
+      ctx.fillStyle = `${hexToRgba(accentPalette.primary, 0.015)}`
       for (let y = 0; y < canvas.height; y += 3) {
         if ((y + frame) % 6 < 3) ctx.fillRect(0, y, canvas.width, 1)
       }
       const scanY = ((frame * 2) % (canvas.height + 100)) - 50
       const grad = ctx.createLinearGradient(0, scanY - 30, 0, scanY + 30)
       grad.addColorStop(0, "transparent")
-      grad.addColorStop(0.5, "rgba(139, 92, 246, 0.06)")
+      grad.addColorStop(0.5, `${hexToRgba(accentPalette.primary, 0.06)}`)
       grad.addColorStop(1, "transparent")
       ctx.fillStyle = grad
       ctx.fillRect(0, scanY - 30, canvas.width, 60)
@@ -289,12 +361,13 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     }
     raf = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(raf)
-  }, [])
+  }, [accentPalette])
 
   const visibleLines = FLYING_LINES.slice(0, flyingIdx + 1)
   const displayLines = visibleLines.slice(-18)
-
   const allSystemsOnline = onlineSystems.length === SUBSYSTEMS.length
+
+  if (!orbPalette || !accentPalette) return null
 
   return (
     <div
@@ -314,7 +387,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             style={{
               left: `${h.left}%`,
               top: `${h.top}%`,
-              color: `rgba(139, 92, 246, ${h.opacity * 4})`,
+              color: hexToRgba(accentPalette.primary, h.opacity * 4),
               animationDuration: `${h.speed}s`,
               animationDelay: `${h.delay}s`,
               ["--fly-dir" as string]: h.direction,
@@ -406,7 +479,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                 <line
                   key={`tick-${i}`}
                   x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke={tick.isMajor ? "rgba(139, 92, 246, 0.3)" : "rgba(139, 92, 246, 0.12)"}
+                  stroke={tick.isMajor ? hexToRgba(accentPalette.primary, 0.3) : hexToRgba(accentPalette.primary, 0.12)}
                   strokeWidth={tick.isMajor ? 2 : 1}
                 />
               )
@@ -418,7 +491,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                 key={`arc-${i}`}
                 d={arcPath(350, 350, seg.r * 1.4, seg.startAngle, seg.span)}
                 fill="none"
-                stroke={`rgba(139, 92, 246, ${0.15 + seg.ring * 0.05})`}
+                stroke={hexToRgba(accentPalette.primary, 0.15 + seg.ring * 0.05)}
                 strokeWidth={seg.ring === 0 ? 3 : 2}
                 className={`boot2-arc-ring-${seg.ring}`}
                 style={{
@@ -431,11 +504,11 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
             {/* Inner circle */}
             <circle cx="350" cy="350" r="90" fill="none"
-              stroke="rgba(139, 92, 246, 0.2)" strokeWidth="2"
+              stroke={hexToRgba(accentPalette.primary, 0.2)} strokeWidth="2"
               style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
             />
             <circle cx="350" cy="350" r="94" fill="none"
-              stroke="rgba(139, 92, 246, 0.08)" strokeWidth="1"
+              stroke={hexToRgba(accentPalette.primary, 0.08)} strokeWidth="1"
               strokeDasharray="6 6"
               className="boot2-arc-ring-0"
               style={{ transformOrigin: "350px 350px", opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}
@@ -444,10 +517,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
             {/* Crosshairs */}
             {phase >= 2 && (
               <>
-                <line x1="350" y1="200" x2="350" y2="250" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
-                <line x1="350" y1="450" x2="350" y2="500" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
-                <line x1="200" y1="350" x2="250" y2="350" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
-                <line x1="450" y1="350" x2="500" y2="350" stroke="rgba(139, 92, 246, 0.2)" strokeWidth="1" />
+                <line x1="350" y1="200" x2="350" y2="250" stroke={hexToRgba(accentPalette.primary, 0.2)} strokeWidth="1" />
+                <line x1="350" y1="450" x2="350" y2="500" stroke={hexToRgba(accentPalette.primary, 0.2)} strokeWidth="1" />
+                <line x1="200" y1="350" x2="250" y2="350" stroke={hexToRgba(accentPalette.primary, 0.2)} strokeWidth="1" />
+                <line x1="450" y1="350" x2="500" y2="350" stroke={hexToRgba(accentPalette.primary, 0.2)} strokeWidth="1" />
               </>
             )}
 
@@ -460,40 +533,24 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
               const y2 = +(350 + 130 * Math.sin(rad)).toFixed(4)
               return (
                 <line key={`diag-${a}`} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke="rgba(167, 139, 250, 0.25)" strokeWidth="2" />
+                  stroke={hexToRgba(accentPalette.secondary, 0.25)} strokeWidth="2" />
               )
             })}
           </svg>
 
-          {/* Center orb — activates at the end */}
-          <div className="absolute" style={{ inset: 260 }}>
-            <div
-              className="w-full h-full rounded-full"
-              style={{
-                background: orbReady
-                  ? "radial-gradient(circle at 40% 35%, #e9d5ff 0%, #c4b5fd 15%, #8b5cf6 40%, #6d28d9 65%, #4c1d95 100%)"
-                  : phase >= 4
-                  ? "radial-gradient(circle at 40% 35%, #c4b5fd 0%, #8b5cf6 30%, #6d28d9 60%, #4c1d95 100%)"
-                  : phase >= 2
-                  ? "radial-gradient(circle at 40% 35%, rgba(196,181,253,0.5) 0%, rgba(139,92,246,0.3) 60%, transparent 100%)"
-                  : "radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%)",
-                boxShadow: orbReady
-                  ? "0 0 120px rgba(139,92,246,0.7), 0 0 240px rgba(139,92,246,0.35), 0 0 360px rgba(139,92,246,0.15), inset 0 0 60px rgba(167,139,250,0.5)"
-                  : phase >= 3
-                  ? "0 0 100px rgba(139,92,246,0.5), 0 0 180px rgba(139,92,246,0.25), inset 0 0 50px rgba(167,139,250,0.4)"
-                  : "0 0 40px rgba(139,92,246,0.1)",
-                transition: "all 1.5s ease",
-                opacity: phase >= 1 ? 1 : 0,
-                animation: orbReady ? "boot-orb-ready-pulse 1.5s ease-in-out infinite" : "none",
-              }}
-            />
-            <div className="absolute inset-0 rounded-full"
-              style={{
-                background: "linear-gradient(to bottom, rgba(255,255,255,0.35) 0%, transparent 55%)",
-                opacity: phase >= 3 ? 1 : 0,
-                transition: "opacity 1s ease",
-              }}
-            />
+          {/* Center orb - matched to home UX */}
+          <div className="absolute" style={{ inset: 260, opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.7s ease" }}>
+            <div className="relative h-full w-full">
+              <div
+                className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
+                style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, 0.22)}` }}
+              />
+              <div
+                className="absolute -inset-4 rounded-full"
+                style={{ boxShadow: `0 0 80px -15px ${hexToRgba(orbPalette.circle1, 0.55)}` }}
+              />
+              <AnimatedOrb size={180} palette={orbPalette} showStateLabel={false} />
+            </div>
           </div>
 
           {/* HUD readouts floating around reactor - live metrics */}
@@ -504,32 +561,32 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
             // Get dynamic value based on key
             let value = "--"
-            let color = "text-white/70"
+            let color = "rgba(255,255,255,0.7)"
             if (metrics) {
               switch (r.key) {
                 case "cpu_temp":
                   value = `${metrics.cpu.temp}°C`
-                  color = metrics.cpu.temp > 80 ? "text-red-400" : metrics.cpu.temp > 60 ? "text-amber-400" : "text-emerald-400"
+                  color = metrics.cpu.temp > 80 ? "#f87171" : metrics.cpu.temp > 60 ? "#fbbf24" : hexToRgba(accentPalette.primary, 0.85)
                   break
                 case "memory":
                   value = `${metrics.memory.percent}%`
-                  color = metrics.memory.percent > 85 ? "text-red-400" : metrics.memory.percent > 70 ? "text-amber-400" : "text-violet-400"
+                  color = metrics.memory.percent > 85 ? "#f87171" : metrics.memory.percent > 70 ? "#fbbf24" : hexToRgba(accentPalette.primary, 0.85)
                   break
                 case "gpu_temp":
                   value = `${metrics.gpu.temp}°C`
-                  color = metrics.gpu.temp > 80 ? "text-red-400" : metrics.gpu.temp > 65 ? "text-amber-400" : "text-emerald-400"
+                  color = metrics.gpu.temp > 80 ? "#f87171" : metrics.gpu.temp > 65 ? "#fbbf24" : hexToRgba(accentPalette.primary, 0.85)
                   break
                 case "cpu_load":
                   value = `${metrics.cpu.load}%`
-                  color = metrics.cpu.load > 80 ? "text-red-400" : metrics.cpu.load > 50 ? "text-amber-400" : "text-emerald-400"
+                  color = metrics.cpu.load > 80 ? "#f87171" : metrics.cpu.load > 50 ? "#fbbf24" : hexToRgba(accentPalette.primary, 0.85)
                   break
                 case "disk":
                   value = `${metrics.disk.percent}%`
-                  color = metrics.disk.percent > 90 ? "text-red-400" : metrics.disk.percent > 75 ? "text-amber-400" : "text-violet-400"
+                  color = metrics.disk.percent > 90 ? "#f87171" : metrics.disk.percent > 75 ? "#fbbf24" : hexToRgba(accentPalette.primary, 0.85)
                   break
                 case "status":
                   value = "NOMINAL"
-                  color = "text-emerald-400"
+                  color = hexToRgba(accentPalette.primary, 0.9)
                   break
               }
             }
@@ -540,8 +597,8 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                 className="absolute font-mono boot2-readout-in"
                 style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
               >
-                <div className="text-sm text-violet-400/50 tracking-widest">{r.text}</div>
-                <div className={`text-2xl tracking-wide font-medium ${color}`}>{value}</div>
+                <div className="text-sm tracking-widest" style={{ color: hexToRgba(accentPalette.primary, 0.5) }}>{r.text}</div>
+                <div className="text-2xl tracking-wide font-medium" style={{ color }}>{value}</div>
               </div>
             )
           })}
@@ -549,23 +606,39 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
 
         {/* NOVA title - positioned below the orb */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none" style={{ top: "calc(50% + 330px)" }}>
-          <h1
-            className="text-7xl font-extralight tracking-[0.7em] text-white/90 ml-6 boot-nova-title"
+        <div className="absolute left-1/2 -translate-x-1/2 ml-3 flex flex-col items-center pointer-events-none" style={{ top: "calc(50% + 330px)" }}>
+          <div
             style={{
-              opacity: phase >= 2 ? 1 : 0,
+              opacity: novaTitleActive ? 1 : 0,
               transition: "opacity 1.5s ease",
-              textShadow: orbReady
-                ? "0 0 100px rgba(139,92,246,0.7), 0 0 200px rgba(139,92,246,0.3)"
-                : "0 0 80px rgba(139,92,246,0.5), 0 0 160px rgba(139,92,246,0.2)",
-              animation: orbReady ? "boot-nova-glow 2s ease-in-out infinite" : "none",
             }}
           >
-            NOVA
-          </h1>
-          <p className="text-sm tracking-[0.5em] text-violet-400/50 mt-2 uppercase font-mono"
-            style={{ opacity: phase >= 3 ? 1 : 0, transition: "opacity 1s ease" }}>
-            Autonomous Intelligence System
+            <GradientText
+              colors={[orbPalette.circle1, orbPalette.circle2, orbPalette.circle4, orbPalette.circle1]}
+              animationSpeed={1.5}
+              showBorder={false}
+              className="text-7xl font-extralight tracking-[0.7em] ml-6 cursor-default"
+            >
+              NOVA
+            </GradientText>
+          </div>
+          <p className="text-sm tracking-[0.5em] mt-2 uppercase font-mono"
+            style={{ opacity: subtitleActive ? 1 : 0, transition: "opacity 0.5s ease", color: hexToRgba(orbPalette.circle4, 0.55) }}>
+            {subtitleActive && (
+              <DecryptedText
+                key="boot-subtitle-decrypt"
+                text="Autonomous Intelligence System"
+                animateOn="view"
+                revealDirection="start"
+                sequential={false}
+                useOriginalCharsOnly={false}
+                speed={100}
+                maxIterations={80}
+                characters="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?@#$%"
+                className="text-current"
+                encryptedClassName="text-current opacity-40"
+              />
+            )}
           </p>
         </div>
       </div>
@@ -573,43 +646,57 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* LEFT — Terminal console                */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-3 top-10 bottom-12 w-95 overflow-hidden z-10">
-        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-mono font-medium">
-          SYS.CONSOLE
+<div className="absolute left-4 top-12 h-[420px] w-[560px] overflow-hidden z-10">
+  <div
+    className="text-[10px] mb-1.5 tracking-[0.3em] uppercase font-mono font-medium"
+    style={{ color: hexToRgba(accentPalette.primary, 0.4) }}
+  >
+    SYS.CONSOLE
+  </div>
+
+  <div className="font-mono text-[12px] leading-5">
+    {displayLines.map((line, i) => {
+      const isNewest = i === displayLines.length - 1
+      const age = displayLines.length - 1 - i
+      const opacity = isNewest ? 0.85 : Math.max(0.08, 0.6 - age * 0.07)
+
+      const isHighlight =
+        line.includes("OK") ||
+        line.includes("VALID") ||
+        line.includes("ACTIVE") ||
+        line.includes("CONFIRMED") ||
+        line.includes("ONLINE") ||
+        line.includes("PASS") ||
+        line.includes("ALIVE") ||
+        line.includes("CONSCIOUS")
+
+      return (
+        <div
+          key={`fly-${flyingIdx - (displayLines.length - 1 - i)}`}
+          className="boot2-fly-line flex items-center whitespace-nowrap pr-2"
+          style={{ opacity }}
+        >
+          <span className="mr-2" style={{ color: hexToRgba(accentPalette.primary, 0.3) }}>
+            {">"}
+          </span>
+          <span className={`truncate ${isHighlight ? "text-emerald-400/80" : "text-cyan-300/70"}`}>
+            {line}
+          </span>
+          {isNewest && (
+            <span className="boot-cursor inline-block w-1.5 h-3 bg-cyan-400/80 ml-1" />
+          )}
         </div>
-        <div className="font-mono text-[12px] leading-5">
-          {displayLines.map((line, i) => {
-            const isNewest = i === displayLines.length - 1
-            const age = displayLines.length - 1 - i
-            const opacity = isNewest ? 0.85 : Math.max(0.08, 0.6 - age * 0.07)
-            const isHighlight = line.includes("OK") || line.includes("VALID") ||
-              line.includes("ACTIVE") || line.includes("CONFIRMED") ||
-              line.includes("ONLINE") || line.includes("PASS") ||
-              line.includes("ALIVE") || line.includes("CONSCIOUS")
-            return (
-              <div
-                key={`fly-${flyingIdx - (displayLines.length - 1 - i)}`}
-                className="boot2-fly-line whitespace-nowrap"
-                style={{ opacity }}
-              >
-                <span className="text-violet-500/30 mr-2">{">"}</span>
-                <span className={isHighlight ? "text-emerald-400/80" : "text-cyan-300/70"}>
-                  {line}
-                </span>
-                {isNewest && (
-                  <span className="boot-cursor inline-block w-1.5 h-3 bg-cyan-400/80 ml-1" />
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
+      )
+    })}
+  </div>
+</div>
+
 
       {/* ═══════════════════════════════════════ */}
       {/* RIGHT TOP — Hardware Metrics           */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute right-3 top-10 w-72 z-10 font-mono">
-        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
+        <div className="text-[10px] mb-1.5 tracking-[0.3em] uppercase font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.4) }}>
           HARDWARE STATUS
         </div>
 
@@ -617,12 +704,12 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease" }}>
           <div className="flex justify-between text-[11px] mb-1">
             <span className="text-white/40">CPU LOAD</span>
-            <span className="text-violet-400/80 font-medium">{metrics?.cpu.load ?? "--"}%</span>
+            <span className="font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.8) }}>{metrics?.cpu.load ?? "--"}%</span>
           </div>
           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${metrics?.cpu.load ?? 0}%`,
-              background: (metrics?.cpu.load ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.load ?? 0) > 50 ? "#f59e0b" : "#22c55e",
+              background: (metrics?.cpu.load ?? 0) > 80 ? "#ef4444" : (metrics?.cpu.load ?? 0) > 50 ? "#f59e0b" : accentPalette.primary,
             }} />
           </div>
         </div>
@@ -647,12 +734,12 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.2s" }}>
           <div className="flex justify-between text-[11px] mb-1">
             <span className="text-white/40">MEMORY</span>
-            <span className="text-violet-400/80 font-medium">{metrics?.memory.used ?? "--"} / {metrics?.memory.total ?? "--"} GB</span>
+            <span className="font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.8) }}>{metrics?.memory.used ?? "--"} / {metrics?.memory.total ?? "--"} GB</span>
           </div>
           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${metrics?.memory.percent ?? 0}%`,
-              background: (metrics?.memory.percent ?? 0) > 85 ? "#ef4444" : (metrics?.memory.percent ?? 0) > 70 ? "#f59e0b" : "#a78bfa",
+              background: (metrics?.memory.percent ?? 0) > 85 ? "#ef4444" : (metrics?.memory.percent ?? 0) > 70 ? "#f59e0b" : accentPalette.primary,
             }} />
           </div>
         </div>
@@ -677,12 +764,12 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         <div className="mb-2.5" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.4s" }}>
           <div className="flex justify-between text-[11px] mb-1">
             <span className="text-white/40">DISK USAGE</span>
-            <span className="text-violet-400/80 font-medium">{metrics?.disk.percent ?? "--"}%</span>
+            <span className="font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.8) }}>{metrics?.disk.percent ?? "--"}%</span>
           </div>
           <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full rounded-full transition-all duration-500" style={{
               width: `${metrics?.disk.percent ?? 0}%`,
-              background: (metrics?.disk.percent ?? 0) > 90 ? "#ef4444" : (metrics?.disk.percent ?? 0) > 75 ? "#f59e0b" : "#818cf8",
+              background: (metrics?.disk.percent ?? 0) > 90 ? "#ef4444" : (metrics?.disk.percent ?? 0) > 75 ? "#f59e0b" : accentPalette.primary,
             }} />
           </div>
         </div>
@@ -691,25 +778,26 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         <div className="mb-2" style={{ opacity: phase >= 1 ? 1 : 0, transition: "opacity 0.5s ease 0.5s" }}>
           <div className="flex justify-between text-[11px]">
             <span className="text-white/40">NETWORK I/O</span>
-            <span className="text-cyan-400/80 font-medium">↓{metrics?.network.rx ?? 0} ↑{metrics?.network.tx ?? 0} KB/s</span>
+            <span className="font-medium" style={{ color: hexToRgba(accentPalette.secondary, 0.8) }}>↓{metrics?.network.rx ?? 0} ↑{metrics?.network.tx ?? 0} KB/s</span>
           </div>
         </div>
 
         {/* System Status Indicator */}
         <div className="mt-3 pt-2 border-t border-white/10" style={{ opacity: phase >= 2 ? 1 : 0, transition: "opacity 0.5s ease 0.6s" }}>
           <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" style={{
-              boxShadow: "0 0 10px rgba(52, 211, 153, 0.7)",
+            <div className="w-2.5 h-2.5 rounded-full" style={{
+              backgroundColor: accentPalette.primary,
+              boxShadow: `0 0 10px ${hexToRgba(accentPalette.primary, 0.7)}`,
               animation: "boot-blink 2s ease-in-out infinite",
             }} />
-            <span className="text-[10px] text-emerald-400/80 tracking-wider font-medium">THERMAL OK</span>
+            <span className="text-[10px] tracking-wider font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.8) }}>THERMAL OK</span>
           </div>
           <div className="flex items-center gap-2 mt-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{
-              backgroundColor: metrics ? "#22c55e" : "#f59e0b",
-              boxShadow: metrics ? "0 0 10px rgba(34, 197, 94, 0.7)" : "0 0 10px rgba(245, 158, 11, 0.7)",
+              backgroundColor: metrics ? accentPalette.primary : "#f59e0b",
+              boxShadow: metrics ? `0 0 10px ${hexToRgba(accentPalette.primary, 0.7)}` : "0 0 10px rgba(245, 158, 11, 0.7)",
             }} />
-            <span className="text-[10px] tracking-wider font-medium" style={{ color: metrics ? "rgba(34, 197, 94, 0.8)" : "rgba(245, 158, 11, 0.8)" }}>
+            <span className="text-[10px] tracking-wider font-medium" style={{ color: metrics ? hexToRgba(accentPalette.primary, 0.8) : "rgba(245, 158, 11, 0.8)" }}>
               {metrics ? "SENSORS ACTIVE" : "CONNECTING..."}
             </span>
           </div>
@@ -720,7 +808,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* RIGHT BOTTOM — Subsystem boot status   */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute right-3 top-72.5 w-72 z-10 font-mono">
-        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
+        <div className="text-[10px] mb-1.5 tracking-[0.3em] uppercase font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.4) }}>
           SUBSYSTEMS
         </div>
         <div className="space-y-1">
@@ -731,11 +819,11 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
                 animation: isOn ? "boot-subsys-in 0.4s ease forwards" : "none",
               }}>
                 <div className="w-2 h-2 rounded-full shrink-0" style={{
-                  backgroundColor: isOn ? "#34d399" : "rgba(255,255,255,0.08)",
-                  boxShadow: isOn ? "0 0 10px rgba(52, 211, 153, 0.7)" : "none",
+                  backgroundColor: isOn ? accentPalette.primary : "rgba(255,255,255,0.08)",
+                  boxShadow: isOn ? `0 0 10px ${hexToRgba(accentPalette.primary, 0.7)}` : "none",
                   transition: "all 0.4s ease",
                 }} />
-                <span className={`text-[10px] transition-colors duration-300 ${isOn ? "text-emerald-400/70" : "text-white/10"}`}>
+                <span className="text-[10px] transition-colors duration-300" style={{ color: isOn ? hexToRgba(accentPalette.primary, 0.7) : "rgba(255,255,255,0.1)" }}>
                   {sys.label}
                 </span>
                 {isOn && (
@@ -750,9 +838,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
         {/* All systems online flash */}
         {allSystemsOnline && (
-          <div className="mt-3 px-3 py-1.5 border border-emerald-500/30 rounded bg-emerald-500/10 animate-in fade-in duration-500">
-            <span className="text-[10px] text-emerald-400/90 tracking-widest font-bold">
-              ● ALL SYSTEMS NOMINAL
+          <div className="mt-3 px-3 py-1.5 border rounded animate-in fade-in duration-500" style={{ borderColor: hexToRgba(accentPalette.primary, 0.3), background: hexToRgba(accentPalette.primary, 0.1) }}>
+            <span className="text-[10px] tracking-widest font-bold" style={{ color: hexToRgba(accentPalette.primary, 0.9) }}>
+              ● ALL SYSTEMS ONLINE
             </span>
           </div>
         )}
@@ -761,10 +849,10 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* ═══════════════════════════════════════ */}
       {/* BOTTOM LEFT — Network activity          */}
       {/* ═══════════════════════════════════════ */}
-      <div className="absolute left-3 bottom-12 w-95 z-10 font-mono" style={{
+      <div className="absolute top-3 left-[calc(50%-280px)] w-[272px] z-10 font-mono pointer-events-none" style={{
         opacity: phase >= 3 ? 1 : 0, transition: "opacity 0.8s ease",
       }}>
-        <div className="text-[10px] text-violet-500/40 mb-1.5 tracking-[0.3em] uppercase font-medium">
+        <div className="text-[10px] mb-1.5 tracking-[0.3em] uppercase font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.4) }}>
           NETWORK CONNECTIONS
         </div>
         <div className="space-y-1.5">
@@ -779,11 +867,11 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
               opacity: progress > (i + 1) * 15 ? 1 : 0,
               transition: "opacity 0.5s ease",
             }}>
-              <span className="text-cyan-400/50 font-medium">{conn.src}</span>
+              <span className="font-medium" style={{ color: hexToRgba(accentPalette.secondary, 0.5) }}>{conn.src}</span>
               <span className="text-white/15">→</span>
-              <span className="text-violet-400/50">{conn.dst}</span>
+              <span style={{ color: hexToRgba(accentPalette.primary, 0.55) }}>{conn.dst}</span>
               <span className="text-white/15 ml-auto">{conn.proto}</span>
-              <span className="text-emerald-400/60 font-medium">{conn.status}</span>
+              <span className="font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.65) }}>{conn.status}</span>
             </div>
           ))}
         </div>
@@ -796,28 +884,40 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         <div className="w-full h-0.75 bg-white/8 rounded-full overflow-hidden">
           <div
             className="h-full rounded-full boot-progress-bar transition-all duration-100 ease-linear"
-            style={{ width: `${progress}%` }}
+            style={{
+              width: `${progress}%`,
+              background: `linear-gradient(90deg, ${accentPalette.primary}, ${accentPalette.secondary}, ${accentPalette.primary})`,
+              backgroundSize: "300% 100%",
+            }}
           />
         </div>
         <div className="flex justify-between mt-2 font-mono">
           <p className="text-[11px] text-white/25 font-medium">
             {progress < 15 ? "BOOTSTRAPPING KERNEL" : progress < 30 ? "INITIALIZING NEURAL ENGINE" : progress < 50 ? "LOADING SUBSYSTEMS" : progress < 70 ? "CALIBRATING VOICE SYNTH" : progress < 85 ? "ESTABLISHING CONNECTIONS" : progress < 100 ? "ACTIVATING NOVA CORE" : "SYSTEM ONLINE — READY"}
           </p>
-          <p className="text-[11px] text-violet-400/50 font-medium">
+          <p className="text-[11px] font-medium" style={{ color: hexToRgba(accentPalette.primary, 0.6) }}>
             {onlineSystems.length}/{SUBSYSTEMS.length} ONLINE — {Math.round(progress)}%
           </p>
         </div>
       </div>
 
       {/* Corner HUD elements */}
-      <div className="absolute top-2 left-3 font-mono text-[10px] text-white/15 leading-tight z-10">
+      <div className="absolute left-4 bottom-2 font-mono text-[10px] text-white/15 leading-tight z-10">
         <div className="font-medium">NOVA.SYS.v4.1</div>
         <div>BUILD.2026.02.01</div>
-        <div className="text-violet-500/30">SESSION: {sessionId}</div>
+        <div style={{ color: hexToRgba(accentPalette.primary, 0.3) }}>SESSION: {sessionId}</div>
       </div>
       <div className="absolute top-2 right-3 font-mono text-[10px] text-white/15 text-right leading-tight z-10">
         <div className="font-medium">DISPLAY: PRIMARY</div>
         <div>PROTOCOL: QUANTUM-E2E</div>
+      </div>
+
+      {/* Bottom-left rotating globe */}
+      <div className="absolute -left-16 bottom-16 w-[1000px] h-[600px] z-0 pointer-events-none">
+        <BootRotatingGlobe
+          accentPrimary={hexToRgba(accentPalette.primary, 0.95)}
+          accentSecondary={hexToRgba(accentPalette.secondary, 0.85)}
+        />
       </div>
     </div>
   )

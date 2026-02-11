@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { MessageSquareDashed, PanelLeftOpen, PanelLeftClose, House } from "lucide-react"
+import { MessageSquareDashed, PanelLeftOpen, PanelLeftClose, House, Mic, MicOff } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "./composer"
 import { Button } from "@/components/ui/button"
@@ -42,15 +42,42 @@ export function ChatShell() {
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, transcript } = useNovaState()
+  const [isMuted, setIsMuted] = useState(false)
+  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, transcript, setMuted } = useNovaState()
+
+  // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
+  useEffect(() => {
+    if (novaState === "muted") {
+      setIsMuted(true)
+    }
+    // Never auto-unmute - only user click should unmute
+  }, [novaState])
+
+  const handleMuteToggle = useCallback(() => {
+    const newMuted = !isMuted
+    setIsMuted(newMuted)
+    localStorage.setItem("nova-muted", String(newMuted))
+    setMuted(newMuted)
+  }, [isMuted, setMuted])
+
+  // Send muted state to agent on connect if we were muted
+  useEffect(() => {
+    if (agentConnected && isMuted) {
+      setMuted(true)
+    }
+  }, [agentConnected, isMuted, setMuted])
 
   const mergedCountRef = useRef(0)
   const telegramMergedCountRef = useRef(0)
 
-  // Load conversations on mount
+  // Load conversations and muted state on mount
   useEffect(() => {
     const convos = loadConversations()
     setConversations(convos)
+
+    // Load muted state from localStorage
+    const savedMuted = localStorage.getItem("nova-muted") === "true"
+    setIsMuted(savedMuted)
 
     const activeId = getActiveId()
     const found = convos.find((c) => c.id === activeId)
@@ -380,8 +407,6 @@ export function ChatShell() {
             </Button>
           </div>
           <div className="flex-1" />
-
-          <div className="w-[120px]" />
         </div>
 
         <div className="relative flex-1 min-h-0">
@@ -393,6 +418,8 @@ export function ChatShell() {
           onStop={() => {}}
           isStreaming={isThinking}
           disabled={!agentConnected}
+          novaMuted={isMuted}
+          onMuteToggle={handleMuteToggle}
         />
       </div>
     </div>

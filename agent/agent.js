@@ -49,6 +49,8 @@ const VOICE_MAP = {
 let currentVoice = "default";
 // Whether TTS is enabled (updated when HUD sends voiceEnabled setting)
 let voiceEnabled = true;
+// Whether Nova is muted (stops listening entirely when true)
+let muted = false;
 
 // ===== paths =====
 const ROOT = __dirname;
@@ -148,6 +150,13 @@ wss.on("connection", (ws) => {
           voiceEnabled = data.voiceEnabled;
           console.log("[Voice] Voice responses enabled:", voiceEnabled);
         }
+      }
+
+      // Mute/unmute - stops listening entirely
+      if (data.type === "set_mute") {
+        muted = data.muted === true;
+        console.log("[Nova] Muted:", muted);
+        broadcastState(muted ? "muted" : "idle");
       }
     } catch (e) {
       console.error("[WS] Bad message from HUD:", e.message);
@@ -396,23 +405,31 @@ broadcastState("idle");
 // ===== main loop (HARD WAKE-WORD GATE) =====
 while (true) {
   try {
+    // Skip entirely if muted - no listening, no tokens
+    if (muted) {
+      await new Promise(r => setTimeout(r, 500));
+      continue;
+    }
+
     // Skip voice loop iteration if HUD is driving the conversation
     if (busy) {
       await new Promise(r => setTimeout(r, 500));
       continue;
     }
 
+    // Check muted again before broadcasting listening state
+    if (muted) continue;
     broadcastState("listening");
     recordMic(3);
 
     // Re-check after recording (HUD message may have arrived during the 3s block)
-    if (busy) continue;
+    if (busy || muted) continue;
 
     const text = await transcribe();
-    if (!text || busy) {
-      if (!busy) broadcastState("idle");
+    if (!text || busy || muted) {
+      if (!busy && !muted) broadcastState("idle");
       // Broadcast empty transcript to clear HUD
-      if (!busy) broadcast({ type: "transcript", text: "", ts: Date.now() });
+      if (!busy && !muted) broadcast({ type: "transcript", text: "", ts: Date.now() });
       continue;
     }
 
@@ -422,7 +439,7 @@ while (true) {
     const normalized = text.toLowerCase();
 
     if (!normalized.includes("nova")) {
-      if (!busy) broadcastState("idle");
+      if (!busy && !muted) broadcastState("idle");
       continue;
     }
 
@@ -441,6 +458,6 @@ while (true) {
   } catch (e) {
     console.error("Loop error:", e);
     busy = false;
-    broadcastState("idle");
+    if (!muted) broadcastState("idle");
   }
 }
