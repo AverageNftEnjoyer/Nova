@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { MessageSquareDashed, PanelLeftOpen, PanelLeftClose, House, Mic, MicOff } from "lucide-react"
+import { PanelLeftOpen, PanelLeftClose } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "./composer"
 import { Button } from "@/components/ui/button"
@@ -32,7 +32,7 @@ export interface Message {
   content: string
   createdAt: Date
   imageData?: string
-  source?: "hud" | "agent" | "voice" | "telegram"
+  source?: "hud" | "agent" | "voice" | "telegram" | "telegram_history"
   sender?: string
 }
 
@@ -61,38 +61,15 @@ export function ChatShell() {
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
   const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, transcript, setMuted } = useNovaState()
+  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages } = useNovaState()
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
     () => [orbPalette.circle1, orbPalette.circle2],
     [orbPalette.circle1, orbPalette.circle2],
   )
-
-  // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
-  useEffect(() => {
-    if (novaState === "muted") {
-      setIsMuted(true)
-    }
-    // Never auto-unmute - only user click should unmute
-  }, [novaState])
-
-  const handleMuteToggle = useCallback(() => {
-    const newMuted = !isMuted
-    setIsMuted(newMuted)
-    localStorage.setItem("nova-muted", String(newMuted))
-    setMuted(newMuted)
-  }, [isMuted, setMuted])
-
-  // Send muted state to agent on connect if we were muted
-  useEffect(() => {
-    if (agentConnected && isMuted) {
-      setMuted(true)
-    }
-  }, [agentConnected, isMuted, setMuted])
 
   const mergedCountRef = useRef(0)
   const telegramMergedCountRef = useRef(0)
@@ -101,10 +78,6 @@ export function ChatShell() {
   useEffect(() => {
     const convos = loadConversations()
     setConversations(convos)
-
-    // Load muted state from localStorage
-    const savedMuted = localStorage.getItem("nova-muted") === "true"
-    setIsMuted(savedMuted)
 
     const settings = loadUserSettings()
     setOrbColor(settings.app.orbColor)
@@ -184,8 +157,10 @@ export function ChatShell() {
 
     const newOnes = telegramMessages.slice(telegramMergedCountRef.current)
     telegramMergedCountRef.current = telegramMessages.length
+    const liveTelegram = newOnes.filter((am) => am.source === "telegram")
+    if (liveTelegram.length === 0) return
 
-    const newMsgs: ChatMessage[] = newOnes.map((am) => ({
+    const newMsgs: ChatMessage[] = liveTelegram.map((am) => ({
       id: am.id,
       role: am.role,
       content: am.content,
@@ -296,13 +271,8 @@ export function ChatShell() {
 
   // New conversation
   const handleNewChat = useCallback(() => {
-    clearAgentMessages()
-    mergedCountRef.current = 0
-
-    const fresh = createConversation()
-    const convos = [fresh, ...conversations]
-    persist(convos, fresh)
-  }, [conversations, clearAgentMessages, persist])
+    router.push("/home")
+  }, [router])
 
   // Switch conversation
   const handleSelectConvo = useCallback(
@@ -381,24 +351,44 @@ export function ChatShell() {
     [conversations, activeConvo, persist],
   )
 
-  // Clear current chat
-  const clearChat = useCallback(() => {
-    if (!activeConvo) return
-    clearAgentMessages()
-    mergedCountRef.current = 0
-
-    const updated: Conversation = {
-      ...activeConvo,
-      messages: [],
-      title: "New chat",
-      updatedAt: new Date().toISOString(),
-    }
-    const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
-    persist(convos, updated)
-  }, [activeConvo, conversations, clearAgentMessages, persist])
-
   return (
-    <div className="flex h-dvh bg-page">
+    <div className="relative flex h-dvh overflow-hidden bg-page">
+      {settingsLoaded && background === "default" && (
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div className="absolute inset-0 opacity-30">
+            <FloatingLines
+              linesGradient={floatingLinesGradient}
+              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
+              lineCount={FLOATING_LINES_LINE_COUNT}
+              lineDistance={FLOATING_LINES_LINE_DISTANCE}
+              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
+              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
+              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
+              bendRadius={5}
+              bendStrength={-0.5}
+              interactive={true}
+              parallax={true}
+            />
+          </div>
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
+            }}
+          />
+          <div className="absolute inset-0">
+            <div
+              className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
+              style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
+            />
+            <div
+              className="absolute bottom-[8%] right-[14%] h-64 w-64 rounded-full blur-[100px]"
+              style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
+            />
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <ChatSidebar
         conversations={conversations}
@@ -418,81 +408,31 @@ export function ChatShell() {
       <div
         className="relative flex flex-col flex-1 h-dvh overflow-hidden"
         style={{
+          marginLeft: "0",
           boxShadow: isLight
             ? "0 0 0 1px rgba(217, 224, 234, 1)"
             : "rgba(139, 92, 246, 0.03) 0px 0px 0px 1px, rgba(0, 0, 0, 0.2) 0px 1px 1px -0.5px",
         }}
       >
-        {settingsLoaded && background === "default" && (
-          <div className="absolute inset-0 opacity-30 z-0 pointer-events-none">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-        )}
-        {settingsLoaded && background === "default" && (
-          <>
-            <div
-              className="absolute inset-0 pointer-events-none z-0"
-              style={{
-                background:
-                  `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
-              }}
-            />
-            <div className="absolute inset-0 pointer-events-none z-0">
-              <div
-                className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
-                style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
-              />
-              <div
-                className="absolute bottom-[8%] right-[14%] h-64 w-64 rounded-full blur-[100px]"
-                style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Top bar */}
-        <div className={cn("z-20 flex items-center px-3 py-2 border-b", isLight ? "border-[#d9e0ea] bg-[#f6f8fc]" : "border-s-5 bg-page/90 backdrop-blur-md")}>
-          {/* Left buttons */}
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => router.push("/home")}
-              variant="ghost"
-              size="icon"
-              className={cn("h-9 w-9 rounded-full text-s-60", isLight ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "bg-s-5 hover:bg-s-10")}
-              aria-label="Go to home"
-            >
-              <House className="w-4 h-4" />
-            </Button>
+        <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
+          <div className="group relative">
             <Button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               variant="ghost"
               size="icon"
-              className={cn("h-9 w-9 rounded-full text-s-60", isLight ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "bg-s-5 hover:bg-s-10")}
-              aria-label="Toggle sidebar"
+              className={cn(
+                "chat-sidebar-card home-spotlight-card home-border-glow home-spotlight-card--hover h-9 w-9 rounded-full transition-all duration-150 hover:[--glow-intensity:1]",
+                isLight
+                  ? "border border-[#d9e0ea] bg-[#f4f7fd] text-s-70"
+                  : "border border-white/10 bg-white/4 text-slate-300 hover:bg-[#141923] hover:border-[#2b3240]",
+              )}
+              aria-label={sidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
             >
-              {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-            </Button>
-
-            <Button
-              onClick={clearChat}
-              variant="ghost"
-              size="icon"
-              className={cn("h-9 w-9 rounded-full text-s-60", isLight ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "bg-s-5 hover:bg-s-10")}
-              aria-label="Clear chat"
-            >
-              <MessageSquareDashed className="w-4 h-4" />
+              {sidebarOpen ? (
+                <PanelLeftClose className="w-4 h-4 transition-transform duration-200 ease-out group-hover:rotate-12" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4 transition-transform duration-200 ease-out group-hover:rotate-12" />
+              )}
             </Button>
           </div>
           <div className="flex-1" />
@@ -504,11 +444,8 @@ export function ChatShell() {
 
         <Composer
           onSend={sendMessage}
-          onStop={() => {}}
           isStreaming={isThinking}
           disabled={!agentConnected}
-          novaMuted={isMuted}
-          onMuteToggle={handleMuteToggle}
         />
       </div>
     </div>

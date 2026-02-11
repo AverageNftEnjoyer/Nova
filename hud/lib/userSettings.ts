@@ -36,6 +36,7 @@ export interface AppSettings {
   accentColor: AccentColor
   orbColor: OrbColor
   background: BackgroundType
+  spotlightEnabled: boolean
   soundEnabled: boolean
   voiceEnabled: boolean
   ttsVoice: string // Voice ID for TTS
@@ -69,6 +70,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     accentColor: "violet",
     orbColor: "violet",
     background: "default",
+    spotlightEnabled: true,
     soundEnabled: true,
     voiceEnabled: true,
     ttsVoice: "default",

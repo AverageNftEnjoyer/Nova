@@ -111,9 +111,14 @@ export function BootRotatingGlobe({ accentPrimary, accentSecondary, className = 
     let raf = 0
     let lon = -15
     const lat = -12
+    const degreesPerSecond = 43.2
+    let lastTs = 0
 
-    const draw = () => {
-      lon += 0.72
+    const draw = (ts: number) => {
+      if (lastTs === 0) lastTs = ts
+      const deltaMs = Math.min(50, Math.max(0, ts - lastTs))
+      lastTs = ts
+      lon += (degreesPerSecond * deltaMs) / 1000
       projection.rotate([lon, lat, 0])
       sphere.attr("d", path as unknown as string)
       grid.attr("d", path as unknown as string)
@@ -121,7 +126,7 @@ export function BootRotatingGlobe({ accentPrimary, accentSecondary, className = 
       raf = window.requestAnimationFrame(draw)
     }
 
-    draw()
+    raf = window.requestAnimationFrame(draw)
     return () => window.cancelAnimationFrame(raf)
   }, [worldData, accentPrimary, accentSecondary, dims])
 

@@ -68,6 +68,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { setAccentColor } = useAccent()
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const bootMusicInputRef = useRef<HTMLInputElement | null>(null)
+  const spotlightScopeRef = useRef<HTMLDivElement | null>(null)
   const isLight = theme === "light"
 
   const palette = {
@@ -296,6 +297,71 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     autoSave(newSettings)
   }
 
+  useEffect(() => {
+    if (!isOpen || !spotlightScopeRef.current || !(settings?.app.spotlightEnabled ?? true)) return
+    const scope = spotlightScopeRef.current
+    const spotlight = document.createElement("div")
+    spotlight.className = "fx-spotlight-overlay"
+    scope.appendChild(spotlight)
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = scope.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      scope.style.setProperty("--fx-overlay-x", `${mouseX}px`)
+      scope.style.setProperty("--fx-overlay-y", `${mouseY}px`)
+      scope.style.setProperty("--fx-overlay-opacity", "1")
+
+      const cards = scope.querySelectorAll<HTMLElement>(".fx-spotlight-card")
+      const proximity = 70
+      const fadeDistance = 140
+
+      cards.forEach((card) => {
+        const cardRect = card.getBoundingClientRect()
+        const isInsideCard =
+          e.clientX >= cardRect.left &&
+          e.clientX <= cardRect.right &&
+          e.clientY >= cardRect.top &&
+          e.clientY <= cardRect.bottom
+        const centerX = cardRect.left + cardRect.width / 2
+        const centerY = cardRect.top + cardRect.height / 2
+        const distance =
+          Math.hypot(e.clientX - centerX, e.clientY - centerY) - Math.max(cardRect.width, cardRect.height) / 2
+        const effectiveDistance = Math.max(0, distance)
+
+        let glowIntensity = 0
+        if (effectiveDistance <= proximity) {
+          glowIntensity = 1
+        } else if (effectiveDistance <= fadeDistance) {
+          glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity)
+        }
+
+        const relativeX = ((e.clientX - cardRect.left) / cardRect.width) * 100
+        const relativeY = ((e.clientY - cardRect.top) / cardRect.height) * 100
+        card.style.setProperty("--glow-x", `${relativeX}%`)
+        card.style.setProperty("--glow-y", `${relativeY}%`)
+        card.style.setProperty("--glow-intensity", glowIntensity.toString())
+        card.style.setProperty("--glow-radius", "120px")
+
+      })
+    }
+
+    const handleMouseLeave = () => {
+      scope.style.setProperty("--fx-overlay-opacity", "0")
+      const cards = scope.querySelectorAll<HTMLElement>(".fx-spotlight-card")
+      cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+    }
+
+    scope.addEventListener("mousemove", handleMouseMove)
+    scope.addEventListener("mouseleave", handleMouseLeave)
+
+    return () => {
+      scope.removeEventListener("mousemove", handleMouseMove)
+      scope.removeEventListener("mouseleave", handleMouseLeave)
+      spotlight.remove()
+    }
+  }, [isOpen, settings?.app.spotlightEnabled])
+
   if (!isOpen) return null
 
   const sections = [
@@ -317,7 +383,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-3xl max-h-[85vh] bg-[var(--settings-bg)] border border-[var(--settings-border)] rounded-2xl flex overflow-hidden">
+      <div
+        ref={spotlightScopeRef}
+        style={{ "--fx-overlay-x": "50%", "--fx-overlay-y": "50%", "--fx-overlay-opacity": "0" } as CSSProperties}
+        className="fx-spotlight-shell relative w-full max-w-3xl max-h-[85vh] bg-[var(--settings-bg)] border border-[var(--settings-border)] rounded-2xl flex overflow-hidden"
+      >
         {/* Left Nav */}
         <div className="w-48 bg-[var(--settings-bg)] border-r border-[var(--settings-border)] flex flex-col shrink-0">
           <div className="p-4 border-b border-[var(--settings-border)]">
@@ -332,7 +402,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <button
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 mb-0.5 ${
+                  className={`fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 mb-0.5 ${
                     isActive
                       ? "bg-[var(--settings-selected-bg)] text-accent border border-accent-30"
                       : "text-s-50 border border-transparent hover:bg-[var(--settings-hover)] hover:text-s-80 hover:border-[var(--settings-sub-border)]"
@@ -351,7 +421,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               onClick={handleReset}
               variant="ghost"
               size="sm"
-              className="w-full gap-2 text-s-40 hover:text-s-60 hover:bg-[var(--settings-hover)] h-9 transition-colors duration-150"
+              className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-full gap-2 text-s-40 hover:text-s-60 hover:bg-[var(--settings-hover)] h-9 transition-colors duration-150"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Reset to Default
@@ -368,14 +438,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </h3>
             <button
               onClick={onClose}
-              className="p-2 rounded-xl hover:bg-[var(--settings-hover)] text-s-40 hover:text-s-70 transition-colors"
+              className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-2 rounded-xl hover:bg-[var(--settings-hover)] text-s-40 hover:text-s-70 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-6 bg-[var(--settings-bg)]">
+          <div className="flex-1 overflow-y-scroll p-6 bg-[var(--settings-bg)]" style={{ scrollbarGutter: "stable" }}>
             {!settings ? (
               <div className="flex items-center justify-center py-20">
                 <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -386,7 +456,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {activeSection === "profile" && (
                   <div className="space-y-5">
                     {/* Avatar */}
-                    <div className="flex items-center gap-4 p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover flex items-center gap-4 p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <div
                         className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
                         style={{
@@ -434,7 +504,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         onClick={() => avatarInputRef.current?.click()}
                         variant="outline"
                         size="sm"
-                        className="gap-2 text-s-50 border-[var(--settings-sub-border)] hover:border-accent-30 hover:text-accent hover:bg-accent-10 transition-colors duration-150"
+                        className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover gap-2 text-s-50 border-[var(--settings-sub-border)] hover:border-accent-30 hover:text-accent hover:bg-accent-10 transition-colors duration-150"
                       >
                         <Camera className="w-4 h-4" />
                         Upload
@@ -472,7 +542,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     {/* Accent Color */}
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Accent Color</p>
                       <p className="text-xs text-s-30 mb-4">Choose your UI accent color</p>
                       <div className="flex gap-3 flex-wrap">
@@ -487,7 +557,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 // Also update local state so UI stays in sync
                                 setSettings(prev => prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev)
                               }}
-                              className={`w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+                              className={`fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -509,7 +579,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </div>
 
                     {/* Orb Color */}
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Nova Orb Color</p>
                       <p className="text-xs text-s-30 mb-4">Choose the orb color on the home screen</p>
                       <div className="flex gap-3 flex-wrap">
@@ -523,7 +593,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 playClickSound()
                                 updateApp("orbColor", color)
                               }}
-                              className={`w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+                              className={`fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -553,6 +623,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         label: info.name,
                       }))}
                       onChange={(v) => updateApp("background", v)}
+                    />
+
+                    <SettingToggle
+                      label="Spotlight Effects"
+                      description="Enable cursor spotlight and glow hover effects"
+                      checked={settings.app.spotlightEnabled}
+                      onChange={(v) => updateApp("spotlightEnabled", v)}
                     />
 
                     {/* Font Size */}
@@ -607,7 +684,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     {/* TTS Voice Selection */}
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">TTS Voice</p>
                       <p className="text-xs text-s-30 mb-3">Choose Nova's speaking voice</p>
                       <div className="space-y-2">
@@ -628,7 +705,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                   }
                                 } catch {}
                               }}
-                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 ${
+                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow fx-spotlight-dynamic ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -767,7 +844,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {/* Bootup Section */}
                 {activeSection === "bootup" && (
                   <div className="space-y-5">
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] mb-4">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] mb-4">
                       <p className="text-sm text-s-70">
                         Configure Nova startup behavior. This section is dedicated to boot experience settings.
                       </p>
@@ -787,7 +864,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(v) => updateApp("bootMusicEnabled", v)}
                     />
 
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Bootup Music</p>
                       <p className="text-xs text-s-30 mb-3">Plays the first 30 seconds on launch.</p>
                       <input
@@ -818,8 +895,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             playClickSound()
                             bootMusicInputRef.current?.click()
                           }}
-                          className={cn(
-                            "group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
+                            className={cn(
+                            "fx-spotlight-card fx-border-glow fx-spotlight-card--hover group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
                             isLight ? "text-s-50" : "text-s-40",
                           )}
                           aria-label={settings.app.bootMusicDataUrl ? "Replace MP3" : "Upload MP3"}
@@ -845,7 +922,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             }}
                             variant="outline"
                             size="sm"
-                            className="text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
+                            className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
                           >
                             Remove
                           </Button>
@@ -856,7 +933,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       )}
                     </div>
 
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">More Boot Settings</p>
                       <p className="text-xs text-s-30">
                         Additional bootup options will appear here as they are added.
@@ -868,7 +945,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {/* Access Level Section */}
                 {activeSection === "access" && (
                   <div className="space-y-5">
-                    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <div className="flex items-center gap-3 mb-4">
                         <div className="w-10 h-10 rounded-xl bg-accent-15 flex items-center justify-center">
                           <Shield className="w-5 h-5 text-accent" />
@@ -891,7 +968,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 playClickSound()
                                 updateProfile("accessTier", tier)
                               }}
-                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 ${
+                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow fx-spotlight-card--hover ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -1005,7 +1082,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SETTINGS_SEGMENTED_BUTTON_BASE =
-  "px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+  "fx-spotlight-card fx-border-glow fx-spotlight-card--hover px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
 const SETTINGS_SEGMENTED_BUTTON_SELECTED =
   "bg-[var(--settings-selected-bg)] text-accent border-accent-30"
 const SETTINGS_SEGMENTED_BUTTON_UNSELECTED =
@@ -1023,7 +1100,7 @@ function SettingToggle({
   onChange: (v: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] cursor-pointer group"
+    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover flex items-center justify-between p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] cursor-pointer group"
       onClick={() => {
         playClickSound()
         onChange(!checked)
@@ -1062,7 +1139,7 @@ function SettingInput({
   placeholder?: string
 }) {
   return (
-    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <input
@@ -1092,7 +1169,7 @@ function SettingTextarea({
   rows?: number
 }) {
   return (
-    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <textarea
@@ -1120,7 +1197,7 @@ function SettingSelect({
   onChange: (v: string) => void
 }) {
   return (
-    <div className="p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <div className="flex flex-wrap gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5">

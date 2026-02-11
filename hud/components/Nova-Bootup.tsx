@@ -202,7 +202,6 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
   const [onlineSystems, setOnlineSystems] = useState<string[]>([])
   const [orbReady, setOrbReady] = useState(false)
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
-  const startTime = useRef(Date.now())
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const orbPalette = bootOrbColor ? ORB_COLORS[bootOrbColor] : null
@@ -257,14 +256,18 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     setSessionId(Math.random().toString(36).slice(2, 10).toUpperCase())
   }, [])
 
-  // Progress bar — 14 seconds
+  // Progress bar — fixed-step updates to avoid catch-up jumps under load.
   useEffect(() => {
+    const durationMs = 14000
+    const tickMs = 50
+    const step = 100 / (durationMs / tickMs)
     const interval = setInterval(() => {
-      const elapsed = Date.now() - startTime.current
-      const pct = Math.min((elapsed / 14000) * 100, 100)
-      setProgress(pct)
-      if (pct >= 100) clearInterval(interval)
-    }, 50)
+      setProgress((prev) => {
+        const next = Math.min(100, prev + step)
+        if (next >= 100) clearInterval(interval)
+        return next
+      })
+    }, tickMs)
     return () => clearInterval(interval)
   }, [])
 
@@ -322,17 +325,20 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     return () => clearTimeout(t)
   }, [])
 
-  // Fade out and complete
+  // Fade out and complete after progress reaches 100%.
   const onCompleteRef = useRef(onComplete)
+  const completionTriggeredRef = useRef(false)
   onCompleteRef.current = onComplete
   useEffect(() => {
-    const fadeTimer = setTimeout(() => setFadeOut(true), 14200)
-    const completeTimer = setTimeout(() => onCompleteRef.current(), 15000)
+    if (completionTriggeredRef.current || progress < 100) return
+    completionTriggeredRef.current = true
+    const fadeTimer = setTimeout(() => setFadeOut(true), 220)
+    const completeTimer = setTimeout(() => onCompleteRef.current(), 950)
     return () => {
       clearTimeout(fadeTimer)
       clearTimeout(completeTimer)
     }
-  }, [])
+  }, [progress])
 
   // Scanline canvas effect
   useEffect(() => {

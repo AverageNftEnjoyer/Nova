@@ -6,7 +6,6 @@ import type { Message } from "./chat-shell"
 import { TypingIndicator } from "./typing-indicator"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { AnimatedOrb } from "./animated-orb"
 import type { NovaState } from "@/lib/useNovaState"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import { cn } from "@/lib/utils"
@@ -44,6 +43,13 @@ export function MessageList({
   const lastScrollRef = useRef<number>(0)
   const hasPlayedIntroRef = useRef(false)
   const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
+
+  const scrollToBottom = () => {
+    if (!containerRef.current) return
+    const container = containerRef.current
+    container.scrollTop = container.scrollHeight
+    setAutoScroll(true)
+  }
 
   useEffect(() => {
     if (!isLoaded) return
@@ -87,10 +93,22 @@ export function MessageList({
 
   useEffect(() => {
     if (!containerRef.current) return
-    const container = containerRef.current
-    container.scrollTop = container.scrollHeight
-    setAutoScroll(true)
-  }, [messages.length])
+    scrollToBottom()
+
+    // Ensure we land on the latest message after layout/paint settles.
+    let raf2: number | null = null
+    const raf1 = requestAnimationFrame(() => {
+      scrollToBottom()
+      raf2 = requestAnimationFrame(() => {
+        scrollToBottom()
+      })
+    })
+
+    return () => {
+      cancelAnimationFrame(raf1)
+      if (raf2 !== null) cancelAnimationFrame(raf2)
+    }
+  }, [messages.length, isLoaded, zoom, compactMode])
 
   useEffect(() => {
     if (!isStreaming || !autoScroll || !containerRef.current) {
@@ -152,11 +170,7 @@ export function MessageList({
       (novaState === "thinking"))
 
   if (!isLoaded) {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center">
-        <AnimatedOrb size={64} />
-      </div>
-    )
+    return <div className="absolute inset-0" />
   }
 
   return (
@@ -170,7 +184,7 @@ export function MessageList({
     >
     <div
       className={cn(
-        "mx-auto w-full min-h-full origin-top px-4 sm:px-6 flex flex-col justify-end",
+        "mx-auto w-full min-h-full origin-top px-4 sm:px-6 flex flex-col justify-start",
         compactMode ? "max-w-3xl space-y-3" : "max-w-4xl space-y-4",
       )}
       style={{
@@ -182,9 +196,6 @@ export function MessageList({
     >
       {messages.length === 0 && !error && !isStreaming && (
         <div className="flex flex-col items-center justify-center h-full text-center text-s-40">
-          <div className={`mb-4 ${hasAnimated ? "orb-intro" : ""}`}>
-            <AnimatedOrb size={180} />
-          </div>
           <p className={`text-lg font-medium text-s-60 ${hasAnimated ? "text-blur-intro" : ""}`}>
             Hi, my name is Nova
           </p>

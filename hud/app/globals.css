@@ -4,7 +4,6 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Accent color variables - can be overridden dynamically */
   --accent-primary: #8b5cf6;
   --accent-secondary: #a78bfa;
   --accent-rgb: 139, 92, 246;
@@ -43,15 +42,24 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 
-  /* Theme-adaptive surface color (used for overlays, text, borders) */
   --s: 0, 0, 0;
   --page-bg: #ffffff;
   --sidebar-page-bg: #f3f3f6;
-  --composer-shadow: rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 4px 16px;
+  --composer-shadow:
+    rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 4px 16px;
   --code-bg: rgba(0, 0, 0, 0.06);
   --code-block-bg: rgba(0, 0, 0, 0.04);
   --code-block-border: rgba(0, 0, 0, 0.08);
   --code-block-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px;
+  --mb-white: hsl(0, 0%, 100%);
+  --mb-glow-rgb: 132, 0, 255;
+  --mb-border-rgb: 132, 0, 255;
+  --mb-purple-primary: rgba(var(--mb-glow-rgb), 1);
+  --mb-purple-glow: rgba(var(--mb-glow-rgb), 0.2);
+  --mb-purple-border: rgba(var(--mb-border-rgb), 0.8);
+  --mb-border-color: rgba(var(--mb-border-rgb), 0.32);
+  --mb-background-dark: #060010;
+  --mb-bg-dark: #060010;
 }
 
 .dark {
@@ -88,15 +96,24 @@
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
 
-  /* Theme-adaptive surface color (used for overlays, text, borders) */
   --s: 255, 255, 255;
   --page-bg: #0a0a0f;
   --sidebar-page-bg: #0d0d14;
-  --composer-shadow: rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.3) 0px 4px 16px;
+  --composer-shadow:
+    rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.3) 0px 4px 16px;
   --code-bg: rgba(255, 255, 255, 0.1);
   --code-block-bg: rgba(255, 255, 255, 0.05);
   --code-block-border: rgba(255, 255, 255, 0.05);
   --code-block-shadow: rgba(0, 0, 0, 0.3) 0px 2px 8px;
+  --mb-white: hsl(0, 0%, 100%);
+  --mb-glow-rgb: 132, 0, 255;
+  --mb-border-rgb: 132, 0, 255;
+  --mb-purple-primary: rgba(var(--mb-glow-rgb), 1);
+  --mb-purple-glow: rgba(var(--mb-glow-rgb), 0.2);
+  --mb-purple-border: rgba(var(--mb-border-rgb), 0.8);
+  --mb-border-color: rgba(var(--mb-border-rgb), 0.32);
+  --mb-background-dark: #060010;
+  --mb-bg-dark: #060010;
 }
 
 @theme inline {
@@ -149,74 +166,148 @@
   }
 }
 
-/* ===== Theme-adaptive surface utilities ===== */
-/* Text colors — adapts white(dark)/black(light) at various opacities */
-.text-s-90 { color: rgba(var(--s), 0.9); }
-.text-s-85 { color: rgba(var(--s), 0.85); }
-.text-s-80 { color: rgba(var(--s), 0.8); }
-.text-s-70 { color: rgba(var(--s), 0.7); }
-.text-s-60 { color: rgba(var(--s), 0.6); }
-.text-s-50 { color: rgba(var(--s), 0.5); }
-.text-s-40 { color: rgba(var(--s), 0.4); }
-.text-s-30 { color: rgba(var(--s), 0.3); }
-.text-s-25 { color: rgba(var(--s), 0.25); }
-.text-s-20 { color: rgba(var(--s), 0.2); }
-.text-s-15 { color: rgba(var(--s), 0.15); }
-.text-s-10 { color: rgba(var(--s), 0.1); }
+.text-s-90 {
+  color: rgba(var(--s), 0.9);
+}
+.text-s-85 {
+  color: rgba(var(--s), 0.85);
+}
+.text-s-80 {
+  color: rgba(var(--s), 0.8);
+}
+.text-s-70 {
+  color: rgba(var(--s), 0.7);
+}
+.text-s-60 {
+  color: rgba(var(--s), 0.6);
+}
+.text-s-50 {
+  color: rgba(var(--s), 0.5);
+}
+.text-s-40 {
+  color: rgba(var(--s), 0.4);
+}
+.text-s-30 {
+  color: rgba(var(--s), 0.3);
+}
+.text-s-25 {
+  color: rgba(var(--s), 0.25);
+}
+.text-s-20 {
+  color: rgba(var(--s), 0.2);
+}
+.text-s-15 {
+  color: rgba(var(--s), 0.15);
+}
+.text-s-10 {
+  color: rgba(var(--s), 0.1);
+}
 
-/* Background colors */
-.bg-s-2 { background-color: rgba(var(--s), 0.02); }
-.bg-s-3 { background-color: rgba(var(--s), 0.03); }
-.bg-s-5 { background-color: rgba(var(--s), 0.05); }
-.bg-s-10 { background-color: rgba(var(--s), 0.10); }
-.bg-s-15 { background-color: rgba(var(--s), 0.15); }
+.bg-s-2 {
+  background-color: rgba(var(--s), 0.02);
+}
+.bg-s-3 {
+  background-color: rgba(var(--s), 0.03);
+}
+.bg-s-5 {
+  background-color: rgba(var(--s), 0.05);
+}
+.bg-s-10 {
+  background-color: rgba(var(--s), 0.1);
+}
+.bg-s-15 {
+  background-color: rgba(var(--s), 0.15);
+}
 
-/* Hover background */
-.hover\:bg-s-5:hover { background-color: rgba(var(--s), 0.05); }
-.hover\:bg-s-10:hover { background-color: rgba(var(--s), 0.10); }
-.hover\:bg-s-15:hover { background-color: rgba(var(--s), 0.15); }
-.hover\:bg-s-30:hover { background-color: rgba(var(--s), 0.30); }
+.hover\:bg-s-5:hover {
+  background-color: rgba(var(--s), 0.05);
+}
+.hover\:bg-s-10:hover {
+  background-color: rgba(var(--s), 0.1);
+}
+.hover\:bg-s-15:hover {
+  background-color: rgba(var(--s), 0.15);
+}
+.hover\:bg-s-30:hover {
+  background-color: rgba(var(--s), 0.3);
+}
 
-/* Border colors */
-.border-s-5 { border-color: rgba(var(--s), 0.05); }
-.border-s-10 { border-color: rgba(var(--s), 0.10); }
+.border-s-5 {
+  border-color: rgba(var(--s), 0.05);
+}
+.border-s-10 {
+  border-color: rgba(var(--s), 0.1);
+}
 
-/* Focus-within border */
-.focus-within\:border-s-10:focus-within { border-color: rgba(var(--s), 0.10); }
+.focus-within\:border-s-10:focus-within {
+  border-color: rgba(var(--s), 0.1);
+}
 
-/* Placeholder text */
-.placeholder\:text-s-20::placeholder { color: rgba(var(--s), 0.2); }
-.placeholder\:text-s-30::placeholder { color: rgba(var(--s), 0.3); }
+.placeholder\:text-s-20::placeholder {
+  color: rgba(var(--s), 0.2);
+}
+.placeholder\:text-s-30::placeholder {
+  color: rgba(var(--s), 0.3);
+}
 
-/* Page backgrounds */
-.bg-page { background-color: var(--page-bg); }
-.bg-sidebar-page { background-color: var(--sidebar-page-bg); }
+.bg-page {
+  background-color: var(--page-bg);
+}
+.bg-sidebar-page {
+  background-color: var(--sidebar-page-bg);
+}
 
-/* ===== Dynamic accent color utilities ===== */
-.text-accent { color: var(--accent-primary); }
-.text-accent-secondary { color: var(--accent-secondary); }
-.bg-accent { background-color: var(--accent-primary); }
-.bg-accent-10 { background-color: rgba(var(--accent-rgb), 0.1); }
-.bg-accent-15 { background-color: rgba(var(--accent-rgb), 0.15); }
-.bg-accent-20 { background-color: rgba(var(--accent-rgb), 0.2); }
-.border-accent { border-color: var(--accent-primary); }
-.border-accent-30 { border-color: rgba(var(--accent-rgb), 0.3); }
-.shadow-accent { box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.3); }
-.hover\:bg-accent-20:hover { background-color: rgba(var(--accent-rgb), 0.2); }
-.hover\:text-accent:hover { color: var(--accent-primary); }
-.hover\:border-accent-30:hover { border-color: rgba(var(--accent-rgb), 0.3); }
-.ring-accent { --tw-ring-color: var(--accent-primary); }
-.focus\:border-accent-50:focus { border-color: rgba(var(--accent-rgb), 0.5); }
+.text-accent {
+  color: var(--accent-primary);
+}
+.text-accent-secondary {
+  color: var(--accent-secondary);
+}
+.bg-accent {
+  background-color: var(--accent-primary);
+}
+.bg-accent-10 {
+  background-color: rgba(var(--accent-rgb), 0.1);
+}
+.bg-accent-15 {
+  background-color: rgba(var(--accent-rgb), 0.15);
+}
+.bg-accent-20 {
+  background-color: rgba(var(--accent-rgb), 0.2);
+}
+.border-accent {
+  border-color: var(--accent-primary);
+}
+.border-accent-30 {
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+.shadow-accent {
+  box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.3);
+}
+.hover\:bg-accent-20:hover {
+  background-color: rgba(var(--accent-rgb), 0.2);
+}
+.hover\:text-accent:hover {
+  color: var(--accent-primary);
+}
+.hover\:border-accent-30:hover {
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+.ring-accent {
+  --tw-ring-color: var(--accent-primary);
+}
+.focus\:border-accent-50:focus {
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
 
-/* Replace gray gradient with colorful animated gradient for AI streaming responses */
 .gradient-text-animated {
   background: linear-gradient(
     45deg,
-    rgba(59, 130, 246, 1) 0% /* Blue */,
-    rgba(139, 92, 246, 1) 25% /* Violet */,
-    rgba(6, 182, 212, 1) 50% /* Cyan */,
-    rgba(245, 158, 11, 1) 75% /* Orange */,
-    rgba(59, 130, 246, 1) 100% /* Back to blue */
+    rgba(59, 130, 246, 1) 0%,
+    rgba(139, 92, 246, 1) 25%,
+    rgba(6, 182, 212, 1) 50%,
+    rgba(245, 158, 11, 1) 75%,
+    rgba(59, 130, 246, 1) 100%
   );
   background-size: 300% 300%;
   background-clip: text;
@@ -225,15 +316,14 @@
   animation: gradient-shift 2s ease infinite;
 }
 
-/* Add analysis-word-gradient alias for the colorful gradient */
 .analysis-word-gradient {
   background: linear-gradient(
     45deg,
-    rgba(59, 130, 246, 1) 0% /* Blue */,
-    rgba(139, 92, 246, 1) 25% /* Violet */,
-    rgba(6, 182, 212, 1) 50% /* Cyan */,
-    rgba(245, 158, 11, 1) 75% /* Orange */,
-    rgba(59, 130, 246, 1) 100% /* Back to blue */
+    rgba(59, 130, 246, 1) 0%,
+    rgba(139, 92, 246, 1) 25%,
+    rgba(6, 182, 212, 1) 50%,
+    rgba(245, 158, 11, 1) 75%,
+    rgba(59, 130, 246, 1) 100%
   );
   background-size: 300% 300%;
   background-clip: text;
@@ -254,7 +344,6 @@
   }
 }
 
-/* Add progressive blur reveal animation for streaming text */
 @keyframes blur-reveal {
   0% {
     filter: blur(8px);
@@ -271,7 +360,6 @@
   animation: blur-reveal 0.4s ease-out forwards;
 }
 
-/* Add user message slide-up animation */
 @keyframes slide-up-bounce {
   0% {
     transform: translateY(20px);
@@ -290,7 +378,6 @@
   animation: slide-up-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Compact chat horizontal boundaries: prevent bubbles reaching screen edges */
 @media (min-width: 768px) {
   .compact-msg-user-bound {
     margin-right: clamp(2in, 16vw, 20rem);
@@ -303,7 +390,6 @@
   }
 }
 
-/* Add ripple wave animation with 3 concentric circles */
 @keyframes ripple-wave {
   0% {
     transform: translate(-50%, -50%) scale(0.8);
@@ -315,7 +401,6 @@
   }
 }
 
-/* Add bounce animation for uploaded image */
 @keyframes image-bounce {
   0% {
     transform: scale(0);
@@ -337,7 +422,6 @@
   animation: image-bounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* More dynamic orb animations with faster speeds, rotation, and more varied paths */
 @keyframes orb-float-1 {
   0% {
     transform: translate(0, 0) scale(1) rotate(0deg);
@@ -440,7 +524,6 @@
   }
 }
 
-/* Faster animation speeds for more dynamic movement */
 .orb-circle-1 {
   animation: orb-float-1 3s ease-in-out infinite;
 }
@@ -457,10 +540,8 @@
   animation: orb-float-4 2.5s ease-in-out infinite;
 }
 
-/* Added intro animation for orb - comes from top, starts at 200% with blur and 0 opacity */
 @keyframes orb-intro {
   0% {
-    /* Increased starting scale from 2 to 4 (200% larger) */
     transform: translateY(-100px) scale(4);
     filter: blur(30px);
     opacity: 0;
@@ -472,31 +553,11 @@
   }
 }
 
-/* Increased animation duration to 4s */
 .orb-intro {
   animation: orb-intro 4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   opacity: 0;
 }
 
-/* Added intro animation for composer - slides up from bottom */
-@keyframes composer-intro {
-  0% {
-    transform: translateY(100px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-/* Increased animation duration to 4s with 1s delay */
-.composer-intro {
-  animation: composer-intro 4s cubic-bezier(0.16, 1, 0.3, 1) 1s forwards;
-  opacity: 0;
-}
-
-/* Added hue rotation animation for orb background */
 @keyframes orb-hue-rotate {
   0% {
     filter: hue-rotate(0deg);
@@ -515,7 +576,6 @@
   }
 }
 
-/* Added separate hue rotation animation for circles that includes blur */
 @keyframes orb-hue-rotate-blur {
   0% {
     filter: blur(var(--orb-blur, 6px)) hue-rotate(0deg);
@@ -534,7 +594,6 @@
   }
 }
 
-/* Added orbital rotation animations - circles rotate around the center */
 @keyframes orb-orbit-1 {
   0% {
     transform: rotate(0deg) translateX(25%) rotate(0deg) scale(1);
@@ -625,7 +684,6 @@
   }
 }
 
-/* Updated circle classes to use orbital animations */
 .orb-circle-1 {
   animation: orb-orbit-1 6s ease-in-out infinite;
 }
@@ -646,7 +704,6 @@
   animation: orb-orbit-5 5.5s ease-in-out infinite;
 }
 
-/* Added text intro blur animation for title/subtitle */
 @keyframes text-blur-intro {
   0% {
     filter: blur(12px);
@@ -670,11 +727,9 @@
   opacity: 0;
 }
 
-/* ========== APPLE SIRI-LIKE SPEAKING ANIMATIONS ========== */
-
-/* Main orb pulse animation when speaking */
 @keyframes orb-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
   }
   50% {
@@ -682,9 +737,9 @@
   }
 }
 
-/* Organic morphing animation for the orb container */
 @keyframes orb-morph {
-  0%, 100% {
+  0%,
+  100% {
     border-radius: 50%;
   }
   25% {
@@ -698,9 +753,9 @@
   }
 }
 
-/* Glow ring pulse animations */
 @keyframes orb-glow-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.6;
   }
@@ -711,7 +766,8 @@
 }
 
 @keyframes orb-glow-pulse-2 {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1.1);
     opacity: 0.4;
   }
@@ -729,9 +785,9 @@
   animation: orb-glow-pulse-2 2.5s ease-in-out infinite 0.5s;
 }
 
-/* Palette-safe orb animation layers (keep hue family, add energy) */
 @keyframes orb-custom-color-breathe {
-  0%, 100% {
+  0%,
+  100% {
     filter: brightness(0.95) saturate(1.05);
   }
   50% {
@@ -740,7 +796,8 @@
 }
 
 @keyframes orb-custom-color-surge {
-  0%, 100% {
+  0%,
+  100% {
     filter: brightness(0.9) saturate(1.05) contrast(1);
   }
   50% {
@@ -749,26 +806,30 @@
 }
 
 @keyframes orb-custom-blur-drift {
-  0%, 100% {
+  0%,
+  100% {
     filter: blur(var(--orb-blur, 6px)) brightness(0.95) saturate(1.05);
   }
   50% {
-    filter: blur(calc(var(--orb-blur, 6px) * 1.15)) brightness(1.08) saturate(1.18);
+    filter: blur(calc(var(--orb-blur, 6px) * 1.15)) brightness(1.08)
+      saturate(1.18);
   }
 }
 
 @keyframes orb-custom-blur-surge {
-  0%, 100% {
+  0%,
+  100% {
     filter: blur(calc(var(--orb-blur, 6px) * 1.1)) brightness(1) saturate(1.15);
   }
   50% {
-    filter: blur(calc(var(--orb-blur, 6px) * 1.45)) brightness(1.22) saturate(1.35);
+    filter: blur(calc(var(--orb-blur, 6px) * 1.45)) brightness(1.22)
+      saturate(1.35);
   }
 }
 
-/* Inner glow pulsing */
 @keyframes orb-inner-glow-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.3;
   }
   50% {
@@ -779,9 +840,6 @@
 .orb-inner-glow {
   animation: orb-inner-glow-pulse 1s ease-in-out infinite;
 }
-
-/* ========== SPEAKING MODE CIRCLE ANIMATIONS ========== */
-/* Much faster, more energetic animations when AI is speaking */
 
 @keyframes orb-speak-orbit-1 {
   0% {
@@ -873,7 +931,6 @@
   }
 }
 
-/* Speaking mode - faster, more dynamic animations */
 .orb-circle-1-speaking {
   animation: orb-speak-orbit-1 1.8s ease-in-out infinite;
 }
@@ -894,52 +951,74 @@
   animation: orb-speak-orbit-5 1.6s ease-in-out infinite;
 }
 
-/* Speaking state container class */
 .orb-speaking {
   will-change: transform, border-radius, box-shadow;
 }
 
-/* Idle floating animation */
 @keyframes orb-idle-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
 }
 
-/* Listening breathe animation */
 @keyframes orb-listening-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.04); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
 }
 
-/* Thinking spin animation */
 @keyframes orb-thinking-spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-/* Thinking conic gradient rotation */
 @keyframes orb-thinking-conic {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-/* Ring pulse for state indicators */
 @keyframes orb-ring-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.08); opacity: 0.5; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.5;
+  }
 }
 
-/* Thinking ring rotation */
 @keyframes orb-thinking-ring {
-  0% { transform: rotate(0deg); border-style: dashed; }
-  100% { transform: rotate(360deg); border-style: dashed; }
+  0% {
+    transform: rotate(0deg);
+    border-style: dashed;
+  }
+  100% {
+    transform: rotate(360deg);
+    border-style: dashed;
+  }
 }
 
-/* ========== BOOT SCREEN ANIMATIONS ========== */
-
-/* Floating particles */
 @keyframes boot-float {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0) translateX(0);
     opacity: 0;
   }
@@ -962,9 +1041,9 @@
   animation: boot-float 6s ease-in-out infinite;
 }
 
-/* Pulsing glow behind orb */
 @keyframes boot-glow-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.6;
   }
@@ -978,7 +1057,6 @@
   animation: boot-glow-pulse 3s ease-in-out infinite;
 }
 
-/* Orb gradient + rotation */
 @keyframes boot-orb-rotate {
   0% {
     background-position: 0% 50%;
@@ -1017,7 +1095,8 @@
 }
 
 @keyframes boot-orb-inner-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.3;
     transform: scale(0.8);
   }
@@ -1028,24 +1107,39 @@
 }
 
 .boot-orb-inner {
-  background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.4) 0%,
+    transparent 70%
+  );
   animation: boot-orb-inner-pulse 2s ease-in-out infinite;
 }
 
-/* Orbiting rings */
 @keyframes boot-ring-spin-1 {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes boot-ring-spin-2 {
-  from { transform: rotate(120deg); }
-  to { transform: rotate(-240deg); }
+  from {
+    transform: rotate(120deg);
+  }
+  to {
+    transform: rotate(-240deg);
+  }
 }
 
 @keyframes boot-ring-spin-3 {
-  from { transform: rotate(240deg); }
-  to { transform: rotate(-120deg); }
+  from {
+    transform: rotate(240deg);
+  }
+  to {
+    transform: rotate(-120deg);
+  }
 }
 
 .boot-ring-1 {
@@ -1060,13 +1154,17 @@
   animation: boot-ring-spin-3 7s linear infinite;
 }
 
-/* Title glow */
 @keyframes boot-title-glow {
-  0%, 100% {
-    text-shadow: 0 0 10px rgba(167, 139, 250, 0.3), 0 0 30px rgba(167, 139, 250, 0.1);
+  0%,
+  100% {
+    text-shadow:
+      0 0 10px rgba(167, 139, 250, 0.3),
+      0 0 30px rgba(167, 139, 250, 0.1);
   }
   50% {
-    text-shadow: 0 0 20px rgba(167, 139, 250, 0.5), 0 0 50px rgba(167, 139, 250, 0.2);
+    text-shadow:
+      0 0 20px rgba(167, 139, 250, 0.5),
+      0 0 50px rgba(167, 139, 250, 0.2);
   }
 }
 
@@ -1074,7 +1172,6 @@
   animation: boot-title-glow 2.5s ease-in-out infinite;
 }
 
-/* Boot line fade in */
 @keyframes boot-line-in {
   from {
     opacity: 0;
@@ -1090,17 +1187,20 @@
   animation: boot-line-in 0.3s ease-out forwards;
 }
 
-/* Blinking cursor */
 @keyframes boot-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 
 .boot-cursor {
   animation: boot-blink 0.8s step-end infinite;
 }
 
-/* Progress bar gradient */
 .boot-progress-bar {
   background: linear-gradient(90deg, #818cf8, #a78bfa, #c471ec, #818cf8);
   background-size: 300% 100%;
@@ -1108,34 +1208,52 @@
 }
 
 @keyframes boot-progress-shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 300% 0; }
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: 300% 0;
+  }
 }
 
-/* Hex grid fade in */
 @keyframes boot-hex-fade {
-  0%, 80% { opacity: 0; }
-  90% { opacity: 1; }
-  100% { opacity: 0; }
+  0%,
+  80% {
+    opacity: 0;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .boot-hex {
   animation: boot-hex-fade 8s ease-in-out infinite;
 }
 
-/* Scan line animation */
 @keyframes boot-scan-move {
-  0% { transform: translateX(-100%); opacity: 0; }
-  20% { opacity: 1; }
-  80% { opacity: 1; }
-  100% { transform: translateX(200%); opacity: 0; }
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(200%);
+    opacity: 0;
+  }
 }
 
 .boot-scan-line {
   animation: boot-scan-move 6s ease-in-out infinite;
 }
 
-/* Arc reactor ring rotations */
 .boot-arc-ring-outer {
   animation: boot-ring-spin-1 8s linear infinite;
 }
@@ -1148,22 +1266,33 @@
   animation: boot-ring-spin-1 6s linear infinite reverse;
 }
 
-/* Scanning overlay - subtle horizontal line moving down */
 @keyframes boot-scan-sweep {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
 }
 
 .boot-scan-overlay {
-  background: linear-gradient(180deg, transparent 0%, rgba(139, 92, 246, 0.02) 50%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(139, 92, 246, 0.02) 50%,
+    transparent 100%
+  );
   height: 30%;
   animation: boot-scan-sweep 4s linear infinite;
 }
 
-/* HUD corner elements fade in */
 @keyframes boot-hud-corner-in {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .boot-hud-corner {
@@ -1171,34 +1300,67 @@
   opacity: 0;
 }
 
-/* ========== PARTY MODE ANIMATIONS ========== */
-
-/* Color flash cycling */
 @keyframes party-flash-cycle {
-  0% { background-color: rgba(255, 0, 110, 0.08); }
-  10% { background-color: rgba(251, 86, 7, 0.08); }
-  20% { background-color: rgba(255, 190, 11, 0.08); }
-  30% { background-color: rgba(131, 56, 236, 0.1); }
-  40% { background-color: rgba(58, 134, 255, 0.08); }
-  50% { background-color: rgba(6, 214, 160, 0.08); }
-  60% { background-color: rgba(247, 37, 133, 0.1); }
-  70% { background-color: rgba(114, 9, 183, 0.08); }
-  80% { background-color: rgba(76, 201, 240, 0.08); }
-  90% { background-color: rgba(255, 89, 94, 0.08); }
-  100% { background-color: rgba(255, 0, 110, 0.08); }
+  0% {
+    background-color: rgba(255, 0, 110, 0.08);
+  }
+  10% {
+    background-color: rgba(251, 86, 7, 0.08);
+  }
+  20% {
+    background-color: rgba(255, 190, 11, 0.08);
+  }
+  30% {
+    background-color: rgba(131, 56, 236, 0.1);
+  }
+  40% {
+    background-color: rgba(58, 134, 255, 0.08);
+  }
+  50% {
+    background-color: rgba(6, 214, 160, 0.08);
+  }
+  60% {
+    background-color: rgba(247, 37, 133, 0.1);
+  }
+  70% {
+    background-color: rgba(114, 9, 183, 0.08);
+  }
+  80% {
+    background-color: rgba(76, 201, 240, 0.08);
+  }
+  90% {
+    background-color: rgba(255, 89, 94, 0.08);
+  }
+  100% {
+    background-color: rgba(255, 0, 110, 0.08);
+  }
 }
 
 .party-flash {
   animation: party-flash-cycle 2s linear infinite;
 }
 
-/* Spotlight movement */
 @keyframes party-spotlight-move {
-  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
-  25% { transform: translate(-30%, -60%) scale(1.3); opacity: 0.9; }
-  50% { transform: translate(-70%, -40%) scale(0.8); opacity: 0.5; }
-  75% { transform: translate(-40%, -70%) scale(1.2); opacity: 0.8; }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.6;
+  }
+  25% {
+    transform: translate(-30%, -60%) scale(1.3);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-70%, -40%) scale(0.8);
+    opacity: 0.5;
+  }
+  75% {
+    transform: translate(-40%, -70%) scale(1.2);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.6;
+  }
 }
 
 .party-spotlight {
@@ -1206,29 +1368,59 @@
   mix-blend-mode: screen;
 }
 
-/* Laser beams */
 .party-laser {
   position: absolute;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--laser-color, #ff006e), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--laser-color, #ff006e),
+    transparent
+  );
   opacity: 0.4;
   transform-origin: left center;
 }
 
 @keyframes party-laser-sweep-1 {
-  0% { transform: rotate(-20deg) scaleX(0); opacity: 0; }
-  10% { opacity: 0.6; }
-  50% { transform: rotate(20deg) scaleX(1.5); opacity: 0.4; }
-  90% { opacity: 0.6; }
-  100% { transform: rotate(-20deg) scaleX(0); opacity: 0; }
+  0% {
+    transform: rotate(-20deg) scaleX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  50% {
+    transform: rotate(20deg) scaleX(1.5);
+    opacity: 0.4;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: rotate(-20deg) scaleX(0);
+    opacity: 0;
+  }
 }
 
 @keyframes party-laser-sweep-2 {
-  0% { transform: rotate(15deg) scaleX(0); opacity: 0; }
-  10% { opacity: 0.5; }
-  50% { transform: rotate(-25deg) scaleX(1.3); opacity: 0.3; }
-  90% { opacity: 0.5; }
-  100% { transform: rotate(15deg) scaleX(0); opacity: 0; }
+  0% {
+    transform: rotate(15deg) scaleX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.5;
+  }
+  50% {
+    transform: rotate(-25deg) scaleX(1.3);
+    opacity: 0.3;
+  }
+  90% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: rotate(15deg) scaleX(0);
+    opacity: 0;
+  }
 }
 
 .party-laser-1 {
@@ -1263,15 +1455,29 @@
   animation: party-laser-sweep-2 2.2s ease-in-out infinite 1.5s;
 }
 
-/* Strobe effect */
 @keyframes party-strobe {
-  0%, 94% { opacity: 0; }
-  95% { opacity: 0.15; }
-  96% { opacity: 0; }
-  97% { opacity: 0.1; }
-  98% { opacity: 0; }
-  99% { opacity: 0.12; }
-  100% { opacity: 0; }
+  0%,
+  94% {
+    opacity: 0;
+  }
+  95% {
+    opacity: 0.15;
+  }
+  96% {
+    opacity: 0;
+  }
+  97% {
+    opacity: 0.1;
+  }
+  98% {
+    opacity: 0;
+  }
+  99% {
+    opacity: 0.12;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .party-strobe {
@@ -1279,9 +1485,6 @@
   animation: party-strobe 0.8s linear infinite;
 }
 
-/* ========== SECONDARY BOOT SCREEN — IRON MAN HUD ========== */
-
-/* Blueprint background ambience (low-noise, behind UI modules) */
 @keyframes boot2-grid-drift {
   0% {
     transform: translate3d(0, 0, 0);
@@ -1353,7 +1556,6 @@
   border-right: 1px solid;
 }
 
-/* Flying hacker text line entrance */
 @keyframes boot2-fly-in {
   0% {
     opacity: 0;
@@ -1371,7 +1573,6 @@
   animation: boot2-fly-in 0.3s ease-out forwards;
 }
 
-/* Floating hex values drift across screen */
 @keyframes boot2-hex-drift {
   0% {
     transform: translateX(0);
@@ -1393,20 +1594,31 @@
   animation: boot2-hex-drift var(--duration, 8s) linear infinite;
 }
 
-/* Arc ring rotations — 3 concentric rings at different speeds */
 @keyframes boot2-ring-spin-0 {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes boot2-ring-spin-1 {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(-360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
 }
 
 @keyframes boot2-ring-spin-2 {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .boot2-arc-ring-0 {
@@ -1421,7 +1633,6 @@
   animation: boot2-ring-spin-2 25s linear infinite;
 }
 
-/* HUD readout pop-in */
 @keyframes boot2-readout-pop {
   0% {
     opacity: 0;
@@ -1443,8 +1654,243 @@
   opacity: 0;
 }
 
+.home-spotlight-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.home-spotlight-shell > :not(.home-global-spotlight) {
+  position: relative;
+  z-index: 1;
+}
+
+.home-global-spotlight {
+  position: absolute;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+  mix-blend-mode: screen;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0.11) 30%,
+    rgba(255, 255, 255, 0.04) 58%,
+    transparent 75%
+  );
+  transition: opacity 170ms ease;
+}
+
+.home-spotlight-card {
+  position: relative;
+  overflow: hidden;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 120px;
+}
+
+.home-spotlight-card--hover:hover {
+  box-shadow:
+    0 8px 24px rgba(255, 255, 255, 0.08),
+    0 0 14px rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.home-spotlight-card.home-border-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.35)) 30%,
+    transparent 62%
+  );
+  border-radius: inherit;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sidebar-spotlight-card {
+  box-shadow:
+    0 6px 22px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.11)),
+    0 0 14px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.16));
+  transition:
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.sidebar-selected-flat {
+  box-shadow: none !important;
+  transform: none !important;
+  --glow-intensity: 0 !important;
+  --glow-radius: 0px !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+}
+
+.sidebar-selected-flat.home-border-glow::after {
+  content: none !important;
+}
+
+.mission-spotlight-card {
+  --glow-radius: 82px;
+}
+
+.mission-spotlight-card.home-spotlight-card--hover:hover {
+  box-shadow:
+    0 5px 14px rgba(255, 255, 255, 0.06),
+    0 0 8px rgba(255, 255, 255, 0.09);
+}
+
+.fx-spotlight-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.fx-spotlight-shell > :not(.fx-spotlight-overlay) {
+  position: relative;
+  z-index: 1;
+}
+
+.fx-spotlight-overlay {
+  position: absolute;
+  left: var(--fx-overlay-x, 50%);
+  top: var(--fx-overlay-y, 50%);
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: var(--fx-overlay-opacity, 0);
+  z-index: 0;
+  mix-blend-mode: screen;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.15) 30%,
+    rgba(255, 255, 255, 0.05) 58%,
+    transparent 76%
+  );
+  transition: opacity 170ms ease;
+}
+
+.fx-spotlight-overlay--sm {
+  width: 58px;
+  height: 58px;
+}
+
+.fx-spotlight-card {
+  position: relative;
+  overflow: hidden;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 120px;
+}
+
+.fx-spotlight-card--hover:hover {
+  box-shadow:
+    0 8px 24px rgba(255, 255, 255, 0.08),
+    0 0 14px rgba(255, 255, 255, 0.12);
+}
+
+.fx-spotlight-dynamic {
+  box-shadow:
+    0 8px 24px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.08)),
+    0 0 14px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.12));
+  transition:
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.fx-spotlight-card.fx-border-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.35)) 30%,
+    transparent 62%
+  );
+  border-radius: inherit;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.fx-dropdown-item[data-highlighted] {
+  outline: 1px solid rgba(255, 255, 255, 0.28);
+  outline-offset: -1px;
+}
+
+.fx-star-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fx-star-color, rgba(255, 255, 255, 1));
+  box-shadow: 0 0 10px var(--fx-star-glow, rgba(255, 255, 255, 0.65));
+  pointer-events: none;
+  z-index: 2;
+  animation-name: fx-star-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes fx-star-float {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.5);
+  }
+  20% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--star-x, 8px), var(--star-y, -20px)) scale(0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-global-spotlight,
+  .home-spotlight-card,
+  .fx-spotlight-overlay,
+  .fx-spotlight-card,
+  .fx-star-particle {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 @keyframes mic-wave {
-  0%, 100% {
+  0%,
+  100% {
     height: 4px;
   }
   50% {
@@ -1453,7 +1899,8 @@
 }
 
 @keyframes boot-orb-ready-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     filter: brightness(1);
   }
@@ -1463,14 +1910,20 @@
   }
 }
 
-/* NOVA title glow animation */
 @keyframes boot-nova-glow {
-  0%, 100% {
-    text-shadow: 0 0 80px rgba(139, 92, 246, 0.6), 0 0 160px rgba(139, 92, 246, 0.3), 0 0 240px rgba(139, 92, 246, 0.1);
+  0%,
+  100% {
+    text-shadow:
+      0 0 80px rgba(139, 92, 246, 0.6),
+      0 0 160px rgba(139, 92, 246, 0.3),
+      0 0 240px rgba(139, 92, 246, 0.1);
     letter-spacing: 0.7em;
   }
   50% {
-    text-shadow: 0 0 120px rgba(139, 92, 246, 0.9), 0 0 200px rgba(139, 92, 246, 0.5), 0 0 300px rgba(139, 92, 246, 0.2);
+    text-shadow:
+      0 0 120px rgba(139, 92, 246, 0.9),
+      0 0 200px rgba(139, 92, 246, 0.5),
+      0 0 300px rgba(139, 92, 246, 0.2);
     letter-spacing: 0.75em;
   }
 }
@@ -1490,7 +1943,6 @@
   }
 }
 
-/* ========== SUBTLE DATA TRACES ========== */
 @keyframes boot2-data-trace-pulse {
   0% {
     transform: translateX(0);
@@ -1514,23 +1966,18 @@
   will-change: opacity, transform;
 }
 
-/* ========== THEME-ADAPTIVE SCROLLBARS ========== */
-
-/* Light mode scrollbars */
 :root {
   --scrollbar-track: rgba(0, 0, 0, 0.05);
   --scrollbar-thumb: rgba(0, 0, 0, 0.2);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
 }
 
-/* Dark mode scrollbars */
 .dark {
   --scrollbar-track: rgba(255, 255, 255, 0.05);
   --scrollbar-thumb: rgba(255, 255, 255, 0.15);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
 }
 
-/* Webkit browsers (Chrome, Safari, Edge) */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -1555,7 +2002,6 @@
   background: transparent;
 }
 
-/* Firefox */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);

@@ -34,19 +34,120 @@ function DropdownMenuTrigger({
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+  const contentRef = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    let liveStars = 0
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = content.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      content.style.setProperty("--fx-overlay-x", `${mouseX}px`)
+      content.style.setProperty("--fx-overlay-y", `${mouseY}px`)
+      content.style.setProperty("--fx-overlay-opacity", "1")
+
+      const items = content.querySelectorAll<HTMLElement>(
+        "[data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='dropdown-menu-sub-trigger']",
+      )
+      const proximity = 52
+      const fadeDistance = 104
+
+      items.forEach((item) => {
+        const itemRect = item.getBoundingClientRect()
+        const isInsideItem =
+          e.clientX >= itemRect.left &&
+          e.clientX <= itemRect.right &&
+          e.clientY >= itemRect.top &&
+          e.clientY <= itemRect.bottom
+        const centerX = itemRect.left + itemRect.width / 2
+        const centerY = itemRect.top + itemRect.height / 2
+        const distance =
+          Math.hypot(e.clientX - centerX, e.clientY - centerY) - Math.max(itemRect.width, itemRect.height) / 2
+        const effectiveDistance = Math.max(0, distance)
+
+        let glowIntensity = 0
+        if (effectiveDistance <= proximity) {
+          glowIntensity = 1
+        } else if (effectiveDistance <= fadeDistance) {
+          glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity)
+        }
+
+        const relativeX = ((e.clientX - itemRect.left) / itemRect.width) * 100
+        const relativeY = ((e.clientY - itemRect.top) / itemRect.height) * 100
+        item.style.setProperty("--glow-x", `${relativeX}%`)
+        item.style.setProperty("--glow-y", `${relativeY}%`)
+        item.style.setProperty("--glow-intensity", glowIntensity.toString())
+        item.style.setProperty("--glow-radius", "74px")
+
+        if (isInsideItem && glowIntensity > 0.2 && Math.random() <= 0.12 && liveStars < 18) {
+          liveStars += 1
+          const star = document.createElement("span")
+          star.className = "fx-star-particle"
+          star.style.left = `${e.clientX - itemRect.left}px`
+          star.style.top = `${e.clientY - itemRect.top}px`
+          star.style.setProperty("--fx-star-color", "rgba(255,255,255,1)")
+          star.style.setProperty("--fx-star-glow", "rgba(255,255,255,0.72)")
+          star.style.setProperty("--star-x", `${(Math.random() - 0.5) * 22}px`)
+          star.style.setProperty("--star-y", `${-8 - Math.random() * 16}px`)
+          star.style.animationDuration = `${0.75 + Math.random() * 0.5}s`
+          item.appendChild(star)
+          star.addEventListener(
+            "animationend",
+            () => {
+              star.remove()
+              liveStars = Math.max(0, liveStars - 1)
+            },
+            { once: true },
+          )
+        }
+      })
+    }
+
+    const handleMouseLeave = () => {
+      content.style.setProperty("--fx-overlay-opacity", "0")
+      const items = content.querySelectorAll<HTMLElement>(
+        "[data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-checkbox-item'], [data-slot='dropdown-menu-radio-item'], [data-slot='dropdown-menu-sub-trigger']",
+      )
+      items.forEach((item) => item.style.setProperty("--glow-intensity", "0"))
+    }
+
+    content.addEventListener("mousemove", handleMouseMove)
+    content.addEventListener("mouseleave", handleMouseLeave)
+
+    return () => {
+      content.removeEventListener("mousemove", handleMouseMove)
+      content.removeEventListener("mouseleave", handleMouseLeave)
+    }
+  }, [])
+
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
+        ref={contentRef}
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
+          "fx-spotlight-shell bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
           className
         )}
+        style={
+          {
+            "--fx-overlay-x": "50%",
+            "--fx-overlay-y": "50%",
+            "--fx-overlay-opacity": "0",
+          } as React.CSSProperties
+        }
         {...props}
-      />
+      >
+        <div className="fx-spotlight-overlay fx-spotlight-overlay--sm" />
+        {children}
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   )
 }
@@ -74,7 +175,7 @@ function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "fx-dropdown-item fx-spotlight-card fx-border-glow fx-spotlight-dynamic focus:bg-transparent focus:text-inherit data-[highlighted]:bg-transparent data-[highlighted]:text-inherit data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-transparent dark:data-[variant=destructive]:focus:bg-transparent data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -92,7 +193,7 @@ function DropdownMenuCheckboxItem({
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "fx-dropdown-item fx-spotlight-card fx-border-glow fx-spotlight-dynamic focus:bg-transparent focus:text-inherit data-[highlighted]:bg-transparent data-[highlighted]:text-inherit relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       checked={checked}
@@ -128,7 +229,7 @@ function DropdownMenuRadioItem({
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "fx-dropdown-item fx-spotlight-card fx-border-glow fx-spotlight-dynamic focus:bg-transparent focus:text-inherit data-[highlighted]:bg-transparent data-[highlighted]:text-inherit relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -211,7 +312,7 @@ function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "fx-dropdown-item fx-spotlight-card fx-border-glow fx-spotlight-dynamic focus:bg-transparent focus:text-inherit data-[highlighted]:bg-transparent data-[highlighted]:text-inherit data-[state=open]:bg-transparent data-[state=open]:text-inherit [&_svg:not([class*='text-'])]:text-muted-foreground flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}

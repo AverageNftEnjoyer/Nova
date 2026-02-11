@@ -10,11 +10,8 @@ import { useTheme } from "@/lib/theme-context"
 
 interface ComposerProps {
   onSend: (content: string) => void
-  onStop: () => void
   isStreaming: boolean
   disabled?: boolean
-  novaMuted?: boolean
-  onMuteToggle?: () => void
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -33,15 +30,10 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onMuteToggle }: ComposerProps) {
-  void onStop
-  void novaMuted
-  void onMuteToggle
-
+export function Composer({ onSend, isStreaming, disabled }: ComposerProps) {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const [value, setValue] = useState("")
-  const [hasAnimated, setHasAnimated] = useState(false)
   // Keep SSR and initial client render deterministic to avoid hydration mismatch.
   const [accentColor, setAccentColor] = useState<AccentColor>("violet")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -49,11 +41,8 @@ export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onM
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    setHasAnimated(true)
-  }, [])
-
-  useEffect(() => {
     const syncAccent = () => setAccentColor(loadUserSettings().app.accentColor)
+    syncAccent()
     const onSettingsUpdated = () => syncAccent()
     const onStorage = (e: StorageEvent) => {
       if (e.key === "nova_user_settings") syncAccent()
@@ -84,15 +73,20 @@ export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onM
   }, [])
 
   const handleSend = useCallback(() => {
-    if (!value.trim() || isStreaming || disabled) return
+    if ((!value.trim() && attachedFiles.length === 0) || isStreaming || disabled) return
     playClickSound()
-    onSend(value.trim())
+    const filesSuffix =
+      attachedFiles.length > 0
+        ? `\n\nAttached files:\n${attachedFiles.map((f) => `- ${f.name}`).join("\n")}`
+        : ""
+    const finalText = value.trim().length > 0 ? `${value.trim()}${filesSuffix}` : `Please analyze these files:${filesSuffix}`
+    onSend(finalText)
     setValue("")
     setAttachedFiles([])
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [value, isStreaming, disabled, onSend, playClickSound])
+  }, [value, attachedFiles, isStreaming, disabled, onSend, playClickSound])
 
   const handleAttachClick = useCallback(() => {
     fileInputRef.current?.click()
@@ -122,9 +116,26 @@ export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onM
   const accent = ACCENT_COLORS[accentColor]
 
   return (
-    <div className={cn("absolute bottom-3 left-0 right-0 px-3 pointer-events-none z-10", hasAnimated && "composer-intro")}>
+    <div className="absolute bottom-3 left-0 right-0 px-3 pointer-events-none z-10">
       <div className="mx-auto w-full pointer-events-auto">
-        <div className="relative mx-auto w-[50%] min-w-[320px] max-w-[900px]">
+        <div className="relative mx-auto w-[50%] min-w-[320px] max-w-225">
+          {attachedFiles.length > 0 && (
+            <div className="absolute left-0 right-0 bottom-full mb-2 z-40 flex flex-wrap gap-2 px-1 pointer-events-auto">
+              {attachedFiles.map((file, index) => (
+                <div key={`${file.name}-${file.size}-${index}`} className="group inline-flex items-center gap-1.5 rounded-md border border-accent-30 bg-accent-10 px-2 py-1 max-w-55 transition-all duration-150 hover:bg-accent-20 hover:-translate-y-0.5">
+                  <span className="truncate text-xs text-accent">{file.name}</span>
+                  <span className="text-[10px] text-accent/70 whitespace-nowrap">{formatFileSize(file.size)}</span>
+                  <button
+                    onClick={() => removeAttachedFile(index)}
+                    className="h-4 w-4 rounded-sm text-accent hover:bg-accent-20 transition-colors"
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div
             className="absolute -inset-1 rounded-lg opacity-60 pointer-events-none"
             style={{
@@ -145,40 +156,15 @@ export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onM
               background: `linear-gradient(135deg, ${hexToRgba(accent.primary, isLight ? 0.06 : 0.09)} 0%, transparent 38%, ${hexToRgba(accent.secondary, isLight ? 0.04 : 0.07)} 100%)`,
             }}
           />
-          {attachedFiles.length > 0 && (
-            <div className="relative z-10 px-4 pt-3 flex flex-wrap gap-2">
-              {attachedFiles.map((file, index) => (
-                <div key={`${file.name}-${file.size}-${index}`} className="group inline-flex items-center gap-1.5 rounded-md border border-accent-30 bg-accent-10 px-2 py-1 max-w-55 transition-all duration-150 hover:bg-accent-20 hover:-translate-y-0.5">
-                  <span className="truncate text-xs text-accent">{file.name}</span>
-                  <span className="text-[10px] text-accent/70 whitespace-nowrap">{formatFileSize(file.size)}</span>
-                  <button
-                    onClick={() => removeAttachedFile(index)}
-                    className="h-4 w-4 rounded-sm text-accent hover:bg-accent-20 transition-colors"
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
 
           <button
             onClick={handleAttachClick}
             className={cn(
-              "group absolute left-4 top-1/2 -translate-y-1/2 h-7 w-7 rounded-md text-2xl leading-none transition-all duration-150 z-10",
+              "group absolute left-4 top-1/2 -translate-y-1/2 h-7 w-7 rounded-md text-2xl leading-none transition-all duration-150 z-20",
               isLight ? "text-s-50 hover:bg-accent-10 hover:rotate-12" : "text-slate-400 hover:bg-accent-10 hover:rotate-12",
             )}
             aria-label="Attach files"
           >
-            <span
-              className={cn(
-                "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 translate-y-1 transition-all duration-150 group-hover:opacity-100 group-hover:translate-y-0",
-                isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
-              )}
-            >
-              Add your files
-            </span>
             +
           </button>
           <input
@@ -208,17 +194,17 @@ export function Composer({ onSend, onStop, isStreaming, disabled, novaMuted, onM
             aria-label="Message input"
           />
 
-          <div className="absolute right-3 bottom-3 flex items-center gap-2 z-10">
+          <div className="absolute right-3 bottom-3 flex items-center gap-2 z-20">
             <button
               onClick={handleSend}
-              disabled={!value.trim() || disabled || isStreaming}
+              disabled={(!value.trim() && attachedFiles.length === 0) || disabled || isStreaming}
               className={cn(
-                "group p-1.5 transition-colors disabled:opacity-20",
+                "p-1.5 transition-colors disabled:opacity-20",
                 isLight ? "text-s-60 hover:text-accent" : "text-slate-400 hover:text-accent",
               )}
               aria-label="Send message"
             >
-              <ArrowRight className="w-5 h-5 transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+              <ArrowRight className="w-5 h-5" />
             </button>
           </div>
         </div>

@@ -26,9 +26,10 @@ interface NovaOrbIndicatorProps {
   size?: number
   animated?: boolean
   className?: string
+  style?: React.CSSProperties
 }
 
-export function NovaOrbIndicator({ palette, size = 18, animated = false, className }: NovaOrbIndicatorProps) {
+export function NovaOrbIndicator({ palette, size = 18, animated = false, className, style }: NovaOrbIndicatorProps) {
   const blurAmount = Math.max(3, size * 0.15)
   const circle1Size = size * 0.45
   const circle2Size = size * 0.35
@@ -43,6 +44,7 @@ export function NovaOrbIndicator({ palette, size = 18, animated = false, classNa
       style={{
         width: size,
         height: size,
+        ...style,
       }}
       aria-hidden="true"
     >

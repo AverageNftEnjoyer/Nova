@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { MessageSquare, Trash2, Clock, ChevronRight, Plus } from "lucide-react"
+import { MessageSquare, Trash2, Clock, ChevronRight, Plus, PanelLeftOpen, PanelLeftClose } from "lucide-react"
 import { loadConversations, saveConversations, setActiveId, createConversation, type Conversation } from "@/lib/conversations"
 import { AnimatedOrb } from "@/components/animated-orb"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { ChatSidebar } from "@/components/chat-sidebar"
+import { Button } from "@/components/ui/button"
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
@@ -26,6 +27,7 @@ function formatTime(iso: string): string {
 export default function HistoryPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
     setConversations(loadConversations())
@@ -85,12 +87,12 @@ export default function HistoryPage() {
   const grouped = groupByDate(nonEmpty)
 
   return (
-    <div className="flex h-dvh bg-page text-foreground">
+    <div className="relative flex h-dvh bg-page text-foreground">
       {/* Sidebar */}
       <ChatSidebar
         conversations={conversations}
         activeId={null}
-        isOpen={true}
+        isOpen={sidebarOpen}
         onSelect={handleSelectConvo}
         onNew={handleNewChat}
         onDelete={handleDelete}
@@ -100,11 +102,25 @@ export default function HistoryPage() {
       />
 
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        style={{
+          marginLeft: "0",
+        }}
+      >
         {/* Header */}
         <div className="border-b border-s-5">
           <div className="max-w-3xl mx-auto px-6 py-8">
             <div className="flex items-center gap-4">
+              <Button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 rounded-full text-s-60 border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]"
+                aria-label="Toggle sidebar"
+              >
+                {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+              </Button>
               <AnimatedOrb size={40} />
               <div className="flex-1">
                 <h1 className="text-2xl font-light tracking-wide text-s-90">

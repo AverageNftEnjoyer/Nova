@@ -3,7 +3,7 @@ export interface ChatMessage {
   role: "user" | "assistant"
   content: string
   createdAt: string
-  source?: "hud" | "agent" | "voice" | "telegram"
+  source?: "hud" | "agent" | "voice" | "telegram" | "telegram_history"
   sender?: string
 }
 

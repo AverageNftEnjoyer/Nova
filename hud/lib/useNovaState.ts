@@ -12,7 +12,7 @@ export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
   ts: number;
-  source?: "voice" | "hud" | "telegram";
+  source?: "voice" | "hud" | "telegram" | "telegram_history";
   sender?: string;
 }
 
@@ -73,14 +73,16 @@ export function useNovaState() {
 
         // Handle history sync from Telegram
         if (data.type === "history_sync" && Array.isArray(data.messages)) {
-          const historyMsgs: AgentMessage[] = data.messages.map((m: any) => ({
-            id: `history-${m.ts}-${Math.random().toString(36).slice(2, 7)}`,
-            role: m.role,
-            content: m.content,
-            ts: m.ts,
-            source: m.source || "telegram",
-            sender: m.sender,
-          }));
+          const historyMsgs: AgentMessage[] = data.messages
+            .filter((m: any) => m?.source === "telegram")
+            .map((m: any) => ({
+              id: `history-${m.ts}-${Math.random().toString(36).slice(2, 7)}`,
+              role: m.role,
+              content: m.content,
+              ts: m.ts,
+              source: "telegram_history",
+              sender: m.sender,
+            }));
           setTelegramMessages((prev) => {
             // Merge history, avoiding duplicates by timestamp
             const existingTs = new Set(prev.map(p => p.ts));

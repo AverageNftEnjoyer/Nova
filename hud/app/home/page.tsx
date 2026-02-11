@@ -87,6 +87,7 @@ export default function HomePage() {
   const [newEventTime, setNewEventTime] = useState("")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
+  const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState("")
@@ -95,6 +96,8 @@ export default function HomePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const greetingSentRef = useRef(false)
+  const scheduleSectionRef = useRef<HTMLElement | null>(null)
+  const pipelineSectionRef = useRef<HTMLElement | null>(null)
 
   const persistConversations = useCallback((next: Conversation[]) => {
     setConversations(next)
@@ -124,6 +127,7 @@ export default function HomePage() {
     const settings = loadUserSettings()
     setOrbColor(settings.app.orbColor)
     setBackground(settings.app.background || "default")
+    setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
 
     // Play launch sound only once per boot session (not every home page visit)
     const alreadyPlayed = sessionStorage.getItem("nova-launch-sound-played")
@@ -154,6 +158,7 @@ export default function HomePage() {
       const settings = loadUserSettings()
       setOrbColor(settings.app.orbColor)
       setBackground(settings.app.background || "default")
+      setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
@@ -170,6 +175,106 @@ export default function HomePage() {
       return () => clearTimeout(t)
     }
   }, [connected, sendGreeting, setVoicePreference])
+
+  useEffect(() => {
+    if (!spotlightEnabled) return
+
+    const setupSectionSpotlight = (section: HTMLElement) => {
+      const spotlight = document.createElement("div")
+      spotlight.className = "home-global-spotlight"
+      section.appendChild(spotlight)
+      let liveStars = 0
+
+      const handleMouseMove = (e: MouseEvent) => {
+        const rect = section.getBoundingClientRect()
+        const mouseX = e.clientX - rect.left
+        const mouseY = e.clientY - rect.top
+
+        spotlight.style.left = `${mouseX}px`
+        spotlight.style.top = `${mouseY}px`
+        spotlight.style.opacity = "1"
+
+        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
+        const proximity = 70
+        const fadeDistance = 140
+
+        cards.forEach((card) => {
+          const cardRect = card.getBoundingClientRect()
+          const isInsideCard =
+            e.clientX >= cardRect.left &&
+            e.clientX <= cardRect.right &&
+            e.clientY >= cardRect.top &&
+            e.clientY <= cardRect.bottom
+          const centerX = cardRect.left + cardRect.width / 2
+          const centerY = cardRect.top + cardRect.height / 2
+          const distance =
+            Math.hypot(e.clientX - centerX, e.clientY - centerY) - Math.max(cardRect.width, cardRect.height) / 2
+          const effectiveDistance = Math.max(0, distance)
+
+          let glowIntensity = 0
+          if (effectiveDistance <= proximity) {
+            glowIntensity = 1
+          } else if (effectiveDistance <= fadeDistance) {
+            glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity)
+          }
+
+          const relativeX = ((e.clientX - cardRect.left) / cardRect.width) * 100
+          const relativeY = ((e.clientY - cardRect.top) / cardRect.height) * 100
+          card.style.setProperty("--glow-x", `${relativeX}%`)
+          card.style.setProperty("--glow-y", `${relativeY}%`)
+          card.style.setProperty("--glow-intensity", glowIntensity.toString())
+          card.style.setProperty("--glow-radius", "120px")
+
+          if (isInsideCard && glowIntensity > 0.2 && Math.random() <= 0.16 && liveStars < 42) {
+            liveStars += 1
+            const star = document.createElement("span")
+            star.className = "fx-star-particle"
+            star.style.left = `${e.clientX - cardRect.left}px`
+            star.style.top = `${e.clientY - cardRect.top}px`
+            star.style.setProperty("--fx-star-color", "rgba(255,255,255,1)")
+            star.style.setProperty("--fx-star-glow", "rgba(255,255,255,0.7)")
+            star.style.setProperty("--star-x", `${(Math.random() - 0.5) * 34}px`)
+            star.style.setProperty("--star-y", `${-12 - Math.random() * 26}px`)
+            star.style.animationDuration = `${0.9 + Math.random() * 0.6}s`
+            card.appendChild(star)
+            star.addEventListener(
+              "animationend",
+              () => {
+                star.remove()
+                liveStars = Math.max(0, liveStars - 1)
+              },
+              { once: true },
+            )
+          }
+        })
+      }
+
+      const handleMouseLeave = () => {
+        spotlight.style.opacity = "0"
+        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
+        cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+      }
+
+      section.addEventListener("mousemove", handleMouseMove)
+      section.addEventListener("mouseleave", handleMouseLeave)
+
+      return () => {
+        section.removeEventListener("mousemove", handleMouseMove)
+        section.removeEventListener("mouseleave", handleMouseLeave)
+        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
+        cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+        spotlight.remove()
+      }
+    }
+
+    const cleanups: Array<() => void> = []
+    if (scheduleSectionRef.current) cleanups.push(setupSectionSpotlight(scheduleSectionRef.current))
+    if (pipelineSectionRef.current) cleanups.push(setupSectionSpotlight(pipelineSectionRef.current))
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup())
+    }
+  }, [spotlightEnabled])
 
   // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
   useEffect(() => {
@@ -275,12 +380,8 @@ export default function HomePage() {
   }, [router])
 
   const handleNewChat = useCallback(() => {
-    const fresh = createConversation()
-    const next = [fresh, ...conversations]
-    persistConversations(next)
-    setActiveId(fresh.id)
-    router.push("/chat")
-  }, [conversations, persistConversations, router])
+    // Home screen "New chat" should not navigate or create a conversation.
+  }, [])
 
   const handleDeleteConvo = useCallback((id: string) => {
     const remaining = conversations.filter((c) => c.id !== id)
@@ -386,7 +487,8 @@ export default function HomePage() {
   const panelClass =
     isLight
       ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-      : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_20px_60px_-35px_rgba(0,245,255,0.35)]"
+      : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
+  const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
@@ -400,7 +502,44 @@ export default function HomePage() {
   )
 
   return (
-    <div className={cn("flex h-dvh", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
+      {settingsLoaded && background === "default" && (
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div className="absolute inset-0 opacity-30">
+            <FloatingLines
+              linesGradient={floatingLinesGradient}
+              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
+              lineCount={FLOATING_LINES_LINE_COUNT}
+              lineDistance={FLOATING_LINES_LINE_DISTANCE}
+              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
+              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
+              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
+              bendRadius={5}
+              bendStrength={-0.5}
+              interactive={true}
+              parallax={true}
+            />
+          </div>
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
+            }}
+          />
+          <div className="absolute inset-0">
+            <div
+              className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
+              style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
+            />
+            <div
+              className="absolute bottom-[8%] right-[18%] h-80 w-80 rounded-full blur-[130px]"
+              style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
+            />
+          </div>
+        </div>
+      )}
+
       <ChatSidebar
         conversations={conversations}
         activeId={null}
@@ -416,63 +555,34 @@ export default function HomePage() {
         agentConnected={connected}
       />
 
-      <div className="flex-1 relative overflow-hidden">
-        {/* FloatingLines background - only render after settings loaded to prevent restart */}
-        {settingsLoaded && background === "default" && (
-          <div className="absolute inset-0 opacity-30 z-0">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-        )}
-        {settingsLoaded && (
-          <>
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background:
-                  `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
-              }}
-            />
-            <div className="absolute inset-0 pointer-events-none">
-              <div
-                className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
-                style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
-              />
-              <div
-                className="absolute bottom-[8%] right-[18%] h-80 w-80 rounded-full blur-[130px]"
-                style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
-              />
-            </div>
-          </>
-        )}
-
+      <div
+        className="flex-1 relative overflow-hidden"
+        style={{
+          marginLeft: "0",
+        }}
+      >
         <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
           <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-9 w-9 rounded-full",
-                isLight
-                  ? "border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] text-s-70"
-                  : "border border-white/10 bg-white/4 hover:bg-cyan-400/10 text-slate-300",
-              )}
-              aria-label="Toggle sidebar"
-            >
-              {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-            </Button>
+            <div className="group relative">
+              <Button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "chat-sidebar-card home-spotlight-card home-border-glow home-spotlight-card--hover h-9 w-9 rounded-full transition-all duration-150 hover:[--glow-intensity:1]",
+                  isLight
+                    ? "border border-[#d9e0ea] bg-[#f4f7fd] text-s-70"
+                    : "border border-white/10 bg-white/4 text-slate-300 hover:bg-[#141923] hover:border-[#2b3240]",
+                )}
+                aria-label={sidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+              >
+                {sidebarOpen ? (
+                  <PanelLeftClose className="w-4 h-4 transition-transform duration-200 ease-out group-hover:rotate-12" />
+                ) : (
+                  <PanelLeftOpen className="w-4 h-4 transition-transform duration-200 ease-out group-hover:rotate-12" />
+                )}
+              </Button>
+            </div>
           </div>
           <div className="flex-1" />
         </div>
@@ -550,7 +660,7 @@ export default function HomePage() {
                           isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
                         )}
                       >
-                        Add your files
+                        Upload Your Files
                       </span>
                       +
                     </button>
@@ -577,12 +687,12 @@ export default function HomePage() {
                         onClick={handleSend}
                         disabled={(!input.trim() && attachedFiles.length === 0) || !connected}
                         className={cn(
-                          "group p-1.5 transition-colors disabled:opacity-20",
+                          "p-1.5 transition-colors disabled:opacity-20",
                           isLight ? "text-s-60 hover:text-accent" : "text-slate-400 hover:text-accent",
                         )}
                         aria-label="Send message"
                       >
-                        <ArrowRight className="w-5 h-5 transition-transform duration-150 ease-out group-hover:translate-x-0.5" />
+                        <ArrowRight className="w-5 h-5" />
                       </button>
                       <button
                         onClick={handleMuteToggle}
@@ -611,7 +721,7 @@ export default function HomePage() {
             </div>
 
             <aside className="min-h-0 flex flex-col gap-4 pt-0">
-              <section className={`${panelClass} p-4`}>
+              <section ref={scheduleSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4`}>
                 <div className="flex items-center gap-2 text-s-80">
                   <CalendarDays className="w-4 h-4 text-accent" />
                   <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Daily Schedule</h2>
@@ -619,25 +729,29 @@ export default function HomePage() {
                 <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>{dateLabel}</p>
 
                 <div className="mt-3 grid grid-cols-[88px_minmax(0,1fr)_32px] gap-2">
-                  <input
-                    type="time"
-                    value={newEventTime}
-                    onChange={(e) => setNewEventTime(e.target.value)}
-                    className={cn(`h-9 px-2 text-xs outline-none focus:border-accent-30 ${subPanelClass}`, isLight ? "text-s-90" : "text-slate-200")}
-                  />
-                  <input
-                    type="text"
-                    value={newEventTitle}
-                    onChange={(e) => setNewEventTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") addScheduleEvent()
-                    }}
-                    placeholder="Add event..."
-                    className={cn(`h-9 px-3 text-sm outline-none focus:border-accent-30 ${subPanelClass}`, isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
-                  />
+                  <div className={cn(`h-9 px-2 ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`)}>
+                    <input
+                      type="time"
+                      value={newEventTime}
+                      onChange={(e) => setNewEventTime(e.target.value)}
+                      className={cn("h-full w-full bg-transparent text-xs outline-none", isLight ? "text-s-90" : "text-slate-200")}
+                    />
+                  </div>
+                  <div className={cn(`h-9 px-3 ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`)}>
+                    <input
+                      type="text"
+                      value={newEventTitle}
+                      onChange={(e) => setNewEventTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") addScheduleEvent()
+                      }}
+                      placeholder="Add event..."
+                      className={cn("h-full w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
+                    />
+                  </div>
                   <button
                     onClick={addScheduleEvent}
-                    className={cn("h-9 rounded-lg transition-colors border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20")}
+                    className={cn("h-9 rounded-lg transition-colors border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 home-spotlight-card home-border-glow home-spotlight-card--hover")}
                     aria-label="Add schedule item"
                   >
                     <Plus className="w-4 h-4 mx-auto" />
@@ -649,7 +763,7 @@ export default function HomePage() {
                     <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>No events for today.</p>
                   )}
                   {scheduleItems.map((item) => (
-                    <div key={item.id} className={`flex items-center gap-2 px-2.5 py-2 ${subPanelClass}`}>
+                    <div key={item.id} className={`flex items-center gap-2 px-2.5 py-2 ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`}>
                       <button
                         onClick={() => toggleScheduleDone(item.id)}
                         className={`h-4 w-4 rounded border ${item.done ? "bg-emerald-400/80 border-emerald-300/80" : "border-slate-500/70"}`}
@@ -671,19 +785,19 @@ export default function HomePage() {
                 </div>
               </section>
 
-              <section className={`${panelClass} p-4 min-h-0 flex-1 flex flex-col`}>
+              <section ref={pipelineSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex-1 flex flex-col`}>
                 <div className="flex items-center gap-2 text-s-80">
                   <Pin className="w-4 h-4 text-accent" />
                   <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline</h2>
                 </div>
                 <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Pinned favorite chats</p>
 
-                <div className="mt-3 min-h-0 flex-1 overflow-y-auto space-y-2 pr-1">
+                <div className="mt-3 min-h-0 flex-1 overflow-y-auto space-y-2 px-1 py-1">
                   {pinnedConversations.length === 0 && (
                     <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>No pinned chats yet.</p>
                   )}
                   {pinnedConversations.map((c) => (
-                    <div key={c.id} className={cn(`${subPanelClass} p-2.5 transition-colors`, missionHover)}>
+                    <div key={c.id} className={cn(`${subPanelClass} p-2.5 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
                       {editingConversationId === c.id ? (
                         <div className="flex items-center gap-1.5">
                           <input
@@ -748,9 +862,9 @@ export default function HomePage() {
                   {unpinnedConversations.length > 0 && (
                     <div className="pt-2 mt-3 border-t border-white/10">
                       <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Pin from recent</p>
-                      <div className="space-y-2">
+                      <div className="space-y-2 px-1 pb-1">
                         {unpinnedConversations.map((c) => (
-                          <div key={c.id} className={cn(`flex items-center gap-2 px-2.5 py-2 ${subPanelClass} transition-colors`, missionHover)}>
+                          <div key={c.id} className={cn(`flex items-center gap-2 px-2.5 py-2 ${subPanelClass} transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
                             <button
                               onClick={() => handleSelectConvo(c.id)}
                               className={cn("flex-1 min-w-0 text-left text-sm truncate", isLight ? "text-s-70 hover:text-s-90" : "text-slate-300 hover:text-white")}
