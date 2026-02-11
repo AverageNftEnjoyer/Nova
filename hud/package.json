@@ -6,7 +6,8 @@
     "dev": "node scripts/next-runner.mjs dev",
     "build": "node scripts/next-runner.mjs build",
     "start": "node scripts/next-runner.mjs start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "notify:send": "node scripts/send-telegram-notification.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

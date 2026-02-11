@@ -32,7 +32,7 @@ export interface Message {
   content: string
   createdAt: Date
   imageData?: string
-  source?: "hud" | "agent" | "voice" | "telegram" | "telegram_history"
+  source?: "hud" | "agent" | "voice"
   sender?: string
 }
 
@@ -64,7 +64,7 @@ export function ChatShell() {
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
   const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages } = useNovaState()
+  const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, clearAgentMessages } = useNovaState()
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -72,7 +72,6 @@ export function ChatShell() {
   )
 
   const mergedCountRef = useRef(0)
-  const telegramMergedCountRef = useRef(0)
 
   // Load conversations and muted state on mount
   useEffect(() => {
@@ -150,58 +149,6 @@ export function ChatShell() {
     const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
     persist(convos, updated)
   }, [agentMessages])
-
-  // Handle Telegram messages - create new conversation for each session
-  useEffect(() => {
-    if (telegramMessages.length <= telegramMergedCountRef.current) return
-
-    const newOnes = telegramMessages.slice(telegramMergedCountRef.current)
-    telegramMergedCountRef.current = telegramMessages.length
-    const liveTelegram = newOnes.filter((am) => am.source === "telegram")
-    if (liveTelegram.length === 0) return
-
-    const newMsgs: ChatMessage[] = liveTelegram.map((am) => ({
-      id: am.id,
-      role: am.role,
-      content: am.content,
-      createdAt: new Date(am.ts).toISOString(),
-      source: "telegram" as const,
-      sender: am.sender,
-    }))
-
-    // Find or create a Telegram conversation
-    let telegramConvo = conversations.find((c) => c.title.startsWith("Telegram"))
-
-    if (!telegramConvo) {
-      // Create new Telegram conversation
-      const now = new Date()
-      const dateStr = now.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-      telegramConvo = {
-        id: generateId(),
-        title: `Telegram - ${dateStr}`,
-        messages: [],
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      }
-    }
-
-    const updated: Conversation = {
-      ...telegramConvo,
-      messages: [...telegramConvo.messages, ...newMsgs],
-      updatedAt: new Date().toISOString(),
-    }
-
-    // Update or add the Telegram conversation
-    const existingIdx = conversations.findIndex((c) => c.id === updated.id)
-    let convos: Conversation[]
-    if (existingIdx >= 0) {
-      convos = conversations.map((c) => (c.id === updated.id ? updated : c))
-    } else {
-      convos = [updated, ...conversations]
-    }
-
-    persist(convos, activeConvo)
-  }, [telegramMessages])
 
   // Convert ChatMessage[] to Message[] for MessageList
   const displayMessages: Message[] = activeConvo

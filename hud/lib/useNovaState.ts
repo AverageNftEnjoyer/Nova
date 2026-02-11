@@ -12,7 +12,7 @@ export interface AgentMessage {
   role: "user" | "assistant";
   content: string;
   ts: number;
-  source?: "voice" | "hud" | "telegram" | "telegram_history";
+  source?: "voice" | "hud";
   sender?: string;
 }
 
@@ -20,7 +20,6 @@ export function useNovaState() {
   const [state, setState] = useState<NovaState>("idle");
   const [connected, setConnected] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
-  const [telegramMessages, setTelegramMessages] = useState<AgentMessage[]>([]);
   const [transcript, setTranscript] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -63,32 +62,7 @@ export function useNovaState() {
             sender: data.sender,
           };
 
-          // Separate Telegram messages from regular messages
-          if (data.source === "telegram") {
-            setTelegramMessages((prev) => [...prev, msg]);
-          } else {
-            setAgentMessages((prev) => [...prev, msg]);
-          }
-        }
-
-        // Handle history sync from Telegram
-        if (data.type === "history_sync" && Array.isArray(data.messages)) {
-          const historyMsgs: AgentMessage[] = data.messages
-            .filter((m: any) => m?.source === "telegram")
-            .map((m: any) => ({
-              id: `history-${m.ts}-${Math.random().toString(36).slice(2, 7)}`,
-              role: m.role,
-              content: m.content,
-              ts: m.ts,
-              source: "telegram_history",
-              sender: m.sender,
-            }));
-          setTelegramMessages((prev) => {
-            // Merge history, avoiding duplicates by timestamp
-            const existingTs = new Set(prev.map(p => p.ts));
-            const newMsgs = historyMsgs.filter(m => !existingTs.has(m.ts));
-            return [...newMsgs, ...prev].sort((a, b) => a.ts - b.ts);
-          });
+          setAgentMessages((prev) => [...prev, msg]);
         }
       } catch {}
     };
@@ -112,10 +86,6 @@ export function useNovaState() {
 
   const clearAgentMessages = useCallback(() => {
     setAgentMessages([]);
-  }, []);
-
-  const clearTelegramMessages = useCallback(() => {
-    setTelegramMessages([]);
   }, []);
 
   const sendGreeting = useCallback((text: string, ttsVoice: string = "default", voiceEnabled: boolean = true) => {
@@ -143,5 +113,5 @@ export function useNovaState() {
     }
   }, []);
 
-  return { state, connected, agentMessages, telegramMessages, sendToAgent, interrupt, clearAgentMessages, clearTelegramMessages, transcript, sendGreeting, setVoicePreference, setMuted };
+  return { state, connected, agentMessages, sendToAgent, interrupt, clearAgentMessages, transcript, sendGreeting, setVoicePreference, setMuted };
 }

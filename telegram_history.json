@@ -195,6 +195,21 @@
       "content": "Hello! How can I assist you today?",
       "source": "telegram",
       "ts": 1770739413211
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "whats our chat ID",
+      "source": "telegram",
+      "sender": "Jack",
+      "ts": 1770846015289
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "I don’t have access to a specific chat ID for our conversation. If you’re referring to something else, could you clarify? I’m here to help!",
+      "source": "telegram",
+      "ts": 1770846017481
     }
   ]
 }

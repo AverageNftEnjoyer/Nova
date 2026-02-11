@@ -6,6 +6,7 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   CalendarDays,
+  Blocks,
   Plus,
   Trash2,
   Pin,
@@ -16,6 +17,8 @@ import {
   ArrowRight,
   Mic,
   MicOff,
+  Send,
+  Settings,
 } from "lucide-react"
 import { AnimatedOrb } from "@/components/animated-orb"
 import TextType from "@/components/TextType"
@@ -34,6 +37,11 @@ import {
   type Conversation,
 } from "@/lib/conversations"
 import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import {
+  INTEGRATIONS_UPDATED_EVENT,
+  loadIntegrationsSettings,
+  updateTelegramIntegrationSettings,
+} from "@/lib/integrations"
 import FloatingLines from "@/components/FloatingLines"
 import "@/components/FloatingLines.css"
 
@@ -89,6 +97,7 @@ export default function HomePage() {
   const [background, setBackground] = useState<BackgroundType>("default")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [telegramConnected, setTelegramConnected] = useState(true)
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState("")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -98,6 +107,7 @@ export default function HomePage() {
   const greetingSentRef = useRef(false)
   const scheduleSectionRef = useRef<HTMLElement | null>(null)
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
+  const integrationsSectionRef = useRef<HTMLElement | null>(null)
 
   const persistConversations = useCallback((next: Conversation[]) => {
     setConversations(next)
@@ -128,6 +138,14 @@ export default function HomePage() {
     setOrbColor(settings.app.orbColor)
     setBackground(settings.app.background || "default")
     setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
+    fetch("/api/integrations/config", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        const connected = Boolean(data?.config?.telegram?.connected)
+        setTelegramConnected(connected)
+        updateTelegramIntegrationSettings({ connected })
+      })
+      .catch(() => {})
 
     // Play launch sound only once per boot session (not every home page visit)
     const alreadyPlayed = sessionStorage.getItem("nova-launch-sound-played")
@@ -162,6 +180,14 @@ export default function HomePage() {
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
+  }, [])
+
+  useEffect(() => {
+    const onUpdate = () => {
+      setTelegramConnected(loadIntegrationsSettings().telegram.connected)
+    }
+    window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
+    return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
   }, [])
 
   useEffect(() => {
@@ -270,6 +296,7 @@ export default function HomePage() {
     const cleanups: Array<() => void> = []
     if (scheduleSectionRef.current) cleanups.push(setupSectionSpotlight(scheduleSectionRef.current))
     if (pipelineSectionRef.current) cleanups.push(setupSectionSpotlight(pipelineSectionRef.current))
+    if (integrationsSectionRef.current) cleanups.push(setupSectionSpotlight(integrationsSectionRef.current))
 
     return () => {
       cleanups.forEach((cleanup) => cleanup())
@@ -470,6 +497,17 @@ export default function HomePage() {
   const removeAttachedFile = useCallback((index: number) => {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
   }, [])
+
+  const handleToggleTelegramIntegration = useCallback(() => {
+    const next = !telegramConnected
+    setTelegramConnected(next)
+    updateTelegramIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ telegram: { connected: next } }),
+    }).catch(() => {})
+  }, [telegramConnected])
 
   const pinnedConversations = conversations
     .filter((c) => c.pinned && !c.archived)
@@ -883,6 +921,74 @@ export default function HomePage() {
                       </div>
                     </div>
                   )}
+                </div>
+              </section>
+
+              <section
+                ref={integrationsSectionRef}
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell p-4`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-s-80">
+                    <Blocks className="w-4 h-4 text-accent" />
+                    <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
+                  </div>
+                  <button
+                    onClick={() => router.push("/integrations")}
+                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}
+                    aria-label="Open integrations settings"
+                  >
+                    <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
+                  </button>
+                </div>
+
+                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+
+                <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
+                  <div className="grid grid-cols-6 gap-1">
+                    <button
+                      onClick={handleToggleTelegramIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        telegramConnected
+                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                      )}
+                      aria-label={telegramConnected ? "Disable Telegram integration" : "Enable Telegram integration"}
+                      title={telegramConnected ? "Telegram connected (click to disable)" : "Telegram disconnected (click to enable)"}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                    {Array.from({ length: 23 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className={cn(
+                          "h-9 rounded-sm border home-spotlight-card home-border-glow home-spotlight-card--hover",
+                          isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20",
+                        )}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between">
+                  <p className={cn("text-xs", isLight ? "text-s-60" : "text-slate-300")}>
+                    <span className={telegramConnected ? "text-emerald-300" : "text-rose-300"}>
+                      {telegramConnected ? "Telegram Connected" : "Telegram Disabled"}
+                    </span>
+                  </p>
+                  <button
+                    onClick={handleToggleTelegramIntegration}
+                    className={cn(
+                      "text-xs px-2.5 py-1 rounded-md border transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      telegramConnected
+                        ? "border-rose-300/40 bg-rose-500/20 text-rose-200"
+                        : "border-emerald-300/40 bg-emerald-500/20 text-emerald-200",
+                    )}
+                  >
+                    {telegramConnected ? "Disable" : "Enable"}
+                  </button>
                 </div>
               </section>
             </aside>

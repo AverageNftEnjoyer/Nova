@@ -1,5 +1,10 @@
 import { streamText } from "ai"
+
+import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+
 export async function POST(req: Request) {
+  ensureNotificationSchedulerStarted()
+
   try {
     const { messages, model } = await req.json()
 
@@ -67,7 +72,7 @@ export async function POST(req: Request) {
     const result = streamText({
       model: selectedModel,
       messages: validMessages as any,
-      system: `You are a helpful, friendly AI assistant. You provide clear, concise, and accurate responses. 
+      system: `You are a helpful, friendly AI assistant. You provide clear, concise, and accurate responses.
 When explaining code or technical concepts, use markdown formatting with code blocks where appropriate.
 Be conversational but professional. If you're unsure about something, say so honestly.
 When analyzing images, describe them in detail and answer any questions about them.`,

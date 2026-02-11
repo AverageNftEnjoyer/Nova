@@ -34,3 +34,43 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Telegram Notifications (Desktop + Phone)
+
+Telegram delivery reaches both desktop and phone automatically if both are logged in to the same account/chat.
+
+### Environment
+
+Set these in your environment:
+
+- `TELEGRAM_BOT_TOKEN` (required)
+- `TELEGRAM_CHAT_IDS` (optional comma-separated default recipients)
+
+### API
+
+- `POST /api/notifications/trigger`
+  - body: `{ "message": "Hello from Nova", "chatIds": ["123456"] }`
+- `GET /api/notifications/schedules`
+- `POST /api/notifications/schedules`
+  - body: `{ "label": "Daily Standup", "message": "Standup time", "time": "09:30", "timezone": "America/New_York", "enabled": true }`
+- `PATCH /api/notifications/schedules`
+  - body includes `id`, e.g. `{ "id": "schedule-id", "enabled": false }`
+- `DELETE /api/notifications/schedules?id=schedule-id`
+- `POST /api/notifications/scheduler` to start scheduler loop
+- `DELETE /api/notifications/scheduler` to stop scheduler loop
+
+Scheduler checks every 30 seconds and sends once per local day per schedule.
+
+### Scriptable CLI
+
+Use:
+
+```bash
+npm run notify:send -- --message "Nova check-in"
+```
+
+Optional recipients override:
+
+```bash
+npm run notify:send -- --message "Nova check-in" --chatIds "123456,789012"
+```

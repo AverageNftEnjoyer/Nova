@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local integrations + notification state (contains secrets)
+/data/integrations-config.json
+/data/notification-schedules.json

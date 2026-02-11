@@ -12,7 +12,6 @@ import {
   countTokens,
   extractFacts
 } from "./memory.js";
-import { startTelegramBot, getTelegramHistory } from "./telegram.js";
 import { startMetricsBroadcast } from "./metrics.js";
 
 // ===== __dirname fix =====
@@ -78,16 +77,6 @@ function broadcastMessage(role, content, source = "hud") {
 
 // ===== handle incoming HUD messages =====
 wss.on("connection", (ws) => {
-  // Send Telegram history on connect
-  try {
-    const history = getTelegramHistory(50);
-    if (history.length > 0) {
-      ws.send(JSON.stringify({ type: "history_sync", messages: history }));
-    }
-  } catch (e) {
-    console.error("[WS] Failed to send history:", e.message);
-  }
-
   ws.on("message", async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
@@ -390,9 +379,6 @@ Output ONLY valid JSON, nothing else.`
   // Extract facts in the background (don't block) - saves to disk, not RAM
   extractFacts(openai, text, reply).catch(() => {});
 }
-
-// ===== Telegram bot =====
-startTelegramBot(broadcast, openai);
 
 // ===== System metrics broadcast =====
 startMetricsBroadcast(broadcast, 1500);
