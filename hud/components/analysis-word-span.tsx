@@ -49,7 +49,7 @@ export function AnalysisWordSpan({ word }: AnalysisWordSpanProps) {
 
   return (
     <span
-      className="inline text-stone-900"
+      className="inline text-current"
       style={{
         filter: animationComplete ? "none" : `blur(${blurAmount}px)`,
         opacity: animationComplete ? 1 : opacity,

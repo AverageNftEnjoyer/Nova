@@ -1,24 +1,17 @@
 "use client"
 
-export function TypingIndicator() {
-  return (
-    <div className="flex gap-1.5 max-w-[90%] md:max-w-[80%] mr-auto animate-in fade-in slide-in-from-bottom-2 duration-300">
-      {/* Spacer matching the avatar width in message-bubble so dots align with message text */}
-      <div className="w-8 shrink-0" />
+import { NovaOrbIndicator, type OrbPalette } from "./nova-orb-indicator"
 
-      {/* Typing dots */}
-      <div
-        className="px-4 py-3 rounded-2xl rounded-bl-md bg-s-5 border border-s-5"
-        style={{
-          boxShadow: "rgba(0, 0, 0, 0.2) 0px 2px 8px",
-        }}
-        role="status"
-        aria-label="Assistant is typing"
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-linear-to-rrom-violet-400 to-purple-500 animate-bounce" style={{ animationDelay: "0ms", animationDuration: "0.6s" }} />
-          <span className="w-2 h-2 rounded-full bg-linear-to-r from-purple-400 to-pink-500 animate-bounce" style={{ animationDelay: "150ms", animationDuration: "0.6s" }} />
-          <span className="w-2 h-2 rounded-full bg-linear-to-r from-pink-400 to-rose-500 animate-bounce" style={{ animationDelay: "300ms", animationDuration: "0.6s" }} />
+interface TypingIndicatorProps {
+  orbPalette: OrbPalette
+}
+
+export function TypingIndicator({ orbPalette }: TypingIndicatorProps) {
+  return (
+    <div className="flex w-full justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="w-full max-w-[48rem] py-1" role="status" aria-label="Assistant is typing">
+        <div className="inline-flex items-center">
+          <NovaOrbIndicator palette={orbPalette} size={20} animated />
         </div>
       </div>
     </div>

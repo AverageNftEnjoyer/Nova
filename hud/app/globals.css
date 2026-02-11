@@ -290,6 +290,19 @@
   animation: slide-up-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* Compact chat horizontal boundaries: prevent bubbles reaching screen edges */
+@media (min-width: 768px) {
+  .compact-msg-user-bound {
+    margin-right: clamp(2in, 16vw, 20rem);
+    max-width: min(80%, calc(100% - clamp(4in, 32vw, 40rem)));
+  }
+
+  .compact-msg-assistant-bound {
+    margin-left: clamp(2in, 16vw, 20rem);
+    max-width: min(80%, calc(100% - clamp(4in, 32vw, 40rem)));
+  }
+}
+
 /* Add ripple wave animation with 3 concentric circles */
 @keyframes ripple-wave {
   0% {
@@ -1268,6 +1281,78 @@
 
 /* ========== SECONDARY BOOT SCREEN — IRON MAN HUD ========== */
 
+/* Blueprint background ambience (low-noise, behind UI modules) */
+@keyframes boot2-grid-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(32px, 20px, 0);
+  }
+}
+
+@keyframes boot2-grid-drift-alt {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-24px, 18px, 0);
+  }
+}
+
+@keyframes boot2-scan-sweep {
+  0% {
+    top: -18%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.35;
+  }
+  55% {
+    opacity: 0.45;
+  }
+  100% {
+    top: 118%;
+    opacity: 0;
+  }
+}
+
+.boot2-bg-grid-drift {
+  animation: boot2-grid-drift 28s linear infinite;
+  opacity: 0.45;
+}
+
+.boot2-bg-grid-drift-alt {
+  animation: boot2-grid-drift-alt 34s linear infinite;
+  opacity: 0.6;
+}
+
+.boot2-bg-scan-sweep {
+  top: -18%;
+  animation: boot2-scan-sweep 16s linear infinite;
+  opacity: 0;
+}
+
+.boot2-bg-corner-tl {
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.boot2-bg-corner-tr {
+  border-top: 1px solid;
+  border-right: 1px solid;
+}
+
+.boot2-bg-corner-bl {
+  border-bottom: 1px solid;
+  border-left: 1px solid;
+}
+
+.boot2-bg-corner-br {
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+}
+
 /* Flying hacker text line entrance */
 @keyframes boot2-fly-in {
   0% {
@@ -1405,32 +1490,28 @@
   }
 }
 
-/* ========== SHOOTING COMETS ========== */
-@keyframes boot2-comet-fly {
+/* ========== SUBTLE DATA TRACES ========== */
+@keyframes boot2-data-trace-pulse {
   0% {
-    opacity: 0;
-    transform: translateX(0) translateY(0) rotate(var(--comet-angle, 35deg));
-  }
-  3% {
-    opacity: 0.7;
+    transform: translateX(0);
+    opacity: 0.2;
   }
   50% {
-    opacity: 0.9;
-  }
-  97% {
-    opacity: 0.6;
+    transform: translateX(8px);
+    opacity: 0.95;
   }
   100% {
-    opacity: 0;
-    transform: translateX(120vw) translateY(80vh) rotate(var(--comet-angle, 35deg));
+    transform: translateX(0);
+    opacity: 0.2;
   }
 }
 
-.boot2-comet {
-  animation: boot2-comet-fly var(--duration, 4s) ease-out infinite;
-  animation-delay: var(--delay, 0s);
+.boot2-data-trace {
+  height: 1px;
+  border-radius: 1px;
+  animation: boot2-data-trace-pulse var(--duration, 10s) ease-in-out infinite;
   opacity: 0;
-  will-change: transform, opacity;
+  will-change: opacity, transform;
 }
 
 /* ========== THEME-ADAPTIVE SCROLLBARS ========== */

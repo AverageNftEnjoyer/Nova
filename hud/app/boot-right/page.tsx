@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { BootScreenSecondary } from "@/components/boot-screen-secondary"
+import { NovaBootup } from "@/components/Nova-Bootup"
 import { loadUserSettings } from "@/lib/userSettings"
 
 export default function BootRightPage() {
@@ -29,5 +29,5 @@ export default function BootRightPage() {
 
   if (!checked) return null
 
-  return booting ? <BootScreenSecondary onComplete={() => setBooting(false)} /> : null
+  return booting ? <NovaBootup onComplete={() => setBooting(false)} /> : null
 }

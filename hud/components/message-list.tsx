@@ -8,7 +8,9 @@ import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AnimatedOrb } from "./animated-orb"
 import type { NovaState } from "@/lib/useNovaState"
-import { loadUserSettings } from "@/lib/userSettings"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import { cn } from "@/lib/utils"
+import type { OrbPalette } from "./nova-orb-indicator"
 
 interface MessageListProps {
   messages: Message[]
@@ -18,6 +20,7 @@ interface MessageListProps {
   onRetry: () => void
   isLoaded: boolean
   zoom?: number
+  orbPalette: OrbPalette
 }
 
 const LAUNCH_SOUND_URL = "/sounds/launch.mp3"
@@ -30,6 +33,7 @@ export function MessageList({
   onRetry,
   isLoaded,
   zoom = 100,
+  orbPalette,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -39,6 +43,7 @@ export function MessageList({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const lastScrollRef = useRef<number>(0)
   const hasPlayedIntroRef = useRef(false)
+  const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
 
   useEffect(() => {
     if (!isLoaded) return
@@ -64,6 +69,21 @@ export function MessageList({
       }
     }
   }, [isLoaded, messages.length])
+
+  useEffect(() => {
+    const syncCompactMode = () => setCompactMode(loadUserSettings().app.compactMode)
+    const onSettingsUpdated = () => syncCompactMode()
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "nova_user_settings") syncCompactMode()
+    }
+
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
+    window.addEventListener("storage", onStorage)
+    return () => {
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
+      window.removeEventListener("storage", onStorage)
+    }
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -143,13 +163,16 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="absolute inset-0 overflow-y-auto pt-3 pb-28 border-none"
+      className="absolute inset-0 overflow-y-auto pt-3 pb-20 border-none"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
     <div
-      className="space-y-2 px-4 origin-top"
+      className={cn(
+        "mx-auto w-full min-h-full origin-top px-4 sm:px-6 flex flex-col justify-end",
+        compactMode ? "max-w-3xl space-y-3" : "max-w-4xl space-y-4",
+      )}
       style={{
         transform: `scale(${zoom / 100})`,
         transformOrigin: "top left",
@@ -188,10 +211,12 @@ export function MessageList({
             key={message.id}
             message={message}
             isStreaming={isStreaming && message.role === "assistant" && message === lastMessage}
+            compactMode={compactMode}
+            orbPalette={orbPalette}
           />
         ))}
 
-      {showTypingIndicator && <TypingIndicator />}
+      {showTypingIndicator && <TypingIndicator orbPalette={orbPalette} />}
 
       {error && (
         <div
@@ -210,7 +235,7 @@ export function MessageList({
         </div>
       )}
 
-      <div ref={bottomRef} aria-hidden="true" className="h-16" />
+      <div ref={bottomRef} aria-hidden="true" className="h-2" />
     </div>
     </div>
   )

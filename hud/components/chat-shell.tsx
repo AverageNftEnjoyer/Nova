@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { MessageSquareDashed, PanelLeftOpen, PanelLeftClose, House, Mic, MicOff } from "lucide-react"
 import { MessageList } from "./message-list"
@@ -21,7 +21,9 @@ import {
   createConversation,
   autoTitle,
 } from "@/lib/conversations"
-import { loadUserSettings } from "@/lib/userSettings"
+import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import FloatingLines from "@/components/FloatingLines"
+import "@/components/FloatingLines.css"
 
 // Adapter: the MessageList expects this shape
 export interface Message {
@@ -34,6 +36,23 @@ export interface Message {
   sender?: string
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+const FLOATING_LINES_ENABLED_WAVES: string[] = ["top", "middle", "bottom"]
+const FLOATING_LINES_LINE_COUNT: number[] = [5, 5, 5]
+const FLOATING_LINES_LINE_DISTANCE: number[] = [5, 5, 5]
+const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
+const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
+const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
+
 export function ChatShell() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -43,7 +62,15 @@ export function ChatShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
+  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [background, setBackground] = useState<BackgroundType>("default")
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const { state: novaState, connected: agentConnected, agentMessages, telegramMessages, sendToAgent, clearAgentMessages, clearTelegramMessages, transcript, setMuted } = useNovaState()
+  const orbPalette = ORB_COLORS[orbColor]
+  const floatingLinesGradient = useMemo(
+    () => [orbPalette.circle1, orbPalette.circle2],
+    [orbPalette.circle1, orbPalette.circle2],
+  )
 
   // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
   useEffect(() => {
@@ -79,6 +106,11 @@ export function ChatShell() {
     const savedMuted = localStorage.getItem("nova-muted") === "true"
     setIsMuted(savedMuted)
 
+    const settings = loadUserSettings()
+    setOrbColor(settings.app.orbColor)
+    setBackground(settings.app.background || "default")
+    setSettingsLoaded(true)
+
     const activeId = getActiveId()
     const found = convos.find((c) => c.id === activeId)
     if (found) {
@@ -94,6 +126,16 @@ export function ChatShell() {
       saveConversations([fresh])
     }
     setIsLoaded(true)
+  }, [])
+
+  useEffect(() => {
+    const refresh = () => {
+      const settings = loadUserSettings()
+      setOrbColor(settings.app.orbColor)
+      setBackground(settings.app.background || "default")
+    }
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
   }, [])
 
   // Persist conversations whenever they change
@@ -208,6 +250,14 @@ export function ChatShell() {
       setLocalThinking(false)
     }
   }, [novaState])
+
+  // Also clear thinking as soon as we receive a non-empty assistant text message.
+  useEffect(() => {
+    const last = agentMessages[agentMessages.length - 1]
+    if (last?.role === "assistant" && last.content.trim().length > 0) {
+      setLocalThinking(false)
+    }
+  }, [agentMessages])
 
   // Send a message
   const sendMessage = useCallback(
@@ -366,13 +416,52 @@ export function ChatShell() {
 
       {/* Main chat area */}
       <div
-        className="flex flex-col flex-1 h-dvh"
+        className="relative flex flex-col flex-1 h-dvh overflow-hidden"
         style={{
           boxShadow: isLight
             ? "0 0 0 1px rgba(217, 224, 234, 1)"
             : "rgba(139, 92, 246, 0.03) 0px 0px 0px 1px, rgba(0, 0, 0, 0.2) 0px 1px 1px -0.5px",
         }}
       >
+        {settingsLoaded && background === "default" && (
+          <div className="absolute inset-0 opacity-30 z-0 pointer-events-none">
+            <FloatingLines
+              linesGradient={floatingLinesGradient}
+              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
+              lineCount={FLOATING_LINES_LINE_COUNT}
+              lineDistance={FLOATING_LINES_LINE_DISTANCE}
+              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
+              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
+              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
+              bendRadius={5}
+              bendStrength={-0.5}
+              interactive={true}
+              parallax={true}
+            />
+          </div>
+        )}
+        {settingsLoaded && background === "default" && (
+          <>
+            <div
+              className="absolute inset-0 pointer-events-none z-0"
+              style={{
+                background:
+                  `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
+              }}
+            />
+            <div className="absolute inset-0 pointer-events-none z-0">
+              <div
+                className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
+                style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
+              />
+              <div
+                className="absolute bottom-[8%] right-[14%] h-64 w-64 rounded-full blur-[100px]"
+                style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
+              />
+            </div>
+          </>
+        )}
+
         {/* Top bar */}
         <div className={cn("z-20 flex items-center px-3 py-2 border-b", isLight ? "border-[#d9e0ea] bg-[#f6f8fc]" : "border-s-5 bg-page/90 backdrop-blur-md")}>
           {/* Left buttons */}
@@ -409,8 +498,8 @@ export function ChatShell() {
           <div className="flex-1" />
         </div>
 
-        <div className="relative flex-1 min-h-0">
-        <MessageList messages={displayMessages} isStreaming={isThinking} novaState={novaState} error={null} onRetry={() => {}} isLoaded={isLoaded} zoom={100} />
+        <div className="relative z-10 flex-1 min-h-0">
+        <MessageList messages={displayMessages} isStreaming={isThinking} novaState={novaState} error={null} onRetry={() => {}} isLoaded={isLoaded} zoom={100} orbPalette={orbPalette} />
         </div>
 
         <Composer
@@ -425,4 +514,3 @@ export function ChatShell() {
     </div>
   )
 }
-

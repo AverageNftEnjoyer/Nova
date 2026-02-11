@@ -43,11 +43,21 @@ export function useNovaState() {
           setTranscript(data.text || "");
         }
 
-        if (data.type === "message" && data.role && data.content) {
+        if (
+          data.type === "message" &&
+          (data.role === "user" || data.role === "assistant") &&
+          typeof data.content === "string"
+        ) {
+          const normalizedContent = data.content.replace(/\r\n/g, "\n");
+          // Ignore empty assistant payloads from transport-level placeholders.
+          if (data.role === "assistant" && normalizedContent.trim().length === 0) {
+            return;
+          }
+
           const msg: AgentMessage = {
             id: `agent-${data.ts}-${Math.random().toString(36).slice(2, 7)}`,
             role: data.role,
-            content: data.content,
+            content: normalizedContent,
             ts: data.ts,
             source: data.source || "voice",
             sender: data.sender,

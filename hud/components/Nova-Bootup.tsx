@@ -9,7 +9,7 @@ import { loadBootMusicBlob } from "@/lib/bootMusicStorage"
 import { playBootMusic } from "@/lib/bootMusicPlayer"
 import { loadUserSettings, ORB_COLORS, ACCENT_COLORS, type OrbColor, type AccentColor } from "@/lib/userSettings"
 
-interface BootScreenSecondaryProps {
+interface NovaBootupProps {
   onComplete: () => void
 }
 
@@ -106,7 +106,6 @@ const HUD_READOUT_CONFIG = [
   { key: "gpu_temp", text: "GPU TEMP", angle: 150, distance: 310, delay: 4 },
   { key: "cpu_load", text: "CPU LOAD", angle: 210, distance: 320, delay: 5 },
   { key: "disk", text: "DISK", angle: -60, distance: 340, delay: 6.5 },
-  { key: "status", text: "STATUS", angle: 60, distance: 335, delay: 7.5 },
 ]
 
 // Arc segments for Iron Man HUD rings
@@ -155,25 +154,28 @@ function makeHexFloaters(count: number) {
   return floaters
 }
 
+function makeDataTraces(count: number) {
+  const traces = []
+  for (let i = 0; i < count; i++) {
+    const seed = i / count
+    const xSeed = ((i * 17 + 7) % count) / count
+    traces.push({
+      id: i,
+      top: 5 + seed * 90,
+      left: 4 + xSeed * 84,
+      width: 70 + (i % 8) * 24,
+      duration: 8 + (i % 6) * 1.7,
+      delay: seed * 7.5,
+      opacity: 0.035 + (i % 4) * 0.012,
+    })
+  }
+  return traces
+}
+
 const ARC_SEGMENTS = makeArcSegments()
 const TICK_MARKS = makeTickMarks(48, 85)
 const HEX_FLOATERS = makeHexFloaters(25)
-
-// Shooting comets configuration - deterministic to avoid hydration mismatch
-const COMETS = [
-  { id: 0, startX: -5, startY: -10, angle: 32, speed: 4.5, delay: 0.5, length: 120, color: "#c084fc", secondaryColor: "#e879f9" },
-  { id: 1, startX: 15, startY: -15, angle: 38, speed: 5.2, delay: 2.0, length: 90, color: "#a855f7", secondaryColor: "#f0abfc" },
-  { id: 2, startX: 35, startY: -8, angle: 28, speed: 3.8, delay: 4.5, length: 150, color: "#ec4899", secondaryColor: "#f9a8d4" },
-  { id: 3, startX: 55, startY: -12, angle: 42, speed: 6.0, delay: 1.2, length: 100, color: "#d946ef", secondaryColor: "#e879f9" },
-  { id: 4, startX: 75, startY: -5, angle: 25, speed: 4.0, delay: 6.0, length: 130, color: "#a855f7", secondaryColor: "#c4b5fd" },
-  { id: 5, startX: 95, startY: -18, angle: 35, speed: 5.5, delay: 3.5, length: 110, color: "#ec4899", secondaryColor: "#fbcfe8" },
-  { id: 6, startX: 10, startY: -20, angle: 30, speed: 4.2, delay: 7.5, length: 140, color: "#c084fc", secondaryColor: "#ddd6fe" },
-  { id: 7, startX: 45, startY: -6, angle: 40, speed: 3.5, delay: 9.0, length: 85, color: "#d946ef", secondaryColor: "#f5d0fe" },
-  { id: 8, startX: 65, startY: -14, angle: 33, speed: 5.8, delay: 5.0, length: 160, color: "#a855f7", secondaryColor: "#e9d5ff" },
-  { id: 9, startX: 25, startY: -8, angle: 45, speed: 4.8, delay: 10.5, length: 95, color: "#ec4899", secondaryColor: "#fce7f3" },
-  { id: 10, startX: 85, startY: -12, angle: 27, speed: 6.5, delay: 8.0, length: 175, color: "#c084fc", secondaryColor: "#ede9fe" },
-  { id: 11, startX: 5, startY: -16, angle: 36, speed: 4.0, delay: 11.5, length: 105, color: "#d946ef", secondaryColor: "#fae8ff" },
-]
+const DATA_TRACES = makeDataTraces(18)
 
 function arcPath(cx: number, cy: number, r: number, startAngle: number, span: number) {
   const s = (startAngle * Math.PI) / 180
@@ -186,7 +188,7 @@ function arcPath(cx: number, cy: number, r: number, startAngle: number, span: nu
   return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`
 }
 
-export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
+export function NovaBootup({ onComplete }: NovaBootupProps) {
   const [bootOrbColor, setBootOrbColor] = useState<OrbColor | null>(null)
   const [bootAccentColor, setBootAccentColor] = useState<AccentColor | null>(null)
   const [progress, setProgress] = useState(0)
@@ -369,6 +371,9 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
 
   if (!orbPalette || !accentPalette) return null
 
+  const CENTER_HUD_SCALE = 1.15
+  const CENTER_HUD_Y_OFFSET = -28
+
   return (
     <div
       className={`fixed inset-0 z-50 bg-[#030308] overflow-hidden transition-opacity duration-700 ${
@@ -377,6 +382,58 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
     >
       {/* Scanline canvas overlay */}
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-1" />
+
+      {/* Blueprint command deck background (kept subtle behind modules) */}
+      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+        <div
+          className="absolute inset-0"
+          style={{
+            background: `
+              radial-gradient(ellipse at 50% 55%, ${hexToRgba(accentPalette.primary, 0.08)} 0%, transparent 62%),
+              radial-gradient(ellipse at 18% 22%, ${hexToRgba(accentPalette.secondary, 0.05)} 0%, transparent 55%),
+              radial-gradient(ellipse at 84% 80%, ${hexToRgba(accentPalette.primary, 0.04)} 0%, transparent 58%)
+            `,
+          }}
+        />
+
+        <div
+          className="absolute inset-0 boot2-bg-grid-drift"
+          style={{
+            backgroundImage: `
+              repeating-linear-gradient(0deg, transparent 0 35px, ${hexToRgba(accentPalette.primary, 0.05)} 35px 36px),
+              repeating-linear-gradient(90deg, transparent 0 35px, ${hexToRgba(accentPalette.primary, 0.05)} 35px 36px)
+            `,
+          }}
+        />
+        <div
+          className="absolute inset-0 boot2-bg-grid-drift-alt"
+          style={{
+            backgroundImage: `
+              repeating-linear-gradient(25deg, transparent 0 62px, ${hexToRgba(accentPalette.secondary, 0.035)} 62px 63px)
+            `,
+          }}
+        />
+
+        <div
+          className="absolute left-0 right-0 h-32 boot2-bg-scan-sweep"
+          style={{
+            background: `linear-gradient(180deg, transparent 0%, ${hexToRgba(accentPalette.primary, 0.11)} 50%, transparent 100%)`,
+          }}
+        />
+        <div
+          className="absolute left-0 right-0 h-28 boot2-bg-scan-sweep"
+          style={{
+            background: `linear-gradient(180deg, transparent 0%, ${hexToRgba(accentPalette.secondary, 0.09)} 50%, transparent 100%)`,
+            animationDelay: "6.5s",
+            animationDuration: "13s",
+          }}
+        />
+
+        <div className="absolute top-6 left-6 h-12 w-12 boot2-bg-corner-tl" style={{ borderColor: hexToRgba(accentPalette.primary, 0.22) }} />
+        <div className="absolute top-6 right-6 h-12 w-12 boot2-bg-corner-tr" style={{ borderColor: hexToRgba(accentPalette.primary, 0.22) }} />
+        <div className="absolute bottom-6 left-6 h-12 w-12 boot2-bg-corner-bl" style={{ borderColor: hexToRgba(accentPalette.primary, 0.22) }} />
+        <div className="absolute bottom-6 right-6 h-12 w-12 boot2-bg-corner-br" style={{ borderColor: hexToRgba(accentPalette.primary, 0.22) }} />
+      </div>
 
       {/* Floating hex values background */}
       <div className="absolute inset-0 overflow-hidden">
@@ -398,61 +455,21 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         ))}
       </div>
 
-      {/* Shooting comets */}
+      {/* Subtle ambient data traces */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-2">
-        {COMETS.map((comet) => (
+        {DATA_TRACES.map((trace) => (
           <div
-            key={`comet-${comet.id}`}
-            className="absolute boot2-comet"
+            key={`trace-${trace.id}`}
+            className="absolute boot2-data-trace"
             style={{
-              left: `${comet.startX}%`,
-              top: `${comet.startY}%`,
-              ["--comet-angle" as string]: `${comet.angle}deg`,
-              ["--duration" as string]: `${comet.speed}s`,
-              ["--delay" as string]: `${comet.delay}s`,
+              top: `${trace.top}%`,
+              left: `${trace.left}%`,
+              width: `${trace.width}px`,
+              background: `linear-gradient(90deg, transparent 0%, ${hexToRgba(accentPalette.secondary, trace.opacity)} 28%, ${hexToRgba(accentPalette.primary, trace.opacity + 0.02)} 72%, transparent 100%)`,
+              animationDuration: `${trace.duration}s`,
+              animationDelay: `${trace.delay}s`,
             }}
-          >
-            {/* Main comet tail - gradient with multiple color stops */}
-            <div
-              style={{
-                width: `${comet.length}px`,
-                height: "1.5px",
-                background: `linear-gradient(90deg,
-                  transparent 0%,
-                  ${comet.color}15 10%,
-                  ${comet.color}40 30%,
-                  ${comet.color}80 60%,
-                  ${comet.secondaryColor} 85%,
-                  white 100%)`,
-                borderRadius: "1px",
-              }}
-            />
-            {/* Secondary inner trail - brighter core */}
-            <div
-              className="absolute top-0"
-              style={{
-                width: `${comet.length * 0.6}px`,
-                height: "1px",
-                right: 0,
-                background: `linear-gradient(90deg,
-                  transparent 0%,
-                  ${comet.secondaryColor}60 50%,
-                  white 100%)`,
-              }}
-            />
-            {/* Comet head - small bright point */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2"
-              style={{
-                right: "-1px",
-                width: "3px",
-                height: "3px",
-                borderRadius: "50%",
-                background: `radial-gradient(circle, white 0%, ${comet.secondaryColor} 60%, transparent 100%)`,
-                boxShadow: `0 0 2px white, 0 0 4px ${comet.secondaryColor}`,
-              }}
-            />
-          </div>
+          />
         ))}
       </div>
 
@@ -460,7 +477,15 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
       {/* CENTER HUD — Arc reactor + rings       */}
       {/* ═══════════════════════════════════════ */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative" style={{ width: 700, height: 700 }}>
+        <div
+          className="relative"
+          style={{
+            width: 700,
+            height: 700,
+            transform: `translateY(${CENTER_HUD_Y_OFFSET}px) scale(${CENTER_HUD_SCALE})`,
+            transformOrigin: "50% 50%",
+          }}
+        >
           <svg
             viewBox="0 0 700 700"
             className="absolute inset-0 w-full h-full"
@@ -606,7 +631,7 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
         </div>
 
         {/* NOVA title - positioned below the orb */}
-        <div className="absolute left-1/2 -translate-x-1/2 ml-3 flex flex-col items-center pointer-events-none" style={{ top: "calc(50% + 330px)" }}>
+        <div className="absolute left-1/2 -translate-x-1/2 ml-3 flex flex-col items-center pointer-events-none" style={{ top: "calc(50% + 255px)" }}>
           <div
             style={{
               opacity: novaTitleActive ? 1 : 0,
@@ -679,11 +704,21 @@ export function BootScreenSecondary({ onComplete }: BootScreenSecondaryProps) {
           <span className="mr-2" style={{ color: hexToRgba(accentPalette.primary, 0.3) }}>
             {">"}
           </span>
-          <span className={`truncate ${isHighlight ? "text-emerald-400/80" : "text-cyan-300/70"}`}>
+          <span
+            className="truncate"
+            style={{
+              color: isHighlight
+                ? hexToRgba(accentPalette.primary, 0.82)
+                : hexToRgba(accentPalette.secondary, 0.72),
+            }}
+          >
             {line}
           </span>
           {isNewest && (
-            <span className="boot-cursor inline-block w-1.5 h-3 bg-cyan-400/80 ml-1" />
+            <span
+              className="boot-cursor inline-block w-1.5 h-3 ml-1"
+              style={{ backgroundColor: hexToRgba(accentPalette.secondary, 0.85) }}
+            />
           )}
         </div>
       )
