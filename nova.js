@@ -7,6 +7,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const children = [];
+let hudBaseUrl = "http://localhost:3000";
+let shuttingDown = false;
 
 function launch(label, command, args, cwd) {
   const child = spawn(command, args, {
@@ -30,17 +32,70 @@ function launch(label, command, args, cwd) {
 }
 
 // ===== graceful shutdown =====
-function cleanup() {
+function cleanup(exitCode = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log("\nShutting down Nova...");
   children.forEach((c) => {
     try { c.kill(); } catch {}
   });
-  process.exit(0);
+  process.exit(exitCode);
 }
 
-process.on("SIGINT", cleanup);
-process.on("SIGTERM", cleanup);
-process.on("exit", cleanup);
+process.on("SIGINT", () => cleanup(0));
+process.on("SIGTERM", () => cleanup(0));
+
+function getListeningPids(port) {
+  try {
+    const raw = execSync("netstat -ano -p tcp", { encoding: "utf-8" });
+    const lines = raw.split(/\r?\n/);
+    const pids = new Set();
+
+    for (const line of lines) {
+      if (!line.includes("LISTENING")) continue;
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 5) continue;
+
+      const localAddress = parts[1] || "";
+      const pid = Number(parts[4]);
+      if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) continue;
+      if (localAddress.endsWith(`:${port}`)) {
+        pids.add(pid);
+      }
+    }
+
+    return [...pids];
+  } catch {
+    return [];
+  }
+}
+
+function clearPort(port) {
+  const pids = getListeningPids(port);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+      console.log(`[Nova] Cleared port ${port} by stopping PID ${pid}`);
+    } catch {}
+  }
+}
+
+function removeStaleNextLock() {
+  const lockPath = path.join(__dirname, "hud", ".next", "dev", "lock");
+  try {
+    if (fs.existsSync(lockPath)) {
+      fs.unlinkSync(lockPath);
+      console.log("[Nova] Removed stale Next.js dev lock.");
+    }
+  } catch {}
+}
+
+function prepareCleanLaunch() {
+  // If prior sessions crashed, these can block startup and leave the app window blank.
+  clearPort(8765);
+  clearPort(3000);
+  removeStaleNextLock();
+}
 
 // ===== Detect monitors via PowerShell =====
 function getMonitors() {
@@ -132,7 +187,26 @@ if (-not $found) {
   });
 }
 
+async function warmHudRoutes(baseUrl) {
+  const routes = ["/home", "/chat", "/history", "/integrations", "/missions"];
+  console.log(`[Nova] Pre-warming HUD routes on ${baseUrl} ...`);
+
+  const tasks = routes.map(async (route) => {
+    const url = `${baseUrl}${route}`;
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      console.log(`[Nova] Warmed ${route} -> ${res.status}`);
+    } catch (e) {
+      console.log(`[Nova] Warm failed ${route}: ${e.message}`);
+    }
+  });
+
+  await Promise.allSettled(tasks);
+  console.log("[Nova] Route pre-warm complete.");
+}
+
 console.log("[Nova] Boot sequence started.");
+prepareCleanLaunch();
 
 // ===== 2. Detect monitors =====
 const monitors = getMonitors();
@@ -142,70 +216,52 @@ const secondaryMonitor = monitors.length > 1 ? monitors[1] : null;
 // ===== 3. Start the AI agent =====
 launch("Agent", "node", ["agent.js"], path.join(__dirname, "agent"));
 
-// ===== 3.5. Open Telegram Desktop =====
-setTimeout(() => {
-  // Try common Telegram Desktop paths
-  const telegramPaths = [
-    `"${process.env.APPDATA}\\Telegram Desktop\\Telegram.exe"`,
-    `"${process.env.LOCALAPPDATA}\\Telegram Desktop\\Telegram.exe"`,
-    `"C:\\Users\\${process.env.USERNAME}\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe"`,
-  ];
-
-  let launched = false;
-  for (const tgPath of telegramPaths) {
-    try {
-      if (fs.existsSync(tgPath.replace(/"/g, ''))) {
-        exec(`start "" ${tgPath}`);
-        launched = true;
-        console.log("[Nova] Telegram Desktop opened.");
-        break;
-      }
-    } catch {}
-  }
-
-  if (!launched) {
-    // Fallback: try Start Menu shortcut
-    exec('start "" "Telegram"', (err) => {
-      if (!err) console.log("[Nova] Telegram opened via Start Menu.");
-    });
-  }
-}, 3000);
-
 // ===== 4. Start the HUD dev server =====
 const hud = launch("HUD", "npm", ["run", "dev"], path.join(__dirname, "hud"));
 
 // ===== 5. Open HUD as standalone app on primary monitor =====
 let hudOpened = false;
 hud.stdout.on("data", (chunk) => {
-  if (chunk.toString().includes("Ready") && !hudOpened) {
+  const text = chunk.toString();
+  const localMatch = text.match(/Local:\s+(http:\/\/localhost:\d+)/i);
+  if (localMatch) {
+    hudBaseUrl = localMatch[1];
+    console.log(`[Nova] HUD URL detected: ${hudBaseUrl}`);
+  }
+
+  if (text.includes("Ready") && !hudOpened) {
     hudOpened = true;
 
     // Launch Edge in app mode with aggressive fullscreen + autoplay flags.
     const { x, y, width, height } = primaryMonitor;
+    const hudTitle = hudBaseUrl.replace(/^https?:\/\//, "");
     exec(
       `start "" msedge.exe ` +
       `--new-window ` +
-      `--app=http://localhost:3000/boot-right ` +
-      `--start-fullscreen ` +
+      `--app=${hudBaseUrl}/boot-right ` +
+      `--start-maximized ` +
       `--window-position=${x},${y} ` +
       `--window-size=${width},${height} ` +
       `--autoplay-policy=no-user-gesture-required ` +
       `--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies`
     );
     console.log("[Nova] Opening Nova app on primary monitor");
+    // Keep launch deterministic and avoid post-launch monitor jumps.
+    // To force window placement again, set NOVA_FORCE_WINDOW_MOVE=1.
+    if (process.env.NOVA_FORCE_WINDOW_MOVE === "1") {
+      setTimeout(() => {
+        moveWindowToMonitor(hudTitle, primaryMonitor);
+        moveWindowToMonitor("boot-right", primaryMonitor);
+        moveWindowToMonitor("NOVA", primaryMonitor);
+      }, 2000);
+      setTimeout(() => {
+        moveWindowToMonitor(hudTitle, primaryMonitor);
+        moveWindowToMonitor("boot-right", primaryMonitor);
+        moveWindowToMonitor("NOVA", primaryMonitor);
+      }, 5000);
+    }
 
-    // Force monitor placement + maximize after launch (two passes for reliability).
-    setTimeout(() => {
-      moveWindowToMonitor("localhost:3000", primaryMonitor);
-      moveWindowToMonitor("boot-right", primaryMonitor);
-      moveWindowToMonitor("NOVA", primaryMonitor);
-    }, 2000);
-    setTimeout(() => {
-      moveWindowToMonitor("localhost:3000", primaryMonitor);
-      moveWindowToMonitor("boot-right", primaryMonitor);
-      moveWindowToMonitor("NOVA", primaryMonitor);
-    }, 5000);
-
+    warmHudRoutes(hudBaseUrl);
     console.log("[Nova] Nova launched as standalone app.");
   }
 });

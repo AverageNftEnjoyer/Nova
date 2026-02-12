@@ -176,6 +176,9 @@ const ARC_SEGMENTS = makeArcSegments()
 const TICK_MARKS = makeTickMarks(48, 85)
 const HEX_FLOATERS = makeHexFloaters(25)
 const DATA_TRACES = makeDataTraces(18)
+const DEFAULT_BOOT_MUSIC_SRC = "/sounds/launch.mp3"
+const BOOT_MUSIC_RETRY_MS = 1200
+const BOOT_MUSIC_MAX_ATTEMPTS = 8
 
 function arcPath(cx: number, cy: number, r: number, startAngle: number, span: number) {
   const s = (startAngle * Math.PI) / 180
@@ -189,8 +192,8 @@ function arcPath(cx: number, cy: number, r: number, startAngle: number, span: nu
 }
 
 export function NovaBootup({ onComplete }: NovaBootupProps) {
-  const [bootOrbColor, setBootOrbColor] = useState<OrbColor | null>(null)
-  const [bootAccentColor, setBootAccentColor] = useState<AccentColor | null>(null)
+  const [bootOrbColor, setBootOrbColor] = useState<OrbColor>("violet")
+  const [bootAccentColor, setBootAccentColor] = useState<AccentColor>("violet")
   const [progress, setProgress] = useState(0)
   const [fadeOut, setFadeOut] = useState(false)
   const [phase, setPhase] = useState(0)
@@ -203,48 +206,90 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
-  const orbPalette = bootOrbColor ? ORB_COLORS[bootOrbColor] : null
-  const accentPalette = bootAccentColor ? ACCENT_COLORS[bootAccentColor] : null
+  const orbPalette = ORB_COLORS[bootOrbColor]
+  const accentPalette = ACCENT_COLORS[bootAccentColor]
 
   useEffect(() => {
     let cancelled = false
+    let started = false
+    let attempts = 0
+    let retryTimer: number | null = null
+    let blobUrl: string | null = null
+    let blobChecked = false
     const settings = loadUserSettings()
-    setBootOrbColor(settings.app.orbColor)
-    setBootAccentColor(settings.app.accentColor)
+    const nextOrbColor = settings.app.orbColor in ORB_COLORS ? (settings.app.orbColor as OrbColor) : "violet"
+    const nextAccentColor = settings.app.accentColor in ACCENT_COLORS ? (settings.app.accentColor as AccentColor) : "violet"
+    setBootOrbColor(nextOrbColor)
+    setBootAccentColor(nextAccentColor)
     if (!settings.app.bootMusicEnabled) {
       return () => {}
     }
 
     const tryPlayBootMusic = async () => {
-      // Legacy fallback: previously persisted data URL.
+      if (cancelled || started) return
+
+      attempts += 1
+      let didStart = false
+
       if (settings.app.bootMusicDataUrl) {
-        await playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds: 30, volume: 0.5 })
-        return
+        didStart = await playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds: 30, volume: 0.5 })
       }
 
-      try {
-        const blob = await loadBootMusicBlob()
-        if (cancelled) return
-        if (!blob) {
-          return
+      if (!didStart && !blobChecked) {
+        blobChecked = true
+        try {
+          const blob = await loadBootMusicBlob(settings.app.bootMusicAssetId || undefined)
+          if (cancelled) return
+          if (blob) {
+            blobUrl = URL.createObjectURL(blob)
+          }
+        } catch {
         }
-        const objectUrl = URL.createObjectURL(blob)
-        const started = await playBootMusic(objectUrl, { maxSeconds: 30, volume: 0.5, objectUrl })
-        if (!started) {
-          // One delayed retry can recover from early-mount timing races.
-          setTimeout(() => {
-            if (cancelled) return
-            void playBootMusic(objectUrl, { maxSeconds: 30, volume: 0.5, objectUrl })
-          }, 1200)
-        }
-      } catch {
+      }
+
+      if (!didStart && blobUrl) {
+        didStart = await playBootMusic(blobUrl, { maxSeconds: 30, volume: 0.5, objectUrl: blobUrl })
+      }
+
+      if (!didStart) {
+        didStart = await playBootMusic(DEFAULT_BOOT_MUSIC_SRC, { maxSeconds: 30, volume: 0.5 })
+      }
+
+      if (didStart) {
+        started = true
       }
     }
 
     void tryPlayBootMusic()
+    retryTimer = window.setInterval(() => {
+      if (started || attempts >= BOOT_MUSIC_MAX_ATTEMPTS) {
+        if (retryTimer !== null) {
+          window.clearInterval(retryTimer)
+          retryTimer = null
+        }
+        return
+      }
+      void tryPlayBootMusic()
+    }, BOOT_MUSIC_RETRY_MS)
+
+    const unlockAndRetry = () => {
+      if (started || cancelled) return
+      void tryPlayBootMusic()
+    }
+
+    const unlockEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "mousedown", "focus"]
+    for (const eventName of unlockEvents) {
+      window.addEventListener(eventName, unlockAndRetry, { passive: true })
+    }
 
     return () => {
       cancelled = true
+      if (retryTimer !== null) {
+        window.clearInterval(retryTimer)
+      }
+      for (const eventName of unlockEvents) {
+        window.removeEventListener(eventName, unlockAndRetry)
+      }
     }
   }, [])
 
@@ -252,17 +297,53 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
   useEffect(() => {
     const ws = new WebSocket("ws://localhost:8765")
     wsRef.current = ws
+    let requestTimer: number | null = null
+    let requestAttempts = 0
+    let receivedMetrics = false
 
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
         if (data.type === "system_metrics" && data.metrics) {
           setMetrics(data.metrics)
+          const hasTemps = Number.isFinite(data.metrics?.cpu?.temp) && Number.isFinite(data.metrics?.gpu?.temp)
+          if (hasTemps) {
+            receivedMetrics = true
+            if (requestTimer !== null) {
+              window.clearInterval(requestTimer)
+              requestTimer = null
+            }
+          }
         }
       } catch {}
     }
 
-    return () => ws.close()
+    ws.onopen = () => {
+      const requestOnce = () => {
+        if (ws.readyState !== WebSocket.OPEN) return
+        ws.send(JSON.stringify({ type: "request_system_metrics" }))
+      }
+
+      requestOnce()
+      requestTimer = window.setInterval(() => {
+        if (receivedMetrics || requestAttempts >= 5) {
+          if (requestTimer !== null) {
+            window.clearInterval(requestTimer)
+            requestTimer = null
+          }
+          return
+        }
+        requestAttempts += 1
+        requestOnce()
+      }, 1500)
+    }
+
+    return () => {
+      if (requestTimer !== null) {
+        window.clearInterval(requestTimer)
+      }
+      ws.close()
+    }
   }, [])
 
   // Generate session ID client-side only
@@ -383,8 +464,6 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
   const visibleLines = FLYING_LINES.slice(0, flyingIdx + 1)
   const displayLines = visibleLines.slice(-18)
   const allSystemsOnline = onlineSystems.length === SUBSYSTEMS.length
-
-  if (!orbPalette || !accentPalette) return null
 
   const CENTER_HUD_SCALE = 1.15
   const CENTER_HUD_Y_OFFSET = -28
@@ -936,7 +1015,7 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
             className="h-full rounded-full boot-progress-bar transition-all duration-100 ease-linear"
             style={{
               width: `${progress}%`,
-              background: `linear-gradient(90deg, ${accentPalette.primary}, ${accentPalette.secondary}, ${accentPalette.primary})`,
+              backgroundImage: `linear-gradient(90deg, ${accentPalette.primary}, ${accentPalette.secondary}, ${accentPalette.primary})`,
               backgroundSize: "300% 100%",
             }}
           />

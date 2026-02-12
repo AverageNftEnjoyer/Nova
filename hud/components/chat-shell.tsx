@@ -21,8 +21,10 @@ import {
   createConversation,
   autoTitle,
 } from "@/lib/conversations"
-import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import { loadUserSettings, ORB_COLORS, type OrbColor, type ThemeBackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import FloatingLines from "@/components/FloatingLines"
+import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
 import "@/components/FloatingLines.css"
 
 // Adapter: the MessageList expects this shape
@@ -53,6 +55,19 @@ const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
 const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
 const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
+function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
+  const settings = loadUserSettings()
+  if (isLight) return settings.app.lightModeBackground ?? "none"
+  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? legacyDark
+}
+
+function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
+  if (value === "floatingLines" || value === "none" || value === "customVideo") return value
+  if (value === "default") return "floatingLines"
+  return null
+}
+
 export function ChatShell() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -62,7 +77,16 @@ export function ChatShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
   const [orbColor, setOrbColor] = useState<OrbColor>(() => loadUserSettings().app.orbColor)
-  const [background, setBackground] = useState<BackgroundType>(() => loadUserSettings().app.background || "default")
+  const [background, setBackground] = useState<ThemeBackgroundType>(() => {
+    const cached = readShellUiCache()
+    return normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
+  })
+  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(() => {
+    const cached = readShellUiCache().backgroundVideoUrl
+    if (cached) return cached
+    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+  })
   const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, clearAgentMessages } = useNovaState()
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
@@ -75,11 +99,13 @@ export function ChatShell() {
   // Load conversations and muted state on mount
   useEffect(() => {
     const convos = loadConversations()
-    setConversations(convos) // eslint-disable-line react-hooks/set-state-in-effect
+    setConversations(convos)
 
     const settings = loadUserSettings()
     setOrbColor(settings.app.orbColor)
-    setBackground(settings.app.background || "default")
+    const nextBackground = resolveThemeBackground(isLight)
+    setBackground(nextBackground)
+    writeShellUiCache({ background: nextBackground, orbColor: settings.app.orbColor })
 
     const activeId = getActiveId()
     const found = convos.find((c) => c.id === activeId)
@@ -96,17 +122,56 @@ export function ChatShell() {
       saveConversations([fresh])
     }
     setIsLoaded(true)
-  }, [])
+  }, [isLight])
 
   useEffect(() => {
     const refresh = () => {
       const settings = loadUserSettings()
       setOrbColor(settings.app.orbColor)
-      setBackground(settings.app.background || "default")
+      const nextBackground = resolveThemeBackground(isLight)
+      setBackground(nextBackground)
+      writeShellUiCache({ background: nextBackground, orbColor: settings.app.orbColor })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [])
+  }, [isLight])
+
+  useEffect(() => {
+    const nextBackground = resolveThemeBackground(isLight)
+    setBackground(nextBackground)
+    writeShellUiCache({ background: nextBackground })
+  }, [isLight])
+
+  useEffect(() => {
+    let cancelled = false
+    if (isLight || background !== "customVideo") return
+
+    const uiCached = readShellUiCache().backgroundVideoUrl
+    if (uiCached) {
+      setBackgroundVideoUrl(uiCached)
+    }
+    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+    if (cached) {
+      setBackgroundVideoUrl(cached)
+      writeShellUiCache({ backgroundVideoUrl: cached })
+    }
+    void loadBackgroundVideoObjectUrl(selectedAssetId || undefined)
+      .then((url) => {
+        if (cancelled) return
+        setBackgroundVideoUrl(url)
+        writeShellUiCache({ backgroundVideoUrl: url })
+      })
+      .catch(() => {
+        if (cancelled) return
+        const fallback = readShellUiCache().backgroundVideoUrl
+        if (!fallback) setBackgroundVideoUrl(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [background, isLight])
 
   // Persist conversations whenever they change
   const persist = useCallback(
@@ -167,7 +232,7 @@ export function ChatShell() {
   // This keeps the thinking animation visible through the full OpenAI response time
   useEffect(() => {
     if (novaState === "speaking") {
-      setLocalThinking(false) // eslint-disable-line react-hooks/set-state-in-effect
+      setLocalThinking(false)
     }
   }, [novaState])
 
@@ -175,7 +240,7 @@ export function ChatShell() {
   useEffect(() => {
     const last = agentMessages[agentMessages.length - 1]
     if (last?.role === "assistant" && last.content.trim().length > 0) {
-      setLocalThinking(false) // eslint-disable-line react-hooks/set-state-in-effect
+      setLocalThinking(false)
     }
   }, [agentMessages])
 
@@ -298,7 +363,23 @@ export function ChatShell() {
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-page">
-      {background === "default" && (
+      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <>
+            <video
+              className="absolute inset-0 h-full w-full object-cover"
+              src={backgroundVideoUrl}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+            />
+            <div className="absolute inset-0 bg-black/35" />
+          </>
+        </div>
+      )}
+      {background === "floatingLines" && !isLight && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute inset-0 opacity-30">
             <FloatingLines

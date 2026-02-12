@@ -1,12 +1,13 @@
 const DB_NAME = "nova-assets"
 const DB_VERSION = 3
-const STORE_NAME = "boot-audio"
-const LEGACY_BOOT_MUSIC_KEY = "boot-music"
+const STORE_NAME = "background-video"
+const LEGACY_BACKGROUND_VIDEO_KEY = "custom-background-video"
 const ACTIVE_ASSET_ID_KEY = "active-id"
 const ASSET_KEY_PREFIX = "asset:"
 const REQUIRED_STORES = ["boot-audio", "background-video"] as const
+let objectUrlCache: { assetId: string | null; url: string } | null = null
 
-export interface BootMusicAssetMeta {
+export interface BackgroundVideoAssetMeta {
   id: string
   fileName: string
   mimeType: string
@@ -14,8 +15,8 @@ export interface BootMusicAssetMeta {
   createdAt: string
 }
 
-interface BootMusicAssetRecord {
-  meta: BootMusicAssetMeta
+interface BackgroundVideoAssetRecord {
+  meta: BackgroundVideoAssetMeta
   blob: Blob
 }
 
@@ -60,31 +61,31 @@ async function migrateLegacyBlobIfNeeded(db: IDBDatabase): Promise<void> {
   const hasAsset = keys.some((k) => typeof k === "string" && k.startsWith(ASSET_KEY_PREFIX))
   if (hasAsset) return
 
-  const legacyBlob = (await requestAsPromise<Blob | undefined>(store.get(LEGACY_BOOT_MUSIC_KEY))) ?? null
+  const legacyBlob = (await requestAsPromise<Blob | undefined>(store.get(LEGACY_BACKGROUND_VIDEO_KEY))) ?? null
   if (!legacyBlob) return
 
   const id = makeAssetId()
-  const meta: BootMusicAssetMeta = {
+  const meta: BackgroundVideoAssetMeta = {
     id,
-    fileName: "Imported Boot Music.mp3",
-    mimeType: legacyBlob.type || "audio/mpeg",
+    fileName: "Imported Background Video.mp4",
+    mimeType: legacyBlob.type || "video/mp4",
     sizeBytes: legacyBlob.size,
     createdAt: new Date().toISOString(),
   }
-  const record: BootMusicAssetRecord = { meta, blob: legacyBlob }
+  const record: BackgroundVideoAssetRecord = { meta, blob: legacyBlob }
   await requestAsPromise(store.put(record, `${ASSET_KEY_PREFIX}${id}`))
   await requestAsPromise(store.put(id, ACTIVE_ASSET_ID_KEY))
-  await requestAsPromise(store.delete(LEGACY_BOOT_MUSIC_KEY))
+  await requestAsPromise(store.delete(LEGACY_BACKGROUND_VIDEO_KEY))
 }
 
-async function readAssetRecords(db: IDBDatabase): Promise<BootMusicAssetRecord[]> {
+async function readAssetRecords(db: IDBDatabase): Promise<BackgroundVideoAssetRecord[]> {
   const tx = db.transaction(STORE_NAME, "readonly")
   const store = tx.objectStore(STORE_NAME)
   const keys = await requestAsPromise<IDBValidKey[]>(store.getAllKeys())
-  const records: BootMusicAssetRecord[] = []
+  const records: BackgroundVideoAssetRecord[] = []
   for (const key of keys) {
     if (typeof key !== "string" || !key.startsWith(ASSET_KEY_PREFIX)) continue
-    const value = await requestAsPromise<BootMusicAssetRecord | undefined>(store.get(key))
+    const value = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(key))
     if (value?.meta && value?.blob instanceof Blob) {
       records.push(value)
     }
@@ -92,7 +93,7 @@ async function readAssetRecords(db: IDBDatabase): Promise<BootMusicAssetRecord[]
   return records.sort((a, b) => b.meta.createdAt.localeCompare(a.meta.createdAt))
 }
 
-export async function listBootMusicAssets(): Promise<BootMusicAssetMeta[]> {
+export async function listBackgroundVideoAssets(): Promise<BackgroundVideoAssetMeta[]> {
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -103,7 +104,7 @@ export async function listBootMusicAssets(): Promise<BootMusicAssetMeta[]> {
   }
 }
 
-export async function getActiveBootMusicAssetId(): Promise<string | null> {
+export async function getActiveBackgroundVideoAssetId(): Promise<string | null> {
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -116,7 +117,7 @@ export async function getActiveBootMusicAssetId(): Promise<string | null> {
   }
 }
 
-export async function setActiveBootMusicAsset(assetId: string | null): Promise<void> {
+export async function setActiveBackgroundVideoAsset(assetId: string | null): Promise<void> {
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -132,21 +133,21 @@ export async function setActiveBootMusicAsset(assetId: string | null): Promise<v
   }
 }
 
-export async function saveBootMusicBlob(blob: Blob, fileName = "Boot Music.mp3"): Promise<BootMusicAssetMeta> {
+export async function saveBackgroundVideoBlob(blob: Blob, fileName = "Background Video.mp4"): Promise<BackgroundVideoAssetMeta> {
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
     const id = makeAssetId()
-    const meta: BootMusicAssetMeta = {
+    const meta: BackgroundVideoAssetMeta = {
       id,
       fileName,
-      mimeType: blob.type || "audio/mpeg",
+      mimeType: blob.type || "video/mp4",
       sizeBytes: blob.size,
       createdAt: new Date().toISOString(),
     }
     const tx = db.transaction(STORE_NAME, "readwrite")
     const store = tx.objectStore(STORE_NAME)
-    await requestAsPromise(store.put({ meta, blob } as BootMusicAssetRecord, `${ASSET_KEY_PREFIX}${id}`))
+    await requestAsPromise(store.put({ meta, blob } as BackgroundVideoAssetRecord, `${ASSET_KEY_PREFIX}${id}`))
     await requestAsPromise(store.put(id, ACTIVE_ASSET_ID_KEY))
     return meta
   } finally {
@@ -154,7 +155,7 @@ export async function saveBootMusicBlob(blob: Blob, fileName = "Boot Music.mp3")
   }
 }
 
-export async function loadBootMusicBlob(assetId?: string | null): Promise<Blob | null> {
+export async function loadBackgroundVideoBlob(assetId?: string | null): Promise<Blob | null> {
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -162,14 +163,34 @@ export async function loadBootMusicBlob(assetId?: string | null): Promise<Blob |
     const store = tx.objectStore(STORE_NAME)
     const id = assetId || ((await requestAsPromise<string | undefined>(store.get(ACTIVE_ASSET_ID_KEY))) ?? null)
     if (!id) return null
-    const record = await requestAsPromise<BootMusicAssetRecord | undefined>(store.get(`${ASSET_KEY_PREFIX}${id}`))
+    const record = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(`${ASSET_KEY_PREFIX}${id}`))
     return record?.blob instanceof Blob ? record.blob : null
   } finally {
     db.close()
   }
 }
 
-export async function removeBootMusicAsset(assetId: string): Promise<void> {
+export function getCachedBackgroundVideoObjectUrl(assetId?: string | null): string | null {
+  if (!objectUrlCache) return null
+  if (assetId && objectUrlCache.assetId !== assetId) return null
+  return objectUrlCache.url
+}
+
+export async function loadBackgroundVideoObjectUrl(assetId?: string | null): Promise<string | null> {
+  if (objectUrlCache && (!assetId || objectUrlCache.assetId === assetId)) {
+    return objectUrlCache.url
+  }
+  const blob = await loadBackgroundVideoBlob(assetId)
+  if (!blob) return null
+  const nextUrl = URL.createObjectURL(blob)
+  if (objectUrlCache?.url) {
+    URL.revokeObjectURL(objectUrlCache.url)
+  }
+  objectUrlCache = { assetId: assetId ?? null, url: nextUrl }
+  return nextUrl
+}
+
+export async function removeBackgroundVideoAsset(assetId: string): Promise<void> {
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -185,8 +206,8 @@ export async function removeBootMusicAsset(assetId: string): Promise<void> {
   }
 }
 
-export async function removeBootMusicBlob(): Promise<void> {
-  const active = await getActiveBootMusicAssetId()
+export async function removeBackgroundVideoBlob(): Promise<void> {
+  const active = await getActiveBackgroundVideoAssetId()
   if (!active) return
-  await removeBootMusicAsset(active)
+  await removeBackgroundVideoAsset(active)
 }

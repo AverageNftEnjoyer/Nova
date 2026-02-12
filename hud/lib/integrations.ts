@@ -20,10 +20,23 @@ export interface OpenAIIntegrationSettings {
   apiKeyMasked?: string
 }
 
+export interface ClaudeIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+}
+
+export type LlmProvider = "openai" | "claude"
+
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
   openai: OpenAIIntegrationSettings
+  claude: ClaudeIntegrationSettings
+  activeLlmProvider: LlmProvider
   updatedAt: string
 }
 
@@ -50,6 +63,15 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
+  claude: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.anthropic.com",
+    defaultModel: "claude-sonnet-4-20250514",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+  },
+  activeLlmProvider: "openai",
   updatedAt: new Date().toISOString(),
 }
 
@@ -75,6 +97,15 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...(parsed.openai || {}),
         apiKey: "",
       },
+      claude: {
+        ...DEFAULT_SETTINGS.claude,
+        ...(parsed.claude || {}),
+        apiKey: "",
+      },
+      activeLlmProvider:
+        parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai"
+          ? parsed.activeLlmProvider
+          : DEFAULT_SETTINGS.activeLlmProvider,
       updatedAt: parsed.updatedAt || new Date().toISOString(),
     }
   } catch {
@@ -97,6 +128,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     },
     openai: {
       ...settings.openai,
+      apiKey: "",
+    },
+    claude: {
+      ...settings.claude,
       apiKey: "",
     },
   }
@@ -150,6 +185,31 @@ export function updateOpenAIIntegrationSettings(partial: Partial<OpenAIIntegrati
       ...current.openai,
       ...partial,
     },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateClaudeIntegrationSettings(partial: Partial<ClaudeIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    claude: {
+      ...current.claude,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateActiveLlmProvider(provider: LlmProvider): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    activeLlmProvider: provider,
     updatedAt: new Date().toISOString(),
   }
   saveIntegrationsSettings(updated)

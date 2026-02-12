@@ -4,7 +4,9 @@ import {
   loadIntegrationsConfig,
   updateIntegrationsConfig,
   type IntegrationsConfig,
+  type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
+  type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/server-store"
@@ -77,6 +79,28 @@ function normalizeOpenAIInput(raw: unknown, current: OpenAIIntegrationConfig): O
   }
 }
 
+function normalizeClaudeInput(raw: unknown, current: ClaudeIntegrationConfig): ClaudeIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const claude = raw as Partial<ClaudeIntegrationConfig>
+
+  return {
+    connected: typeof claude.connected === "boolean" ? claude.connected : current.connected,
+    apiKey:
+      typeof claude.apiKey === "string"
+        ? (claude.apiKey.trim().length > 0 ? claude.apiKey.trim() : current.apiKey)
+        : current.apiKey,
+    baseUrl: typeof claude.baseUrl === "string" && claude.baseUrl.trim().length > 0 ? claude.baseUrl.trim() : current.baseUrl,
+    defaultModel: typeof claude.defaultModel === "string" && claude.defaultModel.trim().length > 0
+      ? claude.defaultModel.trim()
+      : current.defaultModel,
+  }
+}
+
+function normalizeActiveLlmProvider(raw: unknown, current: LlmProvider): LlmProvider {
+  if (raw === "openai" || raw === "claude") return raw
+  return current
+}
+
 function toClientConfig(config: IntegrationsConfig) {
   return {
     ...config,
@@ -92,6 +116,12 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.openai.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.openai.apiKey),
     },
+    claude: {
+      ...config.claude,
+      apiKey: "",
+      apiKeyConfigured: config.claude.apiKey.trim().length > 0,
+      apiKeyMasked: maskSecret(config.claude.apiKey),
+    },
   }
 }
 
@@ -106,15 +136,21 @@ export async function PATCH(req: Request) {
       telegram?: Partial<TelegramIntegrationConfig> & { chatIds?: string[] | string }
       discord?: Partial<DiscordIntegrationConfig> & { webhookUrls?: string[] | string }
       openai?: Partial<OpenAIIntegrationConfig>
+      claude?: Partial<ClaudeIntegrationConfig>
+      activeLlmProvider?: LlmProvider
     }
     const current = await loadIntegrationsConfig()
     const telegram = normalizeTelegramInput(body.telegram, current.telegram)
     const discord = normalizeDiscordInput(body.discord, current.discord)
     const openai = normalizeOpenAIInput(body.openai, current.openai)
+    const claude = normalizeClaudeInput(body.claude, current.claude)
+    const activeLlmProvider = normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
     const next = await updateIntegrationsConfig({
       telegram,
       discord,
       openai,
+      claude,
+      activeLlmProvider,
       agents: body.agents ?? current.agents,
     })
     return NextResponse.json({ config: toClientConfig(next) })

@@ -1,81 +1,50 @@
-import si from "systeminformation";
+import { getSystemMetrics as getWindowsSystemMetrics } from "./windowsMetrics.js";
+
+const DEFAULT_INTERVAL_MS = 2000;
+const MIN_INTERVAL_MS = 2000;
+const DEFAULT_METRICS_MODE = "once";
+
+function resolveIntervalMs(intervalMs) {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    return DEFAULT_INTERVAL_MS;
+  }
+  return Math.max(MIN_INTERVAL_MS, Math.floor(intervalMs));
+}
 
 /**
  * Get current system metrics
  */
 export async function getSystemMetrics() {
-  try {
-    const [cpu, cpuTemp, mem, graphics, networkStats, fsSize, battery, system] = await Promise.all([
-      si.currentLoad(),
-      si.cpuTemperature(),
-      si.mem(),
-      si.graphics(),
-      si.networkStats(),
-      si.fsSize(),
-      si.battery(),
-      si.system(),
-    ]);
-
-    // Get GPU info
-    const gpu = graphics.controllers?.[0] || {};
-
-    // Get primary disk
-    const disk = fsSize?.[0] || {};
-
-    // Get network throughput
-    const net = networkStats?.[0] || {};
-
-    return {
-      cpu: {
-        load: Math.round(cpu.currentLoad || 0),
-        temp: Math.round(cpuTemp.main || 0),
-        cores: cpu.cpus?.length || 0,
-      },
-      memory: {
-        used: Math.round((mem.used / (1024 * 1024 * 1024)) * 10) / 10, // GB
-        total: Math.round((mem.total / (1024 * 1024 * 1024)) * 10) / 10,
-        percent: Math.round((mem.used / mem.total) * 100),
-      },
-      gpu: {
-        name: gpu.model || "Unknown",
-        temp: gpu.temperatureGpu || 0,
-        vram: gpu.vram || 0,
-        utilization: gpu.utilizationGpu || 0,
-      },
-      disk: {
-        used: Math.round((disk.used / (1024 * 1024 * 1024)) * 10) / 10,
-        size: Math.round((disk.size / (1024 * 1024 * 1024)) * 10) / 10,
-        percent: Math.round(disk.use || 0),
-      },
-      network: {
-        rx: Math.round((net.rx_sec || 0) / 1024), // KB/s
-        tx: Math.round((net.tx_sec || 0) / 1024),
-      },
-      battery: {
-        percent: battery.percent || 100,
-        charging: battery.isCharging || false,
-        hasBattery: battery.hasBattery || false,
-      },
-      system: {
-        manufacturer: system.manufacturer || "Unknown",
-        model: system.model || "Unknown",
-      },
-    };
-  } catch (error) {
-    console.error("[Metrics] Error:", error.message);
-    return null;
-  }
+  return getWindowsSystemMetrics();
 }
 
 /**
  * Start broadcasting system metrics at interval
  */
-export function startMetricsBroadcast(broadcast, intervalMs = 2000) {
+export function startMetricsBroadcast(broadcast, intervalMs = DEFAULT_INTERVAL_MS) {
+  if (process.env.NOVA_METRICS_DISABLED === "1") {
+    if (process.env.NOVA_METRICS_DEBUG === "1") {
+      console.debug("[Metrics] Polling disabled via NOVA_METRICS_DISABLED=1");
+    }
+    return () => {};
+  }
+
+  const safeIntervalMs = resolveIntervalMs(intervalMs);
+  const mode = String(process.env.NOVA_METRICS_MODE || DEFAULT_METRICS_MODE).toLowerCase();
+
   // Send initial metrics
   sendMetrics(broadcast);
 
+  // Default mode is one-shot to avoid background polling CPU cost on Windows.
+  if (mode !== "poll") {
+    if (process.env.NOVA_METRICS_DEBUG === "1") {
+      console.debug(`[Metrics] One-shot mode active (NOVA_METRICS_MODE=${mode || "once"})`);
+    }
+    return () => {};
+  }
+
   // Then update every interval
-  const timer = setInterval(() => sendMetrics(broadcast), intervalMs);
+  const timer = setInterval(() => sendMetrics(broadcast), safeIntervalMs);
 
   return () => clearInterval(timer);
 }

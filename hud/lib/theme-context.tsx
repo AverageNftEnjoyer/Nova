@@ -33,9 +33,18 @@ const ThemeContext = createContext<ThemeContextValue>({
 })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeSetting, setThemeSettingState] = useState<ThemeSetting>(() => loadUserSettings().app.theme)
-  const [theme, setTheme] = useState<Theme>(() => resolveTheme(loadUserSettings().app.theme))
-  const [fontSizeSetting, setFontSizeSetting] = useState<FontSizeSetting>(() => loadUserSettings().app.fontSize)
+  // Keep first render deterministic between server and client to avoid hydration mismatch.
+  const [themeSetting, setThemeSettingState] = useState<ThemeSetting>("dark")
+  const [theme, setTheme] = useState<Theme>("dark")
+  const [fontSizeSetting, setFontSizeSetting] = useState<FontSizeSetting>("medium")
+
+  useEffect(() => {
+    const app = loadUserSettings().app
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setThemeSettingState(app.theme)
+    setTheme(resolveTheme(app.theme))
+    setFontSizeSetting(app.fontSize)
+  }, [])
 
   const applyFontScale = (setting: FontSizeSetting) => {
     if (typeof window === "undefined") return

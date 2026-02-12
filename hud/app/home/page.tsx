@@ -30,10 +30,12 @@ import {
   type ChatMessage,
   type Conversation,
 } from "@/lib/conversations"
-import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import { loadUserSettings, ORB_COLORS, type OrbColor, type ThemeBackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import {
   INTEGRATIONS_UPDATED_EVENT,
   loadIntegrationsSettings,
+  type LlmProvider,
+  updateClaudeIntegrationSettings,
   updateOpenAIIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateTelegramIntegrationSettings,
@@ -41,7 +43,9 @@ import {
 import FloatingLines from "@/components/FloatingLines"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
+import { ClaudeIcon } from "@/components/claude-icon"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
 import "@/components/FloatingLines.css"
 
 interface NotificationSchedule {
@@ -92,6 +96,19 @@ function toMissionDescription(message: string | undefined, integration: string, 
   return `${normalized.slice(0, 81).trimEnd()}...`
 }
 
+function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
+  const settings = loadUserSettings()
+  if (isLight) return settings.app.lightModeBackground ?? "none"
+  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? legacyDark
+}
+
+function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
+  if (value === "floatingLines" || value === "none" || value === "customVideo") return value
+  if (value === "default") return "floatingLines"
+  return null
+}
+
 const GREETINGS = [
   "Hello sir, what are we working on today?",
   "Good to see you! What's on the agenda?",
@@ -112,7 +129,17 @@ export default function HomePage() {
   const router = useRouter()
   const { theme } = useTheme()
   const isLight = theme === "light"
-  const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference, setMuted, agentMessages, clearAgentMessages } = useNovaState()
+  const {
+    state: novaState,
+    connected,
+    sendToAgent,
+    sendGreeting,
+    setVoicePreference,
+    setMuted,
+    agentMessages,
+    latestUsage,
+    clearAgentMessages,
+  } = useNovaState()
   const [isMuted, setIsMuted] = useState(false)
   const [hasAnimated, setHasAnimated] = useState(false)
   const [input, setInput] = useState("")
@@ -121,11 +148,23 @@ export default function HomePage() {
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
   const [welcomeMessage, setWelcomeMessage] = useState(GREETINGS[0])
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [background, setBackground] = useState<BackgroundType>("default")
+  const [background, setBackground] = useState<ThemeBackgroundType>(() => {
+    const cached = readShellUiCache()
+    return normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
+  })
+  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(() => {
+    const cached = readShellUiCache().backgroundVideoUrl
+    if (cached) return cached
+    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+  })
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [telegramConnected, setTelegramConnected] = useState(true)
   const [discordConnected, setDiscordConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
+  const [claudeConnected, setClaudeConnected] = useState(false)
+  const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
+  const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -160,7 +199,7 @@ export default function HomePage() {
 
     const settings = loadUserSettings()
     const nextOrbColor = cached.orbColor ?? settings.app.orbColor
-    const nextBackground = cached.background ?? (settings.app.background || "default")
+    const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
     const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
     setOrbColor(nextOrbColor)
     setBackground(nextBackground)
@@ -170,7 +209,7 @@ export default function HomePage() {
       background: nextBackground,
       spotlightEnabled: nextSpotlight,
     })
-  }, [])
+  }, [isLight])
 
   useEffect(() => {
     const sync = window.setTimeout(() => {
@@ -190,6 +229,37 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    if (isLight || background !== "customVideo") return
+
+    const uiCached = readShellUiCache().backgroundVideoUrl
+    if (uiCached) {
+      setBackgroundVideoUrl(uiCached)
+    }
+    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+    if (cached) {
+      setBackgroundVideoUrl(cached)
+      writeShellUiCache({ backgroundVideoUrl: cached })
+    }
+    void loadBackgroundVideoObjectUrl(selectedAssetId || undefined)
+      .then((url) => {
+        if (cancelled) return
+        setBackgroundVideoUrl(url)
+        writeShellUiCache({ backgroundVideoUrl: url })
+      })
+      .catch(() => {
+        if (cancelled) return
+        const fallback = readShellUiCache().backgroundVideoUrl
+        if (!fallback) setBackgroundVideoUrl(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [background, isLight])
+
+  useEffect(() => {
     const settings = loadUserSettings()
     fetch("/api/integrations/config", { cache: "no-store" })
       .then((res) => res.json())
@@ -197,12 +267,22 @@ export default function HomePage() {
         const telegram = Boolean(data?.config?.telegram?.connected)
         const discord = Boolean(data?.config?.discord?.connected)
         const openai = Boolean(data?.config?.openai?.connected)
+        const claude = Boolean(data?.config?.claude?.connected)
+        const provider: LlmProvider = data?.config?.activeLlmProvider === "claude" ? "claude" : "openai"
         setTelegramConnected(telegram)
         setDiscordConnected(discord)
         setOpenaiConnected(openai)
+        setClaudeConnected(claude)
+        setActiveLlmProvider(provider)
+        setActiveLlmModel(
+          provider === "claude"
+            ? String(data?.config?.claude?.defaultModel || "claude-sonnet-4-20250514")
+            : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
+        )
         updateTelegramIntegrationSettings({ connected: telegram })
         updateDiscordIntegrationSettings({ connected: discord })
         updateOpenAIIntegrationSettings({ connected: openai })
+        updateClaudeIntegrationSettings({ connected: claude })
       })
       .catch(() => {})
     refreshNotificationSchedules()
@@ -228,17 +308,25 @@ export default function HomePage() {
     const refresh = () => {
       const settings = loadUserSettings()
       setOrbColor(settings.app.orbColor)
-      setBackground(settings.app.background || "default")
+      const nextBackground = resolveThemeBackground(isLight)
+      setBackground(nextBackground)
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: settings.app.orbColor,
-        background: settings.app.background || "default",
+        background: nextBackground,
         spotlightEnabled: settings.app.spotlightEnabled ?? true,
       })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [refreshNotificationSchedules])
+  }, [isLight, refreshNotificationSchedules])
+
+  useLayoutEffect(() => {
+    const nextBackground = resolveThemeBackground(isLight)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBackground(nextBackground)
+    writeShellUiCache({ background: nextBackground })
+  }, [isLight])
 
   useEffect(() => {
     const onUpdate = () => {
@@ -246,6 +334,11 @@ export default function HomePage() {
       setTelegramConnected(integrations.telegram.connected)
       setDiscordConnected(integrations.discord.connected)
       setOpenaiConnected(integrations.openai.connected)
+      setClaudeConnected(integrations.claude.connected)
+      setActiveLlmProvider(integrations.activeLlmProvider)
+      setActiveLlmModel(
+        integrations.activeLlmProvider === "claude" ? integrations.claude.defaultModel : integrations.openai.defaultModel,
+      )
       refreshNotificationSchedules()
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
@@ -545,6 +638,17 @@ export default function HomePage() {
     }).catch(() => {})
   }, [openaiConnected])
 
+  const handleToggleClaudeIntegration = useCallback(() => {
+    const next = !claudeConnected
+    setClaudeConnected(next)
+    updateClaudeIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claude: { connected: next } }),
+    }).catch(() => {})
+  }, [claudeConnected])
+
   const missions = useMemo(() => {
     const grouped = new Map<
       string,
@@ -610,6 +714,9 @@ export default function HomePage() {
   const missionHover = isLight
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
     : "hover:bg-[#141923] hover:border-[#2b3240]"
+  const runningProvider = latestUsage?.provider ?? activeLlmProvider
+  const runningModel = latestUsage?.model ?? activeLlmModel
+  const runningLabel = `${runningProvider === "claude" ? "Claude" : "OpenAI"} - ${runningModel || "N/A"}`
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -618,7 +725,7 @@ export default function HomePage() {
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {background === "default" && (
+      {background === "floatingLines" && !isLight && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute inset-0 opacity-30">
             <FloatingLines
@@ -654,11 +761,26 @@ export default function HomePage() {
           </div>
         </div>
       )}
+      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <video
+            className="absolute inset-0 h-full w-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            src={backgroundVideoUrl}
+          />
+          <div className="absolute inset-0 bg-black/45" />
+        </div>
+      )}
 
       <ChatSidebar
         conversations={conversations}
         activeId={null}
         isOpen={sidebarOpen}
+        runningNowLabel={runningLabel}
         onSelect={handleSelectConvo}
         onNew={handleNewChat}
         onDelete={handleDeleteConvo}
@@ -709,13 +831,21 @@ export default function HomePage() {
                 <div className={`relative h-[280px] w-[280px] ${hasAnimated ? "orb-intro" : ""}`}>
                   {(
                     <>
+                      {isLight && (
+                        <div
+                          className="absolute -inset-3 rounded-full"
+                          style={{
+                            background: "radial-gradient(circle, rgba(15,23,42,0.14) 0%, rgba(15,23,42,0.05) 52%, transparent 76%)",
+                          }}
+                        />
+                      )}
                       <div
                         className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
-                        style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, 0.22)}` }}
+                        style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, isLight ? 0.16 : 0.22)}` }}
                       />
                       <div
                         className="absolute -inset-4 rounded-full"
-                        style={{ boxShadow: `0 0 80px -15px ${hexToRgba(orbPalette.circle1, 0.55)}` }}
+                        style={{ boxShadow: `0 0 80px -15px ${hexToRgba(orbPalette.circle1, isLight ? 0.34 : 0.55)}` }}
                       />
                       <AnimatedOrb size={280} palette={orbPalette} showStateLabel={false} />
                     </>
@@ -948,7 +1078,20 @@ export default function HomePage() {
                     >
                       <OpenAIIcon className="w-4 h-4" />
                     </button>
-                    {Array.from({ length: 21 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleClaudeIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        claudeConnected
+                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                      )}
+                      aria-label={claudeConnected ? "Disable Claude integration" : "Enable Claude integration"}
+                      title={claudeConnected ? "Claude connected (click to disable)" : "Claude disconnected (click to enable)"}
+                    >
+                      <ClaudeIcon className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: 20 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

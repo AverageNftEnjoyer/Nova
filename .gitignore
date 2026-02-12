@@ -1,6 +1,50 @@
+# dependencies
 node_modules/
+**/node_modules/
+
+# env / secrets
 .env
+.env.*
+!.env.example
 .claude/
+
+# local runtime data
+data/
+hud/data/
+memory.json
+nova_memory.json
+telegram_history.json
+
+# local logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+nova-runtime.log
+_nova_repro.log
+hud/dev.log
+hud/devserver.log
+
+# build / cache artifacts
+.next/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# project-specific local artifacts
 nul
 *.exe
 agent/mpv/

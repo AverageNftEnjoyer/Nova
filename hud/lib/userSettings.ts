@@ -3,9 +3,12 @@
 
 export type AccessTier = "Core Access" | "Developer" | "Admin" | "Operator"
 
-export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange" | "pastelPink"
-export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "rose" | "orange" | "pastelPink"
-export type BackgroundType = "default" | "none"
+export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
+export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
+export type BackgroundType = "default" | "none" // legacy
+export type DarkBackgroundType = "floatingLines" | "none" | "customVideo"
+export type LightBackgroundType = "none"
+export type ThemeBackgroundType = DarkBackgroundType | LightBackgroundType
 
 export interface UserProfile {
   name: string
@@ -35,7 +38,9 @@ export interface AppSettings {
   theme: "dark" | "light" | "system"
   accentColor: AccentColor
   orbColor: OrbColor
-  background: BackgroundType
+  background: BackgroundType // legacy fallback for older installs
+  darkModeBackground: DarkBackgroundType
+  lightModeBackground: LightBackgroundType
   spotlightEnabled: boolean
   soundEnabled: boolean
   voiceEnabled: boolean
@@ -44,6 +49,10 @@ export interface AppSettings {
   bootMusicEnabled: boolean
   bootMusicDataUrl: string | null
   bootMusicFileName: string | null
+  bootMusicAssetId: string | null
+  customBackgroundVideoDataUrl: string | null
+  customBackgroundVideoFileName: string | null
+  customBackgroundVideoAssetId: string | null
   compactMode: boolean
   fontSize: "small" | "medium" | "large"
 }
@@ -70,6 +79,8 @@ const DEFAULT_SETTINGS: UserSettings = {
     accentColor: "violet",
     orbColor: "violet",
     background: "default",
+    darkModeBackground: "floatingLines",
+    lightModeBackground: "none",
     spotlightEnabled: true,
     soundEnabled: true,
     voiceEnabled: true,
@@ -78,6 +89,10 @@ const DEFAULT_SETTINGS: UserSettings = {
     bootMusicEnabled: true,
     bootMusicDataUrl: null,
     bootMusicFileName: null,
+    bootMusicAssetId: null,
+    customBackgroundVideoDataUrl: null,
+    customBackgroundVideoFileName: null,
+    customBackgroundVideoAssetId: null,
     compactMode: false,
     fontSize: "medium",
   },
@@ -189,9 +204,10 @@ export const ACCENT_COLORS: Record<AccentColor, { primary: string; secondary: st
   cyan: { primary: "#06b6d4", secondary: "#22d3ee", name: "Cyan" },
   emerald: { primary: "#10b981", secondary: "#34d399", name: "Emerald" },
   amber: { primary: "#f59e0b", secondary: "#fbbf24", name: "Amber" },
-  rose: { primary: "#f43f5e", secondary: "#fb7185", name: "Rose" },
   orange: { primary: "#f97316", secondary: "#fb923c", name: "Orange" },
+  rose: { primary: "#f43f5e", secondary: "#fb7185", name: "Rose" },
   pastelPink: { primary: "#f9a8d4", secondary: "#fbcfe8", name: "Pastel Pink" },
+  white: { primary: "#cbd5e1", secondary: "#f8fafc", name: "White" },
 }
 
 export const ORB_COLORS: Record<
@@ -243,15 +259,6 @@ export const ORB_COLORS: Record<
     circle4: "#fde68a",
     circle5: "#fb923c",
   },
-  rose: {
-    name: "Rose",
-    bg: "#210b14",
-    circle1: "#f43f5e",
-    circle2: "#fb7185",
-    circle3: "#e11d48",
-    circle4: "#fda4af",
-    circle5: "#ec4899",
-  },
   orange: {
     name: "Orange",
     bg: "#1f1208",
@@ -261,6 +268,15 @@ export const ORB_COLORS: Record<
     circle4: "#fdba74",
     circle5: "#fb7185",
   },
+  rose: {
+    name: "Rose",
+    bg: "#210b14",
+    circle1: "#f43f5e",
+    circle2: "#fb7185",
+    circle3: "#e11d48",
+    circle4: "#fda4af",
+    circle5: "#ec4899",
+  },
   pastelPink: {
     name: "Pastel Pink",
     bg: "#1f0f18",
@@ -269,6 +285,15 @@ export const ORB_COLORS: Record<
     circle3: "#f472b6",
     circle4: "#fce7f3",
     circle5: "#fda4af",
+  },
+  white: {
+    name: "White",
+    bg: "#111827",
+    circle1: "#ffffff",
+    circle2: "#f8fafc",
+    circle3: "#e2e8f0",
+    circle4: "#cbd5e1",
+    circle5: "#94a3b8",
   },
 }
 
@@ -283,5 +308,15 @@ export const TTS_VOICES = [
 // Available backgrounds
 export const BACKGROUNDS: Record<BackgroundType, { name: string; description: string }> = {
   default: { name: "Floating Lines", description: "Interactive wave lines" },
+  none: { name: "None", description: "No background animation" },
+}
+
+export const DARK_BACKGROUNDS: Record<DarkBackgroundType, { name: string; description: string }> = {
+  floatingLines: { name: "Floating Lines", description: "Interactive wave lines" },
+  customVideo: { name: "Custom Video (MP4)", description: "Play your uploaded MP4 as the background" },
+  none: { name: "None", description: "No background animation" },
+}
+
+export const LIGHT_BACKGROUNDS: Record<LightBackgroundType, { name: string; description: string }> = {
   none: { name: "None", description: "No background animation" },
 }

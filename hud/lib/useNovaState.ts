@@ -16,11 +16,22 @@ export interface AgentMessage {
   sender?: string;
 }
 
+export interface AgentUsage {
+  provider: "openai" | "claude";
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number | null;
+  ts: number;
+}
+
 export function useNovaState() {
   const [state, setState] = useState<NovaState>("idle");
   const [connected, setConnected] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [transcript, setTranscript] = useState("");
+  const [latestUsage, setLatestUsage] = useState<AgentUsage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -63,6 +74,18 @@ export function useNovaState() {
           };
 
           setAgentMessages((prev) => [...prev, msg]);
+        }
+
+        if (data.type === "usage" && typeof data.model === "string" && (data.provider === "openai" || data.provider === "claude")) {
+          setLatestUsage({
+            provider: data.provider,
+            model: data.model,
+            promptTokens: Number(data.promptTokens || 0),
+            completionTokens: Number(data.completionTokens || 0),
+            totalTokens: Number(data.totalTokens || 0),
+            estimatedCostUsd: typeof data.estimatedCostUsd === "number" ? data.estimatedCostUsd : null,
+            ts: Number(data.ts || Date.now()),
+          });
         }
       } catch {}
     };
@@ -113,5 +136,17 @@ export function useNovaState() {
     }
   }, []);
 
-  return { state, connected, agentMessages, sendToAgent, interrupt, clearAgentMessages, transcript, sendGreeting, setVoicePreference, setMuted };
+  return {
+    state,
+    connected,
+    agentMessages,
+    latestUsage,
+    sendToAgent,
+    interrupt,
+    clearAgentMessages,
+    transcript,
+    sendGreeting,
+    setVoicePreference,
+    setMuted,
+  };
 }

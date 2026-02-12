@@ -39,6 +39,7 @@ interface ChatSidebarProps {
   onReplayBoot?: () => void
   novaState?: NovaState
   agentConnected?: boolean
+  runningNowLabel?: string
 }
 
 function formatDate(iso: string): string {
@@ -77,6 +78,7 @@ export function ChatSidebar({
   onReplayBoot,
   novaState,
   agentConnected,
+  runningNowLabel,
 }: ChatSidebarProps) {
   const sidebarRef = useRef<HTMLDivElement | null>(null)
   const spotlightRef = useRef<HTMLDivElement | null>(null)
@@ -399,6 +401,17 @@ export function ChatSidebar({
             </div>
           </div>
         </div>
+
+        {runningNowLabel && (
+          <div className="px-4 py-2">
+            <div className={cn("px-3 py-2 text-xs", spotlightCardClass, subPanelClass)}>
+              <p className="uppercase tracking-[0.14em] text-[11px] text-s-50">Running Now</p>
+              <p className="mt-1 truncate font-medium text-s-90" title={runningNowLabel}>
+                {runningNowLabel}
+              </p>
+            </div>
+          </div>
+        )}
 
         {showNewChatButton && (
           <div className="px-4 py-2">

@@ -6,7 +6,7 @@ import { Plus, Save, Trash2, Pin, Bot } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type BackgroundType, type OrbColor } from "@/lib/userSettings"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type ThemeBackgroundType } from "@/lib/userSettings"
 import { FluidSelect, type FluidSelectOption } from "@/components/ui/fluid-select"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { useNovaState } from "@/lib/useNovaState"
@@ -18,6 +18,7 @@ import {
 } from "@/lib/conversations"
 import FloatingLines from "@/components/FloatingLines"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
 import "@/components/FloatingLines.css"
 
 interface NotificationSchedule {
@@ -74,6 +75,19 @@ function formatIntegrationLabel(integration: string): string {
   if (value === "email") return "Email"
   if (!value) return "Telegram"
   return integration.charAt(0).toUpperCase() + integration.slice(1)
+}
+
+function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
+  const settings = loadUserSettings()
+  if (isLight) return settings.app.lightModeBackground ?? "none"
+  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? legacyDark
+}
+
+function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
+  if (value === "floatingLines" || value === "none" || value === "customVideo") return value
+  if (value === "default") return "floatingLines"
+  return null
 }
 
 function to12HourParts(time24: string): { text: string; meridiem: "AM" | "PM" } {
@@ -216,7 +230,16 @@ export default function MissionsPage() {
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [background, setBackground] = useState<BackgroundType>("default")
+  const [background, setBackground] = useState<ThemeBackgroundType>(() => {
+    const cached = readShellUiCache()
+    return normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
+  })
+  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(() => {
+    const cached = readShellUiCache().backgroundVideoUrl
+    if (cached) return cached
+    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+  })
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
 
   const [schedules, setSchedules] = useState<NotificationSchedule[]>([])
@@ -268,7 +291,7 @@ export default function MissionsPage() {
 
     const userSettings = loadUserSettings()
     const nextOrbColor = cached.orbColor ?? userSettings.app.orbColor
-    const nextBackground = cached.background ?? (userSettings.app.background || "default")
+    const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
     const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
     setOrbColor(nextOrbColor)
     setBackground(nextBackground)
@@ -283,7 +306,7 @@ export default function MissionsPage() {
     if (typeof localTimezone === "string" && localTimezone.trim().length > 0) {
       setDetectedTimezone(localTimezone)
     }
-  }, [])
+  }, [isLight])
 
   useEffect(() => {
     void refreshSchedules()
@@ -293,17 +316,55 @@ export default function MissionsPage() {
     const refresh = () => {
       const userSettings = loadUserSettings()
       setOrbColor(userSettings.app.orbColor)
-      setBackground(userSettings.app.background || "default")
+      const nextBackground = resolveThemeBackground(isLight)
+      setBackground(nextBackground)
       setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: userSettings.app.orbColor,
-        background: userSettings.app.background || "default",
+        background: nextBackground,
         spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
       })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [])
+  }, [isLight])
+
+  useEffect(() => {
+    let cancelled = false
+    if (isLight || background !== "customVideo") return
+
+    const uiCached = readShellUiCache().backgroundVideoUrl
+    if (uiCached) {
+      setBackgroundVideoUrl(uiCached)
+    }
+    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+    if (cached) {
+      setBackgroundVideoUrl(cached)
+      writeShellUiCache({ backgroundVideoUrl: cached })
+    }
+    void loadBackgroundVideoObjectUrl(selectedAssetId || undefined)
+      .then((url) => {
+        if (cancelled) return
+        setBackgroundVideoUrl(url)
+        writeShellUiCache({ backgroundVideoUrl: url })
+      })
+      .catch(() => {
+        if (cancelled) return
+        const fallback = readShellUiCache().backgroundVideoUrl
+        if (!fallback) setBackgroundVideoUrl(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [background, isLight])
+
+  useLayoutEffect(() => {
+    const nextBackground = resolveThemeBackground(isLight)
+    setBackground(nextBackground)
+    writeShellUiCache({ background: nextBackground })
+  }, [isLight])
 
   useEffect(() => {
     if (!spotlightEnabled) return
@@ -567,7 +628,7 @@ export default function MissionsPage() {
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {background === "default" && (
+      {background === "floatingLines" && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute inset-0 opacity-30">
             <FloatingLines
@@ -590,6 +651,20 @@ export default function MissionsPage() {
               background: `radial-gradient(circle at 48% 42%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.16)} 30%, transparent 60%)`,
             }}
           />
+        </div>
+      )}
+      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          <video
+            className="absolute inset-0 h-full w-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            src={backgroundVideoUrl}
+          />
+          <div className="absolute inset-0 bg-black/45" />
         </div>
       )}
 

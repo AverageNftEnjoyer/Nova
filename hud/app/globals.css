@@ -60,6 +60,13 @@
   --mb-border-color: rgba(var(--mb-border-rgb), 0.32);
   --mb-background-dark: #060010;
   --mb-bg-dark: #060010;
+  --spotlight-rgb: 17, 24, 39;
+  --spotlight-core-alpha: 0.18;
+  --spotlight-mid-alpha: 0.1;
+  --spotlight-soft-alpha: 0.04;
+  --spotlight-blend-mode: multiply;
+  --spotlight-hover-alpha: 0.12;
+  --spotlight-border-alpha: 0.2;
 }
 
 .dark {
@@ -114,6 +121,13 @@
   --mb-border-color: rgba(var(--mb-border-rgb), 0.32);
   --mb-background-dark: #060010;
   --mb-bg-dark: #060010;
+  --spotlight-rgb: 255, 255, 255;
+  --spotlight-core-alpha: 0.28;
+  --spotlight-mid-alpha: 0.15;
+  --spotlight-soft-alpha: 0.05;
+  --spotlight-blend-mode: screen;
+  --spotlight-hover-alpha: 0.1;
+  --spotlight-border-alpha: 0.25;
 }
 
 @theme inline {
@@ -1674,12 +1688,12 @@
   pointer-events: none;
   opacity: 0;
   z-index: 0;
-  mix-blend-mode: screen;
+  mix-blend-mode: var(--spotlight-blend-mode);
   background: radial-gradient(
     circle,
-    rgba(255, 255, 255, 0.2) 0%,
-    rgba(255, 255, 255, 0.11) 30%,
-    rgba(255, 255, 255, 0.04) 58%,
+    rgba(var(--spotlight-rgb), var(--spotlight-core-alpha)) 0%,
+    rgba(var(--spotlight-rgb), var(--spotlight-mid-alpha)) 30%,
+    rgba(var(--spotlight-rgb), var(--spotlight-soft-alpha)) 58%,
     transparent 75%
   );
   transition: opacity 170ms ease;
@@ -1696,9 +1710,20 @@
 
 .home-spotlight-card--hover:hover {
   box-shadow:
-    0 8px 24px rgba(255, 255, 255, 0.08),
-    0 0 14px rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.25);
+    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03));
+  border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha));
+}
+
+/* Default dynamic spotlight variant for interactive cards (use with .home-spotlight-card + .home-border-glow). */
+.home-spotlight-dynamic {
+  box-shadow:
+    0 8px 24px rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.08)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.12));
+  transition:
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
 }
 
 .home-spotlight-card.home-border-glow::after {
@@ -1708,8 +1733,8 @@
   padding: 2px;
   background: radial-gradient(
     var(--glow-radius) circle at var(--glow-x) var(--glow-y),
-    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.8)) 0%,
-    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.35)) 30%,
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.35)) 30%,
     transparent 62%
   );
   border-radius: inherit;
@@ -1779,12 +1804,12 @@
   pointer-events: none;
   opacity: var(--fx-overlay-opacity, 0);
   z-index: 0;
-  mix-blend-mode: screen;
+  mix-blend-mode: var(--spotlight-blend-mode);
   background: radial-gradient(
     circle,
-    rgba(255, 255, 255, 0.28) 0%,
-    rgba(255, 255, 255, 0.15) 30%,
-    rgba(255, 255, 255, 0.05) 58%,
+    rgba(var(--spotlight-rgb), var(--spotlight-core-alpha)) 0%,
+    rgba(var(--spotlight-rgb), var(--spotlight-mid-alpha)) 30%,
+    rgba(var(--spotlight-rgb), var(--spotlight-soft-alpha)) 58%,
     transparent 76%
   );
   transition: opacity 170ms ease;
@@ -1806,8 +1831,8 @@
 
 .fx-spotlight-card--hover:hover {
   box-shadow:
-    0 8px 24px rgba(255, 255, 255, 0.08),
-    0 0 14px rgba(255, 255, 255, 0.12);
+    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.02));
 }
 
 .fx-spotlight-dynamic {
@@ -1827,8 +1852,8 @@
   padding: 1px;
   background: radial-gradient(
     var(--glow-radius) circle at var(--glow-x) var(--glow-y),
-    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.8)) 0%,
-    rgba(255, 255, 255, calc(var(--glow-intensity) * 0.35)) 30%,
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.35)) 30%,
     transparent 62%
   );
   border-radius: inherit;
@@ -2005,4 +2030,14 @@
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }

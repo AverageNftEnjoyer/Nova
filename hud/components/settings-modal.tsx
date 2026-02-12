@@ -16,10 +16,26 @@ import {
   Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FluidSelect } from "@/components/ui/fluid-select"
 import { useTheme } from "@/lib/theme-context"
 import { useAccent } from "@/lib/accent-context"
 import { cn } from "@/lib/utils"
-import { saveBootMusicBlob, removeBootMusicBlob } from "@/lib/bootMusicStorage"
+import {
+  saveBootMusicBlob,
+  removeBootMusicAsset,
+  listBootMusicAssets,
+  getActiveBootMusicAssetId,
+  setActiveBootMusicAsset,
+  type BootMusicAssetMeta,
+} from "@/lib/bootMusicStorage"
+import {
+  saveBackgroundVideoBlob,
+  removeBackgroundVideoAsset,
+  listBackgroundVideoAssets,
+  getActiveBackgroundVideoAssetId,
+  setActiveBackgroundVideoAsset,
+  type BackgroundVideoAssetMeta,
+} from "@/lib/backgroundVideoStorage"
 import {
   loadUserSettings,
   saveUserSettings,
@@ -28,11 +44,13 @@ import {
   type AccessTier,
   type AccentColor,
   type OrbColor,
-  type BackgroundType,
+  type DarkBackgroundType,
+  type LightBackgroundType,
   ACCENT_COLORS,
   ORB_COLORS,
   TTS_VOICES,
-  BACKGROUNDS,
+  DARK_BACKGROUNDS,
+  LIGHT_BACKGROUNDS,
 } from "@/lib/userSettings"
 
 const ACCESS_TIERS: AccessTier[] = ["Core Access", "Developer", "Admin", "Operator"]
@@ -61,6 +79,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<string>("profile")
   const [avatarError, setAvatarError] = useState<string | null>(null)
   const [bootMusicError, setBootMusicError] = useState<string | null>(null)
+  const [backgroundVideoError, setBackgroundVideoError] = useState<string | null>(null)
+  const [bootMusicAssets, setBootMusicAssets] = useState<BootMusicAssetMeta[]>([])
+  const [activeBootMusicAssetId, setActiveBootMusicAssetId] = useState<string | null>(null)
+  const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<BackgroundVideoAssetMeta[]>([])
+  const [activeBackgroundVideoAssetId, setActiveBackgroundVideoAssetId] = useState<string | null>(null)
   const [cropSource, setCropSource] = useState<string | null>(null)
   const [cropZoom, setCropZoom] = useState(1)
   const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 })
@@ -70,8 +93,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { setAccentColor } = useAccent()
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const bootMusicInputRef = useRef<HTMLInputElement | null>(null)
+  const backgroundVideoInputRef = useRef<HTMLInputElement | null>(null)
   const spotlightScopeRef = useRef<HTMLDivElement | null>(null)
   const isLight = theme === "light"
+
+  const refreshMediaLibraries = useCallback(async () => {
+    const [bootAssets, bootActiveId, videoAssets, videoActiveId] = await Promise.all([
+      listBootMusicAssets(),
+      getActiveBootMusicAssetId(),
+      listBackgroundVideoAssets(),
+      getActiveBackgroundVideoAssetId(),
+    ])
+    setBootMusicAssets(bootAssets)
+    setActiveBootMusicAssetId(bootActiveId)
+    setBackgroundVideoAssets(videoAssets)
+    setActiveBackgroundVideoAssetId(videoActiveId)
+  }, [])
 
   const palette = {
     bg: isLight ? "#f6f8fc" : "#0f1117",
@@ -96,10 +133,22 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   } as CSSProperties
 
   useEffect(() => {
+    let cancelled = false
     if (isOpen) {
       setSettings(loadUserSettings())
+      void refreshMediaLibraries()
+        .catch(() => {
+          if (cancelled) return
+          setBootMusicAssets([])
+          setActiveBootMusicAssetId(null)
+          setBackgroundVideoAssets([])
+          setActiveBackgroundVideoAssetId(null)
+        })
     }
-  }, [isOpen])
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, refreshMediaLibraries])
 
   // Auto-save helper
   const autoSave = useCallback((newSettings: UserSettings) => {
@@ -248,7 +297,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setBootMusicError("File is too large. Max size is 20MB.")
       return
     }
-    await saveBootMusicBlob(file)
+    const asset = await saveBootMusicBlob(file, file.name)
+    await setActiveBootMusicAsset(asset.id)
+    await refreshMediaLibraries()
 
     const newSettings = {
       ...settings,
@@ -257,27 +308,97 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         // Keep this null going forward; IndexedDB stores the actual file.
         // Legacy installations may still have a previous data URL fallback.
         bootMusicDataUrl: null,
-        bootMusicFileName: file.name,
+        bootMusicFileName: asset.fileName,
+        bootMusicAssetId: asset.id,
       },
     }
     autoSave(newSettings)
     setBootMusicError(null)
-  }, [settings, autoSave])
+  }, [settings, autoSave, refreshMediaLibraries])
 
-  const removeBootMusic = useCallback(() => {
+  const removeBootMusic = useCallback(async () => {
     if (!settings) return
-    removeBootMusicBlob().catch(() => {})
+    const targetId = activeBootMusicAssetId || settings.app.bootMusicAssetId
+    if (!targetId) return
+    const remaining = bootMusicAssets.filter((asset) => asset.id !== targetId)
+    const nextActive = remaining[0] ?? null
+    try {
+      await removeBootMusicAsset(targetId)
+      await setActiveBootMusicAsset(nextActive?.id ?? null)
+      await refreshMediaLibraries()
+    } catch {}
     const newSettings = {
       ...settings,
       app: {
         ...settings.app,
         bootMusicDataUrl: null,
-        bootMusicFileName: null,
+        bootMusicFileName: nextActive?.fileName ?? null,
+        bootMusicAssetId: nextActive?.id ?? null,
       },
     }
     autoSave(newSettings)
     setBootMusicError(null)
-  }, [settings, autoSave])
+  }, [settings, autoSave, activeBootMusicAssetId, bootMusicAssets, refreshMediaLibraries])
+
+  const handleBackgroundVideoUpload = useCallback(async (file: File) => {
+    if (!settings) return
+
+    const isMp4 = file.type === "video/mp4" || file.name.toLowerCase().endsWith(".mp4")
+    if (!isMp4) {
+      setBackgroundVideoError("Only MP4 files are supported.")
+      return
+    }
+
+    // Soft upper bound to reduce large local storage pressure.
+    if (file.size > 300 * 1024 * 1024) {
+      setBackgroundVideoError("File is too large. Max size is 300MB.")
+      return
+    }
+
+    const asset = await saveBackgroundVideoBlob(file, file.name)
+    await setActiveBackgroundVideoAsset(asset.id)
+    await refreshMediaLibraries()
+    const newSettings = {
+      ...settings,
+      app: {
+        ...settings.app,
+        darkModeBackground: "customVideo" as DarkBackgroundType,
+        customBackgroundVideoDataUrl: null,
+        customBackgroundVideoFileName: asset.fileName,
+        customBackgroundVideoAssetId: asset.id,
+      },
+    }
+    autoSave(newSettings)
+    setBackgroundVideoError(null)
+  }, [settings, autoSave, refreshMediaLibraries])
+
+  const removeBackgroundVideo = useCallback(async () => {
+    if (!settings) return
+    const targetId = activeBackgroundVideoAssetId || settings.app.customBackgroundVideoAssetId
+    if (!targetId) return
+    const remaining = backgroundVideoAssets.filter((asset) => asset.id !== targetId)
+    const nextActive = remaining[0] ?? null
+    try {
+      await removeBackgroundVideoAsset(targetId)
+      await setActiveBackgroundVideoAsset(nextActive?.id ?? null)
+      await refreshMediaLibraries()
+    } catch {}
+    const newSettings = {
+      ...settings,
+      app: {
+        ...settings.app,
+        customBackgroundVideoDataUrl: null,
+        customBackgroundVideoFileName: nextActive?.fileName ?? null,
+        customBackgroundVideoAssetId: nextActive?.id ?? null,
+        darkModeBackground:
+          settings.app.darkModeBackground === "customVideo" && !nextActive
+            ? "floatingLines"
+            : settings.app.darkModeBackground as DarkBackgroundType,
+      },
+    }
+    autoSave(newSettings)
+    setBackgroundVideoError(null)
+  }, [settings, autoSave, activeBackgroundVideoAssetId, backgroundVideoAssets, refreshMediaLibraries])
 
   const updateNotifications = (key: string, value: boolean) => {
     if (!settings) return
@@ -296,6 +417,45 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
     autoSave(newSettings)
   }
+
+  const selectBootMusicAsset = useCallback((assetId: string | null) => {
+    if (!settings) return
+    const selected = assetId ? bootMusicAssets.find((asset) => asset.id === assetId) ?? null : null
+    setActiveBootMusicAsset(assetId)
+      .then(refreshMediaLibraries)
+      .catch(() => {})
+    const newSettings = {
+      ...settings,
+      app: {
+        ...settings.app,
+        bootMusicDataUrl: null,
+        bootMusicFileName: selected?.fileName ?? null,
+        bootMusicAssetId: selected?.id ?? null,
+      },
+    }
+    autoSave(newSettings)
+  }, [settings, bootMusicAssets, autoSave, refreshMediaLibraries])
+
+  const selectBackgroundVideoAsset = useCallback((assetId: string | null) => {
+    if (!settings) return
+    const selected = assetId ? backgroundVideoAssets.find((asset) => asset.id === assetId) ?? null : null
+    setActiveBackgroundVideoAsset(assetId)
+      .then(refreshMediaLibraries)
+      .catch(() => {})
+    const newSettings = {
+      ...settings,
+      app: {
+        ...settings.app,
+        customBackgroundVideoDataUrl: null,
+        customBackgroundVideoFileName: selected?.fileName ?? null,
+        customBackgroundVideoAssetId: selected?.id ?? null,
+        darkModeBackground: (
+          selected ? "customVideo" : (settings.app.darkModeBackground === "customVideo" ? "floatingLines" : settings.app.darkModeBackground)
+        ) as DarkBackgroundType,
+      },
+    }
+    autoSave(newSettings)
+  }, [settings, backgroundVideoAssets, autoSave, refreshMediaLibraries])
 
   useEffect(() => {
     if (!isOpen || !spotlightScopeRef.current || !(settings?.app.spotlightEnabled ?? true)) return
@@ -368,12 +528,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     { id: "bootup", label: "Bootup", icon: Power },
     { id: "access", label: "Account", icon: Shield },
   ]
+  const NONE_OPTION = "__none__"
+  const activeBootMusic = bootMusicAssets.find((asset) => asset.id === (activeBootMusicAssetId || settings?.app.bootMusicAssetId)) ?? null
+  const activeBackgroundVideo =
+    backgroundVideoAssets.find((asset) => asset.id === (activeBackgroundVideoAssetId || settings?.app.customBackgroundVideoAssetId)) ?? null
+  const bootMusicOptions = [
+    { value: NONE_OPTION, label: "None" },
+    ...bootMusicAssets.map((asset) => ({ value: asset.id, label: asset.fileName })),
+  ]
+  const backgroundVideoOptions = [
+    { value: NONE_OPTION, label: "None" },
+    ...backgroundVideoAssets.map((asset) => ({ value: asset.id, label: asset.fileName })),
+  ]
 
   return (
-    <div style={paletteVars} className="fixed inset-0 z-50 flex items-center justify-center">
+    <div style={paletteVars} className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 ${isLight ? "bg-black/45" : "bg-black/75"}`}
+        className={cn(
+          "absolute inset-0 backdrop-blur-[2px]",
+          isLight ? "bg-[#0a122433]" : "bg-[#010409]/80",
+        )}
         onClick={onClose}
       />
 
@@ -381,15 +556,23 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       <div
         ref={spotlightScopeRef}
         style={{ "--fx-overlay-x": "50%", "--fx-overlay-y": "50%", "--fx-overlay-opacity": "0" } as CSSProperties}
-        className="fx-spotlight-shell relative w-full max-w-3xl max-h-[85vh] bg-[var(--settings-bg)] border border-[var(--settings-border)] rounded-2xl flex overflow-hidden"
+        className={cn(
+          "fx-spotlight-shell relative z-10 w-full max-w-6xl h-[min(92vh,820px)] rounded-3xl border overflow-hidden",
+          "flex flex-col md:flex-row bg-[var(--settings-bg)] border-[var(--settings-border)]",
+          isLight
+            ? "shadow-[0_28px_68px_-30px_rgba(45,78,132,0.4)]"
+            : "shadow-[0_30px_85px_-34px_rgba(6,12,22,0.9)]",
+        )}
       >
-        {/* Left Nav */}
-        <div className="w-48 bg-[var(--settings-bg)] border-r border-[var(--settings-border)] flex flex-col shrink-0">
-          <div className="p-4 border-b border-[var(--settings-border)]">
-            <h2 className="text-lg font-medium text-s-90">Settings</h2>
+        {/* Nav */}
+        <div className="md:w-60 bg-[var(--settings-bg)] border-b md:border-b-0 md:border-r border-[var(--settings-border)] flex flex-col shrink-0">
+          <div className="px-4 py-4 border-b border-[var(--settings-border)]">
+            <h2 className="text-base sm:text-lg font-semibold text-s-90 tracking-tight">Settings</h2>
+            <p className="text-xs text-s-40 mt-1">Tune Nova to your workflow</p>
           </div>
 
-          <div className="flex-1 py-2 px-2 overflow-y-auto">
+          <div className="flex-1 p-2.5 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
+            <div className="flex md:flex-col gap-1.5 min-w-max md:min-w-0">
             {sections.map((section) => {
               const Icon = section.icon
               const isActive = activeSection === section.id
@@ -397,26 +580,26 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <button
                   key={section.id}
                   onClick={() => setActiveSection(section.id)}
-                  className={`fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm transition-colors duration-150 mb-0.5 ${
+                  className={`fx-spotlight-card fx-border-glow whitespace-nowrap md:w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150 ${
                     isActive
-                      ? "bg-[var(--settings-selected-bg)] text-accent border border-accent-30"
+                      ? "bg-[var(--settings-selected-bg)] text-accent border border-accent-30 shadow-[inset_0_0_0_1px_rgba(var(--accent-rgb),0.18)]"
                       : "text-s-50 border border-transparent hover:bg-[var(--settings-hover)] hover:text-s-80 hover:border-[var(--settings-sub-border)]"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-4 h-4 shrink-0" />
                   {section.label}
                 </button>
               )
             })}
+            </div>
           </div>
 
-          {/* Reset Button Only */}
-          <div className="p-3 border-t border-[var(--settings-border)]">
+          <div className="p-3 border-t border-[var(--settings-border)] hidden md:block">
             <Button
               onClick={handleReset}
               variant="ghost"
               size="sm"
-              className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-full gap-2 text-s-40 hover:text-s-60 hover:bg-[var(--settings-hover)] h-9 transition-colors duration-150"
+              className="fx-spotlight-card fx-border-glow w-full gap-2 text-s-40 hover:text-s-60 hover:bg-[var(--settings-hover)] h-9 transition-colors duration-150"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Reset to Default
@@ -427,20 +610,34 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         {/* Right Content */}
         <div className="flex-1 flex flex-col overflow-hidden bg-[var(--settings-bg)]">
           {/* Header with close */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--settings-border)] bg-[var(--settings-bg)]">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[var(--settings-border)] bg-[var(--settings-bg)]">
             <h3 className="text-sm font-medium text-s-50 uppercase tracking-wider">
               {sections.find((s) => s.id === activeSection)?.label}
             </h3>
-            <button
-              onClick={onClose}
-              className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-2 rounded-xl hover:bg-[var(--settings-hover)] text-s-40 hover:text-s-70 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleReset}
+                variant="ghost"
+                size="sm"
+                className="md:hidden fx-spotlight-card fx-border-glow gap-2 text-s-40 hover:text-s-60 hover:bg-[var(--settings-hover)]"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </Button>
+              <button
+                onClick={onClose}
+                className="fx-spotlight-card fx-border-glow p-2 rounded-xl hover:bg-[var(--settings-hover)] text-s-40 hover:text-s-70 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-scroll p-6 bg-[var(--settings-bg)]" style={{ scrollbarGutter: "stable" }}>
+          <div
+            className="flex-1 overflow-y-scroll overscroll-contain p-4 sm:p-6 bg-[var(--settings-bg)]"
+            style={{ scrollbarGutter: "stable" }}
+          >
             {!settings ? (
               <div className="flex items-center justify-center py-20">
                 <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -451,7 +648,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {activeSection === "profile" && (
                   <div className="space-y-5">
                     {/* Avatar */}
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover flex items-center gap-4 p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow flex items-center gap-4 p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <div
                         className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
                         style={{
@@ -502,7 +699,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         onClick={() => avatarInputRef.current?.click()}
                         variant="outline"
                         size="sm"
-                        className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover gap-2 text-s-50 border-[var(--settings-sub-border)] hover:border-accent-30 hover:text-accent hover:bg-accent-10 transition-colors duration-150"
+                        className="fx-spotlight-card fx-border-glow gap-2 text-s-50 border-[var(--settings-sub-border)] hover:border-accent-30 hover:text-accent hover:bg-accent-10 transition-colors duration-150"
                       >
                         <Camera className="w-4 h-4" />
                         Upload
@@ -526,6 +723,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <SettingSelect
                       label="Theme"
                       description="Choose your color scheme"
+                      isLight={isLight}
                       value={settings.app.theme}
                       options={[
                         { value: "dark", label: "Dark" },
@@ -540,7 +738,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     {/* Accent Color */}
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Accent Color</p>
                       <p className="text-xs text-s-30 mb-4">Choose your UI accent color</p>
                       <div className="flex gap-3 flex-wrap">
@@ -555,7 +753,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 // Also update local state so UI stays in sync
                                 setSettings(prev => prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev)
                               }}
-                              className={`fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+                              className={`fx-spotlight-card fx-border-glow w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -577,7 +775,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </div>
 
                     {/* Orb Color */}
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Nova Orb Color</p>
                       <p className="text-xs text-s-30 mb-4">Choose the orb color on the home screen</p>
                       <div className="flex gap-3 flex-wrap">
@@ -591,7 +789,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 playClickSound()
                                 updateApp("orbColor", color)
                               }}
-                              className={`fx-spotlight-card fx-border-glow fx-spotlight-card--hover w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+                              className={`fx-spotlight-card fx-border-glow w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -613,14 +811,107 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </div>
 
                     <SettingSelect
-                      label="Background"
-                      description="Choose your home screen background"
-                      value={settings.app.background}
-                      options={(Object.entries(BACKGROUNDS) as [BackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
+                      label="Dark Mode Background"
+                      description="Choose the background used in dark mode"
+                      isLight={isLight}
+                      value={settings.app.darkModeBackground}
+                      options={(Object.entries(DARK_BACKGROUNDS) as [DarkBackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
                         value,
                         label: info.name,
                       }))}
-                      onChange={(v) => updateApp("background", v)}
+                      onChange={(v) => updateApp("darkModeBackground", v)}
+                    />
+
+                    <div className={cn(SETTINGS_CARD_BASE, "p-4")}>
+                      <p className="text-sm text-s-70 mb-1">Custom Background Video</p>
+                      <p className="text-xs text-s-30 mb-3">Upload once, then switch between saved MP4s anytime.</p>
+                      <input
+                        ref={backgroundVideoInputRef}
+                        type="file"
+                        accept=".mp4,video/mp4"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const inputEl = e.currentTarget
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          try {
+                            await handleBackgroundVideoUpload(file)
+                          } catch (err) {
+                            const msg = err instanceof Error ? err.message : "Failed to upload background video."
+                            setBackgroundVideoError(msg)
+                          } finally {
+                            inputEl.value = ""
+                          }
+                        }}
+                      />
+                      <div className="mb-3">
+                        <FluidSelect
+                          value={(activeBackgroundVideo?.id ?? NONE_OPTION)}
+                          isLight={isLight}
+                          options={backgroundVideoOptions}
+                          onChange={(v) => {
+                            playClickSound()
+                            selectBackgroundVideoAsset(v === NONE_OPTION ? null : v)
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5 max-w-[560px] mx-auto">
+                        <div className="flex-1 px-3 py-2 rounded-md text-sm bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)]">
+                          {activeBackgroundVideo?.fileName || "No MP4 selected"}
+                        </div>
+                        <button
+                          onClick={() => {
+                            playClickSound()
+                            backgroundVideoInputRef.current?.click()
+                          }}
+                          className={cn(
+                            "fx-spotlight-card fx-border-glow group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
+                            isLight ? "text-s-50" : "text-s-40",
+                          )}
+                          aria-label={activeBackgroundVideo ? "Add MP4" : "Upload MP4"}
+                          title={activeBackgroundVideo ? "Add MP4" : "Upload MP4"}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+                              isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
+                            )}
+                          >
+                            Upload MP4
+                          </span>
+                          +
+                        </button>
+                      </div>
+                      {activeBackgroundVideo && (
+                        <div className="mt-2">
+                          <Button
+                            onClick={() => {
+                              playClickSound()
+                              removeBackgroundVideo()
+                            }}
+                            variant="outline"
+                            size="sm"
+                            className="fx-spotlight-card fx-border-glow text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
+                          >
+                            Remove Selected
+                          </Button>
+                        </div>
+                      )}
+                      {backgroundVideoError && (
+                        <p className="text-xs text-red-400 mt-2">{backgroundVideoError}</p>
+                      )}
+                    </div>
+
+                    <SettingSelect
+                      label="Light Mode Background"
+                      description="Choose the background used in light mode"
+                      isLight={isLight}
+                      value={settings.app.lightModeBackground}
+                      options={(Object.entries(LIGHT_BACKGROUNDS) as [LightBackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
+                        value,
+                        label: info.name,
+                      }))}
+                      onChange={(v) => updateApp("lightModeBackground", v)}
                     />
 
                     <SettingToggle
@@ -630,10 +921,19 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(v) => updateApp("spotlightEnabled", v)}
                     />
 
+                    {/* Compact Mode */}
+                    <SettingToggle
+                      label="Compact Mode"
+                      description="Reduce spacing for denser layout"
+                      checked={settings.app.compactMode}
+                      onChange={(v) => updateApp("compactMode", v)}
+                    />
+
                     {/* Font Size */}
                     <SettingSelect
                       label="Font Size"
                       description="Adjust text size"
+                      isLight={isLight}
                       value={settings.app.fontSize}
                       options={[
                         { value: "small", label: "Small" },
@@ -641,14 +941,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         { value: "large", label: "Large" },
                       ]}
                       onChange={(v) => updateApp("fontSize", v)}
-                    />
-
-                    {/* Compact Mode */}
-                    <SettingToggle
-                      label="Compact Mode"
-                      description="Reduce spacing for denser layout"
-                      checked={settings.app.compactMode}
-                      onChange={(v) => updateApp("compactMode", v)}
                     />
 
                   </div>
@@ -682,47 +974,28 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     {/* TTS Voice Selection */}
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className={cn(SETTINGS_CARD_BASE, "p-4")}>
                       <p className="text-sm text-s-70 mb-1">TTS Voice</p>
                       <p className="text-xs text-s-30 mb-3">Choose Nova&apos;s speaking voice</p>
-                      <div className="space-y-2">
-                        {TTS_VOICES.map((voice) => {
-                          const isSelected = settings.app.ttsVoice === voice.id
-                          return (
-                            <button
-                              key={voice.id}
-                              onClick={() => {
-                                playClickSound()
-                                updateApp("ttsVoice", voice.id)
-                                // Send voice preference to agent immediately
-                                try {
-                                  const ws = new WebSocket("ws://localhost:8765")
-                                  ws.onopen = () => {
-                                    ws.send(JSON.stringify({ type: "set_voice", ttsVoice: voice.id }))
-                                    ws.close()
-                                  }
-                                } catch {}
-                              }}
-                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow fx-spotlight-dynamic ${
-                                isSelected
-                                  ? "bg-[var(--settings-selected-bg)] border border-accent-30"
-                                  : "bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
-                              }`}
-                            >
-                              <div className="flex-1 text-left">
-                                <span className={`text-sm transition-colors duration-200 ${
-                                  isSelected
-                                    ? "text-accent"
-                                    : "text-s-60"
-                                }`}>
-                                  {voice.name}
-                                </span>
-                                <p className="text-xs text-s-30">{voice.description}</p>
-                              </div>
-                            </button>
-                          )
-                        })}
-                      </div>
+                      <FluidSelect
+                        value={settings.app.ttsVoice}
+                        isLight={isLight}
+                        options={TTS_VOICES.map((voice) => ({ value: voice.id, label: voice.name }))}
+                        onChange={(voiceId) => {
+                          playClickSound()
+                          updateApp("ttsVoice", voiceId)
+                          try {
+                            const ws = new WebSocket("ws://localhost:8765")
+                            ws.onopen = () => {
+                              ws.send(JSON.stringify({ type: "set_voice", ttsVoice: voiceId }))
+                              ws.close()
+                            }
+                          } catch {}
+                        }}
+                      />
+                      <p className="text-xs text-s-30 mt-3">
+                        {TTS_VOICES.find((voice) => voice.id === settings.app.ttsVoice)?.description}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -796,6 +1069,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <SettingSelect
                       label="Communication Style"
                       description="How formal should Nova be?"
+                      isLight={isLight}
                       value={settings.personalization.communicationStyle}
                       options={[
                         { value: "formal", label: "Formal" },
@@ -809,6 +1083,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <SettingSelect
                       label="Response Tone"
                       description="Nova's conversational tone"
+                      isLight={isLight}
                       value={settings.personalization.tone}
                       options={[
                         { value: "neutral", label: "Neutral" },
@@ -842,7 +1117,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {/* Bootup Section */}
                 {activeSection === "bootup" && (
                   <div className="space-y-5">
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] mb-4">
+                    <div className="fx-spotlight-card fx-border-glow p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] mb-4">
                       <p className="text-sm text-s-70">
                         Configure Nova startup behavior. This section is dedicated to boot experience settings.
                       </p>
@@ -862,9 +1137,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(v) => updateApp("bootMusicEnabled", v)}
                     />
 
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">Bootup Music</p>
-                      <p className="text-xs text-s-30 mb-3">Plays the first 30 seconds on launch.</p>
+                      <p className="text-xs text-s-30 mb-3">Plays the first 30 seconds on launch. Upload once, switch anytime.</p>
                       <input
                         ref={bootMusicInputRef}
                         type="file"
@@ -884,9 +1159,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           }
                         }}
                       />
+                      <div className="mb-3">
+                        <FluidSelect
+                          value={(activeBootMusic?.id ?? NONE_OPTION)}
+                          isLight={isLight}
+                          options={bootMusicOptions}
+                          onChange={(v) => {
+                            playClickSound()
+                            selectBootMusicAsset(v === NONE_OPTION ? null : v)
+                          }}
+                        />
+                      </div>
                       <div className="flex items-center gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5 max-w-[560px] mx-auto">
-                        <div className={`flex-1 px-3 py-2 rounded-md text-sm border ${SETTINGS_SEGMENTED_BUTTON_UNSELECTED}`}>
-                          {settings.app.bootMusicFileName || "No MP3 selected"}
+                        <div className="flex-1 px-3 py-2 rounded-md text-sm bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)]">
+                          {activeBootMusic?.fileName || "No MP3 selected"}
                         </div>
                         <button
                           onClick={() => {
@@ -894,11 +1180,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             bootMusicInputRef.current?.click()
                           }}
                             className={cn(
-                            "fx-spotlight-card fx-border-glow fx-spotlight-card--hover group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
+                            "fx-spotlight-card fx-border-glow group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
                             isLight ? "text-s-50" : "text-s-40",
                           )}
-                          aria-label={settings.app.bootMusicDataUrl ? "Replace MP3" : "Upload MP3"}
-                          title={settings.app.bootMusicDataUrl ? "Replace MP3" : "Upload MP3"}
+                          aria-label={activeBootMusic ? "Add MP3" : "Upload MP3"}
+                          title={activeBootMusic ? "Add MP3" : "Upload MP3"}
                         >
                           <span
                             className={cn(
@@ -911,7 +1197,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           +
                         </button>
                       </div>
-                      {settings.app.bootMusicDataUrl && (
+                      {activeBootMusic && (
                         <div className="mt-2">
                           <Button
                             onClick={() => {
@@ -920,9 +1206,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             }}
                             variant="outline"
                             size="sm"
-                            className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
+                            className="fx-spotlight-card fx-border-glow text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
                           >
-                            Remove
+                            Remove Selected
                           </Button>
                         </div>
                       )}
@@ -931,7 +1217,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       )}
                     </div>
 
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">More Boot Settings</p>
                       <p className="text-xs text-s-30">
                         Additional bootup options will appear here as they are added.
@@ -943,7 +1229,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {/* Access Level Section */}
                 {activeSection === "access" && (
                   <div className="space-y-5">
-                    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+                    <div className="fx-spotlight-card fx-border-glow p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <div className="flex items-center gap-3 mb-4">
                         <div className="w-10 h-10 rounded-xl bg-accent-15 flex items-center justify-center">
                           <Shield className="w-5 h-5 text-accent" />
@@ -966,7 +1252,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 playClickSound()
                                 updateProfile("accessTier", tier)
                               }}
-                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow fx-spotlight-card--hover ${
+                              className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow ${
                                 isSelected
                                   ? "bg-[var(--settings-selected-bg)] border border-accent-30"
                                   : "bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)]"
@@ -1082,12 +1368,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SETTINGS_SEGMENTED_BUTTON_BASE =
-  "fx-spotlight-card fx-border-glow fx-spotlight-card--hover px-3 py-2 rounded-md text-sm border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-const SETTINGS_SEGMENTED_BUTTON_SELECTED =
-  "bg-[var(--settings-selected-bg)] text-accent border-accent-30"
-const SETTINGS_SEGMENTED_BUTTON_UNSELECTED =
-  "bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)] hover:bg-[var(--settings-hover)] hover:text-s-80"
+const SETTINGS_CARD_BASE =
+  "fx-spotlight-card fx-border-glow rounded-xl border border-[var(--settings-border)] bg-[var(--settings-card-bg)] transition-all duration-150 hover:bg-[var(--settings-card-hover)]"
+const SETTINGS_FIELD_BASE =
+  "w-full px-3 py-2.5 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-[var(--settings-hover)] transition-colors duration-150"
 
 function SettingToggle({
   label,
@@ -1101,7 +1385,11 @@ function SettingToggle({
   onChange: (v: boolean) => void
 }) {
   return (
-    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover flex items-center justify-between p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)] cursor-pointer group"
+    <div
+      className={cn(
+        SETTINGS_CARD_BASE,
+        "group flex items-center justify-between gap-4 p-4 cursor-pointer",
+      )}
       onClick={() => {
         playClickSound()
         onChange(!checked)
@@ -1112,6 +1400,8 @@ function SettingToggle({
         <p className="text-xs text-s-30 mt-0.5">{description}</p>
       </div>
       <button
+        type="button"
+        aria-label={`Toggle ${label}`}
         className={`relative w-11 h-6 rounded-full transition-colors duration-150 ${
           checked ? "bg-accent" : "bg-[var(--settings-sub-border)]"
         }`}
@@ -1140,7 +1430,7 @@ function SettingInput({
   placeholder?: string
 }) {
   return (
-    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+    <div className={cn(SETTINGS_CARD_BASE, "p-4")}>
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <input
@@ -1148,7 +1438,7 @@ function SettingInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-[var(--settings-hover)] transition-colors duration-150"
+        className={SETTINGS_FIELD_BASE}
       />
     </div>
   )
@@ -1170,7 +1460,7 @@ function SettingTextarea({
   rows?: number
 }) {
   return (
-    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+    <div className={cn(SETTINGS_CARD_BASE, "p-4")}>
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
       <textarea
@@ -1178,7 +1468,7 @@ function SettingTextarea({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] text-s-90 text-sm placeholder:text-s-25 focus:outline-none focus:border-accent-50 focus:bg-[var(--settings-hover)] transition-colors duration-150 resize-none"
+        className={cn(SETTINGS_FIELD_BASE, "resize-none")}
       />
     </div>
   )
@@ -1188,39 +1478,31 @@ function SettingSelect({
   label,
   description,
   value,
+  isLight,
   options,
   onChange,
 }: {
   label: string
   description: string
   value: string
+  isLight: boolean
   options: { value: string; label: string }[]
   onChange: (v: string) => void
 }) {
   return (
-    <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
+    <div className={cn(SETTINGS_CARD_BASE, "p-4")}>
       <p className="text-sm text-s-70 mb-0.5">{label}</p>
       <p className="text-xs text-s-30 mb-3">{description}</p>
-      <div className="flex flex-wrap gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5">
-        {options.map((opt) => (
-          <button
-            key={opt.value}
-            onClick={() => {
-              playClickSound()
-              onChange(opt.value)
-            }}
-            className={`min-w-[92px] ${SETTINGS_SEGMENTED_BUTTON_BASE} ${
-              value === opt.value
-                ? SETTINGS_SEGMENTED_BUTTON_SELECTED
-                : SETTINGS_SEGMENTED_BUTTON_UNSELECTED
-            }`}
-          >
-            <span className="inline-flex items-center justify-center gap-1.5">
-              {opt.label}
-            </span>
-          </button>
-        ))}
-      </div>
+      <FluidSelect
+        value={value}
+        options={options}
+        isLight={isLight}
+        onChange={(v) => {
+          playClickSound()
+          onChange(v)
+        }}
+      />
     </div>
   )
 }
+

@@ -21,6 +21,15 @@ export interface OpenAIIntegrationConfig {
   defaultModel: string
 }
 
+export interface ClaudeIntegrationConfig {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+}
+
+export type LlmProvider = "openai" | "claude"
+
 export interface AgentIntegrationConfig {
   connected: boolean
   apiKey: string
@@ -31,6 +40,8 @@ export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
   discord: DiscordIntegrationConfig
   openai: OpenAIIntegrationConfig
+  claude: ClaudeIntegrationConfig
+  activeLlmProvider: LlmProvider
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
 }
@@ -54,6 +65,13 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     baseUrl: "https://api.openai.com/v1",
     defaultModel: "gpt-4.1",
   },
+  claude: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.anthropic.com",
+    defaultModel: "claude-sonnet-4-20250514",
+  },
+  activeLlmProvider: "openai",
   agents: {},
   updatedAt: new Date().toISOString(),
 }
@@ -88,6 +106,16 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       baseUrl: raw?.openai?.baseUrl?.trim() || DEFAULT_CONFIG.openai.baseUrl,
       defaultModel: raw?.openai?.defaultModel?.trim() || DEFAULT_CONFIG.openai.defaultModel,
     },
+    claude: {
+      connected: raw?.claude?.connected ?? DEFAULT_CONFIG.claude.connected,
+      apiKey: raw?.claude?.apiKey?.trim() ?? "",
+      baseUrl: raw?.claude?.baseUrl?.trim() || DEFAULT_CONFIG.claude.baseUrl,
+      defaultModel: raw?.claude?.defaultModel?.trim() || DEFAULT_CONFIG.claude.defaultModel,
+    },
+    activeLlmProvider:
+      raw?.activeLlmProvider === "claude" || raw?.activeLlmProvider === "openai"
+        ? raw.activeLlmProvider
+        : DEFAULT_CONFIG.activeLlmProvider,
     agents: raw?.agents && typeof raw.agents === "object" ? raw.agents : {},
     updatedAt: raw?.updatedAt || new Date().toISOString(),
   }
@@ -131,6 +159,14 @@ export async function updateIntegrationsConfig(partial: Partial<IntegrationsConf
       ...current.openai,
       ...(partial.openai || {}),
     },
+    claude: {
+      ...current.claude,
+      ...(partial.claude || {}),
+    },
+    activeLlmProvider:
+      partial.activeLlmProvider === "claude" || partial.activeLlmProvider === "openai"
+        ? partial.activeLlmProvider
+        : current.activeLlmProvider,
     agents: {
       ...current.agents,
       ...(partial.agents || {}),

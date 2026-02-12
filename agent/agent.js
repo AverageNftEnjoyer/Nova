@@ -12,7 +12,7 @@ import {
   countTokens,
   extractFacts
 } from "./memory.js";
-import { startMetricsBroadcast } from "./metrics.js";
+import { startMetricsBroadcast, getSystemMetrics } from "./metrics.js";
 
 // ===== __dirname fix =====
 const __filename = fileURLToPath(import.meta.url);
@@ -23,9 +23,11 @@ dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "integrations-config.json");
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
-const MODEL_PRICING_USD_PER_1M = {
-  "gpt-5.2": { input: 1.25, output: 10.0 },
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const OPENAI_MODEL_PRICING_USD_PER_1M = {
+  "gpt-5.2": { input: 1.75, output: 14.0 },
   "gpt-5.2-pro": { input: 12.0, output: 96.0 },
   "gpt-5": { input: 1.25, output: 10.0 },
   "gpt-5-mini": { input: 0.25, output: 2.0 },
@@ -35,6 +37,14 @@ const MODEL_PRICING_USD_PER_1M = {
   "gpt-4.1-nano": { input: 0.1, output: 0.4 },
   "gpt-4o": { input: 5.0, output: 15.0 },
   "gpt-4o-mini": { input: 0.6, output: 2.4 }
+};
+const CLAUDE_MODEL_PRICING_USD_PER_1M = {
+  "claude-opus-4-1-20250805": { input: 15.0, output: 75.0 },
+  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
+  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
+  "claude-3-7-sonnet-latest": { input: 3.0, output: 15.0 },
+  "claude-3-5-sonnet-latest": { input: 3.0, output: 15.0 },
+  "claude-3-5-haiku-latest": { input: 0.8, output: 4.0 }
 };
 
 const openAiClientCache = new Map();
@@ -60,6 +70,102 @@ function loadOpenAIIntegrationRuntime() {
   }
 }
 
+function loadIntegrationsRuntime() {
+  try {
+    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const openaiIntegration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
+    const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
+    const activeProvider = parsed?.activeLlmProvider === "claude" ? "claude" : "openai";
+    return {
+      activeProvider,
+      openai: {
+        connected: Boolean(openaiIntegration.connected),
+        apiKey: typeof openaiIntegration.apiKey === "string" ? openaiIntegration.apiKey.trim() : "",
+        baseURL: typeof openaiIntegration.baseUrl === "string" && openaiIntegration.baseUrl.trim()
+          ? openaiIntegration.baseUrl.trim()
+          : DEFAULT_OPENAI_BASE_URL,
+        model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
+          ? openaiIntegration.defaultModel.trim()
+          : DEFAULT_CHAT_MODEL
+      },
+      claude: {
+        connected: Boolean(claudeIntegration.connected),
+        apiKey: typeof claudeIntegration.apiKey === "string" ? claudeIntegration.apiKey.trim() : "",
+        baseURL: typeof claudeIntegration.baseUrl === "string" && claudeIntegration.baseUrl.trim()
+          ? claudeIntegration.baseUrl.trim().replace(/\/+$/, "")
+          : DEFAULT_CLAUDE_BASE_URL,
+        model: typeof claudeIntegration.defaultModel === "string" && claudeIntegration.defaultModel.trim()
+          ? claudeIntegration.defaultModel.trim()
+          : DEFAULT_CLAUDE_MODEL
+      }
+    };
+  } catch {
+    return {
+      activeProvider: "openai",
+      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL }
+    };
+  }
+}
+
+function getActiveChatRuntime(integrations) {
+  if (integrations.activeProvider === "claude") {
+    return {
+      provider: "claude",
+      apiKey: integrations.claude.apiKey,
+      baseURL: integrations.claude.baseURL,
+      model: integrations.claude.model
+    };
+  }
+  return {
+    provider: "openai",
+    apiKey: integrations.openai.apiKey,
+    baseURL: integrations.openai.baseURL,
+    model: integrations.openai.model
+  };
+}
+
+function toClaudeBase(baseURL) {
+  const trimmed = String(baseURL || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return DEFAULT_CLAUDE_BASE_URL;
+  return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+}
+
+async function claudeMessagesCreate({ apiKey, baseURL, model, system, userText, maxTokens = 300, temperature = 0.75 }) {
+  const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      system,
+      messages: [{ role: "user", content: userText }]
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data?.error?.message || `Claude request failed (${res.status})`;
+    throw new Error(message);
+  }
+  const text = Array.isArray(data?.content)
+    ? data.content.filter((c) => c?.type === "text").map((c) => c?.text || "").join("\n").trim()
+    : "";
+  return {
+    text,
+    usage: {
+      promptTokens: Number(data?.usage?.input_tokens || 0),
+      completionTokens: Number(data?.usage?.output_tokens || 0)
+    }
+  };
+}
+
 function getOpenAIClient(runtime) {
   const key = `${runtime.baseURL}|${runtime.apiKey}`;
   if (openAiClientCache.has(key)) return openAiClientCache.get(key);
@@ -68,8 +174,20 @@ function getOpenAIClient(runtime) {
   return client;
 }
 
+function resolveModelPricing(model) {
+  const exact = OPENAI_MODEL_PRICING_USD_PER_1M[model] || CLAUDE_MODEL_PRICING_USD_PER_1M[model];
+  if (exact) return exact;
+  const normalized = String(model || "").trim().toLowerCase();
+  if (normalized.includes("claude-opus-4")) return { input: 15.0, output: 75.0 };
+  if (normalized.includes("claude-sonnet-4")) return { input: 3.0, output: 15.0 };
+  if (normalized.includes("claude-3-7-sonnet")) return { input: 3.0, output: 15.0 };
+  if (normalized.includes("claude-3-5-sonnet")) return { input: 3.0, output: 15.0 };
+  if (normalized.includes("claude-3-5-haiku")) return { input: 0.8, output: 4.0 };
+  return null;
+}
+
 function estimateTokenCostUsd(model, promptTokens = 0, completionTokens = 0) {
-  const pricing = MODEL_PRICING_USD_PER_1M[model];
+  const pricing = resolveModelPricing(model);
   if (!pricing) return null;
   const inputCost = (promptTokens / 1_000_000) * pricing.input;
   const outputCost = (completionTokens / 1_000_000) * pricing.output;
@@ -127,6 +245,18 @@ function broadcastMessage(role, content, source = "hud") {
 
 // ===== handle incoming HUD messages =====
 wss.on("connection", (ws) => {
+  // Always push one snapshot to new clients so boot UI doesn't miss one-shot telemetry.
+  void getSystemMetrics()
+    .then((metrics) => {
+      if (!metrics || ws.readyState !== 1) return;
+      ws.send(JSON.stringify({
+        type: "system_metrics",
+        metrics,
+        ts: Date.now(),
+      }));
+    })
+    .catch(() => {});
+
   ws.on("message", async (raw) => {
     try {
       const data = JSON.parse(raw.toString());
@@ -134,6 +264,18 @@ wss.on("connection", (ws) => {
       if (data.type === "interrupt") {
         console.log("[HUD] Interrupt received.");
         stopSpeaking();
+        return;
+      }
+
+      if (data.type === "request_system_metrics") {
+        const metrics = await getSystemMetrics();
+        if (metrics && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: "system_metrics",
+            metrics,
+            ts: Date.now(),
+          }));
+        }
         return;
       }
 
@@ -296,12 +438,14 @@ const COMMAND_ACKS = [
 
 // ===== input handler =====
 async function handleInput(text, opts = {}) {
-  const runtime = loadOpenAIIntegrationRuntime();
-  if (!runtime.apiKey) {
-    throw new Error("Missing OpenAI API key. Configure OpenAI in Integrations.");
+  const integrationsRuntime = loadIntegrationsRuntime();
+  const openaiRuntime = integrationsRuntime.openai;
+  const activeChatRuntime = getActiveChatRuntime(integrationsRuntime);
+  if (!activeChatRuntime.apiKey) {
+    throw new Error(`Missing ${activeChatRuntime.provider === "claude" ? "Claude" : "OpenAI"} API key. Configure Integrations first.`);
   }
-  const openai = getOpenAIClient(runtime);
-  const selectedChatModel = runtime.model || DEFAULT_CHAT_MODEL;
+  const openai = openaiRuntime.apiKey ? getOpenAIClient(openaiRuntime) : null;
+  const selectedChatModel = activeChatRuntime.model || (activeChatRuntime.provider === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CHAT_MODEL);
 
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
@@ -327,14 +471,7 @@ async function handleInput(text, opts = {}) {
     stopSpeaking();
 
     // Ask GPT to extract the Spotify intent
-    const spotifyParse = await openai.chat.completions.create({
-      model: selectedChatModel,
-      temperature: 0,
-      max_tokens: 150,
-      messages: [
-        {
-          role: "system",
-          content: `You parse Spotify commands. Given user input, respond with ONLY a JSON object:
+    const spotifySystemPrompt = `You parse Spotify commands. Given user input, respond with ONLY a JSON object:
 {
   "action": "open" | "play" | "pause" | "next" | "previous",
   "query": "search query if playing something, otherwise empty string",
@@ -351,13 +488,33 @@ Examples:
 - "next song" → { "action": "next", "query": "", "type": "track", "response": "Skipping to the next track." }
 - "pause the music" → { "action": "pause", "query": "", "type": "track", "response": "Pausing the music." }
 Output ONLY valid JSON, nothing else.`
-        },
-        { role: "user", content: text }
-      ]
-    });
+    let spotifyRaw = "";
+    if (activeChatRuntime.provider === "claude") {
+      const claudeResponse = await claudeMessagesCreate({
+        apiKey: activeChatRuntime.apiKey,
+        baseURL: activeChatRuntime.baseURL,
+        model: selectedChatModel,
+        system: spotifySystemPrompt,
+        userText: text,
+        maxTokens: 220,
+        temperature: 0
+      });
+      spotifyRaw = claudeResponse.text;
+    } else {
+      const spotifyParse = await openai.chat.completions.create({
+        model: selectedChatModel,
+        temperature: 0,
+        max_tokens: 150,
+        messages: [
+          { role: "system", content: spotifySystemPrompt },
+          { role: "user", content: text }
+        ]
+      });
+      spotifyRaw = spotifyParse.choices[0].message.content.trim();
+    }
 
     try {
-      const intent = JSON.parse(spotifyParse.choices[0].message.content.trim());
+      const intent = JSON.parse(spotifyRaw);
 
       if (useVoice) await speak(intent.response, ttsVoice);
       else broadcastMessage("assistant", intent.response, source);
@@ -418,24 +575,43 @@ Output ONLY valid JSON, nothing else.`
     { role: "user", content: text }
   ];
 
-  const completion = await openai.chat.completions.create({
-    model: selectedChatModel,
-    messages,
-    temperature: 0.75,
-    max_tokens: 250
-  });
+  let reply = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+  if (activeChatRuntime.provider === "claude") {
+    const claudeCompletion = await claudeMessagesCreate({
+      apiKey: activeChatRuntime.apiKey,
+      baseURL: activeChatRuntime.baseURL,
+      model: selectedChatModel,
+      system: systemPrompt,
+      userText: text,
+      maxTokens: 250,
+      temperature: 0.75
+    });
+    reply = claudeCompletion.text;
+    promptTokens = claudeCompletion.usage.promptTokens;
+    completionTokens = claudeCompletion.usage.completionTokens;
+  } else {
+    const openaiCompletion = await openai.chat.completions.create({
+      model: selectedChatModel,
+      messages,
+      temperature: 0.75,
+      max_tokens: 250
+    });
+    reply = openaiCompletion.choices[0].message.content.trim();
+    promptTokens = openaiCompletion.usage?.prompt_tokens || 0;
+    completionTokens = openaiCompletion.usage?.completion_tokens || 0;
+  }
 
-  const reply = completion.choices[0].message.content.trim();
-  const promptTokens = completion.usage?.prompt_tokens || 0;
-  const completionTokens = completion.usage?.completion_tokens || 0;
-  const totalTokens = completion.usage?.total_tokens || (promptTokens + completionTokens);
+  const totalTokens = promptTokens + completionTokens;
   const estimatedCostUsd = estimateTokenCostUsd(selectedChatModel, promptTokens, completionTokens);
   console.log(
-    `[LLM] model=${selectedChatModel} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}` +
+    `[LLM] provider=${activeChatRuntime.provider} model=${selectedChatModel} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}` +
     `${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`
   );
   broadcast({
     type: "usage",
+    provider: activeChatRuntime.provider,
     model: selectedChatModel,
     promptTokens,
     completionTokens,
@@ -453,11 +629,13 @@ Output ONLY valid JSON, nothing else.`
   }
 
   // Extract facts in the background (don't block) - saves to disk, not RAM
-  extractFacts(openai, text, reply, selectedChatModel).catch(() => {});
+  if (openai) {
+    extractFacts(openai, text, reply, selectedChatModel).catch(() => {});
+  }
 }
 
 // ===== System metrics broadcast =====
-startMetricsBroadcast(broadcast, 1500);
+startMetricsBroadcast(broadcast, 2000);
 
 // ===== startup delay =====
 await new Promise(r => setTimeout(r, 15000));
