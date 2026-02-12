@@ -34,11 +34,13 @@ import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_
 import {
   INTEGRATIONS_UPDATED_EVENT,
   loadIntegrationsSettings,
+  updateOpenAIIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateTelegramIntegrationSettings,
 } from "@/lib/integrations"
 import FloatingLines from "@/components/FloatingLines"
 import { DiscordIcon } from "@/components/discord-icon"
+import { OpenAIIcon } from "@/components/openai-icon"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import "@/components/FloatingLines.css"
 
@@ -79,6 +81,17 @@ function formatDailyTime(time: string, timezone: string): string {
   }).format(date)
 }
 
+function toMissionDescription(message: string | undefined, integration: string, totalCount: number): string {
+  const raw = typeof message === "string" ? message.trim() : ""
+  if (!raw) {
+    return `${integration} - ${totalCount} run${totalCount === 1 ? "" : "s"}/day`
+  }
+
+  const normalized = raw.replace(/\s+/g, " ")
+  if (normalized.length <= 84) return normalized
+  return `${normalized.slice(0, 81).trimEnd()}...`
+}
+
 const GREETINGS = [
   "Hello sir, what are we working on today?",
   "Good to see you! What's on the agenda?",
@@ -100,28 +113,19 @@ export default function HomePage() {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference, setMuted, agentMessages, clearAgentMessages } = useNovaState()
-  const [isMuted, setIsMuted] = useState(() => {
-    if (typeof window === "undefined") return false
-    return localStorage.getItem("nova-muted") === "true"
-  })
-  const [hasAnimated] = useState(() => {
-    if (typeof window === "undefined") return false
-    const shouldAnimateIntro = sessionStorage.getItem("nova-home-intro-pending") === "true"
-    if (shouldAnimateIntro) {
-      sessionStorage.removeItem("nova-home-intro-pending")
-    }
-    return shouldAnimateIntro
-  })
+  const [isMuted, setIsMuted] = useState(false)
+  const [hasAnimated, setHasAnimated] = useState(false)
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
-  const [welcomeMessage] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)])
+  const [welcomeMessage, setWelcomeMessage] = useState(GREETINGS[0])
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [telegramConnected, setTelegramConnected] = useState(true)
   const [discordConnected, setDiscordConnected] = useState(false)
+  const [openaiConnected, setOpenaiConnected] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -169,16 +173,36 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
+    const sync = window.setTimeout(() => {
+      const muted = localStorage.getItem("nova-muted") === "true"
+      setIsMuted(muted)
+
+      const shouldAnimateIntro = sessionStorage.getItem("nova-home-intro-pending") === "true"
+      if (shouldAnimateIntro) {
+        sessionStorage.removeItem("nova-home-intro-pending")
+        setHasAnimated(true)
+      }
+
+      setWelcomeMessage(GREETINGS[Math.floor(Math.random() * GREETINGS.length)])
+    }, 0)
+
+    return () => window.clearTimeout(sync)
+  }, [])
+
+  useEffect(() => {
     const settings = loadUserSettings()
     fetch("/api/integrations/config", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
         const telegram = Boolean(data?.config?.telegram?.connected)
         const discord = Boolean(data?.config?.discord?.connected)
+        const openai = Boolean(data?.config?.openai?.connected)
         setTelegramConnected(telegram)
         setDiscordConnected(discord)
+        setOpenaiConnected(openai)
         updateTelegramIntegrationSettings({ connected: telegram })
         updateDiscordIntegrationSettings({ connected: discord })
+        updateOpenAIIntegrationSettings({ connected: openai })
       })
       .catch(() => {})
     refreshNotificationSchedules()
@@ -221,6 +245,7 @@ export default function HomePage() {
       const integrations = loadIntegrationsSettings()
       setTelegramConnected(integrations.telegram.connected)
       setDiscordConnected(integrations.discord.connected)
+      setOpenaiConnected(integrations.openai.connected)
       refreshNotificationSchedules()
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
@@ -509,6 +534,17 @@ export default function HomePage() {
     }).catch(() => {})
   }, [discordConnected])
 
+  const handleToggleOpenAIIntegration = useCallback(() => {
+    const next = !openaiConnected
+    setOpenaiConnected(next)
+    updateOpenAIIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ openai: { connected: next } }),
+    }).catch(() => {})
+  }, [openaiConnected])
+
   const missions = useMemo(() => {
     const grouped = new Map<
       string,
@@ -516,6 +552,7 @@ export default function HomePage() {
         id: string
         integration: string
         title: string
+        description: string
         enabledCount: number
         totalCount: number
         times: string[]
@@ -533,6 +570,7 @@ export default function HomePage() {
           id: schedule.id,
           integration,
           title,
+          description: schedule.message?.trim() || "",
           enabledCount: schedule.enabled ? 1 : 0,
           totalCount: 1,
           times: [schedule.time],
@@ -543,11 +581,15 @@ export default function HomePage() {
       existing.totalCount += 1
       if (schedule.enabled) existing.enabledCount += 1
       existing.times.push(schedule.time)
+      if (!existing.description && schedule.message?.trim()) {
+        existing.description = schedule.message.trim()
+      }
     }
 
     return Array.from(grouped.values())
       .map((mission) => ({
         ...mission,
+        description: toMissionDescription(mission.description, mission.integration, mission.totalCount),
         times: mission.times.sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => {
@@ -831,9 +873,7 @@ export default function HomePage() {
                           {mission.enabledCount > 0 ? "Active" : "Paused"}
                         </span>
                       </div>
-                      <p className={cn("mt-1 text-xs", isLight ? "text-s-60" : "text-slate-400")}>
-                        {mission.integration} - {mission.totalCount} run{mission.totalCount === 1 ? "" : "s"}/day
-                      </p>
+                      <p className={cn("mt-1 text-xs leading-tight", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {mission.times.map((time) => (
                           <span key={`${mission.id}-${time}`} className={cn("text-[11px] px-2 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
@@ -895,7 +935,20 @@ export default function HomePage() {
                     >
                       <DiscordIcon className="w-3.5 h-3.5 text-white" />
                     </button>
-                    {Array.from({ length: 22 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleOpenAIIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        openaiConnected
+                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                      )}
+                      aria-label={openaiConnected ? "Disable OpenAI integration" : "Enable OpenAI integration"}
+                      title={openaiConnected ? "OpenAI connected (click to disable)" : "OpenAI disconnected (click to enable)"}
+                    >
+                      <OpenAIIcon className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: 21 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

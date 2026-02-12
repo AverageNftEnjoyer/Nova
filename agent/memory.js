@@ -312,13 +312,13 @@ export function buildSystemPrompt(options = {}) {
  * Extract new facts from conversation (async, background).
  * Facts are added to working context with token enforcement.
  */
-export async function extractFacts(openai, userText, assistantReply) {
+export async function extractFacts(openai, userText, assistantReply, model = "gpt-4.1-mini") {
   const ctx = getWorkingContext();
   const existing = ctx.user_facts || [];
 
   try {
     const res = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model,
       temperature: 0,
       max_tokens: 150,
       messages: [

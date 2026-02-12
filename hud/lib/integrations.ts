@@ -2,6 +2,8 @@ export interface TelegramIntegrationSettings {
   connected: boolean
   botToken: string
   chatIds: string
+  botTokenConfigured?: boolean
+  botTokenMasked?: string
 }
 
 export interface DiscordIntegrationSettings {
@@ -9,9 +11,19 @@ export interface DiscordIntegrationSettings {
   webhookUrls: string
 }
 
+export interface OpenAIIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+}
+
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
+  openai: OpenAIIntegrationSettings
   updatedAt: string
 }
 
@@ -23,10 +35,20 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     connected: true,
     botToken: "",
     chatIds: "",
+    botTokenConfigured: false,
+    botTokenMasked: "",
   },
   discord: {
     connected: false,
     webhookUrls: "",
+  },
+  openai: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4.1",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
   },
   updatedAt: new Date().toISOString(),
 }
@@ -42,10 +64,16 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
       telegram: {
         ...DEFAULT_SETTINGS.telegram,
         ...(parsed.telegram || {}),
+        botToken: "",
       },
       discord: {
         ...DEFAULT_SETTINGS.discord,
         ...(parsed.discord || {}),
+      },
+      openai: {
+        ...DEFAULT_SETTINGS.openai,
+        ...(parsed.openai || {}),
+        apiKey: "",
       },
       updatedAt: parsed.updatedAt || new Date().toISOString(),
     }
@@ -57,8 +85,24 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
 export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
   if (typeof window === "undefined") return
 
-  const updated = {
+  // Never persist raw secrets in browser storage.
+  const sanitized: IntegrationsSettings = {
     ...settings,
+    telegram: {
+      ...settings.telegram,
+      botToken: "",
+    },
+    discord: {
+      ...settings.discord,
+    },
+    openai: {
+      ...settings.openai,
+      apiKey: "",
+    },
+  }
+
+  const updated = {
+    ...sanitized,
     updatedAt: new Date().toISOString(),
   }
 
@@ -90,6 +134,20 @@ export function updateDiscordIntegrationSettings(partial: Partial<DiscordIntegra
     ...current,
     discord: {
       ...current.discord,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateOpenAIIntegrationSettings(partial: Partial<OpenAIIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    openai: {
+      ...current.openai,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

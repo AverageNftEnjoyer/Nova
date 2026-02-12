@@ -716,10 +716,10 @@ export default function MissionsPage() {
                   <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline Settings</h2>
                 </div>
                 <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                  Edit, enable, disable, and delete missions. Changes update scheduler runtime.
+                  Manage each mission&apos;s integration, message, and run time. Saving updates the live scheduler immediately.
                 </p>
 
-                <div className="mt-3 max-h-[68vh] overflow-y-auto space-y-3 pr-1">
+                <div className="mt-2.5 max-h-[68vh] overflow-y-auto space-y-2 pr-1">
                   {loading && <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>Loading missions...</p>}
                   {!loading && schedules.length === 0 && (
                     <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>No missions yet.</p>
@@ -728,30 +728,47 @@ export default function MissionsPage() {
                   {schedules.map((mission) => {
                     const busy = Boolean(busyById[mission.id])
                     return (
-                      <div key={mission.id} className={cn(`p-3 ${subPanelClass} home-spotlight-card home-border-glow`)}>
+                      <div key={mission.id} className={cn(`p-2.5 ${subPanelClass} home-spotlight-card home-border-glow`)}>
                         <div className="flex items-center justify-between gap-2">
                           <span className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
                             {formatIntegrationLabel(mission.integration)}
                           </span>
-                          <button
-                            onClick={() => {
-                              const nextEnabled = !mission.enabled
-                              updateLocalSchedule(mission.id, { enabled: nextEnabled })
-                              void saveMission({ ...mission, enabled: nextEnabled })
-                            }}
-                            disabled={busy}
-                            className={cn(
-                              "text-xs px-2.5 py-1 rounded-md border transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover disabled:opacity-50",
-                              mission.enabled
-                                ? "border-rose-300/40 bg-rose-500/20 text-rose-200"
-                                : "border-emerald-300/40 bg-emerald-500/20 text-emerald-200",
-                            )}
-                          >
-                            {mission.enabled ? "Disable" : "Enable"}
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                const nextEnabled = !mission.enabled
+                                updateLocalSchedule(mission.id, { enabled: nextEnabled })
+                                void saveMission({ ...mission, enabled: nextEnabled })
+                              }}
+                              disabled={busy}
+                              className={cn(
+                                "h-7.5 px-2.5 rounded-md border text-xs transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover disabled:opacity-50",
+                                mission.enabled
+                                  ? "border-rose-300/40 bg-rose-500/20 text-rose-200"
+                                  : "border-emerald-300/40 bg-emerald-500/20 text-emerald-200",
+                              )}
+                            >
+                              {mission.enabled ? "Disable" : "Enable"}
+                            </button>
+                            <button
+                              onClick={() => setPendingDeleteMission(mission)}
+                              disabled={busy}
+                              className="h-7.5 px-2.5 rounded-md border border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20 transition-colors disabled:opacity-50 home-spotlight-card home-border-glow home-spotlight-card--hover"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => void saveMission(mission)}
+                              disabled={busy}
+                              className="h-7.5 px-2.5 rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span className="text-xs">{busy ? "Saving..." : "Save"}</span>
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="mt-2 space-y-2">
+                        <div className="mt-1.5 space-y-1.5">
                           <FluidSelect
                             value={mission.integration}
                             onChange={(nextIntegration) => updateLocalSchedule(mission.id, { integration: nextIntegration })}
@@ -762,13 +779,13 @@ export default function MissionsPage() {
                           <input
                             value={mission.label}
                             onChange={(e) => updateLocalSchedule(mission.id, { label: e.target.value })}
-                            className={cn(`h-9 w-full px-3 text-sm outline-none ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`, isLight ? "text-s-90" : "text-slate-100")}
+                            className={cn(`h-8 w-full px-2.5 text-sm outline-none ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`, isLight ? "text-s-90" : "text-slate-100")}
                             placeholder="Mission name"
                           />
                           <input
                             value={mission.message}
                             onChange={(e) => updateLocalSchedule(mission.id, { message: e.target.value })}
-                            className={cn(`h-9 w-full px-3 text-sm outline-none ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`, isLight ? "text-s-90" : "text-slate-100")}
+                            className={cn(`h-8 w-full px-2.5 text-sm outline-none ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`, isLight ? "text-s-90" : "text-slate-100")}
                             placeholder="Mission message"
                           />
                           <TimeField
@@ -777,27 +794,6 @@ export default function MissionsPage() {
                             isLight={isLight}
                             className="w-full"
                           />
-                          <p className={cn("text-[11px] mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                            Timezone: {detectedTimezone}
-                          </p>
-                        </div>
-
-                        <div className="mt-3 flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setPendingDeleteMission(mission)}
-                            disabled={busy}
-                            className="h-8 px-3 rounded-md border border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20 transition-colors disabled:opacity-50 home-spotlight-card home-border-glow home-spotlight-card--hover"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => void saveMission(mission)}
-                            disabled={busy}
-                            className="h-8 px-3 rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover"
-                          >
-                            <Save className="w-3.5 h-3.5" />
-                            <span className="text-xs">{busy ? "Saving..." : "Save"}</span>
-                          </button>
                         </div>
                       </div>
                     )

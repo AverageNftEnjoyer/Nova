@@ -14,6 +14,13 @@ export interface DiscordIntegrationConfig {
   webhookUrls: string[]
 }
 
+export interface OpenAIIntegrationConfig {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+}
+
 export interface AgentIntegrationConfig {
   connected: boolean
   apiKey: string
@@ -23,6 +30,7 @@ export interface AgentIntegrationConfig {
 export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
   discord: DiscordIntegrationConfig
+  openai: OpenAIIntegrationConfig
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
 }
@@ -39,6 +47,12 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   discord: {
     connected: false,
     webhookUrls: [],
+  },
+  openai: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4.1",
   },
   agents: {},
   updatedAt: new Date().toISOString(),
@@ -67,6 +81,12 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       webhookUrls: Array.isArray(raw?.discord?.webhookUrls)
         ? raw.discord.webhookUrls.map((url) => String(url).trim()).filter(Boolean)
         : [],
+    },
+    openai: {
+      connected: raw?.openai?.connected ?? DEFAULT_CONFIG.openai.connected,
+      apiKey: raw?.openai?.apiKey?.trim() ?? "",
+      baseUrl: raw?.openai?.baseUrl?.trim() || DEFAULT_CONFIG.openai.baseUrl,
+      defaultModel: raw?.openai?.defaultModel?.trim() || DEFAULT_CONFIG.openai.defaultModel,
     },
     agents: raw?.agents && typeof raw.agents === "object" ? raw.agents : {},
     updatedAt: raw?.updatedAt || new Date().toISOString(),
@@ -106,6 +126,10 @@ export async function updateIntegrationsConfig(partial: Partial<IntegrationsConf
     discord: {
       ...current.discord,
       ...(partial.discord || {}),
+    },
+    openai: {
+      ...current.openai,
+      ...(partial.openai || {}),
     },
     agents: {
       ...current.agents,

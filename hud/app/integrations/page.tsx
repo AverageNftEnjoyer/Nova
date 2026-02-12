@@ -8,6 +8,7 @@ import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type BackgroundType, type OrbColor } from "@/lib/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations"
+import { FluidSelect, type FluidSelectOption } from "@/components/ui/fluid-select"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { useNovaState } from "@/lib/useNovaState"
 import {
@@ -18,6 +19,7 @@ import {
 } from "@/lib/conversations"
 import FloatingLines from "@/components/FloatingLines"
 import { DiscordIcon } from "@/components/discord-icon"
+import { OpenAIIcon } from "@/components/openai-icon"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import "@/components/FloatingLines.css"
 
@@ -37,6 +39,47 @@ const FLOATING_LINES_LINE_DISTANCE: number[] = [5, 5, 5]
 const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
 const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
 const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
+const OPENAI_MODEL_OPTIONS: Array<{ value: string; label: string; priceHint: string }> = [
+  { value: "gpt-5.2", label: "GPT-5.2", priceHint: "Latest flagship quality, premium token cost" },
+  { value: "gpt-5.2-pro", label: "GPT-5.2 Pro", priceHint: "Highest precision, highest cost (availability-based)" },
+  { value: "gpt-5", label: "GPT-5", priceHint: "High-quality reasoning and coding" },
+  { value: "gpt-5-mini", label: "GPT-5 Mini", priceHint: "Lower-cost GPT-5 variant" },
+  { value: "gpt-5-nano", label: "GPT-5 Nano", priceHint: "Fastest and cheapest GPT-5 variant" },
+  { value: "gpt-4.1", label: "GPT-4.1", priceHint: "Balanced quality/cost" },
+  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini", priceHint: "Lower cost for routine tasks" },
+  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano", priceHint: "Most cost-efficient GPT-4.1 variant" },
+  { value: "gpt-4o", label: "GPT-4o", priceHint: "Strong multimodal quality" },
+  { value: "gpt-4o-mini", label: "GPT-4o Mini", priceHint: "Lightweight multimodal" },
+]
+const OPENAI_MODEL_PRICING_USD_PER_1M: Record<string, { input: number; output: number }> = {
+  "gpt-5.2": { input: 1.75, output: 14.0 },
+  "gpt-5.2-pro": { input: 12.0, output: 96.0 },
+  "gpt-5": { input: 1.25, output: 10.0 },
+  "gpt-5-mini": { input: 0.25, output: 2.0 },
+  "gpt-5-nano": { input: 0.05, output: 0.4 },
+  "gpt-4.1": { input: 2.0, output: 8.0 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
+  "gpt-4.1-nano": { input: 0.1, output: 0.4 },
+  "gpt-4o": { input: 5.0, output: 15.0 },
+  "gpt-4o-mini": { input: 0.6, output: 2.4 },
+}
+const OPENAI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = OPENAI_MODEL_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}))
+
+function estimateDailyCostRange(model: string): string {
+  const pricing = OPENAI_MODEL_PRICING_USD_PER_1M[model]
+  if (!pricing) return "N/A"
+  const estimate = (totalTokens: number) => {
+    const inputTokens = totalTokens / 2
+    const outputTokens = totalTokens / 2
+    return (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output
+  }
+  const min = estimate(20_000)
+  const max = estimate(40_000)
+  return `$${min.toFixed(2)}-$${max.toFixed(2)}/day`
+}
 const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
   telegram: {
     connected: true,
@@ -46,6 +89,14 @@ const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
   discord: {
     connected: false,
     webhookUrls: "",
+  },
+  openai: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4.1",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
   },
   updatedAt: "",
 }
@@ -59,25 +110,40 @@ export default function IntegrationsPage() {
   const [settings, setSettings] = useState<IntegrationsSettings>(INITIAL_INTEGRATIONS_SETTINGS)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [botToken, setBotToken] = useState("")
+  const [botTokenConfigured, setBotTokenConfigured] = useState(false)
+  const [botTokenMasked, setBotTokenMasked] = useState("")
   const [chatIds, setChatIds] = useState("")
   const [discordWebhookUrls, setDiscordWebhookUrls] = useState("")
-  const [showBotToken, setShowBotToken] = useState(false)
+  const [openaiApiKey, setOpenaiApiKey] = useState("")
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("https://api.openai.com/v1")
+  const [openaiDefaultModel, setOpenaiDefaultModel] = useState("gpt-4.1")
+  const [openaiApiKeyConfigured, setOpenaiApiKeyConfigured] = useState(false)
+  const [openaiApiKeyMasked, setOpenaiApiKeyMasked] = useState("")
+  const [showOpenAIApiKey, setShowOpenAIApiKey] = useState(false)
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord">("telegram")
-  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord">(null)
+  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai">("telegram")
+  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai">(null)
   const [saveStatus, setSaveStatus] = useState<null | { type: "success" | "error"; message: string }>(null)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
+  const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
     const local = loadIntegrationsSettings()
     setSettings(local)
     setBotToken(local.telegram.botToken)
+    setBotTokenConfigured(Boolean(local.telegram.botTokenConfigured))
+    setBotTokenMasked(local.telegram.botTokenMasked || "")
     setChatIds(local.telegram.chatIds)
     setDiscordWebhookUrls(local.discord.webhookUrls)
+    setOpenaiApiKey(local.openai.apiKey)
+    setOpenaiBaseUrl(local.openai.baseUrl)
+    setOpenaiDefaultModel(local.openai.defaultModel)
+    setOpenaiApiKeyConfigured(Boolean(local.openai.apiKeyConfigured))
+    setOpenaiApiKeyMasked(local.openai.apiKeyMasked || "")
 
     const cached = readShellUiCache()
     const loadedConversations = cached.conversations ?? loadConversations()
@@ -110,13 +176,23 @@ export default function IntegrationsPage() {
           const fallback = loadIntegrationsSettings()
           setSettings(fallback)
           setBotToken(fallback.telegram.botToken)
+          setBotTokenConfigured(Boolean(fallback.telegram.botTokenConfigured))
+          setBotTokenMasked(fallback.telegram.botTokenMasked || "")
           setChatIds(fallback.telegram.chatIds)
+          setDiscordWebhookUrls(fallback.discord.webhookUrls)
+          setOpenaiApiKey(fallback.openai.apiKey)
+          setOpenaiBaseUrl(fallback.openai.baseUrl)
+          setOpenaiDefaultModel(fallback.openai.defaultModel)
+          setOpenaiApiKeyConfigured(Boolean(fallback.openai.apiKeyConfigured))
+          setOpenaiApiKeyMasked(fallback.openai.apiKeyMasked || "")
           return
         }
         const normalized: IntegrationsSettings = {
           telegram: {
             connected: Boolean(config.telegram?.connected),
             botToken: config.telegram?.botToken || "",
+            botTokenConfigured: Boolean(config.telegram?.botTokenConfigured),
+            botTokenMasked: typeof config.telegram?.botTokenMasked === "string" ? config.telegram.botTokenMasked : "",
             chatIds: Array.isArray(config.telegram?.chatIds)
               ? config.telegram.chatIds.join(",")
               : typeof config.telegram?.chatIds === "string"
@@ -131,12 +207,27 @@ export default function IntegrationsPage() {
                 ? config.discord.webhookUrls
                 : "",
           },
+          openai: {
+            connected: Boolean(config.openai?.connected),
+            apiKey: config.openai?.apiKey || "",
+            baseUrl: config.openai?.baseUrl || "https://api.openai.com/v1",
+            defaultModel: config.openai?.defaultModel || "gpt-4.1",
+            apiKeyConfigured: Boolean(config.openai?.apiKeyConfigured),
+            apiKeyMasked: typeof config.openai?.apiKeyMasked === "string" ? config.openai.apiKeyMasked : "",
+          },
           updatedAt: config.updatedAt || new Date().toISOString(),
         }
         setSettings(normalized)
         setBotToken(normalized.telegram.botToken)
+        setBotTokenConfigured(Boolean(normalized.telegram.botTokenConfigured))
+        setBotTokenMasked(normalized.telegram.botTokenMasked || "")
         setChatIds(normalized.telegram.chatIds)
         setDiscordWebhookUrls(normalized.discord.webhookUrls)
+        setOpenaiApiKey(normalized.openai.apiKey)
+        setOpenaiBaseUrl(normalized.openai.baseUrl)
+        setOpenaiDefaultModel(normalized.openai.defaultModel)
+        setOpenaiApiKeyConfigured(Boolean(normalized.openai.apiKeyConfigured))
+        setOpenaiApiKeyMasked(normalized.openai.apiKeyMasked || "")
         saveIntegrationsSettings(normalized)
       })
       .catch(() => {
@@ -144,8 +235,15 @@ export default function IntegrationsPage() {
         const fallback = loadIntegrationsSettings()
         setSettings(fallback)
         setBotToken(fallback.telegram.botToken)
+        setBotTokenConfigured(Boolean(fallback.telegram.botTokenConfigured))
+        setBotTokenMasked(fallback.telegram.botTokenMasked || "")
         setChatIds(fallback.telegram.chatIds)
         setDiscordWebhookUrls(fallback.discord.webhookUrls)
+        setOpenaiApiKey(fallback.openai.apiKey)
+        setOpenaiBaseUrl(fallback.openai.baseUrl)
+        setOpenaiDefaultModel(fallback.openai.defaultModel)
+        setOpenaiApiKeyConfigured(Boolean(fallback.openai.apiKeyConfigured))
+        setOpenaiApiKeyMasked(fallback.openai.apiKeyMasked || "")
       })
 
     return () => {
@@ -264,6 +362,7 @@ export default function IntegrationsPage() {
     if (connectivitySectionRef.current) cleanups.push(setupSectionSpotlight(connectivitySectionRef.current))
     if (telegramSetupSectionRef.current) cleanups.push(setupSectionSpotlight(telegramSetupSectionRef.current))
     if (discordSetupSectionRef.current) cleanups.push(setupSectionSpotlight(discordSetupSectionRef.current))
+    if (openaiSetupSectionRef.current) cleanups.push(setupSectionSpotlight(openaiSetupSectionRef.current))
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [spotlightEnabled])
 
@@ -349,13 +448,54 @@ export default function IntegrationsPage() {
     }
   }, [settings])
 
+  const toggleOpenAI = useCallback(async () => {
+    const next = {
+      ...settings,
+      openai: {
+        ...settings.openai,
+        connected: !settings.openai.connected,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("openai")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openai: { connected: next.openai.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update OpenAI status")
+      setSaveStatus({
+        type: "success",
+        message: `OpenAI ${next.openai.connected ? "enabled" : "disabled"}.`,
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update OpenAI status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [settings])
+
   const saveTelegramConfig = useCallback(async () => {
+    const trimmedBotToken = botToken.trim()
+    const payloadTelegram: Record<string, string> = {
+      chatIds: chatIds.trim(),
+    }
+    if (trimmedBotToken) {
+      payloadTelegram.botToken = trimmedBotToken
+    }
     const next = {
       ...settings,
       telegram: {
         ...settings.telegram,
-        botToken: botToken.trim(),
-        chatIds: chatIds.trim(),
+        ...payloadTelegram,
       },
     }
     setSettings(next)
@@ -367,13 +507,16 @@ export default function IntegrationsPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          telegram: {
-            botToken: next.telegram.botToken,
-            chatIds: next.telegram.chatIds,
-          },
+          telegram: payloadTelegram,
         }),
       })
       if (!saveRes.ok) throw new Error("Failed to save Telegram configuration")
+      const savedData = await saveRes.json().catch(() => ({}))
+      const masked = typeof savedData?.config?.telegram?.botTokenMasked === "string" ? savedData.config.telegram.botTokenMasked : ""
+      const configured = Boolean(savedData?.config?.telegram?.botTokenConfigured) || trimmedBotToken.length > 0
+      setBotToken("")
+      setBotTokenMasked(masked)
+      setBotTokenConfigured(configured)
 
       const testRes = await fetch("/api/integrations/test-telegram", {
         method: "POST",
@@ -450,6 +593,70 @@ export default function IntegrationsPage() {
       setIsSavingTarget(null)
     }
   }, [discordWebhookUrls, settings])
+
+  const saveOpenAIConfig = useCallback(async () => {
+    const trimmedApiKey = openaiApiKey.trim()
+    const payloadOpenAI: Record<string, string> = {
+      baseUrl: openaiBaseUrl.trim() || "https://api.openai.com/v1",
+      defaultModel: openaiDefaultModel.trim() || "gpt-4.1",
+    }
+    if (trimmedApiKey) {
+      payloadOpenAI.apiKey = trimmedApiKey
+    }
+    const next = {
+      ...settings,
+      openai: {
+        ...settings.openai,
+        ...payloadOpenAI,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("openai")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openai: payloadOpenAI,
+        }),
+      })
+      if (!saveRes.ok) throw new Error("Failed to save OpenAI configuration")
+      const savedData = await saveRes.json().catch(() => ({}))
+      const masked = typeof savedData?.config?.openai?.apiKeyMasked === "string" ? savedData.config.openai.apiKeyMasked : ""
+      const configured = Boolean(savedData?.config?.openai?.apiKeyConfigured) || trimmedApiKey.length > 0
+      setOpenaiApiKey("")
+      setOpenaiApiKeyMasked(masked)
+      setOpenaiApiKeyConfigured(configured)
+
+      const modelRes = await fetch("/api/integrations/test-openai-model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: trimmedApiKey || undefined,
+          baseUrl: payloadOpenAI.baseUrl,
+          model: payloadOpenAI.defaultModel,
+        }),
+      })
+      const modelData = await modelRes.json().catch(() => ({}))
+      if (!modelRes.ok || !modelData?.ok) {
+        throw new Error(modelData?.error || "Saved, but selected model is unavailable.")
+      }
+
+      setSaveStatus({
+        type: "success",
+        message: `OpenAI saved and verified (${payloadOpenAI.defaultModel}).`,
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save OpenAI configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [openaiApiKey, openaiBaseUrl, openaiDefaultModel, settings])
 
   const persistConversations = useCallback((next: Conversation[]) => {
     setConversations(next)
@@ -594,7 +801,20 @@ export default function IntegrationsPage() {
                 >
                   <DiscordIcon className="w-3.5 h-3.5 text-white" />
                 </button>
-                {Array.from({ length: 22 }).map((_, index) => (
+                <button
+                  onClick={() => setActiveSetup("openai")}
+                  className={cn(
+                    "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    settings.openai.connected
+                      ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+                      : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    activeSetup === "openai" && "ring-1 ring-white/55",
+                  )}
+                  aria-label="Open OpenAI setup"
+                >
+                  <OpenAIIcon className="w-4 h-4" />
+                </button>
+                {Array.from({ length: 21 }).map((_, index) => (
                   <div
                     key={index}
                     className={cn(
@@ -606,27 +826,32 @@ export default function IntegrationsPage() {
               </div>
             </div>
 
-            <div className="mt-2 flex items-center gap-2">
-              <div
-                className={cn(
-                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
-                  settings.telegram.connected
-                    ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                    : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                )}
-              >
-                Telegram: {settings.telegram.connected ? "Connected" : "Disabled"}
-              </div>
-              <div
-                className={cn(
-                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
-                  settings.discord.connected
-                    ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                    : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                )}
-              >
-                Discord: {settings.discord.connected ? "Connected" : "Disabled"}
-              </div>
+            <div className={cn("mt-3 rounded-lg border overflow-hidden", isLight ? "border-[#d5dce8]" : "border-white/10")}>
+              {[
+                { name: "Telegram", active: settings.telegram.connected },
+                { name: "Discord", active: settings.discord.connected },
+                { name: "OpenAI", active: settings.openai.connected },
+              ].map((item) => (
+                <div
+                  key={item.name}
+                  className={cn(
+                    "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs",
+                    isLight ? "bg-[#f4f7fd] text-s-70 border-b border-[#dfe5ef] last:border-b-0" : "bg-black/20 text-slate-300 border-b border-white/8 last:border-b-0",
+                  )}
+                >
+                  <span className={cn("font-medium", isLight ? "text-s-90" : "text-slate-100")}>{item.name}</span>
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      item.active ? "bg-emerald-400" : "bg-rose-400",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className={cn(item.active ? "text-emerald-400" : "text-rose-400")}>
+                    {item.active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -690,12 +915,22 @@ export default function IntegrationsPage() {
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
                   <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Bot Token</p>
-                  <div className="relative">
+                  {botTokenConfigured && botTokenMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Token on server: <span className="font-mono">{botTokenMasked}</span>
+                    </p>
+                  )}
+                  <div>
                     <input
-                      type={showBotToken ? "text" : "password"}
+                      type="text"
                       value={botToken}
                       onChange={(e) => setBotToken(e.target.value)}
-                      placeholder="1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      placeholder={botTokenConfigured ? "Enter new bot token to replace current token" : "1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+                      name="telegram_bot_token"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
                       spellCheck={false}
                       autoCorrect="off"
                       autoCapitalize="none"
@@ -709,18 +944,6 @@ export default function IntegrationsPage() {
                           : "border-white/10 text-slate-100 placeholder:text-slate-500",
                       )}
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowBotToken((v) => !v)}
-                      className={cn(
-                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
-                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
-                      )}
-                      aria-label={showBotToken ? "Hide token" : "Show token"}
-                      title={showBotToken ? "Hide token" : "Show token"}
-                    >
-                      {showBotToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
                   </div>
                 </div>
 
@@ -861,6 +1084,160 @@ export default function IntegrationsPage() {
                       <li>3. Paste one or more URLs into <span className="font-mono">Webhook URLs</span>, then Save.</li>
                     </ol>
                   </div>
+                </div>
+              </div>
+            </section>
+            )}
+
+            {activeSetup === "openai" && (
+            <section ref={openaiSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 h-[620px] flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    OpenAI Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save your OpenAI credentials and model defaults for Nova API usage.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleOpenAI}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.openai.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.openai.connected ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={saveOpenAIConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "openai" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key</p>
+                  {openaiApiKeyConfigured && openaiApiKeyMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Key on server: <span className="font-mono">{openaiApiKeyMasked}</span>
+                    </p>
+                  )}
+                  <div className="relative">
+                    <input
+                      type={showOpenAIApiKey ? "text" : "password"}
+                      value={openaiApiKey}
+                      onChange={(e) => setOpenaiApiKey(e.target.value)}
+                      placeholder={
+                        openaiApiKeyConfigured
+                          ? ""
+                          : "sk-fake-dwehdwuieiw123456"
+                      }
+                      name="openai_api_key"
+                      autoComplete="new-password"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOpenAIApiKey((v) => !v)}
+                      className={cn(
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showOpenAIApiKey ? "Hide API key" : "Show API key"}
+                      title={showOpenAIApiKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showOpenAIApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Base URL</p>
+                  <input
+                    value={openaiBaseUrl}
+                    onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Keep <span className="font-mono">https://api.openai.com/v1</span> unless you are using a compatible proxy endpoint.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Default Model</p>
+                  <div className="grid grid-cols-[minmax(0,1fr)_130px] gap-2 items-stretch">
+                    <FluidSelect
+                      value={openaiDefaultModel}
+                      onChange={setOpenaiDefaultModel}
+                      options={OPENAI_MODEL_SELECT_OPTIONS}
+                      isLight={isLight}
+                    />
+                    <div
+                      className={cn(
+                        "h-9 rounded-md border px-2.5 flex items-center justify-end text-xs tabular-nums",
+                        isLight ? "border-[#d5dce8] bg-[#eef3fb] text-s-70" : "border-white/10 bg-black/20 text-slate-300",
+                      )}
+                      title="Estimated daily cost for 20k-40k total tokens/day (50/50 input/output)."
+                    >
+                      {estimateDailyCostRange(openaiDefaultModel)}
+                    </div>
+                  </div>
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    {
+                      OPENAI_MODEL_OPTIONS.find((option) => option.value === openaiDefaultModel)?.priceHint ??
+                      "Model pricing and output quality vary by selection."
+                    }
+                  </p>
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                    Est. uses 20k-40k total tokens/day at a 50/50 input-output split.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <ol className={cn("space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>1. Create an API key from your OpenAI dashboard.</li>
+                    <li>2. Paste your key into API Key, then save to verify.</li>
+                    <li>3. Choose a model from the dropdown; model choice affects quality and token cost.</li>
+                  </ol>
                 </div>
               </div>
             </section>

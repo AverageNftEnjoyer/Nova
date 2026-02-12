@@ -21,10 +21,60 @@ const __dirname = path.dirname(__filename);
 // ===== load shared .env from project root =====
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
-// ===== clients =====
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "integrations-config.json");
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
+const MODEL_PRICING_USD_PER_1M = {
+  "gpt-5.2": { input: 1.25, output: 10.0 },
+  "gpt-5.2-pro": { input: 12.0, output: 96.0 },
+  "gpt-5": { input: 1.25, output: 10.0 },
+  "gpt-5-mini": { input: 0.25, output: 2.0 },
+  "gpt-5-nano": { input: 0.05, output: 0.4 },
+  "gpt-4.1": { input: 2.0, output: 8.0 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
+  "gpt-4.1-nano": { input: 0.1, output: 0.4 },
+  "gpt-4o": { input: 5.0, output: 15.0 },
+  "gpt-4o-mini": { input: 0.6, output: 2.4 }
+};
+
+const openAiClientCache = new Map();
+
+function loadOpenAIIntegrationRuntime() {
+  try {
+    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
+    const apiKey = typeof integration.apiKey === "string" && integration.apiKey.trim()
+      ? integration.apiKey.trim()
+      : "";
+    const baseURL = typeof integration.baseUrl === "string" && integration.baseUrl.trim()
+      ? integration.baseUrl.trim()
+      : DEFAULT_OPENAI_BASE_URL;
+    const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
+      ? integration.defaultModel.trim()
+      : DEFAULT_CHAT_MODEL;
+
+    return { apiKey, baseURL, model };
+  } catch {
+    return { apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL };
+  }
+}
+
+function getOpenAIClient(runtime) {
+  const key = `${runtime.baseURL}|${runtime.apiKey}`;
+  if (openAiClientCache.has(key)) return openAiClientCache.get(key);
+  const client = new OpenAI({ apiKey: runtime.apiKey, baseURL: runtime.baseURL });
+  openAiClientCache.set(key, client);
+  return client;
+}
+
+function estimateTokenCostUsd(model, promptTokens = 0, completionTokens = 0) {
+  const pricing = MODEL_PRICING_USD_PER_1M[model];
+  if (!pricing) return null;
+  const inputCost = (promptTokens / 1_000_000) * pricing.input;
+  const outputCost = (completionTokens / 1_000_000) * pricing.output;
+  return Number((inputCost + outputCost).toFixed(6));
+}
 
 const fishAudio = new FishAudioClient({
   apiKey: process.env.FISH_API_KEY
@@ -163,6 +213,8 @@ function recordMic(seconds = 3) {
 
 // ===== STT =====
 async function transcribe() {
+  const runtime = loadOpenAIIntegrationRuntime();
+  const openai = getOpenAIClient(runtime);
   const r = await openai.audio.transcriptions.create({
     file: fs.createReadStream(MIC),
     model: "gpt-4o-transcribe"
@@ -244,6 +296,13 @@ const COMMAND_ACKS = [
 
 // ===== input handler =====
 async function handleInput(text, opts = {}) {
+  const runtime = loadOpenAIIntegrationRuntime();
+  if (!runtime.apiKey) {
+    throw new Error("Missing OpenAI API key. Configure OpenAI in Integrations.");
+  }
+  const openai = getOpenAIClient(runtime);
+  const selectedChatModel = runtime.model || DEFAULT_CHAT_MODEL;
+
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
   const source = opts.source || "hud";
@@ -269,7 +328,7 @@ async function handleInput(text, opts = {}) {
 
     // Ask GPT to extract the Spotify intent
     const spotifyParse = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
+      model: selectedChatModel,
       temperature: 0,
       max_tokens: 150,
       messages: [
@@ -360,13 +419,30 @@ Output ONLY valid JSON, nothing else.`
   ];
 
   const completion = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
+    model: selectedChatModel,
     messages,
     temperature: 0.75,
     max_tokens: 250
   });
 
   const reply = completion.choices[0].message.content.trim();
+  const promptTokens = completion.usage?.prompt_tokens || 0;
+  const completionTokens = completion.usage?.completion_tokens || 0;
+  const totalTokens = completion.usage?.total_tokens || (promptTokens + completionTokens);
+  const estimatedCostUsd = estimateTokenCostUsd(selectedChatModel, promptTokens, completionTokens);
+  console.log(
+    `[LLM] model=${selectedChatModel} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}` +
+    `${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`
+  );
+  broadcast({
+    type: "usage",
+    model: selectedChatModel,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    estimatedCostUsd,
+    ts: Date.now()
+  });
 
   broadcastMessage("assistant", reply, source);
 
@@ -377,7 +453,7 @@ Output ONLY valid JSON, nothing else.`
   }
 
   // Extract facts in the background (don't block) - saves to disk, not RAM
-  extractFacts(openai, text, reply).catch(() => {});
+  extractFacts(openai, text, reply, selectedChatModel).catch(() => {});
 }
 
 // ===== System metrics broadcast =====
