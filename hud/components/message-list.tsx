@@ -38,33 +38,29 @@ export function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const rafRef = useRef<number | null>(null)
-  const [hasAnimated, setHasAnimated] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const lastScrollRef = useRef<number>(0)
   const hasPlayedIntroRef = useRef(false)
   const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
+  const hasAnimated = isLoaded && messages.length === 0
 
   const scrollToBottom = () => {
     if (!containerRef.current) return
     const container = containerRef.current
     container.scrollTop = container.scrollHeight
-    setAutoScroll(true)
   }
 
   useEffect(() => {
     if (!isLoaded) return
 
     if (messages.length === 0 && !hasPlayedIntroRef.current) {
-      setHasAnimated(true)
       hasPlayedIntroRef.current = true
-
       if (loadUserSettings().app.soundEnabled) {
         audioRef.current = new Audio(LAUNCH_SOUND_URL)
         audioRef.current.volume = 0.5
         audioRef.current.play().catch(() => {})
       }
     } else if (messages.length > 0) {
-      setHasAnimated(false)
       hasPlayedIntroRef.current = true
     }
 

@@ -35,15 +35,15 @@ export function stopBootMusic() {
 export function playBootMusic(
   src: string,
   opts?: { maxSeconds?: number; volume?: number; objectUrl?: string | null },
-) {
-  if (typeof window === "undefined" || !src) return
+): Promise<boolean> {
+  if (typeof window === "undefined" || !src) return Promise.resolve(false)
 
   const maxSeconds = opts?.maxSeconds ?? MAX_SECONDS_DEFAULT
   const volume = opts?.volume ?? VOLUME_DEFAULT
   const objectUrl = opts?.objectUrl ?? null
 
   if (activeAudio && activeSrc === src && !activeAudio.paused) {
-    return
+    return Promise.resolve(true)
   }
 
   stopBootMusic()
@@ -70,6 +70,14 @@ export function playBootMusic(
   audio.addEventListener("timeupdate", stopAtLimit)
   audio.addEventListener("loadedmetadata", scheduleStop)
   audio.addEventListener("ended", () => stopBootMusic())
-  audio.play().catch(() => {})
+  const playResult = audio.play()
+  if (playResult && typeof playResult.then === "function") {
+    return playResult
+      .then(() => true)
+      .catch(() => {
+        stopBootMusic()
+        return false
+      })
+  }
+  return Promise.resolve(true)
 }
-

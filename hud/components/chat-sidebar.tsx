@@ -192,18 +192,15 @@ export function ChatSidebar({
   }, [spotlightActive])
 
   useEffect(() => {
-    setUserSettings(loadUserSettings())
-  }, [])
-
-  useEffect(() => {
     const refresh = () => setUserSettings(loadUserSettings())
+    refresh()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
   }, [])
 
   useEffect(() => {
     if (!settingsOpen) {
-      setUserSettings(loadUserSettings())
+      setUserSettings(loadUserSettings()) // eslint-disable-line react-hooks/set-state-in-effect
     }
   }, [settingsOpen])
 
@@ -463,6 +460,7 @@ export function ChatSidebar({
           >
             <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden", "border border-white/15 bg-white/5")}>
               {profile?.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={profile.avatar} alt="Profile" className="w-full h-full object-cover" />
               ) : (
                 <User className="w-4 h-4 text-s-80" />

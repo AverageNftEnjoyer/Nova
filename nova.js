@@ -114,6 +114,7 @@ for ($i = 0; $i -lt 20; $i++) {
   if ($procs -and $procs.Count -gt 0) {
     $p = $procs | Select-Object -First 1
     [Win32]::MoveWindow($p.MainWindowHandle, ${x}, ${y}, ${width}, ${height}, $true)
+    # SW_MAXIMIZE = 3
     [Win32]::ShowWindow($p.MainWindowHandle, 3)
     [Win32]::SetForegroundWindow($p.MainWindowHandle)
     $found = $true
@@ -179,15 +180,31 @@ hud.stdout.on("data", (chunk) => {
   if (chunk.toString().includes("Ready") && !hudOpened) {
     hudOpened = true;
 
-    // Launch Edge in app mode with explicit fullscreen size
+    // Launch Edge in app mode with aggressive fullscreen + autoplay flags.
     const { x, y, width, height } = primaryMonitor;
-    exec(`start msedge.exe --app=http://localhost:3000/boot-right --window-position=${x},${y} --window-size=${width},${height}`);
+    exec(
+      `start "" msedge.exe ` +
+      `--new-window ` +
+      `--app=http://localhost:3000/boot-right ` +
+      `--start-fullscreen ` +
+      `--window-position=${x},${y} ` +
+      `--window-size=${width},${height} ` +
+      `--autoplay-policy=no-user-gesture-required ` +
+      `--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies`
+    );
     console.log("[Nova] Opening Nova app on primary monitor");
 
-    // Force maximize after launch
+    // Force monitor placement + maximize after launch (two passes for reliability).
     setTimeout(() => {
       moveWindowToMonitor("localhost:3000", primaryMonitor);
+      moveWindowToMonitor("boot-right", primaryMonitor);
+      moveWindowToMonitor("NOVA", primaryMonitor);
     }, 2000);
+    setTimeout(() => {
+      moveWindowToMonitor("localhost:3000", primaryMonitor);
+      moveWindowToMonitor("boot-right", primaryMonitor);
+      moveWindowToMonitor("NOVA", primaryMonitor);
+    }, 5000);
 
     console.log("[Nova] Nova launched as standalone app.");
   }

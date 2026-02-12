@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { MessageSquare, Trash2, Clock, ChevronRight, Plus, PanelLeftOpen, PanelLeftClose } from "lucide-react"
 import { loadConversations, saveConversations, setActiveId, createConversation, type Conversation } from "@/lib/conversations"
 import { AnimatedOrb } from "@/components/animated-orb"
@@ -25,18 +26,19 @@ function formatTime(iso: string): string {
 }
 
 export default function HistoryPage() {
+  const router = useRouter()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loaded, setLoaded] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
-    setConversations(loadConversations())
+    setConversations(loadConversations()) // eslint-disable-line react-hooks/set-state-in-effect
     setLoaded(true)
   }, [])
 
   const handleOpen = (convo: Conversation) => {
     setActiveId(convo.id)
-    window.location.href = "/chat"
+    router.push("/chat")
   }
 
   const handleDelete = useCallback((id: string) => {
@@ -75,13 +77,13 @@ export default function HistoryPage() {
     setConversations(convos)
     saveConversations(convos)
     setActiveId(fresh.id)
-    window.location.href = "/chat"
-  }, [conversations])
+    router.push("/chat")
+  }, [conversations, router])
 
   const handleSelectConvo = useCallback((id: string) => {
     setActiveId(id)
-    window.location.href = "/chat"
-  }, [])
+    router.push("/chat")
+  }, [router])
 
   const nonEmpty = conversations.filter((c) => c.messages.length > 0)
   const grouped = groupByDate(nonEmpty)

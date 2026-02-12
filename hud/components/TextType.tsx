@@ -1,6 +1,6 @@
 'use client';
 
-import { ElementType, useEffect, useRef, useState, createElement, useMemo, useCallback } from 'react';
+import { useEffect, useRef, useState, createElement, useMemo, useCallback } from 'react';
 import { gsap } from 'gsap';
 import './TextType.css';
 
@@ -12,7 +12,7 @@ interface TextTypeProps {
   cursorBlinkDuration?: number;
   cursorClassName?: string;
   text: string | string[];
-  as?: ElementType;
+  as?: keyof React.JSX.IntrinsicElements;
   typingSpeed?: number;
   initialDelay?: number;
   pauseDuration?: number;
@@ -52,7 +52,7 @@ const TextType = ({
   const [currentTextIndex, setCurrentTextIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(!startOnVisible);
   const cursorRef = useRef<HTMLSpanElement>(null);
-  const containerRef = useRef<HTMLElement>(null);
+  const containerRef = useRef<HTMLSpanElement>(null);
 
   const textArray = useMemo(() => (Array.isArray(text) ? text : [text]), [text]);
 
@@ -165,7 +165,8 @@ const TextType = ({
     isVisible,
     reverseMode,
     variableSpeed,
-    onSentenceComplete
+    onSentenceComplete,
+    getRandomSpeed
   ]);
 
   const shouldHideCursor =
@@ -174,11 +175,10 @@ const TextType = ({
   return createElement(
     Component,
     {
-      ref: containerRef,
       className: `text-type ${className}`,
       ...props
     },
-    <span className="text-type__content" style={{ color: getCurrentTextColor() || 'inherit' }}>
+    <span ref={containerRef} className="text-type__content" style={{ color: getCurrentTextColor() || 'inherit' }}>
       {displayedText}
     </span>,
     showCursor && (

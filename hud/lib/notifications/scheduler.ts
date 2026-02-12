@@ -1,7 +1,7 @@
 import "server-only"
 
 import { loadSchedules, parseDailyTime, saveSchedules, type NotificationSchedule } from "@/lib/notifications/store"
-import { sendTelegramMessage } from "@/lib/notifications/telegram"
+import { dispatchNotification } from "@/lib/notifications/dispatcher"
 
 type SchedulerState = {
   timer: NodeJS.Timeout | null
@@ -61,6 +61,11 @@ async function runScheduleTick() {
   const nextSchedules: NotificationSchedule[] = []
 
   for (const schedule of schedules) {
+    if (schedule.integration !== "telegram" && schedule.integration !== "discord") {
+      nextSchedules.push(schedule)
+      continue
+    }
+
     if (!schedule.enabled) {
       nextSchedules.push(schedule)
       continue
@@ -84,10 +89,19 @@ async function runScheduleTick() {
       continue
     }
 
-    const sendResults = await sendTelegramMessage({
-      text: schedule.message,
-      chatIds: schedule.chatIds,
-    })
+    let sendResults: Array<{ ok: boolean }>
+    try {
+      sendResults = await dispatchNotification({
+        integration: schedule.integration,
+        text: schedule.message,
+        targets: schedule.chatIds,
+        source: "scheduler",
+        scheduleId: schedule.id,
+        label: schedule.label,
+      })
+    } catch {
+      sendResults = [{ ok: false }]
+    }
 
     const hadSuccess = sendResults.some((r) => r.ok)
     const updated: NotificationSchedule = {

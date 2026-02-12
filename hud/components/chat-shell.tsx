@@ -61,9 +61,8 @@ export function ChatShell() {
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [background, setBackground] = useState<BackgroundType>("default")
-  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [orbColor, setOrbColor] = useState<OrbColor>(() => loadUserSettings().app.orbColor)
+  const [background, setBackground] = useState<BackgroundType>(() => loadUserSettings().app.background || "default")
   const { state: novaState, connected: agentConnected, agentMessages, sendToAgent, clearAgentMessages } = useNovaState()
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
@@ -76,12 +75,11 @@ export function ChatShell() {
   // Load conversations and muted state on mount
   useEffect(() => {
     const convos = loadConversations()
-    setConversations(convos)
+    setConversations(convos) // eslint-disable-line react-hooks/set-state-in-effect
 
     const settings = loadUserSettings()
     setOrbColor(settings.app.orbColor)
     setBackground(settings.app.background || "default")
-    setSettingsLoaded(true)
 
     const activeId = getActiveId()
     const found = convos.find((c) => c.id === activeId)
@@ -148,7 +146,7 @@ export function ChatShell() {
 
     const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
     persist(convos, updated)
-  }, [agentMessages])
+  }, [agentMessages]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Convert ChatMessage[] to Message[] for MessageList
   const displayMessages: Message[] = activeConvo
@@ -169,7 +167,7 @@ export function ChatShell() {
   // This keeps the thinking animation visible through the full OpenAI response time
   useEffect(() => {
     if (novaState === "speaking") {
-      setLocalThinking(false)
+      setLocalThinking(false) // eslint-disable-line react-hooks/set-state-in-effect
     }
   }, [novaState])
 
@@ -177,7 +175,7 @@ export function ChatShell() {
   useEffect(() => {
     const last = agentMessages[agentMessages.length - 1]
     if (last?.role === "assistant" && last.content.trim().length > 0) {
-      setLocalThinking(false)
+      setLocalThinking(false) // eslint-disable-line react-hooks/set-state-in-effect
     }
   }, [agentMessages])
 
@@ -300,7 +298,7 @@ export function ChatShell() {
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-page">
-      {settingsLoaded && background === "default" && (
+      {background === "default" && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute inset-0 opacity-30">
             <FloatingLines

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react"
+import NextImage from "next/image"
 import {
   X,
   User,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/userSettings"
 
 const ACCESS_TIERS: AccessTier[] = ["Core Access", "Developer", "Admin", "Operator"]
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 
 // Play click sound for settings interactions (respects soundEnabled setting)
 function playClickSound() {
@@ -110,19 +112,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setSettings(fresh)
   }, [])
 
-  const updateProfile = (key: string, value: string | null) => {
+  const updateProfile = useCallback((key: string, value: string | null) => {
     if (!settings) return
     const newSettings = {
       ...settings,
       profile: { ...settings.profile, [key]: value },
     }
     autoSave(newSettings)
-  }
+  }, [settings, autoSave])
 
   const CROP_FRAME = 240
   const EXPORT_SIZE = 320
-  const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
-
   const getBaseScale = useCallback(
     (size: { width: number; height: number } | null) => {
       if (!size) return 1
@@ -223,7 +223,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setImageSize(null)
     setCropZoom(1)
     setCropOffset({ x: 0, y: 0 })
-  }, [cropOffset.x, cropOffset.y, cropSource, cropZoom, getBaseScale, imageSize])
+  }, [cropOffset.x, cropOffset.y, cropSource, cropZoom, getBaseScale, imageSize, updateProfile])
 
   const updateApp = (key: string, value: boolean | string | null) => {
     if (!settings) return
@@ -318,11 +318,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       cards.forEach((card) => {
         const cardRect = card.getBoundingClientRect()
-        const isInsideCard =
-          e.clientX >= cardRect.left &&
-          e.clientX <= cardRect.right &&
-          e.clientY >= cardRect.top &&
-          e.clientY <= cardRect.bottom
         const centerX = cardRect.left + cardRect.width / 2
         const centerY = cardRect.top + cardRect.height / 2
         const distance =
@@ -465,9 +460,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         }}
                       >
                         {settings.profile.avatar ? (
-                          <img
+                          <NextImage
                             src={settings.profile.avatar}
                             alt="Avatar"
+                            width={56}
+                            height={56}
+                            unoptimized
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -686,7 +684,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     {/* TTS Voice Selection */}
                     <div className="fx-spotlight-card fx-border-glow fx-spotlight-card--hover p-4 rounded-xl bg-[var(--settings-card-bg)] border border-[var(--settings-border)] transition-colors duration-150 hover:bg-[var(--settings-card-hover)]">
                       <p className="text-sm text-s-70 mb-1">TTS Voice</p>
-                      <p className="text-xs text-s-30 mb-3">Choose Nova's speaking voice</p>
+                      <p className="text-xs text-s-30 mb-3">Choose Nova&apos;s speaking voice</p>
                       <div className="space-y-2">
                         {TTS_VOICES.map((voice) => {
                           const isSelected = settings.app.ttsVoice === voice.id
@@ -1025,9 +1023,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 }}
                 onPointerCancel={() => setDragStart(null)}
               >
-                <img
+                <NextImage
                   src={cropSource}
                   alt="Crop preview"
+                  width={imageSize.width}
+                  height={imageSize.height}
+                  unoptimized
                   draggable={false}
                   className="absolute left-1/2 top-1/2 select-none"
                   style={{

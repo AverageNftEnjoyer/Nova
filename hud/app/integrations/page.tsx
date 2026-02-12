@@ -1,13 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Blocks, Save, Send, Eye, EyeOff } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type BackgroundType, type OrbColor } from "@/lib/userSettings"
-import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations"
+import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { useNovaState } from "@/lib/useNovaState"
 import {
@@ -17,6 +17,8 @@ import {
   type Conversation,
 } from "@/lib/conversations"
 import FloatingLines from "@/components/FloatingLines"
+import { DiscordIcon } from "@/components/discord-icon"
+import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import "@/components/FloatingLines.css"
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -35,6 +37,18 @@ const FLOATING_LINES_LINE_DISTANCE: number[] = [5, 5, 5]
 const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
 const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
 const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
+const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
+  telegram: {
+    connected: true,
+    botToken: "",
+    chatIds: "",
+  },
+  discord: {
+    connected: false,
+    webhookUrls: "",
+  },
+  updatedAt: "",
+}
 
 export default function IntegrationsPage() {
   const router = useRouter()
@@ -42,26 +56,63 @@ export default function IntegrationsPage() {
   const isLight = theme === "light"
   const { state: novaState, connected: agentConnected } = useNovaState()
 
-  const [settings, setSettings] = useState<IntegrationsSettings | null>(null)
+  const [settings, setSettings] = useState<IntegrationsSettings>(INITIAL_INTEGRATIONS_SETTINGS)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [botToken, setBotToken] = useState("")
   const [chatIds, setChatIds] = useState("")
+  const [discordWebhookUrls, setDiscordWebhookUrls] = useState("")
   const [showBotToken, setShowBotToken] = useState(false)
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [settingsLoaded, setSettingsLoaded] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
+  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord">("telegram")
+  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord">(null)
   const [saveStatus, setSaveStatus] = useState<null | { type: "success" | "error"; message: string }>(null)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
-  const setupSectionRef = useRef<HTMLElement | null>(null)
+  const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
+  const discordSetupSectionRef = useRef<HTMLElement | null>(null)
+
+  useLayoutEffect(() => {
+    const local = loadIntegrationsSettings()
+    setSettings(local)
+    setBotToken(local.telegram.botToken)
+    setChatIds(local.telegram.chatIds)
+    setDiscordWebhookUrls(local.discord.webhookUrls)
+
+    const cached = readShellUiCache()
+    const loadedConversations = cached.conversations ?? loadConversations()
+    setConversations(loadedConversations)
+    writeShellUiCache({ conversations: loadedConversations })
+
+    const userSettings = loadUserSettings()
+    const nextOrbColor = cached.orbColor ?? userSettings.app.orbColor
+    const nextBackground = cached.background ?? (userSettings.app.background || "default")
+    const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
+    setOrbColor(nextOrbColor)
+    setBackground(nextBackground)
+    setSpotlightEnabled(nextSpotlight)
+    writeShellUiCache({
+      orbColor: nextOrbColor,
+      background: nextBackground,
+      spotlightEnabled: nextSpotlight,
+    })
+  }, [])
 
   useEffect(() => {
+    let cancelled = false
+
     fetch("/api/integrations/config", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
+        if (cancelled) return
         const config = data?.config as IntegrationsSettings | undefined
-        if (!config) return
+        if (!config) {
+          const fallback = loadIntegrationsSettings()
+          setSettings(fallback)
+          setBotToken(fallback.telegram.botToken)
+          setChatIds(fallback.telegram.chatIds)
+          return
+        }
         const normalized: IntegrationsSettings = {
           telegram: {
             connected: Boolean(config.telegram?.connected),
@@ -72,22 +123,34 @@ export default function IntegrationsPage() {
                 ? config.telegram.chatIds
                 : "",
           },
+          discord: {
+            connected: Boolean(config.discord?.connected),
+            webhookUrls: Array.isArray(config.discord?.webhookUrls)
+              ? config.discord.webhookUrls.join(",")
+              : typeof config.discord?.webhookUrls === "string"
+                ? config.discord.webhookUrls
+                : "",
+          },
           updatedAt: config.updatedAt || new Date().toISOString(),
         }
         setSettings(normalized)
         setBotToken(normalized.telegram.botToken)
         setChatIds(normalized.telegram.chatIds)
+        setDiscordWebhookUrls(normalized.discord.webhookUrls)
         saveIntegrationsSettings(normalized)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (cancelled) return
+        const fallback = loadIntegrationsSettings()
+        setSettings(fallback)
+        setBotToken(fallback.telegram.botToken)
+        setChatIds(fallback.telegram.chatIds)
+        setDiscordWebhookUrls(fallback.discord.webhookUrls)
+      })
 
-    setConversations(loadConversations())
-
-    const userSettings = loadUserSettings()
-    setOrbColor(userSettings.app.orbColor)
-    setBackground(userSettings.app.background || "default")
-    setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
-    setSettingsLoaded(true)
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -96,6 +159,11 @@ export default function IntegrationsPage() {
       setOrbColor(userSettings.app.orbColor)
       setBackground(userSettings.app.background || "default")
       setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
+      writeShellUiCache({
+        orbColor: userSettings.app.orbColor,
+        background: userSettings.app.background || "default",
+        spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
+      })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
@@ -194,7 +262,8 @@ export default function IntegrationsPage() {
 
     const cleanups: Array<() => void> = []
     if (connectivitySectionRef.current) cleanups.push(setupSectionSpotlight(connectivitySectionRef.current))
-    if (setupSectionRef.current) cleanups.push(setupSectionSpotlight(setupSectionRef.current))
+    if (telegramSetupSectionRef.current) cleanups.push(setupSectionSpotlight(telegramSetupSectionRef.current))
+    if (discordSetupSectionRef.current) cleanups.push(setupSectionSpotlight(discordSetupSectionRef.current))
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [spotlightEnabled])
 
@@ -211,7 +280,6 @@ export default function IntegrationsPage() {
   const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
 
   const toggleTelegram = useCallback(async () => {
-    if (!settings) return
     const next = {
       ...settings,
       telegram: {
@@ -222,7 +290,7 @@ export default function IntegrationsPage() {
     setSettings(next)
     saveIntegrationsSettings(next)
     setSaveStatus(null)
-    setIsSaving(true)
+    setIsSavingTarget("telegram")
     try {
       const res = await fetch("/api/integrations/config", {
         method: "PATCH",
@@ -242,12 +310,46 @@ export default function IntegrationsPage() {
         message: "Failed to update Telegram status. Try again.",
       })
     } finally {
-      setIsSaving(false)
+      setIsSavingTarget(null)
+    }
+  }, [settings])
+
+  const toggleDiscord = useCallback(async () => {
+    const next = {
+      ...settings,
+      discord: {
+        ...settings.discord,
+        connected: !settings.discord.connected,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("discord")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discord: { connected: next.discord.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update Discord status")
+      setSaveStatus({
+        type: "success",
+        message: `Discord ${next.discord.connected ? "enabled" : "disabled"}.`,
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update Discord status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
     }
   }, [settings])
 
   const saveTelegramConfig = useCallback(async () => {
-    if (!settings) return
     const next = {
       ...settings,
       telegram: {
@@ -259,7 +361,7 @@ export default function IntegrationsPage() {
     setSettings(next)
     saveIntegrationsSettings(next)
     setSaveStatus(null)
-    setIsSaving(true)
+    setIsSavingTarget("telegram")
     try {
       const saveRes = await fetch("/api/integrations/config", {
         method: "PATCH",
@@ -295,13 +397,64 @@ export default function IntegrationsPage() {
         message: error instanceof Error ? error.message : "Could not save Telegram configuration.",
       })
     } finally {
-      setIsSaving(false)
+      setIsSavingTarget(null)
     }
   }, [botToken, chatIds, settings])
+
+  const saveDiscordConfig = useCallback(async () => {
+    const next = {
+      ...settings,
+      discord: {
+        ...settings.discord,
+        webhookUrls: discordWebhookUrls.trim(),
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("discord")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          discord: {
+            webhookUrls: next.discord.webhookUrls,
+          },
+        }),
+      })
+      if (!saveRes.ok) throw new Error("Failed to save Discord configuration")
+
+      const testRes = await fetch("/api/integrations/test-discord", {
+        method: "POST",
+      })
+      const testData = await testRes.json().catch(() => ({}))
+      if (!testRes.ok || !testData?.ok) {
+        const fallbackResultError =
+          Array.isArray(testData?.results) && testData.results.length > 0
+            ? testData.results.find((r: { ok?: boolean; error?: string }) => !r?.ok)?.error
+            : undefined
+        throw new Error(testData?.error || fallbackResultError || "Saved, but Discord verification failed.")
+      }
+
+      setSaveStatus({
+        type: "success",
+        message: "Discord saved and verified.",
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save Discord configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [discordWebhookUrls, settings])
 
   const persistConversations = useCallback((next: Conversation[]) => {
     setConversations(next)
     saveConversations(next)
+    writeShellUiCache({ conversations: next })
   }, [])
 
   const handleSelectConvo = useCallback(
@@ -355,7 +508,7 @@ export default function IntegrationsPage() {
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {settingsLoaded && background === "default" && (
+      {background === "default" && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute inset-0 opacity-30">
             <FloatingLines
@@ -416,18 +569,32 @@ export default function IntegrationsPage() {
             <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
               <div className="grid grid-cols-6 gap-1">
                 <button
-                  onClick={toggleTelegram}
+                  onClick={() => setActiveSetup("telegram")}
                   className={cn(
                     "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    settings?.telegram.connected
+                    settings.telegram.connected
                       ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
                       : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    activeSetup === "telegram" && "ring-1 ring-white/55",
                   )}
-                  aria-label={settings?.telegram.connected ? "Disable Telegram integration" : "Enable Telegram integration"}
+                  aria-label="Open Telegram setup"
                 >
                   <Send className="w-3.5 h-3.5" />
                 </button>
-                {Array.from({ length: 23 }).map((_, index) => (
+                <button
+                  onClick={() => setActiveSetup("discord")}
+                  className={cn(
+                    "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    settings.discord.connected
+                      ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+                      : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    activeSetup === "discord" && "ring-1 ring-white/55",
+                  )}
+                  aria-label="Open Discord setup"
+                >
+                  <DiscordIcon className="w-3.5 h-3.5 text-white" />
+                </button>
+                {Array.from({ length: 22 }).map((_, index) => (
                   <div
                     key={index}
                     className={cn(
@@ -439,63 +606,130 @@ export default function IntegrationsPage() {
               </div>
             </div>
 
-            <p className={cn("mt-2 text-xs", isLight ? "text-s-60" : "text-slate-300")}>
-              <span className={settings?.telegram.connected ? "text-emerald-300" : "text-rose-300"}>
-                {settings?.telegram.connected ? "Telegram Connected" : "Telegram Disabled"}
-              </span>
-            </p>
-          </section>
-
-          <section ref={setupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4`}>
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
-                  Telegram Setup
-                </h2>
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                  Save API keys and destination IDs used by integration workflows.
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={saveTelegramConfig}
-                  disabled={isSaving}
-                  className={cn(
-                    "h-9 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-2 disabled:opacity-60",
-                  )}
-                >
-                  <Save className="w-4 h-4" />
-                  {isSaving ? "Saving & Verifying..." : "Save"}
-                </button>
-              </div>
-            </div>
-
-            {saveStatus && (
-              <p
+            <div className="mt-2 flex items-center gap-2">
+              <div
                 className={cn(
-                  "mt-2 text-xs",
-                  saveStatus.type === "success"
-                    ? isLight
-                      ? "text-emerald-700"
-                      : "text-emerald-300"
-                    : isLight
-                      ? "text-rose-700"
-                      : "text-rose-300",
+                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                  settings.telegram.connected
+                    ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                    : "border-rose-300/40 bg-rose-500/15 text-rose-300",
                 )}
               >
-                {saveStatus.message}
-              </p>
-            )}
+                Telegram: {settings.telegram.connected ? "Connected" : "Disabled"}
+              </div>
+              <div
+                className={cn(
+                  "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                  settings.discord.connected
+                    ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                    : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                )}
+              >
+                Discord: {settings.discord.connected ? "Connected" : "Disabled"}
+              </div>
+            </div>
+          </section>
 
-            <div className="mt-4 space-y-3">
-              <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
-                <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Bot Token</p>
-                <div className="relative">
+          <div className="space-y-4">
+            <div className="min-h-8">
+              {saveStatus && (
+                <div
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs",
+                    saveStatus.type === "success"
+                      ? isLight
+                        ? "border-emerald-300/40 bg-emerald-500/12 text-emerald-700"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                      : isLight
+                        ? "border-rose-300/40 bg-rose-500/12 text-rose-700"
+                        : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                  )}
+                >
+                  {saveStatus.message}
+                </div>
+              )}
+            </div>
+
+            {activeSetup === "telegram" && (
+            <section ref={telegramSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 h-[620px] flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Telegram Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save Telegram credentials and destination IDs for workflows.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleTelegram}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.telegram.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.telegram.connected ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={saveTelegramConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "telegram" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Bot Token</p>
+                  <div className="relative">
+                    <input
+                      type={showBotToken ? "text" : "password"}
+                      value={botToken}
+                      onChange={(e) => setBotToken(e.target.value)}
+                      placeholder="1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowBotToken((v) => !v)}
+                      className={cn(
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showBotToken ? "Hide token" : "Show token"}
+                      title={showBotToken ? "Hide token" : "Show token"}
+                    >
+                      {showBotToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Chat IDs</p>
                   <input
-                    type={showBotToken ? "text" : "password"}
-                    value={botToken}
-                    onChange={(e) => setBotToken(e.target.value)}
-                    placeholder="1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    value={chatIds}
+                    onChange={(e) => setChatIds(e.target.value)}
+                    placeholder="123456789,-100987654321"
                     spellCheck={false}
                     autoCorrect="off"
                     autoCapitalize="none"
@@ -503,85 +737,135 @@ export default function IntegrationsPage() {
                     data-gramm_editor="false"
                     data-enable-grammarly="false"
                     className={cn(
-                      "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
                       isLight
                         ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
                         : "border-white/10 text-slate-100 placeholder:text-slate-500",
                     )}
                   />
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Use comma-separated IDs for multi-device delivery targets.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <div className="space-y-2">
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Telegram Bot Token</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Open Telegram and message <span className="font-mono">@BotFather</span>.</li>
+                        <li>2. Run <span className="font-mono">/newbot</span> (or <span className="font-mono">/token</span> for existing bot).</li>
+                        <li>3. Copy the token and paste it into <span className="font-mono">Bot Token</span> above.</li>
+                      </ol>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Telegram Chat ID</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Open your bot chat, press <span className="font-mono">Start</span>, send <span className="font-mono">hello</span>.</li>
+                        <li>2. Open <span className="font-mono">/getUpdates</span> with your bot token.</li>
+                        <li>3. Copy <span className="font-mono">message.chat.id</span> into <span className="font-mono">Chat IDs</span>.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            )}
+
+            {activeSetup === "discord" && (
+            <section ref={discordSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 h-[620px] flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Discord Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save Discord webhooks for mission and notification delivery.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
-                    type="button"
-                    onClick={() => setShowBotToken((v) => !v)}
+                    onClick={toggleDiscord}
+                    disabled={isSavingTarget !== null}
                     className={cn(
-                      "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
-                      isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.discord.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
                     )}
-                    aria-label={showBotToken ? "Hide token" : "Show token"}
-                    title={showBotToken ? "Hide token" : "Show token"}
                   >
-                    {showBotToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {settings.discord.connected ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={saveDiscordConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "discord" ? "Saving..." : "Save"}
                   </button>
                 </div>
               </div>
 
-              <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
-                <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Chat IDs</p>
-                <input
-                  value={chatIds}
-                  onChange={(e) => setChatIds(e.target.value)}
-                  placeholder="123456789,-100987654321"
-                  spellCheck={false}
-                  autoCorrect="off"
-                  autoCapitalize="none"
-                  data-gramm="false"
-                  data-gramm_editor="false"
-                  data-enable-grammarly="false"
-                  className={cn(
-                    "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
-                    isLight
-                      ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
-                      : "border-white/10 text-slate-100 placeholder:text-slate-500",
-                  )}
-                />
-                <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                  Use comma-separated IDs for multi-device delivery targets.
-                </p>
-              </div>
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Webhook URLs</p>
+                  <input
+                    value={discordWebhookUrls}
+                    onChange={(e) => setDiscordWebhookUrls(e.target.value)}
+                    placeholder="https://discord.com/api/webhooks/... , https://discord.com/api/webhooks/..."
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Use comma-separated webhook URLs for multi-channel delivery.
+                  </p>
+                </div>
 
-              <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
-                <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
-                <div className="space-y-2">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
                   <div
                     className={cn(
                       "rounded-md border p-2.5 home-spotlight-card home-border-glow home-spotlight-card--hover",
                       isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
                     )}
                   >
-                    <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Telegram Bot Token</p>
+                    <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Discord Webhook URL</p>
                     <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
-                      <li>1. Open Telegram and message <span className="font-mono">@BotFather</span>.</li>
-                      <li>2. Run <span className="font-mono">/newbot</span> (or <span className="font-mono">/token</span> for existing bot).</li>
-                      <li>3. Copy the token and paste it into <span className="font-mono">Bot Token</span> above.</li>
-                    </ol>
-                  </div>
-
-                  <div
-                    className={cn(
-                      "rounded-md border p-2.5 home-spotlight-card home-border-glow home-spotlight-card--hover",
-                      isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
-                    )}
-                  >
-                    <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Telegram Chat ID</p>
-                    <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
-                      <li>1. Open your bot chat, press <span className="font-mono">Start</span>, send <span className="font-mono">hello</span>.</li>
-                      <li>2. Open <span className="font-mono">/getUpdates</span> with your bot token.</li>
-                      <li>3. Copy <span className="font-mono">message.chat.id</span> into <span className="font-mono">Chat IDs</span>.</li>
+                      <li>1. Open Discord server settings and go to <span className="font-mono">Integrations</span> then <span className="font-mono">Webhooks</span>.</li>
+                      <li>2. Create or select a webhook and copy its webhook URL.</li>
+                      <li>3. Paste one or more URLs into <span className="font-mono">Webhook URLs</span>, then Save.</li>
                     </ol>
                   </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+            )}
+          </div>
         </div>
         </div>
       </div>

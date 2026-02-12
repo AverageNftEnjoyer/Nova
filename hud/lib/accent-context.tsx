@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react"
 import { loadUserSettings, updateAppSettings, ACCENT_COLORS, type AccentColor } from "./userSettings"
 
 interface AccentContextValue {
@@ -14,11 +14,10 @@ const AccentContext = createContext<AccentContextValue>({
 })
 
 export function AccentProvider({ children }: { children: ReactNode }) {
-  const [accentColor, setAccentColorState] = useState<AccentColor>("violet")
-  const [mounted, setMounted] = useState(false)
+  const [accentColor, setAccentColorState] = useState<AccentColor>(() => loadUserSettings().app.accentColor)
 
   // Apply accent color CSS variables to document
-  const applyAccentColor = (color: AccentColor) => {
+  const applyAccentColor = useCallback((color: AccentColor) => {
     if (typeof document === "undefined") return
 
     const { primary, secondary } = ACCENT_COLORS[color]
@@ -35,16 +34,12 @@ export function AccentProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--accent-primary", primary)
     root.style.setProperty("--accent-secondary", secondary)
     root.style.setProperty("--accent-rgb", hexToRgb(primary))
-  }
-
-  // Read persisted accent on mount
-  useEffect(() => {
-    const settings = loadUserSettings()
-    const color = settings.app.accentColor
-    setAccentColorState(color)
-    applyAccentColor(color)
-    setMounted(true)
   }, [])
+
+  // Keep document CSS vars synced with current accent color.
+  useEffect(() => {
+    applyAccentColor(accentColor)
+  }, [accentColor, applyAccentColor])
 
   // Update accent color
   const setAccentColor = (color: AccentColor) => {

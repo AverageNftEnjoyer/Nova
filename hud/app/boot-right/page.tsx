@@ -14,11 +14,12 @@ export default function BootRightPage() {
     // Check if boot animation is enabled in settings
     const settings = loadUserSettings()
     if (!settings.app.bootAnimationEnabled) {
+      sessionStorage.removeItem("nova-home-intro-pending")
       // Skip boot animation, go directly to home
       router.replace("/home")
       return
     }
-    setChecked(true)
+    setChecked(true) // eslint-disable-line react-hooks/set-state-in-effect
   }, [router])
 
   useEffect(() => {
@@ -29,5 +30,8 @@ export default function BootRightPage() {
 
   if (!checked) return null
 
-  return booting ? <NovaBootup onComplete={() => setBooting(false)} /> : null
+  return booting ? <NovaBootup onComplete={() => {
+    sessionStorage.setItem("nova-home-intro-pending", "true")
+    setBooting(false)
+  }} /> : null
 }

@@ -9,6 +9,11 @@ export interface TelegramIntegrationConfig {
   chatIds: string[]
 }
 
+export interface DiscordIntegrationConfig {
+  connected: boolean
+  webhookUrls: string[]
+}
+
 export interface AgentIntegrationConfig {
   connected: boolean
   apiKey: string
@@ -17,6 +22,7 @@ export interface AgentIntegrationConfig {
 
 export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
+  discord: DiscordIntegrationConfig
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
 }
@@ -29,6 +35,10 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     connected: true,
     botToken: "",
     chatIds: [],
+  },
+  discord: {
+    connected: false,
+    webhookUrls: [],
   },
   agents: {},
   updatedAt: new Date().toISOString(),
@@ -50,6 +60,12 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       botToken: raw?.telegram?.botToken?.trim() ?? "",
       chatIds: Array.isArray(raw?.telegram?.chatIds)
         ? raw!.telegram!.chatIds.map((id) => String(id).trim()).filter(Boolean)
+        : [],
+    },
+    discord: {
+      connected: raw?.discord?.connected ?? DEFAULT_CONFIG.discord.connected,
+      webhookUrls: Array.isArray(raw?.discord?.webhookUrls)
+        ? raw.discord.webhookUrls.map((url) => String(url).trim()).filter(Boolean)
         : [],
     },
     agents: raw?.agents && typeof raw.agents === "object" ? raw.agents : {},
@@ -86,6 +102,10 @@ export async function updateIntegrationsConfig(partial: Partial<IntegrationsConf
     telegram: {
       ...current.telegram,
       ...(partial.telegram || {}),
+    },
+    discord: {
+      ...current.discord,
+      ...(partial.discord || {}),
     },
     agents: {
       ...current.agents,

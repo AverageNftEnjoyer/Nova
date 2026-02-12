@@ -5,6 +5,7 @@ import path from "node:path"
 
 export interface NotificationSchedule {
   id: string
+  integration: string
   label: string
   message: string
   time: string
@@ -14,6 +15,30 @@ export interface NotificationSchedule {
   createdAt: string
   updatedAt: string
   lastSentLocalDate?: string
+}
+
+function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule>): "telegram" | "discord" | "" {
+  const integration = typeof value === "string" ? value.trim().toLowerCase() : ""
+  if (integration === "discord") return "discord"
+  if (integration === "telegram") return "telegram"
+
+  // Legacy records may not have an integration field. Use conservative inference.
+  const chatIds = Array.isArray(raw?.chatIds) ? raw.chatIds.map((v) => String(v).toLowerCase()) : []
+  if (chatIds.some((id) => id.includes("discord.com/api/webhooks") || id.includes("discordapp.com/api/webhooks"))) {
+    return "discord"
+  }
+
+  const label = typeof raw?.label === "string" ? raw.label.toLowerCase() : ""
+  const message = typeof raw?.message === "string" ? raw.message.toLowerCase() : ""
+  if (label.includes("discord") || message.includes("discord") || label.includes("discor") || message.includes("discor")) {
+    return "discord"
+  }
+  if (label.includes("telegram") || message.includes("telegram")) {
+    return "telegram"
+  }
+
+  // Unknown integration should never silently fall back to Telegram.
+  return ""
 }
 
 const DATA_DIR = path.join(process.cwd(), "data")
@@ -35,6 +60,7 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
 
   return {
     id: raw.id,
+    integration: normalizeIntegration(raw.integration, raw),
     label: raw.label?.trim() || "Scheduled notification",
     message: raw.message,
     time: raw.time,
@@ -55,9 +81,23 @@ export async function loadSchedules(): Promise<NotificationSchedule[]> {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
 
-    return parsed
+    const normalized = parsed
       .map((row) => normalizeRecord(row as Partial<NotificationSchedule>))
       .filter((row): row is NotificationSchedule => row !== null)
+
+    const shouldRewrite =
+      normalized.length !== parsed.length ||
+      parsed.some((row) => {
+        if (!row || typeof row !== "object") return true
+        const maybe = row as { integration?: unknown }
+        return typeof maybe.integration !== "string"
+      })
+
+    if (shouldRewrite) {
+      await saveSchedules(normalized)
+    }
+
+    return normalized
   } catch {
     return []
   }
@@ -65,7 +105,10 @@ export async function loadSchedules(): Promise<NotificationSchedule[]> {
 
 export async function saveSchedules(schedules: NotificationSchedule[]): Promise<void> {
   await ensureDataFile()
-  await writeFile(DATA_FILE, JSON.stringify(schedules, null, 2), "utf8")
+  const normalized = schedules
+    .map((row) => normalizeRecord(row))
+    .filter((row): row is NotificationSchedule => row !== null)
+  await writeFile(DATA_FILE, JSON.stringify(normalized, null, 2), "utf8")
 }
 
 export function parseDailyTime(value: string): { hour: number; minute: number } | null {
@@ -81,6 +124,7 @@ export function parseDailyTime(value: string): { hour: number; minute: number } 
 }
 
 export function buildSchedule(input: {
+  integration?: string
   label?: string
   message: string
   time: string
@@ -92,6 +136,7 @@ export function buildSchedule(input: {
 
   return {
     id: crypto.randomUUID(),
+    integration: normalizeIntegration(input.integration),
     label: input.label?.trim() || "Scheduled notification",
     message: input.message.trim(),
     time: input.time,

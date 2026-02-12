@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
     const result = streamText({
       model: selectedModel,
-      messages: validMessages as any,
+      messages: validMessages as NonNullable<Parameters<typeof streamText>[0]["messages"]>,
       system: `You are a helpful, friendly AI assistant. You provide clear, concise, and accurate responses.
 When explaining code or technical concepts, use markdown formatting with code blocks where appropriate.
 Be conversational but professional. If you're unsure about something, say so honestly.

@@ -4,8 +4,14 @@ export interface TelegramIntegrationSettings {
   chatIds: string
 }
 
+export interface DiscordIntegrationSettings {
+  connected: boolean
+  webhookUrls: string
+}
+
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
+  discord: DiscordIntegrationSettings
   updatedAt: string
 }
 
@@ -17,6 +23,10 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     connected: true,
     botToken: "",
     chatIds: "",
+  },
+  discord: {
+    connected: false,
+    webhookUrls: "",
   },
   updatedAt: new Date().toISOString(),
 }
@@ -32,6 +42,10 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
       telegram: {
         ...DEFAULT_SETTINGS.telegram,
         ...(parsed.telegram || {}),
+      },
+      discord: {
+        ...DEFAULT_SETTINGS.discord,
+        ...(parsed.discord || {}),
       },
       updatedAt: parsed.updatedAt || new Date().toISOString(),
     }
@@ -62,6 +76,20 @@ export function updateTelegramIntegrationSettings(partial: Partial<TelegramInteg
     ...current,
     telegram: {
       ...current.telegram,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateDiscordIntegrationSettings(partial: Partial<DiscordIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    discord: {
+      ...current.discord,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

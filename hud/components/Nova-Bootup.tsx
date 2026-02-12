@@ -200,7 +200,6 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
   const [visibleReadouts, setVisibleReadouts] = useState(0)
   const [sessionId, setSessionId] = useState("--------")
   const [onlineSystems, setOnlineSystems] = useState<string[]>([])
-  const [orbReady, setOrbReady] = useState(false)
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -216,18 +215,33 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
       return () => {}
     }
 
-    // Legacy fallback: previously persisted data URL.
-    if (settings.app.bootMusicDataUrl) {
-      playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds: 30, volume: 0.5 })
+    const tryPlayBootMusic = async () => {
+      // Legacy fallback: previously persisted data URL.
+      if (settings.app.bootMusicDataUrl) {
+        await playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds: 30, volume: 0.5 })
+        return
+      }
+
+      try {
+        const blob = await loadBootMusicBlob()
+        if (cancelled) return
+        if (!blob) {
+          return
+        }
+        const objectUrl = URL.createObjectURL(blob)
+        const started = await playBootMusic(objectUrl, { maxSeconds: 30, volume: 0.5, objectUrl })
+        if (!started) {
+          // One delayed retry can recover from early-mount timing races.
+          setTimeout(() => {
+            if (cancelled) return
+            void playBootMusic(objectUrl, { maxSeconds: 30, volume: 0.5, objectUrl })
+          }, 1200)
+        }
+      } catch {
+      }
     }
 
-    loadBootMusicBlob()
-      .then((blob) => {
-        if (cancelled || !blob) return
-        const objectUrl = URL.createObjectURL(blob)
-        playBootMusic(objectUrl, { maxSeconds: 30, volume: 0.5, objectUrl })
-      })
-      .catch(() => {})
+    void tryPlayBootMusic()
 
     return () => {
       cancelled = true
@@ -307,11 +321,6 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     return () => timers.forEach(clearTimeout)
   }, [])
 
-  // Orb "activates" at the end — starts pulsing/moving
-  useEffect(() => {
-    const t = setTimeout(() => setOrbReady(true), 12500)
-    return () => clearTimeout(t)
-  }, [])
 
   // Subtitle decrypt starts 3s into boot
   useEffect(() => {

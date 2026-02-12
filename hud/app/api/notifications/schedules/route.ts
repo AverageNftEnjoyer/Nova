@@ -6,6 +6,12 @@ import { buildSchedule, loadSchedules, parseDailyTime, saveSchedules } from "@/l
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+function parseIntegration(raw: unknown): "telegram" | "discord" | null {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : ""
+  if (value === "telegram" || value === "discord") return value
+  return null
+}
+
 export async function GET() {
   ensureNotificationSchedulerStarted()
   const schedules = await loadSchedules()
@@ -29,7 +35,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "time must be HH:mm (24h format)" }, { status: 400 })
     }
 
+    const integration = parseIntegration(body?.integration)
+    if (!integration) {
+      return NextResponse.json({ error: "integration must be either 'telegram' or 'discord'" }, { status: 400 })
+    }
+
     const schedule = buildSchedule({
+      integration,
       label: typeof body?.label === "string" ? body.label : undefined,
       message,
       time,
@@ -76,8 +88,14 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "time must be HH:mm (24h format)" }, { status: 400 })
     }
 
+    const parsedIntegration = typeof body?.integration === "undefined" ? current.integration : parseIntegration(body?.integration)
+    if (parsedIntegration === null) {
+      return NextResponse.json({ error: "integration must be either 'telegram' or 'discord'" }, { status: 400 })
+    }
+
     const updated = {
       ...current,
+      integration: parsedIntegration,
       label: typeof body?.label === "string" ? body.label.trim() || current.label : current.label,
       message: typeof body?.message === "string" ? body.message.trim() || current.message : current.message,
       time: typeof body?.time === "string" ? body.time.trim() : current.time,

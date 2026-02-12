@@ -6,8 +6,8 @@ import { ThemeProvider } from "@/lib/theme-context"
 import { AccentProvider } from "@/lib/accent-context"
 import "./globals.css"
 
-const _geist = Geist({ subsets: ["latin"] })
-const _geistMono = Geist_Mono({ subsets: ["latin"] })
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
 
 export const metadata: Metadata = {
   title: "Nova",
@@ -42,7 +42,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="font-sans antialiased bg-page">
+      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-page`}>
         <ThemeProvider>
           <AccentProvider>
             {children}

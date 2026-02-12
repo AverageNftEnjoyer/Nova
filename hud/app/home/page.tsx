@@ -1,18 +1,12 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import {
   PanelLeftOpen,
   PanelLeftClose,
-  CalendarDays,
   Blocks,
-  Plus,
-  Trash2,
   Pin,
-  PinOff,
-  Pencil,
-  Check,
   X,
   ArrowRight,
   Mic,
@@ -40,16 +34,24 @@ import { loadUserSettings, ORB_COLORS, type OrbColor, type BackgroundType, USER_
 import {
   INTEGRATIONS_UPDATED_EVENT,
   loadIntegrationsSettings,
+  updateDiscordIntegrationSettings,
   updateTelegramIntegrationSettings,
 } from "@/lib/integrations"
 import FloatingLines from "@/components/FloatingLines"
+import { DiscordIcon } from "@/components/discord-icon"
+import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import "@/components/FloatingLines.css"
 
-interface ScheduleItem {
+interface NotificationSchedule {
   id: string
-  title: string
+  integration: string
+  label: string
+  message: string
   time: string
-  done: boolean
+  timezone: string
+  enabled: boolean
+  chatIds: string[]
+  updatedAt: string
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -62,6 +64,21 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+function formatDailyTime(time: string, timezone: string): string {
+  const parts = /^(\d{2}):(\d{2})$/.exec(time)
+  if (!parts) return time
+  const hour = Number(parts[1])
+  const minute = Number(parts[2])
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: timezone || "America/New_York",
+  }).format(date)
+}
+
 const GREETINGS = [
   "Hello sir, what are we working on today?",
   "Good to see you! What's on the agenda?",
@@ -71,7 +88,6 @@ const GREETINGS = [
   "Lets get to work!",
 ]
 
-const SCHEDULE_KEY = "nova-home-daily-schedule-v1"
 const FLOATING_LINES_ENABLED_WAVES: string[] = ["top", "middle", "bottom"]
 const FLOATING_LINES_LINE_COUNT: number[] = [5, 5, 5]
 const FLOATING_LINES_LINE_DISTANCE: number[] = [5, 5, 5]
@@ -84,68 +100,88 @@ export default function HomePage() {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const { state: novaState, connected, sendToAgent, sendGreeting, setVoicePreference, setMuted, agentMessages, clearAgentMessages } = useNovaState()
-  const [isMuted, setIsMuted] = useState(false)
-  const [hasAnimated, setHasAnimated] = useState(false)
+  const [isMuted, setIsMuted] = useState(() => {
+    if (typeof window === "undefined") return false
+    return localStorage.getItem("nova-muted") === "true"
+  })
+  const [hasAnimated] = useState(() => {
+    if (typeof window === "undefined") return false
+    const shouldAnimateIntro = sessionStorage.getItem("nova-home-intro-pending") === "true"
+    if (shouldAnimateIntro) {
+      sessionStorage.removeItem("nova-home-intro-pending")
+    }
+    return shouldAnimateIntro
+  })
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [scheduleItems, setScheduleItems] = useState<ScheduleItem[]>([])
-  const [welcomeMessage, setWelcomeMessage] = useState("Welcome back! What can I help with?")
-  const [newEventTitle, setNewEventTitle] = useState("")
-  const [newEventTime, setNewEventTime] = useState("")
+  const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
+  const [welcomeMessage] = useState(() => GREETINGS[Math.floor(Math.random() * GREETINGS.length)])
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<BackgroundType>("default")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(true)
-  const [editingConversationId, setEditingConversationId] = useState<string | null>(null)
-  const [editingTitle, setEditingTitle] = useState("")
+  const [discordConnected, setDiscordConnected] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const greetingSentRef = useRef(false)
-  const scheduleSectionRef = useRef<HTMLElement | null>(null)
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
 
   const persistConversations = useCallback((next: Conversation[]) => {
     setConversations(next)
     saveConversations(next)
+    writeShellUiCache({ conversations: next })
   }, [])
 
-  const persistSchedule = useCallback((next: ScheduleItem[]) => {
-    setScheduleItems(next)
-    localStorage.setItem(SCHEDULE_KEY, JSON.stringify(next))
+  const refreshNotificationSchedules = useCallback(() => {
+    void fetch("/api/notifications/schedules", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        const schedules = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
+        setNotificationSchedules(schedules)
+      })
+      .catch(() => {
+        setNotificationSchedules([])
+      })
+  }, [])
+
+  useLayoutEffect(() => {
+    const cached = readShellUiCache()
+    const loadedConversations = cached.conversations ?? loadConversations()
+    setConversations(loadedConversations) // eslint-disable-line react-hooks/set-state-in-effect
+    writeShellUiCache({ conversations: loadedConversations })
+
+    const settings = loadUserSettings()
+    const nextOrbColor = cached.orbColor ?? settings.app.orbColor
+    const nextBackground = cached.background ?? (settings.app.background || "default")
+    const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
+    setOrbColor(nextOrbColor)
+    setBackground(nextBackground)
+    setSpotlightEnabled(nextSpotlight)
+    writeShellUiCache({
+      orbColor: nextOrbColor,
+      background: nextBackground,
+      spotlightEnabled: nextSpotlight,
+    })
   }, [])
 
   useEffect(() => {
-    setConversations(loadConversations())
-    setHasAnimated(true)
-    setWelcomeMessage(GREETINGS[Math.floor(Math.random() * GREETINGS.length)])
-
-    const rawSchedule = localStorage.getItem(SCHEDULE_KEY)
-    if (rawSchedule) {
-      try {
-        const parsed = JSON.parse(rawSchedule) as ScheduleItem[]
-        setScheduleItems(Array.isArray(parsed) ? parsed : [])
-      } catch {
-        setScheduleItems([])
-      }
-    }
-
     const settings = loadUserSettings()
-    setOrbColor(settings.app.orbColor)
-    setBackground(settings.app.background || "default")
-    setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
     fetch("/api/integrations/config", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        const connected = Boolean(data?.config?.telegram?.connected)
-        setTelegramConnected(connected)
-        updateTelegramIntegrationSettings({ connected })
+        const telegram = Boolean(data?.config?.telegram?.connected)
+        const discord = Boolean(data?.config?.discord?.connected)
+        setTelegramConnected(telegram)
+        setDiscordConnected(discord)
+        updateTelegramIntegrationSettings({ connected: telegram })
+        updateDiscordIntegrationSettings({ connected: discord })
       })
       .catch(() => {})
+    refreshNotificationSchedules()
 
     // Play launch sound only once per boot session (not every home page visit)
     const alreadyPlayed = sessionStorage.getItem("nova-launch-sound-played")
@@ -156,20 +192,13 @@ export default function HomePage() {
       audioRef.current.play().catch(() => {})
     }
 
-    // Load muted state from localStorage
-    const savedMuted = localStorage.getItem("nova-muted") === "true"
-    setIsMuted(savedMuted)
-
-    // Mark settings as loaded so FloatingLines doesn't restart
-    setSettingsLoaded(true)
-
     return () => {
       if (audioRef.current) {
         audioRef.current.pause()
         audioRef.current = null
       }
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const refresh = () => {
@@ -177,18 +206,26 @@ export default function HomePage() {
       setOrbColor(settings.app.orbColor)
       setBackground(settings.app.background || "default")
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
+      writeShellUiCache({
+        orbColor: settings.app.orbColor,
+        background: settings.app.background || "default",
+        spotlightEnabled: settings.app.spotlightEnabled ?? true,
+      })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [])
+  }, [refreshNotificationSchedules])
 
   useEffect(() => {
     const onUpdate = () => {
-      setTelegramConnected(loadIntegrationsSettings().telegram.connected)
+      const integrations = loadIntegrationsSettings()
+      setTelegramConnected(integrations.telegram.connected)
+      setDiscordConnected(integrations.discord.connected)
+      refreshNotificationSchedules()
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [])
+  }, [refreshNotificationSchedules])
 
   useEffect(() => {
     if (connected && !greetingSentRef.current) {
@@ -294,7 +331,6 @@ export default function HomePage() {
     }
 
     const cleanups: Array<() => void> = []
-    if (scheduleSectionRef.current) cleanups.push(setupSectionSpotlight(scheduleSectionRef.current))
     if (pipelineSectionRef.current) cleanups.push(setupSectionSpotlight(pipelineSectionRef.current))
     if (integrationsSectionRef.current) cleanups.push(setupSectionSpotlight(integrationsSectionRef.current))
 
@@ -306,7 +342,7 @@ export default function HomePage() {
   // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
   useEffect(() => {
     if (novaState === "muted") {
-      setIsMuted(true)
+      setIsMuted(true) // eslint-disable-line react-hooks/set-state-in-effect
     }
     // Never auto-unmute - only user click should unmute
   }, [novaState])
@@ -353,7 +389,7 @@ export default function HomePage() {
         : voiceUserMsg.content
 
       const next = [convo, ...conversations]
-      persistConversations(next)
+      persistConversations(next) // eslint-disable-line react-hooks/set-state-in-effect
       setActiveId(convo.id)
       clearAgentMessages()
       router.push("/chat")
@@ -415,11 +451,6 @@ export default function HomePage() {
     persistConversations(remaining)
   }, [conversations, persistConversations])
 
-  const togglePinConversation = useCallback((id: string) => {
-    const next = conversations.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c))
-    persistConversations(next)
-  }, [conversations, persistConversations])
-
   const handleRenameConvo = useCallback((id: string, title: string) => {
     const trimmed = title.trim()
     if (!trimmed) return
@@ -440,48 +471,6 @@ export default function HomePage() {
     const next = conversations.map((c) => (c.id === id ? { ...c, pinned } : c))
     persistConversations(next)
   }, [conversations, persistConversations])
-
-  const beginRenameConversation = useCallback((c: Conversation) => {
-    setEditingConversationId(c.id)
-    setEditingTitle(c.title)
-  }, [])
-
-  const saveRenamedConversation = useCallback(() => {
-    if (!editingConversationId) return
-    const nextTitle = editingTitle.trim()
-    if (!nextTitle) return
-    const next = conversations.map((c) =>
-      c.id === editingConversationId
-        ? { ...c, title: nextTitle, updatedAt: new Date().toISOString() }
-        : c,
-    )
-    persistConversations(next)
-    setEditingConversationId(null)
-    setEditingTitle("")
-  }, [editingConversationId, editingTitle, conversations, persistConversations])
-
-  const addScheduleEvent = useCallback(() => {
-    const title = newEventTitle.trim()
-    if (!title) return
-    const next: ScheduleItem = {
-      id: generateId(),
-      title,
-      time: newEventTime || "09:00",
-      done: false,
-    }
-    persistSchedule([...scheduleItems, next])
-    setNewEventTitle("")
-    setNewEventTime("")
-  }, [newEventTitle, newEventTime, scheduleItems, persistSchedule])
-
-  const toggleScheduleDone = useCallback((id: string) => {
-    const next = scheduleItems.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
-    persistSchedule(next)
-  }, [scheduleItems, persistSchedule])
-
-  const deleteScheduleEvent = useCallback((id: string) => {
-    persistSchedule(scheduleItems.filter((item) => item.id !== id))
-  }, [scheduleItems, persistSchedule])
 
   const handleAttachClick = useCallback(() => {
     fileInputRef.current?.click()
@@ -509,19 +498,65 @@ export default function HomePage() {
     }).catch(() => {})
   }, [telegramConnected])
 
-  const pinnedConversations = conversations
-    .filter((c) => c.pinned && !c.archived)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-  const unpinnedConversations = conversations
-    .filter((c) => !c.pinned && !c.archived)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 5)
+  const handleToggleDiscordIntegration = useCallback(() => {
+    const next = !discordConnected
+    setDiscordConnected(next)
+    updateDiscordIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ discord: { connected: next } }),
+    }).catch(() => {})
+  }, [discordConnected])
 
-  const dateLabel = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  })
+  const missions = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        id: string
+        integration: string
+        title: string
+        enabledCount: number
+        totalCount: number
+        times: string[]
+        timezone: string
+      }
+    >()
+
+    for (const schedule of notificationSchedules) {
+      const title = schedule.label?.trim() || "Scheduled notification"
+      const integration = schedule.integration?.trim().toLowerCase() || "unknown"
+      const key = `${integration}:${title.toLowerCase()}`
+      const existing = grouped.get(key)
+      if (!existing) {
+        grouped.set(key, {
+          id: schedule.id,
+          integration,
+          title,
+          enabledCount: schedule.enabled ? 1 : 0,
+          totalCount: 1,
+          times: [schedule.time],
+          timezone: schedule.timezone || "America/New_York",
+        })
+        continue
+      }
+      existing.totalCount += 1
+      if (schedule.enabled) existing.enabledCount += 1
+      existing.times.push(schedule.time)
+    }
+
+    return Array.from(grouped.values())
+      .map((mission) => ({
+        ...mission,
+        times: mission.times.sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => {
+        const activeDelta = Number(b.enabledCount > 0) - Number(a.enabledCount > 0)
+        if (activeDelta !== 0) return activeDelta
+        return b.totalCount - a.totalCount
+      })
+  }, [notificationSchedules])
+
   const panelClass =
     isLight
       ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
@@ -541,7 +576,7 @@ export default function HomePage() {
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {settingsLoaded && background === "default" && (
+      {background === "default" && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <div className="absolute inset-0 opacity-30">
             <FloatingLines
@@ -599,8 +634,8 @@ export default function HomePage() {
           marginLeft: "0",
         }}
       >
-        <div className="absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
-          <div className="flex items-center gap-2">
+        <div className="pointer-events-none absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
+          <div className="pointer-events-auto flex items-center gap-2">
             <div className="group relative">
               <Button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -630,7 +665,7 @@ export default function HomePage() {
             <div className="min-h-0 flex flex-col">
               <div className="flex-1 flex flex-col items-center justify-center gap-6">
                 <div className={`relative h-[280px] w-[280px] ${hasAnimated ? "orb-intro" : ""}`}>
-                  {settingsLoaded && (
+                  {(
                     <>
                       <div
                         className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
@@ -759,168 +794,55 @@ export default function HomePage() {
             </div>
 
             <aside className="min-h-0 flex flex-col gap-4 pt-0">
-              <section ref={scheduleSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4`}>
-                <div className="flex items-center gap-2 text-s-80">
-                  <CalendarDays className="w-4 h-4 text-accent" />
-                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Daily Schedule</h2>
-                </div>
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>{dateLabel}</p>
-
-                <div className="mt-3 grid grid-cols-[88px_minmax(0,1fr)_32px] gap-2">
-                  <div className={cn(`h-9 px-2 ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`)}>
-                    <input
-                      type="time"
-                      value={newEventTime}
-                      onChange={(e) => setNewEventTime(e.target.value)}
-                      className={cn("h-full w-full bg-transparent text-xs outline-none", isLight ? "text-s-90" : "text-slate-200")}
-                    />
-                  </div>
-                  <div className={cn(`h-9 px-3 ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`)}>
-                    <input
-                      type="text"
-                      value={newEventTitle}
-                      onChange={(e) => setNewEventTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") addScheduleEvent()
-                      }}
-                      placeholder="Add event..."
-                      className={cn("h-full w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
-                    />
+              <section ref={pipelineSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex-1 flex flex-col`}>
+                <div className="flex items-center justify-between gap-2 text-s-80">
+                  <div className="flex items-center gap-2">
+                    <Pin className="w-4 h-4 text-accent" />
+                    <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline</h2>
                   </div>
                   <button
-                    onClick={addScheduleEvent}
-                    className={cn("h-9 rounded-lg transition-colors border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 home-spotlight-card home-border-glow home-spotlight-card--hover")}
-                    aria-label="Add schedule item"
+                    onClick={() => router.push("/missions")}
+                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/mission-gear`, subPanelClass)}
+                    aria-label="Open mission settings"
                   >
-                    <Plus className="w-4 h-4 mx-auto" />
+                    <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/mission-gear:text-accent group-hover/mission-gear:rotate-90 transition-transform duration-200" />
                   </button>
                 </div>
-
-                <div className="mt-3 max-h-44 overflow-y-auto space-y-2 pr-1">
-                  {scheduleItems.length === 0 && (
-                    <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>No events for today.</p>
-                  )}
-                  {scheduleItems.map((item) => (
-                    <div key={item.id} className={`flex items-center gap-2 px-2.5 py-2 ${subPanelClass} home-spotlight-card home-border-glow home-spotlight-card--hover`}>
-                      <button
-                        onClick={() => toggleScheduleDone(item.id)}
-                        className={`h-4 w-4 rounded border ${item.done ? "bg-emerald-400/80 border-emerald-300/80" : "border-slate-500/70"}`}
-                        aria-label={item.done ? "Mark incomplete" : "Mark complete"}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className={`text-xs ${item.done ? "text-s-30 line-through" : isLight ? "text-s-60" : "text-slate-300"}`}>{item.time}</p>
-                        <p className={`text-sm truncate ${item.done ? "text-s-30 line-through" : isLight ? "text-s-90" : "text-slate-100"}`}>{item.title}</p>
-                      </div>
-                      <button
-                        onClick={() => deleteScheduleEvent(item.id)}
-                        className="p-1 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-500/10"
-                        aria-label="Delete event"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section ref={pipelineSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex-1 flex flex-col`}>
-                <div className="flex items-center gap-2 text-s-80">
-                  <Pin className="w-4 h-4 text-accent" />
-                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline</h2>
-                </div>
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Pinned favorite chats</p>
+                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Scheduled Nova workflows</p>
 
                 <div className="mt-3 min-h-0 flex-1 overflow-y-auto space-y-2 px-1 py-1">
-                  {pinnedConversations.length === 0 && (
-                    <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>No pinned chats yet.</p>
+                  {missions.length === 0 && (
+                    <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
+                      No missions yet. Add one in Mission Settings.
+                    </p>
                   )}
-                  {pinnedConversations.map((c) => (
-                    <div key={c.id} className={cn(`${subPanelClass} p-2.5 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
-                      {editingConversationId === c.id ? (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            value={editingTitle}
-                            onChange={(e) => setEditingTitle(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") saveRenamedConversation()
-                              if (e.key === "Escape") {
-                                setEditingConversationId(null)
-                                setEditingTitle("")
-                              }
-                            }}
-                            className={cn("h-8 flex-1 rounded-md px-2 text-sm outline-none focus:border-accent-30", isLight ? "border border-s-10 bg-white text-s-90" : "border border-white/10 bg-black/35 text-slate-100")}
-                            autoFocus
-                          />
-                          <button
-                            onClick={saveRenamedConversation}
-                            className="p-1.5 rounded-md text-emerald-300 hover:bg-emerald-500/10"
-                            aria-label="Save title"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setEditingConversationId(null)
-                              setEditingTitle("")
-                            }}
-                            className="p-1.5 rounded-md text-slate-400 hover:bg-white/10"
-                            aria-label="Cancel rename"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handleSelectConvo(c.id)}
-                            className={cn("flex-1 text-left text-sm truncate transition-colors", isLight ? "text-s-90 hover:text-accent" : "text-slate-100 hover:text-s-90")}
-                            title={c.title}
-                          >
-                            {c.title}
-                          </button>
-                          <button
-                            onClick={() => beginRenameConversation(c)}
-                            className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-white/10"
-                            aria-label="Rename chat"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => togglePinConversation(c.id)}
-                            className="p-1.5 rounded-md text-accent hover:bg-accent-10"
-                            aria-label="Unpin chat"
-                          >
-                            <PinOff className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {unpinnedConversations.length > 0 && (
-                    <div className="pt-2 mt-3 border-t border-white/10">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mb-2">Pin from recent</p>
-                      <div className="space-y-2 px-1 pb-1">
-                        {unpinnedConversations.map((c) => (
-                          <div key={c.id} className={cn(`flex items-center gap-2 px-2.5 py-2 ${subPanelClass} transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
-                            <button
-                              onClick={() => handleSelectConvo(c.id)}
-                              className={cn("flex-1 min-w-0 text-left text-sm truncate", isLight ? "text-s-70 hover:text-s-90" : "text-slate-300 hover:text-white")}
-                            >
-                              {c.title}
-                            </button>
-                            <button
-                              onClick={() => togglePinConversation(c.id)}
-                              className="p-1.5 rounded-md text-s-40 hover:text-accent hover:bg-accent-10"
-                              aria-label="Pin chat"
-                            >
-                              <Pin className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                  {missions.map((mission) => (
+                    <div key={mission.id} className={cn(`${subPanelClass} p-2.5 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className={cn("text-sm leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
+                        <span
+                          className={cn(
+                            "text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap",
+                            mission.enabledCount > 0
+                              ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                              : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                          )}
+                        >
+                          {mission.enabledCount > 0 ? "Active" : "Paused"}
+                        </span>
+                      </div>
+                      <p className={cn("mt-1 text-xs", isLight ? "text-s-60" : "text-slate-400")}>
+                        {mission.integration} - {mission.totalCount} run{mission.totalCount === 1 ? "" : "s"}/day
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {mission.times.map((time) => (
+                          <span key={`${mission.id}-${time}`} className={cn("text-[11px] px-2 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
+                            {formatDailyTime(time, mission.timezone)}
+                          </span>
                         ))}
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               </section>
 
@@ -960,7 +882,20 @@ export default function HomePage() {
                     >
                       <Send className="w-3.5 h-3.5" />
                     </button>
-                    {Array.from({ length: 23 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleDiscordIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        discordConnected
+                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                      )}
+                      aria-label={discordConnected ? "Disable Discord integration" : "Enable Discord integration"}
+                      title={discordConnected ? "Discord connected (click to disable)" : "Discord disconnected (click to enable)"}
+                    >
+                      <DiscordIcon className="w-3.5 h-3.5 text-white" />
+                    </button>
+                    {Array.from({ length: 22 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(
@@ -972,24 +907,7 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <div className="mt-2 flex items-center justify-between">
-                  <p className={cn("text-xs", isLight ? "text-s-60" : "text-slate-300")}>
-                    <span className={telegramConnected ? "text-emerald-300" : "text-rose-300"}>
-                      {telegramConnected ? "Telegram Connected" : "Telegram Disabled"}
-                    </span>
-                  </p>
-                  <button
-                    onClick={handleToggleTelegramIntegration}
-                    className={cn(
-                      "text-xs px-2.5 py-1 rounded-md border transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
-                      telegramConnected
-                        ? "border-rose-300/40 bg-rose-500/20 text-rose-200"
-                        : "border-emerald-300/40 bg-emerald-500/20 text-emerald-200",
-                    )}
-                  >
-                    {telegramConnected ? "Disable" : "Enable"}
-                  </button>
-                </div>
+                <div className="mt-2" />
               </section>
             </aside>
           </div>
