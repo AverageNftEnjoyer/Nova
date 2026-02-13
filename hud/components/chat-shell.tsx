@@ -27,6 +27,7 @@ import {
   updateDiscordIntegrationSettings,
   updateOpenAIIntegrationSettings,
   updateClaudeIntegrationSettings,
+  updateGeminiIntegrationSettings,
   updateGrokIntegrationSettings,
   type LlmProvider,
 } from "@/lib/integrations"
@@ -38,6 +39,7 @@ import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
+import { GeminiIcon } from "@/components/gemini-icon"
 import "@/components/FloatingLines.css"
 
 const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
@@ -84,9 +86,8 @@ const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
-  if (isLight) return settings.app.lightModeBackground ?? "none"
   const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
-  return settings.app.darkModeBackground ?? legacyDark
+  return settings.app.darkModeBackground ?? (isLight ? "none" : legacyDark)
 }
 
 function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
@@ -110,14 +111,36 @@ function formatDailyTime(time: string, timezone: string): string {
   }).format(date)
 }
 
-function toMissionDescription(message: string | undefined, integration: string, totalCount: number): string {
-  const raw = typeof message === "string" ? message.trim() : ""
-  if (!raw) {
-    return `${integration} - ${totalCount} run${totalCount === 1 ? "" : "s"}/day`
+function priorityRank(priority: "low" | "medium" | "high" | "critical"): number {
+  if (priority === "low") return 0
+  if (priority === "medium") return 1
+  if (priority === "high") return 2
+  return 3
+}
+
+function normalizePriority(value: string | undefined): "low" | "medium" | "high" | "critical" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "critical") return normalized
+  return "medium"
+}
+
+function parseMissionWorkflowMeta(message: string | undefined): {
+  description: string
+  priority: "low" | "medium" | "high" | "critical"
+} {
+  const raw = typeof message === "string" ? message : ""
+  const marker = "[NOVA WORKFLOW]"
+  const idx = raw.indexOf(marker)
+  const description = (idx < 0 ? raw : raw.slice(0, idx)).trim()
+  if (idx < 0) return { description, priority: "medium" }
+
+  const jsonText = raw.slice(idx + marker.length).trim()
+  try {
+    const parsed = JSON.parse(jsonText) as { priority?: string }
+    return { description, priority: normalizePriority(parsed.priority) }
+  } catch {
+    return { description, priority: "medium" }
   }
-  const normalized = raw.replace(/\s+/g, " ")
-  if (normalized.length <= 84) return normalized
-  return `${normalized.slice(0, 81).trimEnd()}...`
 }
 
 export function ChatShell() {
@@ -139,6 +162,7 @@ export function ChatShell() {
     const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
+  const [backgroundVideoAssetId, setBackgroundVideoAssetId] = useState<string | null>(() => loadUserSettings().app.customBackgroundVideoAssetId)
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
@@ -147,9 +171,11 @@ export function ChatShell() {
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
+  const [geminiConnected, setGeminiConnected] = useState(false)
   const [openaiConfigured, setOpenaiConfigured] = useState(false)
   const [claudeConfigured, setClaudeConfigured] = useState(false)
   const [grokConfigured, setGrokConfigured] = useState(false)
+  const [geminiConfigured, setGeminiConfigured] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
   const { state: novaState, connected: agentConnected, agentMessages, latestUsage, sendToAgent, clearAgentMessages, setMuted } = useNovaState()
@@ -198,6 +224,7 @@ export function ChatShell() {
       setOrbColor(settings.app.orbColor)
       const nextBackground = resolveThemeBackground(isLight)
       setBackground(nextBackground)
+      setBackgroundVideoAssetId(settings.app.customBackgroundVideoAssetId)
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       writeShellUiCache({ background: nextBackground, orbColor: settings.app.orbColor })
     }
@@ -319,7 +346,7 @@ export function ChatShell() {
     if (uiCached) {
       setBackgroundVideoUrl(uiCached)
     }
-    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const selectedAssetId = backgroundVideoAssetId ?? loadUserSettings().app.customBackgroundVideoAssetId
     const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
     if (cached) {
       setBackgroundVideoUrl(cached)
@@ -340,7 +367,7 @@ export function ChatShell() {
     return () => {
       cancelled = true
     }
-  }, [background, isLight])
+  }, [background, isLight, backgroundVideoAssetId])
 
   useLayoutEffect(() => {
     const integrations = loadIntegrationsSettings()
@@ -349,15 +376,19 @@ export function ChatShell() {
     setOpenaiConnected(integrations.openai.connected)
     setClaudeConnected(integrations.claude.connected)
     setGrokConnected(integrations.grok.connected)
+    setGeminiConnected(integrations.gemini.connected)
     setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
     setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
     setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
+    setGeminiConfigured(Boolean(integrations.gemini.apiKeyConfigured))
     setActiveLlmProvider(integrations.activeLlmProvider)
     setActiveLlmModel(
       integrations.activeLlmProvider === "claude"
         ? integrations.claude.defaultModel
         : integrations.activeLlmProvider === "grok"
           ? integrations.grok.defaultModel
+          : integrations.activeLlmProvider === "gemini"
+            ? integrations.gemini.defaultModel
           : integrations.openai.defaultModel,
     )
     setIntegrationsHydrated(true)
@@ -384,29 +415,37 @@ export function ChatShell() {
         const openai = Boolean(data?.config?.openai?.connected)
         const claude = Boolean(data?.config?.claude?.connected)
         const grok = Boolean(data?.config?.grok?.connected)
+        const gemini = Boolean(data?.config?.gemini?.connected)
         const openaiReady = Boolean(data?.config?.openai?.apiKeyConfigured)
         const claudeReady = Boolean(data?.config?.claude?.apiKeyConfigured)
         const grokReady = Boolean(data?.config?.grok?.apiKeyConfigured)
+        const geminiReady = Boolean(data?.config?.gemini?.apiKeyConfigured)
         const provider: LlmProvider =
           data?.config?.activeLlmProvider === "claude"
             ? "claude"
             : data?.config?.activeLlmProvider === "grok"
               ? "grok"
+              : data?.config?.activeLlmProvider === "gemini"
+                ? "gemini"
               : "openai"
         setTelegramConnected(telegram)
         setDiscordConnected(discord)
         setOpenaiConnected(openai)
         setClaudeConnected(claude)
         setGrokConnected(grok)
+        setGeminiConnected(gemini)
         setOpenaiConfigured(openaiReady)
         setClaudeConfigured(claudeReady)
         setGrokConfigured(grokReady)
+        setGeminiConfigured(geminiReady)
         setActiveLlmProvider(provider)
         setActiveLlmModel(
           provider === "claude"
             ? String(data?.config?.claude?.defaultModel || "claude-sonnet-4-20250514")
             : provider === "grok"
               ? String(data?.config?.grok?.defaultModel || "grok-4-0709")
+              : provider === "gemini"
+                ? String(data?.config?.gemini?.defaultModel || "gemini-2.5-pro")
               : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
         )
         updateTelegramIntegrationSettings({ connected: telegram })
@@ -414,6 +453,7 @@ export function ChatShell() {
         updateOpenAIIntegrationSettings({ connected: openai })
         updateClaudeIntegrationSettings({ connected: claude })
         updateGrokIntegrationSettings({ connected: grok })
+        updateGeminiIntegrationSettings({ connected: gemini })
       })
       .catch(() => {})
     refreshNotificationSchedules()
@@ -429,21 +469,27 @@ export function ChatShell() {
               ? "claude"
               : data?.config?.activeLlmProvider === "grok"
                 ? "grok"
+                : data?.config?.activeLlmProvider === "gemini"
+                  ? "gemini"
                 : "openai"
           setTelegramConnected(Boolean(data?.config?.telegram?.connected))
           setDiscordConnected(Boolean(data?.config?.discord?.connected))
           setOpenaiConnected(Boolean(data?.config?.openai?.connected))
           setClaudeConnected(Boolean(data?.config?.claude?.connected))
           setGrokConnected(Boolean(data?.config?.grok?.connected))
+          setGeminiConnected(Boolean(data?.config?.gemini?.connected))
           setOpenaiConfigured(Boolean(data?.config?.openai?.apiKeyConfigured))
           setClaudeConfigured(Boolean(data?.config?.claude?.apiKeyConfigured))
           setGrokConfigured(Boolean(data?.config?.grok?.apiKeyConfigured))
+          setGeminiConfigured(Boolean(data?.config?.gemini?.apiKeyConfigured))
           setActiveLlmProvider(provider)
           setActiveLlmModel(
             provider === "claude"
               ? String(data?.config?.claude?.defaultModel || "claude-sonnet-4-20250514")
               : provider === "grok"
                 ? String(data?.config?.grok?.defaultModel || "grok-4-0709")
+                : provider === "gemini"
+                  ? String(data?.config?.gemini?.defaultModel || "gemini-2.5-pro")
                 : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
           )
         })
@@ -512,6 +558,18 @@ export function ChatShell() {
     }).catch(() => {})
   }, [grokConnected, grokConfigured])
 
+  const handleToggleGeminiIntegration = useCallback(() => {
+    if (!geminiConnected && !geminiConfigured) return
+    const next = !geminiConnected
+    setGeminiConnected(next)
+    updateGeminiIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gemini: { connected: next } }),
+    }).catch(() => {})
+  }, [geminiConnected, geminiConfigured])
+
   const missions = useMemo(() => {
     const grouped = new Map<
       string,
@@ -520,6 +578,7 @@ export function ChatShell() {
         integration: string
         title: string
         description: string
+        priority: "low" | "medium" | "high" | "critical"
         enabledCount: number
         totalCount: number
         times: string[]
@@ -528,6 +587,7 @@ export function ChatShell() {
     >()
 
     for (const schedule of notificationSchedules) {
+      const meta = parseMissionWorkflowMeta(schedule.message)
       const title = schedule.label?.trim() || "Scheduled notification"
       const integration = schedule.integration?.trim().toLowerCase() || "unknown"
       const key = `${integration}:${title.toLowerCase()}`
@@ -537,7 +597,8 @@ export function ChatShell() {
           id: schedule.id,
           integration,
           title,
-          description: schedule.message?.trim() || "",
+          description: meta.description,
+          priority: meta.priority,
           enabledCount: schedule.enabled ? 1 : 0,
           totalCount: 1,
           times: [schedule.time],
@@ -548,15 +609,17 @@ export function ChatShell() {
       existing.totalCount += 1
       if (schedule.enabled) existing.enabledCount += 1
       existing.times.push(schedule.time)
-      if (!existing.description && schedule.message?.trim()) {
-        existing.description = schedule.message.trim()
+      if (!existing.description && meta.description) {
+        existing.description = meta.description
+      }
+      if (priorityRank(meta.priority) > priorityRank(existing.priority)) {
+        existing.priority = meta.priority
       }
     }
 
     return Array.from(grouped.values())
       .map((mission) => ({
         ...mission,
-        description: toMissionDescription(mission.description, mission.integration, mission.totalCount),
         times: mission.times.sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => {
@@ -855,7 +918,7 @@ export function ChatShell() {
         : "border-rose-300/50 bg-rose-500/35 text-rose-100"
   const runningProvider = latestUsage?.provider ?? activeLlmProvider
   const runningModel = latestUsage?.model ?? activeLlmModel
-  const runningLabel = `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : "OpenAI"} - ${runningModel || "N/A"}`
+  const runningLabel = `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-page">
@@ -977,31 +1040,46 @@ export function ChatShell() {
                 </div>
                 <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Scheduled Nova workflows</p>
 
-                <div className="mt-3 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-2 px-1 py-1">
+                <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
                   {missions.length === 0 && (
                     <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
                       No missions yet. Add one in Mission Settings.
                     </p>
                   )}
                   {missions.map((mission) => (
-                    <div key={mission.id} className={cn(`${subPanelClass} p-2.5 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
+                    <div key={mission.id} className={cn(`${subPanelClass} p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
                       <div className="flex items-start justify-between gap-2">
-                        <p className={cn("text-sm leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
-                        <span
-                          className={cn(
-                            "text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap",
-                            mission.enabledCount > 0
-                              ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                              : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                          )}
-                        >
-                          {mission.enabledCount > 0 ? "Active" : "Paused"}
-                        </span>
+                        <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
+                        <div className="flex items-center gap-1 flex-nowrap shrink-0">
+                          <span
+                            className={cn(
+                              "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap",
+                              mission.enabledCount > 0
+                                ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                                : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                            )}
+                          >
+                            {mission.enabledCount > 0 ? "Active" : "Paused"}
+                          </span>
+                          <span
+                            title={`Priority: ${mission.priority}`}
+                            aria-label={`Priority ${mission.priority}`}
+                            className={cn(
+                              "h-2.5 w-2.5 rounded-full shrink-0",
+                              mission.priority === "low" && "bg-emerald-400",
+                              mission.priority === "medium" && "bg-amber-400",
+                              mission.priority === "high" && "bg-orange-400",
+                              mission.priority === "critical" && "bg-rose-400",
+                            )}
+                          />
+                        </div>
                       </div>
-                      <p className={cn("mt-1 text-xs leading-tight", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      {mission.description ? (
+                        <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
+                      ) : null}
+                      <div className="mt-1.5 flex flex-wrap gap-1">
                         {mission.times.map((time) => (
-                          <span key={`${mission.id}-${time}`} className={cn("text-[11px] px-2 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
+                          <span key={`${mission.id}-${time}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
                             {formatDailyTime(time, mission.timezone)}
                           </span>
                         ))}
@@ -1085,7 +1163,18 @@ export function ChatShell() {
                     >
                       <XAIIcon size={16} />
                     </button>
-                    {Array.from({ length: 19 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleGeminiIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(geminiConnected),
+                      )}
+                      aria-label={geminiConnected ? "Disable Gemini integration" : "Enable Gemini integration"}
+                      title={geminiConnected ? "Gemini connected (click to disable)" : "Gemini disconnected (click to enable)"}
+                    >
+                      <GeminiIcon size={16} />
+                    </button>
+                    {Array.from({ length: 18 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

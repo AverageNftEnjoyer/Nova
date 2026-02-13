@@ -32,7 +32,7 @@ export default function HistoryPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
-    setConversations(loadConversations()) // eslint-disable-line react-hooks/set-state-in-effect
+    setConversations(loadConversations()) 
     setLoaded(true)
   }, [])
 

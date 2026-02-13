@@ -1,0 +1,68 @@
+import { NextResponse } from "next/server"
+
+import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+function toApiBase(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "")
+  if (!trimmed) return "https://generativelanguage.googleapis.com/v1beta/openai"
+  if (trimmed.includes("/v1beta/openai") || /\/openai$/i.test(trimmed)) return trimmed
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as {
+      apiKey?: string
+      baseUrl?: string
+      model?: string
+    }
+    const config = await loadIntegrationsConfig()
+
+    const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.gemini.apiKey.trim()
+    const baseUrl = toApiBase((typeof body.baseUrl === "string" && body.baseUrl.trim()) || config.gemini.baseUrl)
+    const model = (typeof body.model === "string" && body.model.trim()) || config.gemini.defaultModel
+
+    if (!apiKey) {
+      return NextResponse.json({ ok: false, error: "Gemini API key is required." }, { status: 400 })
+    }
+    if (!model) {
+      return NextResponse.json({ ok: false, error: "Model is required." }, { status: 400 })
+    }
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 16,
+        messages: [{ role: "user", content: "ping" }],
+      }),
+      cache: "no-store",
+    })
+
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) {
+      const msg =
+        payload && typeof payload === "object" && "error" in payload
+          ? String((payload as { error?: { message?: string } }).error?.message || "")
+          : ""
+      return NextResponse.json(
+        { ok: false, error: msg || `Model "${model}" is not available for this key (${res.status}).` },
+        { status: 400 },
+      )
+    }
+
+    return NextResponse.json({ ok: true, model })
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Failed to validate Gemini model availability." },
+      { status: 500 },
+    )
+  }
+}

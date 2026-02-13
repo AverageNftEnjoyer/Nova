@@ -1,6 +1,19 @@
 import { streamText } from "ai"
 
+import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+
+export const runtime = "nodejs"
+
+function toAiSdkModelId(provider: string, model: string): string {
+  const normalizedProvider = String(provider || "").trim().toLowerCase()
+  const normalizedModel = String(model || "").trim()
+  if (!normalizedModel) return "openai/gpt-4.1-mini"
+  if (normalizedProvider === "claude") return `anthropic/${normalizedModel}`
+  if (normalizedProvider === "grok") return `xai/${normalizedModel}`
+  if (normalizedProvider === "gemini") return `google/${normalizedModel}`
+  return `openai/${normalizedModel}`
+}
 
 export async function POST(req: Request) {
   ensureNotificationSchedulerStarted()
@@ -15,7 +28,20 @@ export async function POST(req: Request) {
       })
     }
 
-    const selectedModel = model || "google/gemini-2.0-flash-001"
+    let selectedModel = String(model || "").trim()
+    if (!selectedModel) {
+      const config = await loadIntegrationsConfig()
+      const provider = config.activeLlmProvider
+      const providerModel =
+        provider === "claude"
+          ? config.claude.defaultModel
+          : provider === "grok"
+            ? config.grok.defaultModel
+            : provider === "gemini"
+              ? config.gemini.defaultModel
+              : config.openai.defaultModel
+      selectedModel = toAiSdkModelId(provider, providerModel)
+    }
 
     const lastIndex = messages.length - 1
     const transformedMessages = messages.map(

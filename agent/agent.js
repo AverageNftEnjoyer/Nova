@@ -25,9 +25,11 @@ const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "inte
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
+const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
 const DEFAULT_GROK_MODEL = "grok-4-0709";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
 const OPENAI_FALLBACK_MODEL = String(process.env.NOVA_OPENAI_FALLBACK_MODEL || "").trim();
 const OPENAI_MODEL_PRICING_USD_PER_1M = {
   "gpt-5.2": { input: 1.75, output: 14.0 },
@@ -60,6 +62,13 @@ const WAKE_WORD_VARIANTS = (process.env.NOVA_WAKE_WORD_VARIANTS || "nola,noah,no
   .split(",")
   .map((v) => v.trim().toLowerCase())
   .filter(Boolean);
+
+function toOpenAiLikeBase(baseUrl, fallbackBaseUrl) {
+  const trimmed = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return fallbackBaseUrl;
+  if (trimmed.includes("/v1beta/openai") || /\/openai$/i.test(trimmed)) return trimmed;
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
 
 function withTimeout(promise, ms, label = "request") {
   let timer = null;
@@ -159,9 +168,10 @@ function loadOpenAIIntegrationRuntime() {
     const apiKey = typeof integration.apiKey === "string" && integration.apiKey.trim()
       ? integration.apiKey.trim()
       : "";
-    const baseURL = typeof integration.baseUrl === "string" && integration.baseUrl.trim()
-      ? integration.baseUrl.trim()
-      : DEFAULT_OPENAI_BASE_URL;
+    const baseURL = toOpenAiLikeBase(
+      typeof integration.baseUrl === "string" ? integration.baseUrl : "",
+      DEFAULT_OPENAI_BASE_URL
+    );
     const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
       ? integration.defaultModel.trim()
       : DEFAULT_CHAT_MODEL;
@@ -179,19 +189,20 @@ function loadIntegrationsRuntime() {
     const openaiIntegration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
     const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
     const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
+    const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
     const activeProvider = parsed?.activeLlmProvider === "claude"
       ? "claude"
       : parsed?.activeLlmProvider === "grok"
         ? "grok"
+        : parsed?.activeLlmProvider === "gemini"
+          ? "gemini"
         : "openai";
     return {
       activeProvider,
       openai: {
         connected: Boolean(openaiIntegration.connected),
         apiKey: typeof openaiIntegration.apiKey === "string" ? openaiIntegration.apiKey.trim() : "",
-        baseURL: typeof openaiIntegration.baseUrl === "string" && openaiIntegration.baseUrl.trim()
-          ? openaiIntegration.baseUrl.trim()
-          : DEFAULT_OPENAI_BASE_URL,
+        baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
         model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
           ? openaiIntegration.defaultModel.trim()
           : DEFAULT_CHAT_MODEL
@@ -209,12 +220,18 @@ function loadIntegrationsRuntime() {
       grok: {
         connected: Boolean(grokIntegration.connected),
         apiKey: typeof grokIntegration.apiKey === "string" ? grokIntegration.apiKey.trim() : "",
-        baseURL: typeof grokIntegration.baseUrl === "string" && grokIntegration.baseUrl.trim()
-          ? grokIntegration.baseUrl.trim()
-          : DEFAULT_GROK_BASE_URL,
+        baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
         model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
           ? grokIntegration.defaultModel.trim()
           : DEFAULT_GROK_MODEL
+      },
+      gemini: {
+        connected: Boolean(geminiIntegration.connected),
+        apiKey: typeof geminiIntegration.apiKey === "string" ? geminiIntegration.apiKey.trim() : "",
+        baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
+        model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
+          ? geminiIntegration.defaultModel.trim()
+          : DEFAULT_GEMINI_MODEL
       }
     };
   } catch {
@@ -222,7 +239,8 @@ function loadIntegrationsRuntime() {
       activeProvider: "openai",
       openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
       claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL }
+      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
     };
   }
 }
@@ -242,6 +260,14 @@ function getActiveChatRuntime(integrations) {
       apiKey: integrations.grok.apiKey,
       baseURL: integrations.grok.baseURL,
       model: integrations.grok.model
+    };
+  }
+  if (integrations.activeProvider === "gemini") {
+    return {
+      provider: "gemini",
+      apiKey: integrations.gemini.apiKey,
+      baseURL: integrations.gemini.baseURL,
+      model: integrations.gemini.model
     };
   }
   return {
@@ -367,6 +393,18 @@ function broadcastState(state) {
 
 function broadcastMessage(role, content, source = "hud") {
   broadcast({ type: "message", role, content, source, ts: Date.now() });
+}
+
+function shouldBuildWorkflowFromPrompt(text) {
+  const n = String(text || "").toLowerCase();
+  const asksBuild = /(build|create|setup|set up|make|generate|deploy)/.test(n);
+  const workflowScope = /(workflow|mission|automation|pipeline|schedule|daily report|notification)/.test(n);
+  return asksBuild && workflowScope;
+}
+
+function shouldDraftOnlyWorkflow(text) {
+  const n = String(text || "").toLowerCase();
+  return /(draft|preview|don't deploy|do not deploy|just show|show me first)/.test(n);
 }
 
 // ===== handle incoming HUD messages =====
@@ -570,7 +608,7 @@ async function handleInput(text, opts = {}) {
   const openaiRuntime = integrationsRuntime.openai;
   const activeChatRuntime = getActiveChatRuntime(integrationsRuntime);
   if (!activeChatRuntime.apiKey) {
-    const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : "OpenAI";
+    const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : activeChatRuntime.provider === "gemini" ? "Gemini" : "OpenAI";
     throw new Error(`Missing ${providerName} API key. Configure Integrations first.`);
   }
   const openai = openaiRuntime.apiKey ? getOpenAIClient(openaiRuntime) : null;
@@ -582,6 +620,8 @@ async function handleInput(text, opts = {}) {
       ? DEFAULT_CLAUDE_MODEL
       : activeChatRuntime.provider === "grok"
         ? DEFAULT_GROK_MODEL
+        : activeChatRuntime.provider === "gemini"
+          ? DEFAULT_GEMINI_MODEL
         : DEFAULT_CHAT_MODEL);
 
   const useVoice = opts.voice !== false;
@@ -685,6 +725,54 @@ Output ONLY valid JSON, nothing else.`
     }
 
     broadcastState("idle");
+    return;
+  }
+
+  // ===== WORKFLOW BUILDER =====
+  if (shouldBuildWorkflowFromPrompt(text)) {
+    stopSpeaking();
+    broadcastState("thinking");
+    broadcastMessage("user", text, source);
+    try {
+      const deploy = !shouldDraftOnlyWorkflow(text);
+      const res = await fetch("http://localhost:3000/api/missions/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: text,
+          deploy,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        throw new Error(data?.error || `Workflow build failed (${res.status}).`);
+      }
+
+      const label = data?.workflow?.label || "Generated Workflow";
+      const provider = data?.provider || "LLM";
+      const model = data?.model || "default model";
+      const stepCount = Array.isArray(data?.workflow?.summary?.workflowSteps) ? data.workflow.summary.workflowSteps.length : 0;
+      const scheduleTime = data?.workflow?.summary?.schedule?.time || "09:00";
+      const scheduleTimezone = data?.workflow?.summary?.schedule?.timezone || "America/New_York";
+
+      const reply = data?.deployed
+        ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}.`
+        : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}.`;
+
+      broadcastMessage("assistant", reply, source);
+      if (useVoice) {
+        await speak(reply, ttsVoice);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Workflow build failed.";
+      const reply = `I couldn't build that workflow yet: ${msg}`;
+      broadcastMessage("assistant", reply, source);
+      if (useVoice) {
+        await speak(reply, ttsVoice);
+      }
+    } finally {
+      broadcastState("idle");
+    }
     return;
   }
 

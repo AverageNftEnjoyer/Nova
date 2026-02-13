@@ -1,7 +1,7 @@
 import "server-only"
 
-import { loadSchedules, parseDailyTime, saveSchedules, type NotificationSchedule } from "@/lib/notifications/store"
-import { dispatchNotification } from "@/lib/notifications/dispatcher"
+import { loadSchedules, saveSchedules, type NotificationSchedule } from "@/lib/notifications/store"
+import { executeMissionWorkflow, shouldWorkflowRunNow } from "@/lib/missions/runtime"
 
 type SchedulerState = {
   timer: NodeJS.Timeout | null
@@ -15,43 +15,6 @@ const state = (globalThis as { __novaNotificationScheduler?: SchedulerState })._
 
 ;(globalThis as { __novaNotificationScheduler?: SchedulerState }).__novaNotificationScheduler = state
 
-function getLocalTimeParts(date: Date, timezone: string): {
-  hour: number
-  minute: number
-  dayStamp: string
-} | null {
-  try {
-    const formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    })
-
-    const parts = formatter.formatToParts(date)
-    const lookup = new Map(parts.map((p) => [p.type, p.value]))
-
-    const year = lookup.get("year")
-    const month = lookup.get("month")
-    const day = lookup.get("day")
-    const hour = lookup.get("hour")
-    const minute = lookup.get("minute")
-
-    if (!year || !month || !day || !hour || !minute) return null
-
-    return {
-      hour: Number(hour),
-      minute: Number(minute),
-      dayStamp: `${year}-${month}-${day}`,
-    }
-  } catch {
-    return null
-  }
-}
-
 async function runScheduleTick() {
   const schedules = await loadSchedules()
   if (schedules.length === 0) return
@@ -61,52 +24,38 @@ async function runScheduleTick() {
   const nextSchedules: NotificationSchedule[] = []
 
   for (const schedule of schedules) {
-    if (schedule.integration !== "telegram" && schedule.integration !== "discord") {
-      nextSchedules.push(schedule)
-      continue
-    }
-
     if (!schedule.enabled) {
       nextSchedules.push(schedule)
       continue
     }
 
-    const time = parseDailyTime(schedule.time)
-    const nowInZone = getLocalTimeParts(now, schedule.timezone)
-
-    if (!time || !nowInZone) {
+    const gate = shouldWorkflowRunNow(schedule, now)
+    if (!gate.due) {
       nextSchedules.push(schedule)
       continue
     }
 
-    const shouldSend =
-      nowInZone.hour === time.hour &&
-      nowInZone.minute === time.minute &&
-      schedule.lastSentLocalDate !== nowInZone.dayStamp
-
-    if (!shouldSend) {
+    const requiresDayLock = gate.mode !== "interval"
+    if (requiresDayLock && schedule.lastSentLocalDate === gate.dayStamp) {
       nextSchedules.push(schedule)
       continue
     }
 
-    let sendResults: Array<{ ok: boolean }>
+    let hadSuccess = false
     try {
-      sendResults = await dispatchNotification({
-        integration: schedule.integration,
-        text: schedule.message,
-        targets: schedule.chatIds,
+      const execution = await executeMissionWorkflow({
+        schedule,
         source: "scheduler",
-        scheduleId: schedule.id,
-        label: schedule.label,
+        now,
+        enforceOutputTime: true,
       })
+      hadSuccess = execution.ok
     } catch {
-      sendResults = [{ ok: false }]
+      hadSuccess = false
     }
-
-    const hadSuccess = sendResults.some((r) => r.ok)
     const updated: NotificationSchedule = {
       ...schedule,
-      lastSentLocalDate: hadSuccess ? nowInZone.dayStamp : schedule.lastSentLocalDate,
+      lastSentLocalDate: hadSuccess && requiresDayLock ? gate.dayStamp : schedule.lastSentLocalDate,
       runCount: (Number.isFinite(schedule.runCount) ? schedule.runCount : 0) + 1,
       successCount: (Number.isFinite(schedule.successCount) ? schedule.successCount : 0) + (hadSuccess ? 1 : 0),
       failureCount: (Number.isFinite(schedule.failureCount) ? schedule.failureCount : 0) + (hadSuccess ? 0 : 1),

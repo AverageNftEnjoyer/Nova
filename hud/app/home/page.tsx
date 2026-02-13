@@ -7,7 +7,6 @@ import {
   PanelLeftClose,
   Blocks,
   Pin,
-  Send,
   Settings,
 } from "lucide-react"
 import { AnimatedOrb } from "@/components/animated-orb"
@@ -32,16 +31,19 @@ import {
   loadIntegrationsSettings,
   type LlmProvider,
   updateClaudeIntegrationSettings,
+  updateGeminiIntegrationSettings,
   updateGrokIntegrationSettings,
   updateOpenAIIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateTelegramIntegrationSettings,
 } from "@/lib/integrations"
 import FloatingLines from "@/components/FloatingLines"
+import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
+import { GeminiIcon } from "@/components/gemini-icon"
 import { Composer } from "@/components/composer"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
@@ -86,22 +88,42 @@ function formatDailyTime(time: string, timezone: string): string {
   }).format(date)
 }
 
-function toMissionDescription(message: string | undefined, integration: string, totalCount: number): string {
-  const raw = typeof message === "string" ? message.trim() : ""
-  if (!raw) {
-    return `${integration} - ${totalCount} run${totalCount === 1 ? "" : "s"}/day`
-  }
+function priorityRank(priority: "low" | "medium" | "high" | "critical"): number {
+  if (priority === "low") return 0
+  if (priority === "medium") return 1
+  if (priority === "high") return 2
+  return 3
+}
 
-  const normalized = raw.replace(/\s+/g, " ")
-  if (normalized.length <= 84) return normalized
-  return `${normalized.slice(0, 81).trimEnd()}...`
+function normalizePriority(value: string | undefined): "low" | "medium" | "high" | "critical" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "critical") return normalized
+  return "medium"
+}
+
+function parseMissionWorkflowMeta(message: string | undefined): {
+  description: string
+  priority: "low" | "medium" | "high" | "critical"
+} {
+  const raw = typeof message === "string" ? message : ""
+  const marker = "[NOVA WORKFLOW]"
+  const idx = raw.indexOf(marker)
+  const description = (idx < 0 ? raw : raw.slice(0, idx)).trim()
+  if (idx < 0) return { description, priority: "medium" }
+
+  const jsonText = raw.slice(idx + marker.length).trim()
+  try {
+    const parsed = JSON.parse(jsonText) as { priority?: string }
+    return { description, priority: normalizePriority(parsed.priority) }
+  } catch {
+    return { description, priority: "medium" }
+  }
 }
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
-  if (isLight) return settings.app.lightModeBackground ?? "none"
   const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
-  return settings.app.darkModeBackground ?? legacyDark
+  return settings.app.darkModeBackground ?? (isLight ? "none" : legacyDark)
 }
 
 function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
@@ -158,6 +180,7 @@ export default function HomePage() {
     const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
+  const [backgroundVideoAssetId, setBackgroundVideoAssetId] = useState<string | null>(() => loadUserSettings().app.customBackgroundVideoAssetId)
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
@@ -165,9 +188,11 @@ export default function HomePage() {
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
+  const [geminiConnected, setGeminiConnected] = useState(false)
   const [openaiConfigured, setOpenaiConfigured] = useState(false)
   const [claudeConfigured, setClaudeConfigured] = useState(false)
   const [grokConfigured, setGrokConfigured] = useState(false)
+  const [geminiConfigured, setGeminiConfigured] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
   const greetingSentRef = useRef(false)
@@ -219,15 +244,19 @@ export default function HomePage() {
     setOpenaiConnected(integrations.openai.connected)
     setClaudeConnected(integrations.claude.connected)
     setGrokConnected(integrations.grok.connected)
+    setGeminiConnected(integrations.gemini.connected)
     setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
     setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
     setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
+    setGeminiConfigured(Boolean(integrations.gemini.apiKeyConfigured))
     setActiveLlmProvider(integrations.activeLlmProvider)
     setActiveLlmModel(
       integrations.activeLlmProvider === "claude"
         ? integrations.claude.defaultModel
         : integrations.activeLlmProvider === "grok"
           ? integrations.grok.defaultModel
+          : integrations.activeLlmProvider === "gemini"
+            ? integrations.gemini.defaultModel
           : integrations.openai.defaultModel,
     )
     setIntegrationsHydrated(true)
@@ -261,7 +290,7 @@ export default function HomePage() {
     if (uiCached) {
       setBackgroundVideoUrl(uiCached)
     }
-    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const selectedAssetId = backgroundVideoAssetId ?? loadUserSettings().app.customBackgroundVideoAssetId
     const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
     if (cached) {
       setBackgroundVideoUrl(cached)
@@ -282,7 +311,7 @@ export default function HomePage() {
     return () => {
       cancelled = true
     }
-  }, [background, isLight])
+  }, [background, isLight, backgroundVideoAssetId])
 
   useEffect(() => {
     fetch("/api/integrations/config", { cache: "no-store" })
@@ -293,29 +322,37 @@ export default function HomePage() {
         const openai = Boolean(data?.config?.openai?.connected)
         const claude = Boolean(data?.config?.claude?.connected)
         const grok = Boolean(data?.config?.grok?.connected)
+        const gemini = Boolean(data?.config?.gemini?.connected)
         const openaiReady = Boolean(data?.config?.openai?.apiKeyConfigured)
         const claudeReady = Boolean(data?.config?.claude?.apiKeyConfigured)
         const grokReady = Boolean(data?.config?.grok?.apiKeyConfigured)
+        const geminiReady = Boolean(data?.config?.gemini?.apiKeyConfigured)
         const provider: LlmProvider =
           data?.config?.activeLlmProvider === "claude"
             ? "claude"
             : data?.config?.activeLlmProvider === "grok"
               ? "grok"
+              : data?.config?.activeLlmProvider === "gemini"
+                ? "gemini"
               : "openai"
         setTelegramConnected(telegram)
         setDiscordConnected(discord)
         setOpenaiConnected(openai)
         setClaudeConnected(claude)
         setGrokConnected(grok)
+        setGeminiConnected(gemini)
         setOpenaiConfigured(openaiReady)
         setClaudeConfigured(claudeReady)
         setGrokConfigured(grokReady)
+        setGeminiConfigured(geminiReady)
         setActiveLlmProvider(provider)
         setActiveLlmModel(
           provider === "claude"
             ? String(data?.config?.claude?.defaultModel || "claude-sonnet-4-20250514")
             : provider === "grok"
               ? String(data?.config?.grok?.defaultModel || "grok-4-0709")
+              : provider === "gemini"
+                ? String(data?.config?.gemini?.defaultModel || "gemini-2.5-pro")
               : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
         )
         updateTelegramIntegrationSettings({ connected: telegram })
@@ -323,6 +360,7 @@ export default function HomePage() {
         updateOpenAIIntegrationSettings({ connected: openai })
         updateClaudeIntegrationSettings({ connected: claude })
         updateGrokIntegrationSettings({ connected: grok })
+        updateGeminiIntegrationSettings({ connected: gemini })
       })
       .catch(() => {})
     refreshNotificationSchedules()
@@ -334,6 +372,7 @@ export default function HomePage() {
       setOrbColor(settings.app.orbColor)
       const nextBackground = resolveThemeBackground(isLight)
       setBackground(nextBackground)
+      setBackgroundVideoAssetId(settings.app.customBackgroundVideoAssetId)
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: settings.app.orbColor,
@@ -360,16 +399,20 @@ export default function HomePage() {
       setOpenaiConnected(integrations.openai.connected)
       setClaudeConnected(integrations.claude.connected)
       setGrokConnected(integrations.grok.connected)
+      setGeminiConnected(integrations.gemini.connected)
       setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
       setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
       setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
+      setGeminiConfigured(Boolean(integrations.gemini.apiKeyConfigured))
       setActiveLlmProvider(integrations.activeLlmProvider)
       setActiveLlmModel(
         integrations.activeLlmProvider === "claude"
           ? integrations.claude.defaultModel
-          : integrations.activeLlmProvider === "grok"
-            ? integrations.grok.defaultModel
-            : integrations.openai.defaultModel,
+        : integrations.activeLlmProvider === "grok"
+          ? integrations.grok.defaultModel
+          : integrations.activeLlmProvider === "gemini"
+            ? integrations.gemini.defaultModel
+          : integrations.openai.defaultModel,
       )
       refreshNotificationSchedules()
     }
@@ -671,6 +714,18 @@ export default function HomePage() {
     }).catch(() => {})
   }, [grokConnected, grokConfigured])
 
+  const handleToggleGeminiIntegration = useCallback(() => {
+    if (!geminiConnected && !geminiConfigured) return
+    const next = !geminiConnected
+    setGeminiConnected(next)
+    updateGeminiIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gemini: { connected: next } }),
+    }).catch(() => {})
+  }, [geminiConnected, geminiConfigured])
+
   const missions = useMemo(() => {
     const grouped = new Map<
       string,
@@ -679,6 +734,7 @@ export default function HomePage() {
         integration: string
         title: string
         description: string
+        priority: "low" | "medium" | "high" | "critical"
         enabledCount: number
         totalCount: number
         times: string[]
@@ -687,6 +743,7 @@ export default function HomePage() {
     >()
 
     for (const schedule of notificationSchedules) {
+      const meta = parseMissionWorkflowMeta(schedule.message)
       const title = schedule.label?.trim() || "Scheduled notification"
       const integration = schedule.integration?.trim().toLowerCase() || "unknown"
       const key = `${integration}:${title.toLowerCase()}`
@@ -696,7 +753,8 @@ export default function HomePage() {
           id: schedule.id,
           integration,
           title,
-          description: schedule.message?.trim() || "",
+          description: meta.description,
+          priority: meta.priority,
           enabledCount: schedule.enabled ? 1 : 0,
           totalCount: 1,
           times: [schedule.time],
@@ -707,15 +765,17 @@ export default function HomePage() {
       existing.totalCount += 1
       if (schedule.enabled) existing.enabledCount += 1
       existing.times.push(schedule.time)
-      if (!existing.description && schedule.message?.trim()) {
-        existing.description = schedule.message.trim()
+      if (!existing.description && meta.description) {
+        existing.description = meta.description
+      }
+      if (priorityRank(meta.priority) > priorityRank(existing.priority)) {
+        existing.priority = meta.priority
       }
     }
 
     return Array.from(grouped.values())
       .map((mission) => ({
         ...mission,
-        description: toMissionDescription(mission.description, mission.integration, mission.totalCount),
         times: mission.times.sort((a, b) => a.localeCompare(b)),
       }))
       .sort((a, b) => {
@@ -744,7 +804,7 @@ export default function HomePage() {
         : "border-rose-300/50 bg-rose-500/35 text-rose-100"
   const runningProvider = latestUsage?.provider ?? activeLlmProvider
   const runningModel = latestUsage?.model ?? activeLlmModel
-  const runningLabel = `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : "OpenAI"} - ${runningModel || "N/A"}`
+  const runningLabel = `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -928,31 +988,46 @@ export default function HomePage() {
                 </div>
                 <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Scheduled Nova workflows</p>
 
-                <div className="mt-3 min-h-0 flex-1 overflow-y-auto space-y-2 px-1 py-1">
+                <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
                   {missions.length === 0 && (
                     <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
                       No missions yet. Add one in Mission Settings.
                     </p>
                   )}
                   {missions.map((mission) => (
-                    <div key={mission.id} className={cn(`${subPanelClass} p-2.5 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
+                    <div key={mission.id} className={cn(`${subPanelClass} p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
                       <div className="flex items-start justify-between gap-2">
-                        <p className={cn("text-sm leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
-                        <span
-                          className={cn(
-                            "text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap",
-                            mission.enabledCount > 0
-                              ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                              : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                          )}
-                        >
-                          {mission.enabledCount > 0 ? "Active" : "Paused"}
-                        </span>
+                        <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
+                        <div className="flex items-center gap-1 flex-nowrap shrink-0">
+                          <span
+                            className={cn(
+                              "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap",
+                              mission.enabledCount > 0
+                                ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                                : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                            )}
+                          >
+                            {mission.enabledCount > 0 ? "Active" : "Paused"}
+                          </span>
+                          <span
+                            title={`Priority: ${mission.priority}`}
+                            aria-label={`Priority ${mission.priority}`}
+                            className={cn(
+                              "h-2.5 w-2.5 rounded-full shrink-0",
+                              mission.priority === "low" && "bg-emerald-400",
+                              mission.priority === "medium" && "bg-amber-400",
+                              mission.priority === "high" && "bg-orange-400",
+                              mission.priority === "critical" && "bg-rose-400",
+                            )}
+                          />
+                        </div>
                       </div>
-                      <p className={cn("mt-1 text-xs leading-tight", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      {mission.description ? (
+                        <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
+                      ) : null}
+                      <div className="mt-1.5 flex flex-wrap gap-1">
                         {mission.times.map((time) => (
-                          <span key={`${mission.id}-${time}`} className={cn("text-[11px] px-2 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
+                          <span key={`${mission.id}-${time}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
                             {formatDailyTime(time, mission.timezone)}
                           </span>
                         ))}
@@ -994,7 +1069,7 @@ export default function HomePage() {
                       aria-label={telegramConnected ? "Disable Telegram integration" : "Enable Telegram integration"}
                       title={telegramConnected ? "Telegram connected (click to disable)" : "Telegram disconnected (click to enable)"}
                     >
-                      <Send className="w-3.5 h-3.5" />
+                      <TelegramIcon className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={handleToggleDiscordIntegration}
@@ -1005,7 +1080,7 @@ export default function HomePage() {
                       aria-label={discordConnected ? "Disable Discord integration" : "Enable Discord integration"}
                       title={discordConnected ? "Discord connected (click to disable)" : "Discord disconnected (click to enable)"}
                     >
-                      <DiscordIcon className="w-3.5 h-3.5 text-white" />
+                      <DiscordIcon className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={handleToggleOpenAIIntegration}
@@ -1016,7 +1091,7 @@ export default function HomePage() {
                       aria-label={openaiConnected ? "Disable OpenAI integration" : "Enable OpenAI integration"}
                       title={openaiConnected ? "OpenAI connected (click to disable)" : "OpenAI disconnected (click to enable)"}
                     >
-                      <OpenAIIcon className="w-4 h-4" />
+                      <OpenAIIcon className="w-[18px] h-[18px]" />
                     </button>
                     <button
                       onClick={handleToggleClaudeIntegration}
@@ -1040,7 +1115,18 @@ export default function HomePage() {
                     >
                       <XAIIcon size={16} />
                     </button>
-                    {Array.from({ length: 19 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleGeminiIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(geminiConnected),
+                      )}
+                      aria-label={geminiConnected ? "Disable Gemini integration" : "Enable Gemini integration"}
+                      title={geminiConnected ? "Gemini connected (click to disable)" : "Gemini disconnected (click to enable)"}
+                    >
+                      <GeminiIcon size={16} />
+                    </button>
+                    {Array.from({ length: 18 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

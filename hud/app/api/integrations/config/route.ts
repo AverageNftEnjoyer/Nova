@@ -7,6 +7,7 @@ import {
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
   type GrokIntegrationConfig,
+  type GeminiIntegrationConfig,
   type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
@@ -20,6 +21,21 @@ function maskSecret(value: string): string {
   if (!trimmed) return ""
   if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}****`
   return `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`
+}
+
+function toClientAgents(config: IntegrationsConfig) {
+  const output: Record<string, { connected: boolean; endpoint: string; apiKeyConfigured: boolean; apiKeyMasked: string }> = {}
+  for (const [id, agent] of Object.entries(config.agents || {})) {
+    const key = String(id || "").trim()
+    if (!key) continue
+    output[key] = {
+      connected: Boolean(agent.connected),
+      endpoint: String(agent.endpoint || "").trim(),
+      apiKeyConfigured: String(agent.apiKey || "").trim().length > 0,
+      apiKeyMasked: maskSecret(String(agent.apiKey || "")),
+    }
+  }
+  return output
 }
 
 function normalizeTelegramInput(raw: unknown, current: TelegramIntegrationConfig): TelegramIntegrationConfig {
@@ -117,8 +133,26 @@ function normalizeGrokInput(raw: unknown, current: GrokIntegrationConfig): GrokI
   }
 }
 
+function normalizeGeminiInput(raw: unknown, current: GeminiIntegrationConfig): GeminiIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const gemini = raw as Partial<GeminiIntegrationConfig>
+  const nextApiKey =
+    typeof gemini.apiKey === "string"
+      ? (gemini.apiKey.trim().length > 0 ? gemini.apiKey.trim() : current.apiKey)
+      : current.apiKey
+
+  return {
+    connected: (typeof gemini.connected === "boolean" ? gemini.connected : current.connected) && nextApiKey.trim().length > 0,
+    apiKey: nextApiKey,
+    baseUrl: typeof gemini.baseUrl === "string" && gemini.baseUrl.trim().length > 0 ? gemini.baseUrl.trim() : current.baseUrl,
+    defaultModel: typeof gemini.defaultModel === "string" && gemini.defaultModel.trim().length > 0
+      ? gemini.defaultModel.trim()
+      : current.defaultModel,
+  }
+}
+
 function normalizeActiveLlmProvider(raw: unknown, current: LlmProvider): LlmProvider {
-  if (raw === "openai" || raw === "claude" || raw === "grok") return raw
+  if (raw === "openai" || raw === "claude" || raw === "grok" || raw === "gemini") return raw
   return current
 }
 
@@ -149,6 +183,13 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.grok.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.grok.apiKey),
     },
+    gemini: {
+      ...config.gemini,
+      apiKey: "",
+      apiKeyConfigured: config.gemini.apiKey.trim().length > 0,
+      apiKeyMasked: maskSecret(config.gemini.apiKey),
+    },
+    agents: toClientAgents(config),
   }
 }
 
@@ -165,6 +206,7 @@ export async function PATCH(req: Request) {
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
+      gemini?: Partial<GeminiIntegrationConfig>
       activeLlmProvider?: LlmProvider
     }
     const current = await loadIntegrationsConfig()
@@ -173,6 +215,7 @@ export async function PATCH(req: Request) {
     const openai = normalizeOpenAIInput(body.openai, current.openai)
     const claude = normalizeClaudeInput(body.claude, current.claude)
     const grok = normalizeGrokInput(body.grok, current.grok)
+    const gemini = normalizeGeminiInput(body.gemini, current.gemini)
     const activeLlmProvider = normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
     const next = await updateIntegrationsConfig({
       telegram,
@@ -180,6 +223,7 @@ export async function PATCH(req: Request) {
       openai,
       claude,
       grok,
+      gemini,
       activeLlmProvider,
       agents: body.agents ?? current.agents,
     })

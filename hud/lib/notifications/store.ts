@@ -21,10 +21,9 @@ export interface NotificationSchedule {
   lastRunAt?: string
 }
 
-function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule>): "telegram" | "discord" | "" {
+function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule>): string {
   const integration = typeof value === "string" ? value.trim().toLowerCase() : ""
-  if (integration === "discord") return "discord"
-  if (integration === "telegram") return "telegram"
+  if (integration && /^[a-z0-9_-]+$/.test(integration)) return integration
 
   // Legacy records may not have an integration field. Use conservative inference.
   const chatIds = Array.isArray(raw?.chatIds) ? raw.chatIds.map((v) => String(v).toLowerCase()) : []
@@ -41,8 +40,7 @@ function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule
     return "telegram"
   }
 
-  // Unknown integration should never silently fall back to Telegram.
-  return ""
+  return "telegram"
 }
 
 const DATA_DIR = path.join(process.cwd(), "data")

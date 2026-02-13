@@ -17,7 +17,7 @@ export interface AgentMessage {
 }
 
 export interface AgentUsage {
-  provider: "openai" | "claude" | "grok";
+  provider: "openai" | "claude" | "grok" | "gemini";
   model: string;
   promptTokens: number;
   completionTokens: number;
@@ -76,7 +76,7 @@ export function useNovaState() {
           setAgentMessages((prev) => [...prev, msg]);
         }
 
-        if (data.type === "usage" && typeof data.model === "string" && (data.provider === "openai" || data.provider === "claude" || data.provider === "grok")) {
+        if (data.type === "usage" && typeof data.model === "string" && (data.provider === "openai" || data.provider === "claude" || data.provider === "grok" || data.provider === "gemini")) {
           setLatestUsage({
             provider: data.provider,
             model: data.model,

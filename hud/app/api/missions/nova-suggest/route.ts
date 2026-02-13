@@ -5,11 +5,12 @@ import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-type Provider = "openai" | "claude" | "grok"
+type Provider = "openai" | "claude" | "grok" | "gemini"
 
 function toOpenAiLikeBase(url: string, fallback: string): string {
   const trimmed = url.trim().replace(/\/+$/, "")
   if (!trimmed) return fallback
+  if (trimmed.includes("/v1beta/openai") || /\/openai$/i.test(trimmed)) return trimmed
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`
 }
 
@@ -128,6 +129,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, prompt, provider, model })
     }
 
+    if (provider === "gemini") {
+      const apiKey = config.gemini.apiKey.trim()
+      const model = config.gemini.defaultModel.trim()
+      const baseUrl = toOpenAiLikeBase(config.gemini.baseUrl, "https://generativelanguage.googleapis.com/v1beta/openai")
+      if (!apiKey) return NextResponse.json({ ok: false, error: "Gemini API key is missing." }, { status: 400 })
+      if (!model) return NextResponse.json({ ok: false, error: "Gemini default model is missing." }, { status: 400 })
+
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: 320,
+          messages: [
+            { role: "system", content: systemText },
+            { role: "user", content: userText },
+          ],
+        }),
+        cache: "no-store",
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        const msg =
+          payload && typeof payload === "object" && "error" in payload
+            ? String((payload as { error?: { message?: string } }).error?.message || "")
+            : ""
+        return NextResponse.json({ ok: false, error: msg || `Gemini suggest failed (${res.status}).` }, { status: 400 })
+      }
+      const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
+      const prompt = cleanPrompt(text)
+      if (!prompt) return NextResponse.json({ ok: false, error: "Gemini returned an empty suggestion." }, { status: 502 })
+      return NextResponse.json({ ok: true, prompt, provider, model })
+    }
+
     const apiKey = config.openai.apiKey.trim()
     const model = config.openai.defaultModel.trim()
     const baseUrl = toOpenAiLikeBase(config.openai.baseUrl, "https://api.openai.com/v1")
@@ -143,7 +182,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model,
         temperature: 0.2,
-        max_tokens: 320,
+        max_completion_tokens: 320,
         messages: [
           { role: "system", content: systemText },
           { role: "user", content: userText },

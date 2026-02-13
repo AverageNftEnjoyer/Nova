@@ -46,12 +46,10 @@ import {
   type AccentColor,
   type OrbColor,
   type DarkBackgroundType,
-  type LightBackgroundType,
   ACCENT_COLORS,
   ORB_COLORS,
   TTS_VOICES,
   DARK_BACKGROUNDS,
-  LIGHT_BACKGROUNDS,
 } from "@/lib/userSettings"
 
 const ACCESS_TIERS: AccessTier[] = ["Core Access", "Developer", "Admin", "Operator"]
@@ -809,8 +807,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </div>
 
                     <SettingSelect
-                      label="Dark Mode Background"
-                      description="Choose the background used in dark mode"
+                      label="Background"
+                      description="Choose the app background"
                       isLight={isLight}
                       value={settings.app.darkModeBackground}
                       options={(Object.entries(DARK_BACKGROUNDS) as [DarkBackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
@@ -821,8 +819,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     />
 
                     <div className={cn(SETTINGS_CARD_BASE, "p-4")}>
-                      <p className="text-sm text-s-70 mb-1">Custom Background Video</p>
-                      <p className="text-xs text-s-30 mb-3">Upload once, then switch between saved MP4s anytime.</p>
+                      <p className="text-sm text-s-70 mb-1">Custom Background</p>
+                      <p className="text-xs text-s-30 mb-3">Upload your Background</p>
                       <input
                         ref={backgroundVideoInputRef}
                         type="file"
@@ -842,75 +840,66 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           }
                         }}
                       />
-                      <div className="mb-3">
-                        <FluidSelect
-                          value={(activeBackgroundVideo?.id ?? NONE_OPTION)}
-                          isLight={isLight}
-                          options={backgroundVideoOptions}
-                          onChange={(v) => {
-                            playClickSound()
-                            selectBackgroundVideoAsset(v === NONE_OPTION ? null : v)
-                          }}
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5 max-w-[560px] mx-auto">
-                        <div className="flex-1 px-3 py-2 rounded-md text-sm bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)]">
-                          {activeBackgroundVideo?.fileName || "No MP4 selected"}
+                      <div className="flex items-center gap-2 rounded-lg bg-[var(--settings-sub-bg)] border border-[var(--settings-sub-border)] p-1.5">
+                        <div className="min-w-[220px] flex-[1.2]">
+                          <FluidSelect
+                            value={(activeBackgroundVideo?.id ?? NONE_OPTION)}
+                            isLight={isLight}
+                            options={backgroundVideoOptions}
+                            onChange={(v) => {
+                              playClickSound()
+                              selectBackgroundVideoAsset(v === NONE_OPTION ? null : v)
+                            }}
+                          />
                         </div>
-                        <button
-                          onClick={() => {
-                            playClickSound()
-                            backgroundVideoInputRef.current?.click()
-                          }}
-                          className={cn(
-                            "fx-spotlight-card fx-border-glow group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
-                            isLight ? "text-s-50" : "text-s-40",
-                          )}
-                          aria-label={activeBackgroundVideo ? "Add MP4" : "Upload MP4"}
-                          title={activeBackgroundVideo ? "Add MP4" : "Upload MP4"}
-                        >
-                          <span
-                            className={cn(
-                              "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
-                              isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
-                            )}
-                          >
-                            Upload MP4
-                          </span>
-                          +
-                        </button>
-                      </div>
-                      {activeBackgroundVideo && (
-                        <div className="mt-2">
-                          <Button
+                        <div className="flex-1 px-3 py-2 rounded-md text-sm bg-[var(--settings-sub-bg)] text-s-50 border border-[var(--settings-sub-border)] whitespace-nowrap overflow-hidden text-ellipsis">
+                          {activeBackgroundVideo?.fileName || "No background selected"}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
                             onClick={() => {
                               playClickSound()
-                              removeBackgroundVideo()
+                              backgroundVideoInputRef.current?.click()
                             }}
-                            variant="outline"
-                            size="sm"
-                            className="fx-spotlight-card fx-border-glow text-s-50 border-[var(--settings-sub-border)] hover:border-red-500/40 hover:text-red-300 hover:bg-red-500/10 transition-colors duration-150"
+                            className={cn(
+                              "fx-spotlight-card fx-border-glow group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
+                              isLight ? "text-s-50" : "text-s-40",
+                            )}
+                            aria-label={activeBackgroundVideo ? "Add background" : "Upload background"}
+                            title={activeBackgroundVideo ? "Add background" : "Upload background"}
                           >
-                            Remove Selected
-                          </Button>
+                            <span
+                              className={cn(
+                                "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+                                isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
+                              )}
+                            >
+                              Upload your Background
+                            </span>
+                            +
+                          </button>
+                          {activeBackgroundVideo && (
+                            <button
+                              onClick={() => {
+                                playClickSound()
+                                removeBackgroundVideo()
+                              }}
+                              className={cn(
+                                "fx-spotlight-card fx-border-glow h-8 px-3 rounded-md border text-xs font-medium transition-all duration-150 hover:-translate-y-[1px] active:translate-y-0",
+                                isLight
+                                  ? "border-red-300/70 bg-red-100 text-red-700 hover:bg-red-200 hover:border-red-400"
+                                  : "border-red-400/50 bg-red-500/15 text-red-300 hover:bg-red-500/25 hover:border-red-300/70",
+                              )}
+                            >
+                              Remove Selected
+                            </button>
+                          )}
                         </div>
-                      )}
+                      </div>
                       {backgroundVideoError && (
                         <p className="text-xs text-red-400 mt-2">{backgroundVideoError}</p>
                       )}
                     </div>
-
-                    <SettingSelect
-                      label="Light Mode Background"
-                      description="Choose the background used in light mode"
-                      isLight={isLight}
-                      value={settings.app.lightModeBackground}
-                      options={(Object.entries(LIGHT_BACKGROUNDS) as [LightBackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
-                        value,
-                        label: info.name,
-                      }))}
-                      onChange={(v) => updateApp("lightModeBackground", v)}
-                    />
 
                     <SettingToggle
                       label="Spotlight Effects"
@@ -1493,4 +1482,3 @@ function SettingSelect({
     </div>
   )
 }
-

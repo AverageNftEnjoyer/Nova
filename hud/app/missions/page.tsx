@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Trash2, Pin, Settings, Search, Sparkles, SlidersHorizontal, X, Clock3, Tag, Zap, Database, WandSparkles, GitBranch, Send, GripVertical, LayoutGrid, List, MoreVertical, Mail, MessageCircle, Activity, Pencil, Copy, Play } from "lucide-react"
+import { Trash2, Pin, Settings, Search, Sparkles, SlidersHorizontal, X, Clock3, Zap, Database, WandSparkles, GitBranch, Send, GripVertical, LayoutGrid, List, MoreVertical, Mail, MessageCircle, Activity, Pencil, Copy, Play, ChevronDown, ChevronRight } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,7 @@ import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
 import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations"
+import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/integrations/catalog"
 import "@/components/FloatingLines.css"
 
 interface NotificationSchedule {
@@ -39,14 +40,6 @@ const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
 const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
 const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
-const BUILDER_INTEGRATION_OPTIONS: FluidSelectOption[] = [
-  { value: "telegram", label: "Telegram" },
-  { value: "discord", label: "Discord" },
-  { value: "email", label: "Email" },
-  { value: "openai", label: "OpenAI" },
-  { value: "claude", label: "Claude" },
-  { value: "grok", label: "Grok" },
-]
 const MERIDIEM_OPTIONS: FluidSelectOption[] = [
   { value: "AM", label: "AM" },
   { value: "PM", label: "PM" },
@@ -66,7 +59,6 @@ const QUICK_TEMPLATE_OPTIONS: Array<{
   message: string
   time: string
   tags: string[]
-  apiCalls: string[]
   steps: Array<{ type: WorkflowStepType; title: string }>
 }> = [
   {
@@ -79,11 +71,6 @@ const QUICK_TEMPLATE_OPTIONS: Array<{
     message: "Pull today's calendar events, summarize key meetings and prep notes, then send to Telegram.",
     time: "08:00",
     tags: ["calendar", "briefing", "daily"],
-    apiCalls: [
-      "GET /api/calendar/events",
-      "POST /api/ai/brief",
-      "POST /api/notifications/schedules",
-    ],
     steps: [
       { type: "trigger", title: "Schedule trigger at 08:00" },
       { type: "fetch", title: "Fetch calendar events" },
@@ -101,11 +88,6 @@ const QUICK_TEMPLATE_OPTIONS: Array<{
     message: "Check incident stream, classify severity, and post response updates to Discord.",
     time: "09:30",
     tags: ["ops", "incident", "status"],
-    apiCalls: [
-      "GET /api/incidents/open",
-      "POST /api/ai/classify",
-      "POST /api/notifications/schedules",
-    ],
     steps: [
       { type: "trigger", title: "Trigger every 30 minutes" },
       { type: "fetch", title: "Fetch open incidents" },
@@ -123,11 +105,6 @@ const QUICK_TEMPLATE_OPTIONS: Array<{
     message: "Collect CI/CD pipeline status and send a plain-English health report.",
     time: "18:15",
     tags: ["devops", "ci", "reporting"],
-    apiCalls: [
-      "GET /api/pipeline/status",
-      "POST /api/ai/summary",
-      "POST /api/notifications/schedules",
-    ],
     steps: [
       { type: "trigger", title: "Daily trigger" },
       { type: "fetch", title: "Fetch CI/CD status" },
@@ -136,25 +113,8 @@ const QUICK_TEMPLATE_OPTIONS: Array<{
     ],
   },
 ]
-const MISSION_API_OPTIONS: Array<{ value: string; label: string; purpose: string }> = [
-  { value: "GET /api/notifications/schedules", label: "Fetch schedules", purpose: "Read existing missions and state." },
-  { value: "POST /api/notifications/schedules", label: "Create schedule", purpose: "Create a new mission in Nova." },
-  { value: "PATCH /api/notifications/schedules", label: "Update schedule", purpose: "Adjust mission timing, text, or enable state." },
-  { value: "DELETE /api/notifications/schedules?id=...", label: "Delete schedule", purpose: "Remove obsolete missions." },
-  { value: "GET /api/calendar/events", label: "Fetch calendar events", purpose: "Pull meeting and event context." },
-  { value: "POST /api/ai/brief", label: "Generate briefing", purpose: "Build concise summaries for users." },
-  { value: "GET /api/incidents/open", label: "Fetch incidents", purpose: "Read current incidents for ops workflows." },
-  { value: "POST /api/ai/classify", label: "Classify incidents", purpose: "Categorize incident severity or routing." },
-  { value: "GET /api/pipeline/status", label: "Fetch pipeline status", purpose: "Read CI/CD states for reports." },
-  { value: "POST /api/ai/summary", label: "Generate summary", purpose: "Produce natural-language status updates." },
-]
-const API_MAPPING_SELECT_OPTIONS: FluidSelectOption[] = MISSION_API_OPTIONS.map((api) => ({
-  value: api.value,
-  label: api.label,
-}))
-
 type WorkflowStepType = "trigger" | "fetch" | "ai" | "transform" | "condition" | "output"
-type AiIntegrationType = "openai" | "claude" | "grok"
+type AiIntegrationType = "openai" | "claude" | "grok" | "gemini"
 
 interface WorkflowStep {
   id: string
@@ -163,6 +123,34 @@ interface WorkflowStep {
   aiPrompt?: string
   aiModel?: string
   aiIntegration?: AiIntegrationType
+  triggerMode?: "once" | "daily" | "weekly" | "interval"
+  triggerTime?: string
+  triggerTimezone?: string
+  triggerDays?: string[]
+  triggerIntervalMinutes?: string
+  fetchSource?: "api" | "web" | "calendar" | "crypto" | "rss" | "database"
+  fetchMethod?: "GET" | "POST"
+  fetchApiIntegrationId?: string
+  fetchUrl?: string
+  fetchQuery?: string
+  fetchHeaders?: string
+  fetchSelector?: string
+  fetchRefreshMinutes?: string
+  transformAction?: "normalize" | "dedupe" | "aggregate" | "format" | "enrich"
+  transformFormat?: "text" | "json" | "markdown" | "table"
+  transformInstruction?: string
+  conditionField?: string
+  conditionOperator?: "contains" | "equals" | "not_equals" | "greater_than" | "less_than" | "regex" | "exists"
+  conditionValue?: string
+  conditionLogic?: "all" | "any"
+  conditionFailureAction?: "skip" | "notify" | "stop"
+  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook"
+  outputTiming?: "immediate" | "scheduled" | "digest"
+  outputTime?: string
+  outputFrequency?: "once" | "multiple"
+  outputRepeatCount?: string
+  outputRecipients?: string
+  outputTemplate?: string
 }
 
 const STEP_TYPE_OPTIONS: Array<{ type: WorkflowStepType; label: string }> = [
@@ -172,6 +160,75 @@ const STEP_TYPE_OPTIONS: Array<{ type: WorkflowStepType; label: string }> = [
   { type: "transform", label: "Transform" },
   { type: "condition", label: "Condition" },
   { type: "output", label: "Send/Output" },
+]
+
+const STEP_FETCH_SOURCE_OPTIONS: FluidSelectOption[] = [
+  { value: "api", label: "API Endpoint" },
+  { value: "web", label: "Web Scrape" },
+  { value: "calendar", label: "Calendar Feed" },
+  { value: "crypto", label: "Crypto Market Feed" },
+  { value: "rss", label: "RSS Feed" },
+  { value: "database", label: "Database Query" },
+]
+
+const STEP_FETCH_METHOD_OPTIONS: FluidSelectOption[] = [
+  { value: "GET", label: "GET" },
+  { value: "POST", label: "POST" },
+]
+
+const STEP_TRANSFORM_ACTION_OPTIONS: FluidSelectOption[] = [
+  { value: "normalize", label: "Normalize fields" },
+  { value: "dedupe", label: "Deduplicate records" },
+  { value: "aggregate", label: "Aggregate metrics" },
+  { value: "format", label: "Format message" },
+  { value: "enrich", label: "Enrich with context" },
+]
+
+const STEP_TRANSFORM_FORMAT_OPTIONS: FluidSelectOption[] = [
+  { value: "text", label: "Plain Text" },
+  { value: "markdown", label: "Markdown" },
+  { value: "json", label: "JSON" },
+  { value: "table", label: "Table" },
+]
+
+const STEP_CONDITION_OPERATOR_OPTIONS: FluidSelectOption[] = [
+  { value: "contains", label: "Contains" },
+  { value: "equals", label: "Equals" },
+  { value: "not_equals", label: "Does Not Equal" },
+  { value: "greater_than", label: "Greater Than" },
+  { value: "less_than", label: "Less Than" },
+  { value: "regex", label: "Regex Match" },
+  { value: "exists", label: "Field Exists" },
+]
+
+const STEP_CONDITION_LOGIC_OPTIONS: FluidSelectOption[] = [
+  { value: "all", label: "Match ALL rules" },
+  { value: "any", label: "Match ANY rule" },
+]
+
+const STEP_CONDITION_FAILURE_OPTIONS: FluidSelectOption[] = [
+  { value: "skip", label: "Skip output" },
+  { value: "notify", label: "Notify fallback channel" },
+  { value: "stop", label: "Stop mission run" },
+]
+
+const FALLBACK_OUTPUT_CHANNEL_OPTIONS: FluidSelectOption[] = [
+  { value: "telegram", label: "Telegram" },
+  { value: "discord", label: "Discord" },
+  { value: "email", label: "Email" },
+  { value: "push", label: "In-App Push" },
+  { value: "webhook", label: "Webhook" },
+]
+
+const STEP_OUTPUT_TIMING_OPTIONS: FluidSelectOption[] = [
+  { value: "immediate", label: "Immediate" },
+  { value: "scheduled", label: "Scheduled Time" },
+  { value: "digest", label: "Digest Window" },
+]
+
+const STEP_OUTPUT_FREQUENCY_OPTIONS: FluidSelectOption[] = [
+  { value: "once", label: "One Notification" },
+  { value: "multiple", label: "Multiple Notifications" },
 ]
 
 const PRIORITY_OPTIONS: FluidSelectOption[] = [
@@ -249,6 +306,7 @@ const AI_PROVIDER_LABELS: Record<AiIntegrationType, string> = {
   openai: "OpenAI",
   claude: "Claude",
   grok: "Grok",
+  gemini: "Gemini",
 }
 
 const OPENAI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
@@ -284,10 +342,17 @@ const GROK_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
   { value: "grok-3-mini", label: "Grok 3 Mini" },
 ]
 
+const GEMINI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+]
+
 const AI_MODEL_OPTIONS: Record<AiIntegrationType, FluidSelectOption[]> = {
   openai: OPENAI_MODEL_SELECT_OPTIONS,
   claude: CLAUDE_MODEL_SELECT_OPTIONS,
   grok: GROK_MODEL_SELECT_OPTIONS,
+  gemini: GEMINI_MODEL_SELECT_OPTIONS,
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -336,7 +401,7 @@ function getMissionIntegrationIcon(integration: string, className: string) {
   if (integration === "telegram") return <Send className={className} />
   if (integration === "discord") return <MessageCircle className={className} />
   if (integration === "email") return <Mail className={className} />
-  if (integration === "openai" || integration === "claude" || integration === "grok") return <Sparkles className={className} />
+  if (integration === "openai" || integration === "claude" || integration === "grok" || integration === "gemini") return <Sparkles className={className} />
   return <Activity className={className} />
 }
 
@@ -379,7 +444,7 @@ function parseMissionWorkflowMeta(message: string): {
   days?: string[]
   tags?: string[]
   apiCalls?: string[]
-  workflowSteps?: Array<{ type?: string; title?: string; aiPrompt?: string; aiModel?: string; aiIntegration?: string }>
+  workflowSteps?: Array<Partial<WorkflowStep>>
 } {
   const marker = "[NOVA WORKFLOW]"
   const idx = message.indexOf(marker)
@@ -393,7 +458,7 @@ function parseMissionWorkflowMeta(message: string): {
       schedule?: { mode?: string; days?: string[] }
       tags?: string[]
       apiCalls?: string[]
-      workflowSteps?: Array<{ type?: string; title?: string; aiPrompt?: string; aiModel?: string; aiIntegration?: string }>
+      workflowSteps?: Array<Partial<WorkflowStep>>
     }
     return {
       description: description || message.trim(),
@@ -598,7 +663,6 @@ export default function MissionsPage() {
     top: number
   }>(null)
 
-  const [newIntegration, setNewIntegration] = useState("telegram")
   const [newLabel, setNewLabel] = useState("")
   const [newDescription, setNewDescription] = useState("")
   const [newTime, setNewTime] = useState("09:00")
@@ -611,17 +675,39 @@ export default function MissionsPage() {
   const [missionActive, setMissionActive] = useState(true)
   const [tagInput, setTagInput] = useState("")
   const [missionTags, setMissionTags] = useState<string[]>([])
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([
-    { id: "step-trigger", type: "trigger", title: "Mission triggered" },
-    { id: "step-output", type: "output", title: "Send notification" },
-  ])
-  const [apiMapping, setApiMapping] = useState("POST /api/notifications/schedules")
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
+  const [collapsedStepIds, setCollapsedStepIds] = useState<Record<string, boolean>>({})
+  const [integrationCatalog, setIntegrationCatalog] = useState<IntegrationCatalogItem[]>([])
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null)
   const [dragOverStepId, setDragOverStepId] = useState<string | null>(null)
   const [novaSuggestingByStepId, setNovaSuggestingByStepId] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [missionBoardView, setMissionBoardView] = useState<"grid" | "list">("grid")
+
+  const catalogApiById = useMemo(() => {
+    const next: Record<string, IntegrationCatalogItem> = {}
+    for (const item of integrationCatalog) {
+      if (item.kind !== "api") continue
+      next[item.id] = item
+    }
+    return next
+  }, [integrationCatalog])
+
+  const apiFetchIntegrationOptions = useMemo<FluidSelectOption[]>(
+    () =>
+      integrationCatalog
+        .filter((item) => item.kind === "api" && item.connected)
+        .map((item) => ({ value: item.id, label: item.label })),
+    [integrationCatalog],
+  )
+
+  const outputChannelOptions = useMemo<FluidSelectOption[]>(() => {
+    const connected = integrationCatalog
+      .filter((item) => item.kind === "channel" && item.connected)
+      .map((item) => ({ value: item.id, label: item.label }))
+    return connected.length > 0 ? connected : FALLBACK_OUTPUT_CHANNEL_OPTIONS
+  }, [integrationCatalog])
 
   const listSectionRef = useRef<HTMLElement | null>(null)
   const createSectionRef = useRef<HTMLElement | null>(null)
@@ -641,6 +727,9 @@ export default function MissionsPage() {
     if (integrationsSettings.grok.connected || integrationsSettings.grok.apiKeyConfigured) {
       options.push({ value: "grok", label: AI_PROVIDER_LABELS.grok })
     }
+    if (integrationsSettings.gemini.connected || integrationsSettings.gemini.apiKeyConfigured) {
+      options.push({ value: "gemini", label: AI_PROVIDER_LABELS.gemini })
+    }
     return options
   }, [integrationsSettings])
 
@@ -652,21 +741,81 @@ export default function MissionsPage() {
   }, [configuredAiIntegrationOptions, integrationsSettings.activeLlmProvider])
 
   const createWorkflowStep = useCallback((type: WorkflowStepType, titleOverride?: string): WorkflowStep => {
-    const title = titleOverride ?? STEP_TYPE_OPTIONS.find((option) => option.type === type)?.label ?? "Step"
-    if (type !== "ai") {
-      return { id: `${type}-${Date.now()}-${Math.random()}`, type, title }
+    const id = `${type}-${Date.now()}-${Math.random()}`
+    if (type === "trigger") {
+      return {
+        id,
+        type,
+        title: titleOverride ?? "Mission triggered",
+        triggerMode: "daily",
+        triggerTime: "09:00",
+        triggerTimezone: detectedTimezone || "America/New_York",
+        triggerDays: ["mon", "tue", "wed", "thu", "fri"],
+        triggerIntervalMinutes: "30",
+      }
+    }
+    if (type === "fetch") {
+      return {
+        id,
+        type,
+        title: titleOverride ?? "Fetch source data",
+        fetchSource: "api",
+        fetchMethod: "GET",
+        fetchApiIntegrationId: "",
+        fetchUrl: "",
+        fetchQuery: "",
+        fetchHeaders: "",
+        fetchSelector: "",
+        fetchRefreshMinutes: "15",
+      }
+    }
+    if (type === "transform") {
+      return {
+        id,
+        type,
+        title: titleOverride ?? "Transform payload",
+        transformAction: "normalize",
+        transformFormat: "markdown",
+        transformInstruction: "",
+      }
+    }
+    if (type === "condition") {
+      return {
+        id,
+        type,
+        title: titleOverride ?? "Evaluate conditions",
+        conditionField: "priority",
+        conditionOperator: "contains",
+        conditionValue: "high",
+        conditionLogic: "all",
+        conditionFailureAction: "skip",
+      }
+    }
+    if (type === "output") {
+      return {
+        id,
+        type,
+        title: titleOverride ?? "Send notification",
+        outputChannel: "telegram",
+        outputTiming: "immediate",
+        outputTime: "09:00",
+        outputFrequency: "once",
+        outputRepeatCount: "3",
+        outputRecipients: "",
+        outputTemplate: "",
+      }
     }
     const aiIntegration = resolveDefaultAiIntegration()
     const aiModel = getDefaultModelForProvider(aiIntegration, integrationsSettings)
     return {
-      id: `${type}-${Date.now()}-${Math.random()}`,
+      id,
       type,
       title: titleOverride ?? "New AI Process step",
       aiPrompt: "",
       aiIntegration,
       aiModel,
     }
-  }, [integrationsSettings, resolveDefaultAiIntegration])
+  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
 
   const setItemBusy = useCallback((id: string, busy: boolean) => {
     setBusyById((prev) => ({ ...prev, [id]: busy }))
@@ -674,7 +823,6 @@ export default function MissionsPage() {
 
   const resetMissionBuilder = useCallback(() => {
     setEditingMissionId(null)
-    setNewIntegration("telegram")
     setNewLabel("")
     setNewDescription("")
     setNewTime("09:00")
@@ -684,27 +832,23 @@ export default function MissionsPage() {
     setMissionActive(true)
     setTagInput("")
     setMissionTags([])
-    setWorkflowSteps([
-      createWorkflowStep("trigger", "Mission triggered"),
-      createWorkflowStep("output", "Send notification"),
-    ])
-    setApiMapping("POST /api/notifications/schedules")
-  }, [createWorkflowStep])
+    setWorkflowSteps([])
+    setCollapsedStepIds({})
+  }, [])
 
   const applyTemplate = useCallback((templateId: string) => {
     const template = QUICK_TEMPLATE_OPTIONS.find((item) => item.id === templateId)
     if (!template) return
     setEditingMissionId(null)
-    setNewIntegration(template.integration)
     setNewPriority(template.priority)
     setNewLabel(template.title)
     setNewDescription(template.description)
     setNewTime(template.time)
     setMissionTags(template.tags)
-    setApiMapping(template.apiCalls[0] || "POST /api/notifications/schedules")
     setWorkflowSteps(
       template.steps.map((step) => createWorkflowStep(step.type, step.title)),
     )
+    setCollapsedStepIds({})
     setBuilderOpen(true)
   }, [createWorkflowStep])
 
@@ -718,8 +862,16 @@ export default function MissionsPage() {
     setWorkflowSteps((prev) => [...prev, createWorkflowStep(type)])
   }, [createWorkflowStep])
 
+  const toggleWorkflowStepCollapsed = useCallback((id: string) => {
+    setCollapsedStepIds((prev) => ({ ...prev, [id]: !prev[id] }))
+  }, [])
+
   const updateWorkflowStepTitle = useCallback((id: string, title: string) => {
     setWorkflowSteps((prev) => prev.map((step) => (step.id === id ? { ...step, title } : step)))
+  }, [])
+
+  const updateWorkflowStep = useCallback((id: string, updates: Partial<WorkflowStep>) => {
+    setWorkflowSteps((prev) => prev.map((step) => (step.id === id ? { ...step, ...updates } : step)))
   }, [])
 
   const updateWorkflowStepAi = useCallback(
@@ -743,6 +895,12 @@ export default function MissionsPage() {
 
   const removeWorkflowStep = useCallback((id: string) => {
     setWorkflowSteps((prev) => prev.filter((step) => step.id !== id))
+    setCollapsedStepIds((prev) => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }, [])
 
   const novaSuggestForAiStep = useCallback(async (stepId: string) => {
@@ -849,6 +1007,36 @@ export default function MissionsPage() {
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdated as EventListener)
     window.addEventListener("storage", onUpdated)
     return () => {
+      window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdated as EventListener)
+      window.removeEventListener("storage", onUpdated)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const refreshCatalog = async () => {
+      try {
+        const res = await fetch("/api/integrations/catalog", { cache: "no-store" })
+        const payload = await res.json().catch(() => ({})) as { catalog?: unknown[] }
+        if (cancelled) return
+        setIntegrationCatalog(normalizeIntegrationCatalog(payload.catalog))
+      } catch {
+        if (!cancelled) setIntegrationCatalog([])
+      }
+    }
+
+    void refreshCatalog()
+    const interval = window.setInterval(() => {
+      void refreshCatalog()
+    }, 4000)
+    const onUpdated = () => {
+      void refreshCatalog()
+    }
+    window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdated as EventListener)
+    window.addEventListener("storage", onUpdated)
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
       window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdated as EventListener)
       window.removeEventListener("storage", onUpdated)
     }
@@ -1129,7 +1317,6 @@ export default function MissionsPage() {
     const message = description
     const time = newTime.trim()
     const timezone = (detectedTimezone || "America/New_York").trim()
-    const selectedApis = [apiMapping]
     const isEditing = Boolean(editingMissionId)
 
     if (!label) {
@@ -1153,6 +1340,24 @@ export default function MissionsPage() {
       return
     }
 
+    const derivedIntegration = (
+      workflowSteps.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "telegram"
+    )
+    const derivedApiCalls = Array.from(
+      new Set(
+        workflowSteps.flatMap((step) => {
+          if (step.type === "fetch") {
+            if (step.fetchApiIntegrationId) return [`INTEGRATION:${step.fetchApiIntegrationId}`]
+            if (step.fetchUrl?.trim()) return [`${step.fetchMethod === "POST" ? "POST" : "GET"} ${step.fetchUrl.trim()}`]
+            return [`FETCH:${step.fetchSource || "api"}`]
+          }
+          if (step.type === "ai") return [`LLM:${step.aiIntegration || integrationsSettings.activeLlmProvider}`]
+          if (step.type === "output") return [`OUTPUT:${step.outputChannel || "telegram"}`]
+          return []
+        }),
+      ),
+    )
+
     setDeployingMission(true)
     setStatus(null)
     try {
@@ -1167,12 +1372,12 @@ export default function MissionsPage() {
         },
         missionActive,
         tags: missionTags,
-        apiCalls: selectedApis,
+        apiCalls: derivedApiCalls,
         workflowSteps,
       }
 
       const payload = {
-        integration: newIntegration,
+        integration: derivedIntegration,
         label,
         message: `${message}\n\n[NOVA WORKFLOW]\n${JSON.stringify(workflowSummary)}`,
         time,
@@ -1208,13 +1413,12 @@ export default function MissionsPage() {
       setDeployingMission(false)
     }
   }, [
-    apiMapping,
     detectedTimezone,
     editingMissionId,
+    integrationsSettings.activeLlmProvider,
     missionActive,
     missionTags,
     newDescription,
-    newIntegration,
     newLabel,
     newPriority,
     newScheduleDays,
@@ -1295,7 +1499,6 @@ export default function MissionsPage() {
   const editMissionFromActions = useCallback((mission: NotificationSchedule) => {
     const meta = parseMissionWorkflowMeta(mission.message)
     setEditingMissionId(mission.id)
-    setNewIntegration(mission.integration || "telegram")
     setNewLabel(mission.label || "")
     setNewDescription(meta.description || mission.message || "")
     setNewTime(mission.time || "09:00")
@@ -1305,13 +1508,13 @@ export default function MissionsPage() {
     if (meta.mode) setNewScheduleMode(meta.mode)
     if (Array.isArray(meta.days) && meta.days.length > 0) setNewScheduleDays(meta.days)
     setMissionTags(Array.isArray(meta.tags) ? meta.tags : [])
-    if (Array.isArray(meta.apiCalls) && meta.apiCalls.length > 0) {
-      setApiMapping(meta.apiCalls[0])
-    }
     if (Array.isArray(meta.workflowSteps) && meta.workflowSteps.length > 0) {
       setWorkflowSteps(meta.workflowSteps.map((step, index) => {
         const stepType = String(step.type || "")
         const resolvedType: WorkflowStepType = isWorkflowStepType(stepType) ? stepType : "output"
+        const aiIntegration = (step.aiIntegration === "openai" || step.aiIntegration === "claude" || step.aiIntegration === "grok" || step.aiIntegration === "gemini")
+          ? step.aiIntegration
+          : resolveDefaultAiIntegration()
         return {
           id: `edit-${mission.id}-${index}-${Date.now()}`,
           type: resolvedType,
@@ -1320,23 +1523,50 @@ export default function MissionsPage() {
           aiModel: resolvedType === "ai"
             ? (typeof step.aiModel === "string" && step.aiModel.trim().length > 0
               ? step.aiModel
-              : getDefaultModelForProvider(resolveDefaultAiIntegration(), integrationsSettings))
+              : getDefaultModelForProvider(aiIntegration, integrationsSettings))
             : undefined,
-          aiIntegration: resolvedType === "ai"
-            ? ((step.aiIntegration === "openai" || step.aiIntegration === "claude" || step.aiIntegration === "grok")
-              ? step.aiIntegration
-              : resolveDefaultAiIntegration())
+          aiIntegration: resolvedType === "ai" ? aiIntegration : undefined,
+          triggerMode: resolvedType === "trigger" ? (step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval" ? step.triggerMode : "daily") : undefined,
+          triggerTime: resolvedType === "trigger" ? (typeof step.triggerTime === "string" && step.triggerTime ? step.triggerTime : mission.time || "09:00") : undefined,
+          triggerTimezone: resolvedType === "trigger" ? (typeof step.triggerTimezone === "string" && step.triggerTimezone ? step.triggerTimezone : (mission.timezone || detectedTimezone || "America/New_York")) : undefined,
+          triggerDays: resolvedType === "trigger" ? (Array.isArray(step.triggerDays) ? step.triggerDays.map((day) => String(day)) : ["mon", "tue", "wed", "thu", "fri"]) : undefined,
+          triggerIntervalMinutes: resolvedType === "trigger" ? (typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes ? step.triggerIntervalMinutes : "30") : undefined,
+          fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "api") : undefined,
+          fetchMethod: resolvedType === "fetch" ? (step.fetchMethod === "POST" ? "POST" : "GET") : undefined,
+          fetchApiIntegrationId: resolvedType === "fetch" ? (typeof step.fetchApiIntegrationId === "string" ? step.fetchApiIntegrationId : "") : undefined,
+          fetchUrl: resolvedType === "fetch" ? (typeof step.fetchUrl === "string" ? step.fetchUrl : "") : undefined,
+          fetchQuery: resolvedType === "fetch" ? (typeof step.fetchQuery === "string" ? step.fetchQuery : "") : undefined,
+          fetchHeaders: resolvedType === "fetch" ? (typeof step.fetchHeaders === "string" ? step.fetchHeaders : "") : undefined,
+          fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" ? step.fetchSelector : "") : undefined,
+          fetchRefreshMinutes: resolvedType === "fetch" ? (typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes ? step.fetchRefreshMinutes : "15") : undefined,
+          transformAction: resolvedType === "transform" ? (step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich" ? step.transformAction : "normalize") : undefined,
+          transformFormat: resolvedType === "transform" ? (step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table" ? step.transformFormat : "markdown") : undefined,
+          transformInstruction: resolvedType === "transform" ? (typeof step.transformInstruction === "string" ? step.transformInstruction : "") : undefined,
+          conditionField: resolvedType === "condition" ? (typeof step.conditionField === "string" ? step.conditionField : "priority") : undefined,
+          conditionOperator: resolvedType === "condition"
+            ? (step.conditionOperator === "contains" || step.conditionOperator === "equals" || step.conditionOperator === "not_equals" || step.conditionOperator === "greater_than" || step.conditionOperator === "less_than" || step.conditionOperator === "regex" || step.conditionOperator === "exists"
+              ? step.conditionOperator
+              : "contains")
             : undefined,
+          conditionValue: resolvedType === "condition" ? (typeof step.conditionValue === "string" ? step.conditionValue : "") : undefined,
+          conditionLogic: resolvedType === "condition" ? (step.conditionLogic === "any" ? "any" : "all") : undefined,
+          conditionFailureAction: resolvedType === "condition" ? (step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip") : undefined,
+          outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
+          outputTiming: resolvedType === "output" ? (step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate") : undefined,
+          outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
+          outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
+          outputRepeatCount: resolvedType === "output" ? (typeof step.outputRepeatCount === "string" && step.outputRepeatCount ? step.outputRepeatCount : "3") : undefined,
+          outputRecipients: resolvedType === "output" ? (typeof step.outputRecipients === "string" ? step.outputRecipients : "") : undefined,
+          outputTemplate: resolvedType === "output" ? (typeof step.outputTemplate === "string" ? step.outputTemplate : "") : undefined,
         }
       }))
+      setCollapsedStepIds({})
     } else {
-      setWorkflowSteps([
-        createWorkflowStep("trigger", "Mission triggered"),
-        createWorkflowStep("output", "Send notification"),
-      ])
+      setWorkflowSteps([])
+      setCollapsedStepIds({})
     }
     setBuilderOpen(true)
-  }, [createWorkflowStep, integrationsSettings, resolveDefaultAiIntegration])
+  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
 
   const duplicateMission = useCallback(async (mission: NotificationSchedule) => {
     setStatus(null)
@@ -1652,7 +1882,7 @@ export default function MissionsPage() {
                     <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>No missions match the current filters.</p>
                   )}
 
-                  <div className={cn(missionBoardView === "grid" ? "grid grid-cols-1 gap-3 xl:grid-cols-2" : "space-y-3")}>
+                  <div className={cn(missionBoardView === "grid" ? "grid grid-cols-1 gap-3 xl:grid-cols-3" : "space-y-3")}>
                   {filteredSchedules.map((mission) => {
                     const busy = Boolean(busyById[mission.id])
                     const details = parseMissionWorkflowPayload(mission.message)
@@ -1861,14 +2091,37 @@ export default function MissionsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
-                  <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Integration</label>
-                  <FluidSelect value={newIntegration} onChange={setNewIntegration} options={BUILDER_INTEGRATION_OPTIONS} isLight={isLight} className="mt-0.5" />
-                </div>
-                <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
-                  <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Priority</label>
-                  <FluidSelect value={newPriority} onChange={setNewPriority} options={PRIORITY_OPTIONS} isLight={isLight} className="mt-0.5 w-full" />
+              <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
+                <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+                  <div>
+                    <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Priority</label>
+                    <FluidSelect value={newPriority} onChange={setNewPriority} options={PRIORITY_OPTIONS} isLight={isLight} className="mt-0.5 w-full" />
+                  </div>
+                  <div>
+                    <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Tags</label>
+                    <div className={cn("mt-0.5 flex items-center gap-2 rounded-lg border px-2.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                      <input
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            addTag()
+                          }
+                        }}
+                        placeholder="Add tag..."
+                        className={cn("h-8 w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500")}
+                      />
+                      <button onClick={() => { playClickSound(); addTag() }} className="text-xs text-accent">Add</button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {missionTags.map((tag) => (
+                        <button key={tag} onClick={() => { playClickSound(); removeTag(tag) }} className={cn("rounded-md px-2 py-1 text-xs border", isLight ? "border-[#d5dce8] bg-white text-s-80" : "border-white/10 bg-black/20 text-slate-200")}>
+                          #{tag} <span className="opacity-70">x</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1920,6 +2173,11 @@ export default function MissionsPage() {
                   <span className={cn("text-xs", isLight ? "text-s-60" : "text-slate-400")}>{workflowSteps.length} steps</span>
                 </div>
                 <div className="mt-3 space-y-2">
+                  {workflowSteps.length === 0 && (
+                    <div className={cn("rounded-lg border px-3 py-2 text-sm", isLight ? "border-[#d5dce8] bg-white text-s-60" : "border-white/12 bg-black/20 text-slate-400")}>
+                      No workflow steps yet. Add workflow steps below.
+                    </div>
+                  )}
                   {workflowSteps.map((step, index) => (
                     <div
                       key={step.id}
@@ -1983,6 +2241,17 @@ export default function MissionsPage() {
                         </div>
                         <div className="flex items-center gap-1">
                           <button
+                            type="button"
+                            onClick={() => toggleWorkflowStepCollapsed(step.id)}
+                            className={cn(
+                              "h-7 w-7 rounded border inline-flex items-center justify-center transition-colors",
+                              isLight ? "border-[#d5dce8] bg-white text-s-60 hover:bg-[#eef3fb]" : "border-white/15 bg-black/20 text-slate-300 hover:bg-white/[0.08]",
+                            )}
+                            aria-label={collapsedStepIds[step.id] ? "Expand step details" : "Collapse step details"}
+                          >
+                            {collapsedStepIds[step.id] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
                             onClick={() => {
                               playClickSound()
                               removeWorkflowStep(step.id)
@@ -1993,6 +2262,241 @@ export default function MissionsPage() {
                           </button>
                         </div>
                       </div>
+                      {!collapsedStepIds[step.id] && (
+                        <>
+                          {step.type === "trigger" && (
+                            <div className={cn("mt-3 space-y-1.5 border-t pt-3", isLight ? "border-amber-200/80" : "border-amber-300/20")}>
+                              <p className={cn("text-xs", isLight ? "text-amber-700" : "text-amber-300")}>
+                                Mission trigger uses the schedule above and automatically uses your detected timezone ({detectedTimezone}).
+                              </p>
+                            </div>
+                          )}
+                      {step.type === "fetch" && (
+                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-sky-200/80" : "border-sky-300/20")}>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Data Source</label>
+                              <FluidSelect value={step.fetchSource ?? "api"} onChange={(next) => updateWorkflowStep(step.id, { fetchSource: next as WorkflowStep["fetchSource"] })} options={STEP_FETCH_SOURCE_OPTIONS} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>HTTP Method</label>
+                              <FluidSelect value={step.fetchMethod ?? "GET"} onChange={(next) => updateWorkflowStep(step.id, { fetchMethod: next as WorkflowStep["fetchMethod"] })} options={STEP_FETCH_METHOD_OPTIONS} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Refresh (Minutes)</label>
+                              <input
+                                value={step.fetchRefreshMinutes ?? "15"}
+                                onChange={(e) => updateWorkflowStep(step.id, { fetchRefreshMinutes: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                                placeholder="15"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          </div>
+                          {step.fetchSource === "api" && apiFetchIntegrationOptions.length > 0 && (
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>API Integration</label>
+                              <FluidSelect
+                                value={step.fetchApiIntegrationId ?? ""}
+                                onChange={(next) => {
+                                  const selected = catalogApiById[next]
+                                  updateWorkflowStep(step.id, {
+                                    fetchApiIntegrationId: next,
+                                    fetchUrl: selected?.endpoint || step.fetchUrl || "",
+                                  })
+                                }}
+                                options={apiFetchIntegrationOptions}
+                                isLight={isLight}
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-1.5">
+                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Endpoint / URL</label>
+                            <input
+                              value={step.fetchUrl ?? ""}
+                              onChange={(e) => updateWorkflowStep(step.id, { fetchUrl: e.target.value })}
+                              placeholder={step.fetchSource === "web" ? "https://example.com/prices" : "https://api.example.com/data"}
+                              className={cn(
+                                "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                              )}
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Query / Params</label>
+                              <input
+                                value={step.fetchQuery ?? ""}
+                                onChange={(e) => updateWorkflowStep(step.id, { fetchQuery: e.target.value })}
+                                placeholder="symbol=BTC&window=24h or calendar=today"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>CSS Selector (Web Scrape)</label>
+                              <input
+                                value={step.fetchSelector ?? ""}
+                                onChange={(e) => updateWorkflowStep(step.id, { fetchSelector: e.target.value })}
+                                placeholder=".price-table .row"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Headers / Auth JSON</label>
+                            <textarea
+                              value={step.fetchHeaders ?? ""}
+                              onChange={(e) => updateWorkflowStep(step.id, { fetchHeaders: e.target.value })}
+                              placeholder='{"Authorization":"Bearer ...","X-Source":"nova"}'
+                              className={cn(
+                                "min-h-[64px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                              )}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {step.type === "transform" && (
+                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-emerald-200/80" : "border-emerald-300/20")}>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-emerald-700" : "text-emerald-300")}>Transform Action</label>
+                              <FluidSelect value={step.transformAction ?? "normalize"} onChange={(next) => updateWorkflowStep(step.id, { transformAction: next as WorkflowStep["transformAction"] })} options={STEP_TRANSFORM_ACTION_OPTIONS} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-emerald-700" : "text-emerald-300")}>Output Format</label>
+                              <FluidSelect value={step.transformFormat ?? "markdown"} onChange={(next) => updateWorkflowStep(step.id, { transformFormat: next as WorkflowStep["transformFormat"] })} options={STEP_TRANSFORM_FORMAT_OPTIONS} isLight={isLight} />
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-emerald-700" : "text-emerald-300")}>Transform Rules</label>
+                            <textarea
+                              value={step.transformInstruction ?? ""}
+                              onChange={(e) => updateWorkflowStep(step.id, { transformInstruction: e.target.value })}
+                              placeholder="Normalize fields, dedupe by ID, sort by priority, format for output."
+                              className={cn(
+                                "min-h-[72px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                isLight ? "border-emerald-200 bg-white text-s-90 placeholder:text-s-40" : "border-emerald-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                              )}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {step.type === "condition" && (
+                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-orange-200/80" : "border-orange-300/20")}>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Data Field</label>
+                              <input
+                                value={step.conditionField ?? ""}
+                                onChange={(e) => updateWorkflowStep(step.id, { conditionField: e.target.value })}
+                                placeholder="priceChangePct"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-orange-200 bg-white text-s-90 placeholder:text-s-40" : "border-orange-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Operator</label>
+                              <FluidSelect value={step.conditionOperator ?? "contains"} onChange={(next) => updateWorkflowStep(step.id, { conditionOperator: next as WorkflowStep["conditionOperator"] })} options={STEP_CONDITION_OPERATOR_OPTIONS} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Expected Value</label>
+                              <input
+                                value={step.conditionValue ?? ""}
+                                onChange={(e) => updateWorkflowStep(step.id, { conditionValue: e.target.value })}
+                                placeholder="5"
+                                disabled={(step.conditionOperator ?? "contains") === "exists"}
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none disabled:opacity-50",
+                                  isLight ? "border-orange-200 bg-white text-s-90 placeholder:text-s-40" : "border-orange-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Rule Logic</label>
+                              <FluidSelect value={step.conditionLogic ?? "all"} onChange={(next) => updateWorkflowStep(step.id, { conditionLogic: next as WorkflowStep["conditionLogic"] })} options={STEP_CONDITION_LOGIC_OPTIONS} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>If Condition Fails</label>
+                              <FluidSelect value={step.conditionFailureAction ?? "skip"} onChange={(next) => updateWorkflowStep(step.id, { conditionFailureAction: next as WorkflowStep["conditionFailureAction"] })} options={STEP_CONDITION_FAILURE_OPTIONS} isLight={isLight} />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {step.type === "output" && (
+                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-pink-200/80" : "border-pink-300/20")}>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Delivery Channel</label>
+                              <FluidSelect value={step.outputChannel ?? "telegram"} onChange={(next) => updateWorkflowStep(step.id, { outputChannel: next as WorkflowStep["outputChannel"] })} options={outputChannelOptions} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Notify When</label>
+                              <FluidSelect value={step.outputTiming ?? "immediate"} onChange={(next) => updateWorkflowStep(step.id, { outputTiming: next as WorkflowStep["outputTiming"] })} options={STEP_OUTPUT_TIMING_OPTIONS} isLight={isLight} />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Notification Count</label>
+                              <FluidSelect value={step.outputFrequency ?? "once"} onChange={(next) => updateWorkflowStep(step.id, { outputFrequency: next as WorkflowStep["outputFrequency"] })} options={STEP_OUTPUT_FREQUENCY_OPTIONS} isLight={isLight} />
+                            </div>
+                          </div>
+                          {(step.outputTiming === "scheduled" || step.outputTiming === "digest") && (
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Delivery Time</label>
+                              <TimeField value24={step.outputTime ?? newTime} onChange24={(next) => updateWorkflowStep(step.id, { outputTime: next })} isLight={isLight} />
+                            </div>
+                          )}
+                          {step.outputFrequency === "multiple" && (
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Number of Notifications</label>
+                              <input
+                                value={step.outputRepeatCount ?? "3"}
+                                onChange={(e) => updateWorkflowStep(step.id, { outputRepeatCount: e.target.value.replace(/\D/g, "").slice(0, 2) })}
+                                placeholder="3"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-pink-200 bg-white text-s-90 placeholder:text-s-40" : "border-pink-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-1.5">
+                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Recipients / Destination</label>
+                            <input
+                              value={step.outputRecipients ?? ""}
+                              onChange={(e) => updateWorkflowStep(step.id, { outputRecipients: e.target.value })}
+                              placeholder={step.outputChannel === "email" ? "team@company.com" : step.outputChannel === "webhook" ? "https://hooks.example.com/..." : "@channel or chat id"}
+                              className={cn(
+                                "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                isLight ? "border-pink-200 bg-white text-s-90 placeholder:text-s-40" : "border-pink-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                              )}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Message Template</label>
+                            <textarea
+                              value={step.outputTemplate ?? ""}
+                              onChange={(e) => updateWorkflowStep(step.id, { outputTemplate: e.target.value })}
+                              placeholder="Use variables like {{summary}}, {{price}}, {{timestamp}}."
+                              className={cn(
+                                "min-h-[64px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                isLight ? "border-pink-200 bg-white text-s-90 placeholder:text-s-40" : "border-pink-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                              )}
+                            />
+                          </div>
+                        </div>
+                      )}
                       {step.type === "ai" && (
                         <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-violet-200/80" : "border-violet-300/20")}>
                           <div className="space-y-1.5">
@@ -2060,6 +2564,8 @@ export default function MissionsPage() {
                           </div>
                         </div>
                       )}
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2087,49 +2593,6 @@ export default function MissionsPage() {
                 </div>
               </div>
 
-              <div className={cn("rounded-xl border p-3.5 home-spotlight-card home-border-glow home-spotlight-card--hover", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
-                <h4 className={cn("text-lg font-semibold inline-flex items-center gap-2", isLight ? "text-s-90" : "text-slate-100")}>
-                  <Tag className="w-4 h-4 text-accent" />
-                  Tags & API Mapping
-                </h4>
-                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  <div>
-                    <div className={cn("flex items-center gap-2 rounded-lg border px-2.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
-                      <input
-                        value={tagInput}
-                        onChange={(e) => setTagInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault()
-                            addTag()
-                          }
-                        }}
-                        placeholder="Add tag..."
-                        className={cn("h-8 w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500")}
-                      />
-                      <button onClick={() => { playClickSound(); addTag() }} className="text-xs text-accent">Add</button>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {missionTags.map((tag) => (
-                        <button key={tag} onClick={() => { playClickSound(); removeTag(tag) }} className={cn("rounded-md px-2 py-1 text-xs border", isLight ? "border-[#d5dce8] bg-white text-s-80" : "border-white/10 bg-black/20 text-slate-200")}>
-                          #{tag} <span className="opacity-70">x</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <FluidSelect
-                      value={apiMapping}
-                      onChange={setApiMapping}
-                      options={API_MAPPING_SELECT_OPTIONS}
-                      isLight={isLight}
-                    />
-                    <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                      {MISSION_API_OPTIONS.find((item) => item.value === apiMapping)?.purpose || "Selected API for this mission workflow."}
-                    </p>
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div ref={builderFooterRef} className={cn("home-spotlight-shell relative z-10 border-t px-5 py-3 flex items-center justify-between", isLight ? "border-[#e2e8f2] bg-[#f9fbff]" : "border-white/10 bg-black/30")}>

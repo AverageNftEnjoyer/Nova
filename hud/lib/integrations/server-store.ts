@@ -35,7 +35,14 @@ export interface GrokIntegrationConfig {
   defaultModel: string
 }
 
-export type LlmProvider = "openai" | "claude" | "grok"
+export interface GeminiIntegrationConfig {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+}
+
+export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
 export interface AgentIntegrationConfig {
   connected: boolean
@@ -49,6 +56,7 @@ export interface IntegrationsConfig {
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
   grok: GrokIntegrationConfig
+  gemini: GeminiIntegrationConfig
   activeLlmProvider: LlmProvider
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
@@ -85,6 +93,12 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     baseUrl: "https://api.x.ai/v1",
     defaultModel: "grok-4-0709",
   },
+  gemini: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.5-pro",
+  },
   activeLlmProvider: "openai",
   agents: {},
   updatedAt: new Date().toISOString(),
@@ -100,6 +114,22 @@ async function ensureDataFile() {
 }
 
 function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): IntegrationsConfig {
+  const rawAgents = raw?.agents && typeof raw.agents === "object"
+    ? raw.agents
+    : {}
+  const normalizedAgents = Object.entries(rawAgents).reduce<Record<string, AgentIntegrationConfig>>((acc, [key, value]) => {
+    if (!value || typeof value !== "object") return acc
+    const id = String(key || "").trim()
+    if (!id) return acc
+    const agent = value as Partial<AgentIntegrationConfig>
+    acc[id] = {
+      connected: Boolean(agent.connected),
+      apiKey: typeof agent.apiKey === "string" ? agent.apiKey.trim() : "",
+      endpoint: typeof agent.endpoint === "string" ? agent.endpoint.trim() : "",
+    }
+    return acc
+  }, {})
+
   return {
     telegram: {
       connected: raw?.telegram?.connected ?? DEFAULT_CONFIG.telegram.connected,
@@ -132,11 +162,17 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       baseUrl: raw?.grok?.baseUrl?.trim() || DEFAULT_CONFIG.grok.baseUrl,
       defaultModel: raw?.grok?.defaultModel?.trim() || DEFAULT_CONFIG.grok.defaultModel,
     },
+    gemini: {
+      connected: raw?.gemini?.connected ?? DEFAULT_CONFIG.gemini.connected,
+      apiKey: raw?.gemini?.apiKey?.trim() ?? "",
+      baseUrl: raw?.gemini?.baseUrl?.trim() || DEFAULT_CONFIG.gemini.baseUrl,
+      defaultModel: raw?.gemini?.defaultModel?.trim() || DEFAULT_CONFIG.gemini.defaultModel,
+    },
     activeLlmProvider:
-      raw?.activeLlmProvider === "claude" || raw?.activeLlmProvider === "openai" || raw?.activeLlmProvider === "grok"
+      raw?.activeLlmProvider === "claude" || raw?.activeLlmProvider === "openai" || raw?.activeLlmProvider === "grok" || raw?.activeLlmProvider === "gemini"
         ? raw.activeLlmProvider
         : DEFAULT_CONFIG.activeLlmProvider,
-    agents: raw?.agents && typeof raw.agents === "object" ? raw.agents : {},
+    agents: normalizedAgents,
     updatedAt: raw?.updatedAt || new Date().toISOString(),
   }
 }
@@ -187,8 +223,12 @@ export async function updateIntegrationsConfig(partial: Partial<IntegrationsConf
       ...current.grok,
       ...(partial.grok || {}),
     },
+    gemini: {
+      ...current.gemini,
+      ...(partial.gemini || {}),
+    },
     activeLlmProvider:
-      partial.activeLlmProvider === "claude" || partial.activeLlmProvider === "openai" || partial.activeLlmProvider === "grok"
+      partial.activeLlmProvider === "claude" || partial.activeLlmProvider === "openai" || partial.activeLlmProvider === "grok" || partial.activeLlmProvider === "gemini"
         ? partial.activeLlmProvider
         : current.activeLlmProvider,
     agents: {

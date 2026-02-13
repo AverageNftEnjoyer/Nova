@@ -6,10 +6,11 @@ import { buildSchedule, loadSchedules, parseDailyTime, saveSchedules } from "@/l
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-function parseIntegration(raw: unknown): "telegram" | "discord" | null {
+function parseIntegration(raw: unknown): string | null {
   const value = typeof raw === "string" ? raw.trim().toLowerCase() : ""
-  if (value === "telegram" || value === "discord") return value
-  return null
+  if (!value) return null
+  if (!/^[a-z0-9_-]+$/.test(value)) return null
+  return value
 }
 
 export async function GET() {
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
 
     const integration = parseIntegration(body?.integration)
     if (!integration) {
-      return NextResponse.json({ error: "integration must be either 'telegram' or 'discord'" }, { status: 400 })
+      return NextResponse.json({ error: "integration is required" }, { status: 400 })
     }
 
     const schedule = buildSchedule({
@@ -90,7 +91,7 @@ export async function PATCH(req: Request) {
 
     const parsedIntegration = typeof body?.integration === "undefined" ? current.integration : parseIntegration(body?.integration)
     if (parsedIntegration === null) {
-      return NextResponse.json({ error: "integration must be either 'telegram' or 'discord'" }, { status: 400 })
+      return NextResponse.json({ error: "integration is invalid" }, { status: 400 })
     }
 
     const updated = {

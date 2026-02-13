@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Blocks, Save, Send, Eye, EyeOff, Settings, User } from "lucide-react"
+import { Blocks, Save, Eye, EyeOff, Settings, User } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
@@ -12,10 +12,12 @@ import { FluidSelect, type FluidSelectOption } from "@/components/ui/fluid-selec
 import { SettingsModal } from "@/components/settings-modal"
 import { useNovaState } from "@/lib/useNovaState"
 import FloatingLines from "@/components/FloatingLines"
+import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
+import { GeminiIcon } from "@/components/gemini-icon"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
@@ -172,6 +174,24 @@ const GROK_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
   "grok-3-mini": { input: 0.3, output: 0.5 },
   "grok-3-latest": { input: 3.0, output: 15.0 },
 }
+const GEMINI_MODEL_OPTIONS: Array<{ value: string; label: string; priceHint: string }> = [
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro", priceHint: "Highest quality Gemini reasoning profile." },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", priceHint: "Fast/efficient Gemini profile for frequent runs." },
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", priceHint: "Lowest-cost Gemini 2.5 option for lightweight automations." },
+  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash", priceHint: "Low-latency, cost-efficient Gemini option." },
+  { value: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash Lite", priceHint: "Most efficient legacy Gemini 2.0 profile." },
+]
+const GEMINI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = GEMINI_MODEL_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}))
+const GEMINI_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
+  "gemini-2.5-pro": { input: 1.25, output: 10.0 },
+  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
+  "gemini-2.5-flash-lite": { input: 0.2, output: 1.6 },
+  "gemini-2.0-flash": { input: 0.15, output: 1.2 },
+  "gemini-2.0-flash-lite": { input: 0.1, output: 0.9 },
+}
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
@@ -191,6 +211,7 @@ function resolveModelPricing(model: string): ModelPricing | null {
   if (OPENAI_MODEL_PRICING_USD_PER_1M[model]) return OPENAI_MODEL_PRICING_USD_PER_1M[model]
   if (CLAUDE_MODEL_PRICING_USD_PER_1M[model]) return CLAUDE_MODEL_PRICING_USD_PER_1M[model]
   if (GROK_MODEL_PRICING_USD_PER_1M[model]) return GROK_MODEL_PRICING_USD_PER_1M[model]
+  if (GEMINI_MODEL_PRICING_USD_PER_1M[model]) return GEMINI_MODEL_PRICING_USD_PER_1M[model]
   const normalized = model.trim().toLowerCase()
   if (normalized.includes("claude-opus-4-6") || normalized.includes("claude-opus-4.6")) return { input: 15.0, output: 75.0 }
   if (normalized.includes("claude-opus-4")) return { input: 15.0, output: 75.0 }
@@ -206,6 +227,11 @@ function resolveModelPricing(model: string): ModelPricing | null {
   if (normalized.includes("grok-4-0709")) return { input: 3.0, output: 15.0 }
   if (normalized.includes("grok-3-mini")) return { input: 0.3, output: 0.5 }
   if (normalized.includes("grok-3")) return { input: 3.0, output: 15.0 }
+  if (normalized.includes("gemini-2.5-pro")) return { input: 1.25, output: 10.0 }
+  if (normalized.includes("gemini-2.5-flash")) return { input: 0.3, output: 2.5 }
+  if (normalized.includes("gemini-2.5-flash-lite")) return { input: 0.2, output: 1.6 }
+  if (normalized.includes("gemini-2.0-flash")) return { input: 0.15, output: 1.2 }
+  if (normalized.includes("gemini-2.0-flash-lite")) return { input: 0.1, output: 0.9 }
   return null
 }
 
@@ -269,6 +295,14 @@ const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
+  gemini: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.5-pro",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+  },
   activeLlmProvider: "openai",
   updatedAt: "",
 }
@@ -317,8 +351,15 @@ export default function IntegrationsPage() {
   const [background, setBackground] = useState<ThemeBackgroundType>("none")
   const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(null)
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai" | "claude" | "grok">("telegram")
-  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "grok" | "provider">(null)
+  const [geminiApiKey, setGeminiApiKey] = useState("")
+  const [geminiBaseUrl, setGeminiBaseUrl] = useState("https://generativelanguage.googleapis.com/v1beta/openai")
+  const [geminiDefaultModel, setGeminiDefaultModel] = useState("gemini-2.5-pro")
+  const [geminiApiKeyConfigured, setGeminiApiKeyConfigured] = useState(false)
+  const [geminiApiKeyMasked, setGeminiApiKeyMasked] = useState("")
+  const [showGeminiApiKey, setShowGeminiApiKey] = useState(false)
+  const [geminiModelOptions, setGeminiModelOptions] = useState<FluidSelectOption[]>(GEMINI_MODEL_SELECT_OPTIONS)
+  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai" | "claude" | "grok" | "gemini">("telegram")
+  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "grok" | "gemini" | "provider">(null)
   const [saveStatus, setSaveStatus] = useState<null | { type: "success" | "error"; message: string }>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
@@ -327,6 +368,7 @@ export default function IntegrationsPage() {
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
+  const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -352,6 +394,11 @@ export default function IntegrationsPage() {
     setGrokDefaultModel(local.grok.defaultModel)
     setGrokApiKeyConfigured(Boolean(local.grok.apiKeyConfigured))
     setGrokApiKeyMasked(local.grok.apiKeyMasked || "")
+    setGeminiApiKey(local.gemini.apiKey)
+    setGeminiBaseUrl(local.gemini.baseUrl)
+    setGeminiDefaultModel(local.gemini.defaultModel)
+    setGeminiApiKeyConfigured(Boolean(local.gemini.apiKeyConfigured))
+    setGeminiApiKeyMasked(local.gemini.apiKeyMasked || "")
     setActiveLlmProvider(local.activeLlmProvider || "openai")
 
     const cached = readShellUiCache()
@@ -407,6 +454,11 @@ export default function IntegrationsPage() {
           setGrokDefaultModel(fallback.grok.defaultModel)
           setGrokApiKeyConfigured(Boolean(fallback.grok.apiKeyConfigured))
           setGrokApiKeyMasked(fallback.grok.apiKeyMasked || "")
+          setGeminiApiKey(fallback.gemini.apiKey)
+          setGeminiBaseUrl(fallback.gemini.baseUrl)
+          setGeminiDefaultModel(fallback.gemini.defaultModel)
+          setGeminiApiKeyConfigured(Boolean(fallback.gemini.apiKeyConfigured))
+          setGeminiApiKeyMasked(fallback.gemini.apiKeyMasked || "")
           setActiveLlmProvider(fallback.activeLlmProvider || "openai")
           return
         }
@@ -454,11 +506,21 @@ export default function IntegrationsPage() {
             apiKeyConfigured: Boolean(config.grok?.apiKeyConfigured),
             apiKeyMasked: typeof config.grok?.apiKeyMasked === "string" ? config.grok.apiKeyMasked : "",
           },
+          gemini: {
+            connected: Boolean(config.gemini?.connected),
+            apiKey: config.gemini?.apiKey || "",
+            baseUrl: config.gemini?.baseUrl || "https://generativelanguage.googleapis.com/v1beta/openai",
+            defaultModel: config.gemini?.defaultModel || "gemini-2.5-pro",
+            apiKeyConfigured: Boolean(config.gemini?.apiKeyConfigured),
+            apiKeyMasked: typeof config.gemini?.apiKeyMasked === "string" ? config.gemini.apiKeyMasked : "",
+          },
           activeLlmProvider:
             config.activeLlmProvider === "claude"
               ? "claude"
               : config.activeLlmProvider === "grok"
                 ? "grok"
+                : config.activeLlmProvider === "gemini"
+                  ? "gemini"
                 : "openai",
           updatedAt: config.updatedAt || new Date().toISOString(),
         }
@@ -483,6 +545,11 @@ export default function IntegrationsPage() {
         setGrokDefaultModel(normalized.grok.defaultModel)
         setGrokApiKeyConfigured(Boolean(normalized.grok.apiKeyConfigured))
         setGrokApiKeyMasked(normalized.grok.apiKeyMasked || "")
+        setGeminiApiKey(normalized.gemini.apiKey)
+        setGeminiBaseUrl(normalized.gemini.baseUrl)
+        setGeminiDefaultModel(normalized.gemini.defaultModel)
+        setGeminiApiKeyConfigured(Boolean(normalized.gemini.apiKeyConfigured))
+        setGeminiApiKeyMasked(normalized.gemini.apiKeyMasked || "")
         setActiveLlmProvider(normalized.activeLlmProvider || "openai")
         saveIntegrationsSettings(normalized)
       })
@@ -510,6 +577,11 @@ export default function IntegrationsPage() {
         setGrokDefaultModel(fallback.grok.defaultModel)
         setGrokApiKeyConfigured(Boolean(fallback.grok.apiKeyConfigured))
         setGrokApiKeyMasked(fallback.grok.apiKeyMasked || "")
+        setGeminiApiKey(fallback.gemini.apiKey)
+        setGeminiBaseUrl(fallback.gemini.baseUrl)
+        setGeminiDefaultModel(fallback.gemini.defaultModel)
+        setGeminiApiKeyConfigured(Boolean(fallback.gemini.apiKeyConfigured))
+        setGeminiApiKeyMasked(fallback.gemini.apiKeyMasked || "")
         setActiveLlmProvider(fallback.activeLlmProvider || "openai")
       })
 
@@ -670,6 +742,7 @@ export default function IntegrationsPage() {
     if (openaiSetupSectionRef.current) cleanups.push(setupSectionSpotlight(openaiSetupSectionRef.current))
     if (claudeSetupSectionRef.current) cleanups.push(setupSectionSpotlight(claudeSetupSectionRef.current))
     if (grokSetupSectionRef.current) cleanups.push(setupSectionSpotlight(grokSetupSectionRef.current))
+    if (geminiSetupSectionRef.current) cleanups.push(setupSectionSpotlight(geminiSetupSectionRef.current))
     if (activeStatusSectionRef.current) cleanups.push(setupSectionSpotlight(activeStatusSectionRef.current))
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [activeSetup, spotlightEnabled])
@@ -755,6 +828,55 @@ export default function IntegrationsPage() {
   useEffect(() => {
     void refreshClaudeModels()
   }, [claudeApiKeyConfigured, refreshClaudeModels])
+
+  const refreshGeminiModels = useCallback(async (override?: { apiKey?: string; baseUrl?: string }) => {
+    const key = override?.apiKey ?? geminiApiKey
+    const base = override?.baseUrl ?? geminiBaseUrl
+    if (!geminiApiKeyConfigured && !key.trim()) {
+      setGeminiModelOptions(GEMINI_MODEL_SELECT_OPTIONS)
+      return
+    }
+
+    try {
+      const res = await fetch("/api/integrations/list-gemini-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: key.trim() || undefined,
+          baseUrl: base.trim() || undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.ok || !Array.isArray(data?.models)) return
+      const dynamicOptions = data.models
+        .map((m: { id?: string; label?: string }) => ({ value: String(m.id || ""), label: String(m.label || m.id || "") }))
+        .filter((m: FluidSelectOption) => m.value.length > 0)
+
+      const merged = new Map<string, FluidSelectOption>()
+      GEMINI_MODEL_SELECT_OPTIONS.forEach((option) => merged.set(option.value, option))
+      dynamicOptions.forEach((option: FluidSelectOption) => merged.set(option.value, option))
+      const selected = geminiDefaultModel.trim()
+      if (selected && !merged.has(selected)) {
+        merged.set(selected, { value: selected, label: selected })
+      }
+
+      const nextOptions = Array.from(merged.values()).sort((a, b) => {
+        const aValue = a.value.toLowerCase()
+        const bValue = b.value.toLowerCase()
+        const aPro = aValue.includes("pro") ? 1 : 0
+        const bPro = bValue.includes("pro") ? 1 : 0
+        if (aPro !== bPro) return bPro - aPro
+        return a.label.localeCompare(b.label)
+      })
+      setGeminiModelOptions(nextOptions)
+    } catch {
+      // Keep fallback options on network/credential failure.
+    }
+  }, [geminiApiKey, geminiApiKeyConfigured, geminiBaseUrl, geminiDefaultModel])
+
+  useEffect(() => {
+    void refreshGeminiModels()
+  }, [geminiApiKeyConfigured, refreshGeminiModels])
 
   const toggleTelegram = useCallback(async () => {
     const next = {
@@ -952,6 +1074,48 @@ export default function IntegrationsPage() {
     }
   }, [settings])
 
+  const toggleGemini = useCallback(async () => {
+    if (!settings.gemini.connected) {
+      setSaveStatus({
+        type: "error",
+        message: "Gemini stays inactive until a valid API key + model is saved.",
+      })
+      return
+    }
+    const next = {
+      ...settings,
+      gemini: {
+        ...settings.gemini,
+        connected: false,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("gemini")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gemini: { connected: next.gemini.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update Gemini status")
+      setSaveStatus({
+        type: "success",
+        message: "Gemini disabled.",
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update Gemini status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [settings])
+
   const saveActiveProvider = useCallback(async (provider: LlmProvider) => {
     if (provider === "openai" && !settings.openai.connected) {
       setSaveStatus({ type: "error", message: "OpenAI is inactive. Save a valid key + model first." })
@@ -965,11 +1129,16 @@ export default function IntegrationsPage() {
       setSaveStatus({ type: "error", message: "Grok is inactive. Save a valid key + model first." })
       return
     }
+    if (provider === "gemini" && !settings.gemini.connected) {
+      setSaveStatus({ type: "error", message: "Gemini is inactive. Save a valid key + model first." })
+      return
+    }
 
     const previous = activeLlmProvider
     const persistedOpenAIModel = openaiDefaultModel.trim() || "gpt-4.1"
     const persistedClaudeModel = claudeDefaultModel.trim() || "claude-sonnet-4-20250514"
     const persistedGrokModel = grokDefaultModel.trim() || "grok-4-0709"
+    const persistedGeminiModel = geminiDefaultModel.trim() || "gemini-2.5-pro"
     setActiveLlmProvider(provider)
     setSettings((prev) => {
       const next = {
@@ -987,6 +1156,10 @@ export default function IntegrationsPage() {
           ...prev.grok,
           defaultModel: persistedGrokModel,
         },
+        gemini: {
+          ...prev.gemini,
+          defaultModel: persistedGeminiModel,
+        },
       }
       saveIntegrationsSettings(next)
       return next
@@ -1002,12 +1175,13 @@ export default function IntegrationsPage() {
           openai: { defaultModel: persistedOpenAIModel },
           claude: { defaultModel: persistedClaudeModel },
           grok: { defaultModel: persistedGrokModel },
+          gemini: { defaultModel: persistedGeminiModel },
         }),
       })
       if (!res.ok) throw new Error("Failed to switch active LLM provider")
       setSaveStatus({
         type: "success",
-        message: `Active model source switched to ${provider === "claude" ? "Claude" : provider === "grok" ? "Grok" : "OpenAI"}.`,
+        message: `Active model source switched to ${provider === "claude" ? "Claude" : provider === "grok" ? "Grok" : provider === "gemini" ? "Gemini" : "OpenAI"}.`,
       })
     } catch {
       setActiveLlmProvider(previous)
@@ -1023,7 +1197,7 @@ export default function IntegrationsPage() {
     } finally {
       setIsSavingTarget(null)
     }
-  }, [activeLlmProvider, claudeDefaultModel, grokDefaultModel, openaiDefaultModel, settings.claude.connected, settings.grok.connected, settings.openai.connected])
+  }, [activeLlmProvider, claudeDefaultModel, geminiDefaultModel, grokDefaultModel, openaiDefaultModel, settings.claude.connected, settings.gemini.connected, settings.grok.connected, settings.openai.connected])
 
   const saveTelegramConfig = useCallback(async () => {
     const trimmedBotToken = botToken.trim()
@@ -1427,6 +1601,105 @@ export default function IntegrationsPage() {
     }
   }, [grokApiKey, grokBaseUrl, grokDefaultModel, settings])
 
+  const saveGeminiConfig = useCallback(async () => {
+    const trimmedApiKey = geminiApiKey.trim()
+    const payloadGemini: Record<string, string> = {
+      baseUrl: geminiBaseUrl.trim() || "https://generativelanguage.googleapis.com/v1beta/openai",
+      defaultModel: geminiDefaultModel.trim() || "gemini-2.5-pro",
+    }
+    if (trimmedApiKey) payloadGemini.apiKey = trimmedApiKey
+
+    const next = {
+      ...settings,
+      gemini: {
+        ...settings.gemini,
+        ...payloadGemini,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("gemini")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gemini: payloadGemini }),
+      })
+      if (!saveRes.ok) throw new Error("Failed to save Gemini configuration")
+      const savedData = await saveRes.json().catch(() => ({}))
+      const masked = typeof savedData?.config?.gemini?.apiKeyMasked === "string" ? savedData.config.gemini.apiKeyMasked : ""
+      const configured = Boolean(savedData?.config?.gemini?.apiKeyConfigured) || trimmedApiKey.length > 0
+      setGeminiApiKey("")
+      setGeminiApiKeyMasked(masked)
+      setGeminiApiKeyConfigured(configured)
+      await refreshGeminiModels({
+        apiKey: trimmedApiKey || undefined,
+        baseUrl: payloadGemini.baseUrl,
+      })
+
+      const modelRes = await fetch("/api/integrations/test-gemini-model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: trimmedApiKey || undefined,
+          baseUrl: payloadGemini.baseUrl,
+          model: payloadGemini.defaultModel,
+        }),
+      })
+      const modelData = await modelRes.json().catch(() => ({}))
+      if (!modelRes.ok || !modelData?.ok) {
+        throw new Error(modelData?.error || "Saved, but selected Gemini model is unavailable.")
+      }
+
+      const enableRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gemini: { connected: true } }),
+      })
+      if (!enableRes.ok) throw new Error("Model validated, but failed to activate Gemini.")
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          gemini: {
+            ...prev.gemini,
+            connected: true,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+
+      setSaveStatus({
+        type: "success",
+        message: `Gemini saved and verified (${payloadGemini.defaultModel}).`,
+      })
+    } catch (error) {
+      void fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gemini: { connected: false } }),
+      }).catch(() => {})
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          gemini: {
+            ...prev.gemini,
+            connected: false,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save Gemini configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [geminiApiKey, geminiBaseUrl, geminiDefaultModel, refreshGeminiModels, settings])
+
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
       {background === "floatingLines" && !isLight && (
@@ -1544,7 +1817,7 @@ export default function IntegrationsPage() {
                   )}
                   aria-label="Open Telegram setup"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <TelegramIcon className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setActiveSetup("discord")}
@@ -1555,7 +1828,7 @@ export default function IntegrationsPage() {
                   )}
                   aria-label="Open Discord setup"
                 >
-                  <DiscordIcon className="w-3.5 h-3.5 text-white" />
+                  <DiscordIcon className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setActiveSetup("openai")}
@@ -1566,7 +1839,7 @@ export default function IntegrationsPage() {
                   )}
                   aria-label="Open OpenAI setup"
                 >
-                  <OpenAIIcon className="w-4 h-4" />
+                  <OpenAIIcon className="w-[18px] h-[18px]" />
                 </button>
                 <button
                   onClick={() => setActiveSetup("claude")}
@@ -1590,7 +1863,18 @@ export default function IntegrationsPage() {
                 >
                   <XAIIcon size={16} />
                 </button>
-                {Array.from({ length: 19 }).map((_, index) => (
+                <button
+                  onClick={() => setActiveSetup("gemini")}
+                  className={cn(
+                    "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
+                    integrationBadgeClass(settings.gemini.connected),
+                    activeSetup === "gemini" && "ring-1 ring-white/55",
+                  )}
+                  aria-label="Open Gemini setup"
+                >
+                  <GeminiIcon size={16} />
+                </button>
+                {Array.from({ length: 18 }).map((_, index) => (
                   <div
                     key={index}
                     className={cn(
@@ -2295,6 +2579,145 @@ export default function IntegrationsPage() {
               </div>
             </section>
             )}
+
+            {activeSetup === "gemini" && (
+            <section ref={geminiSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Gemini Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save your Gemini credentials and model defaults for Nova API usage.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleGemini}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.gemini.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.gemini.connected ? "Disable" : "Save to Activate"}
+                  </button>
+                  <button
+                    onClick={saveGeminiConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "gemini" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key</p>
+                  {geminiApiKeyConfigured && geminiApiKeyMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Key on server: <span className="font-mono">{geminiApiKeyMasked}</span>
+                    </p>
+                  )}
+                  <div className="relative">
+                    <input
+                      type={showGeminiApiKey ? "text" : "password"}
+                      value={geminiApiKey}
+                      onChange={(e) => setGeminiApiKey(e.target.value)}
+                      placeholder={
+                        geminiApiKeyConfigured
+                          ? "Paste new Gemini API key to replace current key"
+                          : "AIzaSyD-EXAMPLEa1b2c3d4e5f6g7h8i9j0kLmNop"
+                      }
+                      name="gemini_token_input"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGeminiApiKey((v) => !v)}
+                      className={cn(
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showGeminiApiKey ? "Hide API key" : "Show API key"}
+                      title={showGeminiApiKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showGeminiApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Base URL</p>
+                  <input
+                    value={geminiBaseUrl}
+                    onChange={(e) => setGeminiBaseUrl(e.target.value)}
+                    placeholder="https://generativelanguage.googleapis.com/v1beta/openai"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                    Keep <span className="font-mono">https://generativelanguage.googleapis.com/v1beta/openai</span> unless you are using a compatible proxy endpoint.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Default Model</p>
+                  <div className="grid grid-cols-[minmax(0,1fr)_130px] gap-2 items-stretch">
+                    <FluidSelect
+                      value={geminiDefaultModel}
+                      onChange={setGeminiDefaultModel}
+                      options={geminiModelOptions}
+                      isLight={isLight}
+                    />
+                    <div
+                      className={cn(
+                        "h-9 rounded-md border px-2.5 flex items-center justify-end text-xs tabular-nums",
+                        isLight ? "border-[#d5dce8] bg-[#eef3fb] text-s-70" : "border-white/10 bg-black/20 text-slate-300",
+                      )}
+                      title="Estimated daily cost for 20k-40k total tokens/day (50/50 input/output)."
+                    >
+                      {estimateDailyCostRange(geminiDefaultModel)}
+                    </div>
+                  </div>
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    {GEMINI_MODEL_OPTIONS.find((option) => option.value === geminiDefaultModel)?.priceHint ?? "Model pricing and output quality vary by selection."}
+                  </p>
+                </div>
+              </div>
+            </section>
+            )}
           </div>
 
           <section ref={activeStatusSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
@@ -2317,6 +2740,7 @@ export default function IntegrationsPage() {
                     { value: "openai", label: "OpenAI" },
                     { value: "claude", label: "Claude" },
                     { value: "grok", label: "Grok" },
+                    { value: "gemini", label: "Gemini" },
                   ]}
                   isLight={isLight}
                 />
@@ -2333,6 +2757,7 @@ export default function IntegrationsPage() {
                 { name: "OpenAI", active: settings.openai.connected },
                 { name: "Claude", active: settings.claude.connected },
                 { name: "Grok", active: settings.grok.connected },
+                { name: "Gemini", active: settings.gemini.connected },
               ].map((item) => (
                 <div
                   key={item.name}

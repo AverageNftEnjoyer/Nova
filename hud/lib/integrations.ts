@@ -38,7 +38,16 @@ export interface GrokIntegrationSettings {
   apiKeyMasked?: string
 }
 
-export type LlmProvider = "openai" | "claude" | "grok"
+export interface GeminiIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+}
+
+export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
@@ -46,6 +55,7 @@ export interface IntegrationsSettings {
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
+  gemini: GeminiIntegrationSettings
   activeLlmProvider: LlmProvider
   updatedAt: string
 }
@@ -89,6 +99,14 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
+  gemini: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.5-pro",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+  },
   activeLlmProvider: "openai",
   updatedAt: new Date().toISOString(),
 }
@@ -125,8 +143,13 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...(parsed.grok || {}),
         apiKey: "",
       },
+      gemini: {
+        ...DEFAULT_SETTINGS.gemini,
+        ...(parsed.gemini || {}),
+        apiKey: "",
+      },
       activeLlmProvider:
-        parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai" || parsed.activeLlmProvider === "grok"
+        parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai" || parsed.activeLlmProvider === "grok" || parsed.activeLlmProvider === "gemini"
           ? parsed.activeLlmProvider
           : DEFAULT_SETTINGS.activeLlmProvider,
       updatedAt: parsed.updatedAt || new Date().toISOString(),
@@ -159,6 +182,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     },
     grok: {
       ...settings.grok,
+      apiKey: "",
+    },
+    gemini: {
+      ...settings.gemini,
       apiKey: "",
     },
   }
@@ -249,6 +276,20 @@ export function updateGrokIntegrationSettings(partial: Partial<GrokIntegrationSe
     ...current,
     grok: {
       ...current.grok,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateGeminiIntegrationSettings(partial: Partial<GeminiIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    gemini: {
+      ...current.gemini,
       ...partial,
     },
     updatedAt: new Date().toISOString(),
