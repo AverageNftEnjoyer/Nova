@@ -571,7 +571,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <p className="text-xs text-s-40 mt-1">Tune Nova to your workflow</p>
           </div>
 
-          <div className="flex-1 p-2.5 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
+          <div className="no-scrollbar flex-1 p-2.5 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">
             <div className="flex md:flex-col gap-1.5 min-w-max md:min-w-0">
             {sections.map((section) => {
               const Icon = section.icon
@@ -634,10 +634,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
 
           {/* Scrollable Content */}
-          <div
-            className="flex-1 overflow-y-scroll overscroll-contain p-4 sm:p-6 bg-[var(--settings-bg)]"
-            style={{ scrollbarGutter: "stable" }}
-          >
+          <div className="no-scrollbar flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 bg-[var(--settings-bg)]">
             {!settings ? (
               <div className="flex items-center justify-center py-20">
                 <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />

@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useRef, useCallback, type KeyboardEvent, useEffect } from "react"
-import { ArrowRight, X } from "lucide-react"
+import { ArrowRight, Mic, MicOff, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ACCENT_COLORS, loadUserSettings, type AccentColor, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import { useTheme } from "@/lib/theme-context"
@@ -12,6 +12,9 @@ interface ComposerProps {
   onSend: (content: string) => void
   isStreaming: boolean
   disabled?: boolean
+  isMuted: boolean
+  onToggleMute: () => void
+  muteHydrated?: boolean
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -30,7 +33,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-export function Composer({ onSend, isStreaming, disabled }: ComposerProps) {
+export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute, muteHydrated = true }: ComposerProps) {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const [value, setValue] = useState("")
@@ -118,7 +121,7 @@ export function Composer({ onSend, isStreaming, disabled }: ComposerProps) {
   return (
     <div className="absolute bottom-3 left-0 right-0 px-3 pointer-events-none z-10">
       <div className="mx-auto w-full pointer-events-auto">
-        <div className="relative mx-auto w-[50%] min-w-[320px] max-w-225">
+        <div className="relative mx-auto w-[56%] min-w-[360px] max-w-240">
           {attachedFiles.length > 0 && (
             <div className="absolute left-0 right-0 bottom-full mb-2 z-40 flex flex-wrap gap-2 px-1 pointer-events-auto">
               {attachedFiles.map((file, index) => (
@@ -161,7 +164,7 @@ export function Composer({ onSend, isStreaming, disabled }: ComposerProps) {
             onClick={handleAttachClick}
             className={cn(
               "group absolute left-4 top-1/2 -translate-y-1/2 h-7 w-7 rounded-md text-2xl leading-none transition-all duration-150 z-20",
-              isLight ? "text-s-50 hover:bg-accent-10 hover:rotate-12" : "text-slate-400 hover:bg-accent-10 hover:rotate-12",
+              isLight ? "text-s-50 hover:bg-accent-10" : "text-slate-400 hover:bg-accent-10",
             )}
             aria-label="Attach files"
           >
@@ -187,7 +190,7 @@ export function Composer({ onSend, isStreaming, disabled }: ComposerProps) {
             disabled={disabled}
             rows={1}
             className={cn(
-              "relative z-10 w-full bg-transparent text-sm pl-12 pt-4 pb-2.5 pr-24 resize-none outline-none disabled:opacity-40",
+              "relative z-10 w-full bg-transparent text-sm pl-12 pt-4 pb-2.5 pr-34 resize-none outline-none disabled:opacity-40",
               isLight ? "text-s-90 placeholder:text-[#b3bcc8]" : "text-slate-100 placeholder:text-[#a4afc1]",
             )}
             style={{ maxHeight: 120 }}
@@ -205,6 +208,21 @@ export function Composer({ onSend, isStreaming, disabled }: ComposerProps) {
               aria-label="Send message"
             >
               <ArrowRight className="w-5 h-5" />
+            </button>
+            <button
+              onClick={onToggleMute}
+              disabled={!muteHydrated}
+              className={cn(
+                "relative h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150",
+                !muteHydrated
+                  ? "opacity-0 pointer-events-none"
+                  : isMuted
+                  ? "text-red-400 hover:text-red-300"
+                  : "text-accent hover:text-accent/80",
+              )}
+              aria-label={!muteHydrated ? "Syncing mute state" : isMuted ? "Unmute Nova" : "Mute Nova"}
+            >
+              {!muteHydrated ? null : isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </button>
           </div>
         </div>

@@ -29,13 +29,23 @@ export interface ClaudeIntegrationSettings {
   apiKeyMasked?: string
 }
 
-export type LlmProvider = "openai" | "claude"
+export interface GrokIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+}
+
+export type LlmProvider = "openai" | "claude" | "grok"
 
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
+  grok: GrokIntegrationSettings
   activeLlmProvider: LlmProvider
   updatedAt: string
 }
@@ -45,7 +55,7 @@ export const INTEGRATIONS_UPDATED_EVENT = "nova:integrations-updated"
 
 const DEFAULT_SETTINGS: IntegrationsSettings = {
   telegram: {
-    connected: true,
+    connected: false,
     botToken: "",
     chatIds: "",
     botTokenConfigured: false,
@@ -68,6 +78,14 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKey: "",
     baseUrl: "https://api.anthropic.com",
     defaultModel: "claude-sonnet-4-20250514",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+  },
+  grok: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.x.ai/v1",
+    defaultModel: "grok-4-0709",
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
@@ -102,8 +120,13 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...(parsed.claude || {}),
         apiKey: "",
       },
+      grok: {
+        ...DEFAULT_SETTINGS.grok,
+        ...(parsed.grok || {}),
+        apiKey: "",
+      },
       activeLlmProvider:
-        parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai"
+        parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai" || parsed.activeLlmProvider === "grok"
           ? parsed.activeLlmProvider
           : DEFAULT_SETTINGS.activeLlmProvider,
       updatedAt: parsed.updatedAt || new Date().toISOString(),
@@ -132,6 +155,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     },
     claude: {
       ...settings.claude,
+      apiKey: "",
+    },
+    grok: {
+      ...settings.grok,
       apiKey: "",
     },
   }
@@ -210,6 +237,20 @@ export function updateActiveLlmProvider(provider: LlmProvider): IntegrationsSett
   const updated: IntegrationsSettings = {
     ...current,
     activeLlmProvider: provider,
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateGrokIntegrationSettings(partial: Partial<GrokIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    grok: {
+      ...current.grok,
+      ...partial,
+    },
     updatedAt: new Date().toISOString(),
   }
   saveIntegrationsSettings(updated)

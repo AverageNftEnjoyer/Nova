@@ -6,6 +6,7 @@ import {
   type IntegrationsConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
+  type GrokIntegrationConfig,
   type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
@@ -65,13 +66,14 @@ function normalizeDiscordInput(raw: unknown, current: DiscordIntegrationConfig):
 function normalizeOpenAIInput(raw: unknown, current: OpenAIIntegrationConfig): OpenAIIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const openai = raw as Partial<OpenAIIntegrationConfig>
+  const nextApiKey =
+    typeof openai.apiKey === "string"
+      ? (openai.apiKey.trim().length > 0 ? openai.apiKey.trim() : current.apiKey)
+      : current.apiKey
 
   return {
-    connected: typeof openai.connected === "boolean" ? openai.connected : current.connected,
-    apiKey:
-      typeof openai.apiKey === "string"
-        ? (openai.apiKey.trim().length > 0 ? openai.apiKey.trim() : current.apiKey)
-        : current.apiKey,
+    connected: (typeof openai.connected === "boolean" ? openai.connected : current.connected) && nextApiKey.trim().length > 0,
+    apiKey: nextApiKey,
     baseUrl: typeof openai.baseUrl === "string" && openai.baseUrl.trim().length > 0 ? openai.baseUrl.trim() : current.baseUrl,
     defaultModel: typeof openai.defaultModel === "string" && openai.defaultModel.trim().length > 0
       ? openai.defaultModel.trim()
@@ -82,13 +84,14 @@ function normalizeOpenAIInput(raw: unknown, current: OpenAIIntegrationConfig): O
 function normalizeClaudeInput(raw: unknown, current: ClaudeIntegrationConfig): ClaudeIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const claude = raw as Partial<ClaudeIntegrationConfig>
+  const nextApiKey =
+    typeof claude.apiKey === "string"
+      ? (claude.apiKey.trim().length > 0 ? claude.apiKey.trim() : current.apiKey)
+      : current.apiKey
 
   return {
-    connected: typeof claude.connected === "boolean" ? claude.connected : current.connected,
-    apiKey:
-      typeof claude.apiKey === "string"
-        ? (claude.apiKey.trim().length > 0 ? claude.apiKey.trim() : current.apiKey)
-        : current.apiKey,
+    connected: (typeof claude.connected === "boolean" ? claude.connected : current.connected) && nextApiKey.trim().length > 0,
+    apiKey: nextApiKey,
     baseUrl: typeof claude.baseUrl === "string" && claude.baseUrl.trim().length > 0 ? claude.baseUrl.trim() : current.baseUrl,
     defaultModel: typeof claude.defaultModel === "string" && claude.defaultModel.trim().length > 0
       ? claude.defaultModel.trim()
@@ -96,8 +99,26 @@ function normalizeClaudeInput(raw: unknown, current: ClaudeIntegrationConfig): C
   }
 }
 
+function normalizeGrokInput(raw: unknown, current: GrokIntegrationConfig): GrokIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const grok = raw as Partial<GrokIntegrationConfig>
+  const nextApiKey =
+    typeof grok.apiKey === "string"
+      ? (grok.apiKey.trim().length > 0 ? grok.apiKey.trim() : current.apiKey)
+      : current.apiKey
+
+  return {
+    connected: (typeof grok.connected === "boolean" ? grok.connected : current.connected) && nextApiKey.trim().length > 0,
+    apiKey: nextApiKey,
+    baseUrl: typeof grok.baseUrl === "string" && grok.baseUrl.trim().length > 0 ? grok.baseUrl.trim() : current.baseUrl,
+    defaultModel: typeof grok.defaultModel === "string" && grok.defaultModel.trim().length > 0
+      ? grok.defaultModel.trim()
+      : current.defaultModel,
+  }
+}
+
 function normalizeActiveLlmProvider(raw: unknown, current: LlmProvider): LlmProvider {
-  if (raw === "openai" || raw === "claude") return raw
+  if (raw === "openai" || raw === "claude" || raw === "grok") return raw
   return current
 }
 
@@ -122,6 +143,12 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.claude.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.claude.apiKey),
     },
+    grok: {
+      ...config.grok,
+      apiKey: "",
+      apiKeyConfigured: config.grok.apiKey.trim().length > 0,
+      apiKeyMasked: maskSecret(config.grok.apiKey),
+    },
   }
 }
 
@@ -137,6 +164,7 @@ export async function PATCH(req: Request) {
       discord?: Partial<DiscordIntegrationConfig> & { webhookUrls?: string[] | string }
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
+      grok?: Partial<GrokIntegrationConfig>
       activeLlmProvider?: LlmProvider
     }
     const current = await loadIntegrationsConfig()
@@ -144,12 +172,14 @@ export async function PATCH(req: Request) {
     const discord = normalizeDiscordInput(body.discord, current.discord)
     const openai = normalizeOpenAIInput(body.openai, current.openai)
     const claude = normalizeClaudeInput(body.claude, current.claude)
+    const grok = normalizeGrokInput(body.grok, current.grok)
     const activeLlmProvider = normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
     const next = await updateIntegrationsConfig({
       telegram,
       discord,
       openai,
       claude,
+      grok,
       activeLlmProvider,
       agents: body.agents ?? current.agents,
     })

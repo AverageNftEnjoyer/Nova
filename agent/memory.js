@@ -317,23 +317,24 @@ export async function extractFacts(openai, userText, assistantReply, model = "gp
   const existing = ctx.user_facts || [];
 
   try {
-    const res = await openai.chat.completions.create({
-      model,
-      temperature: 0,
-      max_tokens: 150,
-      messages: [
-        {
-          role: "system",
-          content: `Extract personal facts about the user. Output JSON array of short strings.
+    const res = await Promise.race([
+      openai.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: `Extract personal facts about the user. Output JSON array of short strings.
 Known: ${existing.length ? existing.join("; ") : "(none)"}
 Rules: Only NEW facts. Short statements. Output [] if none. JSON array only.`
-        },
-        {
-          role: "user",
-          content: `User: "${userText}"\nAssistant: "${assistantReply}"`
-        }
-      ]
-    });
+          },
+          {
+            role: "user",
+            content: `User: "${userText}"\nAssistant: "${assistantReply}"`
+          }
+        ]
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("extractFacts timeout after 15000ms")), 15000))
+    ]);
 
     const parsed = JSON.parse(res.choices[0].message.content.trim());
     if (Array.isArray(parsed)) {

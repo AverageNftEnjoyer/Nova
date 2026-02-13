@@ -28,7 +28,14 @@ export interface ClaudeIntegrationConfig {
   defaultModel: string
 }
 
-export type LlmProvider = "openai" | "claude"
+export interface GrokIntegrationConfig {
+  connected: boolean
+  apiKey: string
+  baseUrl: string
+  defaultModel: string
+}
+
+export type LlmProvider = "openai" | "claude" | "grok"
 
 export interface AgentIntegrationConfig {
   connected: boolean
@@ -41,6 +48,7 @@ export interface IntegrationsConfig {
   discord: DiscordIntegrationConfig
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
+  grok: GrokIntegrationConfig
   activeLlmProvider: LlmProvider
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
@@ -70,6 +78,12 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     apiKey: "",
     baseUrl: "https://api.anthropic.com",
     defaultModel: "claude-sonnet-4-20250514",
+  },
+  grok: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.x.ai/v1",
+    defaultModel: "grok-4-0709",
   },
   activeLlmProvider: "openai",
   agents: {},
@@ -112,8 +126,14 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       baseUrl: raw?.claude?.baseUrl?.trim() || DEFAULT_CONFIG.claude.baseUrl,
       defaultModel: raw?.claude?.defaultModel?.trim() || DEFAULT_CONFIG.claude.defaultModel,
     },
+    grok: {
+      connected: raw?.grok?.connected ?? DEFAULT_CONFIG.grok.connected,
+      apiKey: raw?.grok?.apiKey?.trim() ?? "",
+      baseUrl: raw?.grok?.baseUrl?.trim() || DEFAULT_CONFIG.grok.baseUrl,
+      defaultModel: raw?.grok?.defaultModel?.trim() || DEFAULT_CONFIG.grok.defaultModel,
+    },
     activeLlmProvider:
-      raw?.activeLlmProvider === "claude" || raw?.activeLlmProvider === "openai"
+      raw?.activeLlmProvider === "claude" || raw?.activeLlmProvider === "openai" || raw?.activeLlmProvider === "grok"
         ? raw.activeLlmProvider
         : DEFAULT_CONFIG.activeLlmProvider,
     agents: raw?.agents && typeof raw.agents === "object" ? raw.agents : {},
@@ -163,8 +183,12 @@ export async function updateIntegrationsConfig(partial: Partial<IntegrationsConf
       ...current.claude,
       ...(partial.claude || {}),
     },
+    grok: {
+      ...current.grok,
+      ...(partial.grok || {}),
+    },
     activeLlmProvider:
-      partial.activeLlmProvider === "claude" || partial.activeLlmProvider === "openai"
+      partial.activeLlmProvider === "claude" || partial.activeLlmProvider === "openai" || partial.activeLlmProvider === "grok"
         ? partial.activeLlmProvider
         : current.activeLlmProvider,
     agents: {

@@ -15,6 +15,7 @@ import FloatingLines from "@/components/FloatingLines"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
+import { XAIIcon } from "@/components/xai-icon"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
@@ -48,7 +49,9 @@ const OPENAI_MODEL_OPTIONS: Array<{ value: string; label: string; priceHint: str
   { value: "gpt-4o", label: "GPT-4o", priceHint: "Strong multimodal quality" },
   { value: "gpt-4o-mini", label: "GPT-4o Mini", priceHint: "Lightweight multimodal" },
 ]
-const OPENAI_MODEL_PRICING_USD_PER_1M: Record<string, { input: number; output: number }> = {
+type ModelPricing = { input: number; output: number; cachedInput?: number }
+
+const OPENAI_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
   "gpt-5.2": { input: 1.75, output: 14.0 },
   "gpt-5.2-pro": { input: 12.0, output: 96.0 },
   "gpt-5": { input: 1.25, output: 10.0 },
@@ -72,17 +75,102 @@ const CLAUDE_MODEL_OPTIONS: Array<{ value: string; label: string; priceHint: str
   { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", priceHint: "Reliable quality with good cost efficiency" },
   { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", priceHint: "Fastest and lowest-cost Claude option" },
 ]
-const CLAUDE_MODEL_SELECT_FALLBACK: FluidSelectOption[] = CLAUDE_MODEL_OPTIONS.map((option) => ({
-  value: option.value,
-  label: option.label,
-}))
-const CLAUDE_MODEL_PRICING_USD_PER_1M: Record<string, { input: number; output: number }> = {
+
+function extractHighestVersion(text: string): { major: number; minor: number } {
+  const normalized = text.toLowerCase()
+  const scopedMatches = [
+    ...normalized.matchAll(/(?:opus|sonnet|haiku)\s*(\d+)(?:[.\-_](\d+))?/g),
+    ...normalized.matchAll(/claude\s*(\d+)(?:[.\-_](\d+))?/g),
+  ]
+  if (scopedMatches.length === 0) return { major: 0, minor: 0 }
+
+  let bestMajor = 0
+  let bestMinor = 0
+  for (const m of scopedMatches) {
+    const major = Number(m[1] || 0)
+    const minor = Number(m[2] || 0)
+    // Ignore date-like or malformed high numbers; Claude major versions are small integers.
+    if (major > 20) continue
+    if (major > bestMajor || (major === bestMajor && minor > bestMinor)) {
+      bestMajor = major
+      bestMinor = minor
+    }
+  }
+  return { major: bestMajor, minor: bestMinor }
+}
+
+function extractClaudeDate(model: string): number {
+  const match = model.match(/(20\d{6})/)
+  return Number(match?.[1] || 0)
+}
+
+function claudeFamilyWeight(model: string): number {
+  const normalized = model.toLowerCase()
+  if (normalized.includes("opus")) return 3
+  if (normalized.includes("sonnet")) return 2
+  if (normalized.includes("haiku")) return 1
+  return 0
+}
+
+function sortClaudeOptions(options: FluidSelectOption[]): FluidSelectOption[] {
+  return [...options].sort((a, b) => {
+    const aText = `${a.label} ${a.value}`
+    const bText = `${b.label} ${b.value}`
+    const av = extractHighestVersion(aText)
+    const bv = extractHighestVersion(bText)
+    if (av.major !== bv.major) return bv.major - av.major
+    if (av.minor !== bv.minor) return bv.minor - av.minor
+
+    const af = claudeFamilyWeight(aText)
+    const bf = claudeFamilyWeight(bText)
+    if (af !== bf) return bf - af
+
+    const ad = extractClaudeDate(aText)
+    const bd = extractClaudeDate(bText)
+    if (ad !== bd) return bd - ad
+
+    return a.label.localeCompare(b.label)
+  })
+}
+
+const CLAUDE_MODEL_SELECT_FALLBACK: FluidSelectOption[] = sortClaudeOptions(
+  CLAUDE_MODEL_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  })),
+)
+const CLAUDE_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
   "claude-opus-4-1-20250805": { input: 15.0, output: 75.0 },
   "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
   "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
   "claude-3-7-sonnet-latest": { input: 3.0, output: 15.0 },
   "claude-3-5-sonnet-latest": { input: 3.0, output: 15.0 },
   "claude-3-5-haiku-latest": { input: 0.8, output: 4.0 },
+}
+const GROK_MODEL_OPTIONS: Array<{ value: string; label: string; priceHint: string }> = [
+  { value: "grok-4-1-fast-reasoning", label: "Grok 4.1 Fast Reasoning", priceHint: "Fastest 4.1 reasoning profile, very low token cost" },
+  { value: "grok-4-1-fast-non-reasoning", label: "Grok 4.1 Fast Non-Reasoning", priceHint: "Fast 4.1 non-reasoning profile, very low token cost" },
+  { value: "grok-code-fast-1", label: "Grok Code Fast 1", priceHint: "Code-optimized fast model with higher output cost" },
+  { value: "grok-4-fast-reasoning", label: "Grok 4 Fast Reasoning", priceHint: "Fast Grok 4 reasoning profile, low token cost" },
+  { value: "grok-4-fast-non-reasoning", label: "Grok 4 Fast Non-Reasoning", priceHint: "Fast Grok 4 non-reasoning profile, low token cost" },
+  { value: "grok-4-0709", label: "Grok 4 (0709)", priceHint: "Highest quality Grok 4 generation profile" },
+  { value: "grok-3", label: "Grok 3", priceHint: "Strong general model at premium output pricing" },
+  { value: "grok-3-mini", label: "Grok 3 Mini", priceHint: "Most cost-efficient Grok option" },
+]
+const GROK_MODEL_SELECT_OPTIONS: FluidSelectOption[] = GROK_MODEL_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+}))
+const GROK_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
+  "grok-4-1-fast-reasoning": { input: 0.2, cachedInput: 0.05, output: 0.5 },
+  "grok-4-1-fast-non-reasoning": { input: 0.2, cachedInput: 0.05, output: 0.5 },
+  "grok-code-fast-1": { input: 0.2, cachedInput: 0.05, output: 1.5 },
+  "grok-4-fast-reasoning": { input: 0.2, cachedInput: 0.05, output: 0.5 },
+  "grok-4-fast-non-reasoning": { input: 0.2, cachedInput: 0.05, output: 0.5 },
+  "grok-4-0709": { input: 3.0, output: 15.0 },
+  "grok-3": { input: 3.0, output: 15.0 },
+  "grok-3-mini": { input: 0.3, output: 0.5 },
+  "grok-3-latest": { input: 3.0, output: 15.0 },
 }
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
@@ -98,10 +186,11 @@ function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
   return null
 }
 
-function resolveModelPricing(model: string): { input: number; output: number } | null {
+function resolveModelPricing(model: string): ModelPricing | null {
   if (!model) return null
   if (OPENAI_MODEL_PRICING_USD_PER_1M[model]) return OPENAI_MODEL_PRICING_USD_PER_1M[model]
   if (CLAUDE_MODEL_PRICING_USD_PER_1M[model]) return CLAUDE_MODEL_PRICING_USD_PER_1M[model]
+  if (GROK_MODEL_PRICING_USD_PER_1M[model]) return GROK_MODEL_PRICING_USD_PER_1M[model]
   const normalized = model.trim().toLowerCase()
   if (normalized.includes("claude-opus-4-6") || normalized.includes("claude-opus-4.6")) return { input: 15.0, output: 75.0 }
   if (normalized.includes("claude-opus-4")) return { input: 15.0, output: 75.0 }
@@ -109,16 +198,30 @@ function resolveModelPricing(model: string): { input: number; output: number } |
   if (normalized.includes("claude-3-7-sonnet")) return { input: 3.0, output: 15.0 }
   if (normalized.includes("claude-3-5-sonnet")) return { input: 3.0, output: 15.0 }
   if (normalized.includes("claude-3-5-haiku")) return { input: 0.8, output: 4.0 }
+  if (normalized.includes("grok-4-1-fast-reasoning")) return { input: 0.2, output: 0.5 }
+  if (normalized.includes("grok-4-1-fast-non-reasoning")) return { input: 0.2, output: 0.5 }
+  if (normalized.includes("grok-code-fast-1")) return { input: 0.2, output: 1.5 }
+  if (normalized.includes("grok-4-fast-reasoning")) return { input: 0.2, output: 0.5 }
+  if (normalized.includes("grok-4-fast-non-reasoning")) return { input: 0.2, output: 0.5 }
+  if (normalized.includes("grok-4-0709")) return { input: 3.0, output: 15.0 }
+  if (normalized.includes("grok-3-mini")) return { input: 0.3, output: 0.5 }
+  if (normalized.includes("grok-3")) return { input: 3.0, output: 15.0 }
   return null
 }
 
 function estimateDailyCostRange(model: string): string {
   const pricing = resolveModelPricing(model)
   if (!pricing) return "N/A"
+  const cacheHitRate = pricing.cachedInput ? 0.5 : 0
   const estimate = (totalTokens: number) => {
     const inputTokens = totalTokens / 2
     const outputTokens = totalTokens / 2
-    return (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output
+    const cachedInputTokens = inputTokens * cacheHitRate
+    const uncachedInputTokens = inputTokens - cachedInputTokens
+    const inputCost = (uncachedInputTokens / 1_000_000) * pricing.input
+    const cachedInputCost = pricing.cachedInput ? (cachedInputTokens / 1_000_000) * pricing.cachedInput : 0
+    const outputCost = (outputTokens / 1_000_000) * pricing.output
+    return inputCost + cachedInputCost + outputCost
   }
   const min = estimate(20_000)
   const max = estimate(40_000)
@@ -134,7 +237,7 @@ function getClaudePriceHint(model: string): string {
 }
 const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
   telegram: {
-    connected: true,
+    connected: false,
     botToken: "",
     chatIds: "",
   },
@@ -158,6 +261,14 @@ const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
+  grok: {
+    connected: false,
+    apiKey: "",
+    baseUrl: "https://api.x.ai/v1",
+    defaultModel: "grok-4-0709",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+  },
   activeLlmProvider: "openai",
   updatedAt: "",
 }
@@ -169,6 +280,7 @@ export default function IntegrationsPage() {
   const { state: novaState, connected: agentConnected } = useNovaState()
 
   const [settings, setSettings] = useState<IntegrationsSettings>(INITIAL_INTEGRATIONS_SETTINGS)
+  const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [botToken, setBotToken] = useState("")
   const [botTokenConfigured, setBotTokenConfigured] = useState(false)
   const [botTokenMasked, setBotTokenMasked] = useState("")
@@ -187,6 +299,12 @@ export default function IntegrationsPage() {
   const [claudeApiKeyMasked, setClaudeApiKeyMasked] = useState("")
   const [showClaudeApiKey, setShowClaudeApiKey] = useState(false)
   const [claudeModelOptions, setClaudeModelOptions] = useState<FluidSelectOption[]>(CLAUDE_MODEL_SELECT_FALLBACK)
+  const [grokApiKey, setGrokApiKey] = useState("")
+  const [grokBaseUrl, setGrokBaseUrl] = useState("https://api.x.ai/v1")
+  const [grokDefaultModel, setGrokDefaultModel] = useState("grok-4-0709")
+  const [grokApiKeyConfigured, setGrokApiKeyConfigured] = useState(false)
+  const [grokApiKeyMasked, setGrokApiKeyMasked] = useState("")
+  const [showGrokApiKey, setShowGrokApiKey] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [orbHovered, setOrbHovered] = useState(false)
@@ -199,8 +317,8 @@ export default function IntegrationsPage() {
   const [background, setBackground] = useState<ThemeBackgroundType>("none")
   const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(null)
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai" | "claude">("telegram")
-  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "provider">(null)
+  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai" | "claude" | "grok">("telegram")
+  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "grok" | "provider">(null)
   const [saveStatus, setSaveStatus] = useState<null | { type: "success" | "error"; message: string }>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
@@ -208,6 +326,7 @@ export default function IntegrationsPage() {
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
+  const grokSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -228,6 +347,11 @@ export default function IntegrationsPage() {
     setClaudeDefaultModel(local.claude.defaultModel)
     setClaudeApiKeyConfigured(Boolean(local.claude.apiKeyConfigured))
     setClaudeApiKeyMasked(local.claude.apiKeyMasked || "")
+    setGrokApiKey(local.grok.apiKey)
+    setGrokBaseUrl(local.grok.baseUrl)
+    setGrokDefaultModel(local.grok.defaultModel)
+    setGrokApiKeyConfigured(Boolean(local.grok.apiKeyConfigured))
+    setGrokApiKeyMasked(local.grok.apiKeyMasked || "")
     setActiveLlmProvider(local.activeLlmProvider || "openai")
 
     const cached = readShellUiCache()
@@ -249,6 +373,7 @@ export default function IntegrationsPage() {
       backgroundVideoUrl: nextBackgroundVideoUrl ?? null,
       spotlightEnabled: nextSpotlight,
     })
+    setIntegrationsHydrated(true)
   }, [isLight])
 
   useEffect(() => {
@@ -277,6 +402,11 @@ export default function IntegrationsPage() {
           setClaudeDefaultModel(fallback.claude.defaultModel)
           setClaudeApiKeyConfigured(Boolean(fallback.claude.apiKeyConfigured))
           setClaudeApiKeyMasked(fallback.claude.apiKeyMasked || "")
+          setGrokApiKey(fallback.grok.apiKey)
+          setGrokBaseUrl(fallback.grok.baseUrl)
+          setGrokDefaultModel(fallback.grok.defaultModel)
+          setGrokApiKeyConfigured(Boolean(fallback.grok.apiKeyConfigured))
+          setGrokApiKeyMasked(fallback.grok.apiKeyMasked || "")
           setActiveLlmProvider(fallback.activeLlmProvider || "openai")
           return
         }
@@ -316,7 +446,20 @@ export default function IntegrationsPage() {
             apiKeyConfigured: Boolean(config.claude?.apiKeyConfigured),
             apiKeyMasked: typeof config.claude?.apiKeyMasked === "string" ? config.claude.apiKeyMasked : "",
           },
-          activeLlmProvider: config.activeLlmProvider === "claude" ? "claude" : "openai",
+          grok: {
+            connected: Boolean(config.grok?.connected),
+            apiKey: config.grok?.apiKey || "",
+            baseUrl: config.grok?.baseUrl || "https://api.x.ai/v1",
+            defaultModel: config.grok?.defaultModel || "grok-4-0709",
+            apiKeyConfigured: Boolean(config.grok?.apiKeyConfigured),
+            apiKeyMasked: typeof config.grok?.apiKeyMasked === "string" ? config.grok.apiKeyMasked : "",
+          },
+          activeLlmProvider:
+            config.activeLlmProvider === "claude"
+              ? "claude"
+              : config.activeLlmProvider === "grok"
+                ? "grok"
+                : "openai",
           updatedAt: config.updatedAt || new Date().toISOString(),
         }
         setSettings(normalized)
@@ -335,6 +478,11 @@ export default function IntegrationsPage() {
         setClaudeDefaultModel(normalized.claude.defaultModel)
         setClaudeApiKeyConfigured(Boolean(normalized.claude.apiKeyConfigured))
         setClaudeApiKeyMasked(normalized.claude.apiKeyMasked || "")
+        setGrokApiKey(normalized.grok.apiKey)
+        setGrokBaseUrl(normalized.grok.baseUrl)
+        setGrokDefaultModel(normalized.grok.defaultModel)
+        setGrokApiKeyConfigured(Boolean(normalized.grok.apiKeyConfigured))
+        setGrokApiKeyMasked(normalized.grok.apiKeyMasked || "")
         setActiveLlmProvider(normalized.activeLlmProvider || "openai")
         saveIntegrationsSettings(normalized)
       })
@@ -357,6 +505,11 @@ export default function IntegrationsPage() {
         setClaudeDefaultModel(fallback.claude.defaultModel)
         setClaudeApiKeyConfigured(Boolean(fallback.claude.apiKeyConfigured))
         setClaudeApiKeyMasked(fallback.claude.apiKeyMasked || "")
+        setGrokApiKey(fallback.grok.apiKey)
+        setGrokBaseUrl(fallback.grok.baseUrl)
+        setGrokDefaultModel(fallback.grok.defaultModel)
+        setGrokApiKeyConfigured(Boolean(fallback.grok.apiKeyConfigured))
+        setGrokApiKeyMasked(fallback.grok.apiKeyMasked || "")
         setActiveLlmProvider(fallback.activeLlmProvider || "openai")
       })
 
@@ -516,6 +669,7 @@ export default function IntegrationsPage() {
     if (discordSetupSectionRef.current) cleanups.push(setupSectionSpotlight(discordSetupSectionRef.current))
     if (openaiSetupSectionRef.current) cleanups.push(setupSectionSpotlight(openaiSetupSectionRef.current))
     if (claudeSetupSectionRef.current) cleanups.push(setupSectionSpotlight(claudeSetupSectionRef.current))
+    if (grokSetupSectionRef.current) cleanups.push(setupSectionSpotlight(grokSetupSectionRef.current))
     if (activeStatusSectionRef.current) cleanups.push(setupSectionSpotlight(activeStatusSectionRef.current))
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [activeSetup, spotlightEnabled])
@@ -552,6 +706,16 @@ export default function IntegrationsPage() {
     : novaState === "listening"
     ? "bg-emerald-400"
     : "bg-slate-400"
+  const integrationBadgeClass = (connected: boolean) =>
+    !integrationsHydrated
+      ? "border-white/15 bg-white/10 text-slate-200"
+      : connected
+        ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+        : "border-rose-300/50 bg-rose-500/35 text-rose-100"
+  const integrationDotClass = (connected: boolean) =>
+    !integrationsHydrated ? "bg-slate-400" : connected ? "bg-emerald-400" : "bg-rose-400"
+  const integrationTextClass = (connected: boolean) =>
+    !integrationsHydrated ? "text-slate-400" : connected ? "text-emerald-400" : "text-rose-400"
 
   const refreshClaudeModels = useCallback(async (override?: { apiKey?: string; baseUrl?: string }) => {
     const key = override?.apiKey ?? claudeApiKey
@@ -582,7 +746,7 @@ export default function IntegrationsPage() {
       if (selected && !merged.has(selected)) {
         merged.set(selected, { value: selected, label: selected })
       }
-      setClaudeModelOptions(Array.from(merged.values()))
+      setClaudeModelOptions(sortClaudeOptions(Array.from(merged.values())))
     } catch {
       // Keep fallback options on network/credential failure.
     }
@@ -663,11 +827,18 @@ export default function IntegrationsPage() {
   }, [settings])
 
   const toggleOpenAI = useCallback(async () => {
+    if (!settings.openai.connected) {
+      setSaveStatus({
+        type: "error",
+        message: "OpenAI stays inactive until a valid API key + model is saved.",
+      })
+      return
+    }
     const next = {
       ...settings,
       openai: {
         ...settings.openai,
-        connected: !settings.openai.connected,
+        connected: false,
       },
     }
     setSettings(next)
@@ -683,7 +854,7 @@ export default function IntegrationsPage() {
       if (!res.ok) throw new Error("Failed to update OpenAI status")
       setSaveStatus({
         type: "success",
-        message: `OpenAI ${next.openai.connected ? "enabled" : "disabled"}.`,
+        message: "OpenAI disabled.",
       })
     } catch {
       setSettings(settings)
@@ -698,11 +869,18 @@ export default function IntegrationsPage() {
   }, [settings])
 
   const toggleClaude = useCallback(async () => {
+    if (!settings.claude.connected) {
+      setSaveStatus({
+        type: "error",
+        message: "Claude stays inactive until a valid API key + model is saved.",
+      })
+      return
+    }
     const next = {
       ...settings,
       claude: {
         ...settings.claude,
-        connected: !settings.claude.connected,
+        connected: false,
       },
     }
     setSettings(next)
@@ -718,7 +896,7 @@ export default function IntegrationsPage() {
       if (!res.ok) throw new Error("Failed to update Claude status")
       setSaveStatus({
         type: "success",
-        message: `Claude ${next.claude.connected ? "enabled" : "disabled"}.`,
+        message: "Claude disabled.",
       })
     } catch {
       setSettings(settings)
@@ -732,20 +910,84 @@ export default function IntegrationsPage() {
     }
   }, [settings])
 
-  const saveActiveProvider = useCallback(async (provider: LlmProvider) => {
-    if (provider === "openai" && !openaiApiKeyConfigured && !openaiApiKey.trim()) {
-      setSaveStatus({ type: "error", message: "Set and save an OpenAI API key before switching to OpenAI." })
+  const toggleGrok = useCallback(async () => {
+    if (!settings.grok.connected) {
+      setSaveStatus({
+        type: "error",
+        message: "Grok stays inactive until a valid API key + model is saved.",
+      })
       return
     }
-    if (provider === "claude" && !claudeApiKeyConfigured && !claudeApiKey.trim()) {
-      setSaveStatus({ type: "error", message: "Set and save a Claude API key before switching to Claude." })
+    const next = {
+      ...settings,
+      grok: {
+        ...settings.grok,
+        connected: false,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("grok")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grok: { connected: next.grok.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update Grok status")
+      setSaveStatus({
+        type: "success",
+        message: "Grok disabled.",
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update Grok status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [settings])
+
+  const saveActiveProvider = useCallback(async (provider: LlmProvider) => {
+    if (provider === "openai" && !settings.openai.connected) {
+      setSaveStatus({ type: "error", message: "OpenAI is inactive. Save a valid key + model first." })
+      return
+    }
+    if (provider === "claude" && !settings.claude.connected) {
+      setSaveStatus({ type: "error", message: "Claude is inactive. Save a valid key + model first." })
+      return
+    }
+    if (provider === "grok" && !settings.grok.connected) {
+      setSaveStatus({ type: "error", message: "Grok is inactive. Save a valid key + model first." })
       return
     }
 
     const previous = activeLlmProvider
+    const persistedOpenAIModel = openaiDefaultModel.trim() || "gpt-4.1"
+    const persistedClaudeModel = claudeDefaultModel.trim() || "claude-sonnet-4-20250514"
+    const persistedGrokModel = grokDefaultModel.trim() || "grok-4-0709"
     setActiveLlmProvider(provider)
     setSettings((prev) => {
-      const next = { ...prev, activeLlmProvider: provider }
+      const next = {
+        ...prev,
+        activeLlmProvider: provider,
+        openai: {
+          ...prev.openai,
+          defaultModel: persistedOpenAIModel,
+        },
+        claude: {
+          ...prev.claude,
+          defaultModel: persistedClaudeModel,
+        },
+        grok: {
+          ...prev.grok,
+          defaultModel: persistedGrokModel,
+        },
+      }
       saveIntegrationsSettings(next)
       return next
     })
@@ -755,12 +997,17 @@ export default function IntegrationsPage() {
       const res = await fetch("/api/integrations/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activeLlmProvider: provider }),
+        body: JSON.stringify({
+          activeLlmProvider: provider,
+          openai: { defaultModel: persistedOpenAIModel },
+          claude: { defaultModel: persistedClaudeModel },
+          grok: { defaultModel: persistedGrokModel },
+        }),
       })
       if (!res.ok) throw new Error("Failed to switch active LLM provider")
       setSaveStatus({
         type: "success",
-        message: `Active model source switched to ${provider === "claude" ? "Claude" : "OpenAI"}.`,
+        message: `Active model source switched to ${provider === "claude" ? "Claude" : provider === "grok" ? "Grok" : "OpenAI"}.`,
       })
     } catch {
       setActiveLlmProvider(previous)
@@ -776,7 +1023,7 @@ export default function IntegrationsPage() {
     } finally {
       setIsSavingTarget(null)
     }
-  }, [activeLlmProvider, claudeApiKey, claudeApiKeyConfigured, openaiApiKey, openaiApiKeyConfigured])
+  }, [activeLlmProvider, claudeDefaultModel, grokDefaultModel, openaiDefaultModel, settings.claude.connected, settings.grok.connected, settings.openai.connected])
 
   const saveTelegramConfig = useCallback(async () => {
     const trimmedBotToken = botToken.trim()
@@ -939,11 +1186,45 @@ export default function IntegrationsPage() {
         throw new Error(modelData?.error || "Saved, but selected model is unavailable.")
       }
 
+      const enableRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openai: { connected: true } }),
+      })
+      if (!enableRes.ok) throw new Error("Model validated, but failed to activate OpenAI.")
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          openai: {
+            ...prev.openai,
+            connected: true,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+
       setSaveStatus({
         type: "success",
         message: `OpenAI saved and verified (${payloadOpenAI.defaultModel}).`,
       })
     } catch (error) {
+      void fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openai: { connected: false } }),
+      }).catch(() => {})
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          openai: {
+            ...prev.openai,
+            connected: false,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
       setSaveStatus({
         type: "error",
         message: error instanceof Error ? error.message : "Could not save OpenAI configuration.",
@@ -1004,11 +1285,44 @@ export default function IntegrationsPage() {
         apiKey: trimmedApiKey || undefined,
         baseUrl: payloadClaude.baseUrl,
       })
+      const enableRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claude: { connected: true } }),
+      })
+      if (!enableRes.ok) throw new Error("Model validated, but failed to activate Claude.")
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          claude: {
+            ...prev.claude,
+            connected: true,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
       setSaveStatus({
         type: "success",
         message: `Claude saved and verified (${payloadClaude.defaultModel}).`,
       })
     } catch (error) {
+      void fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ claude: { connected: false } }),
+      }).catch(() => {})
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          claude: {
+            ...prev.claude,
+            connected: false,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
       setSaveStatus({
         type: "error",
         message: error instanceof Error ? error.message : "Could not save Claude configuration.",
@@ -1017,6 +1331,101 @@ export default function IntegrationsPage() {
       setIsSavingTarget(null)
     }
   }, [claudeApiKey, claudeBaseUrl, claudeDefaultModel, refreshClaudeModels, settings])
+
+  const saveGrokConfig = useCallback(async () => {
+    const trimmedApiKey = grokApiKey.trim()
+    const payloadGrok: Record<string, string> = {
+      baseUrl: grokBaseUrl.trim() || "https://api.x.ai/v1",
+      defaultModel: grokDefaultModel.trim() || "grok-4-0709",
+    }
+    if (trimmedApiKey) payloadGrok.apiKey = trimmedApiKey
+
+    const next = {
+      ...settings,
+      grok: {
+        ...settings.grok,
+        ...payloadGrok,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("grok")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grok: payloadGrok }),
+      })
+      if (!saveRes.ok) throw new Error("Failed to save Grok configuration")
+      const savedData = await saveRes.json().catch(() => ({}))
+      const masked = typeof savedData?.config?.grok?.apiKeyMasked === "string" ? savedData.config.grok.apiKeyMasked : ""
+      const configured = Boolean(savedData?.config?.grok?.apiKeyConfigured) || trimmedApiKey.length > 0
+      setGrokApiKey("")
+      setGrokApiKeyMasked(masked)
+      setGrokApiKeyConfigured(configured)
+
+      const modelRes = await fetch("/api/integrations/test-grok-model", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: trimmedApiKey || undefined,
+          baseUrl: payloadGrok.baseUrl,
+          model: payloadGrok.defaultModel,
+        }),
+      })
+      const modelData = await modelRes.json().catch(() => ({}))
+      if (!modelRes.ok || !modelData?.ok) {
+        throw new Error(modelData?.error || "Saved, but selected Grok model is unavailable.")
+      }
+
+      const enableRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grok: { connected: true } }),
+      })
+      if (!enableRes.ok) throw new Error("Model validated, but failed to activate Grok.")
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          grok: {
+            ...prev.grok,
+            connected: true,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+
+      setSaveStatus({
+        type: "success",
+        message: `Grok saved and verified (${payloadGrok.defaultModel}).`,
+      })
+    } catch (error) {
+      void fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grok: { connected: false } }),
+      }).catch(() => {})
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          grok: {
+            ...prev.grok,
+            connected: false,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save Grok configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [grokApiKey, grokBaseUrl, grokDefaultModel, settings])
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
@@ -1130,9 +1539,7 @@ export default function IntegrationsPage() {
                   onClick={() => setActiveSetup("telegram")}
                   className={cn(
                     "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
-                    settings.telegram.connected
-                      ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                      : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    integrationBadgeClass(settings.telegram.connected),
                     activeSetup === "telegram" && "ring-1 ring-white/55",
                   )}
                   aria-label="Open Telegram setup"
@@ -1143,9 +1550,7 @@ export default function IntegrationsPage() {
                   onClick={() => setActiveSetup("discord")}
                   className={cn(
                     "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
-                    settings.discord.connected
-                      ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                      : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    integrationBadgeClass(settings.discord.connected),
                     activeSetup === "discord" && "ring-1 ring-white/55",
                   )}
                   aria-label="Open Discord setup"
@@ -1156,9 +1561,7 @@ export default function IntegrationsPage() {
                   onClick={() => setActiveSetup("openai")}
                   className={cn(
                     "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
-                    settings.openai.connected
-                      ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                      : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    integrationBadgeClass(settings.openai.connected),
                     activeSetup === "openai" && "ring-1 ring-white/55",
                   )}
                   aria-label="Open OpenAI setup"
@@ -1169,16 +1572,25 @@ export default function IntegrationsPage() {
                   onClick={() => setActiveSetup("claude")}
                   className={cn(
                     "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
-                    settings.claude.connected
-                      ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                      : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                    integrationBadgeClass(settings.claude.connected),
                     activeSetup === "claude" && "ring-1 ring-white/55",
                   )}
                   aria-label="Open Claude setup"
                 >
                   <ClaudeIcon className="w-4 h-4" />
                 </button>
-                {Array.from({ length: 20 }).map((_, index) => (
+                <button
+                  onClick={() => setActiveSetup("grok")}
+                  className={cn(
+                    "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
+                    integrationBadgeClass(settings.grok.connected),
+                    activeSetup === "grok" && "ring-1 ring-white/55",
+                  )}
+                  aria-label="Open Grok setup"
+                >
+                  <XAIIcon size={16} />
+                </button>
+                {Array.from({ length: 19 }).map((_, index) => (
                   <div
                     key={index}
                     className={cn(
@@ -1458,7 +1870,7 @@ export default function IntegrationsPage() {
                         : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
                     )}
                   >
-                    {settings.openai.connected ? "Disable" : "Enable"}
+                    {settings.openai.connected ? "Disable" : "Save to Activate"}
                   </button>
                   <button
                     onClick={saveOpenAIConfig}
@@ -1483,13 +1895,13 @@ export default function IntegrationsPage() {
                   )}
                   <div className="relative">
                     <input
-                      type="text"
+                      type={showOpenAIApiKey ? "text" : "password"}
                       value={openaiApiKey}
                       onChange={(e) => setOpenaiApiKey(e.target.value)}
                       placeholder={
                         openaiApiKeyConfigured
-                          ? ""
-                          : "sk-fake-dwehdwuieiw123456"
+                          ? "Paste new OpenAI API key to replace current key"
+                          : "Paste your OpenAI API key here"
                       }
                       name="openai_token_input"
                       autoComplete="off"
@@ -1612,7 +2024,7 @@ export default function IntegrationsPage() {
                         : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
                     )}
                   >
-                    {settings.claude.connected ? "Disable" : "Enable"}
+                    {settings.claude.connected ? "Disable" : "Save to Activate"}
                   </button>
                   <button
                     onClick={saveClaudeConfig}
@@ -1736,6 +2148,153 @@ export default function IntegrationsPage() {
               </div>
             </section>
             )}
+
+            {activeSetup === "grok" && (
+            <section ref={grokSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Grok Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save your xAI credentials and model defaults for Nova API usage.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleGrok}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.grok.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.grok.connected ? "Disable" : "Save to Activate"}
+                  </button>
+                  <button
+                    onClick={saveGrokConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "grok" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key</p>
+                  {grokApiKeyConfigured && grokApiKeyMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Key on server: <span className="font-mono">{grokApiKeyMasked}</span>
+                    </p>
+                  )}
+                  <div className="relative">
+                    <input
+                      type={showGrokApiKey ? "text" : "password"}
+                      value={grokApiKey}
+                      onChange={(e) => setGrokApiKey(e.target.value)}
+                      placeholder={grokApiKeyConfigured ? "Paste new Grok API key to replace current key" : "xai-xxxxxxxxxxxxxxxxxxxxxxxx"}
+                      name="grok_token_input"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGrokApiKey((v) => !v)}
+                      className={cn(
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showGrokApiKey ? "Hide API key" : "Show API key"}
+                      title={showGrokApiKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showGrokApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Base URL</p>
+                  <input
+                    value={grokBaseUrl}
+                    onChange={(e) => setGrokBaseUrl(e.target.value)}
+                    placeholder="https://api.x.ai/v1"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Keep <span className="font-mono">https://api.x.ai/v1</span> unless you are using a compatible proxy endpoint.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Default Model</p>
+                  <div className="grid grid-cols-[minmax(0,1fr)_130px] gap-2 items-stretch">
+                    <FluidSelect
+                      value={grokDefaultModel}
+                      onChange={setGrokDefaultModel}
+                      options={GROK_MODEL_SELECT_OPTIONS}
+                      isLight={isLight}
+                    />
+                    <div
+                      className={cn(
+                        "h-9 rounded-md border px-2.5 flex items-center justify-end text-xs tabular-nums",
+                        isLight ? "border-[#d5dce8] bg-[#eef3fb] text-s-70" : "border-white/10 bg-black/20 text-slate-300",
+                      )}
+                      title="Estimated daily cost for 20k-40k total tokens/day (50/50 input/output)."
+                    >
+                      {estimateDailyCostRange(grokDefaultModel)}
+                    </div>
+                  </div>
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    {GROK_MODEL_OPTIONS.find((option) => option.value === grokDefaultModel)?.priceHint ?? "Model pricing and output quality vary by selection."}
+                  </p>
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                    Est. uses 20k-40k total tokens/day at a 50/50 input-output split.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <ol className={cn("space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>1. Create an API key from your xAI dashboard.</li>
+                    <li>2. Paste your key and save to verify access.</li>
+                    <li>3. Pick a Grok model from the dropdown and save.</li>
+                  </ol>
+                </div>
+              </div>
+            </section>
+            )}
           </div>
 
           <section ref={activeStatusSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
@@ -1757,6 +2316,7 @@ export default function IntegrationsPage() {
                   options={[
                     { value: "openai", label: "OpenAI" },
                     { value: "claude", label: "Claude" },
+                    { value: "grok", label: "Grok" },
                   ]}
                   isLight={isLight}
                 />
@@ -1772,6 +2332,7 @@ export default function IntegrationsPage() {
                 { name: "Discord", active: settings.discord.connected },
                 { name: "OpenAI", active: settings.openai.connected },
                 { name: "Claude", active: settings.claude.connected },
+                { name: "Grok", active: settings.grok.connected },
               ].map((item) => (
                 <div
                   key={item.name}
@@ -1784,11 +2345,11 @@ export default function IntegrationsPage() {
                   <span
                     className={cn(
                       "h-2 w-2 rounded-full",
-                      item.active ? "bg-emerald-400" : "bg-rose-400",
+                      integrationDotClass(item.active),
                     )}
                     aria-hidden="true"
                   />
-                  <span className={cn(item.active ? "text-emerald-400" : "text-rose-400")}>
+                  <span className={cn(integrationTextClass(item.active))}>
                     {item.active ? "Active" : "Inactive"}
                   </span>
                 </div>

@@ -176,7 +176,6 @@ const ARC_SEGMENTS = makeArcSegments()
 const TICK_MARKS = makeTickMarks(48, 85)
 const HEX_FLOATERS = makeHexFloaters(25)
 const DATA_TRACES = makeDataTraces(18)
-const DEFAULT_BOOT_MUSIC_SRC = "/sounds/launch.mp3"
 const BOOT_MUSIC_RETRY_MS = 1200
 const BOOT_MUSIC_MAX_ATTEMPTS = 8
 
@@ -224,6 +223,10 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     if (!settings.app.bootMusicEnabled) {
       return () => {}
     }
+    const hasConfiguredBootMusic = Boolean(settings.app.bootMusicDataUrl || settings.app.bootMusicAssetId)
+    if (!hasConfiguredBootMusic) {
+      return () => {}
+    }
 
     const tryPlayBootMusic = async () => {
       if (cancelled || started) return
@@ -249,10 +252,6 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
 
       if (!didStart && blobUrl) {
         didStart = await playBootMusic(blobUrl, { maxSeconds: 30, volume: 0.5, objectUrl: blobUrl })
-      }
-
-      if (!didStart) {
-        didStart = await playBootMusic(DEFAULT_BOOT_MUSIC_SRC, { maxSeconds: 30, volume: 0.5 })
       }
 
       if (didStart) {

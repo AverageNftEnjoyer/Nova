@@ -22,8 +22,6 @@ interface MessageListProps {
   orbPalette: OrbPalette
 }
 
-const LAUNCH_SOUND_URL = "/sounds/launch.mp3"
-
 export function MessageList({
   messages,
   isStreaming,
@@ -38,9 +36,7 @@ export function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const rafRef = useRef<number | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const lastScrollRef = useRef<number>(0)
-  const hasPlayedIntroRef = useRef(false)
   const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
   const hasAnimated = isLoaded && messages.length === 0
 
@@ -49,28 +45,6 @@ export function MessageList({
     const container = containerRef.current
     container.scrollTop = container.scrollHeight
   }
-
-  useEffect(() => {
-    if (!isLoaded) return
-
-    if (messages.length === 0 && !hasPlayedIntroRef.current) {
-      hasPlayedIntroRef.current = true
-      if (loadUserSettings().app.soundEnabled) {
-        audioRef.current = new Audio(LAUNCH_SOUND_URL)
-        audioRef.current.volume = 0.5
-        audioRef.current.play().catch(() => {})
-      }
-    } else if (messages.length > 0) {
-      hasPlayedIntroRef.current = true
-    }
-
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current = null
-      }
-    }
-  }, [isLoaded, messages.length])
 
   useEffect(() => {
     const syncCompactMode = () => setCompactMode(loadUserSettings().app.compactMode)
@@ -173,15 +147,15 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="absolute inset-0 overflow-y-auto pt-3 pb-20 border-none"
+      className="absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar pt-3 pb-20 border-none"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
     <div
       className={cn(
-        "mx-auto w-full min-h-full origin-top px-4 sm:px-6 flex flex-col justify-start",
-        compactMode ? "max-w-3xl space-y-3" : "max-w-4xl space-y-4",
+        "ml-auto mr-0 w-full min-h-full origin-top px-4 sm:px-5 flex flex-col justify-start",
+        compactMode ? "max-w-[60rem] space-y-3" : "max-w-[68rem] space-y-4",
       )}
       style={{
         transform: `scale(${zoom / 100})`,

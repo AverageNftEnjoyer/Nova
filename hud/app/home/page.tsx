@@ -7,10 +7,6 @@ import {
   PanelLeftClose,
   Blocks,
   Pin,
-  X,
-  ArrowRight,
-  Mic,
-  MicOff,
   Send,
   Settings,
 } from "lucide-react"
@@ -36,6 +32,7 @@ import {
   loadIntegrationsSettings,
   type LlmProvider,
   updateClaudeIntegrationSettings,
+  updateGrokIntegrationSettings,
   updateOpenAIIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateTelegramIntegrationSettings,
@@ -44,6 +41,8 @@ import FloatingLines from "@/components/FloatingLines"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
+import { XAIIcon } from "@/components/xai-icon"
+import { Composer } from "@/components/composer"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
 import "@/components/FloatingLines.css"
@@ -59,6 +58,8 @@ interface NotificationSchedule {
   chatIds: string[]
   updatedAt: string
 }
+
+const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
 
 function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "")
@@ -132,7 +133,6 @@ export default function HomePage() {
   const {
     state: novaState,
     connected,
-    sendToAgent,
     sendGreeting,
     setVoicePreference,
     setMuted,
@@ -141,8 +141,8 @@ export default function HomePage() {
     clearAgentMessages,
   } = useNovaState()
   const [isMuted, setIsMuted] = useState(false)
+  const [muteHydrated, setMuteHydrated] = useState(false)
   const [hasAnimated, setHasAnimated] = useState(false)
-  const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
@@ -159,16 +159,17 @@ export default function HomePage() {
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [telegramConnected, setTelegramConnected] = useState(true)
+  const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
+  const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
+  const [grokConnected, setGrokConnected] = useState(false)
+  const [openaiConfigured, setOpenaiConfigured] = useState(false)
+  const [claudeConfigured, setClaudeConfigured] = useState(false)
+  const [grokConfigured, setGrokConfigured] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
   const greetingSentRef = useRef(false)
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
@@ -211,11 +212,35 @@ export default function HomePage() {
     })
   }, [isLight])
 
+  useLayoutEffect(() => {
+    const integrations = loadIntegrationsSettings()
+    setTelegramConnected(integrations.telegram.connected)
+    setDiscordConnected(integrations.discord.connected)
+    setOpenaiConnected(integrations.openai.connected)
+    setClaudeConnected(integrations.claude.connected)
+    setGrokConnected(integrations.grok.connected)
+    setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
+    setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
+    setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
+    setActiveLlmProvider(integrations.activeLlmProvider)
+    setActiveLlmModel(
+      integrations.activeLlmProvider === "claude"
+        ? integrations.claude.defaultModel
+        : integrations.activeLlmProvider === "grok"
+          ? integrations.grok.defaultModel
+          : integrations.openai.defaultModel,
+    )
+    setIntegrationsHydrated(true)
+  }, [])
+
+  useLayoutEffect(() => {
+    const muted = localStorage.getItem("nova-muted") === "true"
+    setIsMuted(muted)
+    setMuteHydrated(true)
+  }, [])
+
   useEffect(() => {
     const sync = window.setTimeout(() => {
-      const muted = localStorage.getItem("nova-muted") === "true"
-      setIsMuted(muted)
-
       const shouldAnimateIntro = sessionStorage.getItem("nova-home-intro-pending") === "true"
       if (shouldAnimateIntro) {
         sessionStorage.removeItem("nova-home-intro-pending")
@@ -260,7 +285,6 @@ export default function HomePage() {
   }, [background, isLight])
 
   useEffect(() => {
-    const settings = loadUserSettings()
     fetch("/api/integrations/config", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
@@ -268,40 +292,40 @@ export default function HomePage() {
         const discord = Boolean(data?.config?.discord?.connected)
         const openai = Boolean(data?.config?.openai?.connected)
         const claude = Boolean(data?.config?.claude?.connected)
-        const provider: LlmProvider = data?.config?.activeLlmProvider === "claude" ? "claude" : "openai"
+        const grok = Boolean(data?.config?.grok?.connected)
+        const openaiReady = Boolean(data?.config?.openai?.apiKeyConfigured)
+        const claudeReady = Boolean(data?.config?.claude?.apiKeyConfigured)
+        const grokReady = Boolean(data?.config?.grok?.apiKeyConfigured)
+        const provider: LlmProvider =
+          data?.config?.activeLlmProvider === "claude"
+            ? "claude"
+            : data?.config?.activeLlmProvider === "grok"
+              ? "grok"
+              : "openai"
         setTelegramConnected(telegram)
         setDiscordConnected(discord)
         setOpenaiConnected(openai)
         setClaudeConnected(claude)
+        setGrokConnected(grok)
+        setOpenaiConfigured(openaiReady)
+        setClaudeConfigured(claudeReady)
+        setGrokConfigured(grokReady)
         setActiveLlmProvider(provider)
         setActiveLlmModel(
           provider === "claude"
             ? String(data?.config?.claude?.defaultModel || "claude-sonnet-4-20250514")
-            : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
+            : provider === "grok"
+              ? String(data?.config?.grok?.defaultModel || "grok-4-0709")
+              : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
         )
         updateTelegramIntegrationSettings({ connected: telegram })
         updateDiscordIntegrationSettings({ connected: discord })
         updateOpenAIIntegrationSettings({ connected: openai })
         updateClaudeIntegrationSettings({ connected: claude })
+        updateGrokIntegrationSettings({ connected: grok })
       })
       .catch(() => {})
     refreshNotificationSchedules()
-
-    // Play launch sound only once per boot session (not every home page visit)
-    const alreadyPlayed = sessionStorage.getItem("nova-launch-sound-played")
-    if (settings.app.soundEnabled && !alreadyPlayed) {
-      sessionStorage.setItem("nova-launch-sound-played", "true")
-      audioRef.current = new Audio("/sounds/launch.mp3")
-      audioRef.current.volume = 0.5
-      audioRef.current.play().catch(() => {})
-    }
-
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause()
-        audioRef.current = null
-      }
-    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -335,9 +359,17 @@ export default function HomePage() {
       setDiscordConnected(integrations.discord.connected)
       setOpenaiConnected(integrations.openai.connected)
       setClaudeConnected(integrations.claude.connected)
+      setGrokConnected(integrations.grok.connected)
+      setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
+      setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
+      setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
       setActiveLlmProvider(integrations.activeLlmProvider)
       setActiveLlmModel(
-        integrations.activeLlmProvider === "claude" ? integrations.claude.defaultModel : integrations.openai.defaultModel,
+        integrations.activeLlmProvider === "claude"
+          ? integrations.claude.defaultModel
+          : integrations.activeLlmProvider === "grok"
+            ? integrations.grok.defaultModel
+            : integrations.openai.defaultModel,
       )
       refreshNotificationSchedules()
     }
@@ -514,14 +546,9 @@ export default function HomePage() {
     }
   }, [agentMessages, conversations, persistConversations, clearAgentMessages, router])
 
-  const handleSend = useCallback(() => {
-    const text = input.trim()
-    if ((!text && attachedFiles.length === 0) || !connected) return
-
-    const attachmentNote = attachedFiles.length
-      ? `\n\nAttached files: ${attachedFiles.map((f) => f.name).join(", ")}`
-      : ""
-    const finalText = `${text || "Attached files"}${attachmentNote}`
+  const handleSend = useCallback((finalText: string) => {
+    const text = finalText.trim()
+    if (!text || !connected) return
 
     const convo = createConversation()
     const userMsg: ChatMessage = {
@@ -532,28 +559,24 @@ export default function HomePage() {
       source: "agent",
     }
     convo.messages = [userMsg]
-    convo.title = text
-      ? text.length > 40 ? text.slice(0, 40) + "..." : text
-      : attachedFiles[0]?.name || "Attached files"
+    const firstLine = text.split("\n")[0]?.trim() || "New chat"
+    convo.title = firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine
 
     const next = [convo, ...conversations]
     persistConversations(next)
     setActiveId(convo.id)
-
-    const settings = loadUserSettings()
-    sendToAgent(finalText, settings.app.voiceEnabled, settings.app.ttsVoice)
-    setInput("")
-    setAttachedFiles([])
-    if (fileInputRef.current) fileInputRef.current.value = ""
+    try {
+      sessionStorage.setItem(
+        PENDING_CHAT_SESSION_KEY,
+        JSON.stringify({
+          convoId: convo.id,
+          content: finalText,
+          createdAt: Date.now(),
+        }),
+      )
+    } catch {}
     router.push("/chat")
-  }, [input, attachedFiles, connected, sendToAgent, router, conversations, persistConversations])
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
+  }, [connected, router, conversations, persistConversations])
 
   const handleSelectConvo = useCallback((id: string) => {
     setActiveId(id)
@@ -590,21 +613,6 @@ export default function HomePage() {
     persistConversations(next)
   }, [conversations, persistConversations])
 
-  const handleAttachClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
-
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-    setAttachedFiles((prev) => [...prev, ...Array.from(files)])
-    e.target.value = ""
-  }, [])
-
-  const removeAttachedFile = useCallback((index: number) => {
-    setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
-  }, [])
-
   const handleToggleTelegramIntegration = useCallback(() => {
     const next = !telegramConnected
     setTelegramConnected(next)
@@ -628,6 +636,7 @@ export default function HomePage() {
   }, [discordConnected])
 
   const handleToggleOpenAIIntegration = useCallback(() => {
+    if (!openaiConnected && !openaiConfigured) return
     const next = !openaiConnected
     setOpenaiConnected(next)
     updateOpenAIIntegrationSettings({ connected: next })
@@ -636,9 +645,10 @@ export default function HomePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ openai: { connected: next } }),
     }).catch(() => {})
-  }, [openaiConnected])
+  }, [openaiConnected, openaiConfigured])
 
   const handleToggleClaudeIntegration = useCallback(() => {
+    if (!claudeConnected && !claudeConfigured) return
     const next = !claudeConnected
     setClaudeConnected(next)
     updateClaudeIntegrationSettings({ connected: next })
@@ -647,7 +657,19 @@ export default function HomePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ claude: { connected: next } }),
     }).catch(() => {})
-  }, [claudeConnected])
+  }, [claudeConnected, claudeConfigured])
+
+  const handleToggleGrokIntegration = useCallback(() => {
+    if (!grokConnected && !grokConfigured) return
+    const next = !grokConnected
+    setGrokConnected(next)
+    updateGrokIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grok: { connected: next } }),
+    }).catch(() => {})
+  }, [grokConnected, grokConfigured])
 
   const missions = useMemo(() => {
     const grouped = new Map<
@@ -714,9 +736,15 @@ export default function HomePage() {
   const missionHover = isLight
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
     : "hover:bg-[#141923] hover:border-[#2b3240]"
+  const integrationBadgeClass = (connected: boolean) =>
+    !integrationsHydrated
+      ? "border-white/15 bg-white/10 text-slate-200"
+      : connected
+        ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+        : "border-rose-300/50 bg-rose-500/35 text-rose-100"
   const runningProvider = latestUsage?.provider ?? activeLlmProvider
   const runningModel = latestUsage?.model ?? activeLlmModel
-  const runningLabel = `${runningProvider === "claude" ? "Claude" : "OpenAI"} - ${runningModel || "N/A"}`
+  const runningLabel = `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : "OpenAI"} - ${runningModel || "N/A"}`
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -871,97 +899,15 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="max-w-3xl mx-auto w-full">
-                <div className="relative">
-                  <div className={cn("absolute -inset-1 rounded-2xl blur-md opacity-60", isLight ? "bg-accent-10" : "bg-accent-20")} />
-                  <div className={cn("relative rounded-2xl transition-colors", isLight ? "border border-[#d9e0ea] bg-white focus-within:border-accent-30" : "border border-white/10 bg-black/40 backdrop-blur-xl focus-within:border-accent-30")}>
-                    {attachedFiles.length > 0 && (
-                      <div className="px-4 pt-3 flex flex-wrap gap-2">
-                        {attachedFiles.map((file, index) => (
-                          <div key={`${file.name}-${file.size}-${index}`} className="inline-flex items-center gap-1.5 rounded-md border border-accent-30 bg-accent-10 px-2 py-1 max-w-55">
-                            <span className="truncate text-xs text-accent">{file.name}</span>
-                            <button
-                              onClick={() => removeAttachedFile(index)}
-                              className="h-4 w-4 rounded-sm text-accent hover:bg-accent-20 transition-colors"
-                              aria-label={`Remove ${file.name}`}
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      onClick={handleAttachClick}
-                      className={cn(
-                        "group absolute left-4 top-1/2 -translate-y-1/2 h-7 w-7 rounded-md text-2xl leading-none transition-all duration-150",
-                        isLight ? "text-s-50 hover:bg-accent-10 hover:rotate-12" : "text-slate-400 hover:bg-accent-10 hover:rotate-12",
-                      )}
-                      aria-label="Attach files"
-                    >
-                      <span
-                        className={cn(
-                          "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
-                          isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
-                        )}
-                      >
-                        Upload Your Files
-                      </span>
-                      +
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      multiple
-                      onChange={handleFileChange}
-                    />
-                    <textarea
-                      ref={textareaRef}
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder={connected ? "Enter your command..." : "Waiting for agent..."}
-                      disabled={!connected}
-                      rows={1}
-                      className={cn("w-full bg-transparent text-sm pl-12 pt-4.5 pb-2.5 pr-24 resize-none outline-none disabled:opacity-40", isLight ? "text-s-90 placeholder:text-s-30" : "text-slate-100 placeholder:text-slate-500")}
-                      style={{ maxHeight: 120 }}
-                    />
-                    <div className="absolute right-3 bottom-3 flex items-center gap-2">
-                      <button
-                        onClick={handleSend}
-                        disabled={(!input.trim() && attachedFiles.length === 0) || !connected}
-                        className={cn(
-                          "p-1.5 transition-colors disabled:opacity-20",
-                          isLight ? "text-s-60 hover:text-accent" : "text-slate-400 hover:text-accent",
-                        )}
-                        aria-label="Send message"
-                      >
-                        <ArrowRight className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={handleMuteToggle}
-                        className={cn(
-                          "group relative h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 hover:rotate-12",
-                          isMuted
-                            ? "text-red-400 hover:text-red-300"
-                            : "border border-accent-30 bg-accent-10 hover:bg-accent-20 text-accent"
-                        )}
-                        aria-label={isMuted ? "Unmute Nova" : "Mute Nova"}
-                      >
-                        <span
-                          className={cn(
-                            "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
-                            isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
-                          )}
-                        >
-                          Mute Nova From Listening
-                        </span>
-                        {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              <div className="relative w-full min-h-32">
+                <Composer
+                  onSend={handleSend}
+                  isStreaming={false}
+                disabled={!connected}
+                isMuted={isMuted}
+                onToggleMute={handleMuteToggle}
+                muteHydrated={muteHydrated}
+              />
               </div>
             </div>
 
@@ -1043,9 +989,7 @@ export default function HomePage() {
                       onClick={handleToggleTelegramIntegration}
                       className={cn(
                         "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                        telegramConnected
-                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                        integrationBadgeClass(telegramConnected),
                       )}
                       aria-label={telegramConnected ? "Disable Telegram integration" : "Enable Telegram integration"}
                       title={telegramConnected ? "Telegram connected (click to disable)" : "Telegram disconnected (click to enable)"}
@@ -1056,9 +1000,7 @@ export default function HomePage() {
                       onClick={handleToggleDiscordIntegration}
                       className={cn(
                         "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                        discordConnected
-                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                        integrationBadgeClass(discordConnected),
                       )}
                       aria-label={discordConnected ? "Disable Discord integration" : "Enable Discord integration"}
                       title={discordConnected ? "Discord connected (click to disable)" : "Discord disconnected (click to enable)"}
@@ -1069,9 +1011,7 @@ export default function HomePage() {
                       onClick={handleToggleOpenAIIntegration}
                       className={cn(
                         "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                        openaiConnected
-                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                        integrationBadgeClass(openaiConnected),
                       )}
                       aria-label={openaiConnected ? "Disable OpenAI integration" : "Enable OpenAI integration"}
                       title={openaiConnected ? "OpenAI connected (click to disable)" : "OpenAI disconnected (click to enable)"}
@@ -1082,16 +1022,25 @@ export default function HomePage() {
                       onClick={handleToggleClaudeIntegration}
                       className={cn(
                         "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                        claudeConnected
-                          ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-                          : "border-rose-300/50 bg-rose-500/35 text-rose-100",
+                        integrationBadgeClass(claudeConnected),
                       )}
                       aria-label={claudeConnected ? "Disable Claude integration" : "Enable Claude integration"}
                       title={claudeConnected ? "Claude connected (click to disable)" : "Claude disconnected (click to enable)"}
                     >
                       <ClaudeIcon className="w-4 h-4" />
                     </button>
-                    {Array.from({ length: 20 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleGrokIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(grokConnected),
+                      )}
+                      aria-label={grokConnected ? "Disable Grok integration" : "Enable Grok integration"}
+                      title={grokConnected ? "Grok connected (click to disable)" : "Grok disconnected (click to enable)"}
+                    >
+                      <XAIIcon size={16} />
+                    </button>
+                    {Array.from({ length: 19 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

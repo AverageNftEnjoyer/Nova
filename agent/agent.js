@@ -24,8 +24,11 @@ dotenv.config({ path: path.join(__dirname, "..", ".env") });
 const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "integrations-config.json");
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
+const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_GROK_MODEL = "grok-4-0709";
+const OPENAI_FALLBACK_MODEL = String(process.env.NOVA_OPENAI_FALLBACK_MODEL || "").trim();
 const OPENAI_MODEL_PRICING_USD_PER_1M = {
   "gpt-5.2": { input: 1.75, output: 14.0 },
   "gpt-5.2-pro": { input: 12.0, output: 96.0 },
@@ -48,6 +51,105 @@ const CLAUDE_MODEL_PRICING_USD_PER_1M = {
 };
 
 const openAiClientCache = new Map();
+const OPENAI_REQUEST_TIMEOUT_MS = 45000;
+const MIC_RECORD_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RECORD_SECONDS || "4");
+const MIC_RETRY_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RETRY_SECONDS || "2");
+const MIC_IDLE_DELAY_MS = Number.parseInt(process.env.NOVA_MIC_IDLE_DELAY_MS || "250", 10);
+const WAKE_WORD = String(process.env.NOVA_WAKE_WORD || "nova").toLowerCase();
+const WAKE_WORD_VARIANTS = (process.env.NOVA_WAKE_WORD_VARIANTS || "nola,noah,nova,novaa,novah")
+  .split(",")
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
+
+function withTimeout(promise, ms, label = "request") {
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function extractOpenAIChatText(completion) {
+  const raw = completion?.choices?.[0]?.message?.content;
+  if (typeof raw === "string") return raw.trim();
+  if (Array.isArray(raw)) {
+    return raw
+      .map((part) => (part && typeof part === "object" && part.type === "text" ? String(part.text || "") : ""))
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
+function toErrorDetails(err) {
+  if (!err || typeof err !== "object") {
+    return { message: String(err || "Unknown error"), status: null, code: null, type: null, requestId: null };
+  }
+  const anyErr = err;
+  return {
+    message: typeof anyErr.message === "string" ? anyErr.message : "Unknown error",
+    status: typeof anyErr.status === "number" ? anyErr.status : null,
+    code: typeof anyErr.code === "string" ? anyErr.code : null,
+    type: typeof anyErr.type === "string" ? anyErr.type : null,
+    param: typeof anyErr.param === "string" ? anyErr.param : null,
+    requestId:
+      typeof anyErr.request_id === "string"
+        ? anyErr.request_id
+        : typeof anyErr.requestId === "string"
+          ? anyErr.requestId
+          : null
+  };
+}
+
+function normalizeWakeText(input) {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function levenshtein(a, b) {
+  const s = String(a || "");
+  const t = String(b || "");
+  if (!s.length) return t.length;
+  if (!t.length) return s.length;
+  const dp = Array.from({ length: s.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= t.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= s.length; i += 1) {
+    for (let j = 1; j <= t.length; j += 1) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[s.length][t.length];
+}
+
+function containsWakeWord(input) {
+  const normalized = normalizeWakeText(input);
+  if (!normalized) return false;
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.includes(WAKE_WORD)) return true;
+
+  for (const variant of WAKE_WORD_VARIANTS) {
+    if (tokens.includes(variant)) return true;
+  }
+
+  // Fuzzy match only first 3 tokens to avoid accidental triggers in long dictation.
+  const window = tokens.slice(0, 3);
+  for (const token of window) {
+    if (token.length < 3 || token.length > 7) continue;
+    if (levenshtein(token, WAKE_WORD) <= 1) return true;
+  }
+  return false;
+}
 
 function loadOpenAIIntegrationRuntime() {
   try {
@@ -76,7 +178,12 @@ function loadIntegrationsRuntime() {
     const parsed = JSON.parse(raw);
     const openaiIntegration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
     const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
-    const activeProvider = parsed?.activeLlmProvider === "claude" ? "claude" : "openai";
+    const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
+    const activeProvider = parsed?.activeLlmProvider === "claude"
+      ? "claude"
+      : parsed?.activeLlmProvider === "grok"
+        ? "grok"
+        : "openai";
     return {
       activeProvider,
       openai: {
@@ -98,13 +205,24 @@ function loadIntegrationsRuntime() {
         model: typeof claudeIntegration.defaultModel === "string" && claudeIntegration.defaultModel.trim()
           ? claudeIntegration.defaultModel.trim()
           : DEFAULT_CLAUDE_MODEL
+      },
+      grok: {
+        connected: Boolean(grokIntegration.connected),
+        apiKey: typeof grokIntegration.apiKey === "string" ? grokIntegration.apiKey.trim() : "",
+        baseURL: typeof grokIntegration.baseUrl === "string" && grokIntegration.baseUrl.trim()
+          ? grokIntegration.baseUrl.trim()
+          : DEFAULT_GROK_BASE_URL,
+        model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
+          ? grokIntegration.defaultModel.trim()
+          : DEFAULT_GROK_MODEL
       }
     };
   } catch {
     return {
       activeProvider: "openai",
       openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL }
+      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL }
     };
   }
 }
@@ -116,6 +234,14 @@ function getActiveChatRuntime(integrations) {
       apiKey: integrations.claude.apiKey,
       baseURL: integrations.claude.baseURL,
       model: integrations.claude.model
+    };
+  }
+  if (integrations.activeProvider === "grok") {
+    return {
+      provider: "grok",
+      apiKey: integrations.grok.apiKey,
+      baseURL: integrations.grok.baseURL,
+      model: integrations.grok.model
     };
   }
   return {
@@ -359,7 +485,9 @@ async function transcribe() {
   const openai = getOpenAIClient(runtime);
   const r = await openai.audio.transcriptions.create({
     file: fs.createReadStream(MIC),
-    model: "gpt-4o-transcribe"
+    model: "gpt-4o-transcribe",
+    temperature: 0,
+    prompt: "The wake word is Nova. Prioritize correctly transcribing 'Nova' if spoken."
   });
   return r.text;
 }
@@ -442,10 +570,19 @@ async function handleInput(text, opts = {}) {
   const openaiRuntime = integrationsRuntime.openai;
   const activeChatRuntime = getActiveChatRuntime(integrationsRuntime);
   if (!activeChatRuntime.apiKey) {
-    throw new Error(`Missing ${activeChatRuntime.provider === "claude" ? "Claude" : "OpenAI"} API key. Configure Integrations first.`);
+    const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : "OpenAI";
+    throw new Error(`Missing ${providerName} API key. Configure Integrations first.`);
   }
   const openai = openaiRuntime.apiKey ? getOpenAIClient(openaiRuntime) : null;
-  const selectedChatModel = activeChatRuntime.model || (activeChatRuntime.provider === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CHAT_MODEL);
+  const activeOpenAiCompatibleClient = activeChatRuntime.provider === "claude"
+    ? null
+    : getOpenAIClient({ apiKey: activeChatRuntime.apiKey, baseURL: activeChatRuntime.baseURL });
+  const selectedChatModel = activeChatRuntime.model
+    || (activeChatRuntime.provider === "claude"
+      ? DEFAULT_CLAUDE_MODEL
+      : activeChatRuntime.provider === "grok"
+        ? DEFAULT_GROK_MODEL
+        : DEFAULT_CHAT_MODEL);
 
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
@@ -501,16 +638,14 @@ Output ONLY valid JSON, nothing else.`
       });
       spotifyRaw = claudeResponse.text;
     } else {
-      const spotifyParse = await openai.chat.completions.create({
+      const spotifyParse = await withTimeout(activeOpenAiCompatibleClient.chat.completions.create({
         model: selectedChatModel,
-        temperature: 0,
-        max_tokens: 150,
         messages: [
           { role: "system", content: spotifySystemPrompt },
           { role: "user", content: text }
         ]
-      });
-      spotifyRaw = spotifyParse.choices[0].message.content.trim();
+      }), OPENAI_REQUEST_TIMEOUT_MS, "OpenAI Spotify parse");
+      spotifyRaw = extractOpenAIChatText(spotifyParse);
     }
 
     try {
@@ -576,61 +711,96 @@ Output ONLY valid JSON, nothing else.`
   ];
 
   let reply = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
-  if (activeChatRuntime.provider === "claude") {
-    const claudeCompletion = await claudeMessagesCreate({
-      apiKey: activeChatRuntime.apiKey,
-      baseURL: activeChatRuntime.baseURL,
-      model: selectedChatModel,
-      system: systemPrompt,
-      userText: text,
-      maxTokens: 250,
-      temperature: 0.75
+  try {
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let modelUsed = selectedChatModel;
+    if (activeChatRuntime.provider === "claude") {
+      const claudeCompletion = await claudeMessagesCreate({
+        apiKey: activeChatRuntime.apiKey,
+        baseURL: activeChatRuntime.baseURL,
+        model: selectedChatModel,
+        system: systemPrompt,
+        userText: text,
+        maxTokens: 250,
+        temperature: 0.75
+      });
+      reply = claudeCompletion.text;
+      promptTokens = claudeCompletion.usage.promptTokens;
+      completionTokens = claudeCompletion.usage.completionTokens;
+    } else {
+      let openaiCompletion = null;
+      try {
+        openaiCompletion = await withTimeout(activeOpenAiCompatibleClient.chat.completions.create({
+          model: modelUsed,
+          messages
+        }), OPENAI_REQUEST_TIMEOUT_MS, `OpenAI model ${modelUsed}`);
+      } catch (primaryError) {
+        if (!OPENAI_FALLBACK_MODEL) throw primaryError;
+        const fallbackModel = OPENAI_FALLBACK_MODEL;
+        const primaryDetails = toErrorDetails(primaryError);
+        console.warn(
+          `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
+          ` status=${primaryDetails.status ?? "n/a"} code=${primaryDetails.code ?? "n/a"} type=${primaryDetails.type ?? "n/a"} request_id=${primaryDetails.requestId ?? "n/a"}` +
+          ` message=${primaryDetails.message}. Retrying with configured fallback ${fallbackModel}.`
+        );
+        openaiCompletion = await withTimeout(activeOpenAiCompatibleClient.chat.completions.create({
+          model: fallbackModel,
+          messages
+        }), OPENAI_REQUEST_TIMEOUT_MS, `OpenAI fallback model ${fallbackModel}`);
+        modelUsed = fallbackModel;
+      }
+      reply = extractOpenAIChatText(openaiCompletion);
+      if (!reply) {
+        throw new Error(`Model ${modelUsed} returned no text response.`);
+      }
+      promptTokens = openaiCompletion?.usage?.prompt_tokens || 0;
+      completionTokens = openaiCompletion?.usage?.completion_tokens || 0;
+    }
+
+    const modelForUsage = activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel);
+    const totalTokens = promptTokens + completionTokens;
+    const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens);
+    console.log(
+      `[LLM] provider=${activeChatRuntime.provider} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}` +
+      `${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`
+    );
+    broadcast({
+      type: "usage",
+      provider: activeChatRuntime.provider,
+      model: modelForUsage,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      estimatedCostUsd,
+      ts: Date.now()
     });
-    reply = claudeCompletion.text;
-    promptTokens = claudeCompletion.usage.promptTokens;
-    completionTokens = claudeCompletion.usage.completionTokens;
-  } else {
-    const openaiCompletion = await openai.chat.completions.create({
-      model: selectedChatModel,
-      messages,
-      temperature: 0.75,
-      max_tokens: 250
-    });
-    reply = openaiCompletion.choices[0].message.content.trim();
-    promptTokens = openaiCompletion.usage?.prompt_tokens || 0;
-    completionTokens = openaiCompletion.usage?.completion_tokens || 0;
-  }
 
-  const totalTokens = promptTokens + completionTokens;
-  const estimatedCostUsd = estimateTokenCostUsd(selectedChatModel, promptTokens, completionTokens);
-  console.log(
-    `[LLM] provider=${activeChatRuntime.provider} model=${selectedChatModel} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}` +
-    `${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`
-  );
-  broadcast({
-    type: "usage",
-    provider: activeChatRuntime.provider,
-    model: selectedChatModel,
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    estimatedCostUsd,
-    ts: Date.now()
-  });
+    broadcastMessage("assistant", reply, source);
 
-  broadcastMessage("assistant", reply, source);
+    if (useVoice) {
+      await speak(reply, ttsVoice);
+    }
 
-  if (useVoice) {
-    await speak(reply, ttsVoice);
-  } else {
+    // Extract facts in the background (don't block) - saves to disk, not RAM
+    if (openai) {
+      extractFacts(openai, text, reply).catch(() => {});
+    }
+  } catch (err) {
+    const details = toErrorDetails(err);
+    const msg = details.message || "Unknown model error.";
+    console.error(
+      `[LLM] Chat request failed provider=${activeChatRuntime.provider} model=${selectedChatModel}` +
+      ` status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} type=${details.type ?? "n/a"} param=${details.param ?? "n/a"} request_id=${details.requestId ?? "n/a"}` +
+      ` message=${msg}`
+    );
+    broadcastMessage(
+      "assistant",
+      `Model request failed${details.status ? ` (${details.status})` : ""}${details.code ? ` [${details.code}]` : ""}: ${msg}`,
+      source
+    );
+  } finally {
     broadcastState("idle");
-  }
-
-  // Extract facts in the background (don't block) - saves to disk, not RAM
-  if (openai) {
-    extractFacts(openai, text, reply, selectedChatModel).catch(() => {});
   }
 }
 
@@ -647,25 +817,31 @@ while (true) {
   try {
     // Skip entirely if muted - no listening, no tokens
     if (muted) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, MIC_IDLE_DELAY_MS));
       continue;
     }
 
     // Skip voice loop iteration if HUD is driving the conversation
     if (busy) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, MIC_IDLE_DELAY_MS));
       continue;
     }
 
     // Check muted again before broadcasting listening state
     if (muted) continue;
     broadcastState("listening");
-    recordMic(3);
+    recordMic(MIC_RECORD_SECONDS);
 
     // Re-check after recording (HUD message may have arrived during the 3s block)
     if (busy || muted) continue;
 
-    const text = await transcribe();
+    let text = await transcribe();
+    // One quick retry improves pickup reliability when the first clip is too short/noisy.
+    if (!text || !text.trim()) {
+      recordMic(MIC_RETRY_SECONDS);
+      if (busy || muted) continue;
+      text = await transcribe();
+    }
     if (!text || busy || muted) {
       if (!busy && !muted) broadcastState("idle");
       // Broadcast empty transcript to clear HUD
@@ -676,9 +852,7 @@ while (true) {
     // Broadcast what was heard so the HUD can show it
     broadcast({ type: "transcript", text, ts: Date.now() });
 
-    const normalized = text.toLowerCase();
-
-    if (!normalized.includes("nova")) {
+    if (!containsWakeWord(text)) {
       if (!busy && !muted) broadcastState("idle");
       continue;
     }

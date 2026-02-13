@@ -6,6 +6,9 @@ import { MarkdownRenderer } from "./markdown-renderer"
 import Image from "next/image"
 import { useTheme } from "@/lib/theme-context"
 import { NovaOrbIndicator, type OrbPalette } from "./nova-orb-indicator"
+import { User } from "lucide-react"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import { useEffect, useState } from "react"
 
 interface MessageBubbleProps {
   message: Message
@@ -23,13 +26,20 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
   const { theme } = useTheme()
   const isLight = theme === "light"
   const isUser = message.role === "user"
+  const [avatar, setAvatar] = useState<string | null>(null)
+
+  useEffect(() => {
+    const syncAvatar = () => setAvatar(loadUserSettings().profile.avatar ?? null)
+    syncAvatar()
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
+  }, [])
 
   if (!isUser) {
     return (
       <div className="flex w-full min-w-0 items-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <NovaOrbIndicator palette={orbPalette} size={23} animated={false} className="mt-0.5 shrink-0" />
+        <NovaOrbIndicator palette={orbPalette} size={28} animated={false} className="mt-1.5 shrink-0" />
         <div className="flex min-w-0 w-full max-w-full flex-col items-start">
-          <span className={cn("text-xs text-s-30 hidden sm:block", compactMode ? "mb-0.5" : "mb-1")}>Nova</span>
           <div
             className="min-w-0 bg-transparent text-s-85 w-full max-w-[48rem]"
             style={{
@@ -54,7 +64,7 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
   }
 
   return (
-    <div className="flex w-full min-w-0 justify-end user-message-enter">
+    <div className="flex w-full min-w-0 justify-end items-start gap-2">
       <div className="flex min-w-0 flex-col items-end max-w-[82%] sm:max-w-[78%]">
         {/* Bubble */}
         <div
@@ -95,6 +105,21 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
 
         {/* Timestamp */}
         <span className={cn("text-xs text-s-20", compactMode ? "mt-0.5" : "mt-1")}>{formatTime(message.createdAt)}</span>
+      </div>
+      <div
+        className={cn(
+          "mt-1.5 h-[28px] w-[28px] shrink-0 overflow-hidden rounded-full",
+          isLight ? "border border-[#d5dce8] bg-white" : "border border-white/15 bg-white/5",
+        )}
+      >
+        {avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={avatar} alt="Profile" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <User className="h-3.5 w-3.5 text-s-50" />
+          </div>
+        )}
       </div>
     </div>
   )
