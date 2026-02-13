@@ -1,0 +1,172 @@
+import { NextResponse } from "next/server"
+
+import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+type Provider = "openai" | "claude" | "grok"
+
+function toOpenAiLikeBase(url: string, fallback: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "")
+  if (!trimmed) return fallback
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`
+}
+
+function toClaudeBase(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "")
+  if (!trimmed) return "https://api.anthropic.com"
+  return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed
+}
+
+function cleanPrompt(raw: string): string {
+  return raw.trim().replace(/^["'`]+|["'`]+$/g, "").trim()
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as { stepTitle?: string }
+    const stepTitle = typeof body.stepTitle === "string" ? body.stepTitle.trim() : ""
+    if (!stepTitle) {
+      return NextResponse.json({ ok: false, error: "Step title is required." }, { status: 400 })
+    }
+
+    const config = await loadIntegrationsConfig()
+    const provider: Provider = config.activeLlmProvider
+
+    const systemText = [
+      "You are Nova, an expert workflow automation prompt writer.",
+      "Given a workflow step name, produce a single high-quality AI prompt for that step.",
+      "The prompt must be concrete, concise, and production-ready.",
+      "Write 2-3 sentences.",
+      "Include richer ideas: what to analyze, what to prioritize, and what to recommend.",
+      "Include an output shape expectation (for example bullets with key findings, risks, and next actions).",
+      "Avoid generic filler language.",
+      "Output only the prompt text and nothing else.",
+    ].join(" ")
+    const userText = [
+      `Step name: "${stepTitle}"`,
+      "Generate one detailed prompt that tells the AI exactly what to do with incoming workflow data.",
+      "Make it 2-3 sentences and include at least two concrete analysis ideas relevant to this step.",
+      "Include expected output structure briefly.",
+    ].join("\n")
+
+    if (provider === "claude") {
+      const apiKey = config.claude.apiKey.trim()
+      const model = config.claude.defaultModel.trim()
+      const baseUrl = toClaudeBase(config.claude.baseUrl)
+      if (!apiKey) return NextResponse.json({ ok: false, error: "Claude API key is missing." }, { status: 400 })
+      if (!model) return NextResponse.json({ ok: false, error: "Claude default model is missing." }, { status: 400 })
+
+      const res = await fetch(`${baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 320,
+          system: systemText,
+          messages: [{ role: "user", content: userText }],
+        }),
+        cache: "no-store",
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        const msg =
+          payload && typeof payload === "object" && "error" in payload
+            ? String((payload as { error?: { message?: string } }).error?.message || "")
+            : ""
+        return NextResponse.json({ ok: false, error: msg || `Claude suggest failed (${res.status}).` }, { status: 400 })
+      }
+      const text =
+        Array.isArray((payload as { content?: Array<{ type?: string; text?: string }> }).content)
+          ? ((payload as { content: Array<{ type?: string; text?: string }> }).content.find((c) => c?.type === "text")?.text || "")
+          : ""
+      const prompt = cleanPrompt(text)
+      if (!prompt) return NextResponse.json({ ok: false, error: "Claude returned an empty suggestion." }, { status: 502 })
+      return NextResponse.json({ ok: true, prompt, provider, model })
+    }
+
+    if (provider === "grok") {
+      const apiKey = config.grok.apiKey.trim()
+      const model = config.grok.defaultModel.trim()
+      const baseUrl = toOpenAiLikeBase(config.grok.baseUrl, "https://api.x.ai/v1")
+      if (!apiKey) return NextResponse.json({ ok: false, error: "Grok API key is missing." }, { status: 400 })
+      if (!model) return NextResponse.json({ ok: false, error: "Grok default model is missing." }, { status: 400 })
+
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: 320,
+          messages: [
+            { role: "system", content: systemText },
+            { role: "user", content: userText },
+          ],
+        }),
+        cache: "no-store",
+      })
+      const payload = await res.json().catch(() => null)
+      if (!res.ok) {
+        const msg =
+          payload && typeof payload === "object" && "error" in payload
+            ? String((payload as { error?: { message?: string } }).error?.message || "")
+            : ""
+        return NextResponse.json({ ok: false, error: msg || `Grok suggest failed (${res.status}).` }, { status: 400 })
+      }
+      const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
+      const prompt = cleanPrompt(text)
+      if (!prompt) return NextResponse.json({ ok: false, error: "Grok returned an empty suggestion." }, { status: 502 })
+      return NextResponse.json({ ok: true, prompt, provider, model })
+    }
+
+    const apiKey = config.openai.apiKey.trim()
+    const model = config.openai.defaultModel.trim()
+    const baseUrl = toOpenAiLikeBase(config.openai.baseUrl, "https://api.openai.com/v1")
+    if (!apiKey) return NextResponse.json({ ok: false, error: "OpenAI API key is missing." }, { status: 400 })
+    if (!model) return NextResponse.json({ ok: false, error: "OpenAI default model is missing." }, { status: 400 })
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: 320,
+        messages: [
+          { role: "system", content: systemText },
+          { role: "user", content: userText },
+        ],
+      }),
+      cache: "no-store",
+    })
+    const payload = await res.json().catch(() => null)
+    if (!res.ok) {
+      const msg =
+        payload && typeof payload === "object" && "error" in payload
+          ? String((payload as { error?: { message?: string } }).error?.message || "")
+          : ""
+      return NextResponse.json({ ok: false, error: msg || `OpenAI suggest failed (${res.status}).` }, { status: 400 })
+    }
+    const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
+    const prompt = cleanPrompt(text)
+    if (!prompt) return NextResponse.json({ ok: false, error: "OpenAI returned an empty suggestion." }, { status: 502 })
+    return NextResponse.json({ ok: true, prompt, provider, model })
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Nova suggest failed." },
+      { status: 500 },
+    )
+  }
+}

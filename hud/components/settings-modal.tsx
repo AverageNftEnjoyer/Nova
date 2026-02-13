@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FluidSelect } from "@/components/ui/fluid-select"
+import { NovaSwitch } from "@/components/ui/nova-switch"
 import { useTheme } from "@/lib/theme-context"
 import { useAccent } from "@/lib/accent-context"
 import { cn } from "@/lib/utils"
@@ -1381,34 +1382,24 @@ function SettingToggle({
   checked: boolean
   onChange: (v: boolean) => void
 }) {
+  const handleChange = (newValue: boolean) => {
+    playClickSound()
+    onChange(newValue)
+  }
+
   return (
     <div
       className={cn(
         SETTINGS_CARD_BASE,
-        "group flex items-center justify-between gap-4 p-4 cursor-pointer",
+        "group flex items-center justify-between gap-4 p-4 cursor-pointer select-none",
       )}
-      onClick={() => {
-        playClickSound()
-        onChange(!checked)
-      }}
+      onClick={() => handleChange(!checked)}
     >
-      <div>
+      <div className="flex-1 min-w-0">
         <p className="text-sm text-s-70 group-hover:text-s-90 transition-colors">{label}</p>
         <p className="text-xs text-s-30 mt-0.5">{description}</p>
       </div>
-      <button
-        type="button"
-        aria-label={`Toggle ${label}`}
-        className={`relative w-11 h-6 rounded-full transition-colors duration-150 ${
-          checked ? "bg-accent" : "bg-[var(--settings-sub-border)]"
-        }`}
-      >
-        <div
-          className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-200 ${
-            checked ? "left-6" : "left-1"
-          }`}
-        />
-      </button>
+      <NovaSwitch checked={checked} onChange={handleChange} />
     </div>
   )
 }

@@ -23,7 +23,7 @@ interface FluidSelectProps {
 export function FluidSelect({ value, options, onChange, isLight, className }: FluidSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [hoveredValue, setHoveredValue] = useState<string | null>(null)
-  const [menuStyle, setMenuStyle] = useState<{ left: number; top: number; width: number } | null>(null)
+  const [menuStyle, setMenuStyle] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -36,10 +36,35 @@ export function FluidSelect({ value, options, onChange, isLight, className }: Fl
     const updatePosition = () => {
       const rect = buttonRef.current?.getBoundingClientRect()
       if (!rect) return
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      const viewportPadding = 12
+      const gap = 8
+      const estimatedMenuHeight = options.length * 36 + 10
+
+      const spaceBelow = viewportHeight - rect.bottom - viewportPadding
+      const spaceAbove = rect.top - viewportPadding
+      const availableBelow = Math.max(0, spaceBelow - gap)
+      const availableAbove = Math.max(0, spaceAbove - gap)
+      const shouldOpenUp = availableBelow < estimatedMenuHeight && availableAbove > availableBelow
+      const preferredAvailable = shouldOpenUp ? availableAbove : availableBelow
+      const maxHeight = Math.max(
+        80,
+        Math.min(estimatedMenuHeight, preferredAvailable),
+      )
+      const top = shouldOpenUp
+        ? Math.max(viewportPadding, rect.top - gap - maxHeight)
+        : Math.min(rect.bottom + gap, viewportHeight - viewportPadding - maxHeight)
+
+      const unclampedLeft = rect.left
+      const maxLeft = viewportWidth - viewportPadding - rect.width
+      const left = Math.max(viewportPadding, Math.min(unclampedLeft, maxLeft))
+
       setMenuStyle({
-        left: rect.left,
-        top: rect.bottom + 8,
+        left,
+        top,
         width: rect.width,
+        maxHeight,
       })
     }
 
@@ -50,7 +75,7 @@ export function FluidSelect({ value, options, onChange, isLight, className }: Fl
       window.removeEventListener("resize", updatePosition)
       window.removeEventListener("scroll", updatePosition, true)
     }
-  }, [isOpen])
+  }, [isOpen, options.length])
 
   useEffect(() => {
     if (!isOpen) return
@@ -106,13 +131,13 @@ export function FluidSelect({ value, options, onChange, isLight, className }: Fl
                     initial={{ opacity: 0, y: -6, height: 0 }}
                     animate={{ opacity: 1, y: 0, height: "auto" }}
                     exit={{ opacity: 0, y: -6, height: 0 }}
-                    transition={{ duration: 0.18, ease: "easeOut" }}
-                    style={{ left: menuStyle.left, top: menuStyle.top, width: menuStyle.width }}
+                    transition={{ duration: 0.14, ease: "easeOut" }}
+                    style={{ left: menuStyle.left, top: menuStyle.top, width: menuStyle.width, maxHeight: menuStyle.maxHeight }}
                     className="fixed z-[80]"
                   >
                     <motion.div
                       className={cn(
-                        "rounded-lg border p-1 shadow-lg backdrop-blur-xl",
+                        "max-h-full overflow-hidden rounded-lg border p-1 shadow-lg backdrop-blur-xl",
                         isLight
                           ? "border-[#d5dce8] bg-[#f7faff]/95 shadow-[0_10px_30px_-18px_rgba(73,98,141,0.35)]"
                           : "border-white/14 bg-white/[0.08] shadow-[0_14px_36px_-20px_rgba(120,170,255,0.35)]",

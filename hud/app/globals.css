@@ -1681,8 +1681,8 @@
 
 .home-global-spotlight {
   position: absolute;
-  width: 78px;
-  height: 78px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -1705,7 +1705,7 @@
   --glow-x: 50%;
   --glow-y: 50%;
   --glow-intensity: 0;
-  --glow-radius: 120px;
+  --glow-radius: 88px;
 }
 
 .home-spotlight-card--hover:hover {
@@ -1713,6 +1713,37 @@
     0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
     0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03));
   border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha));
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.mission-builder-popup-no-glow .home-spotlight-card--hover:hover {
+  box-shadow: none !important;
+  border-color: inherit !important;
+}
+
+.mission-builder-popup-no-glow .home-spotlight-card.home-border-glow::after {
+  opacity: 0 !important;
+}
+
+.mission-builder-popup-no-glow .mission-builder-hover-gleam.home-spotlight-card--hover:hover {
+  box-shadow:
+    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03)) !important;
+  border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha)) !important;
+}
+
+.mission-builder-popup-no-glow .mission-builder-hover-gleam.home-border-glow::after {
+  opacity: 1 !important;
 }
 
 /* Default dynamic spotlight variant for interactive cards (use with .home-spotlight-card + .home-border-glow). */
@@ -1773,7 +1804,7 @@
 }
 
 .mission-spotlight-card {
-  --glow-radius: 82px;
+  --glow-radius: 64px;
 }
 
 .mission-spotlight-card.home-spotlight-card--hover:hover {
@@ -1797,8 +1828,8 @@
   position: absolute;
   left: var(--fx-overlay-x, 50%);
   top: var(--fx-overlay-y, 50%);
-  width: 90px;
-  height: 90px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
@@ -1826,7 +1857,7 @@
   --glow-x: 50%;
   --glow-y: 50%;
   --glow-intensity: 0;
-  --glow-radius: 120px;
+  --glow-radius: 88px;
 }
 
 .fx-spotlight-card--hover:hover {
@@ -1870,8 +1901,16 @@
 }
 
 .fx-dropdown-item[data-highlighted] {
-  outline: 1px solid rgba(255, 255, 255, 0.28);
-  outline-offset: -1px;
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark .fx-dropdown-item[data-highlighted] {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+:root .fx-dropdown-item[data-highlighted] {
+  background-color: rgba(0, 0, 0, 0.04);
 }
 
 .fx-star-particle {

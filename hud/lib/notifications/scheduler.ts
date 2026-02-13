@@ -107,6 +107,10 @@ async function runScheduleTick() {
     const updated: NotificationSchedule = {
       ...schedule,
       lastSentLocalDate: hadSuccess ? nowInZone.dayStamp : schedule.lastSentLocalDate,
+      runCount: (Number.isFinite(schedule.runCount) ? schedule.runCount : 0) + 1,
+      successCount: (Number.isFinite(schedule.successCount) ? schedule.successCount : 0) + (hadSuccess ? 1 : 0),
+      failureCount: (Number.isFinite(schedule.failureCount) ? schedule.failureCount : 0) + (hadSuccess ? 0 : 1),
+      lastRunAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
 

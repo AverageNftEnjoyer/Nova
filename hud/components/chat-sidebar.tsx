@@ -303,9 +303,16 @@ export function ChatSidebar({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
+            sideOffset={6}
             className={cn(
-              "rounded-xl text-s-80 p-1.5 min-w-42.5 shadow-none data-[state=open]:animate-none data-[state=closed]:animate-none",
-              isLight ? "border bg-white" : "border border-white/10 bg-[rgba(9,14,24,0.96)]",
+              "rounded-xl p-1.5 min-w-[180px] backdrop-blur-xl",
+              "data-[state=open]:animate-in data-[state=closed]:animate-out",
+              "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+              "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
+              "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
+              isLight
+                ? "border border-[#d5dce8] bg-white/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.12)]"
+                : "border border-white/[0.08] bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
             )}
           >
             <DropdownMenuItem
@@ -313,9 +320,14 @@ export function ChatSidebar({
                 e.stopPropagation()
                 beginRename(convo)
               }}
-              className="rounded-md text-s-70 data-highlighted:text-s-70 data-highlighted:bg-transparent"
+              className={cn(
+                "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
+                isLight
+                  ? "text-s-70 data-[highlighted]:bg-[#f0f4fa] data-[highlighted]:text-s-90"
+                  : "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
+              )}
             >
-              <Pencil className="w-4 h-4" />
+              <Pencil className="w-4 h-4 opacity-70" />
               Rename
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -323,9 +335,14 @@ export function ChatSidebar({
                 e.stopPropagation()
                 onArchive?.(convo.id, !convo.archived)
               }}
-              className="rounded-md text-s-70 data-highlighted:text-s-70 data-highlighted:bg-transparent"
+              className={cn(
+                "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
+                isLight
+                  ? "text-s-70 data-[highlighted]:bg-[#f0f4fa] data-[highlighted]:text-s-90"
+                  : "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
+              )}
             >
-              <Archive className="w-4 h-4" />
+              <Archive className="w-4 h-4 opacity-70" />
               {convo.archived ? "Unarchive" : "Archive"}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -333,19 +350,28 @@ export function ChatSidebar({
                 e.stopPropagation()
                 onPin?.(convo.id, !convo.pinned)
               }}
-              className="rounded-md text-s-70 data-highlighted:text-s-70 data-highlighted:bg-transparent"
+              className={cn(
+                "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
+                isLight
+                  ? "text-s-70 data-[highlighted]:bg-[#f0f4fa] data-[highlighted]:text-s-90"
+                  : "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
+              )}
             >
-              <Pin className="w-4 h-4" />
+              <Pin className="w-4 h-4 opacity-70" />
               {convo.pinned ? "Unpin" : "Pin"}
             </DropdownMenuItem>
+            <div className={cn("my-1.5 h-px", isLight ? "bg-[#e5e9f0]" : "bg-white/[0.06]")} />
             <DropdownMenuItem
               onClick={(e) => {
                 e.stopPropagation()
                 onDelete(convo.id)
               }}
-              className="rounded-md text-red-400 data-highlighted:text-red-400 data-highlighted:bg-transparent"
+              className={cn(
+                "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
+                "text-red-400 data-[highlighted]:bg-red-500/10 data-[highlighted]:text-red-400",
+              )}
             >
-              <Trash2 className="w-4 h-4 text-red-400" />
+              <Trash2 className="w-4 h-4" />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>

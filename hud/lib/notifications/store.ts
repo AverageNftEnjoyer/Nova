@@ -15,6 +15,10 @@ export interface NotificationSchedule {
   createdAt: string
   updatedAt: string
   lastSentLocalDate?: string
+  runCount: number
+  successCount: number
+  failureCount: number
+  lastRunAt?: string
 }
 
 function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule>): "telegram" | "discord" | "" {
@@ -58,6 +62,10 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
     return null
   }
 
+  const runCount = Number.isFinite(Number(raw.runCount)) ? Math.max(0, Number(raw.runCount)) : 0
+  const successCount = Number.isFinite(Number(raw.successCount)) ? Math.max(0, Number(raw.successCount)) : 0
+  const failureCount = Number.isFinite(Number(raw.failureCount)) ? Math.max(0, Number(raw.failureCount)) : 0
+
   return {
     id: raw.id,
     integration: normalizeIntegration(raw.integration, raw),
@@ -70,6 +78,10 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     lastSentLocalDate: raw.lastSentLocalDate,
+    runCount,
+    successCount,
+    failureCount,
+    lastRunAt: raw.lastRunAt,
   }
 }
 
@@ -145,5 +157,9 @@ export function buildSchedule(input: {
     chatIds: (input.chatIds ?? []).map((c) => c.trim()).filter(Boolean),
     createdAt: now,
     updatedAt: now,
+    runCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    lastRunAt: undefined,
   }
 }
