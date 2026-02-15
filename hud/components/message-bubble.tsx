@@ -8,13 +8,14 @@ import { useTheme } from "@/lib/theme-context"
 import { NovaOrbIndicator, type OrbPalette } from "./nova-orb-indicator"
 import { User } from "lucide-react"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 interface MessageBubbleProps {
   message: Message
   isStreaming?: boolean
   compactMode?: boolean
   orbPalette: OrbPalette
+  orbAnimated?: boolean
 }
 
 // Format time for display
@@ -22,11 +23,17 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
-export function MessageBubble({ message, isStreaming = false, compactMode = false, orbPalette }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming = false, compactMode = false, orbPalette, orbAnimated = false }: MessageBubbleProps) {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const isUser = message.role === "user"
   const [avatar, setAvatar] = useState<string | null>(null)
+  const [displayedContent, setDisplayedContent] = useState(message.content || "")
+  const revealFrameRef = useRef<number | null>(null)
+  const revealTargetRef = useRef(message.content || "")
+  const displayedContentRef = useRef(message.content || "")
+  const revealLastAtRef = useRef<number>(0)
+  const revealCarryRef = useRef<number>(0)
 
   useEffect(() => {
     const syncAvatar = () => setAvatar(loadUserSettings().profile.avatar ?? null)
@@ -35,26 +42,124 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
   }, [])
 
+  useEffect(() => {
+    displayedContentRef.current = displayedContent
+  }, [displayedContent])
+
+  useEffect(() => {
+    revealTargetRef.current = message.content || ""
+    if (isUser) {
+      setDisplayedContent(revealTargetRef.current)
+      if (revealFrameRef.current !== null) {
+        cancelAnimationFrame(revealFrameRef.current)
+        revealFrameRef.current = null
+      }
+      revealLastAtRef.current = 0
+      revealCarryRef.current = 0
+      return
+    }
+
+    const tick = () => {
+      const now = performance.now()
+      setDisplayedContent((prev) => {
+        const target = revealTargetRef.current
+        if (prev.length >= target.length) return prev
+        const remaining = target.length - prev.length
+        const last = revealLastAtRef.current || now
+        const elapsed = Math.max(0, now - last)
+        revealLastAtRef.current = now
+        const minCharsPerSec = 36
+        const maxCharsPerSec = 125
+        const dynamicCharsPerSec = Math.min(maxCharsPerSec, minCharsPerSec + remaining * 0.22)
+        revealCarryRef.current += (elapsed / 1000) * dynamicCharsPerSec
+        const step = Math.min(remaining, Math.max(1, Math.min(12, Math.floor(revealCarryRef.current))))
+        revealCarryRef.current = Math.max(0, revealCarryRef.current - step)
+        const next = target.slice(0, prev.length + step)
+        if (next.length < target.length) {
+          revealFrameRef.current = requestAnimationFrame(tick)
+        } else {
+          revealFrameRef.current = null
+        }
+        return next
+      })
+    }
+
+    const target = revealTargetRef.current
+    const current = displayedContentRef.current
+    if (current.length < target.length) {
+      revealLastAtRef.current = performance.now()
+      if (revealFrameRef.current === null) {
+        revealFrameRef.current = requestAnimationFrame(tick)
+      }
+    } else if (!isStreaming) {
+      setDisplayedContent(target)
+      if (revealFrameRef.current !== null) {
+        cancelAnimationFrame(revealFrameRef.current)
+        revealFrameRef.current = null
+      }
+      revealLastAtRef.current = 0
+      revealCarryRef.current = 0
+    }
+
+    return () => {
+      if (revealFrameRef.current !== null) {
+        cancelAnimationFrame(revealFrameRef.current)
+        revealFrameRef.current = null
+      }
+      revealCarryRef.current = 0
+    }
+  }, [message.content, isStreaming, isUser, message.id])
+
+  const assistantContent = useMemo(() => (isUser ? (message.content || "") : displayedContent), [displayedContent, isUser, message.content])
+  const assistantIsLoading = !assistantContent.trim() && isStreaming
+
   if (!isUser) {
     return (
       <div className="flex w-full min-w-0 items-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <NovaOrbIndicator palette={orbPalette} size={28} animated={false} className="mt-1.5 shrink-0" />
-        <div className="flex min-w-0 w-full max-w-full flex-col items-start">
+        <NovaOrbIndicator palette={orbPalette} size={28} animated={orbAnimated} className="mt-1.5 shrink-0" />
+        <div className="flex min-w-0 flex-col items-start max-w-[82%] sm:max-w-[78%]">
           <div
-            className="min-w-0 bg-transparent text-s-85 w-full max-w-[48rem]"
+            className={cn(
+              "min-w-0",
+              isLight
+                ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
+                : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
+            )}
             style={{
-              boxShadow: "none",
               willChange: isStreaming ? "height" : "auto",
               transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
             <div
-              className={cn(compactMode ? "py-1" : "py-1.5")}
+              className={cn(
+                "text-s-85",
+                assistantIsLoading
+                  ? compactMode
+                    ? "px-[11px] py-[8px]"
+                    : "px-[14px] py-[10px]"
+                  : compactMode
+                    ? "px-3 py-2"
+                    : "px-4 py-3"
+              )}
               style={{
                 transition: "max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
               }}
             >
-              <MarkdownRenderer content={message.content || " "} isStreaming={isStreaming} className="leading-7" />
+              {assistantIsLoading ? (
+                <div className="flex items-center gap-1 py-1">
+                  <span className="h-[7px] w-[7px] rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]" />
+                  <span
+                    className="h-[7px] w-[7px] rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
+                    style={{ animationDelay: "160ms" }}
+                  />
+                  <span
+                    className="h-[7px] w-[7px] rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
+                    style={{ animationDelay: "320ms" }}
+                  />
+                </div>
+              ) : (
+                <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7" />
+              )}
             </div>
           </div>
           <span className={cn("text-xs text-s-20", compactMode ? "mt-0.5" : "mt-1")}>{formatTime(message.createdAt)}</span>

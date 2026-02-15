@@ -140,7 +140,7 @@ export function FluidSelect({ value, options, onChange, isLight, className }: Fl
                         "max-h-full overflow-hidden rounded-lg border p-1 shadow-lg backdrop-blur-xl",
                         isLight
                           ? "border-[#d5dce8] bg-[#f7faff]/95 shadow-[0_10px_30px_-18px_rgba(73,98,141,0.35)]"
-                          : "border-white/14 bg-white/[0.08] shadow-[0_14px_36px_-20px_rgba(120,170,255,0.35)]",
+                          : "border-white/14 bg-white/8 shadow-[0_14px_36px_-20px_rgba(120,170,255,0.35)]",
                       )}
                       initial={{ opacity: 0.95 }}
                       animate={{ opacity: 1 }}

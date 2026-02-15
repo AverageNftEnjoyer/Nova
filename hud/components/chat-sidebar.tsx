@@ -295,7 +295,11 @@ export function ChatSidebar({
           <DropdownMenuTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
-              className="opacity-0 group-hover:opacity-100 h-7 w-7 flex items-center justify-center transition-all text-s-40 hover:text-accent outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0"
+              className={cn(
+                "opacity-0 group-hover:opacity-100 h-7 w-7 flex items-center justify-center transition-all duration-150 text-s-40 hover:text-accent outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
+                "home-spotlight-card home-border-glow home-spotlight-card--hover rounded-md",
+                isLight ? "hover:bg-[#eef3fb]" : "hover:bg-white/8",
+              )}
               aria-label="Conversation options"
             >
               <MoreHorizontal className="w-4 h-4" />
@@ -311,8 +315,8 @@ export function ChatSidebar({
               "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
               "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
               isLight
-                ? "border border-[#d5dce8] bg-white/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.12)]"
-                : "border border-white/[0.08] bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
+                ? "!border-[#d5dce8] !bg-[#f4f7fd]/95 !shadow-[0_10px_30px_-12px_rgba(15,23,42,0.25)]"
+                : "!border-white/10 !bg-black/25 !shadow-[0_14px_34px_-14px_rgba(0,0,0,0.55)]",
             )}
           >
             <DropdownMenuItem
@@ -323,8 +327,8 @@ export function ChatSidebar({
               className={cn(
                 "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
                 isLight
-                  ? "text-s-70 data-[highlighted]:bg-[#f0f4fa] data-[highlighted]:text-s-90"
-                  : "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
+                  ? "text-s-70 data-[highlighted]:bg-[#eef3fb] data-[highlighted]:text-s-90"
+                  : "text-s-60 data-[highlighted]:bg-white/8 data-[highlighted]:text-s-90",
               )}
             >
               <Pencil className="w-4 h-4 opacity-70" />
@@ -338,8 +342,8 @@ export function ChatSidebar({
               className={cn(
                 "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
                 isLight
-                  ? "text-s-70 data-[highlighted]:bg-[#f0f4fa] data-[highlighted]:text-s-90"
-                  : "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
+                  ? "text-s-70 data-[highlighted]:bg-[#eef3fb] data-[highlighted]:text-s-90"
+                  : "text-s-60 data-[highlighted]:bg-white/8 data-[highlighted]:text-s-90",
               )}
             >
               <Archive className="w-4 h-4 opacity-70" />
@@ -353,8 +357,8 @@ export function ChatSidebar({
               className={cn(
                 "rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer transition-all duration-150",
                 isLight
-                  ? "text-s-70 data-[highlighted]:bg-[#f0f4fa] data-[highlighted]:text-s-90"
-                  : "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
+                  ? "text-s-70 data-[highlighted]:bg-[#eef3fb] data-[highlighted]:text-s-90"
+                  : "text-s-60 data-[highlighted]:bg-white/8 data-[highlighted]:text-s-90",
               )}
             >
               <Pin className="w-4 h-4 opacity-70" />

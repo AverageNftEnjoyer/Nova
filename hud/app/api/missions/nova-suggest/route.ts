@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 
+import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -25,6 +27,10 @@ function cleanPrompt(raw: string): string {
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
+  let debugSelected = "server_llm=unknown model=unknown"
   try {
     const body = (await req.json().catch(() => ({}))) as { stepTitle?: string }
     const stepTitle = typeof body.stepTitle === "string" ? body.stepTitle.trim() : ""
@@ -33,7 +39,9 @@ export async function POST(req: Request) {
     }
 
     const config = await loadIntegrationsConfig()
-    const provider: Provider = config.activeLlmProvider
+    const selected = resolveConfiguredLlmProvider(config)
+    const provider: Provider = selected.provider
+    debugSelected = `server_llm=${selected.provider} model=${selected.model}`
 
     const systemText = [
       "You are Nova, an expert workflow automation prompt writer.",
@@ -54,7 +62,7 @@ export async function POST(req: Request) {
 
     if (provider === "claude") {
       const apiKey = config.claude.apiKey.trim()
-      const model = config.claude.defaultModel.trim()
+      const model = selected.model
       const baseUrl = toClaudeBase(config.claude.baseUrl)
       if (!apiKey) return NextResponse.json({ ok: false, error: "Claude API key is missing." }, { status: 400 })
       if (!model) return NextResponse.json({ ok: false, error: "Claude default model is missing." }, { status: 400 })
@@ -88,12 +96,12 @@ export async function POST(req: Request) {
           : ""
       const prompt = cleanPrompt(text)
       if (!prompt) return NextResponse.json({ ok: false, error: "Claude returned an empty suggestion." }, { status: 502 })
-      return NextResponse.json({ ok: true, prompt, provider, model })
+      return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
     }
 
     if (provider === "grok") {
       const apiKey = config.grok.apiKey.trim()
-      const model = config.grok.defaultModel.trim()
+      const model = selected.model
       const baseUrl = toOpenAiLikeBase(config.grok.baseUrl, "https://api.x.ai/v1")
       if (!apiKey) return NextResponse.json({ ok: false, error: "Grok API key is missing." }, { status: 400 })
       if (!model) return NextResponse.json({ ok: false, error: "Grok default model is missing." }, { status: 400 })
@@ -126,12 +134,12 @@ export async function POST(req: Request) {
       const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
       const prompt = cleanPrompt(text)
       if (!prompt) return NextResponse.json({ ok: false, error: "Grok returned an empty suggestion." }, { status: 502 })
-      return NextResponse.json({ ok: true, prompt, provider, model })
+      return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
     }
 
     if (provider === "gemini") {
       const apiKey = config.gemini.apiKey.trim()
-      const model = config.gemini.defaultModel.trim()
+      const model = selected.model
       const baseUrl = toOpenAiLikeBase(config.gemini.baseUrl, "https://generativelanguage.googleapis.com/v1beta/openai")
       if (!apiKey) return NextResponse.json({ ok: false, error: "Gemini API key is missing." }, { status: 400 })
       if (!model) return NextResponse.json({ ok: false, error: "Gemini default model is missing." }, { status: 400 })
@@ -164,11 +172,11 @@ export async function POST(req: Request) {
       const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
       const prompt = cleanPrompt(text)
       if (!prompt) return NextResponse.json({ ok: false, error: "Gemini returned an empty suggestion." }, { status: 502 })
-      return NextResponse.json({ ok: true, prompt, provider, model })
+      return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
     }
 
     const apiKey = config.openai.apiKey.trim()
-    const model = config.openai.defaultModel.trim()
+    const model = selected.model
     const baseUrl = toOpenAiLikeBase(config.openai.baseUrl, "https://api.openai.com/v1")
     if (!apiKey) return NextResponse.json({ ok: false, error: "OpenAI API key is missing." }, { status: 400 })
     if (!model) return NextResponse.json({ ok: false, error: "OpenAI default model is missing." }, { status: 400 })
@@ -201,10 +209,10 @@ export async function POST(req: Request) {
     const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
     const prompt = cleanPrompt(text)
     if (!prompt) return NextResponse.json({ ok: false, error: "OpenAI returned an empty suggestion." }, { status: 502 })
-    return NextResponse.json({ ok: true, prompt, provider, model })
+    return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Nova suggest failed." },
+      { ok: false, error: error instanceof Error ? error.message : "Nova suggest failed.", debug: debugSelected },
       { status: 500 },
     )
   }

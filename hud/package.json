@@ -7,7 +7,8 @@
     "build": "node scripts/next-runner.mjs build",
     "start": "node scripts/next-runner.mjs start",
     "lint": "eslint .",
-    "notify:send": "node scripts/send-notification.mjs"
+    "notify:send": "node scripts/send-notification.mjs",
+    "auth:hash": "node scripts/generate-auth-hash.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

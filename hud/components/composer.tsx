@@ -119,9 +119,9 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
   const accent = ACCENT_COLORS[accentColor]
 
   return (
-    <div className="absolute bottom-3 left-0 right-0 px-3 pointer-events-none z-10">
-      <div className="mx-auto w-full pointer-events-auto">
-        <div className="relative mx-auto w-[56%] min-w-[360px] max-w-240">
+    <div className="absolute bottom-3 left-0 right-0 px-2 sm:px-4 pointer-events-none z-10">
+      <div className="mx-auto w-[95%] sm:w-[90%] lg:max-w-3xl pointer-events-auto">
+        <div className="relative w-full">
           {attachedFiles.length > 0 && (
             <div className="absolute left-0 right-0 bottom-full mb-2 z-40 flex flex-wrap gap-2 px-1 pointer-events-auto">
               {attachedFiles.map((file, index) => (
@@ -218,7 +218,9 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
                   ? "opacity-0 pointer-events-none"
                   : isMuted
                   ? "text-red-400 hover:text-red-300"
-                  : "text-accent hover:text-accent/80",
+                  : isLight
+                  ? "text-s-60 hover:text-s-80"
+                  : "text-white/70 hover:text-white",
               )}
               aria-label={!muteHydrated ? "Syncing mute state" : isMuted ? "Unmute Nova" : "Mute Nova"}
             >

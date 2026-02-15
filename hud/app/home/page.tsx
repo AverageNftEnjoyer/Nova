@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
@@ -31,6 +32,7 @@ import {
   loadIntegrationsSettings,
   type LlmProvider,
   updateClaudeIntegrationSettings,
+  updateGmailIntegrationSettings,
   updateGeminiIntegrationSettings,
   updateGrokIntegrationSettings,
   updateOpenAIIntegrationSettings,
@@ -44,6 +46,7 @@ import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
 import { GeminiIcon } from "@/components/gemini-icon"
+import { GmailIcon } from "@/components/gmail-icon"
 import { Composer } from "@/components/composer"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
@@ -62,6 +65,7 @@ interface NotificationSchedule {
 }
 
 const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
+const GREETING_COOLDOWN_MS = 60_000
 
 function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "")
@@ -189,10 +193,12 @@ export default function HomePage() {
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
+  const [gmailConnected, setGmailConnected] = useState(false)
   const [openaiConfigured, setOpenaiConfigured] = useState(false)
   const [claudeConfigured, setClaudeConfigured] = useState(false)
   const [grokConfigured, setGrokConfigured] = useState(false)
   const [geminiConfigured, setGeminiConfigured] = useState(false)
+  const [gmailTokenConfigured, setGmailTokenConfigured] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
   const greetingSentRef = useRef(false)
@@ -207,7 +213,13 @@ export default function HomePage() {
 
   const refreshNotificationSchedules = useCallback(() => {
     void fetch("/api/notifications/schedules", { cache: "no-store" })
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (res.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent("/home")}`)
+          throw new Error("Unauthorized")
+        }
+        return res.json()
+      })
       .then((data) => {
         const schedules = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
         setNotificationSchedules(schedules)
@@ -215,12 +227,12 @@ export default function HomePage() {
       .catch(() => {
         setNotificationSchedules([])
       })
-  }, [])
+  }, [router])
 
   useLayoutEffect(() => {
     const cached = readShellUiCache()
     const loadedConversations = cached.conversations ?? loadConversations()
-    setConversations(loadedConversations) // eslint-disable-line react-hooks/set-state-in-effect
+    setConversations(loadedConversations)
     writeShellUiCache({ conversations: loadedConversations })
 
     const settings = loadUserSettings()
@@ -245,10 +257,12 @@ export default function HomePage() {
     setClaudeConnected(integrations.claude.connected)
     setGrokConnected(integrations.grok.connected)
     setGeminiConnected(integrations.gemini.connected)
+    setGmailConnected(integrations.gmail.connected)
     setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
     setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
     setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
     setGeminiConfigured(Boolean(integrations.gemini.apiKeyConfigured))
+    setGmailTokenConfigured(Boolean(integrations.gmail.tokenConfigured))
     setActiveLlmProvider(integrations.activeLlmProvider)
     setActiveLlmModel(
       integrations.activeLlmProvider === "claude"
@@ -315,7 +329,13 @@ export default function HomePage() {
 
   useEffect(() => {
     fetch("/api/integrations/config", { cache: "no-store" })
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (res.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent("/home")}`)
+          throw new Error("Unauthorized")
+        }
+        return res.json()
+      })
       .then((data) => {
         const telegram = Boolean(data?.config?.telegram?.connected)
         const discord = Boolean(data?.config?.discord?.connected)
@@ -323,10 +343,12 @@ export default function HomePage() {
         const claude = Boolean(data?.config?.claude?.connected)
         const grok = Boolean(data?.config?.grok?.connected)
         const gemini = Boolean(data?.config?.gemini?.connected)
+        const gmail = Boolean(data?.config?.gmail?.connected)
         const openaiReady = Boolean(data?.config?.openai?.apiKeyConfigured)
         const claudeReady = Boolean(data?.config?.claude?.apiKeyConfigured)
         const grokReady = Boolean(data?.config?.grok?.apiKeyConfigured)
         const geminiReady = Boolean(data?.config?.gemini?.apiKeyConfigured)
+        const gmailReady = Boolean(data?.config?.gmail?.tokenConfigured)
         const provider: LlmProvider =
           data?.config?.activeLlmProvider === "claude"
             ? "claude"
@@ -341,10 +363,12 @@ export default function HomePage() {
         setClaudeConnected(claude)
         setGrokConnected(grok)
         setGeminiConnected(gemini)
+        setGmailConnected(gmail)
         setOpenaiConfigured(openaiReady)
         setClaudeConfigured(claudeReady)
         setGrokConfigured(grokReady)
         setGeminiConfigured(geminiReady)
+        setGmailTokenConfigured(gmailReady)
         setActiveLlmProvider(provider)
         setActiveLlmModel(
           provider === "claude"
@@ -361,10 +385,11 @@ export default function HomePage() {
         updateClaudeIntegrationSettings({ connected: claude })
         updateGrokIntegrationSettings({ connected: grok })
         updateGeminiIntegrationSettings({ connected: gemini })
+        updateGmailIntegrationSettings({ connected: gmail, tokenConfigured: gmailReady })
       })
       .catch(() => {})
     refreshNotificationSchedules()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshNotificationSchedules, router])
 
   useEffect(() => {
     const refresh = () => {
@@ -386,7 +411,6 @@ export default function HomePage() {
 
   useLayoutEffect(() => {
     const nextBackground = resolveThemeBackground(isLight)
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBackground(nextBackground)
     writeShellUiCache({ background: nextBackground })
   }, [isLight])
@@ -400,10 +424,12 @@ export default function HomePage() {
       setClaudeConnected(integrations.claude.connected)
       setGrokConnected(integrations.grok.connected)
       setGeminiConnected(integrations.gemini.connected)
+      setGmailConnected(integrations.gmail.connected)
       setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
       setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
       setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
       setGeminiConfigured(Boolean(integrations.gemini.apiKeyConfigured))
+      setGmailTokenConfigured(Boolean(integrations.gmail.tokenConfigured))
       setActiveLlmProvider(integrations.activeLlmProvider)
       setActiveLlmModel(
         integrations.activeLlmProvider === "claude"
@@ -426,8 +452,18 @@ export default function HomePage() {
       const settings = loadUserSettings()
       // Send voice preference to agent on connect (includes voiceEnabled)
       setVoicePreference(settings.app.ttsVoice, settings.app.voiceEnabled)
+      // If voice is disabled, skip startup greeting entirely (prevents hello spam).
+      if (!settings.app.voiceEnabled) return
+
+      const now = Date.now()
+      const lastGreetingAt = Number(localStorage.getItem("nova-last-greeting-at") || "0")
+      if (Number.isFinite(lastGreetingAt) && now - lastGreetingAt < GREETING_COOLDOWN_MS) return
+
       const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
-      const t = setTimeout(() => sendGreeting(greeting, settings.app.ttsVoice, settings.app.voiceEnabled), 1500)
+      const t = setTimeout(() => {
+        localStorage.setItem("nova-last-greeting-at", String(Date.now()))
+        sendGreeting(greeting, settings.app.ttsVoice, settings.app.voiceEnabled)
+      }, 1500)
       return () => clearTimeout(t)
     }
   }, [connected, sendGreeting, setVoicePreference])
@@ -535,7 +571,7 @@ export default function HomePage() {
   // Sync local muted state with agent state (only when agent confirms muted, never auto-unmute)
   useEffect(() => {
     if (novaState === "muted") {
-      setIsMuted(true) // eslint-disable-line react-hooks/set-state-in-effect
+      setIsMuted(true)
     }
     // Never auto-unmute - only user click should unmute
   }, [novaState])
@@ -547,10 +583,10 @@ export default function HomePage() {
     setMuted(newMuted) // Send to agent
   }, [isMuted, setMuted])
 
-  // Send muted state to agent on connect if we were muted
+  // Always sync muted state to agent on connect to avoid stale mute state.
   useEffect(() => {
-    if (connected && isMuted) {
-      setMuted(true)
+    if (connected) {
+      setMuted(isMuted)
     }
   }, [connected, isMuted, setMuted])
 
@@ -582,7 +618,7 @@ export default function HomePage() {
         : voiceUserMsg.content
 
       const next = [convo, ...conversations]
-      persistConversations(next) // eslint-disable-line react-hooks/set-state-in-effect
+      persistConversations(next)
       setActiveId(convo.id)
       clearAgentMessages()
       router.push("/chat")
@@ -725,6 +761,18 @@ export default function HomePage() {
       body: JSON.stringify({ gemini: { connected: next } }),
     }).catch(() => {})
   }, [geminiConnected, geminiConfigured])
+
+  const handleToggleGmailIntegration = useCallback(() => {
+    if (!gmailConnected && !gmailTokenConfigured) return
+    const next = !gmailConnected
+    setGmailConnected(next)
+    updateGmailIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gmail: { connected: next } }),
+    }).catch(() => {})
+  }, [gmailConnected, gmailTokenConfigured])
 
   const missions = useMemo(() => {
     const grouped = new Map<
@@ -1026,8 +1074,8 @@ export default function HomePage() {
                         <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
                       ) : null}
                       <div className="mt-1.5 flex flex-wrap gap-1">
-                        {mission.times.map((time) => (
-                          <span key={`${mission.id}-${time}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
+                        {mission.times.map((time, index) => (
+                          <span key={`${mission.id}-${time}-${index}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/[0.04] text-slate-300")}>
                             {formatDailyTime(time, mission.timezone)}
                           </span>
                         ))}
@@ -1126,7 +1174,18 @@ export default function HomePage() {
                     >
                       <GeminiIcon size={16} />
                     </button>
-                    {Array.from({ length: 18 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleGmailIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(gmailConnected),
+                      )}
+                      aria-label={gmailConnected ? "Disable Gmail integration" : "Enable Gmail integration"}
+                      title={gmailConnected ? "Gmail connected (click to disable)" : "Gmail disconnected (click to enable)"}
+                    >
+                      <GmailIcon className="w-[14px] h-[14px]" />
+                    </button>
+                    {Array.from({ length: 17 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

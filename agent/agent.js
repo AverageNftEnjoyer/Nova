@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { execSync, exec, spawn } from "child_process";
+import { createDecipheriv, createHash } from "crypto";
 import OpenAI from "openai";
 import { FishAudioClient } from "fish-audio";
 import { WebSocketServer } from "ws";
@@ -22,6 +23,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "integrations-config.json");
+const ENCRYPTION_KEY_PATH = path.join(__dirname, "..", "hud", "data", ".nova_encryption_key");
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
@@ -57,11 +59,76 @@ const OPENAI_REQUEST_TIMEOUT_MS = 45000;
 const MIC_RECORD_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RECORD_SECONDS || "4");
 const MIC_RETRY_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RETRY_SECONDS || "2");
 const MIC_IDLE_DELAY_MS = Number.parseInt(process.env.NOVA_MIC_IDLE_DELAY_MS || "250", 10);
+const VOICE_WAKE_COOLDOWN_MS = Number.parseInt(process.env.NOVA_WAKE_COOLDOWN_MS || "1800", 10);
+const VOICE_POST_RESPONSE_GRACE_MS = Number.parseInt(process.env.NOVA_POST_RESPONSE_GRACE_MS || "900", 10);
+const VOICE_DUPLICATE_TEXT_COOLDOWN_MS = Number.parseInt(process.env.NOVA_DUPLICATE_TEXT_COOLDOWN_MS || "12000", 10);
+const VOICE_DUPLICATE_COMMAND_COOLDOWN_MS = Number.parseInt(process.env.NOVA_DUPLICATE_COMMAND_COOLDOWN_MS || "120000", 10);
+const VOICE_AFTER_WAKE_SUPPRESS_MS = Number.parseInt(process.env.NOVA_AFTER_WAKE_SUPPRESS_MS || "2500", 10);
+const VOICE_AFTER_TTS_SUPPRESS_MS = Number.parseInt(process.env.NOVA_AFTER_TTS_SUPPRESS_MS || "7000", 10);
 const WAKE_WORD = String(process.env.NOVA_WAKE_WORD || "nova").toLowerCase();
-const WAKE_WORD_VARIANTS = (process.env.NOVA_WAKE_WORD_VARIANTS || "nola,noah,nova,novaa,novah")
+const WAKE_WORD_VARIANTS = (process.env.NOVA_WAKE_WORD_VARIANTS || "nova")
   .split(",")
   .map((v) => v.trim().toLowerCase())
   .filter(Boolean);
+
+function getEncryptionKeyMaterial() {
+  const raw = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
+  if (raw) {
+    try {
+      const decoded = Buffer.from(raw, "base64");
+      if (decoded.length === 32) return decoded;
+    } catch {}
+    return createHash("sha256").update(raw).digest();
+  }
+
+  try {
+    if (fs.existsSync(ENCRYPTION_KEY_PATH)) {
+      const fileRaw = fs.readFileSync(ENCRYPTION_KEY_PATH, "utf8").trim();
+      const decoded = Buffer.from(fileRaw, "base64");
+      if (decoded.length === 32) return decoded;
+    }
+  } catch {}
+
+  return null;
+}
+
+function decryptStoredSecret(payload) {
+  const input = String(payload || "").trim();
+  if (!input) return "";
+  const parts = input.split(".");
+  if (parts.length !== 3) return "";
+  try {
+    const key = getEncryptionKeyMaterial();
+    if (!key) return "";
+    const iv = Buffer.from(parts[0], "base64");
+    const tag = Buffer.from(parts[1], "base64");
+    const enc = Buffer.from(parts[2], "base64");
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const out = Buffer.concat([decipher.update(enc), decipher.final()]);
+    return out.toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function unwrapStoredSecret(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  const decrypted = decryptStoredSecret(raw);
+  if (decrypted) return decrypted;
+
+  const parts = raw.split(".");
+  if (parts.length === 3) {
+    try {
+      const iv = Buffer.from(parts[0], "base64");
+      const tag = Buffer.from(parts[1], "base64");
+      const enc = Buffer.from(parts[2], "base64");
+      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return "";
+    } catch {}
+  }
+  return raw;
+}
 
 function toOpenAiLikeBase(baseUrl, fallbackBaseUrl) {
   const trimmed = String(baseUrl || "").trim().replace(/\/+$/, "");
@@ -90,6 +157,71 @@ function extractOpenAIChatText(completion) {
       .trim();
   }
   return "";
+}
+
+function extractOpenAIStreamDelta(chunk) {
+  const delta = chunk?.choices?.[0]?.delta?.content;
+  if (typeof delta === "string") return delta;
+  if (Array.isArray(delta)) {
+    return delta
+      .map((part) => (part && typeof part === "object" && typeof part.text === "string" ? part.text : ""))
+      .join("");
+  }
+  return "";
+}
+
+async function streamOpenAiChatCompletion({ client, model, messages, timeoutMs, onDelta }) {
+  let timer = null;
+  const controller = new AbortController();
+  timer = setTimeout(() => controller.abort(new Error(`OpenAI model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
+
+  let stream = null;
+  try {
+    stream = await client.chat.completions.create(
+      {
+        model,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true }
+      },
+      { signal: controller.signal }
+    );
+  } catch (err) {
+    stream = await client.chat.completions.create(
+      {
+        model,
+        messages,
+        stream: true
+      },
+      { signal: controller.signal }
+    );
+  }
+
+  let reply = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let sawDelta = false;
+
+  try {
+    for await (const chunk of stream) {
+      const delta = extractOpenAIStreamDelta(chunk);
+      if (delta.length > 0) {
+        sawDelta = true;
+        reply += delta;
+        onDelta(delta);
+      }
+
+      const usage = chunk?.usage;
+      if (usage) {
+        promptTokens = Number(usage.prompt_tokens || promptTokens);
+        completionTokens = Number(usage.completion_tokens || completionTokens);
+      }
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  return { reply, promptTokens, completionTokens, sawDelta };
 }
 
 function toErrorDetails(err) {
@@ -145,19 +277,33 @@ function containsWakeWord(input) {
   if (!normalized) return false;
 
   const tokens = normalized.split(" ").filter(Boolean);
-  if (tokens.includes(WAKE_WORD)) return true;
+  if (tokens.length === 0) return false;
+  const filler = new Set(["hey", "hi", "hello", "yo", "ok", "okay", "please"]);
+  let i = 0;
+  while (i < tokens.length && filler.has(tokens[i])) i += 1;
+  return i < tokens.length && isWakeToken(tokens[i]);
+}
 
-  for (const variant of WAKE_WORD_VARIANTS) {
-    if (tokens.includes(variant)) return true;
-  }
-
-  // Fuzzy match only first 3 tokens to avoid accidental triggers in long dictation.
-  const window = tokens.slice(0, 3);
-  for (const token of window) {
-    if (token.length < 3 || token.length > 7) continue;
-    if (levenshtein(token, WAKE_WORD) <= 1) return true;
-  }
+function isWakeToken(token) {
+  if (!token) return false;
+  if (token === WAKE_WORD) return true;
+  if (WAKE_WORD_VARIANTS.includes(token)) return true;
   return false;
+}
+
+function stripWakePrompt(input) {
+  const normalized = normalizeWakeText(input);
+  if (!normalized) return "";
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 0) return "";
+
+  const filler = new Set(["hey", "hi", "hello", "yo", "ok", "okay", "please"]);
+  let i = 0;
+  while (i < tokens.length && filler.has(tokens[i])) i += 1;
+  while (i < tokens.length && isWakeToken(tokens[i])) i += 1;
+  while (i < tokens.length && filler.has(tokens[i])) i += 1;
+
+  return tokens.slice(i).join(" ").trim();
 }
 
 function loadOpenAIIntegrationRuntime() {
@@ -165,9 +311,7 @@ function loadOpenAIIntegrationRuntime() {
     const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
     const parsed = JSON.parse(raw);
     const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-    const apiKey = typeof integration.apiKey === "string" && integration.apiKey.trim()
-      ? integration.apiKey.trim()
-      : "";
+    const apiKey = unwrapStoredSecret(integration.apiKey);
     const baseURL = toOpenAiLikeBase(
       typeof integration.baseUrl === "string" ? integration.baseUrl : "",
       DEFAULT_OPENAI_BASE_URL
@@ -201,7 +345,7 @@ function loadIntegrationsRuntime() {
       activeProvider,
       openai: {
         connected: Boolean(openaiIntegration.connected),
-        apiKey: typeof openaiIntegration.apiKey === "string" ? openaiIntegration.apiKey.trim() : "",
+        apiKey: unwrapStoredSecret(openaiIntegration.apiKey),
         baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
         model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
           ? openaiIntegration.defaultModel.trim()
@@ -209,7 +353,7 @@ function loadIntegrationsRuntime() {
       },
       claude: {
         connected: Boolean(claudeIntegration.connected),
-        apiKey: typeof claudeIntegration.apiKey === "string" ? claudeIntegration.apiKey.trim() : "",
+        apiKey: unwrapStoredSecret(claudeIntegration.apiKey),
         baseURL: typeof claudeIntegration.baseUrl === "string" && claudeIntegration.baseUrl.trim()
           ? claudeIntegration.baseUrl.trim().replace(/\/+$/, "")
           : DEFAULT_CLAUDE_BASE_URL,
@@ -219,7 +363,7 @@ function loadIntegrationsRuntime() {
       },
       grok: {
         connected: Boolean(grokIntegration.connected),
-        apiKey: typeof grokIntegration.apiKey === "string" ? grokIntegration.apiKey.trim() : "",
+        apiKey: unwrapStoredSecret(grokIntegration.apiKey),
         baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
         model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
           ? grokIntegration.defaultModel.trim()
@@ -227,7 +371,7 @@ function loadIntegrationsRuntime() {
       },
       gemini: {
         connected: Boolean(geminiIntegration.connected),
-        apiKey: typeof geminiIntegration.apiKey === "string" ? geminiIntegration.apiKey.trim() : "",
+        apiKey: unwrapStoredSecret(geminiIntegration.apiKey),
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
         model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
           ? geminiIntegration.defaultModel.trim()
@@ -318,6 +462,132 @@ async function claudeMessagesCreate({ apiKey, baseURL, model, system, userText, 
   };
 }
 
+async function claudeMessagesStream({
+  apiKey,
+  baseURL,
+  model,
+  system,
+  userText,
+  maxTokens = 300,
+  temperature = 0.75,
+  timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
+  onDelta
+}) {
+  const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`Claude model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      stream: true,
+      system,
+      messages: [{ role: "user", content: userText }]
+    }),
+    signal: controller.signal
+  });
+
+  if (!res.ok) {
+    clearTimeout(timer);
+    const data = await res.json().catch(() => ({}));
+    const message = data?.error?.message || `Claude request failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  if (!res.body) {
+    clearTimeout(timer);
+    throw new Error("Claude stream returned no body.");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let text = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
+
+      while (true) {
+        const boundary = buffer.indexOf("\n\n");
+        if (boundary === -1) break;
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        if (!rawEvent.trim()) continue;
+
+        const lines = rawEvent.split("\n");
+        const eventLine = lines.find((line) => line.startsWith("event:"));
+        const eventName = eventLine ? eventLine.slice(6).trim() : "";
+        const dataRaw = lines
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trim())
+          .join("\n");
+        if (!dataRaw || dataRaw === "[DONE]") continue;
+
+        let payload = null;
+        try {
+          payload = JSON.parse(dataRaw);
+        } catch {
+          payload = null;
+        }
+        if (!payload) continue;
+
+        if (eventName === "message_start") {
+          promptTokens = Number(payload?.message?.usage?.input_tokens || promptTokens);
+          completionTokens = Number(payload?.message?.usage?.output_tokens || completionTokens);
+          continue;
+        }
+
+        if (eventName === "content_block_delta") {
+          const delta = payload?.delta?.type === "text_delta" ? String(payload?.delta?.text || "") : "";
+          if (delta.length > 0) {
+            text += delta;
+            onDelta(delta);
+          }
+          continue;
+        }
+
+        if (eventName === "message_delta") {
+          promptTokens = Number(payload?.usage?.input_tokens || promptTokens);
+          completionTokens = Number(payload?.usage?.output_tokens || completionTokens);
+          continue;
+        }
+
+        if (eventName === "error") {
+          const msg = payload?.error?.message || "Claude stream error.";
+          throw new Error(msg);
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    try {
+      reader.releaseLock();
+    } catch {}
+  }
+
+  return {
+    text,
+    usage: {
+      promptTokens,
+      completionTokens
+    }
+  };
+}
+
 function getOpenAIClient(runtime) {
   const key = `${runtime.baseURL}|${runtime.apiKey}`;
   if (openAiClientCache.has(key)) return openAiClientCache.get(key);
@@ -395,6 +665,22 @@ function broadcastMessage(role, content, source = "hud") {
   broadcast({ type: "message", role, content, source, ts: Date.now() });
 }
 
+function createAssistantStreamId() {
+  return `asst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function broadcastAssistantStreamStart(id, source = "hud", sender = undefined) {
+  broadcast({ type: "assistant_stream_start", id, source, sender, ts: Date.now() });
+}
+
+function broadcastAssistantStreamDelta(id, content, source = "hud", sender = undefined) {
+  broadcast({ type: "assistant_stream_delta", id, content, source, sender, ts: Date.now() });
+}
+
+function broadcastAssistantStreamDone(id, source = "hud", sender = undefined) {
+  broadcast({ type: "assistant_stream_done", id, source, sender, ts: Date.now() });
+}
+
 function shouldBuildWorkflowFromPrompt(text) {
   const n = String(text || "").toLowerCase();
   const asksBuild = /(build|create|setup|set up|make|generate|deploy)/.test(n);
@@ -450,17 +736,16 @@ wss.on("connection", (ws) => {
           currentVoice = data.ttsVoice;
           console.log("[Voice] Preference updated to:", currentVoice);
         }
+        // Respect disabled voice mode: do not emit startup greeting messages.
+        if (data.voiceEnabled === false || voiceEnabled === false) {
+          return;
+        }
         if (!busy) {
           busy = true;
           try {
             const greetingText = data.text || "Hello! What are we working on today?";
-            if (data.voiceEnabled !== false) {
-              broadcastState("speaking");
-              await speak(greetingText, currentVoice);
-            } else {
-              // Voice disabled - just broadcast text message
-              broadcastMessage("assistant", greetingText);
-            }
+            broadcastState("speaking");
+            await speak(greetingText, currentVoice);
             broadcastState("idle");
           } finally {
             busy = false;
@@ -501,6 +786,10 @@ wss.on("connection", (ws) => {
       if (data.type === "set_mute") {
         muted = data.muted === true;
         console.log("[Nova] Muted:", muted);
+        if (!muted) {
+          suppressVoiceWakeUntilMs = Date.now() + Math.max(0, VOICE_AFTER_TTS_SUPPRESS_MS);
+          broadcast({ type: "transcript", text: "", ts: Date.now() });
+        }
         broadcastState(muted ? "muted" : "idle");
       }
     } catch (e) {
@@ -533,6 +822,7 @@ async function transcribe() {
 // ===== speech control =====
 let currentPlayer = null;
 let busy = false; // prevents main loop from overriding HUD-driven states
+let suppressVoiceWakeUntilMs = 0;
 
 function stopSpeaking() {
   if (currentPlayer) {
@@ -570,6 +860,7 @@ async function speak(text, voiceId = "default") {
 
   currentPlayer = null;
   broadcastState("idle");
+  suppressVoiceWakeUntilMs = Date.now() + Math.max(0, VOICE_AFTER_TTS_SUPPRESS_MS);
 
   try { fs.unlinkSync(out); } catch {}
 }
@@ -797,6 +1088,8 @@ Output ONLY valid JSON, nothing else.`
     { role: "system", content: systemPrompt },
     { role: "user", content: text }
   ];
+  const assistantStreamId = createAssistantStreamId();
+  broadcastAssistantStreamStart(assistantStreamId, source);
 
   let reply = "";
   try {
@@ -804,27 +1097,40 @@ Output ONLY valid JSON, nothing else.`
     let completionTokens = 0;
     let modelUsed = selectedChatModel;
     if (activeChatRuntime.provider === "claude") {
-      const claudeCompletion = await claudeMessagesCreate({
+      const claudeCompletion = await claudeMessagesStream({
         apiKey: activeChatRuntime.apiKey,
         baseURL: activeChatRuntime.baseURL,
         model: selectedChatModel,
         system: systemPrompt,
         userText: text,
         maxTokens: 250,
-        temperature: 0.75
+        temperature: 0.75,
+        timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+        onDelta: (delta) => {
+          broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+        }
       });
       reply = claudeCompletion.text;
       promptTokens = claudeCompletion.usage.promptTokens;
       completionTokens = claudeCompletion.usage.completionTokens;
     } else {
-      let openaiCompletion = null;
+      let streamed = null;
+      let sawPrimaryDelta = false;
       try {
-        openaiCompletion = await withTimeout(activeOpenAiCompatibleClient.chat.completions.create({
+        streamed = await streamOpenAiChatCompletion({
+          client: activeOpenAiCompatibleClient,
           model: modelUsed,
-          messages
-        }), OPENAI_REQUEST_TIMEOUT_MS, `OpenAI model ${modelUsed}`);
+          messages,
+          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+          onDelta: (delta) => {
+            sawPrimaryDelta = true;
+            broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+          }
+        });
       } catch (primaryError) {
-        if (!OPENAI_FALLBACK_MODEL) throw primaryError;
+        if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) {
+          throw primaryError;
+        }
         const fallbackModel = OPENAI_FALLBACK_MODEL;
         const primaryDetails = toErrorDetails(primaryError);
         console.warn(
@@ -832,18 +1138,24 @@ Output ONLY valid JSON, nothing else.`
           ` status=${primaryDetails.status ?? "n/a"} code=${primaryDetails.code ?? "n/a"} type=${primaryDetails.type ?? "n/a"} request_id=${primaryDetails.requestId ?? "n/a"}` +
           ` message=${primaryDetails.message}. Retrying with configured fallback ${fallbackModel}.`
         );
-        openaiCompletion = await withTimeout(activeOpenAiCompatibleClient.chat.completions.create({
+        streamed = await streamOpenAiChatCompletion({
+          client: activeOpenAiCompatibleClient,
           model: fallbackModel,
-          messages
-        }), OPENAI_REQUEST_TIMEOUT_MS, `OpenAI fallback model ${fallbackModel}`);
+          messages,
+          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+          onDelta: (delta) => {
+            broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+          }
+        });
         modelUsed = fallbackModel;
       }
-      reply = extractOpenAIChatText(openaiCompletion);
-      if (!reply) {
+
+      reply = streamed.reply;
+      if (!reply || !reply.trim()) {
         throw new Error(`Model ${modelUsed} returned no text response.`);
       }
-      promptTokens = openaiCompletion?.usage?.prompt_tokens || 0;
-      completionTokens = openaiCompletion?.usage?.completion_tokens || 0;
+      promptTokens = streamed.promptTokens || 0;
+      completionTokens = streamed.completionTokens || 0;
     }
 
     const modelForUsage = activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel);
@@ -864,8 +1176,6 @@ Output ONLY valid JSON, nothing else.`
       ts: Date.now()
     });
 
-    broadcastMessage("assistant", reply, source);
-
     if (useVoice) {
       await speak(reply, ttsVoice);
     }
@@ -882,12 +1192,13 @@ Output ONLY valid JSON, nothing else.`
       ` status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} type=${details.type ?? "n/a"} param=${details.param ?? "n/a"} request_id=${details.requestId ?? "n/a"}` +
       ` message=${msg}`
     );
-    broadcastMessage(
-      "assistant",
+    broadcastAssistantStreamDelta(
+      assistantStreamId,
       `Model request failed${details.status ? ` (${details.status})` : ""}${details.code ? ` [${details.code}]` : ""}: ${msg}`,
       source
     );
   } finally {
+    broadcastAssistantStreamDone(assistantStreamId, source);
     broadcastState("idle");
   }
 }
@@ -901,6 +1212,11 @@ console.log("Nova online.");
 broadcastState("idle");
 
 // ===== main loop (HARD WAKE-WORD GATE) =====
+let lastWakeHandledAt = 0;
+let lastVoiceTextHandled = "";
+let lastVoiceTextHandledAt = 0;
+let lastVoiceCommandHandled = "";
+let lastVoiceCommandHandledAt = 0;
 while (true) {
   try {
     // Skip entirely if muted - no listening, no tokens
@@ -911,6 +1227,12 @@ while (true) {
 
     // Skip voice loop iteration if HUD is driving the conversation
     if (busy) {
+      await new Promise(r => setTimeout(r, MIC_IDLE_DELAY_MS));
+      continue;
+    }
+
+    // Prevent wake-word re-triggers from Nova hearing its own recent TTS playback.
+    if (Date.now() < suppressVoiceWakeUntilMs) {
       await new Promise(r => setTimeout(r, MIC_IDLE_DELAY_MS));
       continue;
     }
@@ -940,7 +1262,24 @@ while (true) {
     // Broadcast what was heard so the HUD can show it
     broadcast({ type: "transcript", text, ts: Date.now() });
 
+    const normalizedHeard = normalizeWakeText(text);
+    const now = Date.now();
+    if (
+      normalizedHeard &&
+      normalizedHeard === lastVoiceTextHandled &&
+      now - lastVoiceTextHandledAt < VOICE_DUPLICATE_TEXT_COOLDOWN_MS
+    ) {
+      if (!busy && !muted) broadcastState("idle");
+      broadcast({ type: "transcript", text: "", ts: Date.now() });
+      continue;
+    }
+
     if (!containsWakeWord(text)) {
+      if (!busy && !muted) broadcastState("idle");
+      continue;
+    }
+
+    if (now - lastWakeHandledAt < VOICE_WAKE_COOLDOWN_MS) {
       if (!busy && !muted) broadcastState("idle");
       continue;
     }
@@ -948,13 +1287,40 @@ while (true) {
     // Clear transcript once we start processing
     broadcast({ type: "transcript", text: "", ts: Date.now() });
 
+    const cleanedVoiceInput = stripWakePrompt(text);
+    lastWakeHandledAt = now;
+    lastVoiceTextHandled = normalizedHeard;
+    lastVoiceTextHandledAt = now;
+    if (!cleanedVoiceInput) {
+      if (!busy && !muted) broadcastState("idle");
+      continue;
+    }
+    if (
+      cleanedVoiceInput === lastVoiceCommandHandled &&
+      now - lastVoiceCommandHandledAt < VOICE_DUPLICATE_COMMAND_COOLDOWN_MS
+    ) {
+      if (!busy && !muted) broadcastState("idle");
+      continue;
+    }
+    if (VOICE_AFTER_WAKE_SUPPRESS_MS > 0) {
+      suppressVoiceWakeUntilMs = Math.max(
+        suppressVoiceWakeUntilMs,
+        Date.now() + VOICE_AFTER_WAKE_SUPPRESS_MS
+      );
+    }
+
     stopSpeaking();
-    console.log("Heard:", text);
+    console.log("Heard:", cleanedVoiceInput);
     busy = true;
+    lastVoiceCommandHandled = cleanedVoiceInput;
+    lastVoiceCommandHandledAt = now;
     try {
-      await handleInput(text, { voice: voiceEnabled, ttsVoice: currentVoice, source: "voice" });
+      await handleInput(cleanedVoiceInput, { voice: voiceEnabled, ttsVoice: currentVoice, source: "voice" });
     } finally {
       busy = false;
+    }
+    if (VOICE_POST_RESPONSE_GRACE_MS > 0) {
+      await new Promise((r) => setTimeout(r, VOICE_POST_RESPONSE_GRACE_MS));
     }
 
   } catch (e) {

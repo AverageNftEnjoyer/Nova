@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
 import { buildSchedule, loadSchedules, parseDailyTime, saveSchedules } from "@/lib/notifications/store"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -13,13 +14,19 @@ function parseIntegration(raw: unknown): string | null {
   return value
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   ensureNotificationSchedulerStarted()
   const schedules = await loadSchedules()
   return NextResponse.json({ schedules })
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   ensureNotificationSchedulerStarted()
 
   try {
@@ -67,6 +74,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   ensureNotificationSchedulerStarted()
 
   try {
@@ -122,6 +132,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   ensureNotificationSchedulerStarted()
 
   try {

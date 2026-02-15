@@ -3,11 +3,15 @@ import { NextResponse } from "next/server"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMissionWorkflow } from "@/lib/missions/runtime"
 import { buildSchedule, loadSchedules } from "@/lib/notifications/store"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   ensureNotificationSchedulerStarted()
 
   try {
@@ -35,6 +39,7 @@ export async function POST(req: Request) {
           skipped: execution.skipped,
           reason: execution.reason,
           results: execution.outputs,
+          stepTraces: execution.stepTraces,
         },
         { status: execution.ok ? 200 : 502 },
       )
@@ -68,6 +73,7 @@ export async function POST(req: Request) {
         skipped: execution.skipped,
         reason: execution.reason,
         results: execution.outputs,
+        stepTraces: execution.stepTraces,
       },
       { status: execution.ok ? 200 : 502 },
     )

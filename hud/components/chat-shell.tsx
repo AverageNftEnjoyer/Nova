@@ -1,8 +1,9 @@
 "use client"
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { Blocks, Pin, Settings, Send } from "lucide-react"
+import { Blocks, Pin, Settings } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "./composer"
 import { useNovaState } from "@/lib/useNovaState"
@@ -40,6 +41,8 @@ import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
 import { GeminiIcon } from "@/components/gemini-icon"
+import { GmailIcon } from "@/components/gmail-icon"
+import { TelegramIcon } from "@/components/telegram-icon"
 import "@/components/FloatingLines.css"
 
 const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
@@ -143,6 +146,11 @@ function parseMissionWorkflowMeta(message: string | undefined): {
   }
 }
 
+function hasRenderableAssistantContent(content: string | undefined): boolean {
+  if (!content) return false
+  return content.replace(/[\u200B-\u200D\uFEFF]/g, "").trim().length > 0
+}
+
 export function ChatShell() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -172,13 +180,14 @@ export function ChatShell() {
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
+  const [gmailConnected, setGmailConnected] = useState(false)
   const [openaiConfigured, setOpenaiConfigured] = useState(false)
   const [claudeConfigured, setClaudeConfigured] = useState(false)
   const [grokConfigured, setGrokConfigured] = useState(false)
   const [geminiConfigured, setGeminiConfigured] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
-  const { state: novaState, connected: agentConnected, agentMessages, latestUsage, sendToAgent, clearAgentMessages, setMuted } = useNovaState()
+  const { state: novaState, connected: agentConnected, agentMessages, streamingAssistantId, latestUsage, sendToAgent, clearAgentMessages, setMuted } = useNovaState()
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -377,6 +386,7 @@ export function ChatShell() {
     setClaudeConnected(integrations.claude.connected)
     setGrokConnected(integrations.grok.connected)
     setGeminiConnected(integrations.gemini.connected)
+    setGmailConnected(integrations.gmail?.connected ?? false)
     setOpenaiConfigured(Boolean(integrations.openai.apiKeyConfigured))
     setClaudeConfigured(Boolean(integrations.claude.apiKeyConfigured))
     setGrokConfigured(Boolean(integrations.grok.apiKeyConfigured))
@@ -396,7 +406,13 @@ export function ChatShell() {
 
   const refreshNotificationSchedules = useCallback(() => {
     void fetch("/api/notifications/schedules", { cache: "no-store" })
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (res.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent("/chat")}`)
+          throw new Error("Unauthorized")
+        }
+        return res.json()
+      })
       .then((data) => {
         const schedules = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
         setNotificationSchedules(schedules)
@@ -404,11 +420,17 @@ export function ChatShell() {
       .catch(() => {
         setNotificationSchedules([])
       })
-  }, [])
+  }, [router])
 
   useEffect(() => {
     void fetch("/api/integrations/config", { cache: "no-store" })
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (res.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent("/chat")}`)
+          throw new Error("Unauthorized")
+        }
+        return res.json()
+      })
       .then((data) => {
         const telegram = Boolean(data?.config?.telegram?.connected)
         const discord = Boolean(data?.config?.discord?.connected)
@@ -457,12 +479,18 @@ export function ChatShell() {
       })
       .catch(() => {})
     refreshNotificationSchedules()
-  }, [refreshNotificationSchedules])
+  }, [refreshNotificationSchedules, router])
 
   useEffect(() => {
     const onUpdate = () => {
       void fetch("/api/integrations/config", { cache: "no-store" })
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (res.status === 401) {
+            router.replace(`/login?next=${encodeURIComponent("/chat")}`)
+            throw new Error("Unauthorized")
+          }
+          return res.json()
+        })
         .then((data) => {
           const provider: LlmProvider =
             data?.config?.activeLlmProvider === "claude"
@@ -498,7 +526,7 @@ export function ChatShell() {
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [refreshNotificationSchedules])
+  }, [refreshNotificationSchedules, router])
 
   const handleToggleTelegramIntegration = useCallback(() => {
     const next = !telegramConnected
@@ -569,6 +597,16 @@ export function ChatShell() {
       body: JSON.stringify({ gemini: { connected: next } }),
     }).catch(() => {})
   }, [geminiConnected, geminiConfigured])
+
+  const handleToggleGmailIntegration = useCallback(() => {
+    const next = !gmailConnected
+    setGmailConnected(next)
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gmail: { connected: next } }),
+    }).catch(() => {})
+  }, [gmailConnected])
 
   const missions = useMemo(() => {
     const grouped = new Map<
@@ -649,20 +687,73 @@ export function ChatShell() {
     const newOnes = agentMessages.slice(mergedCountRef.current)
     mergedCountRef.current = agentMessages.length
 
-    const newMsgs: ChatMessage[] = newOnes.map((am) => ({
-      id: am.id,
-      role: am.role,
-      content: am.content,
-      createdAt: new Date(am.ts).toISOString(),
-      source: am.source || "agent",
-      sender: am.sender,
-    }))
+    const nextMessages = [...activeConvo.messages]
+    const dedupedExisting: ChatMessage[] = []
+    for (const existing of nextMessages) {
+      if (existing.role !== "assistant") {
+        dedupedExisting.push(existing)
+        continue
+      }
+      const prevIdx = dedupedExisting.findIndex((m) => m.role === "assistant" && m.id === existing.id)
+      if (prevIdx === -1) {
+        dedupedExisting.push(existing)
+        continue
+      }
+      dedupedExisting[prevIdx] = {
+        ...dedupedExisting[prevIdx],
+        content: `${dedupedExisting[prevIdx].content}${existing.content}`,
+        createdAt: existing.createdAt,
+        source: existing.source || dedupedExisting[prevIdx].source,
+        sender: existing.sender || dedupedExisting[prevIdx].sender,
+      }
+    }
+
+    const mergedMessages = dedupedExisting
+    for (const am of newOnes) {
+      const incoming: ChatMessage = {
+        id: am.id,
+        role: am.role,
+        content: am.content,
+        createdAt: new Date(am.ts).toISOString(),
+        source: am.source || "agent",
+        sender: am.sender,
+      }
+
+      if (incoming.role === "assistant") {
+        const existingIdx = mergedMessages.findIndex((m) => m.role === "assistant" && m.id === incoming.id)
+        if (existingIdx !== -1) {
+          const existing = mergedMessages[existingIdx]
+          mergedMessages[existingIdx] = {
+            ...existing,
+            content: `${existing.content}${incoming.content}`,
+            createdAt: incoming.createdAt,
+            source: incoming.source || existing.source,
+            sender: incoming.sender || existing.sender,
+          }
+          continue
+        }
+
+        const last = mergedMessages[mergedMessages.length - 1]
+        if (last?.role === "assistant" && last.id === incoming.id) {
+          last.content = `${last.content}${incoming.content}`
+          last.createdAt = incoming.createdAt
+          if (incoming.source) last.source = incoming.source
+          if (incoming.sender) last.sender = incoming.sender
+          continue
+        }
+
+        mergedMessages.push(incoming)
+        continue
+      }
+
+      mergedMessages.push(incoming)
+    }
 
     const updated: Conversation = {
       ...activeConvo,
-      messages: [...activeConvo.messages, ...newMsgs],
+      messages: mergedMessages,
       updatedAt: new Date().toISOString(),
-      title: activeConvo.messages.length === 0 ? autoTitle(newMsgs) : activeConvo.title,
+      title: activeConvo.messages.length === 0 ? autoTitle(mergedMessages) : activeConvo.title,
     }
 
     const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
@@ -670,16 +761,38 @@ export function ChatShell() {
   }, [agentMessages]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Convert ChatMessage[] to Message[] for MessageList
-  const displayMessages: Message[] = activeConvo
-    ? activeConvo.messages.map((m) => ({
+  const displayMessages: Message[] = useMemo(() => {
+    if (!activeConvo) return []
+    const merged: Message[] = []
+    for (const m of activeConvo.messages) {
+      const nextMessage: Message = {
         id: m.id,
         role: m.role,
         content: m.content,
         createdAt: new Date(m.createdAt),
         source: m.source,
         sender: m.sender,
-      }))
-    : []
+      }
+      if (nextMessage.role !== "assistant") {
+        merged.push(nextMessage)
+        continue
+      }
+      const prevIdx = merged.findIndex((entry) => entry.role === "assistant" && entry.id === nextMessage.id)
+      if (prevIdx === -1) {
+        merged.push(nextMessage)
+        continue
+      }
+      const prev = merged[prevIdx]
+      merged[prevIdx] = {
+        ...prev,
+        content: `${prev.content}${nextMessage.content}`,
+        createdAt: nextMessage.createdAt,
+        source: nextMessage.source || prev.source,
+        sender: nextMessage.sender || prev.sender,
+      }
+    }
+    return merged
+  }, [activeConvo])
 
   const [localThinking, setLocalThinking] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
@@ -708,10 +821,10 @@ export function ChatShell() {
     setMuteHydrated(true)
   }, [])
 
-  // Send muted state to agent on connect if we were muted
+  // Always sync muted state to agent on connect to avoid stale mute state.
   useEffect(() => {
-    if (agentConnected && isMuted) {
-      setMuted(true)
+    if (agentConnected) {
+      setMuted(isMuted)
     }
   }, [agentConnected, isMuted, setMuted])
 
@@ -726,7 +839,12 @@ export function ChatShell() {
   // Also clear thinking as soon as we receive a non-empty assistant text message.
   useEffect(() => {
     const last = agentMessages[agentMessages.length - 1]
-    if (last?.role === "assistant" && last.content.trim().length > 0) {
+    if (last?.role === "user") {
+      setLocalThinking(true)
+      setThinkingStalled(false)
+      return
+    }
+    if (last?.role === "assistant" && hasRenderableAssistantContent(last.content)) {
       setLocalThinking(false)
       setThinkingStalled(false)
     }
@@ -1006,6 +1124,7 @@ export function ChatShell() {
               <MessageList
                 messages={displayMessages}
                 isStreaming={isThinking}
+                streamingAssistantId={streamingAssistantId}
                 novaState={novaState}
                 error={null}
                 onRetry={() => {}}
@@ -1117,7 +1236,7 @@ export function ChatShell() {
                       aria-label={telegramConnected ? "Disable Telegram integration" : "Enable Telegram integration"}
                       title={telegramConnected ? "Telegram connected (click to disable)" : "Telegram disconnected (click to enable)"}
                     >
-                      <Send className="w-3.5 h-3.5" />
+                      <TelegramIcon className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={handleToggleDiscordIntegration}
@@ -1174,7 +1293,18 @@ export function ChatShell() {
                     >
                       <GeminiIcon size={16} />
                     </button>
-                    {Array.from({ length: 18 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleGmailIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(gmailConnected),
+                      )}
+                      aria-label={gmailConnected ? "Disable Gmail integration" : "Enable Gmail integration"}
+                      title={gmailConnected ? "Gmail connected (click to disable)" : "Gmail disconnected (click to enable)"}
+                    >
+                      <GmailIcon className="w-3.5 h-3.5" />
+                    </button>
+                    {Array.from({ length: 17 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

@@ -1962,6 +1962,18 @@
   }
 }
 
+@keyframes typing-dot-wave {
+  0%,
+  100% {
+    transform: translate(-1px, 1px) scale(0.88);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translate(1px, -3px) scale(1);
+    opacity: 1;
+  }
+}
+
 @keyframes boot-orb-ready-pulse {
   0%,
   100% {

@@ -4,6 +4,8 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/lib/theme-context"
 import { AccentProvider } from "@/lib/accent-context"
+import { AuthGate } from "@/components/auth-gate"
+import { AuthFetchBridge } from "@/components/auth-fetch-bridge"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -45,7 +47,8 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-page`}>
         <ThemeProvider>
           <AccentProvider>
-            {children}
+            <AuthFetchBridge />
+            <AuthGate>{children}</AuthGate>
           </AccentProvider>
         </ThemeProvider>
         <Analytics />

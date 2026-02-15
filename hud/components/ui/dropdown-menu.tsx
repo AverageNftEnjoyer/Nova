@@ -135,8 +135,8 @@ function DropdownMenuContent({
         className={cn(
           "fx-spotlight-shell z-50 min-w-[8rem] overflow-hidden rounded-xl p-1.5 backdrop-blur-xl",
           "max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)",
-          "border border-white/[0.08] bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
-          "dark:border-white/[0.08] dark:bg-[#0c1019]/95 dark:shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
+          "border border-white/8 bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
+          "dark:border-white/8 dark:bg-[#0c1019]/95 dark:shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -354,7 +354,7 @@ function DropdownMenuSubContent({
       className={cn(
         "z-50 min-w-[8rem] overflow-hidden rounded-xl p-1.5 backdrop-blur-xl",
         "origin-(--radix-dropdown-menu-content-transform-origin)",
-        "border border-white/[0.08] bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
+        "border border-white/8 bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",

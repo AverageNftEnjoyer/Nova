@@ -14,6 +14,7 @@ import type { OrbPalette } from "./nova-orb-indicator"
 interface MessageListProps {
   messages: Message[]
   isStreaming: boolean
+  streamingAssistantId?: string | null
   novaState?: NovaState
   error: string | null
   onRetry: () => void
@@ -25,7 +26,8 @@ interface MessageListProps {
 export function MessageList({
   messages,
   isStreaming,
-  novaState,
+  streamingAssistantId = null,
+  novaState: _novaState,
   error,
   onRetry,
   isLoaded,
@@ -128,16 +130,8 @@ export function MessageList({
   }
 
   const lastMessage = messages[messages.length - 1]
-  // Show typing indicator from when user sends a message until Nova starts speaking/TTS
-  // isStreaming = true means we're in thinking state (local or from agent)
-  // Keep showing even after assistant message arrives, until novaState becomes "speaking"
-  const showTypingIndicator =
-    isStreaming &&
-    novaState !== "speaking" &&
-    (messages.length === 0 ||
-      lastMessage?.role === "user" ||
-      (lastMessage?.role === "assistant" && lastMessage?.content === "") ||
-      (novaState === "thinking"))
+  const showTypingIndicator = isStreaming && (messages.length === 0 || lastMessage?.role === "user")
+  const shouldAnimateOrb = isStreaming
 
   if (!isLoaded) {
     return <div className="absolute inset-0" />
@@ -175,27 +169,19 @@ export function MessageList({
         </div>
       )}
 
-      {messages
-        .filter((message) => {
-          if (
-            isStreaming &&
-            message.role === "assistant" &&
-            message === lastMessage &&
-            message.content === ""
-          ) {
-            return false
-          }
-          return true
-        })
-        .map((message) => (
+      {messages.map((message) => {
+            const isAssistantStreaming = message.role === "assistant" && streamingAssistantId === message.id
+            return (
           <MessageBubble
             key={message.id}
             message={message}
-            isStreaming={isStreaming && message.role === "assistant" && message === lastMessage}
+            isStreaming={isAssistantStreaming}
             compactMode={compactMode}
             orbPalette={orbPalette}
+            orbAnimated={shouldAnimateOrb && isAssistantStreaming}
           />
-        ))}
+            )
+          })}
 
       {showTypingIndicator && <TypingIndicator orbPalette={orbPalette} />}
 

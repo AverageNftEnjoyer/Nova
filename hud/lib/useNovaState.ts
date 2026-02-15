@@ -26,10 +26,15 @@ export interface AgentUsage {
   ts: number;
 }
 
+function hasAssistantPayload(content: string): boolean {
+  return content.replace(/[\u200B-\u200D\uFEFF]/g, "").length > 0;
+}
+
 export function useNovaState() {
   const [state, setState] = useState<NovaState>("idle");
   const [connected, setConnected] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [streamingAssistantId, setStreamingAssistantId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [latestUsage, setLatestUsage] = useState<AgentUsage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -53,14 +58,52 @@ export function useNovaState() {
           setTranscript(data.text || "");
         }
 
+        if (data.type === "assistant_stream_start" && typeof data.id === "string") {
+          setStreamingAssistantId(data.id);
+          const msg: AgentMessage = {
+            id: data.id,
+            role: "assistant",
+            content: "",
+            ts: Number(data.ts || Date.now()),
+            source: data.source || "voice",
+            sender: data.sender,
+          };
+          setAgentMessages((prev) => [...prev, msg]);
+        }
+
+        if (data.type === "assistant_stream_done" && typeof data.id === "string") {
+          setStreamingAssistantId((prev) => (prev === data.id ? null : prev));
+        }
+
+        if (
+          data.type === "assistant_stream_delta" &&
+          typeof data.id === "string" &&
+          typeof data.content === "string"
+        ) {
+          const normalizedContent = data.content.replace(/\r\n/g, "\n");
+          if (!hasAssistantPayload(normalizedContent)) {
+            return;
+          }
+
+          const msg: AgentMessage = {
+            id: data.id,
+            role: "assistant",
+            content: normalizedContent,
+            ts: Number(data.ts || Date.now()),
+            source: data.source || "voice",
+            sender: data.sender,
+          };
+
+          setAgentMessages((prev) => [...prev, msg]);
+        }
+
         if (
           data.type === "message" &&
           (data.role === "user" || data.role === "assistant") &&
           typeof data.content === "string"
         ) {
           const normalizedContent = data.content.replace(/\r\n/g, "\n");
-          // Ignore empty assistant payloads from transport-level placeholders.
-          if (data.role === "assistant" && normalizedContent.trim().length === 0) {
+          if (data.role === "assistant" && !hasAssistantPayload(normalizedContent)) {
             return;
           }
 
@@ -109,6 +152,7 @@ export function useNovaState() {
 
   const clearAgentMessages = useCallback(() => {
     setAgentMessages([]);
+    setStreamingAssistantId(null);
   }, []);
 
   const sendGreeting = useCallback((text: string, ttsVoice: string = "default", voiceEnabled: boolean = true) => {
@@ -140,6 +184,7 @@ export function useNovaState() {
     state,
     connected,
     agentMessages,
+    streamingAssistantId,
     latestUsage,
     sendToAgent,
     interrupt,

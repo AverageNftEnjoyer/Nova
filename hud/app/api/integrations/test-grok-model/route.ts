@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -12,6 +13,9 @@ function toApiBase(url: string): string {
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   try {
     const body = (await req.json().catch(() => ({}))) as {
       apiKey?: string

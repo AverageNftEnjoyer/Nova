@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -18,6 +19,9 @@ type AnthropicModel = {
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   try {
     const body = (await req.json().catch(() => ({}))) as { apiKey?: string; baseUrl?: string }
     const config = await loadIntegrationsConfig()
@@ -26,7 +30,7 @@ export async function POST(req: Request) {
     const baseUrl = toApiBase((typeof body.baseUrl === "string" && body.baseUrl.trim()) || config.claude.baseUrl)
 
     if (!apiKey) {
-      return NextResponse.json({ ok: false, error: "Claude API key is required." }, { status: 400 })
+      return NextResponse.json({ ok: false, models: [], error: "Claude API key is required." })
     }
 
     const res = await fetch(`${baseUrl}/v1/models`, {
@@ -43,10 +47,7 @@ export async function POST(req: Request) {
         payload && typeof payload === "object" && "error" in payload
           ? String((payload as { error?: { message?: string } }).error?.message || "")
           : ""
-      return NextResponse.json(
-        { ok: false, error: msg || `Failed to fetch Claude models (${res.status}).` },
-        { status: 400 },
-      )
+      return NextResponse.json({ ok: false, models: [], error: msg || `Failed to fetch Claude models (${res.status}).` })
     }
 
     const data = payload && typeof payload === "object" && "data" in payload ? (payload as { data?: AnthropicModel[] }).data : []
@@ -68,4 +69,3 @@ export async function POST(req: Request) {
     )
   }
 }
-

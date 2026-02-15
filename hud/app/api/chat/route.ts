@@ -1,7 +1,9 @@
 import { streamText } from "ai"
 
+import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 
@@ -16,6 +18,9 @@ function toAiSdkModelId(provider: string, model: string): string {
 }
 
 export async function POST(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   ensureNotificationSchedulerStarted()
 
   try {
@@ -31,15 +36,7 @@ export async function POST(req: Request) {
     let selectedModel = String(model || "").trim()
     if (!selectedModel) {
       const config = await loadIntegrationsConfig()
-      const provider = config.activeLlmProvider
-      const providerModel =
-        provider === "claude"
-          ? config.claude.defaultModel
-          : provider === "grok"
-            ? config.grok.defaultModel
-            : provider === "gemini"
-              ? config.gemini.defaultModel
-              : config.openai.defaultModel
+      const { provider, model: providerModel } = resolveConfiguredLlmProvider(config)
       selectedModel = toAiSdkModelId(provider, providerModel)
     }
 

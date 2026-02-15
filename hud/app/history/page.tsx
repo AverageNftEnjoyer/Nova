@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
@@ -118,7 +119,7 @@ export default function HistoryPage() {
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full text-s-60 border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb]"
+                className="h-9 w-9 rounded-full text-s-60 border border-[#d9e0ea] bg-[#f4f7fd] hover:bg-[#eef3fb] home-spotlight-card home-border-glow home-spotlight-card--hover"
                 aria-label="Toggle sidebar"
               >
                 {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}

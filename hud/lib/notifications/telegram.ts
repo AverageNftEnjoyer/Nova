@@ -41,7 +41,7 @@ function normalizeChatIds(ids?: string[]): string[] {
 function getTelegramToken(configToken?: string): string {
   const token = configToken || process.env.TELEGRAM_BOT_TOKEN
   if (!token) {
-    throw new Error("Missing TELEGRAM_BOT_TOKEN")
+    throw new Error("Telegram bot token is missing. Re-save Telegram integration in Settings.")
   }
   return token
 }

@@ -47,6 +47,27 @@ export interface GeminiIntegrationSettings {
   apiKeyMasked?: string
 }
 
+export interface GmailIntegrationSettings {
+  connected: boolean
+  email: string
+  scopes: string
+  accounts: Array<{
+    id: string
+    email: string
+    scopes: string[]
+    connectedAt?: string
+    active?: boolean
+    enabled?: boolean
+  }>
+  activeAccountId: string
+  oauthClientId: string
+  oauthClientSecret: string
+  redirectUri: string
+  oauthClientSecretConfigured?: boolean
+  oauthClientSecretMasked?: string
+  tokenConfigured?: boolean
+}
+
 export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
 export interface IntegrationsSettings {
@@ -56,6 +77,7 @@ export interface IntegrationsSettings {
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
   gemini: GeminiIntegrationSettings
+  gmail: GmailIntegrationSettings
   activeLlmProvider: LlmProvider
   updatedAt: string
 }
@@ -107,6 +129,19 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
+  gmail: {
+    connected: false,
+    email: "",
+    scopes: "",
+    accounts: [],
+    activeAccountId: "",
+    oauthClientId: "",
+    oauthClientSecret: "",
+    redirectUri: "http://localhost:3000/api/integrations/gmail/callback",
+    oauthClientSecretConfigured: false,
+    oauthClientSecretMasked: "",
+    tokenConfigured: false,
+  },
   activeLlmProvider: "openai",
   updatedAt: new Date().toISOString(),
 }
@@ -148,6 +183,24 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...(parsed.gemini || {}),
         apiKey: "",
       },
+      gmail: {
+        ...DEFAULT_SETTINGS.gmail,
+        ...(parsed.gmail || {}),
+        accounts: Array.isArray(parsed.gmail?.accounts)
+          ? parsed.gmail.accounts
+              .map((account) => ({
+                id: String(account?.id || "").trim(),
+                email: String(account?.email || "").trim(),
+                scopes: Array.isArray(account?.scopes) ? account.scopes.map((scope) => String(scope).trim()).filter(Boolean) : [],
+                connectedAt: typeof account?.connectedAt === "string" ? account.connectedAt : "",
+                active: Boolean(account?.active),
+                enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
+              }))
+              .filter((account) => account.id && account.email)
+          : [],
+        activeAccountId: typeof parsed.gmail?.activeAccountId === "string" ? parsed.gmail.activeAccountId : "",
+        oauthClientSecret: "",
+      },
       activeLlmProvider:
         parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai" || parsed.activeLlmProvider === "grok" || parsed.activeLlmProvider === "gemini"
           ? parsed.activeLlmProvider
@@ -187,6 +240,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     gemini: {
       ...settings.gemini,
       apiKey: "",
+    },
+    gmail: {
+      ...settings.gmail,
+      oauthClientSecret: "",
     },
   }
 
@@ -290,6 +347,20 @@ export function updateGeminiIntegrationSettings(partial: Partial<GeminiIntegrati
     ...current,
     gemini: {
       ...current.gemini,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateGmailIntegrationSettings(partial: Partial<GmailIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    gmail: {
+      ...current.gmail,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

@@ -64,7 +64,7 @@ export function NovaSwitch({
           : "bg-[#252a37]",
         // Subtle inner border
         "ring-1 ring-inset",
-        checked ? "ring-white/25" : "ring-white/[0.08]",
+        checked ? "ring-white/25" : "ring-white/8",
         // States
         disabled && "opacity-40 cursor-not-allowed",
         "focus-visible:outline-none",

@@ -716,3 +716,125 @@ To help make Turbopack better, report this error by clicking here: https://githu
 [Agent] exited with code 4294967295
 
 Shutting down Nova...
+
+> nova@1.0.0 start
+> node nova.js
+
+[Nova] Boot sequence started.
+[Nova] Detected 2 monitor(s): 2560x1440 at (0,0) [PRIMARY], 1920x1080 at (-1920,191)
+[Nova] All systems starting...
+(node:23784) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[Agent] [dotenv@17.2.3] injecting env (9) from ..\.env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[HUD] 
+> my-v0-project@0.1.0 dev
+> node scripts/next-runner.mjs dev
+
+[HUD]    ▲ Next.js 16.0.10 (Turbopack)
+[HUD]    - Local:         http://localhost:3000
+   - Network:       http://10.5.0.2:3000
+
+ ✓ Starting...
+[Nova] HUD URL detected: http://localhost:3000
+[HUD]  ✓ Ready in 937ms
+[Nova] Opening Nova app on primary monitor
+[Nova] Pre-warming HUD routes on http://localhost:3000 ...
+[Nova] Nova launched as standalone app.
+[HUD]  ○ Compiling /home ...
+[HUD]  GET /login?next=%2Fboot-right 200 in 3.0s (compile: 2.7s, render: 236ms)
+[Nova] Warmed /history -> 200
+[Nova] Warmed /chat -> 200
+[Nova] Warmed /missions -> 200
+[Nova] Warmed /integrations -> 200
+[Nova] Warmed /home -> 200
+[Nova] Route pre-warm complete.
+[HUD]  GET /api/auth/session 200 in 881ms (compile: 843ms, render: 38ms)
+[HUD]  GET /history 200 in 4.2s (compile: 3.6s, render: 594ms)
+ GET /missions 200 in 4.2s (compile: 3.8s, render: 386ms)
+[HUD]  GET /integrations 200 in 4.2s (compile: 3.9s, render: 335ms)
+[HUD]  GET /chat 200 in 4.2s (compile: 3.8s, render: 439ms)
+[HUD]  GET /home 200 in 4.2s (compile: 3.9s, render: 292ms)
+[Agent] Nova online.
+[HUD]  POST /api/auth/login 200 in 175ms (compile: 124ms, render: 50ms)
+[HUD]  GET /boot-right 200 in 900ms (compile: 874ms, render: 25ms)
+[HUD]  GET /api/auth/session 200 in 21ms (compile: 4ms, render: 17ms)
+[Agent] Heard: Nova
+[Agent] [Memory] Tokens - identity: 75, context: 16, user: 2
+[HUD]  GET /home 200 in 19ms (compile: 3ms, render: 16ms)
+[HUD]  GET /api/auth/session 200 in 12ms (compile: 1971µs, render: 10ms)
+[Agent] [Voice] TTS voice set to: default
+[Agent] [Voice] Voice responses enabled: true
+[Nova] Muted: true
+[HUD]  GET /api/integrations/config 200 in 183ms (compile: 165ms, render: 18ms)
+[HUD]  GET /api/integrations/config 200 in 175ms (compile: 161ms, render: 14ms)
+[HUD]  GET /api/notifications/schedules 200 in 314ms (compile: 238ms, render: 75ms)
+[HUD]  GET /api/notifications/schedules 200 in 301ms (compile: 218ms, render: 82ms)
+[HUD]  GET /api/notifications/schedules 200 in 74ms (compile: 4ms, render: 70ms)
+[HUD]  GET /api/notifications/schedules 200 in 74ms (compile: 12ms, render: 62ms)
+[HUD]  GET /api/notifications/schedules 200 in 76ms (compile: 8ms, render: 68ms)
+[HUD]  GET /api/notifications/schedules 200 in 76ms (compile: 17ms, render: 59ms)
+[HUD]  GET /api/notifications/schedules 200 in 48ms (compile: 8ms, render: 40ms)
+[HUD]  GET /api/notifications/schedules 200 in 44ms (compile: 8ms, render: 36ms)
+[HUD]  GET /api/notifications/schedules 200 in 38ms (compile: 4ms, render: 34ms)
+[HUD]  GET /api/notifications/schedules 200 in 40ms (compile: 8ms, render: 32ms)
+[HUD]  GET /api/notifications/schedules 200 in 41ms (compile: 11ms, render: 29ms)
+[HUD]  GET /api/notifications/schedules 200 in 41ms (compile: 15ms, render: 26ms)
+[HUD]  GET /api/notifications/schedules 200 in 36ms (compile: 7ms, render: 29ms)
+[HUD]  GET /api/notifications/schedules 200 in 27ms (compile: 3ms, render: 24ms)
+[HUD]  GET /api/notifications/schedules 200 in 28ms (compile: 8ms, render: 20ms)
+[HUD]  GET /api/notifications/schedules 200 in 32ms (compile: 12ms, render: 20ms)
+[Agent] [HUD] Greeting requested. voiceEnabled: true
+[Agent] [Voice] Preference updated to: default
+[HUD]  GET /chat 200 in 19ms (compile: 4ms, render: 15ms)
+[HUD]  GET /api/auth/session 200 in 28ms (compile: 11ms, render: 18ms)
+[HUD]  GET /api/integrations/config 200 in 35ms (compile: 4ms, render: 31ms)
+[HUD]  GET /api/notifications/schedules 200 in 35ms (compile: 7ms, render: 28ms)
+[HUD]  GET /api/integrations/config 200 in 26ms (compile: 6ms, render: 20ms)
+[HUD]  GET /api/notifications/schedules 200 in 17ms (compile: 2ms, render: 15ms)
+[Agent] [Nova] Muted: true
+[HUD]  GET /api/notifications/schedules 200 in 35ms (compile: 7ms, render: 28ms)
+[HUD]  GET /api/integrations/config 200 in 37ms (compile: 3ms, render: 34ms)
+[HUD]  GET /api/integrations/config 200 in 38ms (compile: 10ms, render: 28ms)
+[HUD]  GET /api/notifications/schedules 200 in 39ms (compile: 13ms, render: 26ms)
+[HUD]  GET /api/integrations/config 200 in 41ms (compile: 17ms, render: 24ms)
+[HUD]  GET /api/notifications/schedules 200 in 33ms (compile: 6ms, render: 27ms)
+[HUD]  GET /api/notifications/schedules 200 in 39ms (compile: 6ms, render: 33ms)
+[HUD]  GET /api/integrations/config 200 in 40ms (compile: 9ms, render: 31ms)
+[HUD]  GET /api/integrations/config 200 in 43ms (compile: 3ms, render: 40ms)
+[HUD]  GET /api/notifications/schedules 200 in 32ms (compile: 2ms, render: 30ms)
+[HUD]  GET /api/integrations/config 200 in 34ms (compile: 5ms, render: 29ms)
+[HUD]  GET /api/notifications/schedules 200 in 28ms (compile: 3ms, render: 26ms)
+[HUD]  GET /api/notifications/schedules 200 in 57ms (compile: 8ms, render: 49ms)
+[HUD]  GET /api/integrations/config 200 in 60ms (compile: 13ms, render: 47ms)
+[HUD]  GET /api/notifications/schedules 200 in 52ms (compile: 9ms, render: 43ms)
+[HUD]  GET /api/integrations/config 200 in 66ms (compile: 4ms, render: 61ms)
+[HUD]  GET /api/integrations/config 200 in 74ms (compile: 8ms, render: 66ms)
+[HUD]  GET /api/notifications/schedules 200 in 74ms (compile: 11ms, render: 63ms)
+[HUD]  GET /api/integrations/config 200 in 43ms (compile: 4ms, render: 39ms)
+[HUD]  GET /api/integrations/config 200 in 44ms (compile: 12ms, render: 32ms)
+[HUD]  GET /api/notifications/schedules 200 in 45ms (compile: 15ms, render: 30ms)
+[HUD]  GET /api/notifications/schedules 200 in 47ms (compile: 8ms, render: 39ms)
+[HUD]  GET /api/notifications/schedules 200 in 29ms (compile: 8ms, render: 21ms)
+[HUD]  GET /api/integrations/config 200 in 31ms (compile: 3ms, render: 28ms)
+[Agent] [LLM] provider=openai model=gpt-5 prompt_tokens=70 completion_tokens=277 total_tokens=347 estimated_usd=$0.002857
+[Agent] [TTS] Using voice: default → 8ef4a238714b45718ce04243307c57a7
+[Agent] [Voice] Preference updated to: default
+[Agent] [HUD →] nova say hi to becket | voice: true | ttsVoice: default
+[Agent] [Memory] Tokens - identity: 75, context: 16, user: 6
+[Agent] [LLM] provider=openai model=gpt-5 prompt_tokens=75 completion_tokens=479 total_tokens=554 estimated_usd=$0.004884
+[Agent] [TTS] Using voice: default → 8ef4a238714b45718ce04243307c57a7
+[Agent] [Voice] Preference updated to: default
+[Agent] [HUD →] nova say hi to becket | voice: true | ttsVoice: default
+[Agent] [Memory] Tokens - identity: 75, context: 16, user: 6
+[Agent] [LLM] provider=openai model=gpt-5 prompt_tokens=75 completion_tokens=288 total_tokens=363 estimated_usd=$0.002974
+[Agent] [TTS] Using voice: default → 8ef4a238714b45718ce04243307c57a7
+[Agent] [Voice] Preference updated to: default
+[Agent] [HUD →] nova say hi to becket | voice: true | ttsVoice: default
+[Agent] [Memory] Tokens - identity: 75, context: 16, user: 6
+[Agent] [LLM] provider=openai model=gpt-5 prompt_tokens=75 completion_tokens=297 total_tokens=372 estimated_usd=$0.003064
+[Agent] [TTS] Using voice: default → 8ef4a238714b45718ce04243307c57a7
+[Agent] [Voice] Preference updated to: default
+[Agent] [HUD →] nova say hi to becket talk dairty and mena | voice: true | ttsVoice: default
+[Agent] [Memory] Tokens - identity: 75, context: 16, user: 12
+[Agent] [LLM] provider=openai model=gpt-5 prompt_tokens=80 completion_tokens=1037 total_tokens=1117 estimated_usd=$0.01047
+[Agent] [TTS] Using voice: default → 8ef4a238714b45718ce04243307c57a7

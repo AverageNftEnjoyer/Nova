@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Trash2, Pin, Settings, Search, Sparkles, SlidersHorizontal, X, Clock3, Zap, Database, WandSparkles, GitBranch, Send, GripVertical, LayoutGrid, List, MoreVertical, Mail, MessageCircle, Activity, Pencil, Copy, Play, ChevronDown, ChevronRight } from "lucide-react"
+import { Trash2, Pin, Settings, Search, Sparkles, SlidersHorizontal, X, Clock3, Zap, Database, WandSparkles, GitBranch, Send, GripVertical, LayoutGrid, List, MoreVertical, Mail, MessageCircle, Activity, Pencil, Copy, Play, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
@@ -31,6 +31,23 @@ interface NotificationSchedule {
   successCount?: number
   failureCount?: number
   lastRunAt?: string
+}
+
+interface MissionRunStepTrace {
+  stepId: string
+  type: string
+  title: string
+  status: "pending" | "running" | "completed" | "failed" | "skipped"
+  detail?: string
+}
+
+interface MissionRunProgress {
+  missionId?: string
+  missionLabel: string
+  running: boolean
+  success: boolean
+  reason?: string
+  steps: MissionRunStepTrace[]
 }
 
 const FLOATING_LINES_ENABLED_WAVES: string[] = ["top", "middle", "bottom"]
@@ -151,6 +168,20 @@ interface WorkflowStep {
   outputRepeatCount?: string
   outputRecipients?: string
   outputTemplate?: string
+}
+
+interface GeneratedMissionSummary {
+  description?: string
+  priority?: string
+  schedule?: {
+    mode?: string
+    days?: string[]
+    time?: string
+    timezone?: string
+  }
+  missionActive?: boolean
+  tags?: string[]
+  workflowSteps?: Array<Partial<WorkflowStep>>
 }
 
 const STEP_TYPE_OPTIONS: Array<{ type: WorkflowStepType; label: string }> = [
@@ -552,6 +583,25 @@ function isLiveCommitTypedTime(text: string): boolean {
   return /^\d{2}:\d{2}$/.test(text)
 }
 
+function isTemplateSecret(value: string): boolean {
+  const text = String(value || "").trim()
+  return /^\{\{\s*[^}]+\s*\}\}$/.test(text)
+}
+
+function usesSavedIntegrationDestination(channel: WorkflowStep["outputChannel"]): boolean {
+  return channel === "telegram" || channel === "discord"
+}
+
+function sanitizeOutputRecipients(
+  channel: WorkflowStep["outputChannel"],
+  recipients: string | undefined,
+): string {
+  const value = String(recipients || "").trim()
+  if (usesSavedIntegrationDestination(channel)) return ""
+  if (isTemplateSecret(value)) return ""
+  return value
+}
+
 interface TimeFieldProps {
   value24: string
   onChange24: (next: string) => void
@@ -610,7 +660,7 @@ function TimeField({ value24, onChange24, isLight, className }: TimeFieldProps) 
           "h-9 min-w-0 w-full rounded-md border px-3 text-sm outline-none transition-colors",
           isLight
             ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 placeholder:text-s-40 hover:bg-[#eef3fb]"
-            : "border-white/12 bg-white/[0.06] text-slate-100 placeholder:text-slate-500 backdrop-blur-md hover:bg-white/[0.1]",
+            : "border-white/12 bg-white/6 text-slate-100 placeholder:text-slate-500 backdrop-blur-md hover:bg-white/10",
         )}
       />
       <FluidSelect
@@ -684,6 +734,10 @@ export default function MissionsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [missionBoardView, setMissionBoardView] = useState<"grid" | "list">("grid")
+  const [novaMissionPrompt, setNovaMissionPrompt] = useState("")
+  const [novaGeneratingMission, setNovaGeneratingMission] = useState(false)
+  const [runImmediatelyOnCreate, setRunImmediatelyOnCreate] = useState(false)
+  const [runProgress, setRunProgress] = useState<MissionRunProgress | null>(null)
 
   const catalogApiById = useMemo(() => {
     const next: Record<string, IntegrationCatalogItem> = {}
@@ -706,7 +760,20 @@ export default function MissionsPage() {
     const connected = integrationCatalog
       .filter((item) => item.kind === "channel" && item.connected)
       .map((item) => ({ value: item.id, label: item.label }))
-    return connected.length > 0 ? connected : FALLBACK_OUTPUT_CHANNEL_OPTIONS
+
+    const combined = connected.length > 0
+      ? [...connected, ...FALLBACK_OUTPUT_CHANNEL_OPTIONS]
+      : FALLBACK_OUTPUT_CHANNEL_OPTIONS
+
+    const deduped: FluidSelectOption[] = []
+    const seen = new Set<string>()
+    for (const option of combined) {
+      const value = String(option.value || "").trim().toLowerCase()
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      deduped.push({ value, label: option.label })
+    }
+    return deduped
   }, [integrationCatalog])
 
   const listSectionRef = useRef<HTMLElement | null>(null)
@@ -834,6 +901,7 @@ export default function MissionsPage() {
     setMissionTags([])
     setWorkflowSteps([])
     setCollapsedStepIds({})
+    setRunImmediatelyOnCreate(false)
   }, [])
 
   const applyTemplate = useCallback((templateId: string) => {
@@ -902,6 +970,258 @@ export default function MissionsPage() {
       return next
     })
   }, [])
+
+  const toPendingRunSteps = useCallback((steps: Array<Partial<WorkflowStep>> | undefined): MissionRunStepTrace[] => {
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return [{ stepId: "output", type: "output", title: "Run mission output", status: "running" }]
+    }
+    return steps.map((step, index) => ({
+      stepId: String(step.id || `step-${index + 1}`),
+      type: String(step.type || "output"),
+      title: String(step.title || STEP_TYPE_OPTIONS.find((option) => option.type === step.type)?.label || `Step ${index + 1}`),
+      status: index === 0 ? "running" : "pending",
+    }))
+  }, [])
+
+  const normalizeRunStepTraces = useCallback(
+    (
+      raw: unknown,
+      fallbackSteps: MissionRunStepTrace[],
+    ): MissionRunStepTrace[] => {
+      if (!Array.isArray(raw)) return fallbackSteps
+      const mapped = raw
+        .map((item, index) => {
+          if (!item || typeof item !== "object") return null
+          const next = item as {
+            stepId?: string
+            type?: string
+            title?: string
+            status?: string
+            detail?: string
+          }
+          const status = String(next.status || "").toLowerCase()
+          const normalizedStatus: "pending" | "completed" | "failed" | "skipped" =
+            status === "completed" || status === "failed" || status === "skipped"
+              ? status
+              : "pending"
+          return {
+            stepId: String(next.stepId || `step-${index + 1}`),
+            type: String(next.type || "output"),
+            title: String(next.title || `Step ${index + 1}`),
+            status: normalizedStatus,
+            detail: typeof next.detail === "string" && next.detail.trim() ? next.detail.trim() : undefined,
+          }
+        })
+        .filter((item): item is { stepId: string; type: string; title: string; status: "pending" | "completed" | "failed" | "skipped"; detail: string | undefined } => Boolean(item))
+      return mapped.length > 0 ? mapped : fallbackSteps
+    },
+    [],
+  )
+
+  const formatRelativeTime = useCallback((iso: string): string => {
+    const ts = new Date(iso).getTime()
+    if (!Number.isFinite(ts)) return "just now"
+    const diffMs = Date.now() - ts
+    if (diffMs < 60_000) return "just now"
+    const minutes = Math.floor(diffMs / 60_000)
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }, [])
+
+  const mapWorkflowStepsForBuilder = useCallback(
+    (rawSteps: Array<Partial<WorkflowStep>> | undefined, fallbackTime: string, fallbackTimezone: string): WorkflowStep[] => {
+      if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
+        return [
+          createWorkflowStep("trigger", "Mission triggered"),
+          createWorkflowStep("output", "Send notification"),
+        ]
+      }
+
+      const mapped = rawSteps.map((step) => {
+        const resolvedType: WorkflowStepType = isWorkflowStepType(String(step.type || "")) ? String(step.type) as WorkflowStepType : "output"
+        const base = createWorkflowStep(resolvedType, typeof step.title === "string" ? step.title : undefined)
+
+        if (resolvedType === "trigger") {
+          return {
+            ...base,
+            title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+            triggerMode: step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval"
+              ? step.triggerMode
+              : base.triggerMode,
+            triggerTime: typeof step.triggerTime === "string" && /^\d{2}:\d{2}$/.test(step.triggerTime) ? step.triggerTime : (fallbackTime || base.triggerTime),
+            triggerTimezone: typeof step.triggerTimezone === "string" && step.triggerTimezone.trim() ? step.triggerTimezone.trim() : (fallbackTimezone || base.triggerTimezone),
+            triggerDays: Array.isArray(step.triggerDays) && step.triggerDays.length > 0 ? step.triggerDays.map((day) => String(day)) : base.triggerDays,
+            triggerIntervalMinutes: typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes.trim() ? step.triggerIntervalMinutes : base.triggerIntervalMinutes,
+          } as WorkflowStep
+        }
+
+        if (resolvedType === "fetch") {
+          return {
+            ...base,
+            title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+            fetchSource: step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database"
+              ? step.fetchSource
+              : base.fetchSource,
+            fetchMethod: (String(step.fetchMethod || "").toUpperCase() === "POST" ? "POST" : "GET") as "GET" | "POST",
+            fetchApiIntegrationId: typeof step.fetchApiIntegrationId === "string" ? step.fetchApiIntegrationId : base.fetchApiIntegrationId,
+            fetchUrl: typeof step.fetchUrl === "string" ? step.fetchUrl : base.fetchUrl,
+            fetchQuery: typeof step.fetchQuery === "string" ? step.fetchQuery : base.fetchQuery,
+            fetchHeaders: typeof step.fetchHeaders === "string" ? step.fetchHeaders : base.fetchHeaders,
+            fetchSelector: typeof step.fetchSelector === "string" ? step.fetchSelector : base.fetchSelector,
+            fetchRefreshMinutes: typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes.trim() ? step.fetchRefreshMinutes : base.fetchRefreshMinutes,
+          } as WorkflowStep
+        }
+
+        if (resolvedType === "transform") {
+          return {
+            ...base,
+            title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+            transformAction: step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich"
+              ? step.transformAction
+              : base.transformAction,
+            transformFormat: step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table"
+              ? step.transformFormat
+              : base.transformFormat,
+            transformInstruction: typeof step.transformInstruction === "string" ? step.transformInstruction : base.transformInstruction,
+          } as WorkflowStep
+        }
+
+        if (resolvedType === "condition") {
+          return {
+            ...base,
+            title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+            conditionField: typeof step.conditionField === "string" ? step.conditionField : base.conditionField,
+            conditionOperator: step.conditionOperator === "contains" || step.conditionOperator === "equals" || step.conditionOperator === "not_equals" || step.conditionOperator === "greater_than" || step.conditionOperator === "less_than" || step.conditionOperator === "regex" || step.conditionOperator === "exists"
+              ? step.conditionOperator
+              : base.conditionOperator,
+            conditionValue: typeof step.conditionValue === "string" ? step.conditionValue : base.conditionValue,
+            conditionLogic: (step.conditionLogic === "any" ? "any" : "all") as "all" | "any",
+            conditionFailureAction: step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip",
+          } as WorkflowStep
+        }
+
+        if (resolvedType === "ai") {
+          const aiIntegration = step.aiIntegration === "openai" || step.aiIntegration === "claude" || step.aiIntegration === "grok" || step.aiIntegration === "gemini"
+            ? step.aiIntegration
+            : resolveDefaultAiIntegration()
+          return {
+            ...base,
+            title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+            aiPrompt: typeof step.aiPrompt === "string" ? step.aiPrompt : base.aiPrompt,
+            aiIntegration,
+            aiModel: typeof step.aiModel === "string" && step.aiModel.trim() ? step.aiModel : getDefaultModelForProvider(aiIntegration, integrationsSettings),
+          } as WorkflowStep
+        }
+
+        return {
+          ...base,
+          title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+          outputChannel: step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+            ? step.outputChannel
+            : base.outputChannel,
+          outputTiming: step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate",
+          outputTime: typeof step.outputTime === "string" && /^\d{2}:\d{2}$/.test(step.outputTime) ? step.outputTime : (fallbackTime || base.outputTime),
+          outputFrequency: step.outputFrequency === "multiple" ? "multiple" : "once",
+          outputRepeatCount: typeof step.outputRepeatCount === "string" && step.outputRepeatCount.trim() ? step.outputRepeatCount : base.outputRepeatCount,
+          outputRecipients: sanitizeOutputRecipients(
+            step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+              ? step.outputChannel
+              : base.outputChannel,
+            typeof step.outputRecipients === "string" ? step.outputRecipients : base.outputRecipients,
+          ),
+          outputTemplate: typeof step.outputTemplate === "string" ? step.outputTemplate : base.outputTemplate,
+        } as WorkflowStep
+      })
+
+      return mapped
+    },
+    [createWorkflowStep, integrationsSettings, resolveDefaultAiIntegration],
+  )
+
+  const generateMissionDraftFromPrompt = useCallback(async () => {
+    const prompt = novaMissionPrompt.trim()
+    if (!prompt) {
+      setStatus({ type: "error", message: "Enter a prompt for Nova to generate a mission." })
+      return
+    }
+
+    setNovaGeneratingMission(true)
+    setStatus(null)
+    try {
+      const res = await fetch("/api/missions/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          deploy: false,
+          timezone: (detectedTimezone || "America/New_York").trim(),
+          enabled: true,
+        }),
+      })
+      const data = await res.json().catch(() => ({})) as {
+        ok?: boolean
+        error?: string
+        debug?: string
+        provider?: string
+        model?: string
+        workflow?: {
+          label?: string
+          integration?: string
+          summary?: GeneratedMissionSummary
+        }
+      }
+
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
+      if (!res.ok) {
+        throw new Error([data?.error || "Failed to generate mission draft.", data?.debug ? `(${data.debug})` : ""].filter(Boolean).join(" "))
+      }
+
+      const summary = data.workflow?.summary
+      if (!summary) throw new Error("Nova returned an invalid mission draft.")
+
+      const generatedTime = typeof summary.schedule?.time === "string" && /^\d{2}:\d{2}$/.test(summary.schedule.time) ? summary.schedule.time : "09:00"
+      const generatedTimezone = typeof summary.schedule?.timezone === "string" && summary.schedule.timezone.trim()
+        ? summary.schedule.timezone.trim()
+        : (detectedTimezone || "America/New_York")
+      const generatedMode = summary.schedule?.mode === "weekly" || summary.schedule?.mode === "once" ? summary.schedule.mode : "daily"
+      const generatedDays = Array.isArray(summary.schedule?.days) && summary.schedule?.days.length > 0
+        ? summary.schedule.days.map((day) => String(day))
+        : ["mon", "tue", "wed", "thu", "fri"]
+
+      setEditingMissionId(null)
+      setNewLabel(String(data.workflow?.label || "Generated Mission").trim() || "Generated Mission")
+      setNewDescription(String(summary.description || prompt).trim())
+      setNewTime(generatedTime)
+      setDetectedTimezone(generatedTimezone)
+      setNewPriority(normalizePriority(summary.priority))
+      setNewScheduleMode(generatedMode)
+      setNewScheduleDays(generatedDays)
+      setMissionActive(summary.missionActive !== false)
+      setTagInput("")
+      setMissionTags(Array.isArray(summary.tags) ? summary.tags.map((tag) => String(tag)).filter(Boolean) : [])
+      setWorkflowSteps(mapWorkflowStepsForBuilder(summary.workflowSteps, generatedTime, generatedTimezone))
+      setCollapsedStepIds({})
+      setBuilderOpen(true)
+      setNovaMissionPrompt("")
+
+      const providerLabel = String(data.provider || integrationsSettings.activeLlmProvider).toUpperCase()
+      const modelLabel = String(data.model || getDefaultModelForProvider(integrationsSettings.activeLlmProvider, integrationsSettings))
+      setStatus({
+        type: "success",
+        message: `Draft generated with ${providerLabel} (${modelLabel}). ${String(data.debug || "").trim() || ""} Review before saving.`.replace(/\s+/g, " ").trim(),
+      })
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Nova mission generation failed." })
+    } finally {
+      setNovaGeneratingMission(false)
+    }
+  }, [detectedTimezone, integrationsSettings, mapWorkflowStepsForBuilder, novaMissionPrompt, router])
 
   const novaSuggestForAiStep = useCallback(async (stepId: string) => {
     const step = workflowSteps.find((item) => item.id === stepId && item.type === "ai")
@@ -979,6 +1299,10 @@ export default function MissionsPage() {
     setLoading(true)
     try {
       const res = await fetch("/api/notifications/schedules", { cache: "no-store" })
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Unauthorized")
+      }
       const data = await res.json()
       const next = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
       setSchedules(next)
@@ -992,7 +1316,7 @@ export default function MissionsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [router])
 
   useEffect(() => {
     setMounted(true)
@@ -1340,12 +1664,34 @@ export default function MissionsPage() {
       return
     }
 
+    const workflowStepsForSave = workflowSteps.map((step) => {
+      if (step.type !== "output") return step
+      const outputChannel = step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+        ? step.outputChannel
+        : "telegram"
+      const outputTiming = step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate"
+      const outputFrequency = step.outputFrequency === "multiple" ? "multiple" : "once"
+      const outputRepeatCount = outputFrequency === "multiple"
+        ? (typeof step.outputRepeatCount === "string" && /^\d{1,2}$/.test(step.outputRepeatCount) ? step.outputRepeatCount : "3")
+        : "1"
+      return {
+        ...step,
+        outputChannel,
+        outputTiming,
+        outputFrequency,
+        outputRepeatCount,
+        outputTime: time,
+        outputRecipients: "",
+        outputTemplate: "",
+      }
+    })
+
     const derivedIntegration = (
-      workflowSteps.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "telegram"
+      workflowStepsForSave.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "telegram"
     )
     const derivedApiCalls = Array.from(
       new Set(
-        workflowSteps.flatMap((step) => {
+        workflowStepsForSave.flatMap((step) => {
           if (step.type === "fetch") {
             if (step.fetchApiIntegrationId) return [`INTEGRATION:${step.fetchApiIntegrationId}`]
             if (step.fetchUrl?.trim()) return [`${step.fetchMethod === "POST" ? "POST" : "GET"} ${step.fetchUrl.trim()}`]
@@ -1373,7 +1719,7 @@ export default function MissionsPage() {
         missionActive,
         tags: missionTags,
         apiCalls: derivedApiCalls,
-        workflowSteps,
+        workflowSteps: workflowStepsForSave,
       }
 
       const payload = {
@@ -1401,9 +1747,71 @@ export default function MissionsPage() {
             body: JSON.stringify(payload),
           })
       const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
       if (!res.ok) throw new Error(data?.error || (isEditing ? "Failed to save mission" : "Failed to create mission"))
 
-      setStatus({ type: "success", message: isEditing ? "Mission saved." : "Mission deployed." })
+      if (runImmediatelyOnCreate) {
+        const runScheduleId = isEditing
+          ? (typeof editingMissionId === "string" ? editingMissionId.trim() : "")
+          : (typeof data?.schedule?.id === "string" ? data.schedule.id.trim() : "")
+        if (!runScheduleId) {
+          throw new Error(
+            isEditing
+              ? "Mission was saved but immediate run could not start (missing schedule id)."
+              : "Mission was created but immediate run could not start (missing schedule id).",
+          )
+        }
+        const pendingSteps = toPendingRunSteps(workflowStepsForSave as Array<Partial<WorkflowStep>>)
+        setRunProgress({
+          missionId: runScheduleId,
+          missionLabel: label,
+          running: true,
+          success: false,
+          steps: pendingSteps,
+        })
+        const triggerRes = await fetch("/api/notifications/trigger", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scheduleId: runScheduleId }),
+        })
+        const triggerData = await triggerRes.json().catch(() => ({})) as {
+          ok?: boolean
+          skipped?: boolean
+          reason?: string
+          stepTraces?: unknown
+          error?: string
+        }
+        const finalizedSteps = normalizeRunStepTraces(triggerData?.stepTraces, pendingSteps)
+        if (!triggerRes.ok) {
+        setRunProgress({
+          missionId: runScheduleId,
+          missionLabel: label,
+          running: false,
+          success: false,
+            reason: triggerData?.error || triggerData?.reason || "Immediate run failed.",
+            steps: finalizedSteps,
+          })
+          throw new Error(triggerData?.error || (isEditing ? "Mission was saved but immediate run failed." : "Mission was created but immediate run failed."))
+        }
+        setRunProgress({
+          missionId: runScheduleId,
+          missionLabel: label,
+          running: false,
+          success: Boolean(triggerData?.ok),
+          reason: triggerData?.reason,
+          steps: finalizedSteps,
+        })
+      }
+
+      setStatus({
+        type: "success",
+        message: runImmediatelyOnCreate
+          ? (isEditing ? "Mission saved and run started." : "Mission deployed and run started.")
+          : (isEditing ? "Mission saved." : "Mission deployed."),
+      })
       setBuilderOpen(false)
       resetMissionBuilder()
       await refreshSchedules()
@@ -1424,8 +1832,12 @@ export default function MissionsPage() {
     newScheduleDays,
     newScheduleMode,
     newTime,
+    runImmediatelyOnCreate,
     refreshSchedules,
     resetMissionBuilder,
+    router,
+    toPendingRunSteps,
+    normalizeRunStepTraces,
     workflowSteps,
   ])
 
@@ -1454,6 +1866,10 @@ export default function MissionsPage() {
         }),
       })
       const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
       if (!res.ok) throw new Error(data?.error || "Failed to save mission")
       const updated = data?.schedule as NotificationSchedule | undefined
       if (updated) {
@@ -1467,7 +1883,7 @@ export default function MissionsPage() {
     } finally {
       setItemBusy(mission.id, false)
     }
-  }, [baselineById, setItemBusy, updateLocalSchedule, detectedTimezone])
+  }, [baselineById, detectedTimezone, router, setItemBusy, updateLocalSchedule])
 
   const deleteMission = useCallback(async (id: string) => {
     setItemBusy(id, true)
@@ -1475,6 +1891,10 @@ export default function MissionsPage() {
     try {
       const res = await fetch(`/api/notifications/schedules?id=${encodeURIComponent(id)}`, { method: "DELETE" })
       const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
       if (!res.ok) throw new Error(data?.error || "Failed to delete mission")
       setSchedules((prev) => prev.filter((s) => s.id !== id))
       setBaselineById((prev) => {
@@ -1488,7 +1908,7 @@ export default function MissionsPage() {
     } finally {
       setItemBusy(id, false)
     }
-  }, [setItemBusy])
+  }, [router, setItemBusy])
 
   const confirmDeleteMission = useCallback(async () => {
     if (!pendingDeleteMission) return
@@ -1499,6 +1919,7 @@ export default function MissionsPage() {
   const editMissionFromActions = useCallback((mission: NotificationSchedule) => {
     const meta = parseMissionWorkflowMeta(mission.message)
     setEditingMissionId(mission.id)
+    setRunImmediatelyOnCreate(false)
     setNewLabel(mission.label || "")
     setNewDescription(meta.description || mission.message || "")
     setNewTime(mission.time || "09:00")
@@ -1556,7 +1977,14 @@ export default function MissionsPage() {
           outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
           outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
           outputRepeatCount: resolvedType === "output" ? (typeof step.outputRepeatCount === "string" && step.outputRepeatCount ? step.outputRepeatCount : "3") : undefined,
-          outputRecipients: resolvedType === "output" ? (typeof step.outputRecipients === "string" ? step.outputRecipients : "") : undefined,
+          outputRecipients: resolvedType === "output"
+            ? sanitizeOutputRecipients(
+              step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+                ? step.outputChannel
+                : "telegram",
+              typeof step.outputRecipients === "string" ? step.outputRecipients : "",
+            )
+            : undefined,
           outputTemplate: resolvedType === "output" ? (typeof step.outputTemplate === "string" ? step.outputTemplate : "") : undefined,
         }
       }))
@@ -1569,50 +1997,134 @@ export default function MissionsPage() {
   }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
 
   const duplicateMission = useCallback(async (mission: NotificationSchedule) => {
-    setStatus(null)
-    try {
-      const res = await fetch("/api/notifications/schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          integration: mission.integration,
-          label: `${mission.label || "Mission"} (Copy)`,
-          message: mission.message,
-          time: mission.time,
-          timezone: mission.timezone,
-          enabled: mission.enabled,
-          chatIds: mission.chatIds,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Failed to duplicate mission.")
-      await refreshSchedules()
-      setStatus({ type: "success", message: "Mission duplicated." })
-    } catch (error) {
-      setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to duplicate mission." })
+    const meta = parseMissionWorkflowMeta(mission.message)
+    setEditingMissionId(null)
+    setNewLabel(`${mission.label || "Mission"} (Copy)`)
+    setNewDescription(meta.description || mission.message || "")
+    setNewTime(mission.time || "09:00")
+    if (mission.timezone) setDetectedTimezone(mission.timezone)
+    setMissionActive(Boolean(mission.enabled))
+    if (meta.priority) setNewPriority(meta.priority)
+    if (meta.mode) setNewScheduleMode(meta.mode)
+    if (Array.isArray(meta.days) && meta.days.length > 0) setNewScheduleDays(meta.days)
+    setMissionTags(Array.isArray(meta.tags) ? meta.tags : [])
+    if (Array.isArray(meta.workflowSteps) && meta.workflowSteps.length > 0) {
+      setWorkflowSteps(meta.workflowSteps.map((step, index) => {
+        const stepType = String(step.type || "")
+        const resolvedType: WorkflowStepType = isWorkflowStepType(stepType) ? stepType : "output"
+        const aiIntegration = (step.aiIntegration === "openai" || step.aiIntegration === "claude" || step.aiIntegration === "grok" || step.aiIntegration === "gemini")
+          ? step.aiIntegration
+          : resolveDefaultAiIntegration()
+        return {
+          id: `duplicate-${mission.id}-${index}-${Date.now()}`,
+          type: resolvedType,
+          title: step.title || STEP_TYPE_OPTIONS.find((option) => option.type === resolvedType)?.label || "Step",
+          aiPrompt: resolvedType === "ai" ? (typeof step.aiPrompt === "string" ? step.aiPrompt : "") : undefined,
+          aiModel: resolvedType === "ai"
+            ? (typeof step.aiModel === "string" && step.aiModel.trim().length > 0
+              ? step.aiModel
+              : getDefaultModelForProvider(aiIntegration, integrationsSettings))
+            : undefined,
+          aiIntegration: resolvedType === "ai" ? aiIntegration : undefined,
+          triggerMode: resolvedType === "trigger" ? (step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval" ? step.triggerMode : "daily") : undefined,
+          triggerTime: resolvedType === "trigger" ? (typeof step.triggerTime === "string" && step.triggerTime ? step.triggerTime : mission.time || "09:00") : undefined,
+          triggerTimezone: resolvedType === "trigger" ? (typeof step.triggerTimezone === "string" && step.triggerTimezone ? step.triggerTimezone : (mission.timezone || detectedTimezone || "America/New_York")) : undefined,
+          triggerDays: resolvedType === "trigger" ? (Array.isArray(step.triggerDays) ? step.triggerDays.map((day) => String(day)) : ["mon", "tue", "wed", "thu", "fri"]) : undefined,
+          triggerIntervalMinutes: resolvedType === "trigger" ? (typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes ? step.triggerIntervalMinutes : "30") : undefined,
+          fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "api") : undefined,
+          fetchMethod: resolvedType === "fetch" ? (step.fetchMethod === "POST" ? "POST" : "GET") : undefined,
+          fetchApiIntegrationId: resolvedType === "fetch" ? (typeof step.fetchApiIntegrationId === "string" ? step.fetchApiIntegrationId : "") : undefined,
+          fetchUrl: resolvedType === "fetch" ? (typeof step.fetchUrl === "string" ? step.fetchUrl : "") : undefined,
+          fetchQuery: resolvedType === "fetch" ? (typeof step.fetchQuery === "string" ? step.fetchQuery : "") : undefined,
+          fetchHeaders: resolvedType === "fetch" ? (typeof step.fetchHeaders === "string" ? step.fetchHeaders : "") : undefined,
+          fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" ? step.fetchSelector : "") : undefined,
+          fetchRefreshMinutes: resolvedType === "fetch" ? (typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes ? step.fetchRefreshMinutes : "15") : undefined,
+          transformAction: resolvedType === "transform" ? (step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich" ? step.transformAction : "normalize") : undefined,
+          transformFormat: resolvedType === "transform" ? (step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table" ? step.transformFormat : "markdown") : undefined,
+          transformInstruction: resolvedType === "transform" ? (typeof step.transformInstruction === "string" ? step.transformInstruction : "") : undefined,
+          conditionField: resolvedType === "condition" ? (typeof step.conditionField === "string" ? step.conditionField : "priority") : undefined,
+          conditionOperator: resolvedType === "condition"
+            ? (step.conditionOperator === "contains" || step.conditionOperator === "equals" || step.conditionOperator === "not_equals" || step.conditionOperator === "greater_than" || step.conditionOperator === "less_than" || step.conditionOperator === "regex" || step.conditionOperator === "exists"
+              ? step.conditionOperator
+              : "contains")
+            : undefined,
+          conditionValue: resolvedType === "condition" ? (typeof step.conditionValue === "string" ? step.conditionValue : "") : undefined,
+          conditionLogic: resolvedType === "condition" ? (step.conditionLogic === "any" ? "any" : "all") : undefined,
+          conditionFailureAction: resolvedType === "condition" ? (step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip") : undefined,
+          outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
+          outputTiming: resolvedType === "output" ? (step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate") : undefined,
+          outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
+          outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
+          outputRepeatCount: resolvedType === "output" ? (typeof step.outputRepeatCount === "string" && step.outputRepeatCount ? step.outputRepeatCount : "3") : undefined,
+          outputRecipients: resolvedType === "output"
+            ? sanitizeOutputRecipients(
+              step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+                ? step.outputChannel
+                : "telegram",
+              typeof step.outputRecipients === "string" ? step.outputRecipients : "",
+            )
+            : undefined,
+          outputTemplate: resolvedType === "output" ? (typeof step.outputTemplate === "string" ? step.outputTemplate : "") : undefined,
+        }
+      }))
+      setCollapsedStepIds({})
+    } else {
+      setWorkflowSteps([])
+      setCollapsedStepIds({})
     }
-  }, [refreshSchedules])
+    setRunImmediatelyOnCreate(false)
+    setBuilderOpen(true)
+    setStatus({ type: "success", message: "Mission duplicated into builder. Configure and deploy." })
+  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
 
   const runMissionNow = useCallback(async (mission: NotificationSchedule) => {
     setStatus(null)
+    const meta = parseMissionWorkflowMeta(mission.message)
+    const pendingSteps = toPendingRunSteps(meta.workflowSteps)
+    setRunProgress({
+      missionId: mission.id,
+      missionLabel: mission.label || "Untitled mission",
+      running: true,
+      success: false,
+      steps: pendingSteps,
+    })
     try {
       const res = await fetch("/api/notifications/trigger", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          integration: mission.integration,
-          message: mission.message,
-          chatIds: mission.chatIds,
+          scheduleId: mission.id,
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json().catch(() => ({})) as {
+        ok?: boolean
+        skipped?: boolean
+        reason?: string
+        stepTraces?: unknown
+        error?: string
+      }
+      const finalizedSteps = normalizeRunStepTraces(data?.stepTraces, pendingSteps)
+      setRunProgress({
+        missionId: mission.id,
+        missionLabel: mission.label || "Untitled mission",
+        running: false,
+        success: Boolean(data?.ok),
+        reason: data?.reason,
+        steps: finalizedSteps,
+      })
       if (!res.ok) throw new Error(data?.error || "Run now failed.")
       await refreshSchedules()
-      setStatus({ type: "success", message: "Mission run triggered." })
+      setStatus({ type: "success", message: "Mission run completed. Review step trace panel for details." })
     } catch (error) {
+      setRunProgress((prev) => prev ? {
+        ...prev,
+        running: false,
+        success: false,
+        reason: error instanceof Error ? error.message : "Run now failed.",
+      } : prev)
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to run mission now." })
     }
-  }, [refreshSchedules])
+  }, [normalizeRunStepTraces, refreshSchedules, toPendingRunSteps])
 
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(() => [orbPalette.circle1, orbPalette.circle2], [orbPalette.circle1, orbPalette.circle2])
@@ -1624,7 +2136,7 @@ export default function MissionsPage() {
     isLight
       ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
       : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
-  const moduleHeightClass = "h-[clamp(680px,86vh,1020px)]"
+  const moduleHeightClass = "h-[clamp(680px,88vh,1280px)]"
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
@@ -1721,7 +2233,7 @@ export default function MissionsPage() {
                 </div>
               </div>
               <div className="min-w-0 px-1">
-                <div className="mx-auto grid max-w-[740px] grid-cols-4 gap-2">
+                <div className="mx-auto grid max-w-185 grid-cols-4 gap-2">
                   {[
                     { label: "Total Missions", value: String(missionStats.total), dotClass: isLight ? "bg-s-40" : "bg-slate-400" },
                     { label: "Active Missions", value: String(missionStats.enabled), dotClass: isLight ? "bg-emerald-400" : "bg-emerald-400" },
@@ -1772,7 +2284,7 @@ export default function MissionsPage() {
             </div>
 
             {status && (
-              <div className="pointer-events-none fixed left-1/2 top-5 z-[70] -translate-x-1/2">
+              <div className="pointer-events-none fixed left-1/2 top-5 z-70 -translate-x-1/2">
                 <div
                   className={cn(
                     "rounded-lg border px-3 py-2 text-sm shadow-lg backdrop-blur-md",
@@ -1785,43 +2297,131 @@ export default function MissionsPage() {
                 </div>
               </div>
             )}
+            {runProgress && (
+              <div className="fixed right-4 top-16 z-75 w-[min(420px,calc(100vw-1.5rem))]">
+                <div
+                  className={cn(
+                    "rounded-xl border px-3 py-3 backdrop-blur-lg",
+                    runProgress.success
+                      ? "border-emerald-300/35 bg-emerald-500/10"
+                      : runProgress.running
+                        ? "border-sky-300/35 bg-sky-500/10"
+                        : "border-rose-300/35 bg-rose-500/10",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-300")}>Mission Run Trace</p>
+                      <p className={cn("text-sm font-semibold truncate", isLight ? "text-s-90" : "text-slate-100")}>{runProgress.missionLabel}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRunProgress(null)}
+                      className={cn(
+                        "h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors",
+                        isLight ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]" : "border-white/20 bg-black/20 text-slate-300 hover:bg-white/8",
+                      )}
+                      aria-label="Close run trace"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="mt-2.5 space-y-1.5 max-h-[44vh] overflow-y-auto overflow-x-hidden pr-1">
+                    {runProgress.steps.map((step, index) => (
+                      <div
+                        key={`${step.stepId}-${index}`}
+                        className={cn(
+                          "rounded-md border px-2.5 py-2",
+                          isLight ? "border-[#d5dce8] bg-white/90" : "border-white/14 bg-black/20",
+                        )}
+                      >
+                        <div className="flex items-start gap-2 min-w-0">
+                          {step.status === "running" && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-300" />}
+                          {step.status === "completed" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />}
+                          {step.status === "failed" && <XCircle className="w-3.5 h-3.5 text-rose-300" />}
+                          {step.status === "pending" && <Clock3 className="w-3.5 h-3.5 text-slate-400" />}
+                          {step.status === "skipped" && <Clock3 className="w-3.5 h-3.5 text-amber-300" />}
+                          <p className={cn("min-w-0 whitespace-normal wrap-break-word text-xs font-medium leading-snug", isLight ? "text-s-90" : "text-slate-100")}>
+                            {index + 1}. {step.title}
+                          </p>
+                        </div>
+                        {step.detail && (
+                          <p className={cn("mt-1 pl-5 text-[11px] whitespace-normal break-all leading-snug", isLight ? "text-s-60" : "text-slate-300")}>{step.detail}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {runProgress.reason && (
+                    <p className={cn("mt-2 text-[11px] whitespace-normal break-all leading-snug", isLight ? "text-s-60" : "text-slate-300")}>{runProgress.reason}</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="grid w-full grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,28vw)_minmax(0,1fr)]">
-              <section ref={createSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-5 ${moduleHeightClass} min-h-0 flex flex-col`}>
+              <section ref={createSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} min-h-0 flex flex-col`}>
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-accent" />
                   <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Quick Start Templates</h2>
                 </div>
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                <p className={cn("mt-0.5 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
                   Launch production-ready mission blueprints and fine-tune in Mission Builder.
                 </p>
-                <div className="mt-4 min-h-0 flex-1 overflow-y-auto space-y-3 pr-1">
+                <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto space-y-2 pr-1">
                   {QUICK_TEMPLATE_OPTIONS.map((template) => (
-                    <div key={template.id} className={cn("rounded-xl border p-3.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                    <div key={template.id} className={cn("rounded-lg border p-2.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <h3 className={cn("text-sm font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{template.label}</h3>
-                          <p className={cn("mt-1 text-xs", isLight ? "text-s-60" : "text-slate-400")}>{template.description}</p>
+                          <h3 className={cn("text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{template.label}</h3>
+                          <p className={cn("mt-0.5 line-clamp-2 text-[11px] leading-snug", isLight ? "text-s-60" : "text-slate-400")}>{template.description}</p>
                         </div>
-                        <span className={cn("rounded-full px-2 py-1 text-[10px] uppercase tracking-[0.14em]", isLight ? "border border-[#d5dce8] bg-white text-s-70" : "border border-white/12 bg-black/20 text-slate-300")}>
+                        <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em]", isLight ? "border border-[#d5dce8] bg-white text-s-70" : "border border-white/12 bg-black/20 text-slate-300")}>
                           {formatIntegrationLabel(template.integration)}
                         </span>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
                         {template.tags.map((tag) => (
-                          <span key={tag} className={cn("rounded-md px-2 py-0.5 text-[10px]", isLight ? "bg-[#e8eef9] text-s-70" : "bg-white/[0.08] text-slate-300")}>
+                          <span key={tag} className={cn("rounded-md px-1.5 py-0.5 text-[9px]", isLight ? "bg-[#e8eef9] text-s-70" : "bg-white/8 text-slate-300")}>
                             #{tag}
                           </span>
                         ))}
                       </div>
                       <button
                         onClick={() => applyTemplate(template.id)}
-                        className="mt-3 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors text-xs"
+                        className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors text-[11px]"
                       >
                         Use Template
                       </button>
                     </div>
                   ))}
+                </div>
+                <div className={cn("mt-3 rounded-xl border p-3.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                  <div className="flex items-center gap-2">
+                    <WandSparkles className="w-3.5 h-3.5 text-accent" />
+                    <h3 className={cn("text-xs uppercase tracking-[0.18em] font-semibold", isLight ? "text-s-80" : "text-slate-200")}>Nova Mission Generator</h3>
+                  </div>
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Uses your connected {AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider]} model to build a ready-to-review mission draft.
+                  </p>
+                  <textarea
+                    value={novaMissionPrompt}
+                    onChange={(e) => setNovaMissionPrompt(e.target.value)}
+                    placeholder="Example: Monitor BTC moves above 3% in 1h, summarize drivers, and send alerts to Telegram."
+                    className={cn(
+                      "mt-2.5 min-h-22 w-full resize-y rounded-md border px-3 py-2 text-xs outline-none",
+                      isLight ? "border-[#d5dce8] bg-white text-s-90 placeholder:text-s-40" : "border-white/14 bg-black/25 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                  <button
+                    onClick={() => {
+                      playClickSound()
+                      void generateMissionDraftFromPrompt()
+                    }}
+                    disabled={novaGeneratingMission}
+                    className="mt-2.5 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors text-xs disabled:opacity-60"
+                  >
+                    {novaGeneratingMission ? "Generating Draft..." : "Generate Mission Draft"}
+                  </button>
                 </div>
               </section>
 
@@ -1853,7 +2453,7 @@ export default function MissionsPage() {
                           ? "bg-accent-20 text-accent border border-accent-30"
                           : isLight
                             ? "text-s-60 hover:bg-[#eaf1fb]"
-                            : "text-slate-400 hover:bg-white/[0.08]",
+                            : "text-slate-400 hover:bg-white/8",
                       )}
                       aria-label="Grid view"
                     >
@@ -1867,7 +2467,7 @@ export default function MissionsPage() {
                           ? "bg-accent-20 text-accent border border-accent-30"
                           : isLight
                             ? "text-s-60 hover:bg-[#eaf1fb]"
-                            : "text-slate-400 hover:bg-white/[0.08]",
+                            : "text-slate-400 hover:bg-white/8",
                       )}
                       aria-label="List view"
                     >
@@ -1891,6 +2491,25 @@ export default function MissionsPage() {
                     const successes = Number.isFinite(mission.successCount) ? Number(mission.successCount) : 0
                     const successRate = runs > 0 ? Math.round((successes / runs) * 100) : 100
                     const processChips = details.process.slice(0, 4)
+                    const runState = runProgress && runProgress.missionId === mission.id ? runProgress : null
+                    const runningStepIndex = runState?.running ? runState.steps.findIndex((step) => step.status === "running") : -1
+                    const runningStep = runningStepIndex !== undefined && runningStepIndex >= 0 ? runState?.steps[runningStepIndex] : null
+                    const missionStatusText = runState?.running
+                      ? `Running now${runningStep ? `: ${runningStepIndex + 1}/${runState.steps.length} ${runningStep.title}` : "..."}`
+                      : runState
+                        ? `${runState.success ? "Last run completed" : "Last run failed"}${runState.reason ? `: ${runState.reason}` : ""}`
+                        : mission.lastRunAt
+                          ? `Last run ${formatRelativeTime(mission.lastRunAt)}`
+                          : mission.enabled
+                            ? "Scheduled"
+                            : "Paused and not running"
+                    const missionStatusToneClass = runState?.running
+                      ? "text-sky-300"
+                      : runState
+                        ? (runState.success ? "text-emerald-300" : "text-rose-300")
+                        : mission.enabled
+                          ? "text-slate-300"
+                          : "text-rose-300"
                     return (
                       <div key={mission.id} className={cn("rounded-xl border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
                         <div className="flex items-start justify-between gap-2">
@@ -1932,7 +2551,11 @@ export default function MissionsPage() {
                                 top,
                               })
                             }}
-                            className={cn("h-8 w-8 rounded-md inline-flex items-center justify-center transition-colors", isLight ? "text-s-50 hover:bg-black/5" : "text-slate-500 hover:bg-white/[0.08]")}
+                            className={cn(
+                              "h-8 w-8 rounded-md inline-flex items-center justify-center transition-all duration-150",
+                              "home-spotlight-card home-border-glow home-spotlight-card--hover",
+                              isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-500 hover:bg-white/8",
+                            )}
                             aria-label="Mission actions"
                           >
                             <MoreVertical className="w-4 h-4" />
@@ -1942,8 +2565,8 @@ export default function MissionsPage() {
                         <p className={cn("mt-3 text-sm line-clamp-2", isLight ? "text-s-70" : "text-slate-300")}>{details.description}</p>
 
                         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                          {processChips.map((stepType) => (
-                            <span key={`${mission.id}-${stepType}`} className={cn("rounded-md px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", isLight ? "border border-[#d5dce8] bg-white text-s-70" : "border border-white/12 bg-white/[0.06] text-slate-300")}>
+                          {processChips.map((stepType, index) => (
+                            <span key={`${mission.id}-${stepType}-${index}`} className={cn("rounded-md px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", isLight ? "border border-[#d5dce8] bg-white text-s-70" : "border border-white/12 bg-white/6 text-slate-300")}>
                               {stepType}
                             </span>
                           ))}
@@ -1969,12 +2592,20 @@ export default function MissionsPage() {
                           </div>
                         </div>
 
-                        <div className={cn("mt-4 pt-3 border-t flex items-center justify-end", isLight ? "border-[#dde4ef]" : "border-white/10")}>
-                          <div className="flex items-center gap-2">
+                        <div className={cn("mt-4 pt-3 border-t", isLight ? "border-[#dde4ef]" : "border-white/10")}>
+                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <span className={cn("inline-flex items-start gap-1 text-sm font-medium min-w-0", missionStatusToneClass)}>
+                              <span className={cn("h-2 w-2 rounded-full", runState?.running ? "bg-sky-400" : runState ? (runState.success ? "bg-emerald-400" : "bg-rose-400") : mission.enabled ? "bg-slate-400" : "bg-rose-400")} />
+                              <span className={cn("shrink-0", isLight ? "text-s-60" : "text-slate-400")}>Status:</span>
+                              <span className="min-w-0 whitespace-normal wrap-break-word leading-snug">{missionStatusText}</span>
+                            </span>
                             <span className={cn("inline-flex items-center gap-1 text-sm font-medium", mission.enabled ? "text-emerald-300" : "text-rose-300")}>
                               <span className={cn("h-2 w-2 rounded-full", mission.enabled ? "bg-emerald-400" : "bg-rose-400")} />
                               {mission.enabled ? "Active" : "Paused"}
                             </span>
+                          </div>
+                          <div className="flex items-center gap-2">
                             <button
                               onClick={() => {
                                 const nextEnabled = !mission.enabled
@@ -1993,6 +2624,7 @@ export default function MissionsPage() {
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
+                          </div>
                           </div>
                         </div>
                       </div>
@@ -2022,7 +2654,7 @@ export default function MissionsPage() {
               "mission-builder-popup-no-glow relative z-10 w-full max-w-3xl rounded-2xl border overflow-hidden",
               isLight
                 ? "border-[#d9e0ea] bg-white"
-                : "border-white/20 bg-white/[0.06] backdrop-blur-2xl",
+                : "border-white/20 bg-white/6 backdrop-blur-2xl",
             )}
           >
             {!isLight && (
@@ -2068,7 +2700,7 @@ export default function MissionsPage() {
 
             <div
               ref={builderBodyRef}
-              className="hide-scrollbar relative z-10 p-3.5 h-[68vh] !overflow-y-auto !overflow-x-hidden overscroll-contain touch-pan-y space-y-2.5 home-spotlight-shell"
+              className="hide-scrollbar relative z-10 p-3.5 h-[68vh] overflow-y-auto! overflow-x-hidden! overscroll-contain touch-pan-y space-y-2.5 home-spotlight-shell"
             >
               <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
                 <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Mission Name</label>
@@ -2150,7 +2782,7 @@ export default function MissionsPage() {
                             ? "border-accent-30 bg-accent-20 text-accent"
                             : isLight
                               ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]"
-                              : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/[0.08]",
+                              : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/8",
                           )}
                         >
                           {day.label}
@@ -2158,7 +2790,7 @@ export default function MissionsPage() {
                       )
                     })}
                   </div>
-                  <div className="w-full min-w-[160px] lg:max-w-[180px] lg:justify-self-end">
+                  <div className="w-full min-w-40 lg:max-w-45 lg:justify-self-end">
                     <FluidSelect value={newScheduleMode} onChange={setNewScheduleMode} options={SCHEDULE_MODE_OPTIONS} isLight={isLight} />
                   </div>
                 </div>
@@ -2245,7 +2877,7 @@ export default function MissionsPage() {
                             onClick={() => toggleWorkflowStepCollapsed(step.id)}
                             className={cn(
                               "h-7 w-7 rounded border inline-flex items-center justify-center transition-colors",
-                              isLight ? "border-[#d5dce8] bg-white text-s-60 hover:bg-[#eef3fb]" : "border-white/15 bg-black/20 text-slate-300 hover:bg-white/[0.08]",
+                              isLight ? "border-[#d5dce8] bg-white text-s-60 hover:bg-[#eef3fb]" : "border-white/15 bg-black/20 text-slate-300 hover:bg-white/8",
                             )}
                             aria-label={collapsedStepIds[step.id] ? "Expand step details" : "Collapse step details"}
                           >
@@ -2256,7 +2888,7 @@ export default function MissionsPage() {
                               playClickSound()
                               removeWorkflowStep(step.id)
                             }}
-                            className="h-7 w-7 rounded border border-rose-300/40 bg-rose-500/15 text-rose-200 inline-flex items-center justify-center transition-all duration-150 hover:-translate-y-[1px] hover:bg-rose-500/25 hover:shadow-[0_8px_20px_-12px_rgba(244,63,94,0.75)] active:translate-y-0"
+                            className="h-7 w-7 rounded border border-rose-300/40 bg-rose-500/15 text-rose-200 inline-flex items-center justify-center transition-all duration-150 hover:-translate-y-px hover:bg-rose-500/25 hover:shadow-[0_8px_20px_-12px_rgba(244,63,94,0.75)] active:translate-y-0"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -2357,7 +2989,7 @@ export default function MissionsPage() {
                               onChange={(e) => updateWorkflowStep(step.id, { fetchHeaders: e.target.value })}
                               placeholder='{"Authorization":"Bearer ...","X-Source":"nova"}'
                               className={cn(
-                                "min-h-[64px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                "min-h-16 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
                                 isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
                               )}
                             />
@@ -2383,7 +3015,7 @@ export default function MissionsPage() {
                               onChange={(e) => updateWorkflowStep(step.id, { transformInstruction: e.target.value })}
                               placeholder="Normalize fields, dedupe by ID, sort by priority, format for output."
                               className={cn(
-                                "min-h-[72px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                "min-h-18 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
                                 isLight ? "border-emerald-200 bg-white text-s-90 placeholder:text-s-40" : "border-emerald-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
                               )}
                             />
@@ -2440,60 +3072,51 @@ export default function MissionsPage() {
                           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Delivery Channel</label>
-                              <FluidSelect value={step.outputChannel ?? "telegram"} onChange={(next) => updateWorkflowStep(step.id, { outputChannel: next as WorkflowStep["outputChannel"] })} options={outputChannelOptions} isLight={isLight} />
+                              <FluidSelect
+                                value={step.outputChannel ?? "telegram"}
+                                onChange={(next) => {
+                                  const nextChannel = next as WorkflowStep["outputChannel"]
+                                  updateWorkflowStep(step.id, {
+                                    outputChannel: nextChannel,
+                                    outputTime: newTime,
+                                    outputTiming: step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate",
+                                    outputFrequency: step.outputFrequency === "multiple" ? "multiple" : "once",
+                                    outputRepeatCount: step.outputFrequency === "multiple" ? (step.outputRepeatCount || "3") : "1",
+                                    outputRecipients: sanitizeOutputRecipients(nextChannel, step.outputRecipients),
+                                    outputTemplate: "",
+                                  })
+                                }}
+                                options={outputChannelOptions}
+                                isLight={isLight}
+                              />
                             </div>
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Notify When</label>
-                              <FluidSelect value={step.outputTiming ?? "immediate"} onChange={(next) => updateWorkflowStep(step.id, { outputTiming: next as WorkflowStep["outputTiming"] })} options={STEP_OUTPUT_TIMING_OPTIONS} isLight={isLight} />
+                              <FluidSelect
+                                value={step.outputTiming ?? "immediate"}
+                                onChange={(next) => updateWorkflowStep(step.id, {
+                                  outputTiming: next as WorkflowStep["outputTiming"],
+                                  outputTime: newTime,
+                                })}
+                                options={STEP_OUTPUT_TIMING_OPTIONS}
+                                isLight={isLight}
+                              />
                             </div>
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Notification Count</label>
-                              <FluidSelect value={step.outputFrequency ?? "once"} onChange={(next) => updateWorkflowStep(step.id, { outputFrequency: next as WorkflowStep["outputFrequency"] })} options={STEP_OUTPUT_FREQUENCY_OPTIONS} isLight={isLight} />
-                            </div>
-                          </div>
-                          {(step.outputTiming === "scheduled" || step.outputTiming === "digest") && (
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Delivery Time</label>
-                              <TimeField value24={step.outputTime ?? newTime} onChange24={(next) => updateWorkflowStep(step.id, { outputTime: next })} isLight={isLight} />
-                            </div>
-                          )}
-                          {step.outputFrequency === "multiple" && (
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Number of Notifications</label>
-                              <input
-                                value={step.outputRepeatCount ?? "3"}
-                                onChange={(e) => updateWorkflowStep(step.id, { outputRepeatCount: e.target.value.replace(/\D/g, "").slice(0, 2) })}
-                                placeholder="3"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-pink-200 bg-white text-s-90 placeholder:text-s-40" : "border-pink-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
+                              <FluidSelect
+                                value={step.outputFrequency ?? "once"}
+                                onChange={(next) => {
+                                  const outputFrequency = next as WorkflowStep["outputFrequency"]
+                                  updateWorkflowStep(step.id, {
+                                    outputFrequency,
+                                    outputRepeatCount: outputFrequency === "multiple" ? (step.outputRepeatCount || "3") : "1",
+                                  })
+                                }}
+                                options={STEP_OUTPUT_FREQUENCY_OPTIONS}
+                                isLight={isLight}
                               />
                             </div>
-                          )}
-                          <div className="space-y-1.5">
-                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Recipients / Destination</label>
-                            <input
-                              value={step.outputRecipients ?? ""}
-                              onChange={(e) => updateWorkflowStep(step.id, { outputRecipients: e.target.value })}
-                              placeholder={step.outputChannel === "email" ? "team@company.com" : step.outputChannel === "webhook" ? "https://hooks.example.com/..." : "@channel or chat id"}
-                              className={cn(
-                                "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                isLight ? "border-pink-200 bg-white text-s-90 placeholder:text-s-40" : "border-pink-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                              )}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Message Template</label>
-                            <textarea
-                              value={step.outputTemplate ?? ""}
-                              onChange={(e) => updateWorkflowStep(step.id, { outputTemplate: e.target.value })}
-                              placeholder="Use variables like {{summary}}, {{price}}, {{timestamp}}."
-                              className={cn(
-                                "min-h-[64px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
-                                isLight ? "border-pink-200 bg-white text-s-90 placeholder:text-s-40" : "border-pink-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                              )}
-                            />
                           </div>
                         </div>
                       )}
@@ -2506,7 +3129,7 @@ export default function MissionsPage() {
                               onChange={(e) => updateWorkflowStepAi(step.id, { aiPrompt: e.target.value })}
                               placeholder="Describe what the AI should do with the data..."
                               className={cn(
-                                "min-h-[88px] w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                "min-h-22 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
                                 isLight
                                   ? "border-violet-200 bg-white text-s-90 placeholder:text-s-40"
                                   : "border-violet-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
@@ -2552,7 +3175,7 @@ export default function MissionsPage() {
                               }}
                               disabled={Boolean(novaSuggestingByStepId[step.id])}
                               className={cn(
-                                "h-7 px-2.5 rounded-md border inline-flex items-center gap-1 text-xs font-medium transition-all duration-150 disabled:opacity-60 disabled:transform-none hover:-translate-y-[1px] active:translate-y-0",
+                                "h-7 px-2.5 rounded-md border inline-flex items-center gap-1 text-xs font-medium transition-all duration-150 disabled:opacity-60 disabled:transform-none hover:-translate-y-px active:translate-y-0",
                                 isLight
                                   ? "border-violet-300 bg-violet-100/70 text-violet-700 hover:bg-violet-100 hover:shadow-[0_8px_18px_-12px_rgba(124,58,237,0.45)]"
                                   : "border-violet-300/35 bg-violet-500/12 text-violet-200 hover:bg-violet-500/20 hover:shadow-[0_10px_22px_-12px_rgba(167,139,250,0.6)]",
@@ -2578,7 +3201,7 @@ export default function MissionsPage() {
                         addWorkflowStep(option.type)
                       }}
                       className={cn(
-                        "h-8 px-3 rounded-md border text-xs transition-all duration-150 inline-flex items-center gap-1.5 hover:-translate-y-[1px] active:translate-y-0",
+                        "h-8 px-3 rounded-md border text-xs transition-all duration-150 inline-flex items-center gap-1.5 hover:-translate-y-px active:translate-y-0",
                         isLight ? STEP_THEME[option.type].light : STEP_THEME[option.type].dark,
                         isLight ? STEP_TEXT_THEME[option.type].light : STEP_TEXT_THEME[option.type].dark,
                         isLight
@@ -2596,30 +3219,56 @@ export default function MissionsPage() {
             </div>
 
             <div ref={builderFooterRef} className={cn("home-spotlight-shell relative z-10 border-t px-5 py-3 flex items-center justify-between", isLight ? "border-[#e2e8f2] bg-[#f9fbff]" : "border-white/10 bg-black/30")}>
-              <button
-                type="button"
-                onClick={() => {
-                  playClickSound()
-                  setMissionActive((prev) => !prev)
-                }}
-                className="inline-flex items-center gap-2 text-sm"
-                aria-label="Toggle mission active"
-              >
-                <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Mission Active</span>
-                <span
-                  className={cn(
-                    "relative h-6 w-11 rounded-full transition-colors",
-                    missionActive ? "bg-accent" : isLight ? "bg-[#d5dce8]" : "bg-white/20",
-                  )}
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickSound()
+                    setMissionActive((prev) => !prev)
+                  }}
+                  className="inline-flex items-center gap-2 text-sm"
+                  aria-label="Toggle mission active"
                 >
+                  <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Mission Active</span>
                   <span
                     className={cn(
-                      "absolute top-1 h-4 w-4 rounded-full bg-white transition-all duration-200",
-                      missionActive ? "left-6" : "left-1",
+                      "relative h-6 w-11 rounded-full transition-colors",
+                      missionActive ? "bg-accent" : isLight ? "bg-[#d5dce8]" : "bg-white/20",
                     )}
-                  />
-                </span>
-              </button>
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-1 h-4 w-4 rounded-full bg-white transition-all duration-200",
+                        missionActive ? "left-6" : "left-1",
+                      )}
+                    />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickSound()
+                    setRunImmediatelyOnCreate((prev) => !prev)
+                  }}
+                  className="inline-flex items-center gap-2 text-sm"
+                  aria-label={editingMissionId ? "Run once immediately after saving mission" : "Run once immediately after creating mission"}
+                >
+                  <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Run Once Now</span>
+                  <span
+                    className={cn(
+                      "relative h-6 w-11 rounded-full transition-colors",
+                      runImmediatelyOnCreate ? "bg-accent" : isLight ? "bg-[#d5dce8]" : "bg-white/20",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-1 h-4 w-4 rounded-full bg-white transition-all duration-200",
+                        runImmediatelyOnCreate ? "left-6" : "left-1",
+                      )}
+                    />
+                  </span>
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
@@ -2654,10 +3303,10 @@ export default function MissionsPage() {
         <div
           ref={missionActionMenuRef}
           className={cn(
-            "fixed z-[80] w-[180px] rounded-xl border p-1.5 shadow-lg",
+            "fixed z-80 w-45 rounded-xl border p-1.5 shadow-lg backdrop-blur-xl",
             isLight
-              ? "border-[#d9e0ea] bg-white/90 backdrop-blur-xl shadow-[0_14px_34px_-20px_rgba(20,35,70,0.38)]"
-              : "border-white/16 bg-[#0b1019]/88 backdrop-blur-2xl shadow-[0_20px_42px_-24px_rgba(120,170,255,0.45)]",
+              ? "border-[#d5dce8] bg-[#f4f7fd]/95 shadow-[0_10px_30px_-12px_rgba(15,23,42,0.25)]"
+              : "border-white/10 bg-black/25 shadow-[0_14px_34px_-14px_rgba(0,0,0,0.55)]",
           )}
           style={{ left: missionActionMenu.left, top: missionActionMenu.top }}
         >
@@ -2668,10 +3317,11 @@ export default function MissionsPage() {
               editMissionFromActions(target)
             }}
             className={cn(
-              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-colors",
+              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-all duration-150",
+              "home-spotlight-card home-border-glow home-spotlight-card--hover",
               isLight
-                ? "text-s-80 hover:bg-[#eaf1fb]"
-                : "text-slate-200 hover:bg-white/[0.08]",
+                ? "text-s-80 hover:bg-[#eef3fb]"
+                : "text-slate-200 hover:bg-white/8",
             )}
           >
             <Pencil className={cn("w-4 h-4", isLight ? "text-s-50" : "text-slate-400")} />
@@ -2684,10 +3334,11 @@ export default function MissionsPage() {
               void duplicateMission(target)
             }}
             className={cn(
-              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-colors",
+              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-all duration-150",
+              "home-spotlight-card home-border-glow home-spotlight-card--hover",
               isLight
-                ? "text-s-80 hover:bg-[#eaf1fb]"
-                : "text-slate-200 hover:bg-white/[0.08]",
+                ? "text-s-80 hover:bg-[#eef3fb]"
+                : "text-slate-200 hover:bg-white/8",
             )}
           >
             <Copy className={cn("w-4 h-4", isLight ? "text-s-50" : "text-slate-400")} />
@@ -2700,10 +3351,11 @@ export default function MissionsPage() {
               void runMissionNow(target)
             }}
             className={cn(
-              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-colors",
+              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-all duration-150",
+              "home-spotlight-card home-border-glow home-spotlight-card--hover",
               isLight
-                ? "text-s-80 hover:bg-[#eaf1fb]"
-                : "text-slate-200 hover:bg-white/[0.08]",
+                ? "text-s-80 hover:bg-[#eef3fb]"
+                : "text-slate-200 hover:bg-white/8",
             )}
           >
             <Play className={cn("w-4 h-4", isLight ? "text-s-50" : "text-slate-400")} />
@@ -2717,7 +3369,8 @@ export default function MissionsPage() {
               setPendingDeleteMission(target)
             }}
             className={cn(
-              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-colors",
+              "h-9 w-full rounded-md px-2.5 text-sm inline-flex items-center gap-2 transition-all duration-150",
+              "home-spotlight-card home-border-glow home-spotlight-card--hover",
               isLight
                 ? "text-rose-600 hover:bg-rose-500/10"
                 : "text-rose-300 hover:bg-rose-500/12",
@@ -2767,7 +3420,7 @@ export default function MissionsPage() {
                   "h-8 px-3 rounded-md border text-xs transition-colors",
                   isLight
                     ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70 hover:bg-[#eef3fb]"
-                    : "border-white/12 bg-white/[0.06] text-slate-200 hover:bg-white/[0.1]",
+                    : "border-white/12 bg-white/6 text-slate-200 hover:bg-white/10",
                 )}
               >
                 Cancel

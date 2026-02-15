@@ -74,3 +74,9 @@ Optional recipients override:
 ```bash
 npm run notify:send -- --message "Nova check-in" --chatIds "123456,789012"
 ```
+
+## Mission Web Search Behavior
+
+- Mission web research uses Tavily as the primary data provider.
+- Mission output now humanizes structured search payloads into readable bullet summaries.
+- If AI returns structured JSON-like web results, runtime converts it to plain-language bullets plus source links before delivery.

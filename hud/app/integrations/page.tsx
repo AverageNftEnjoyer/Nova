@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { Blocks, Save, Eye, EyeOff, Settings, User } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
@@ -18,6 +19,7 @@ import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
 import { GeminiIcon } from "@/components/gemini-icon"
+import { GmailIcon } from "@/components/gmail-icon"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
@@ -261,50 +263,28 @@ function getClaudePriceHint(model: string): string {
   if (!pricing) return "Pricing for this model is not in local presets yet."
   return `Estimated pricing for this model tier: $${pricing.input.toFixed(2)} in / $${pricing.output.toFixed(2)} out per 1M tokens.`
 }
-const INITIAL_INTEGRATIONS_SETTINGS: IntegrationsSettings = {
-  telegram: {
-    connected: false,
-    botToken: "",
-    chatIds: "",
-  },
-  discord: {
-    connected: false,
-    webhookUrls: "",
-  },
-  openai: {
-    connected: false,
-    apiKey: "",
-    baseUrl: "https://api.openai.com/v1",
-    defaultModel: "gpt-4.1",
-    apiKeyConfigured: false,
-    apiKeyMasked: "",
-  },
-  claude: {
-    connected: false,
-    apiKey: "",
-    baseUrl: "https://api.anthropic.com",
-    defaultModel: "claude-sonnet-4-20250514",
-    apiKeyConfigured: false,
-    apiKeyMasked: "",
-  },
-  grok: {
-    connected: false,
-    apiKey: "",
-    baseUrl: "https://api.x.ai/v1",
-    defaultModel: "grok-4-0709",
-    apiKeyConfigured: false,
-    apiKeyMasked: "",
-  },
-  gemini: {
-    connected: false,
-    apiKey: "",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    defaultModel: "gemini-2.5-pro",
-    apiKeyConfigured: false,
-    apiKeyMasked: "",
-  },
-  activeLlmProvider: "openai",
-  updatedAt: "",
+
+function normalizeGmailAccountsForUi(raw: unknown, activeAccountId: string) {
+  const active = String(activeAccountId || "").trim().toLowerCase()
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((account) => {
+      const id = String((account as { id?: string })?.id || "").trim().toLowerCase()
+      const email = String((account as { email?: string })?.email || "").trim()
+      if (!id || !email) return null
+      const scopes = Array.isArray((account as { scopes?: string[] })?.scopes)
+        ? (account as { scopes: string[] }).scopes.map((scope) => String(scope).trim()).filter(Boolean)
+        : []
+      return {
+        id,
+        email,
+        scopes,
+        connectedAt: typeof (account as { connectedAt?: string })?.connectedAt === "string" ? String((account as { connectedAt?: string }).connectedAt) : "",
+        active: id === active,
+        enabled: typeof (account as { enabled?: boolean })?.enabled === "boolean" ? Boolean((account as { enabled?: boolean }).enabled) : true,
+      }
+    })
+    .filter((account): account is NonNullable<typeof account> => Boolean(account))
 }
 
 export default function IntegrationsPage() {
@@ -313,7 +293,7 @@ export default function IntegrationsPage() {
   const isLight = theme === "light"
   const { state: novaState, connected: agentConnected } = useNovaState()
 
-  const [settings, setSettings] = useState<IntegrationsSettings>(INITIAL_INTEGRATIONS_SETTINGS)
+  const [settings, setSettings] = useState<IntegrationsSettings>(() => loadIntegrationsSettings())
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [botToken, setBotToken] = useState("")
   const [botTokenConfigured, setBotTokenConfigured] = useState(false)
@@ -358,8 +338,15 @@ export default function IntegrationsPage() {
   const [geminiApiKeyMasked, setGeminiApiKeyMasked] = useState("")
   const [showGeminiApiKey, setShowGeminiApiKey] = useState(false)
   const [geminiModelOptions, setGeminiModelOptions] = useState<FluidSelectOption[]>(GEMINI_MODEL_SELECT_OPTIONS)
-  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai" | "claude" | "grok" | "gemini">("telegram")
-  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "grok" | "gemini" | "provider">(null)
+  const [gmailClientId, setGmailClientId] = useState("")
+  const [gmailClientSecret, setGmailClientSecret] = useState("")
+  const [gmailClientSecretConfigured, setGmailClientSecretConfigured] = useState(false)
+  const [gmailClientSecretMasked, setGmailClientSecretMasked] = useState("")
+  const [showGmailClientSecret, setShowGmailClientSecret] = useState(false)
+  const [gmailRedirectUri, setGmailRedirectUri] = useState("http://localhost:3000/api/integrations/gmail/callback")
+  const [selectedGmailAccountId, setSelectedGmailAccountId] = useState("")
+  const [activeSetup, setActiveSetup] = useState<"telegram" | "discord" | "openai" | "claude" | "grok" | "gemini" | "gmail">("telegram")
+  const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "grok" | "gemini" | "gmail-oauth" | "gmail-disconnect" | "gmail-primary" | "gmail-account" | "provider">(null)
   const [saveStatus, setSaveStatus] = useState<null | { type: "success" | "error"; message: string }>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
@@ -369,6 +356,7 @@ export default function IntegrationsPage() {
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
   const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
+  const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -399,6 +387,11 @@ export default function IntegrationsPage() {
     setGeminiDefaultModel(local.gemini.defaultModel)
     setGeminiApiKeyConfigured(Boolean(local.gemini.apiKeyConfigured))
     setGeminiApiKeyMasked(local.gemini.apiKeyMasked || "")
+    setGmailClientId(local.gmail.oauthClientId || "")
+    setGmailClientSecret(local.gmail.oauthClientSecret || "")
+    setGmailClientSecretConfigured(Boolean(local.gmail.oauthClientSecretConfigured))
+    setGmailClientSecretMasked(local.gmail.oauthClientSecretMasked || "")
+    setGmailRedirectUri(local.gmail.redirectUri || "http://localhost:3000/api/integrations/gmail/callback")
     setActiveLlmProvider(local.activeLlmProvider || "openai")
 
     const cached = readShellUiCache()
@@ -459,6 +452,11 @@ export default function IntegrationsPage() {
           setGeminiDefaultModel(fallback.gemini.defaultModel)
           setGeminiApiKeyConfigured(Boolean(fallback.gemini.apiKeyConfigured))
           setGeminiApiKeyMasked(fallback.gemini.apiKeyMasked || "")
+          setGmailClientId(fallback.gmail.oauthClientId || "")
+          setGmailClientSecret(fallback.gmail.oauthClientSecret || "")
+          setGmailClientSecretConfigured(Boolean(fallback.gmail.oauthClientSecretConfigured))
+          setGmailClientSecretMasked(fallback.gmail.oauthClientSecretMasked || "")
+          setGmailRedirectUri(fallback.gmail.redirectUri || "http://localhost:3000/api/integrations/gmail/callback")
           setActiveLlmProvider(fallback.activeLlmProvider || "openai")
           return
         }
@@ -514,6 +512,23 @@ export default function IntegrationsPage() {
             apiKeyConfigured: Boolean(config.gemini?.apiKeyConfigured),
             apiKeyMasked: typeof config.gemini?.apiKeyMasked === "string" ? config.gemini.apiKeyMasked : "",
           },
+          gmail: {
+            connected: Boolean(config.gmail?.connected),
+            email: typeof config.gmail?.email === "string" ? config.gmail.email : "",
+            scopes: Array.isArray(config.gmail?.scopes)
+              ? config.gmail.scopes.join(" ")
+              : typeof config.gmail?.scopes === "string"
+                ? config.gmail.scopes
+                : "",
+            accounts: normalizeGmailAccountsForUi(config.gmail?.accounts, String(config.gmail?.activeAccountId || "")),
+            activeAccountId: typeof config.gmail?.activeAccountId === "string" ? config.gmail.activeAccountId : "",
+            oauthClientId: typeof config.gmail?.oauthClientId === "string" ? config.gmail.oauthClientId : "",
+            oauthClientSecret: "",
+            redirectUri: typeof config.gmail?.redirectUri === "string" ? config.gmail.redirectUri : "http://localhost:3000/api/integrations/gmail/callback",
+            oauthClientSecretConfigured: Boolean(config.gmail?.oauthClientSecretConfigured),
+            oauthClientSecretMasked: typeof config.gmail?.oauthClientSecretMasked === "string" ? config.gmail.oauthClientSecretMasked : "",
+            tokenConfigured: Boolean(config.gmail?.tokenConfigured),
+          },
           activeLlmProvider:
             config.activeLlmProvider === "claude"
               ? "claude"
@@ -550,6 +565,11 @@ export default function IntegrationsPage() {
         setGeminiDefaultModel(normalized.gemini.defaultModel)
         setGeminiApiKeyConfigured(Boolean(normalized.gemini.apiKeyConfigured))
         setGeminiApiKeyMasked(normalized.gemini.apiKeyMasked || "")
+        setGmailClientId(normalized.gmail.oauthClientId || "")
+        setGmailClientSecret(normalized.gmail.oauthClientSecret || "")
+        setGmailClientSecretConfigured(Boolean(normalized.gmail.oauthClientSecretConfigured))
+        setGmailClientSecretMasked(normalized.gmail.oauthClientSecretMasked || "")
+        setGmailRedirectUri(normalized.gmail.redirectUri || "http://localhost:3000/api/integrations/gmail/callback")
         setActiveLlmProvider(normalized.activeLlmProvider || "openai")
         saveIntegrationsSettings(normalized)
       })
@@ -582,6 +602,11 @@ export default function IntegrationsPage() {
         setGeminiDefaultModel(fallback.gemini.defaultModel)
         setGeminiApiKeyConfigured(Boolean(fallback.gemini.apiKeyConfigured))
         setGeminiApiKeyMasked(fallback.gemini.apiKeyMasked || "")
+        setGmailClientId(fallback.gmail.oauthClientId || "")
+        setGmailClientSecret(fallback.gmail.oauthClientSecret || "")
+        setGmailClientSecretConfigured(Boolean(fallback.gmail.oauthClientSecretConfigured))
+        setGmailClientSecretMasked(fallback.gmail.oauthClientSecretMasked || "")
+        setGmailRedirectUri(fallback.gmail.redirectUri || "http://localhost:3000/api/integrations/gmail/callback")
         setActiveLlmProvider(fallback.activeLlmProvider || "openai")
       })
 
@@ -589,6 +614,18 @@ export default function IntegrationsPage() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    const accounts = settings.gmail.accounts || []
+    if (accounts.length === 0) {
+      if (selectedGmailAccountId) setSelectedGmailAccountId("")
+      return
+    }
+    const hasSelected = accounts.some((account) => account.id === selectedGmailAccountId)
+    if (hasSelected) return
+    const preferred = accounts.find((account) => account.active) || accounts[0]
+    if (preferred) setSelectedGmailAccountId(preferred.id)
+  }, [settings.gmail.accounts, selectedGmailAccountId])
 
   useEffect(() => {
     const refresh = () => {
@@ -743,6 +780,7 @@ export default function IntegrationsPage() {
     if (claudeSetupSectionRef.current) cleanups.push(setupSectionSpotlight(claudeSetupSectionRef.current))
     if (grokSetupSectionRef.current) cleanups.push(setupSectionSpotlight(grokSetupSectionRef.current))
     if (geminiSetupSectionRef.current) cleanups.push(setupSectionSpotlight(geminiSetupSectionRef.current))
+    if (gmailSetupSectionRef.current) cleanups.push(setupSectionSpotlight(gmailSetupSectionRef.current))
     if (activeStatusSectionRef.current) cleanups.push(setupSectionSpotlight(activeStatusSectionRef.current))
     return () => cleanups.forEach((cleanup) => cleanup())
   }, [activeSetup, spotlightEnabled])
@@ -759,7 +797,7 @@ export default function IntegrationsPage() {
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
   const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
-  const moduleHeightClass = "h-[clamp(620px,82vh,980px)]"
+  const moduleHeightClass = "h-[clamp(620px,88vh,1240px)]"
   const showStatus = typeof agentConnected === "boolean" && typeof novaState !== "undefined"
   const statusText = !agentConnected
     ? "Agent offline"
@@ -877,6 +915,84 @@ export default function IntegrationsPage() {
   useEffect(() => {
     void refreshGeminiModels()
   }, [geminiApiKeyConfigured, refreshGeminiModels])
+
+  const refreshGmailFromServer = useCallback(async () => {
+    try {
+      const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
+      const data = await res.json().catch(() => ({}))
+      const config = data?.config as IntegrationsSettings | undefined
+      if (!config) return
+      setSettings((prev) => {
+        const next = {
+          ...prev,
+          gmail: {
+            ...prev.gmail,
+            connected: Boolean(config.gmail?.connected),
+            email: String(config.gmail?.email || ""),
+            scopes: Array.isArray(config.gmail?.scopes)
+              ? config.gmail.scopes.join(" ")
+              : typeof config.gmail?.scopes === "string"
+                ? config.gmail.scopes
+                : "",
+            accounts: normalizeGmailAccountsForUi(config.gmail?.accounts, String(config.gmail?.activeAccountId || "")),
+            activeAccountId: String(config.gmail?.activeAccountId || ""),
+            tokenConfigured: Boolean(config.gmail?.tokenConfigured),
+          },
+        }
+        saveIntegrationsSettings(next)
+        return next
+      })
+    } catch {
+      // no-op
+    }
+  }, [])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const gmailStatus = params.get("gmail")
+    const message = params.get("message")
+    const gmailPopup = params.get("gmailPopup") === "1"
+    if (!gmailStatus) return
+
+    if (gmailPopup && window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        { type: "nova:gmail-oauth", status: gmailStatus, message: message || "" },
+        window.location.origin,
+      )
+      window.close()
+      return
+    }
+
+    if (gmailStatus === "success") {
+      setSaveStatus({ type: "success", message: message || "Gmail connected." })
+      void refreshGmailFromServer()
+    } else {
+      setSaveStatus({ type: "error", message: message || "Gmail connection failed." })
+    }
+
+    params.delete("gmail")
+    params.delete("message")
+    const next = params.toString()
+    const newUrl = `${window.location.pathname}${next ? `?${next}` : ""}`
+    window.history.replaceState({}, "", newUrl)
+  }, [refreshGmailFromServer, router])
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      const payload = event.data as { type?: string; status?: string; message?: string } | null
+      if (!payload || payload.type !== "nova:gmail-oauth") return
+      if (payload.status === "success") {
+        setSaveStatus({ type: "success", message: payload.message || "Gmail connected." })
+        void refreshGmailFromServer()
+      } else {
+        setSaveStatus({ type: "error", message: payload.message || "Gmail connection failed." })
+      }
+    }
+
+    window.addEventListener("message", onMessage)
+    return () => window.removeEventListener("message", onMessage)
+  }, [refreshGmailFromServer, router])
 
   const toggleTelegram = useCallback(async () => {
     const next = {
@@ -1115,6 +1231,243 @@ export default function IntegrationsPage() {
       setIsSavingTarget(null)
     }
   }, [settings])
+
+  const connectGmail = useCallback(() => {
+    if (!gmailClientId.trim() || (!gmailClientSecretConfigured && !gmailClientSecret.trim())) {
+      setSaveStatus({ type: "error", message: "Save Gmail OAuth Client ID and Client Secret first." })
+      return
+    }
+    setSaveStatus(null)
+    const returnTo = "/integrations?gmailPopup=1"
+    const fetchUrl = `/api/integrations/gmail/connect?mode=json&returnTo=${encodeURIComponent(returnTo)}`
+    void fetch(fetchUrl, { cache: "no-store", credentials: "include" })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data?.authUrl) {
+          if (res.status === 401) {
+            router.push(`/login?next=${encodeURIComponent("/integrations")}`)
+            throw new Error("Session expired. Please sign in again.")
+          }
+          throw new Error(data?.error || "Failed to start Gmail OAuth.")
+        }
+        return String(data.authUrl)
+      })
+      .then((target) => {
+        const width = 620
+        const height = 760
+        const left = Math.max(0, Math.floor(window.screenX + (window.outerWidth - width) / 2))
+        const top = Math.max(0, Math.floor(window.screenY + (window.outerHeight - height) / 2))
+        const popup = window.open(
+          target,
+          "nova-gmail-oauth",
+          `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+        )
+        if (!popup) {
+          const tab = window.open(target, "_blank")
+          if (!tab) {
+            setSaveStatus({
+              type: "error",
+              message: "Popup was blocked. Allow popups for Nova to connect Gmail without leaving this screen.",
+            })
+          } else {
+            setSaveStatus({
+              type: "success",
+              message: "Opened Gmail auth in a new tab/window. Nova will stay open here.",
+            })
+          }
+        }
+      })
+      .catch((error) => {
+        setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to start Gmail OAuth." })
+      })
+  }, [gmailClientId, gmailClientSecret, gmailClientSecretConfigured, router])
+
+  const saveGmailConfig = useCallback(async () => {
+    const payload: Record<string, unknown> = {
+      oauthClientId: gmailClientId.trim(),
+      redirectUri: gmailRedirectUri.trim() || "http://localhost:3000/api/integrations/gmail/callback",
+    }
+    const trimmedSecret = gmailClientSecret.trim()
+    if (trimmedSecret) payload.oauthClientSecret = trimmedSecret
+
+    if (!payload.oauthClientId || (!gmailClientSecretConfigured && !trimmedSecret)) {
+      setSaveStatus({ type: "error", message: "Gmail Client ID and Client Secret are required." })
+      return
+    }
+
+    setSaveStatus(null)
+    setIsSavingTarget("gmail-oauth")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gmail: payload }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to save Gmail OAuth config.")
+
+      const masked = typeof data?.config?.gmail?.oauthClientSecretMasked === "string" ? data.config.gmail.oauthClientSecretMasked : ""
+      const configured = Boolean(data?.config?.gmail?.oauthClientSecretConfigured) || trimmedSecret.length > 0
+      setGmailClientSecret("")
+      setGmailClientSecretMasked(masked)
+      setGmailClientSecretConfigured(configured)
+      setSettings((prev) => {
+        const next = {
+          ...prev,
+          gmail: {
+            ...prev.gmail,
+            oauthClientId: String(payload.oauthClientId || ""),
+            redirectUri: String(payload.redirectUri || ""),
+            oauthClientSecret: "",
+            oauthClientSecretConfigured: configured,
+            oauthClientSecretMasked: masked,
+          },
+        }
+        saveIntegrationsSettings(next)
+        return next
+      })
+
+      setSaveStatus({ type: "success", message: "Gmail OAuth configuration saved." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to save Gmail OAuth config." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [gmailClientId, gmailClientSecret, gmailClientSecretConfigured, gmailRedirectUri])
+
+  const disconnectGmail = useCallback(async (accountId?: string) => {
+    setSaveStatus(null)
+    setIsSavingTarget("gmail-disconnect")
+    try {
+      const res = await fetch("/api/integrations/gmail/disconnect", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: accountId || "" }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.ok) {
+        if (res.status === 401) {
+          router.push(`/login?next=${encodeURIComponent("/integrations")}`)
+          throw new Error("Session expired. Please sign in again.")
+        }
+        throw new Error(data?.error || "Failed to disconnect Gmail.")
+      }
+      const refreshed = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
+      const payload = await refreshed.json().catch(() => ({}))
+      const config = payload?.config as IntegrationsSettings | undefined
+      if (config) {
+        setSettings((prev) => {
+          const next = {
+            ...prev,
+            gmail: {
+              ...prev.gmail,
+              connected: Boolean(config.gmail?.connected),
+              email: String(config.gmail?.email || ""),
+              scopes: Array.isArray(config.gmail?.scopes)
+                ? config.gmail.scopes.join(" ")
+                : typeof config.gmail?.scopes === "string"
+                  ? config.gmail.scopes
+                  : "",
+              accounts: normalizeGmailAccountsForUi(config.gmail?.accounts, String(config.gmail?.activeAccountId || "")),
+              activeAccountId: String(config.gmail?.activeAccountId || ""),
+              tokenConfigured: Boolean(config.gmail?.tokenConfigured),
+            },
+          }
+          saveIntegrationsSettings(next)
+          return next
+        })
+      }
+      setSaveStatus({ type: "success", message: accountId ? "Gmail account disconnected." : "All Gmail accounts disconnected." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to disconnect Gmail." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [router])
+
+  const setPrimaryGmailAccount = useCallback(async (accountId: string) => {
+    const nextId = String(accountId || "").trim().toLowerCase()
+    if (!nextId) return
+    setSaveStatus(null)
+    setIsSavingTarget("gmail-primary")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gmail: { activeAccountId: nextId } }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || "Failed to set primary Gmail account.")
+      const config = data?.config as IntegrationsSettings | undefined
+      if (config) {
+        setSettings((prev) => {
+          const next = {
+            ...prev,
+            gmail: {
+              ...prev.gmail,
+              connected: Boolean(config.gmail?.connected),
+              email: String(config.gmail?.email || ""),
+              scopes: Array.isArray(config.gmail?.scopes)
+                ? config.gmail.scopes.join(" ")
+                : typeof config.gmail?.scopes === "string"
+                  ? config.gmail.scopes
+                  : "",
+              accounts: normalizeGmailAccountsForUi(config.gmail?.accounts, String(config.gmail?.activeAccountId || "")),
+              activeAccountId: String(config.gmail?.activeAccountId || ""),
+              tokenConfigured: Boolean(config.gmail?.tokenConfigured),
+            },
+          }
+          saveIntegrationsSettings(next)
+          return next
+        })
+      }
+      setSaveStatus({ type: "success", message: "Primary Gmail account updated." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to set primary Gmail account." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [])
+
+  const updateGmailAccountState = useCallback(async (action: "set_enabled" | "delete", accountId: string, enabled?: boolean) => {
+    const targetId = String(accountId || "").trim().toLowerCase()
+    if (!targetId) return
+    setSaveStatus(null)
+    setIsSavingTarget("gmail-account")
+    try {
+      const res = await fetch("/api/integrations/gmail/accounts", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          action === "set_enabled"
+            ? { action, accountId: targetId, enabled: Boolean(enabled) }
+            : { action, accountId: targetId },
+        ),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.ok) {
+        if (res.status === 401) {
+          router.push(`/login?next=${encodeURIComponent("/integrations")}`)
+          throw new Error("Session expired. Please sign in again.")
+        }
+        throw new Error(data?.error || "Failed to update Gmail account.")
+      }
+      await refreshGmailFromServer()
+      setSaveStatus({
+        type: "success",
+        message:
+          action === "delete"
+            ? "Gmail account removed."
+            : (enabled ? "Gmail account enabled." : "Gmail account disabled."),
+      })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to update Gmail account." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [refreshGmailFromServer, router])
 
   const saveActiveProvider = useCallback(async (provider: LlmProvider) => {
     if (provider === "openai" && !settings.openai.connected) {
@@ -1839,7 +2192,7 @@ export default function IntegrationsPage() {
                   )}
                   aria-label="Open OpenAI setup"
                 >
-                  <OpenAIIcon className="w-[18px] h-[18px]" />
+                  <OpenAIIcon className="w-4.5[18px]" />
                 </button>
                 <button
                   onClick={() => setActiveSetup("claude")}
@@ -1874,7 +2227,18 @@ export default function IntegrationsPage() {
                 >
                   <GeminiIcon size={16} />
                 </button>
-                {Array.from({ length: 18 }).map((_, index) => (
+                <button
+                  onClick={() => setActiveSetup("gmail")}
+                  className={cn(
+                    "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow",
+                    integrationBadgeClass(settings.gmail.connected),
+                    activeSetup === "gmail" && "ring-1 ring-white/55",
+                  )}
+                  aria-label="Open Gmail setup"
+                >
+                  <GmailIcon className="w-3.5 h-3.5" />
+                </button>
+                {Array.from({ length: 17 }).map((_, index) => (
                   <div
                     key={index}
                     className={cn(
@@ -1891,8 +2255,7 @@ export default function IntegrationsPage() {
               <div className="flex items-center gap-3">
                 <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden border", isLight ? "border-[#d5dce8] bg-white" : "border-white/15 bg-white/5")}>
                   {profile.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={profile.avatar} alt="Profile" className="w-full h-full object-cover" />
+                    <Image src={profile.avatar} alt="Profile" width={40} height={40} className="w-full h-full object-cover" />
                   ) : (
                     <User className="w-4 h-4 text-s-80" />
                   )}
@@ -2209,7 +2572,7 @@ export default function IntegrationsPage() {
                       type="button"
                       onClick={() => setShowOpenAIApiKey((v) => !v)}
                       className={cn(
-                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
                         isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
                       )}
                       aria-label={showOpenAIApiKey ? "Hide API key" : "Show API key"}
@@ -2359,7 +2722,7 @@ export default function IntegrationsPage() {
                       type="button"
                       onClick={() => setShowClaudeApiKey((v) => !v)}
                       className={cn(
-                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
                         isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
                       )}
                       aria-label={showClaudeApiKey ? "Hide API key" : "Show API key"}
@@ -2506,7 +2869,7 @@ export default function IntegrationsPage() {
                       type="button"
                       onClick={() => setShowGrokApiKey((v) => !v)}
                       className={cn(
-                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
                         isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
                       )}
                       aria-label={showGrokApiKey ? "Hide API key" : "Show API key"}
@@ -2633,7 +2996,7 @@ export default function IntegrationsPage() {
                       placeholder={
                         geminiApiKeyConfigured
                           ? "Paste new Gemini API key to replace current key"
-                          : "AIzaSyD-EXAMPLEa1b2c3d4e5f6g7h8i9j0kLmNop"
+                          : "Paste Gemini API key"
                       }
                       name="gemini_token_input"
                       autoComplete="off"
@@ -2657,7 +3020,7 @@ export default function IntegrationsPage() {
                       type="button"
                       onClick={() => setShowGeminiApiKey((v) => !v)}
                       className={cn(
-                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-colors",
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
                         isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
                       )}
                       aria-label={showGeminiApiKey ? "Hide API key" : "Show API key"}
@@ -2718,6 +3081,236 @@ export default function IntegrationsPage() {
               </div>
             </section>
             )}
+
+            {activeSetup === "gmail" && (
+            <section ref={gmailSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Gmail Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Connect one or more Gmail accounts for Nova workflows and chat-triggered inbox automations.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 w-full lg:w-auto">
+                  <button
+                    onClick={saveGmailConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center justify-center gap-1.5 text-xs font-medium whitespace-nowrap disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "gmail-oauth" ? "Saving..." : "Save OAuth"}
+                  </button>
+                  <button
+                    onClick={settings.gmail.connected ? () => disconnectGmail() : connectGmail}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center justify-center gap-1.5 text-xs font-medium whitespace-nowrap disabled:opacity-60",
+                      settings.gmail.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.gmail.connected ? "Disconnect All" : "Connect"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>OAuth Client ID</p>
+                  <input
+                    value={gmailClientId}
+                    onChange={(e) => setGmailClientId(e.target.value)}
+                    placeholder="123456789012-abc123def456.apps.googleusercontent.com"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>OAuth Client Secret</p>
+                  {gmailClientSecretConfigured && gmailClientSecretMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Secret on server: <span className="font-mono">{gmailClientSecretMasked}</span>
+                    </p>
+                  )}
+                  <div className="relative">
+                    <input
+                      type={showGmailClientSecret ? "text" : "password"}
+                      value={gmailClientSecret}
+                      onChange={(e) => setGmailClientSecret(e.target.value)}
+                      placeholder={gmailClientSecretConfigured ? "Paste new secret to replace current secret" : "Paste Gmail OAuth client secret"}
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGmailClientSecret((v) => !v)}
+                      className={cn(
+                        "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showGmailClientSecret ? "Hide client secret" : "Show client secret"}
+                      title={showGmailClientSecret ? "Hide client secret" : "Show client secret"}
+                    >
+                      {showGmailClientSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Redirect URI</p>
+                  <input
+                    value={gmailRedirectUri}
+                    onChange={(e) => setGmailRedirectUri(e.target.value)}
+                    placeholder="http://localhost:3000/api/integrations/gmail/callback"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                    Must exactly match the authorized redirect URI in your Google Cloud OAuth client.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Connection Status</p>
+                  <p className={cn("text-sm", isLight ? "text-s-90" : "text-slate-200")}>
+                    {settings.gmail.connected ? "Connected" : "Disconnected"} - {settings.gmail.accounts.length} linked
+                  </p>
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Primary: {settings.gmail.email || "Not linked yet"}
+                  </p>
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                    Enabled accounts: {settings.gmail.accounts.filter((account) => account.enabled !== false).length}
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Linked Accounts</p>
+                  <div className="space-y-2">
+                    {settings.gmail.accounts.length === 0 && (
+                      <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                        No Gmail accounts linked yet.
+                      </p>
+                    )}
+                    {settings.gmail.accounts.map((account) => (
+                      <div
+                        key={account.id}
+                        onClick={() => setSelectedGmailAccountId(account.id)}
+                        className={cn(
+                          "rounded-md border px-2.5 py-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 cursor-pointer",
+                          selectedGmailAccountId === account.id
+                            ? (isLight ? "border-[#9fb3d8] bg-[#eaf1fc]" : "border-white/30 bg-white/10")
+                            : (isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"),
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className={cn("text-[12px] truncate", isLight ? "text-s-90" : "text-slate-100")}>{account.email}</p>
+                          <p className={cn("text-[10px] truncate", isLight ? "text-s-50" : "text-slate-500")}>
+                            {account.active ? "Primary" : "Linked"} • {account.enabled === false ? "Disabled" : "Enabled"}
+                          </p>
+                        </div>
+                        <span className={cn("text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>
+                          {selectedGmailAccountId === account.id ? "Selected" : "Select"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => connectGmail()}
+                      disabled={isSavingTarget !== null}
+                      className={cn(
+                        "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
+                        "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                      )}
+                    >
+                      Link Another
+                    </button>
+                    <button
+                      onClick={() => selectedGmailAccountId && setPrimaryGmailAccount(selectedGmailAccountId)}
+                      disabled={isSavingTarget !== null || !selectedGmailAccountId}
+                      className={cn(
+                        "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
+                        isLight ? "border-[#cad5e6] text-s-70 hover:bg-[#e8eef9]" : "border-white/15 text-slate-200 hover:bg-white/10",
+                      )}
+                    >
+                      Set Primary
+                    </button>
+                    <button
+                      onClick={() => {
+                        const account = settings.gmail.accounts.find((item) => item.id === selectedGmailAccountId)
+                        if (!account) return
+                        void updateGmailAccountState("set_enabled", account.id, account.enabled === false)
+                      }}
+                      disabled={isSavingTarget !== null || !selectedGmailAccountId}
+                      className={cn(
+                        "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
+                        isLight ? "border-[#cad5e6] text-s-70 hover:bg-[#e8eef9]" : "border-white/15 text-slate-200 hover:bg-white/10",
+                      )}
+                    >
+                      {settings.gmail.accounts.find((item) => item.id === selectedGmailAccountId)?.enabled === false ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      onClick={() => selectedGmailAccountId && updateGmailAccountState("delete", selectedGmailAccountId)}
+                      disabled={isSavingTarget !== null || !selectedGmailAccountId}
+                      className={cn(
+                        "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
+                        "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20",
+                      )}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Inbox summaries and email actions run via Nova chat prompts or mission workflow steps, not from this setup panel.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <ol className={cn("text-[11px] leading-5 list-decimal pl-4 space-y-1", isLight ? "text-s-60" : "text-slate-300")}>
+                    <li>In Google Cloud, create/select your project and enable Gmail API.</li>
+                    <li>Open OAuth consent screen, choose External, and when asked choose <span className="font-semibold">User Data</span>.</li>
+                    <li>Fill app info, then add Gmail scopes (start with gmail.readonly).</li>
+                    <li>If app is in Testing mode, add your Gmail addresses as Test users.</li>
+                    <li>Create OAuth Client ID (Web application) and paste the Client ID + Client Secret here.</li>
+                    <li>Add the exact Redirect URI shown above, click Save OAuth, then click Connect.</li>
+                    <li>Repeat Connect to add multiple Gmail accounts, then use Set Primary.</li>
+                  </ol>
+                </div>
+              </div>
+            </section>
+            )}
           </div>
 
           <section ref={activeStatusSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
@@ -2758,6 +3351,7 @@ export default function IntegrationsPage() {
                 { name: "Claude", active: settings.claude.connected },
                 { name: "Grok", active: settings.grok.connected },
                 { name: "Gemini", active: settings.gemini.connected },
+                { name: "Gmail", active: settings.gmail.connected },
               ].map((item) => (
                 <div
                   key={item.name}
@@ -2789,6 +3383,3 @@ export default function IntegrationsPage() {
     </div>
   )
 }
-
-
-

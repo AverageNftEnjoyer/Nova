@@ -43,6 +43,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "gmail",
+      label: "Gmail",
+      kind: "channel",
+      connected: config.gmail.connected && (config.gmail.refreshTokenEnc.trim().length > 0 || config.gmail.accessTokenEnc.trim().length > 0),
+      source: "core",
+      capabilities: ["fetch", "output"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "openai",
       label: "OpenAI",
       kind: "llm",

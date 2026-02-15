@@ -238,7 +238,7 @@ hud.stdout.on("data", (chunk) => {
     exec(
       `start "" msedge.exe ` +
       `--new-window ` +
-      `--app=${hudBaseUrl}/boot-right ` +
+      `--app=${hudBaseUrl}/login?next=%2Fboot-right ` +
       `--start-maximized ` +
       `--window-position=${x},${y} ` +
       `--window-size=${width},${height} ` +

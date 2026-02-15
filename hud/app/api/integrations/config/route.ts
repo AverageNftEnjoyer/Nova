@@ -8,10 +8,12 @@ import {
   type DiscordIntegrationConfig,
   type GrokIntegrationConfig,
   type GeminiIntegrationConfig,
+  type GmailIntegrationConfig,
   type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/server-store"
+import { requireApiSession } from "@/lib/security/auth"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -52,9 +54,14 @@ function normalizeTelegramInput(raw: unknown, current: TelegramIntegrationConfig
     chatIds = telegram.chatIds.map((id) => String(id).trim()).filter(Boolean)
   }
 
+  const nextBotToken =
+    typeof telegram.botToken === "string"
+      ? (telegram.botToken.trim().length > 0 ? telegram.botToken.trim() : current.botToken)
+      : current.botToken
+
   return {
-    connected: typeof telegram.connected === "boolean" ? telegram.connected : current.connected,
-    botToken: typeof telegram.botToken === "string" ? telegram.botToken.trim() : current.botToken,
+    connected: (typeof telegram.connected === "boolean" ? telegram.connected : current.connected) && nextBotToken.trim().length > 0,
+    botToken: nextBotToken,
     chatIds,
   }
 }
@@ -151,6 +158,51 @@ function normalizeGeminiInput(raw: unknown, current: GeminiIntegrationConfig): G
   }
 }
 
+function normalizeGmailInput(raw: unknown, current: GmailIntegrationConfig): GmailIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const gmail = raw as Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
+  const nextClientSecret =
+    typeof gmail.oauthClientSecret === "string"
+      ? (gmail.oauthClientSecret.trim().length > 0 ? gmail.oauthClientSecret.trim() : current.oauthClientSecret)
+      : current.oauthClientSecret
+  const scopes = typeof gmail.scopes === "string"
+    ? gmail.scopes.split(/\s+/).map((scope) => scope.trim()).filter(Boolean)
+    : Array.isArray(gmail.scopes)
+      ? gmail.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+      : current.scopes
+  const activeAccountId =
+    typeof gmail.activeAccountId === "string" ? gmail.activeAccountId.trim().toLowerCase() : current.activeAccountId
+  const accounts = Array.isArray(gmail.accounts)
+    ? gmail.accounts
+        .map((account) => ({
+          id: String(account?.id || "").trim().toLowerCase(),
+          email: String(account?.email || "").trim(),
+          scopes: Array.isArray(account?.scopes) ? account.scopes.map((scope) => String(scope).trim()).filter(Boolean) : [],
+          enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
+          accessTokenEnc: String(account?.accessTokenEnc || "").trim(),
+          refreshTokenEnc: String(account?.refreshTokenEnc || "").trim(),
+          tokenExpiry: Number(account?.tokenExpiry || 0),
+          connectedAt: String(account?.connectedAt || "").trim() || new Date().toISOString(),
+        }))
+        .filter((account) => account.id && account.email)
+    : current.accounts
+
+  return {
+    ...current,
+    connected:
+      (typeof gmail.connected === "boolean" ? gmail.connected : current.connected) &&
+      nextClientSecret.trim().length > 0 &&
+      (typeof gmail.oauthClientId === "string" ? gmail.oauthClientId.trim().length > 0 : current.oauthClientId.trim().length > 0),
+    email: typeof gmail.email === "string" ? gmail.email.trim() : current.email,
+    scopes,
+    accounts,
+    activeAccountId,
+    oauthClientId: typeof gmail.oauthClientId === "string" ? gmail.oauthClientId.trim() : current.oauthClientId,
+    oauthClientSecret: nextClientSecret,
+    redirectUri: typeof gmail.redirectUri === "string" && gmail.redirectUri.trim().length > 0 ? gmail.redirectUri.trim() : current.redirectUri,
+  }
+}
+
 function normalizeActiveLlmProvider(raw: unknown, current: LlmProvider): LlmProvider {
   if (raw === "openai" || raw === "claude" || raw === "grok" || raw === "gemini") return raw
   return current
@@ -189,16 +241,45 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.gemini.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.gemini.apiKey),
     },
+    gmail: {
+      connected: config.gmail.connected,
+      email: config.gmail.email,
+      scopes: config.gmail.scopes,
+      accounts: config.gmail.accounts.map((account) => ({
+        id: account.id,
+        email: account.email,
+        scopes: account.scopes,
+        enabled: account.enabled,
+        connectedAt: account.connectedAt,
+        active: account.id === config.gmail.activeAccountId,
+      })),
+      activeAccountId: config.gmail.activeAccountId,
+      oauthClientId: config.gmail.oauthClientId,
+      oauthClientSecret: "",
+      oauthClientSecretConfigured: config.gmail.oauthClientSecret.trim().length > 0,
+      oauthClientSecretMasked: maskSecret(config.gmail.oauthClientSecret),
+      redirectUri: config.gmail.redirectUri,
+      tokenConfigured:
+        config.gmail.accounts.some((account) => account.refreshTokenEnc.trim().length > 0 || account.accessTokenEnc.trim().length > 0) ||
+        config.gmail.refreshTokenEnc.trim().length > 0 ||
+        config.gmail.accessTokenEnc.trim().length > 0,
+    },
     agents: toClientAgents(config),
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   const config = await loadIntegrationsConfig()
   return NextResponse.json({ config: toClientConfig(config) })
 }
 
 export async function PATCH(req: Request) {
+  const unauthorized = await requireApiSession(req)
+  if (unauthorized) return unauthorized
+
   try {
     const body = (await req.json()) as Partial<IntegrationsConfig> & {
       telegram?: Partial<TelegramIntegrationConfig> & { chatIds?: string[] | string }
@@ -207,6 +288,7 @@ export async function PATCH(req: Request) {
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
       gemini?: Partial<GeminiIntegrationConfig>
+      gmail?: Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
       activeLlmProvider?: LlmProvider
     }
     const current = await loadIntegrationsConfig()
@@ -216,6 +298,7 @@ export async function PATCH(req: Request) {
     const claude = normalizeClaudeInput(body.claude, current.claude)
     const grok = normalizeGrokInput(body.grok, current.grok)
     const gemini = normalizeGeminiInput(body.gemini, current.gemini)
+    const gmail = normalizeGmailInput(body.gmail, current.gmail)
     const activeLlmProvider = normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
     const next = await updateIntegrationsConfig({
       telegram,
@@ -224,6 +307,7 @@ export async function PATCH(req: Request) {
       claude,
       grok,
       gemini,
+      gmail,
       activeLlmProvider,
       agents: body.agents ?? current.agents,
     })
