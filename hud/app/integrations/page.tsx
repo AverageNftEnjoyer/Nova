@@ -420,9 +420,19 @@ export default function IntegrationsPage() {
     let cancelled = false
 
     fetch("/api/integrations/config", { cache: "no-store" })
-      .then((res) => res.json())
-      .then((data) => {
+      .then(async (res) => ({
+        ok: res.ok,
+        status: res.status,
+        data: await res.json().catch(() => ({})),
+      }))
+      .then(({ ok, status, data }) => {
         if (cancelled) return
+        if (!ok) {
+          if (status === 401 || status === 403) {
+            router.push(`/login?next=${encodeURIComponent("/integrations")}`)
+            return
+          }
+        }
         const config = data?.config as IntegrationsSettings | undefined
         if (!config) {
           const fallback = loadIntegrationsSettings()
@@ -613,7 +623,7 @@ export default function IntegrationsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [router])
 
   useEffect(() => {
     const accounts = settings.gmail.accounts || []
@@ -995,6 +1005,14 @@ export default function IntegrationsPage() {
   }, [refreshGmailFromServer, router])
 
   const toggleTelegram = useCallback(async () => {
+    const canEnableFromSavedToken = Boolean(botTokenConfigured || settings.telegram.botTokenConfigured)
+    if (!settings.telegram.connected && !canEnableFromSavedToken) {
+      setSaveStatus({
+        type: "error",
+        message: "Save a Telegram bot token first, then enable Telegram.",
+      })
+      return
+    }
     const next = {
       ...settings,
       telegram: {
@@ -1013,9 +1031,24 @@ export default function IntegrationsPage() {
         body: JSON.stringify({ telegram: { connected: next.telegram.connected } }),
       })
       if (!res.ok) throw new Error("Failed to update Telegram status")
+      const payload = await res.json().catch(() => ({}))
+      const connected = Boolean(payload?.config?.telegram?.connected)
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          telegram: {
+            ...prev.telegram,
+            connected,
+            botTokenConfigured: Boolean(payload?.config?.telegram?.botTokenConfigured) || prev.telegram.botTokenConfigured,
+            botTokenMasked: typeof payload?.config?.telegram?.botTokenMasked === "string" ? payload.config.telegram.botTokenMasked : prev.telegram.botTokenMasked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
       setSaveStatus({
         type: "success",
-        message: `Telegram ${next.telegram.connected ? "enabled" : "disabled"}.`,
+        message: `Telegram ${connected ? "enabled" : "disabled"}.`,
       })
     } catch {
       setSettings(settings)
@@ -1027,7 +1060,7 @@ export default function IntegrationsPage() {
     } finally {
       setIsSavingTarget(null)
     }
-  }, [settings])
+  }, [botTokenConfigured, settings])
 
   const toggleDiscord = useCallback(async () => {
     const next = {
@@ -1554,6 +1587,7 @@ export default function IntegrationsPage() {
 
   const saveTelegramConfig = useCallback(async () => {
     const trimmedBotToken = botToken.trim()
+    const shouldEnable = settings.telegram.connected || trimmedBotToken.length > 0 || botTokenConfigured
     const payloadTelegram: Record<string, string> = {
       chatIds: chatIds.trim(),
     }
@@ -1576,16 +1610,40 @@ export default function IntegrationsPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          telegram: payloadTelegram,
+          telegram: {
+            ...payloadTelegram,
+            connected: shouldEnable,
+          },
         }),
       })
-      if (!saveRes.ok) throw new Error("Failed to save Telegram configuration")
       const savedData = await saveRes.json().catch(() => ({}))
+      if (!saveRes.ok) {
+        const message =
+          typeof savedData?.error === "string" && savedData.error.trim().length > 0
+            ? savedData.error.trim()
+            : "Failed to save Telegram configuration."
+        throw new Error(message)
+      }
       const masked = typeof savedData?.config?.telegram?.botTokenMasked === "string" ? savedData.config.telegram.botTokenMasked : ""
       const configured = Boolean(savedData?.config?.telegram?.botTokenConfigured) || trimmedBotToken.length > 0
+      const connected = Boolean(savedData?.config?.telegram?.connected)
       setBotToken("")
       setBotTokenMasked(masked)
       setBotTokenConfigured(configured)
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          telegram: {
+            ...prev.telegram,
+            connected,
+            botTokenConfigured: configured,
+            botTokenMasked: masked,
+            chatIds: chatIds.trim(),
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
 
       const testRes = await fetch("/api/integrations/test-telegram", {
         method: "POST",
@@ -1596,7 +1654,11 @@ export default function IntegrationsPage() {
           Array.isArray(testData?.results) && testData.results.length > 0
             ? testData.results.find((r: { ok?: boolean; error?: string }) => !r?.ok)?.error
             : undefined
-        throw new Error(testData?.error || fallbackResultError || "Saved, but Telegram verification failed.")
+        setSaveStatus({
+          type: "error",
+          message: testData?.error || fallbackResultError || "Saved, but Telegram verification failed.",
+        })
+        return
       }
 
       setSaveStatus({
@@ -1611,7 +1673,7 @@ export default function IntegrationsPage() {
     } finally {
       setIsSavingTarget(null)
     }
-  }, [botToken, chatIds, settings])
+  }, [botToken, botTokenConfigured, chatIds, settings])
 
   const saveDiscordConfig = useCallback(async () => {
     const next = {
@@ -2699,7 +2761,7 @@ export default function IntegrationsPage() {
                       type={showClaudeApiKey ? "text" : "password"}
                       value={claudeApiKey}
                       onChange={(e) => setClaudeApiKey(e.target.value)}
-                      placeholder={claudeApiKeyConfigured ? "Paste new Claude API key to replace current key" : "sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxx"}
+                      placeholder={claudeApiKeyConfigured ? "Paste new Claude API key to replace current key" : "anthropic-api-key-placeholder"}
                       name="claude_token_input"
                       autoComplete="off"
                       data-lpignore="true"
