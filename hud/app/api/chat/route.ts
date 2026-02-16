@@ -1,9 +1,9 @@
 import { streamText } from "ai"
-
+import { NextResponse } from "next/server"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 
@@ -18,8 +18,8 @@ function toAiSdkModelId(provider: string, model: string): string {
 }
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   ensureNotificationSchedulerStarted()
 
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 
     let selectedModel = String(model || "").trim()
     if (!selectedModel) {
-      const config = await loadIntegrationsConfig()
+      const config = await loadIntegrationsConfig(verified)
       const { provider, model: providerModel } = resolveConfiguredLlmProvider(config)
       selectedModel = toAiSdkModelId(provider, providerModel)
     }

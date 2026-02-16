@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server"
 
 import { buildGmailOAuthUrl } from "@/lib/integrations/gmail"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const url = new URL(req.url)
     const returnTo = String(url.searchParams.get("returnTo") || "/integrations")
-    const authUrl = await buildGmailOAuthUrl(returnTo)
+    const authUrl = await buildGmailOAuthUrl(returnTo, verified)
     if (url.searchParams.get("mode") === "json") {
       return NextResponse.json({ ok: true, authUrl })
     }

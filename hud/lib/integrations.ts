@@ -82,7 +82,7 @@ export interface IntegrationsSettings {
   updatedAt: string
 }
 
-const STORAGE_KEY = "nova_integrations_settings"
+const STORAGE_KEY_PREFIX = "nova_integrations_settings"
 export const INTEGRATIONS_UPDATED_EVENT = "nova:integrations-updated"
 
 const DEFAULT_SETTINGS: IntegrationsSettings = {
@@ -146,11 +146,19 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
   updatedAt: new Date().toISOString(),
 }
 
+function getStorageKey(): string {
+  const userId = getActiveUserId()
+  if (!userId) return ""
+  return `${STORAGE_KEY_PREFIX}:${userId}`
+}
+
 export function loadIntegrationsSettings(): IntegrationsSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const key = getStorageKey()
+    if (!key) return DEFAULT_SETTINGS
+    const raw = localStorage.getItem(key)
     if (!raw) return DEFAULT_SETTINGS
     const parsed = JSON.parse(raw) as Partial<IntegrationsSettings>
     return {
@@ -214,6 +222,8 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
 
 export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
   if (typeof window === "undefined") return
+  const key = getStorageKey()
+  if (!key) return
 
   // Never persist raw secrets in browser storage.
   const sanitized: IntegrationsSettings = {
@@ -252,7 +262,7 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     updatedAt: new Date().toISOString(),
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+  localStorage.setItem(key, JSON.stringify(updated))
   window.dispatchEvent(
     new CustomEvent(INTEGRATIONS_UPDATED_EVENT, {
       detail: updated,
@@ -368,3 +378,4 @@ export function updateGmailIntegrationSettings(partial: Partial<GmailIntegration
   saveIntegrationsSettings(updated)
   return updated
 }
+import { getActiveUserId } from "@/lib/active-user"

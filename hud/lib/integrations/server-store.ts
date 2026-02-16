@@ -3,6 +3,8 @@ import "server-only"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption"
+import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 export interface TelegramIntegrationConfig {
   connected: boolean
@@ -89,6 +91,18 @@ export interface IntegrationsConfig {
 
 const DATA_DIR = path.join(process.cwd(), "data")
 const DATA_FILE = path.join(DATA_DIR, "integrations-config.json")
+const INTEGRATIONS_TABLE = "integration_configs"
+
+export type IntegrationsStoreScope =
+  | {
+      userId?: string | null
+      accessToken?: string | null
+      client?: SupabaseClient | null
+      user?: { id?: string | null } | null
+      allowServiceRole?: boolean
+    }
+  | null
+  | undefined
 
 const DEFAULT_CONFIG: IntegrationsConfig = {
   telegram: {
@@ -330,57 +344,53 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
   }
 }
 
-export async function loadIntegrationsConfig(): Promise<IntegrationsConfig> {
-  await ensureDataFile()
-
-  try {
-    const raw = await readFile(DATA_FILE, "utf8")
-    const parsed = JSON.parse(raw) as Partial<IntegrationsConfig>
-    return normalizeConfig(parsed)
-  } catch {
-    return DEFAULT_CONFIG
-  }
+function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; client: SupabaseClient } | null {
+  const userIdRaw =
+    (typeof scope?.userId === "string" ? scope.userId : "") ||
+    (typeof scope?.user?.id === "string" ? scope.user.id : "")
+  const userId = String(userIdRaw || "").trim()
+  if (!userId) return null
+  if (scope?.client) return { userId, client: scope.client }
+  const accessToken = String(scope?.accessToken || "").trim()
+  if (accessToken) return { userId, client: createSupabaseServerClient(accessToken) }
+  if (scope?.allowServiceRole) return { userId, client: createSupabaseAdminClient() }
+  throw new Error("Missing scoped Supabase auth client/token for integrations access.")
 }
 
-export async function saveIntegrationsConfig(config: IntegrationsConfig): Promise<void> {
-  await ensureDataFile()
-  const normalized = normalizeConfig({
+function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig {
+  return {
     ...config,
-    updatedAt: new Date().toISOString(),
-  })
-  const toStore: IntegrationsConfig = {
-    ...normalized,
     telegram: {
-      ...normalized.telegram,
-      botToken: wrapStoredSecret(normalized.telegram.botToken),
+      ...config.telegram,
+      botToken: wrapStoredSecret(config.telegram.botToken),
     },
     openai: {
-      ...normalized.openai,
-      apiKey: wrapStoredSecret(normalized.openai.apiKey),
+      ...config.openai,
+      apiKey: wrapStoredSecret(config.openai.apiKey),
     },
     claude: {
-      ...normalized.claude,
-      apiKey: wrapStoredSecret(normalized.claude.apiKey),
+      ...config.claude,
+      apiKey: wrapStoredSecret(config.claude.apiKey),
     },
     grok: {
-      ...normalized.grok,
-      apiKey: wrapStoredSecret(normalized.grok.apiKey),
+      ...config.grok,
+      apiKey: wrapStoredSecret(config.grok.apiKey),
     },
     gemini: {
-      ...normalized.gemini,
-      apiKey: wrapStoredSecret(normalized.gemini.apiKey),
+      ...config.gemini,
+      apiKey: wrapStoredSecret(config.gemini.apiKey),
     },
     gmail: {
-      ...normalized.gmail,
-      accounts: normalized.gmail.accounts.map((account) => ({
+      ...config.gmail,
+      accounts: config.gmail.accounts.map((account) => ({
         ...account,
         accessTokenEnc: wrapStoredSecret(account.accessTokenEnc),
         refreshTokenEnc: wrapStoredSecret(account.refreshTokenEnc),
       })),
-      oauthClientSecret: wrapStoredSecret(normalized.gmail.oauthClientSecret),
+      oauthClientSecret: wrapStoredSecret(config.gmail.oauthClientSecret),
     },
     agents: Object.fromEntries(
-      Object.entries(normalized.agents).map(([id, agent]) => [
+      Object.entries(config.agents).map(([id, agent]) => [
         id,
         {
           ...agent,
@@ -389,12 +399,10 @@ export async function saveIntegrationsConfig(config: IntegrationsConfig): Promis
       ]),
     ),
   }
-  await writeFile(DATA_FILE, JSON.stringify(toStore, null, 2), "utf8")
 }
 
-export async function updateIntegrationsConfig(partial: Partial<IntegrationsConfig>): Promise<IntegrationsConfig> {
-  const current = await loadIntegrationsConfig()
-  const next = normalizeConfig({
+function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<IntegrationsConfig>): IntegrationsConfig {
+  return normalizeConfig({
     ...current,
     ...partial,
     telegram: {
@@ -453,6 +461,65 @@ export async function updateIntegrationsConfig(partial: Partial<IntegrationsConf
     },
     updatedAt: new Date().toISOString(),
   })
-  await saveIntegrationsConfig(next)
+}
+
+export async function loadIntegrationsConfig(scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
+  const normalizedScope = normalizeStoreScope(scope)
+  if (normalizedScope) {
+    const { userId, client } = normalizedScope
+    const { data, error } = await client
+      .from(INTEGRATIONS_TABLE)
+      .select("config")
+      .eq("user_id", userId)
+      .maybeSingle()
+    if (error) throw new Error(`Failed to load integrations config: ${error.message}`)
+    const raw = (data?.config && typeof data.config === "object" ? (data.config as Partial<IntegrationsConfig>) : null) || null
+    if (!raw) return normalizeConfig(DEFAULT_CONFIG)
+    return normalizeConfig(raw)
+  }
+
+  await ensureDataFile()
+
+  try {
+    const raw = await readFile(DATA_FILE, "utf8")
+    const parsed = JSON.parse(raw) as Partial<IntegrationsConfig>
+    return normalizeConfig(parsed)
+  } catch {
+    return DEFAULT_CONFIG
+  }
+}
+
+export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?: IntegrationsStoreScope): Promise<void> {
+  const normalized = normalizeConfig({
+    ...config,
+    updatedAt: new Date().toISOString(),
+  })
+  const toStore = toEncryptedStoreConfig(normalized)
+
+  const normalizedScope = normalizeStoreScope(scope)
+  if (normalizedScope) {
+    const { userId, client } = normalizedScope
+    const { error } = await client
+      .from(INTEGRATIONS_TABLE)
+      .upsert(
+        {
+          user_id: userId,
+          config: toStore,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      )
+    if (error) throw new Error(`Failed to save integrations config: ${error.message}`)
+    return
+  }
+
+  await ensureDataFile()
+  await writeFile(DATA_FILE, JSON.stringify(toStore, null, 2), "utf8")
+}
+
+export async function updateIntegrationsConfig(partial: Partial<IntegrationsConfig>, scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
+  const current = await loadIntegrationsConfig(scope)
+  const next = mergeIntegrationsConfig(current, partial)
+  await saveIntegrationsConfig(next, scope)
   return next
 }

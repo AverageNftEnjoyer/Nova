@@ -166,7 +166,7 @@ export default function HomePage() {
     latestUsage,
     clearAgentMessages,
   } = useNovaState()
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
   const [hasAnimated, setHasAnimated] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -277,7 +277,8 @@ export default function HomePage() {
   }, [])
 
   useLayoutEffect(() => {
-    const muted = localStorage.getItem("nova-muted") === "true"
+    const storedMuted = localStorage.getItem("nova-muted")
+    const muted = storedMuted === null ? true : storedMuted === "true"
     setIsMuted(muted)
     setMuteHydrated(true)
   }, [])
@@ -379,13 +380,6 @@ export default function HomePage() {
                 ? String(data?.config?.gemini?.defaultModel || "gemini-2.5-pro")
               : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
         )
-        updateTelegramIntegrationSettings({ connected: telegram })
-        updateDiscordIntegrationSettings({ connected: discord })
-        updateOpenAIIntegrationSettings({ connected: openai })
-        updateClaudeIntegrationSettings({ connected: claude })
-        updateGrokIntegrationSettings({ connected: grok })
-        updateGeminiIntegrationSettings({ connected: gemini })
-        updateGmailIntegrationSettings({ connected: gmail, tokenConfigured: gmailReady })
       })
       .catch(() => {})
     refreshNotificationSchedules()
@@ -585,10 +579,10 @@ export default function HomePage() {
 
   // Always sync muted state to agent on connect to avoid stale mute state.
   useEffect(() => {
-    if (connected) {
+    if (connected && muteHydrated) {
       setMuted(isMuted)
     }
-  }, [connected, isMuted, setMuted])
+  }, [connected, isMuted, muteHydrated, setMuted])
 
   // Watch for voice-triggered messages and open chat
   const voiceConvoCreatedRef = useRef(false)
@@ -606,13 +600,33 @@ export default function HomePage() {
 
       // Create conversation with voice messages
       const convo = createConversation()
-      convo.messages = agentMessages.map(m => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        createdAt: new Date(m.ts).toISOString(),
-        source: m.source || "voice",
-      }))
+      const mergedVoiceMessages: ChatMessage[] = []
+      for (const m of agentMessages) {
+        const incoming: ChatMessage = {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          createdAt: new Date(m.ts).toISOString(),
+          source: m.source || "voice",
+        }
+        if (incoming.role !== "assistant") {
+          mergedVoiceMessages.push(incoming)
+          continue
+        }
+        const existingIdx = mergedVoiceMessages.findIndex((entry) => entry.role === "assistant" && entry.id === incoming.id)
+        if (existingIdx === -1) {
+          mergedVoiceMessages.push(incoming)
+          continue
+        }
+        const existing = mergedVoiceMessages[existingIdx]
+        mergedVoiceMessages[existingIdx] = {
+          ...existing,
+          content: `${existing.content}${incoming.content}`,
+          createdAt: incoming.createdAt,
+          source: incoming.source || existing.source,
+        }
+      }
+      convo.messages = mergedVoiceMessages
       convo.title = voiceUserMsg.content.length > 40
         ? voiceUserMsg.content.slice(0, 40) + "..."
         : voiceUserMsg.content

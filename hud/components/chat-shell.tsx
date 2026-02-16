@@ -14,11 +14,8 @@ import {
   type Conversation,
   type ChatMessage,
   generateId,
-  loadConversations,
-  saveConversations,
   getActiveId,
   setActiveId,
-  createConversation,
   autoTitle,
 } from "@/lib/conversations"
 import {
@@ -198,11 +195,53 @@ export function ChatShell() {
   const pendingBootSendHandledRef = useRef(false)
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
+  const syncTimerRef = useRef<number | null>(null)
+
+  const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
+    const res = await fetch("/api/threads", { cache: "no-store" })
+    const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+    if (!res.ok) throw new Error("Failed to load conversations.")
+    return Array.isArray(data.conversations) ? data.conversations : []
+  }, [])
+
+  const createServerConversation = useCallback(async (): Promise<Conversation> => {
+    const res = await fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New chat" }),
+    })
+    const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
+    if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
+    return data.conversation
+  }, [])
+
+  const patchServerConversation = useCallback(async (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error("Failed to update conversation.")
+  }, [])
+
+  const deleteServerConversation = useCallback(async (id: string) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    })
+    if (!res.ok) throw new Error("Failed to delete conversation.")
+  }, [])
+
+  const syncServerMessages = useCallback(async (convo: Conversation) => {
+    await fetch(`/api/threads/${encodeURIComponent(convo.id)}/messages`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: convo.messages }),
+    })
+  }, [])
 
   // Load conversations and muted state on mount
   useEffect(() => {
-    const convos = loadConversations()
-    setConversations(convos)
+    let cancelled = false
 
     const settings = loadUserSettings()
     setOrbColor(settings.app.orbColor)
@@ -210,22 +249,43 @@ export function ChatShell() {
     setBackground(nextBackground)
     writeShellUiCache({ background: nextBackground, orbColor: settings.app.orbColor })
 
-    const activeId = getActiveId()
-    const found = convos.find((c) => c.id === activeId)
-    if (found) {
-      setActiveConvo(found)
-    } else if (convos.length > 0) {
-      setActiveConvo(convos[0])
-      setActiveId(convos[0].id)
-    } else {
-      const fresh = createConversation()
-      setConversations([fresh])
-      setActiveConvo(fresh)
-      setActiveId(fresh.id)
-      saveConversations([fresh])
+    void (async () => {
+      try {
+        const convos = await fetchConversationsFromServer()
+        if (cancelled) return
+        const activeId = getActiveId()
+        const found = convos.find((c) => c.id === activeId)
+        if (found) {
+          setConversations(convos)
+          setActiveConvo(found)
+          setIsLoaded(true)
+          return
+        }
+        if (convos.length > 0) {
+          setConversations(convos)
+          setActiveConvo(convos[0])
+          setActiveId(convos[0].id)
+          setIsLoaded(true)
+          return
+        }
+        const fresh = await createServerConversation()
+        if (cancelled) return
+        setConversations([fresh])
+        setActiveConvo(fresh)
+        setActiveId(fresh.id)
+        setIsLoaded(true)
+      } catch {
+        if (cancelled) return
+        setConversations([])
+        setActiveConvo(null)
+        setIsLoaded(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-    setIsLoaded(true)
-  }, [isLight])
+  }, [isLight, createServerConversation, fetchConversationsFromServer])
 
   useEffect(() => {
     const refresh = () => {
@@ -470,12 +530,6 @@ export function ChatShell() {
                 ? String(data?.config?.gemini?.defaultModel || "gemini-2.5-pro")
               : String(data?.config?.openai?.defaultModel || "gpt-4.1"),
         )
-        updateTelegramIntegrationSettings({ connected: telegram })
-        updateDiscordIntegrationSettings({ connected: discord })
-        updateOpenAIIntegrationSettings({ connected: openai })
-        updateClaudeIntegrationSettings({ connected: claude })
-        updateGrokIntegrationSettings({ connected: grok })
-        updateGeminiIntegrationSettings({ connected: gemini })
       })
       .catch(() => {})
     refreshNotificationSchedules()
@@ -671,14 +725,27 @@ export function ChatShell() {
   const persist = useCallback(
     (convos: Conversation[], active: Conversation | null) => {
       setConversations(convos)
-      saveConversations(convos)
       if (active) {
         setActiveConvo(active)
         setActiveId(active.id)
+        if (syncTimerRef.current !== null) {
+          window.clearTimeout(syncTimerRef.current)
+        }
+        syncTimerRef.current = window.setTimeout(() => {
+          void syncServerMessages(active).catch(() => {})
+        }, 280)
       }
     },
-    [],
+    [syncServerMessages],
   )
+
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current !== null) {
+        window.clearTimeout(syncTimerRef.current)
+      }
+    }
+  }, [])
 
   // Merge incoming agent messages into the active conversation
   useEffect(() => {
@@ -795,7 +862,7 @@ export function ChatShell() {
   }, [activeConvo])
 
   const [localThinking, setLocalThinking] = useState(false)
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
   const [thinkingStalled, setThinkingStalled] = useState(false)
   const isThinking = !thinkingStalled && (novaState === "thinking" || localThinking)
@@ -816,17 +883,18 @@ export function ChatShell() {
   }, [isMuted, setMuted])
 
   useLayoutEffect(() => {
-    const muted = localStorage.getItem("nova-muted") === "true"
+    const storedMuted = localStorage.getItem("nova-muted")
+    const muted = storedMuted === null ? true : storedMuted === "true"
     setIsMuted(muted)
     setMuteHydrated(true)
   }, [])
 
   // Always sync muted state to agent on connect to avoid stale mute state.
   useEffect(() => {
-    if (agentConnected) {
+    if (agentConnected && muteHydrated) {
       setMuted(isMuted)
     }
-  }, [agentConnected, isMuted, setMuted])
+  }, [agentConnected, isMuted, muteHydrated, setMuted])
 
   // Clear local thinking flag ONLY when agent starts speaking (TTS begins)
   // This keeps the thinking animation visible through the full OpenAI response time
@@ -882,8 +950,7 @@ export function ChatShell() {
     try {
       const parsed = JSON.parse(raw) as { convoId?: string; content?: string }
       const pendingContent = typeof parsed.content === "string" ? parsed.content.trim() : ""
-      const pendingConvoId = typeof parsed.convoId === "string" ? parsed.convoId : ""
-      if (!pendingContent || (pendingConvoId && pendingConvoId !== activeConvo.id)) return
+      if (!pendingContent) return
 
       pendingBootSendHandledRef.current = true
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
@@ -942,22 +1009,30 @@ export function ChatShell() {
 
   // Switch conversation
   const handleSelectConvo = useCallback(
-    (id: string) => {
+    async (id: string) => {
       clearAgentMessages()
       mergedCountRef.current = 0
 
-      const found = conversations.find((c) => c.id === id)
+      let found = conversations.find((c) => c.id === id)
+      if (!found) {
+        const remote = await fetchConversationsFromServer().catch(() => [])
+        if (remote.length > 0) {
+          setConversations(remote)
+          found = remote.find((c) => c.id === id)
+        }
+      }
       if (found) {
         setActiveConvo(found)
         setActiveId(found.id)
       }
     },
-    [conversations, clearAgentMessages],
+    [conversations, clearAgentMessages, fetchConversationsFromServer],
   )
 
   // Delete conversation
   const handleDeleteConvo = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      await deleteServerConversation(id).catch(() => {})
       const remaining = conversations.filter((c) => c.id !== id)
 
       if (activeConvo?.id === id) {
@@ -967,31 +1042,39 @@ export function ChatShell() {
         if (remaining.length > 0) {
           persist(remaining, remaining[0])
         } else {
-          const fresh = createConversation()
+          const fresh = await createServerConversation().catch(() => null)
+          if (!fresh) {
+            setConversations([])
+            setActiveConvo(null)
+            setActiveId(null)
+            return
+          }
           persist([fresh], fresh)
         }
       } else {
         persist(remaining, activeConvo)
       }
     },
-    [conversations, activeConvo, clearAgentMessages, persist],
+    [conversations, activeConvo, clearAgentMessages, createServerConversation, deleteServerConversation, persist],
   )
 
   const handleRenameConvo = useCallback(
     (id: string, title: string) => {
       const trimmed = title.trim()
       if (!trimmed) return
+      void patchServerConversation(id, { title: trimmed }).catch(() => {})
       const next = conversations.map((c) =>
         c.id === id ? { ...c, title: trimmed, updatedAt: new Date().toISOString() } : c,
       )
       const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
       persist(next, nextActive)
     },
-    [conversations, activeConvo, persist],
+    [conversations, activeConvo, patchServerConversation, persist],
   )
 
   const handleArchiveConvo = useCallback(
     (id: string, archived: boolean) => {
+      void patchServerConversation(id, { archived }).catch(() => {})
       const next = conversations.map((c) =>
         c.id === id ? { ...c, archived, updatedAt: new Date().toISOString() } : c,
       )
@@ -1005,16 +1088,17 @@ export function ChatShell() {
       const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
       persist(next, nextActive)
     },
-    [conversations, activeConvo, persist],
+    [conversations, activeConvo, patchServerConversation, persist],
   )
 
   const handlePinConvo = useCallback(
     (id: string, pinned: boolean) => {
+      void patchServerConversation(id, { pinned }).catch(() => {})
       const next = conversations.map((c) => (c.id === id ? { ...c, pinned } : c))
       const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
       persist(next, nextActive)
     },
-    [conversations, activeConvo, persist],
+    [conversations, activeConvo, patchServerConversation, persist],
   )
 
   const panelClass =

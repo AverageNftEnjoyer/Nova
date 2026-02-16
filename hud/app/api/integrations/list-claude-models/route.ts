@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -19,12 +19,12 @@ type AnthropicModel = {
 }
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const body = (await req.json().catch(() => ({}))) as { apiKey?: string; baseUrl?: string }
-    const config = await loadIntegrationsConfig()
+    const config = await loadIntegrationsConfig(verified)
 
     const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.claude.apiKey.trim()
     const baseUrl = toApiBase((typeof body.baseUrl === "string" && body.baseUrl.trim()) || config.claude.baseUrl)

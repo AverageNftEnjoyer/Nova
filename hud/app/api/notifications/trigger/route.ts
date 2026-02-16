@@ -3,13 +3,13 @@ import { NextResponse } from "next/server"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMissionWorkflow } from "@/lib/missions/runtime"
 import { buildSchedule, loadSchedules } from "@/lib/notifications/store"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   ensureNotificationSchedulerStarted()
@@ -86,3 +86,4 @@ export async function POST(req: Request) {
     )
   }
 }
+

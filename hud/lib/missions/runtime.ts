@@ -1,7 +1,7 @@
 import "server-only"
 
 import { loadIntegrationCatalog } from "@/lib/integrations/catalog-server"
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { type IntegrationsStoreScope, loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
 import type { NotificationSchedule } from "@/lib/notifications/store"
@@ -1111,8 +1111,13 @@ function isTemplateRecipient(value: string): boolean {
   return /^\{\{\s*[^}]+\s*\}\}$/.test(text)
 }
 
-export async function completeWithConfiguredLlm(systemText: string, userText: string, maxTokens = 1200): Promise<CompletionResult> {
-  const config = await loadIntegrationsConfig()
+export async function completeWithConfiguredLlm(
+  systemText: string,
+  userText: string,
+  maxTokens = 1200,
+  scope?: IntegrationsStoreScope,
+): Promise<CompletionResult> {
+  const config = await loadIntegrationsConfig(scope)
   const provider: Provider = resolveConfiguredLlmProvider(config).provider
 
   if (provider === "claude") {

@@ -13,7 +13,7 @@ import {
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/server-store"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -269,16 +269,16 @@ function toClientConfig(config: IntegrationsConfig) {
 }
 
 export async function GET(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
-  const config = await loadIntegrationsConfig()
+  const config = await loadIntegrationsConfig(verified)
   return NextResponse.json({ config: toClientConfig(config) })
 }
 
 export async function PATCH(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const body = (await req.json()) as Partial<IntegrationsConfig> & {
@@ -291,7 +291,7 @@ export async function PATCH(req: Request) {
       gmail?: Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
       activeLlmProvider?: LlmProvider
     }
-    const current = await loadIntegrationsConfig()
+    const current = await loadIntegrationsConfig(verified)
     const telegram = normalizeTelegramInput(body.telegram, current.telegram)
     const discord = normalizeDiscordInput(body.discord, current.discord)
     const openai = normalizeOpenAIInput(body.openai, current.openai)
@@ -310,7 +310,7 @@ export async function PATCH(req: Request) {
       gmail,
       activeLlmProvider,
       agents: body.agents ?? current.agents,
-    })
+    }, verified)
     return NextResponse.json({ config: toClientConfig(next) })
   } catch (error) {
     return NextResponse.json(

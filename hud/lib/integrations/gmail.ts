@@ -3,7 +3,7 @@ import "server-only"
 import { createHash, createHmac, randomBytes } from "node:crypto"
 
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption"
-import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/server-store"
+import { type IntegrationsStoreScope, loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/server-store"
 
 const GOOGLE_OAUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -22,6 +22,7 @@ const DEV_FALLBACK_OAUTH_STATE_SECRET = createHash("sha256")
 interface GmailOAuthStatePayload {
   ts: number
   nonce: string
+  userId: string
   returnTo: string
 }
 
@@ -54,8 +55,8 @@ function getOAuthSecret(): string {
   return DEV_FALLBACK_OAUTH_STATE_SECRET
 }
 
-async function getGmailClientConfig() {
-  const integrations = await loadIntegrationsConfig()
+async function getGmailClientConfig(scope?: IntegrationsStoreScope) {
+  const integrations = await loadIntegrationsConfig(scope)
   const clientId = String(integrations.gmail.oauthClientId || process.env.NOVA_GMAIL_CLIENT_ID || "").trim()
   const clientSecret = String(integrations.gmail.oauthClientSecret || process.env.NOVA_GMAIL_CLIENT_SECRET || "").trim()
   const redirectUri = String(integrations.gmail.redirectUri || process.env.NOVA_GMAIL_REDIRECT_URI || "http://localhost:3000/api/integrations/gmail/callback").trim()
@@ -86,11 +87,13 @@ function verifyState(raw: string): GmailOAuthStatePayload | null {
   }
 }
 
-export async function buildGmailOAuthUrl(returnTo: string): Promise<string> {
-  const { clientId, redirectUri, appUrl } = await getGmailClientConfig()
+export async function buildGmailOAuthUrl(returnTo: string, scope?: IntegrationsStoreScope): Promise<string> {
+  const { clientId, redirectUri, appUrl } = await getGmailClientConfig(scope)
+  const userId = String(scope?.userId || scope?.user?.id || "").trim()
   if (!clientId) throw new Error("Gmail OAuth client id is missing (NOVA_GMAIL_CLIENT_ID).")
+  if (!userId) throw new Error("Missing user scope for Gmail OAuth.")
   const safeReturnTo = returnTo.startsWith("/") ? returnTo : "/integrations"
-  const state = signState({ ts: Date.now(), nonce: randomBytes(8).toString("hex"), returnTo: safeReturnTo })
+  const state = signState({ ts: Date.now(), nonce: randomBytes(8).toString("hex"), userId, returnTo: safeReturnTo })
   const redirectTarget = redirectUri || `${appUrl}/api/integrations/gmail/callback`
   const params = new URLSearchParams({
     client_id: clientId,
@@ -105,14 +108,16 @@ export async function buildGmailOAuthUrl(returnTo: string): Promise<string> {
   return `${GOOGLE_OAUTH_BASE}?${params.toString()}`
 }
 
-export function parseGmailOAuthState(state: string): { returnTo: string } | null {
+export function parseGmailOAuthState(state: string): { userId: string; returnTo: string } | null {
   const parsed = verifyState(state)
   if (!parsed) return null
-  return { returnTo: parsed.returnTo || "/integrations" }
+  const userId = String(parsed.userId || "").trim()
+  if (!userId) return null
+  return { userId, returnTo: parsed.returnTo || "/integrations" }
 }
 
-export async function exchangeCodeForGmailTokens(code: string): Promise<void> {
-  const { clientId, clientSecret, redirectUri } = await getGmailClientConfig()
+export async function exchangeCodeForGmailTokens(code: string, scope?: IntegrationsStoreScope): Promise<void> {
+  const { clientId, clientSecret, redirectUri } = await getGmailClientConfig(scope)
   if (!clientId || !clientSecret) {
     throw new Error("Gmail OAuth client credentials are missing.")
   }
@@ -153,7 +158,7 @@ export async function exchangeCodeForGmailTokens(code: string): Promise<void> {
     ? String((profileData as { email?: string })?.email || "").trim()
     : ""
 
-  const current = await loadIntegrationsConfig()
+  const current = await loadIntegrationsConfig(scope)
   const accountId = (email || "gmail-primary").toLowerCase()
   const existing = current.gmail.accounts.find((account) => account.id === accountId)
   const existingRefresh = existing ? decryptSecret(existing.refreshTokenEnc) : decryptSecret(current.gmail.refreshTokenEnc)
@@ -185,11 +190,11 @@ export async function exchangeCodeForGmailTokens(code: string): Promise<void> {
       refreshTokenEnc: nextAccount.refreshTokenEnc,
       tokenExpiry: expiry,
     },
-  })
+  }, scope)
 }
 
-export async function disconnectGmail(accountId?: string): Promise<void> {
-  const current = await loadIntegrationsConfig()
+export async function disconnectGmail(accountId?: string, scope?: IntegrationsStoreScope): Promise<void> {
+  const current = await loadIntegrationsConfig(scope)
   const targetId = String(accountId || "").trim().toLowerCase()
   const nextAccounts = targetId
     ? current.gmail.accounts.filter((account) => account.id !== targetId)
@@ -209,11 +214,11 @@ export async function disconnectGmail(accountId?: string): Promise<void> {
       refreshTokenEnc: nextActive?.refreshTokenEnc || "",
       tokenExpiry: nextActive?.tokenExpiry || 0,
     },
-  })
+  }, scope)
 }
 
-async function refreshGmailAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresIn: number }> {
-  const { clientId, clientSecret } = await getGmailClientConfig()
+async function refreshGmailAccessToken(refreshToken: string, scope?: IntegrationsStoreScope): Promise<{ accessToken: string; expiresIn: number }> {
+  const { clientId, clientSecret } = await getGmailClientConfig(scope)
   if (!clientId || !clientSecret) throw new Error("Gmail OAuth client credentials are missing.")
   const payload = new URLSearchParams({
     refresh_token: refreshToken,
@@ -240,8 +245,8 @@ async function refreshGmailAccessToken(refreshToken: string): Promise<{ accessTo
   return { accessToken, expiresIn }
 }
 
-export async function getValidGmailAccessToken(accountId?: string, forceRefresh = false): Promise<string> {
-  const config = await loadIntegrationsConfig()
+export async function getValidGmailAccessToken(accountId?: string, forceRefresh = false, scope?: IntegrationsStoreScope): Promise<string> {
+  const config = await loadIntegrationsConfig(scope)
   const gmail = config.gmail
   if (!gmail.connected) throw new Error("Gmail is not connected.")
   const preferredId = String(accountId || gmail.activeAccountId || "").trim().toLowerCase()
@@ -258,7 +263,7 @@ export async function getValidGmailAccessToken(accountId?: string, forceRefresh 
   const refreshToken = decryptSecret(account.refreshTokenEnc)
   if (!refreshToken) throw new Error("No Gmail refresh token available. Reconnect Gmail.")
 
-  const refreshed = await refreshGmailAccessToken(refreshToken)
+  const refreshed = await refreshGmailAccessToken(refreshToken, scope)
   const nextAccounts = gmail.accounts.map((item) =>
     item.id === account.id
       ? {
@@ -282,7 +287,7 @@ export async function getValidGmailAccessToken(accountId?: string, forceRefresh 
       refreshTokenEnc: nextActive?.refreshTokenEnc || "",
       tokenExpiry: nextActive?.tokenExpiry || 0,
     },
-  })
+  }, scope)
   return refreshed.accessToken
 }
 
@@ -322,8 +327,8 @@ function extractPlainText(payload: Record<string, unknown> | null | undefined): 
   return ""
 }
 
-export async function listRecentGmailMessages(maxResults = 10, accountId?: string): Promise<GmailMessageSummary[]> {
-  let token = await getValidGmailAccessToken(accountId)
+export async function listRecentGmailMessages(maxResults = 10, accountId?: string, scope?: IntegrationsStoreScope): Promise<GmailMessageSummary[]> {
+  let token = await getValidGmailAccessToken(accountId, false, scope)
   const listParams = new URLSearchParams({
     maxResults: String(Math.max(1, Math.min(25, maxResults))),
     q: "in:inbox -category:promotions",
@@ -333,7 +338,7 @@ export async function listRecentGmailMessages(maxResults = 10, accountId?: strin
     cache: "no-store",
   })
   if (listRes.status === 401 || listRes.status === 403) {
-    token = await getValidGmailAccessToken(accountId, true)
+    token = await getValidGmailAccessToken(accountId, true, scope)
     listRes = await fetch(`${GMAIL_API_BASE}/users/me/messages?${listParams.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",

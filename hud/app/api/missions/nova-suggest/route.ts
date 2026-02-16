@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -27,8 +27,8 @@ function cleanPrompt(raw: string): string {
 }
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   let debugSelected = "server_llm=unknown model=unknown"
   try {
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Step title is required." }, { status: 400 })
     }
 
-    const config = await loadIntegrationsConfig()
+    const config = await loadIntegrationsConfig(verified)
     const selected = resolveConfiguredLlmProvider(config)
     const provider: Provider = selected.provider
     debugSelected = `server_llm=${selected.provider} model=${selected.model}`

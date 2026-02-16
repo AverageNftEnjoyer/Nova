@@ -1,15 +1,42 @@
 import { spawn } from "node:child_process"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { existsSync, readFileSync } from "node:fs"
 
 const args = process.argv.slice(2)
+const isDev = args[0] === "dev"
+const hasBundlerFlag = args.includes("--webpack") || args.includes("--turbo") || args.includes("--turbopack")
+const preferWebpack = process.env.NOVA_USE_TURBOPACK !== "1"
+const nextArgs = isDev && !hasBundlerFlag && preferWebpack ? [...args, "--webpack"] : args
 const here = dirname(fileURLToPath(import.meta.url))
 const nextBin = resolve(here, "../node_modules/next/dist/bin/next")
+const rootEnvPath = resolve(here, "../../.env")
 
-const child = spawn(process.execPath, [nextBin, ...args], {
+function parseEnvFile(raw) {
+  const out = {}
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith("#")) continue
+    const idx = trimmed.indexOf("=")
+    if (idx < 0) continue
+    const key = trimmed.slice(0, idx).trim()
+    if (!key) continue
+    let value = trimmed.slice(idx + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    out[key] = value
+  }
+  return out
+}
+
+const rootEnv = existsSync(rootEnvPath) ? parseEnvFile(readFileSync(rootEnvPath, "utf8")) : {}
+
+const child = spawn(process.execPath, [nextBin, ...nextArgs], {
   stdio: ["inherit", "pipe", "pipe"],
   shell: false,
   env: {
+    ...rootEnv,
     ...process.env,
     BROWSERSLIST_IGNORE_OLD_DATA: "true",
     BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA: "true",

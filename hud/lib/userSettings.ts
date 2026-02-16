@@ -1,7 +1,7 @@
 // User Settings - Persisted across sessions
-// Access tiers: "Core Access" | "Developer" | "Admin" | "Operator"
+import { getActiveUserId } from "@/lib/active-user"
 
-export type AccessTier = "Core Access" | "Developer" | "Admin" | "Operator"
+export type AccessTier = "Core Access"
 
 export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
 export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
@@ -65,7 +65,7 @@ export interface UserSettings {
   updatedAt: string
 }
 
-const STORAGE_KEY = "nova_user_settings"
+const STORAGE_KEY_PREFIX = "nova_user_settings"
 export const USER_SETTINGS_UPDATED_EVENT = "nova:user-settings-updated"
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -115,17 +115,25 @@ const DEFAULT_SETTINGS: UserSettings = {
   updatedAt: new Date().toISOString(),
 }
 
+function getStorageKey(): string {
+  const userId = getActiveUserId()
+  if (!userId) return ""
+  return `${STORAGE_KEY_PREFIX}:${userId}`
+}
+
 export function loadUserSettings(): UserSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS
 
   try {
-    const stored = localStorage.getItem(STORAGE_KEY)
+    const key = getStorageKey()
+    if (!key) return DEFAULT_SETTINGS
+    const stored = localStorage.getItem(key)
     if (!stored) return DEFAULT_SETTINGS
 
     const parsed = JSON.parse(stored) as Partial<UserSettings>
     // Merge with defaults to handle new fields
     return {
-      profile: { ...DEFAULT_SETTINGS.profile, ...parsed.profile },
+      profile: { ...DEFAULT_SETTINGS.profile, ...parsed.profile, accessTier: "Core Access" },
       app: { ...DEFAULT_SETTINGS.app, ...parsed.app },
       notifications: { ...DEFAULT_SETTINGS.notifications, ...parsed.notifications },
       personalization: { ...DEFAULT_SETTINGS.personalization, ...parsed.personalization },
@@ -138,13 +146,15 @@ export function loadUserSettings(): UserSettings {
 
 export function saveUserSettings(settings: UserSettings): void {
   if (typeof window === "undefined") return
+  const key = getStorageKey()
+  if (!key) return
 
   const updated = {
     ...settings,
     updatedAt: new Date().toISOString(),
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
+  localStorage.setItem(key, JSON.stringify(updated))
   window.dispatchEvent(
     new CustomEvent(USER_SETTINGS_UPDATED_EVENT, {
       detail: updated,

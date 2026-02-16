@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
 import { buildSchedule, loadSchedules, parseDailyTime, saveSchedules } from "@/lib/notifications/store"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,7 +15,7 @@ function parseIntegration(raw: unknown): string | null {
 }
 
 export async function GET(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   ensureNotificationSchedulerStarted()
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   ensureNotificationSchedulerStarted()
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   ensureNotificationSchedulerStarted()
@@ -132,7 +132,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   ensureNotificationSchedulerStarted()
@@ -163,3 +163,4 @@ export async function DELETE(req: Request) {
     )
   }
 }
+

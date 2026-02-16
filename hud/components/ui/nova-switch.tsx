@@ -21,28 +21,27 @@ export function NovaSwitch({
     sm: {
       track: "h-[18px] w-8",
       thumb: "h-3 w-3",
-      translateOn: "translate-x-[14px]",
-      translateOff: "translate-x-[2px]"
+      inset: "2px",
     },
     md: {
       track: "h-[22px] w-10",
       thumb: "h-4 w-4",
-      translateOn: "translate-x-[18px]",
-      translateOff: "translate-x-[3px]"
+      inset: "3px",
     },
     lg: {
       track: "h-7 w-12",
       thumb: "h-5 w-5",
-      translateOn: "translate-x-[22px]",
-      translateOff: "translate-x-[3px]"
+      inset: "3px",
     },
   }
 
   const s = sizes[size]
+  const thumbPositionStyle = checked ? { right: s.inset } : { left: s.inset }
 
   const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!disabled && onChange) {
+    if (disabled) return
+    if (onChange) {
+      e.stopPropagation()
       onChange(!checked)
     }
   }
@@ -60,8 +59,8 @@ export function NovaSwitch({
         s.track,
         // Track styles
         checked
-          ? "bg-accent shadow-[0_0_12px_-2px_rgba(var(--accent-rgb),0.6)]"
-          : "bg-[#252a37]",
+          ? "bg-accent shadow-[0_0_10px_-5px_rgba(var(--accent-rgb),0.55)]"
+          : "bg-[#2a3140]",
         // Subtle inner border
         "ring-1 ring-inset",
         checked ? "ring-white/25" : "ring-white/8",
@@ -73,10 +72,10 @@ export function NovaSwitch({
     >
       {/* Thumb */}
       <span
+        style={thumbPositionStyle}
         className={cn(
-          "pointer-events-none absolute rounded-full transition-all duration-200 ease-out",
+          "pointer-events-none absolute top-1/2 -translate-y-1/2 rounded-full transition-all duration-200 ease-out",
           s.thumb,
-          checked ? s.translateOn : s.translateOff,
           // Thumb color and shadow
           "bg-white",
           checked

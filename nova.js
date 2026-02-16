@@ -9,12 +9,14 @@ const __dirname = path.dirname(__filename);
 const children = [];
 let hudBaseUrl = "http://localhost:3000";
 let shuttingDown = false;
+const HUD_DIR = path.join(__dirname, "hud");
+const HUD_MODE = String(process.env.NOVA_HUD_MODE || "start").trim().toLowerCase() === "dev" ? "dev" : "start";
 
 function launch(label, command, args, cwd) {
   const child = spawn(command, args, {
     cwd: cwd || __dirname,
     stdio: "pipe",
-    shell: true,
+    shell: false,
   });
 
   child.stdout.on("data", (d) =>
@@ -95,6 +97,18 @@ function prepareCleanLaunch() {
   clearPort(8765);
   clearPort(3000);
   removeStaleNextLock();
+}
+
+function ensureHudBuildIfNeeded() {
+  const buildIdPath = path.join(HUD_DIR, ".next", "BUILD_ID");
+  if (HUD_MODE !== "start") return;
+  if (fs.existsSync(buildIdPath)) return;
+  console.log("[Nova] No production HUD build found. Building once...");
+  execSync(`${process.execPath} scripts/next-runner.mjs build`, {
+    cwd: HUD_DIR,
+    stdio: "inherit",
+    shell: false,
+  });
 }
 
 // ===== Detect monitors via PowerShell =====
@@ -207,6 +221,7 @@ async function warmHudRoutes(baseUrl) {
 
 console.log("[Nova] Boot sequence started.");
 prepareCleanLaunch();
+ensureHudBuildIfNeeded();
 
 // ===== 2. Detect monitors =====
 const monitors = getMonitors();
@@ -214,10 +229,11 @@ const primaryMonitor = monitors[0];
 const secondaryMonitor = monitors.length > 1 ? monitors[1] : null;
 
 // ===== 3. Start the AI agent =====
-launch("Agent", "node", ["agent.js"], path.join(__dirname, "agent"));
+launch("Agent", process.execPath, ["agent.js"], path.join(__dirname, "agent"));
 
 // ===== 4. Start the HUD dev server =====
-const hud = launch("HUD", "npm", ["run", "dev"], path.join(__dirname, "hud"));
+const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
+const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR);
 
 // ===== 5. Open HUD as standalone app on primary monitor =====
 let hudOpened = false;
@@ -238,7 +254,7 @@ hud.stdout.on("data", (chunk) => {
     exec(
       `start "" msedge.exe ` +
       `--new-window ` +
-      `--app=${hudBaseUrl}/login?next=%2Fboot-right ` +
+      `--app=${hudBaseUrl}/boot-right ` +
       `--start-maximized ` +
       `--window-position=${x},${y} ` +
       `--window-size=${width},${height} ` +
@@ -261,9 +277,11 @@ hud.stdout.on("data", (chunk) => {
       }, 5000);
     }
 
-    warmHudRoutes(hudBaseUrl);
+    if (HUD_MODE === "dev") {
+      warmHudRoutes(hudBaseUrl);
+    }
     console.log("[Nova] Nova launched as standalone app.");
   }
 });
 
-console.log("[Nova] All systems starting...");
+console.log(`[Nova] All systems starting... (HUD mode: ${HUD_MODE})`);

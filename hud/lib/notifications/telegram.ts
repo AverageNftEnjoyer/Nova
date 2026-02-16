@@ -1,6 +1,6 @@
 import "server-only"
 
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { type IntegrationsStoreScope, loadIntegrationsConfig } from "@/lib/integrations/server-store"
 
 export interface TelegramSendInput {
   text: string
@@ -46,8 +46,8 @@ function getTelegramToken(configToken?: string): string {
   return token
 }
 
-export async function sendTelegramMessage(input: TelegramSendInput): Promise<TelegramSendResult[]> {
-  const config = await loadIntegrationsConfig()
+export async function sendTelegramMessage(input: TelegramSendInput, scope?: IntegrationsStoreScope): Promise<TelegramSendResult[]> {
+  const config = await loadIntegrationsConfig(scope)
   if (!config.telegram.connected) {
     throw new Error("Telegram integration is disabled")
   }

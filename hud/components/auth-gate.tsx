@@ -3,36 +3,46 @@
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
+import { setActiveUserId } from "@/lib/active-user"
+import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 
-type SessionStatus = {
-  configured: boolean
-  authenticated: boolean
-  sessionToken?: string | null
+function sanitizeNextPath(raw: string | null): string {
+  const value = String(raw || "").trim()
+  if (!value.startsWith("/")) return "/home"
+  if (value.startsWith("//")) return "/home"
+  return value
 }
-
-const SESSION_STORAGE_KEY = "nova_session_fallback"
-const SESSION_HEADER_NAME = "x-nova-session"
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [ready, setReady] = useState(false)
   const isLoginRoute = pathname === "/login"
+  const [ready, setReady] = useState(isLoginRoute)
 
   useEffect(() => {
-    if (isLoginRoute) return
-
+    const loginParams = isLoginRoute ? new URLSearchParams(window.location.search) : null
+    const loginMode = String(loginParams?.get("mode") || "").trim()
+    const allowLoginWhileAuthed = isLoginRoute && (loginMode === "signup" || loginParams?.get("switch") === "1")
     let cancelled = false
-    const token = typeof window !== "undefined" ? String(localStorage.getItem(SESSION_STORAGE_KEY) || "").trim() : ""
-    const headers = token ? { [SESSION_HEADER_NAME]: token } : undefined
-    void fetch("/api/auth/session", { cache: "no-store", headers })
-      .then((res) => res.json())
-      .then((data: SessionStatus) => {
+    if (!hasSupabaseClientConfig || !supabaseBrowser) {
+      return
+    }
+
+    void supabaseBrowser.auth.getSession()
+      .then(({ data }) => {
         if (cancelled) return
-        if (typeof data?.sessionToken === "string" && data.sessionToken.trim().length > 0) {
-          localStorage.setItem(SESSION_STORAGE_KEY, data.sessionToken.trim())
+        const authed = Boolean(data.session?.user)
+        setActiveUserId(data.session?.user?.id || null)
+        if (isLoginRoute) {
+          if (authed && !allowLoginWhileAuthed) {
+            const next = sanitizeNextPath(new URLSearchParams(window.location.search).get("next"))
+            router.replace(next)
+            return
+          }
+          setReady(true)
+          return
         }
-        if (data?.configured && data?.authenticated) {
+        if (authed) {
           setReady(true)
           return
         }
@@ -40,11 +50,35 @@ export function AuthGate({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         if (cancelled) return
-        router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`)
+        if (!isLoginRoute) {
+          router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`)
+          return
+        }
+        setReady(true)
       })
+
+    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return
+      setActiveUserId(session?.user?.id || null)
+      if (isLoginRoute) {
+        if (session?.user && !allowLoginWhileAuthed) {
+          const next = sanitizeNextPath(new URLSearchParams(window.location.search).get("next"))
+          router.replace(next)
+          return
+        }
+        setReady(true)
+        return
+      }
+      if (session?.user) {
+        setReady(true)
+        return
+      }
+      router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`)
+    })
 
     return () => {
       cancelled = true
+      sub.subscription.unsubscribe()
     }
   }, [isLoginRoute, pathname, router])
 

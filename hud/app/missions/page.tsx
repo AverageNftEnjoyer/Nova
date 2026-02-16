@@ -8,6 +8,7 @@ import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type ThemeBackgroundType } from "@/lib/userSettings"
 import { FluidSelect, type FluidSelectOption } from "@/components/ui/fluid-select"
+import { NovaSwitch } from "@/components/ui/nova-switch"
 import { SettingsModal } from "@/components/settings-modal"
 import FloatingLines from "@/components/FloatingLines"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
@@ -1287,10 +1288,10 @@ export default function MissionsPage() {
   const playClickSound = useCallback(() => {
     try {
       const settings = loadUserSettings()
-      const muted = localStorage.getItem("nova-muted") === "true"
-      if (!settings.app.soundEnabled || muted) return
+      if (!settings.app.soundEnabled) return
       const audio = new Audio("/sounds/click.mp3")
-      audio.volume = 0.5
+      audio.volume = 0.9
+      audio.currentTime = 0
       void audio.play().catch(() => {})
     } catch {}
   }, [])
@@ -3230,19 +3231,7 @@ export default function MissionsPage() {
                   aria-label="Toggle mission active"
                 >
                   <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Mission Active</span>
-                  <span
-                    className={cn(
-                      "relative h-6 w-11 rounded-full transition-colors",
-                      missionActive ? "bg-accent" : isLight ? "bg-[#d5dce8]" : "bg-white/20",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "absolute top-1 h-4 w-4 rounded-full bg-white transition-all duration-200",
-                        missionActive ? "left-6" : "left-1",
-                      )}
-                    />
-                  </span>
+                  <NovaSwitch checked={missionActive} />
                 </button>
                 <button
                   type="button"
@@ -3254,19 +3243,7 @@ export default function MissionsPage() {
                   aria-label={editingMissionId ? "Run once immediately after saving mission" : "Run once immediately after creating mission"}
                 >
                   <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Run Once Now</span>
-                  <span
-                    className={cn(
-                      "relative h-6 w-11 rounded-full transition-colors",
-                      runImmediatelyOnCreate ? "bg-accent" : isLight ? "bg-[#d5dce8]" : "bg-white/20",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "absolute top-1 h-4 w-4 rounded-full bg-white transition-all duration-200",
-                        runImmediatelyOnCreate ? "left-6" : "left-1",
-                      )}
-                    />
-                  </span>
+                  <NovaSwitch checked={runImmediatelyOnCreate} />
                 </button>
               </div>
               <div className="flex items-center gap-2">

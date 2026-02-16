@@ -1,6 +1,6 @@
 import "server-only"
 
-import { type IntegrationsConfig, loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { type IntegrationsConfig, type IntegrationsStoreScope, loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { type IntegrationCatalogItem } from "@/lib/integrations/catalog"
 
 function titleCase(value: string): string {
@@ -108,7 +108,7 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
   return items
 }
 
-export async function loadIntegrationCatalog(): Promise<IntegrationCatalogItem[]> {
-  const config = await loadIntegrationsConfig()
+export async function loadIntegrationCatalog(scope?: IntegrationsStoreScope): Promise<IntegrationCatalogItem[]> {
+  const config = await loadIntegrationsConfig(scope)
   return buildIntegrationCatalog(config)
 }

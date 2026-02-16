@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { disconnectGmail } from "@/lib/integrations/gmail"
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/server-store"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -13,8 +13,8 @@ type Body =
   | { action: "delete"; accountId?: string }
 
 export async function PATCH(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const body = (await req.json().catch(() => ({}))) as Body
@@ -25,11 +25,11 @@ export async function PATCH(req: Request) {
     }
 
     if (action === "delete") {
-      await disconnectGmail(accountId)
+      await disconnectGmail(accountId, verified)
       return NextResponse.json({ ok: true })
     }
 
-    const current = await loadIntegrationsConfig()
+    const current = await loadIntegrationsConfig(verified)
     const accounts = current.gmail.accounts
     const exists = accounts.some((item) => item.id === accountId)
     if (!exists) {
@@ -52,7 +52,7 @@ export async function PATCH(req: Request) {
           tokenExpiry: target.tokenExpiry,
           connected: true,
         },
-      })
+      }, verified)
       return NextResponse.json({ ok: true })
     }
 
@@ -77,7 +77,7 @@ export async function PATCH(req: Request) {
           refreshTokenEnc: nextActive?.refreshTokenEnc || "",
           tokenExpiry: nextActive?.tokenExpiry || 0,
         },
-      })
+      }, verified)
       return NextResponse.json({ ok: true })
     }
 
@@ -89,4 +89,3 @@ export async function PATCH(req: Request) {
     )
   }
 }
-

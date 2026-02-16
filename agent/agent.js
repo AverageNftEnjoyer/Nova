@@ -637,14 +637,13 @@ const VOICE_MAP = {
 // Current voice preference (updated when HUD sends ttsVoice)
 let currentVoice = "default";
 // Whether TTS is enabled (updated when HUD sends voiceEnabled setting)
-let voiceEnabled = true;
+let voiceEnabled = false;
 // Whether Nova is muted (stops listening entirely when true)
-let muted = false;
+let muted = true;
 
 // ===== paths =====
 const ROOT = __dirname;
 const MPV = path.join(ROOT, "mpv", "mpv.exe");
-const MIC = path.join(ROOT, "mic.wav");
 const THINK_SOUND = path.join(ROOT, "thinking.mp3");
 
 // ===== WebSocket HUD server =====
@@ -799,19 +798,37 @@ wss.on("connection", (ws) => {
 });
 
 // ===== mic =====
-function recordMic(seconds = 3) {
+function createMicCapturePath() {
+  return path.join(ROOT, `mic_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`);
+}
+
+function cleanupAudioArtifacts() {
+  try {
+    const entries = fs.readdirSync(ROOT, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!/^speech_\d+\.mp3$/i.test(entry.name) && !/^mic_[a-z0-9_-]+\.wav$/i.test(entry.name)) continue;
+      try {
+        fs.unlinkSync(path.join(ROOT, entry.name));
+      } catch {}
+    }
+  } catch {}
+}
+
+function recordMic(outFile, seconds = 3) {
+  const safeSeconds = Math.max(1, Math.min(8, Number.isFinite(seconds) ? seconds : 3));
   execSync(
-    `sox -t waveaudio -d "${MIC}" trim 0 ${seconds}`,
+    `sox -t waveaudio -d "${outFile}" trim 0 ${safeSeconds}`,
     { stdio: "ignore" }
   );
 }
 
 // ===== STT =====
-async function transcribe() {
+async function transcribe(micFile) {
   const runtime = loadOpenAIIntegrationRuntime();
   const openai = getOpenAIClient(runtime);
   const r = await openai.audio.transcriptions.create({
-    file: fs.createReadStream(MIC),
+    file: fs.createReadStream(micFile),
     model: "gpt-4o-transcribe",
     temperature: 0,
     prompt: "The wake word is Nova. Prioritize correctly transcribing 'Nova' if spoken."
@@ -1208,8 +1225,9 @@ startMetricsBroadcast(broadcast, 2000);
 
 // ===== startup delay =====
 await new Promise(r => setTimeout(r, 15000));
+cleanupAudioArtifacts();
 console.log("Nova online.");
-broadcastState("idle");
+broadcastState(muted ? "muted" : "idle");
 
 // ===== main loop (HARD WAKE-WORD GATE) =====
 let lastWakeHandledAt = 0;
@@ -1240,17 +1258,27 @@ while (true) {
     // Check muted again before broadcasting listening state
     if (muted) continue;
     broadcastState("listening");
-    recordMic(MIC_RECORD_SECONDS);
+    const micCapturePath = createMicCapturePath();
+    recordMic(micCapturePath, MIC_RECORD_SECONDS);
 
     // Re-check after recording (HUD message may have arrived during the 3s block)
-    if (busy || muted) continue;
+    if (busy || muted) {
+      try { fs.unlinkSync(micCapturePath); } catch {}
+      continue;
+    }
 
-    let text = await transcribe();
+    let text = await transcribe(micCapturePath);
+    try { fs.unlinkSync(micCapturePath); } catch {}
     // One quick retry improves pickup reliability when the first clip is too short/noisy.
     if (!text || !text.trim()) {
-      recordMic(MIC_RETRY_SECONDS);
-      if (busy || muted) continue;
-      text = await transcribe();
+      const retryCapturePath = createMicCapturePath();
+      recordMic(retryCapturePath, MIC_RETRY_SECONDS);
+      if (busy || muted) {
+        try { fs.unlinkSync(retryCapturePath); } catch {}
+        continue;
+      }
+      text = await transcribe(retryCapturePath);
+      try { fs.unlinkSync(retryCapturePath); } catch {}
     }
     if (!text || busy || muted) {
       if (!busy && !muted) broadcastState("idle");

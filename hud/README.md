@@ -61,6 +61,21 @@ Set these in your environment:
 
 Scheduler checks every 30 seconds and sends once per local day per schedule.
 
+## Supabase Google OAuth Setup
+
+For Google sign-in with Supabase Auth:
+
+1. In Supabase Dashboard -> Authentication -> Providers -> Google, set Google `Client ID` and `Client Secret`.
+2. In Google Cloud Console (OAuth client), add this authorized redirect URI:
+
+```text
+https://jmxkjhsmdqlpjvcleifm.supabase.co/auth/v1/callback
+```
+
+Notes:
+- Do not use the Supabase callback URL as the app `redirectTo` in client code.
+- Client code should continue to use app URLs (for this project: `/login?...`) so users return to Nova after auth.
+
 ### Scriptable CLI
 
 Use:

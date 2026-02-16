@@ -447,28 +447,15 @@ export default function FloatingLines({
 
       geometry.dispose();
       material.dispose();
+      if (typeof renderer.forceContextLoss === 'function') {
+        renderer.forceContextLoss();
+      }
       renderer.dispose();
       if (renderer.domElement.parentElement) {
         renderer.domElement.parentElement.removeChild(renderer.domElement);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    linesGradient,
-    enabledWaves,
-    lineCount,
-    lineDistance,
-    topWavePosition,
-    middleWavePosition,
-    bottomWavePosition,
-    animationSpeed,
-    interactive,
-    bendRadius,
-    bendStrength,
-    mouseDamping,
-    parallax,
-    parallaxStrength
-  ]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div

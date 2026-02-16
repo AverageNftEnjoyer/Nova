@@ -1,6 +1,6 @@
 import "server-only"
 
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { type IntegrationsStoreScope, loadIntegrationsConfig } from "@/lib/integrations/server-store"
 
 export interface DiscordSendInput {
   text: string
@@ -29,8 +29,8 @@ function normalizeWebhookUrls(urls?: string[]): string[] {
     .filter(Boolean)
 }
 
-export async function sendDiscordMessage(input: DiscordSendInput): Promise<DiscordSendResult[]> {
-  const config = await loadIntegrationsConfig()
+export async function sendDiscordMessage(input: DiscordSendInput, scope?: IntegrationsStoreScope): Promise<DiscordSendResult[]> {
+  const config = await loadIntegrationsConfig(scope)
   if (!config.discord.connected) {
     throw new Error("Discord integration is disabled")
   }

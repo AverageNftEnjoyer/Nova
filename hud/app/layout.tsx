@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/lib/theme-context"
 import { AccentProvider } from "@/lib/accent-context"
 import { AuthGate } from "@/components/auth-gate"
 import { AuthFetchBridge } from "@/components/auth-fetch-bridge"
+import { LoginBackgroundLayer } from "@/components/login-background-layer"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -47,6 +48,7 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-page`}>
         <ThemeProvider>
           <AccentProvider>
+            <LoginBackgroundLayer />
             <AuthFetchBridge />
             <AuthGate>{children}</AuthGate>
           </AccentProvider>

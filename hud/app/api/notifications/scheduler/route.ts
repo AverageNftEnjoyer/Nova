@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 
 import { ensureNotificationSchedulerStarted, stopNotificationScheduler } from "@/lib/notifications/scheduler"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   const state = ensureNotificationSchedulerStarted()
@@ -15,9 +15,10 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const unauthorized = await requireApiSession(req)
+  const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
   const state = stopNotificationScheduler()
   return NextResponse.json(state)
 }
+

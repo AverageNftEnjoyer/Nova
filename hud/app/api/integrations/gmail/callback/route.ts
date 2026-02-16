@@ -32,7 +32,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    await exchangeCodeForGmailTokens(code)
+    await exchangeCodeForGmailTokens(code, {
+      userId: parsedState.userId,
+      allowServiceRole: true,
+    })
     return NextResponse.redirect(new URL(withStatus(returnTo, "success", "Gmail connected."), requestUrl.origin), { status: 302 })
   } catch (error) {
     return NextResponse.redirect(

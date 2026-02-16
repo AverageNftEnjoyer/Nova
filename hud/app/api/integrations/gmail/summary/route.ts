@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { listRecentGmailMessages } from "@/lib/integrations/gmail"
 import { completeWithConfiguredLlm } from "@/lib/missions/runtime"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,13 +14,13 @@ function parseMaxResults(value: unknown): number {
 }
 
 async function handleSummary(req: Request, input: { maxResults?: unknown; accountId?: unknown }) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const maxResults = parseMaxResults(input.maxResults)
     const accountId = typeof input.accountId === "string" ? input.accountId.trim().toLowerCase() : undefined
-    const emails = await listRecentGmailMessages(maxResults, accountId)
+    const emails = await listRecentGmailMessages(maxResults, accountId, verified)
     if (emails.length === 0) {
       return NextResponse.json({
         ok: true,
@@ -36,6 +36,7 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
       "You summarize inbox emails for an automation dashboard. Produce concise bullets: urgent, action-needed, and FYI.",
       `Summarize these recent inbox emails:\n\n${digestInput}`,
       700,
+      verified,
     )
 
     return NextResponse.json({

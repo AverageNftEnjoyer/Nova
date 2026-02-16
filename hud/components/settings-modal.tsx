@@ -15,10 +15,14 @@ import {
   RotateCcw,
   Camera,
   Check,
+  ChevronRight,
+  Mail,
+  Trash2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { NovaSwitch } from "@/components/ui/nova-switch"
+import { setActiveUserId } from "@/lib/active-user"
 import { useTheme } from "@/lib/theme-context"
 import { useAccent } from "@/lib/accent-context"
 import { cn } from "@/lib/utils"
@@ -43,7 +47,6 @@ import {
   saveUserSettings,
   resetSettings,
   type UserSettings,
-  type AccessTier,
   type AccentColor,
   type OrbColor,
   type DarkBackgroundType,
@@ -52,8 +55,8 @@ import {
   TTS_VOICES,
   DARK_BACKGROUNDS,
 } from "@/lib/userSettings"
+import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 
-const ACCESS_TIERS: AccessTier[] = ["Core Access", "Developer", "Admin", "Operator"]
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 
 // Play click sound for settings interactions (respects soundEnabled setting)
@@ -62,7 +65,8 @@ function playClickSound() {
     const settings = loadUserSettings()
     if (!settings.app.soundEnabled) return
     const audio = new Audio("/sounds/click.mp3")
-    audio.volume = 0.5
+    audio.volume = 0.9
+    audio.currentTime = 0
     audio.play().catch(() => {})
   } catch {}
 }
@@ -73,7 +77,6 @@ interface SettingsModalProps {
 }
 
 type CropOffset = { x: number; y: number }
-const SESSION_STORAGE_KEY = "nova_session_fallback"
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const router = useRouter()
@@ -81,8 +84,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<string>("profile")
   const [authConfigured, setAuthConfigured] = useState(false)
   const [authAuthenticated, setAuthAuthenticated] = useState(false)
+  const [authEmail, setAuthEmail] = useState("")
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState("")
+  const [emailModalOpen, setEmailModalOpen] = useState(false)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState("")
+  const [deletePassword, setDeletePassword] = useState("")
+  const [accountBusy, setAccountBusy] = useState(false)
+  const [accountMessage, setAccountMessage] = useState("")
   const [avatarError, setAvatarError] = useState<string | null>(null)
   const [bootMusicError, setBootMusicError] = useState<string | null>(null)
   const [backgroundVideoError, setBackgroundVideoError] = useState<string | null>(null)
@@ -142,21 +152,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     let cancelled = false
     if (isOpen) {
       setSettings(loadUserSettings())
-      void fetch("/api/auth/session", { cache: "no-store" })
-        .then((res) => res.json())
-        .then((data) => {
+      setAuthConfigured(true)
+      setAccountMessage("")
+      if (!hasSupabaseClientConfig || !supabaseBrowser) {
+        setAuthAuthenticated(false)
+        setAuthEmail("")
+      } else {
+      void supabaseBrowser.auth.getSession()
+        .then(({ data }) => {
           if (cancelled) return
-          if (typeof data?.sessionToken === "string" && data.sessionToken.trim().length > 0) {
-            localStorage.setItem(SESSION_STORAGE_KEY, data.sessionToken.trim())
-          }
-          setAuthConfigured(Boolean(data?.configured))
-          setAuthAuthenticated(Boolean(data?.authenticated))
+          setAuthAuthenticated(Boolean(data.session?.user))
+          const nextEmail = String(data.session?.user?.email || "").trim()
+          setAuthEmail(nextEmail)
+          setPendingEmail(nextEmail)
         })
         .catch(() => {
           if (cancelled) return
-          setAuthConfigured(false)
           setAuthAuthenticated(false)
+          setAuthEmail("")
+          setPendingEmail("")
         })
+      }
       void refreshMediaLibraries()
         .catch(() => {
           if (cancelled) return
@@ -181,20 +197,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setAuthBusy(true)
     setAuthError("")
     try {
-      const res = await fetch("/api/auth/logout", { method: "POST" })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          // Already signed out/expired; treat as success for UX.
-          setAuthAuthenticated(false)
-          localStorage.removeItem(SESSION_STORAGE_KEY)
-          navigateToLogin()
-          return
-        }
-        throw new Error(data?.error || "Failed to sign out.")
+      if (!hasSupabaseClientConfig || !supabaseBrowser) {
+        throw new Error("Supabase client is not configured.")
       }
+      const { error } = await supabaseBrowser.auth.signOut()
+      if (error) throw error
+      setActiveUserId(null)
       setAuthAuthenticated(false)
-      localStorage.removeItem(SESSION_STORAGE_KEY)
+      setAuthEmail("")
       navigateToLogin()
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Failed to sign out.")
@@ -202,6 +212,78 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setAuthBusy(false)
     }
   }, [navigateToLogin])
+
+  const handleSendPasswordReset = useCallback(async () => {
+    setAuthBusy(true)
+    setAuthError("")
+    try {
+      if (!hasSupabaseClientConfig || !supabaseBrowser) {
+        throw new Error("Supabase client is not configured.")
+      }
+      const targetEmail = authEmail.trim()
+      if (!targetEmail) {
+        throw new Error("No account email found for this session.")
+      }
+      const redirectTo = `${window.location.origin}/login?mode=reset`
+      const { error } = await supabaseBrowser.auth.resetPasswordForEmail(targetEmail, { redirectTo })
+      if (error) throw error
+      setAuthError("Reset link sent. Check your email.")
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Failed to send reset email.")
+    } finally {
+      setAuthBusy(false)
+    }
+  }, [authEmail])
+
+  const handleRequestEmailChange = useCallback(async () => {
+    setAccountBusy(true)
+    setAccountMessage("")
+    try {
+      if (!hasSupabaseClientConfig || !supabaseBrowser) {
+        throw new Error("Supabase client is not configured.")
+      }
+      const nextEmail = pendingEmail.trim().toLowerCase()
+      if (!nextEmail) {
+        throw new Error("Enter a valid email.")
+      }
+      const { error } = await supabaseBrowser.auth.updateUser({ email: nextEmail })
+      if (error) throw error
+      setAccountMessage("Email update requested. Check both inboxes to confirm change.")
+      setEmailModalOpen(false)
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : "Failed to request email change.")
+    } finally {
+      setAccountBusy(false)
+    }
+  }, [pendingEmail])
+
+  const handleDeleteAccount = useCallback(async () => {
+    setAccountBusy(true)
+    setAccountMessage("")
+    try {
+      const password = deletePassword.trim()
+      if (!password) {
+        throw new Error("Password is required.")
+      }
+      const res = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) throw new Error(data.error || "Failed to permanently delete account.")
+      if (!hasSupabaseClientConfig || !supabaseBrowser) {
+        throw new Error("Supabase client is not configured.")
+      }
+      await supabaseBrowser.auth.signOut()
+      setActiveUserId(null)
+      navigateToLogin()
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : "Failed to permanently delete account.")
+    } finally {
+      setAccountBusy(false)
+    }
+  }, [deletePassword, navigateToLogin])
 
   // Auto-save helper
   const autoSave = useCallback((newSettings: UserSettings) => {
@@ -1410,7 +1492,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           </Button>
                         )}
                       </div>
-                      {authError ? <p className="mt-2 text-xs text-rose-300">{authError}</p> : null}
+                      {authError ? (
+                        <p className={cn("mt-2 text-xs", authError.startsWith("Reset link sent") ? "text-emerald-300" : "text-rose-300")}>
+                          {authError}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className={cn(
@@ -1427,46 +1513,103 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           <Shield className="w-5 h-5 text-accent" />
                         </div>
                         <div>
-                          <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-300")}>Current Tier</p>
-                          <p className="text-lg text-accent font-mono">
-                            {settings.profile.accessTier}
+                          <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-300")}>Account</p>
+                          <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
+                            {authEmail || "No account email found"}
                           </p>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        {ACCESS_TIERS.map((tier) => {
-                          const isSelected = settings.profile.accessTier === tier
-                          return (
-                            <button
-                              key={tier}
-                              onClick={() => {
-                                playClickSound()
-                                updateProfile("accessTier", tier)
-                              }}
-                              className={cn(
-                                "w-full flex items-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow border",
-                                isSelected
-                                  ? "bg-white/8 border-accent-30"
-                                  : isLight
-                                    ? "bg-white border-[#d5dce8] hover:bg-[#eef3fb]"
-                                    : "bg-black/25 border-white/10 hover:bg-white/[0.06]"
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "text-sm transition-colors duration-200",
-                                  isSelected
-                                    ? "text-accent"
-                                    : isLight ? "text-s-50" : "text-slate-400"
-                                )}
-                              >
-                                {tier}
-                              </span>
-                            </button>
-                          )
-                        })}
+                      <div className="space-y-2 mb-3">
+                        <div className={cn(
+                          "flex items-center justify-between rounded-xl border px-3 py-2.5",
+                          isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25"
+                        )}>
+                          <div className="min-w-0">
+                            <p className={cn("text-[11px] uppercase tracking-wide", isLight ? "text-s-40" : "text-slate-500")}>Name</p>
+                            <p className={cn("truncate text-sm", isLight ? "text-s-70" : "text-slate-200")}>{settings.profile.name || "User"}</p>
+                          </div>
+                          <User className={cn("w-4 h-4 shrink-0", isLight ? "text-s-40" : "text-slate-500")} />
+                        </div>
+                        <button
+                          onClick={() => {
+                            playClickSound()
+                            setPendingEmail(authEmail)
+                            setEmailModalOpen(true)
+                          }}
+                          disabled={!authAuthenticated}
+                          className={cn(
+                            "w-full flex items-center justify-between rounded-xl border px-3 py-2.5 transition-colors duration-150 disabled:opacity-60",
+                            isLight ? "border-[#d5dce8] bg-white hover:bg-[#eef3fb]" : "border-white/10 bg-black/25 hover:bg-white/[0.06]"
+                          )}
+                        >
+                          <div className="min-w-0 text-left">
+                            <p className={cn("text-[11px] uppercase tracking-wide", isLight ? "text-s-40" : "text-slate-500")}>Email</p>
+                            <p className={cn("truncate text-sm", isLight ? "text-s-70" : "text-slate-200")}>{authEmail || "No account email found"}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Mail className={cn("w-4 h-4", isLight ? "text-s-40" : "text-slate-400")} />
+                            <ChevronRight className={cn("w-4 h-4", isLight ? "text-s-40" : "text-slate-400")} />
+                          </div>
+                        </button>
                       </div>
+
+                      <div className="grid grid-cols-1 gap-2">
+                        <button
+                          onClick={() => {
+                            playClickSound()
+                            void handleSendPasswordReset()
+                          }}
+                          disabled={authBusy || !authAuthenticated}
+                          className={cn(
+                            "w-full flex items-center justify-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow border text-sm disabled:opacity-60",
+                            isLight
+                              ? "bg-white border-[#d5dce8] hover:bg-[#eef3fb] text-s-60"
+                              : "bg-black/25 border-white/10 hover:bg-white/[0.06] text-slate-200"
+                          )}
+                        >
+                          Send Password Reset Link
+                        </button>
+                        <button
+                          onClick={() => {
+                            playClickSound()
+                            setDeletePassword("")
+                            setDeleteModalOpen(true)
+                          }}
+                          disabled={accountBusy || !authAuthenticated}
+                          className={cn(
+                            "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow border text-sm disabled:opacity-60",
+                            isLight
+                              ? "bg-rose-50 border-rose-200 hover:bg-rose-100 text-rose-700"
+                              : "bg-rose-500/10 border-rose-400/30 hover:bg-rose-500/15 text-rose-300"
+                          )}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Permanently Delete Account
+                        </button>
+                        {!authAuthenticated && (
+                          <button
+                            onClick={() => {
+                              playClickSound()
+                              navigateToLogin()
+                            }}
+                            disabled={authBusy}
+                            className={cn(
+                              "w-full flex items-center justify-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow border text-sm disabled:opacity-60",
+                              isLight
+                                ? "bg-white border-[#d5dce8] hover:bg-[#eef3fb] text-s-60"
+                                : "bg-black/25 border-white/10 hover:bg-white/[0.06] text-slate-200"
+                            )}
+                          >
+                            Open Sign In
+                          </button>
+                        )}
+                      </div>
+                      {accountMessage ? (
+                        <p className={cn("mt-2 text-xs", accountMessage.includes("failed") || accountMessage.includes("required") ? "text-rose-300" : "text-emerald-300")}>
+                          {accountMessage}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -1475,6 +1618,101 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
       </div>
+
+      {emailModalOpen && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/55 backdrop-blur-sm">
+          <div className={cn(
+            "w-[400px] rounded-2xl border p-4",
+            isLight
+              ? "border-[#d9e0ea] bg-white/95"
+              : "border-white/20 bg-white/[0.06] backdrop-blur-xl"
+          )}>
+            <h4 className={cn("text-sm font-medium", isLight ? "text-s-90" : "text-white")}>Change account email</h4>
+            <p className={cn("mt-1 text-xs", isLight ? "text-s-40" : "text-slate-400")}>
+              A confirmation flow will be sent before the new email becomes active.
+            </p>
+            <label className="mt-4 block">
+              <span className={cn("mb-1.5 block text-xs", isLight ? "text-s-40" : "text-slate-400")}>New email</span>
+              <input
+                type="email"
+                value={pendingEmail}
+                onChange={(e) => setPendingEmail(e.target.value)}
+                className={cn(
+                  "h-10 w-full rounded-lg border px-3 text-sm outline-none",
+                  isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/12 bg-black/25 text-slate-100"
+                )}
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEmailModalOpen(false)}
+                className={cn(isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/[0.06]")}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleRequestEmailChange()}
+                disabled={accountBusy || !pendingEmail.trim()}
+                className="fx-spotlight-card fx-border-glow"
+              >
+                {accountBusy ? "Submitting..." : "Request Email Change"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteModalOpen && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className={cn(
+            "w-[420px] rounded-2xl border p-4",
+            isLight
+              ? "border-rose-200 bg-white/95"
+              : "border-rose-400/35 bg-[#1a0f14]/90 backdrop-blur-xl"
+          )}>
+            <h4 className={cn("text-sm font-medium", isLight ? "text-rose-700" : "text-rose-200")}>Permanent account deletion</h4>
+            <p className={cn("mt-1 text-xs", isLight ? "text-rose-500" : "text-rose-300")}>
+              This deletes your account and user data permanently. Enter your password to continue.
+            </p>
+            <label className="mt-4 block">
+              <span className={cn("mb-1.5 block text-xs", isLight ? "text-rose-500" : "text-rose-300")}>Password confirmation (2FA)</span>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                className={cn(
+                  "h-10 w-full rounded-lg border px-3 text-sm outline-none",
+                  isLight ? "border-rose-200 bg-white text-rose-700" : "border-rose-400/35 bg-black/25 text-rose-100"
+                )}
+              />
+            </label>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteModalOpen(false)}
+                className={cn(isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/[0.06]")}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleDeleteAccount()}
+                disabled={accountBusy || !deletePassword.trim()}
+                className={cn(
+                  "border",
+                  isLight ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-700" : "bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 border-rose-400/40"
+                )}
+              >
+                {accountBusy ? "Deleting..." : "Delete Account Permanently"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {cropSource && imageSize && (
         <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/55 backdrop-blur-sm">

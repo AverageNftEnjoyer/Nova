@@ -1,13 +1,13 @@
 "use client"
 
 import { useEffect } from "react"
-
-const SESSION_STORAGE_KEY = "nova_session_fallback"
-const SESSION_HEADER_NAME = "x-nova-session"
+import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 
 export function AuthFetchBridge() {
   useEffect(() => {
     const originalFetch = window.fetch.bind(window)
+    if (!hasSupabaseClientConfig || !supabaseBrowser) return
+    const client = supabaseBrowser
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       try {
@@ -15,12 +15,13 @@ export function AuthFetchBridge() {
         const isApiCall = reqUrl.startsWith("/api/") || reqUrl.includes("/api/")
         if (!isApiCall) return originalFetch(input, init)
 
-        const token = localStorage.getItem(SESSION_STORAGE_KEY) || ""
+        const { data } = await client.auth.getSession()
+        const token = String(data.session?.access_token || "").trim()
         if (!token) return originalFetch(input, init)
 
         const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined))
-        if (!headers.has(SESSION_HEADER_NAME)) {
-          headers.set(SESSION_HEADER_NAME, token)
+        if (!headers.has("Authorization")) {
+          headers.set("Authorization", `Bearer ${token}`)
         }
 
         return originalFetch(input, {

@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server"
 
 import { sendDiscordMessage } from "@/lib/notifications/discord"
-import { requireApiSession } from "@/lib/security/auth"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const unauthorized = await requireApiSession(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const now = new Date().toISOString()
     const results = await sendDiscordMessage({
       text: `Nova Discord integration test successful at ${now}`,
-    })
+    }, verified)
     const ok = results.some((r) => r.ok)
     const firstFailure = results.find((r) => !r.ok)
     return NextResponse.json(

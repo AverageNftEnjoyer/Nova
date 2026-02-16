@@ -49,4 +49,6 @@ nul
 *.exe
 agent/mpv/
 agent/mic.wav
+agent/mic_*.wav
+agent/speech_*.mp3
 agent/assets/*.mp4
