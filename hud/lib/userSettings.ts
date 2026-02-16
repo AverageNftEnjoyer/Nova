@@ -17,6 +17,7 @@ export interface UserProfile {
 }
 
 export interface Personalization {
+  assistantName: string // What the user wants to call the assistant
   nickname: string // What Nova should call the user
   occupation: string
   interests: string[] // List of interests
@@ -103,6 +104,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     systemUpdates: true,
   },
   personalization: {
+    assistantName: "Nova",
     nickname: "",
     occupation: "",
     interests: [],

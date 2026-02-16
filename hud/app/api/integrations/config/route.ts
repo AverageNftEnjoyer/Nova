@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import path from "node:path"
 
 import {
   loadIntegrationsConfig,
@@ -13,6 +14,7 @@ import {
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/server-store"
+import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -273,6 +275,11 @@ export async function GET(req: Request) {
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const config = await loadIntegrationsConfig(verified)
+  try {
+    await syncAgentRuntimeIntegrationsSnapshot(path.resolve(process.cwd(), ".."), verified.user.id, config)
+  } catch (error) {
+    console.warn("[integrations/config][GET] Failed to sync agent runtime snapshot:", error)
+  }
   return NextResponse.json({ config: toClientConfig(config) })
 }
 
@@ -311,6 +318,11 @@ export async function PATCH(req: Request) {
       activeLlmProvider,
       agents: body.agents ?? current.agents,
     }, verified)
+    try {
+      await syncAgentRuntimeIntegrationsSnapshot(path.resolve(process.cwd(), ".."), verified.user.id, next)
+    } catch (error) {
+      console.warn("[integrations/config][PATCH] Failed to sync agent runtime snapshot:", error)
+    }
     return NextResponse.json({ config: toClientConfig(next) })
   } catch (error) {
     return NextResponse.json(

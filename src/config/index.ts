@@ -1,0 +1,204 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { Config } from "./types.js";
+
+const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".myagent", "config.json");
+
+const DEFAULT_CONFIG: Config = {
+  agent: {
+    name: "nova",
+    workspace: process.cwd(),
+    model: "claude-sonnet-4-5-20250514",
+    maxTokens: 2048,
+    apiKey: "",
+    bootstrapMaxChars: 20_000,
+    bootstrapTotalMaxChars: 24_000,
+  },
+  session: {
+    scope: "per-channel-peer",
+    dmScope: "main",
+    storePath: path.join(process.cwd(), ".agent", "sessions.json"),
+    transcriptDir: path.join(process.cwd(), ".agent", "transcripts"),
+    mainKey: "main",
+    resetMode: "idle",
+    resetAtHour: 4,
+    idleMinutes: 120,
+    maxHistoryTurns: 50,
+    dmHistoryTurns: 100,
+  },
+  memory: {
+    enabled: false,
+    dbPath: path.join(process.cwd(), ".agent", "memory.db"),
+    embeddingProvider: "openai",
+    embeddingModel: "text-embedding-3-small",
+    embeddingApiKey: "",
+    chunkSize: 400,
+    chunkOverlap: 80,
+    hybridVectorWeight: 0.7,
+    hybridBm25Weight: 0.3,
+    topK: 5,
+    syncOnSessionStart: true,
+    sourceDirs: [path.join(process.cwd(), "memory")],
+  },
+  tools: {
+    enabledTools: ["read", "write", "edit", "ls", "grep", "exec", "web_search", "web_fetch"],
+    execApprovalMode: "ask",
+    safeBinaries: ["ls", "cat", "head", "tail", "grep", "find", "wc", "sort", "echo", "pwd"],
+    webSearchProvider: "brave",
+    webSearchApiKey: "",
+  },
+};
+
+function readJsonFile<T>(filePath: string): T | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function deepMerge<T extends Record<string, unknown>>(base: T, patch: Partial<T>): T {
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    const current = out[key];
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      current &&
+      typeof current === "object" &&
+      !Array.isArray(current)
+    ) {
+      out[key] = deepMerge(current as Record<string, unknown>, value as Record<string, unknown>);
+      continue;
+    }
+    out[key] = value;
+  }
+  return out as T;
+}
+
+function toNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") {
+    return true;
+  }
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") {
+    return false;
+  }
+  return fallback;
+}
+
+function splitCsv(value: string | undefined, fallback: string[]): string[] {
+  if (!value || !value.trim()) return fallback;
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function resolveEnvOverrides(base: Config): Partial<Config> {
+  const env = process.env;
+  // Support both NOVA_* (primary) and MYAGENT_* (legacy) env vars
+  return {
+    agent: {
+      ...base.agent,
+      name: env.NOVA_AGENT_NAME ?? env.MYAGENT_NAME ?? base.agent.name,
+      workspace: env.NOVA_WORKSPACE ?? env.MYAGENT_WORKSPACE ?? base.agent.workspace,
+      model: env.NOVA_MODEL ?? env.MYAGENT_MODEL ?? base.agent.model,
+      maxTokens: toNumber(env.NOVA_MAX_TOKENS ?? env.MYAGENT_MAX_TOKENS, base.agent.maxTokens),
+      apiKey: env.ANTHROPIC_API_KEY ?? env.NOVA_API_KEY ?? env.MYAGENT_API_KEY ?? base.agent.apiKey,
+      bootstrapMaxChars: toNumber(env.NOVA_BOOTSTRAP_MAX_CHARS ?? env.MYAGENT_BOOTSTRAP_MAX_CHARS, base.agent.bootstrapMaxChars),
+      bootstrapTotalMaxChars: toNumber(
+        env.NOVA_BOOTSTRAP_TOTAL_MAX_CHARS ?? env.MYAGENT_BOOTSTRAP_TOTAL_MAX_CHARS,
+        base.agent.bootstrapTotalMaxChars,
+      ),
+    },
+    session: {
+      ...base.session,
+      scope: (env.NOVA_SESSION_SCOPE ?? env.MYAGENT_SESSION_SCOPE) as Config["session"]["scope"] | undefined ?? base.session.scope,
+      dmScope: (env.NOVA_DM_SCOPE ?? env.MYAGENT_DM_SCOPE) as Config["session"]["dmScope"] | undefined ?? base.session.dmScope,
+      storePath: env.NOVA_SESSION_STORE_PATH ?? env.MYAGENT_SESSION_STORE_PATH ?? base.session.storePath,
+      transcriptDir: env.NOVA_TRANSCRIPT_DIR ?? env.MYAGENT_TRANSCRIPT_DIR ?? base.session.transcriptDir,
+      mainKey: env.NOVA_SESSION_MAIN_KEY ?? env.MYAGENT_MAIN_KEY ?? base.session.mainKey,
+      resetMode: (env.NOVA_RESET_MODE ?? env.MYAGENT_RESET_MODE) as Config["session"]["resetMode"] | undefined ?? base.session.resetMode,
+      resetAtHour: toNumber(env.NOVA_RESET_AT_HOUR ?? env.MYAGENT_RESET_AT_HOUR, base.session.resetAtHour),
+      idleMinutes: toNumber(env.NOVA_SESSION_IDLE_MINUTES ?? env.MYAGENT_IDLE_MINUTES, base.session.idleMinutes),
+      maxHistoryTurns: toNumber(env.NOVA_SESSION_MAX_TURNS ?? env.MYAGENT_MAX_HISTORY_TURNS, base.session.maxHistoryTurns),
+      dmHistoryTurns: toNumber(env.NOVA_DM_HISTORY_TURNS ?? env.MYAGENT_DM_HISTORY_TURNS, base.session.dmHistoryTurns),
+    },
+    memory: {
+      ...base.memory,
+      enabled: toBoolean(env.NOVA_MEMORY_ENABLED ?? env.MYAGENT_MEMORY_ENABLED, base.memory.enabled),
+      dbPath: env.NOVA_MEMORY_DB_PATH ?? env.MYAGENT_MEMORY_DB_PATH ?? base.memory.dbPath,
+      embeddingProvider:
+        (env.NOVA_EMBEDDING_PROVIDER ?? env.MYAGENT_EMBEDDING_PROVIDER) as Config["memory"]["embeddingProvider"] | undefined ??
+        base.memory.embeddingProvider,
+      embeddingModel: env.NOVA_EMBEDDING_MODEL ?? env.MYAGENT_EMBEDDING_MODEL ?? base.memory.embeddingModel,
+      embeddingApiKey: env.OPENAI_API_KEY ?? env.NOVA_EMBEDDING_API_KEY ?? env.MYAGENT_EMBEDDING_API_KEY ?? base.memory.embeddingApiKey,
+      chunkSize: toNumber(env.NOVA_MEMORY_CHUNK_SIZE ?? env.MYAGENT_CHUNK_SIZE, base.memory.chunkSize),
+      chunkOverlap: toNumber(env.NOVA_MEMORY_CHUNK_OVERLAP ?? env.MYAGENT_CHUNK_OVERLAP, base.memory.chunkOverlap),
+      hybridVectorWeight: toNumber(env.NOVA_MEMORY_VECTOR_WEIGHT ?? env.MYAGENT_HYBRID_VECTOR_WEIGHT, base.memory.hybridVectorWeight),
+      hybridBm25Weight: toNumber(env.NOVA_MEMORY_BM25_WEIGHT ?? env.MYAGENT_HYBRID_BM25_WEIGHT, base.memory.hybridBm25Weight),
+      topK: toNumber(env.NOVA_MEMORY_TOP_K ?? env.MYAGENT_MEMORY_TOP_K, base.memory.topK),
+      syncOnSessionStart: toBoolean(env.NOVA_MEMORY_SYNC_ON_START ?? env.MYAGENT_MEMORY_SYNC_ON_START, base.memory.syncOnSessionStart),
+      sourceDirs: splitCsv(env.NOVA_MEMORY_SOURCE_DIRS ?? env.MYAGENT_MEMORY_SOURCE_DIRS, base.memory.sourceDirs),
+    },
+    tools: {
+      ...base.tools,
+      enabledTools: splitCsv(env.NOVA_ENABLED_TOOLS ?? env.MYAGENT_ENABLED_TOOLS, base.tools.enabledTools),
+      execApprovalMode:
+        (env.NOVA_EXEC_APPROVAL_MODE ?? env.MYAGENT_EXEC_APPROVAL_MODE) as Config["tools"]["execApprovalMode"] | undefined ??
+        base.tools.execApprovalMode,
+      safeBinaries: splitCsv(env.NOVA_SAFE_BINARIES ?? env.MYAGENT_SAFE_BINARIES, base.tools.safeBinaries),
+      webSearchProvider: "brave",
+      webSearchApiKey: env.BRAVE_API_KEY ?? env.NOVA_WEB_SEARCH_API_KEY ?? env.MYAGENT_WEB_SEARCH_API_KEY ?? base.tools.webSearchApiKey,
+    },
+  };
+}
+
+function normalizePaths(config: Config): Config {
+  const workspace = path.resolve(config.agent.workspace);
+  return {
+    ...config,
+    agent: {
+      ...config.agent,
+      workspace,
+    },
+    session: {
+      ...config.session,
+      storePath: path.resolve(config.session.storePath),
+      transcriptDir: path.resolve(config.session.transcriptDir),
+    },
+    memory: {
+      ...config.memory,
+      dbPath: path.resolve(config.memory.dbPath),
+      sourceDirs: config.memory.sourceDirs.map((dir) => path.resolve(workspace, dir)),
+    },
+  };
+}
+
+export function loadConfig(configPath = DEFAULT_CONFIG_PATH): Config {
+  const fileConfig = readJsonFile<Partial<Config>>(configPath) ?? {};
+  const mergedFromFile = deepMerge(
+    DEFAULT_CONFIG as unknown as Record<string, unknown>,
+    fileConfig as unknown as Record<string, unknown>,
+  ) as unknown as Config;
+  const envOverrides = resolveEnvOverrides(mergedFromFile);
+  const merged = deepMerge(
+    mergedFromFile as unknown as Record<string, unknown>,
+    envOverrides as unknown as Record<string, unknown>,
+  ) as unknown as Config;
+  return normalizePaths(merged);
+}
+
+export { DEFAULT_CONFIG_PATH };

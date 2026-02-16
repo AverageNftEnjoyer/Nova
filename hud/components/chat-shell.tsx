@@ -15,6 +15,8 @@ import {
   type ChatMessage,
   generateId,
   getActiveId,
+  loadConversations,
+  saveConversations,
   setActiveId,
   autoTitle,
 } from "@/lib/conversations"
@@ -33,6 +35,7 @@ import { loadUserSettings, ORB_COLORS, type OrbColor, type ThemeBackgroundType, 
 import FloatingLines from "@/components/FloatingLines"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
+import { getActiveUserId } from "@/lib/active-user"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
@@ -148,6 +151,47 @@ function hasRenderableAssistantContent(content: string | undefined): boolean {
   return content.replace(/[\u200B-\u200D\uFEFF]/g, "").trim().length > 0
 }
 
+function parseIsoTimestamp(value: string | undefined): number {
+  const ts = Date.parse(String(value || ""))
+  return Number.isFinite(ts) ? ts : 0
+}
+
+function mergeConversationsPreferLocal(
+  local: Conversation[],
+  remote: Conversation[],
+): Conversation[] {
+  if (local.length === 0) return remote
+  if (remote.length === 0) return local
+
+  const localById = new Map(local.map((entry) => [entry.id, entry]))
+  const merged = remote.map((serverConvo) => {
+    const localConvo = localById.get(serverConvo.id)
+    if (!localConvo) return serverConvo
+
+    const localUpdated = parseIsoTimestamp(localConvo.updatedAt)
+    const serverUpdated = parseIsoTimestamp(serverConvo.updatedAt)
+    const localLooksNewer =
+      localConvo.messages.length > serverConvo.messages.length || localUpdated > serverUpdated
+    if (!localLooksNewer) return serverConvo
+
+    return {
+      ...serverConvo,
+      title:
+        localConvo.title && localConvo.title !== "New chat" ? localConvo.title : serverConvo.title,
+      messages: localConvo.messages,
+      updatedAt: localUpdated >= serverUpdated ? localConvo.updatedAt : serverConvo.updatedAt,
+      pinned: localConvo.pinned ?? serverConvo.pinned,
+      archived: localConvo.archived ?? serverConvo.archived,
+    }
+  })
+
+  const remoteIds = new Set(remote.map((entry) => entry.id))
+  const localOnly = local.filter((entry) => !remoteIds.has(entry.id))
+  return [...merged, ...localOnly].sort(
+    (a, b) => parseIsoTimestamp(b.updatedAt) - parseIsoTimestamp(a.updatedAt),
+  )
+}
+
 export function ChatShell() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -239,6 +283,23 @@ export function ChatShell() {
     })
   }, [])
 
+  useLayoutEffect(() => {
+    const cachedConversations = readShellUiCache().conversations ?? loadConversations()
+    if (cachedConversations.length === 0) {
+      setIsLoaded(true)
+      return
+    }
+    const activeId = getActiveId()
+    const activeFromCache =
+      (activeId ? cachedConversations.find((c) => c.id === activeId) : null) ?? cachedConversations[0]
+    setConversations(cachedConversations)
+    setActiveConvo(activeFromCache || null)
+    if (activeFromCache) {
+      setActiveId(activeFromCache.id)
+    }
+    setIsLoaded(true)
+  }, [])
+
   // Load conversations and muted state on mount
   useEffect(() => {
     let cancelled = false
@@ -253,24 +314,34 @@ export function ChatShell() {
       try {
         const convos = await fetchConversationsFromServer()
         if (cancelled) return
+        const mergedConvos = mergeConversationsPreferLocal(
+          readShellUiCache().conversations ?? loadConversations(),
+          convos,
+        )
         const activeId = getActiveId()
-        const found = convos.find((c) => c.id === activeId)
+        const found = mergedConvos.find((c) => c.id === activeId)
         if (found) {
-          setConversations(convos)
+          setConversations(mergedConvos)
+          saveConversations(mergedConvos)
+          writeShellUiCache({ conversations: mergedConvos })
           setActiveConvo(found)
           setIsLoaded(true)
           return
         }
-        if (convos.length > 0) {
-          setConversations(convos)
-          setActiveConvo(convos[0])
-          setActiveId(convos[0].id)
+        if (mergedConvos.length > 0) {
+          setConversations(mergedConvos)
+          saveConversations(mergedConvos)
+          writeShellUiCache({ conversations: mergedConvos })
+          setActiveConvo(mergedConvos[0])
+          setActiveId(mergedConvos[0].id)
           setIsLoaded(true)
           return
         }
         const fresh = await createServerConversation()
         if (cancelled) return
         setConversations([fresh])
+        saveConversations([fresh])
+        writeShellUiCache({ conversations: [fresh] })
         setActiveConvo(fresh)
         setActiveId(fresh.id)
         setIsLoaded(true)
@@ -725,6 +796,8 @@ export function ChatShell() {
   const persist = useCallback(
     (convos: Conversation[], active: Conversation | null) => {
       setConversations(convos)
+      saveConversations(convos)
+      writeShellUiCache({ conversations: convos })
       if (active) {
         setActiveConvo(active)
         setActiveId(active.id)
@@ -734,6 +807,10 @@ export function ChatShell() {
         syncTimerRef.current = window.setTimeout(() => {
           void syncServerMessages(active).catch(() => {})
         }, 280)
+      }
+      if (!active) {
+        setActiveConvo(null)
+        setActiveId(null)
       }
     },
     [syncServerMessages],
@@ -948,9 +1025,40 @@ export function ChatShell() {
     if (!raw) return
 
     try {
-      const parsed = JSON.parse(raw) as { convoId?: string; content?: string }
+      const parsed = JSON.parse(raw) as {
+        convoId?: string
+        content?: string
+        messageId?: string
+        messageCreatedAt?: string
+      }
       const pendingContent = typeof parsed.content === "string" ? parsed.content.trim() : ""
       if (!pendingContent) return
+
+      const pendingMessageId = typeof parsed.messageId === "string" ? parsed.messageId.trim() : ""
+      const pendingMessageCreatedAt =
+        typeof parsed.messageCreatedAt === "string" && parsed.messageCreatedAt.trim()
+          ? parsed.messageCreatedAt
+          : new Date().toISOString()
+      const userAlreadyPresent = pendingMessageId
+        ? activeConvo.messages.some((m) => m.id === pendingMessageId)
+        : activeConvo.messages.some((m) => m.role === "user" && m.content.trim() === pendingContent)
+      if (!userAlreadyPresent) {
+        const userMsg: ChatMessage = {
+          id: pendingMessageId || generateId(),
+          role: "user",
+          content: pendingContent,
+          createdAt: pendingMessageCreatedAt,
+          source: "agent",
+        }
+        const updatedConvo: Conversation = {
+          ...activeConvo,
+          messages: [...activeConvo.messages, userMsg],
+          updatedAt: new Date().toISOString(),
+          title: activeConvo.messages.length === 0 ? autoTitle([userMsg]) : activeConvo.title,
+        }
+        const updatedConversations = conversations.map((c) => (c.id === updatedConvo.id ? updatedConvo : c))
+        persist(updatedConversations, updatedConvo)
+      }
 
       pendingBootSendHandledRef.current = true
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
@@ -959,12 +1067,16 @@ export function ChatShell() {
       mergedCountRef.current += 1
       setLocalThinking(true)
       const settings = loadUserSettings()
-      sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice)
+      sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
+        conversationId: activeConvo.id,
+        sender: "hud-user",
+        userId: getActiveUserId(),
+      })
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
       pendingBootSendHandledRef.current = true
     }
-  }, [activeConvo, agentConnected, sendToAgent])
+  }, [activeConvo, agentConnected, sendToAgent, conversations, persist])
 
   // Send a message
   const sendMessage = useCallback(
@@ -997,7 +1109,11 @@ export function ChatShell() {
       setThinkingStalled(false)
 
       const settings = loadUserSettings()
-      sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice)
+      sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
+        conversationId: activeConvo.id,
+        sender: "hud-user",
+        userId: getActiveUserId(),
+      })
     },
     [activeConvo, conversations, agentConnected, sendToAgent, persist],
   )
@@ -1017,8 +1133,11 @@ export function ChatShell() {
       if (!found) {
         const remote = await fetchConversationsFromServer().catch(() => [])
         if (remote.length > 0) {
-          setConversations(remote)
-          found = remote.find((c) => c.id === id)
+          const merged = mergeConversationsPreferLocal(conversations, remote)
+          setConversations(merged)
+          saveConversations(merged)
+          writeShellUiCache({ conversations: merged })
+          found = merged.find((c) => c.id === id)
         }
       }
       if (found) {

@@ -349,6 +349,8 @@ export default function IntegrationsPage() {
   const [isSavingTarget, setIsSavingTarget] = useState<null | "telegram" | "discord" | "openai" | "claude" | "grok" | "gemini" | "gmail-oauth" | "gmail-disconnect" | "gmail-primary" | "gmail-account" | "provider">(null)
   const [saveStatus, setSaveStatus] = useState<null | { type: "success" | "error"; message: string }>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const gmailPopupRef = useRef<Window | null>(null)
+  const gmailPopupWatchRef = useRef<number | null>(null)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -992,6 +994,18 @@ export default function IntegrationsPage() {
       if (event.origin !== window.location.origin) return
       const payload = event.data as { type?: string; status?: string; message?: string } | null
       if (!payload || payload.type !== "nova:gmail-oauth") return
+      if (gmailPopupRef.current && !gmailPopupRef.current.closed) {
+        try {
+          gmailPopupRef.current.close()
+        } catch {
+          // no-op
+        }
+      }
+      gmailPopupRef.current = null
+      if (gmailPopupWatchRef.current !== null) {
+        window.clearInterval(gmailPopupWatchRef.current)
+        gmailPopupWatchRef.current = null
+      }
       if (payload.status === "success") {
         setSaveStatus({ type: "success", message: payload.message || "Gmail connected." })
         void refreshGmailFromServer()
@@ -1003,6 +1017,16 @@ export default function IntegrationsPage() {
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
   }, [refreshGmailFromServer, router])
+
+  useEffect(() => {
+    return () => {
+      if (gmailPopupWatchRef.current !== null) {
+        window.clearInterval(gmailPopupWatchRef.current)
+      }
+      gmailPopupWatchRef.current = null
+      gmailPopupRef.current = null
+    }
+  }, [])
 
   const toggleTelegram = useCallback(async () => {
     const canEnableFromSavedToken = Boolean(botTokenConfigured || settings.telegram.botTokenConfigured)
@@ -1296,6 +1320,11 @@ export default function IntegrationsPage() {
           `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
         )
         if (!popup) {
+          gmailPopupRef.current = null
+          if (gmailPopupWatchRef.current !== null) {
+            window.clearInterval(gmailPopupWatchRef.current)
+            gmailPopupWatchRef.current = null
+          }
           const tab = window.open(target, "_blank")
           if (!tab) {
             setSaveStatus({
@@ -1308,6 +1337,21 @@ export default function IntegrationsPage() {
               message: "Opened Gmail auth in a new tab/window. Nova will stay open here.",
             })
           }
+        } else {
+          gmailPopupRef.current = popup
+          if (gmailPopupWatchRef.current !== null) {
+            window.clearInterval(gmailPopupWatchRef.current)
+          }
+          gmailPopupWatchRef.current = window.setInterval(() => {
+            const handle = gmailPopupRef.current
+            if (!handle || handle.closed) {
+              if (gmailPopupWatchRef.current !== null) {
+                window.clearInterval(gmailPopupWatchRef.current)
+                gmailPopupWatchRef.current = null
+              }
+              gmailPopupRef.current = null
+            }
+          }, 500)
         }
       })
       .catch((error) => {

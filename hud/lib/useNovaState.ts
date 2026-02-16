@@ -136,10 +136,26 @@ export function useNovaState() {
     return () => ws.close();
   }, []);
 
-  const sendToAgent = useCallback((text: string, voice: boolean = true, ttsVoice: string = "default") => {
+  const sendToAgent = useCallback((
+    text: string,
+    voice: boolean = true,
+    ttsVoice: string = "default",
+    options?: { conversationId?: string; sender?: string; sessionKey?: string; userId?: string },
+  ) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "hud_message", content: text, voice, ttsVoice }));
+      ws.send(
+        JSON.stringify({
+          type: "hud_message",
+          content: text,
+          voice,
+          ttsVoice,
+          ...(options?.conversationId ? { conversationId: options.conversationId } : {}),
+          ...(options?.sender ? { sender: options.sender } : {}),
+          ...(options?.sessionKey ? { sessionKey: options.sessionKey } : {}),
+          ...(options?.userId ? { userId: options.userId } : {}),
+        }),
+      );
     }
   }, []);
 

@@ -29,8 +29,15 @@ function modelForProvider(config: IntegrationsConfig, provider: LlmProvider): st
 
 export function resolveConfiguredLlmProvider(config: IntegrationsConfig): ResolvedProviderSelection {
   const active = config.activeLlmProvider
+  const allowFallback = String(process.env.NOVA_ALLOW_PROVIDER_FALLBACK || "").trim() === "1"
   if (providerReady(config, active)) {
     return { provider: active, model: modelForProvider(config, active) }
+  }
+
+  if (!allowFallback) {
+    throw new Error(
+      `Active LLM provider "${active}" is not fully configured (connected + API key + default model required). Update Integrations or explicitly enable NOVA_ALLOW_PROVIDER_FALLBACK=1.`,
+    )
   }
 
   const connectedCandidates: LlmProvider[] = []

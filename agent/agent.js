@@ -3,17 +3,30 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { execSync, exec, spawn } from "child_process";
-import { createDecipheriv, createHash } from "crypto";
-import OpenAI from "openai";
 import { FishAudioClient } from "fish-audio";
 import { WebSocketServer } from "ws";
 import { fileURLToPath } from "url";
-import {
-  buildSystemPrompt,
-  countTokens,
-  extractFacts
-} from "./memory.js";
 import { startMetricsBroadcast, getSystemMetrics } from "./metrics.js";
+import { buildAgentSystemPrompt, PromptMode } from "./system-prompt.js";
+import { buildPersonaPrompt } from "./bootstrap.js";
+import { createSessionRuntime } from "./runtime/session.js";
+import { createToolRuntime } from "./runtime/tools-runtime.js";
+import { createWakeWordRuntime } from "./runtime/voice.js";
+import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "./runtime/context-prompt.js";
+import {
+  claudeMessagesCreate,
+  claudeMessagesStream,
+  describeUnknownError,
+  estimateTokenCostUsd,
+  extractOpenAIChatText,
+  getOpenAIClient,
+  loadIntegrationsRuntime,
+  loadOpenAIIntegrationRuntime,
+  resolveConfiguredChatRuntime,
+  streamOpenAiChatCompletion,
+  toErrorDetails,
+  withTimeout,
+} from "./providers.js";
 
 // ===== __dirname fix =====
 const __filename = fileURLToPath(import.meta.url);
@@ -23,38 +36,36 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "integrations-config.json");
-const ENCRYPTION_KEY_PATH = path.join(__dirname, "..", "hud", "data", ".nova_encryption_key");
-const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
-const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
-const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
 const DEFAULT_GROK_MODEL = "grok-4-0709";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
 const OPENAI_FALLBACK_MODEL = String(process.env.NOVA_OPENAI_FALLBACK_MODEL || "").trim();
-const OPENAI_MODEL_PRICING_USD_PER_1M = {
-  "gpt-5.2": { input: 1.75, output: 14.0 },
-  "gpt-5.2-pro": { input: 12.0, output: 96.0 },
-  "gpt-5": { input: 1.25, output: 10.0 },
-  "gpt-5-mini": { input: 0.25, output: 2.0 },
-  "gpt-5-nano": { input: 0.05, output: 0.4 },
-  "gpt-4.1": { input: 2.0, output: 8.0 },
-  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
-  "gpt-4.1-nano": { input: 0.1, output: 0.4 },
-  "gpt-4o": { input: 5.0, output: 15.0 },
-  "gpt-4o-mini": { input: 0.6, output: 2.4 }
-};
-const CLAUDE_MODEL_PRICING_USD_PER_1M = {
-  "claude-opus-4-1-20250805": { input: 15.0, output: 75.0 },
-  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
-  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
-  "claude-3-7-sonnet-latest": { input: 3.0, output: 15.0 },
-  "claude-3-5-sonnet-latest": { input: 3.0, output: 15.0 },
-  "claude-3-5-haiku-latest": { input: 0.8, output: 4.0 }
-};
-
-const openAiClientCache = new Map();
+const TOOL_LOOP_ENABLED = String(process.env.NOVA_TOOL_LOOP_ENABLED || "1").trim() === "1";
+const MEMORY_LOOP_ENABLED = String(process.env.NOVA_MEMORY_ENABLED || "1").trim() === "1";
+const TOOL_LOOP_MAX_STEPS = Number.parseInt(process.env.NOVA_TOOL_LOOP_MAX_STEPS || "6", 10);
+const TOOL_REGISTRY_ENABLED_TOOLS = String(
+  process.env.NOVA_ENABLED_TOOLS ||
+    "read,write,edit,ls,grep,exec,web_search,web_fetch,memory_search,memory_get",
+)
+  .split(",")
+  .map((t) => t.trim())
+  .filter(Boolean);
+const TOOL_SAFE_BINARIES = String(
+  process.env.NOVA_SAFE_BINARIES || "ls,cat,head,tail,grep,find,wc,sort,echo,pwd",
+)
+  .split(",")
+  .map((t) => t.trim())
+  .filter(Boolean);
+const TOOL_EXEC_APPROVAL_MODE = ["ask", "auto", "off"].includes(
+  String(process.env.NOVA_EXEC_APPROVAL_MODE || "ask").trim().toLowerCase(),
+)
+  ? String(process.env.NOVA_EXEC_APPROVAL_MODE || "ask").trim().toLowerCase()
+  : "ask";
+const TOOL_WEB_SEARCH_PROVIDER = "brave";
+const MEMORY_DB_PATH = path.join(__dirname, "..", ".agent", "memory.db");
+const MEMORY_SOURCE_DIR = path.join(__dirname, "..", "memory");
+const ROOT_WORKSPACE_DIR = path.join(__dirname, "..");
 const OPENAI_REQUEST_TIMEOUT_MS = 45000;
 const MIC_RECORD_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RECORD_SECONDS || "4");
 const MIC_RETRY_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RETRY_SECONDS || "2");
@@ -70,531 +81,269 @@ const WAKE_WORD_VARIANTS = (process.env.NOVA_WAKE_WORD_VARIANTS || "nova")
   .split(",")
   .map((v) => v.trim().toLowerCase())
   .filter(Boolean);
+const AGENT_PROMPT_MODE = String(process.env.NOVA_PROMPT_MODE || PromptMode.FULL).trim().toLowerCase();
+const RAW_STREAM_ENABLED =
+  String(process.env.OPENCLAW_RAW_STREAM || "").trim() === "1" ||
+  String(process.env.NOVA_RAW_STREAM || "").trim() === "1";
+const RAW_STREAM_PATH = String(
+  process.env.OPENCLAW_RAW_STREAM_PATH ||
+    process.env.NOVA_RAW_STREAM_PATH ||
+    path.join(__dirname, "..", "agent", "raw-stream.jsonl")
+).trim();
+const SESSION_STORE_PATH = path.join(__dirname, "..", ".agent", "sessions.json");
+const SESSION_TRANSCRIPT_DIR = path.join(__dirname, "..", ".agent", "transcripts");
+const SESSION_MAX_TURNS = Number.parseInt(process.env.NOVA_SESSION_MAX_TURNS || "20", 10);
+const SESSION_IDLE_MINUTES = Number.parseInt(process.env.NOVA_SESSION_IDLE_MINUTES || "120", 10);
+const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "main").trim() || "main";
+const ENABLE_PROVIDER_FALLBACK =
+  String(process.env.NOVA_ALLOW_PROVIDER_FALLBACK || "").trim() === "1";
+const UPGRADE_MODULE_INDEX = [
+  "src/agent/runner.ts",
+  "src/agent/queue.ts",
+  "src/agent/system-prompt.ts",
+  "src/agent/bootstrap.ts",
+  "src/agent/tool-summaries.ts",
+  "src/agent/compact.ts",
+  "src/agent/history.ts",
+  "src/session/key.ts",
+  "src/session/store.ts",
+  "src/session/resolve.ts",
+  "src/session/lock.ts",
+  "src/memory/manager.ts",
+  "src/memory/hybrid.ts",
+  "src/memory/chunker.ts",
+  "src/memory/embeddings.ts",
+  "src/tools/registry.ts",
+  "src/tools/executor.ts",
+  "src/tools/web-search.ts",
+  "src/tools/web-fetch.ts",
+  "src/tools/memory-tools.ts",
+  "src/tools/exec.ts",
+  "src/tools/file-tools.ts",
+  "src/skills/discovery.ts",
+  "src/skills/formatter.ts",
+  "src/skills/snapshot.ts",
+  "src/config/index.ts",
+  "src/config/types.ts",
+  "src/index.ts",
+];
+const sessionRuntime = createSessionRuntime({
+  sessionStorePath: SESSION_STORE_PATH,
+  transcriptDir: SESSION_TRANSCRIPT_DIR,
+  sessionIdleMinutes: SESSION_IDLE_MINUTES,
+  sessionMainKey: SESSION_MAIN_KEY,
+});
+const toolRuntime = createToolRuntime({
+  enabled: TOOL_LOOP_ENABLED,
+  memoryEnabled: MEMORY_LOOP_ENABLED,
+  rootDir: ROOT_WORKSPACE_DIR,
+  memoryDbPath: MEMORY_DB_PATH,
+  memorySourceDir: MEMORY_SOURCE_DIR,
+  enabledTools: TOOL_REGISTRY_ENABLED_TOOLS,
+  execApprovalMode: TOOL_EXEC_APPROVAL_MODE,
+  safeBinaries: TOOL_SAFE_BINARIES,
+  webSearchProvider: TOOL_WEB_SEARCH_PROVIDER,
+  webSearchApiKey: String(process.env.BRAVE_API_KEY || "").trim(),
+  memoryConfig: {
+    embeddingProvider:
+      String(process.env.NOVA_EMBEDDING_PROVIDER || "local").trim().toLowerCase() === "openai"
+        ? "openai"
+        : "local",
+    embeddingModel: String(process.env.NOVA_EMBEDDING_MODEL || "text-embedding-3-small").trim(),
+    embeddingApiKey: String(process.env.OPENAI_API_KEY || "").trim(),
+    chunkSize: Number.parseInt(process.env.NOVA_MEMORY_CHUNK_SIZE || "400", 10),
+    chunkOverlap: Number.parseInt(process.env.NOVA_MEMORY_CHUNK_OVERLAP || "80", 10),
+    hybridVectorWeight: Number.parseFloat(process.env.NOVA_MEMORY_VECTOR_WEIGHT || "0.7"),
+    hybridBm25Weight: Number.parseFloat(process.env.NOVA_MEMORY_BM25_WEIGHT || "0.3"),
+    topK: Number.parseInt(process.env.NOVA_MEMORY_TOP_K || "5", 10),
+  },
+  describeUnknownError,
+});
+const wakeWordRuntime = createWakeWordRuntime({
+  wakeWord: WAKE_WORD,
+  wakeWordVariants: WAKE_WORD_VARIANTS,
+});
+const USER_CONTEXT_ROOT = path.join(ROOT_WORKSPACE_DIR, ".agent", "user-context");
+const BOOTSTRAP_BASELINE_DIR = path.join(ROOT_WORKSPACE_DIR, "templates");
+const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "IDENTITY.md"];
 
-function getEncryptionKeyMaterial() {
-  const raw = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
-  if (raw) {
-    try {
-      const decoded = Buffer.from(raw, "base64");
-      if (decoded.length === 32) return decoded;
-    } catch {}
-    return createHash("sha256").update(raw).digest();
+function resolvePersonaWorkspaceDir(userContextId) {
+  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "");
+  if (!normalized) {
+    return ROOT_WORKSPACE_DIR;
   }
 
+  const userDir = path.join(USER_CONTEXT_ROOT, normalized);
   try {
-    if (fs.existsSync(ENCRYPTION_KEY_PATH)) {
-      const fileRaw = fs.readFileSync(ENCRYPTION_KEY_PATH, "utf8").trim();
-      const decoded = Buffer.from(fileRaw, "base64");
-      if (decoded.length === 32) return decoded;
+    fs.mkdirSync(userDir, { recursive: true });
+    for (const fileName of BOOTSTRAP_FILE_NAMES) {
+      const targetPath = path.join(userDir, fileName);
+      if (fs.existsSync(targetPath)) continue;
+
+      const templatePath = path.join(BOOTSTRAP_BASELINE_DIR, fileName);
+      const rootPath = path.join(ROOT_WORKSPACE_DIR, fileName);
+      const sourcePath = fs.existsSync(templatePath)
+        ? templatePath
+        : fs.existsSync(rootPath)
+          ? rootPath
+          : "";
+      if (!sourcePath) continue;
+      fs.copyFileSync(sourcePath, targetPath);
     }
-  } catch {}
-
-  return null;
+    return userDir;
+  } catch (err) {
+    console.warn(
+      `[Persona] Failed preparing per-user workspace for ${normalized}: ${describeUnknownError(err)}`,
+    );
+    return ROOT_WORKSPACE_DIR;
+  }
 }
 
-function decryptStoredSecret(payload) {
-  const input = String(payload || "").trim();
-  if (!input) return "";
-  const parts = input.split(".");
-  if (parts.length !== 3) return "";
+function appendRawStream(event) {
+  if (!RAW_STREAM_ENABLED) return;
   try {
-    const key = getEncryptionKeyMaterial();
-    if (!key) return "";
-    const iv = Buffer.from(parts[0], "base64");
-    const tag = Buffer.from(parts[1], "base64");
-    const enc = Buffer.from(parts[2], "base64");
-    const decipher = createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    const out = Buffer.concat([decipher.update(enc), decipher.final()]);
-    return out.toString("utf8");
-  } catch {
-    return "";
-  }
-}
-
-function unwrapStoredSecret(value) {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) return "";
-  const decrypted = decryptStoredSecret(raw);
-  if (decrypted) return decrypted;
-
-  const parts = raw.split(".");
-  if (parts.length === 3) {
-    try {
-      const iv = Buffer.from(parts[0], "base64");
-      const tag = Buffer.from(parts[1], "base64");
-      const enc = Buffer.from(parts[2], "base64");
-      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return "";
-    } catch {}
-  }
-  return raw;
-}
-
-function toOpenAiLikeBase(baseUrl, fallbackBaseUrl) {
-  const trimmed = String(baseUrl || "").trim().replace(/\/+$/, "");
-  if (!trimmed) return fallbackBaseUrl;
-  if (trimmed.includes("/v1beta/openai") || /\/openai$/i.test(trimmed)) return trimmed;
-  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
-}
-
-function withTimeout(promise, ms, label = "request") {
-  let timer = null;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
-function extractOpenAIChatText(completion) {
-  const raw = completion?.choices?.[0]?.message?.content;
-  if (typeof raw === "string") return raw.trim();
-  if (Array.isArray(raw)) {
-    return raw
-      .map((part) => (part && typeof part === "object" && part.type === "text" ? String(part.text || "") : ""))
-      .join("\n")
-      .trim();
-  }
-  return "";
-}
-
-function extractOpenAIStreamDelta(chunk) {
-  const delta = chunk?.choices?.[0]?.delta?.content;
-  if (typeof delta === "string") return delta;
-  if (Array.isArray(delta)) {
-    return delta
-      .map((part) => (part && typeof part === "object" && typeof part.text === "string" ? part.text : ""))
-      .join("");
-  }
-  return "";
-}
-
-async function streamOpenAiChatCompletion({ client, model, messages, timeoutMs, onDelta }) {
-  let timer = null;
-  const controller = new AbortController();
-  timer = setTimeout(() => controller.abort(new Error(`OpenAI model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
-
-  let stream = null;
-  try {
-    stream = await client.chat.completions.create(
-      {
-        model,
-        messages,
-        stream: true,
-        stream_options: { include_usage: true }
-      },
-      { signal: controller.signal }
+    fs.appendFileSync(
+      RAW_STREAM_PATH,
+      `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`,
+      "utf8",
     );
   } catch (err) {
-    stream = await client.chat.completions.create(
-      {
-        model,
-        messages,
-        stream: true
-      },
-      { signal: controller.signal }
+    console.error(`[RawStream] Failed writing ${RAW_STREAM_PATH}: ${describeUnknownError(err)}`);
+  }
+}
+
+function scanUpgradeModuleIndex() {
+  const root = path.join(__dirname, "..");
+  const found = [];
+  const missing = [];
+  for (const relPath of UPGRADE_MODULE_INDEX) {
+    const absPath = path.join(root, relPath);
+    if (fs.existsSync(absPath)) found.push(relPath);
+    else missing.push(relPath);
+  }
+  return { found, missing };
+}
+
+function logUpgradeIndexSummary() {
+  const scan = scanUpgradeModuleIndex();
+  console.log(
+    `[UpgradeIndex] runtime modules indexed: ${scan.found.length}/${UPGRADE_MODULE_INDEX.length}`,
+  );
+  if (scan.missing.length > 0) {
+    console.warn(`[UpgradeIndex] Missing modules: ${scan.missing.join(", ")}`);
+  }
+}
+
+
+function readIntegrationsConfigSnapshot() {
+  if (!fs.existsSync(INTEGRATIONS_CONFIG_PATH)) {
+    return { exists: false, parsed: null, parseError: null };
+  }
+  try {
+    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
+    return { exists: true, parsed: JSON.parse(raw), parseError: null };
+  } catch (err) {
+    return { exists: true, parsed: null, parseError: describeUnknownError(err) };
+  }
+}
+
+function extractIntegrationMiskeys(parsed) {
+  if (!parsed || typeof parsed !== "object") return [];
+  const hints = [];
+  if (Object.prototype.hasOwnProperty.call(parsed, "activeProvider")) {
+    hints.push('Found legacy "activeProvider". Expected "activeLlmProvider".');
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed, "defaultModel")) {
+    hints.push('Found top-level "defaultModel". Expected provider-specific defaultModel fields.');
+  }
+  if (Object.prototype.hasOwnProperty.call(parsed, "openaiApiKey")) {
+    hints.push('Found legacy "openaiApiKey". Expected "openai.apiKey".');
+  }
+  return hints;
+}
+
+function listScopedIntegrationContextIds() {
+  try {
+    if (!fs.existsSync(USER_CONTEXT_ROOT)) return [];
+    const entries = fs.readdirSync(USER_CONTEXT_ROOT, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((id) => fs.existsSync(path.join(USER_CONTEXT_ROOT, id, "integrations-config.json")));
+  } catch {
+    return [];
+  }
+}
+
+function providerDisplayName(provider) {
+  if (provider === "claude") return "Claude";
+  if (provider === "grok") return "Grok";
+  if (provider === "gemini") return "Gemini";
+  return "OpenAI";
+}
+
+function logAgentRuntimePreflight() {
+  const snapshot = readIntegrationsConfigSnapshot();
+  const scopedContextIds = listScopedIntegrationContextIds();
+  if (!snapshot.exists && scopedContextIds.length === 0) {
+    console.warn(`[Preflight] Missing integrations config at ${INTEGRATIONS_CONFIG_PATH}`);
+    return;
+  }
+  if (snapshot.parseError) {
+    console.error(`[Preflight] Invalid integrations config JSON: ${snapshot.parseError}`);
+  }
+
+  const miskeys = extractIntegrationMiskeys(snapshot.parsed);
+  if (miskeys.length > 0) {
+    for (const hint of miskeys) {
+      console.warn(`[Preflight] ${hint}`);
+    }
+  }
+
+  const runtime = loadIntegrationsRuntime();
+  const active = resolveConfiguredChatRuntime(runtime, {
+    strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
+  });
+
+  let hasScopedReadyProvider = false;
+  let hasScopedOpenAiKey = false;
+  for (const contextId of scopedContextIds) {
+    const scopedRuntime = loadIntegrationsRuntime({ userContextId: contextId });
+    const scopedActive = resolveConfiguredChatRuntime(scopedRuntime, {
+      strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
+    });
+    if (scopedActive.connected && String(scopedActive.apiKey || "").trim()) {
+      hasScopedReadyProvider = true;
+    }
+    if (String(scopedRuntime?.openai?.apiKey || "").trim()) {
+      hasScopedOpenAiKey = true;
+    }
+    if (hasScopedReadyProvider && hasScopedOpenAiKey) {
+      break;
+    }
+  }
+
+  const globalActiveReady = active.connected && String(active.apiKey || "").trim().length > 0;
+  if (!globalActiveReady && !hasScopedReadyProvider) {
+    console.warn(
+      `[Preflight] Active provider is ${providerDisplayName(active.provider)} but no API key is configured. Chat requests will fail until configured.`,
+    );
+  } else if (!globalActiveReady && hasScopedReadyProvider) {
+    console.log(
+      "[Preflight] Global integrations are missing an active provider key, but user-scoped runtime keys were found.",
     );
   }
 
-  let reply = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
-  let sawDelta = false;
-
-  try {
-    for await (const chunk of stream) {
-      const delta = extractOpenAIStreamDelta(chunk);
-      if (delta.length > 0) {
-        sawDelta = true;
-        reply += delta;
-        onDelta(delta);
-      }
-
-      const usage = chunk?.usage;
-      if (usage) {
-        promptTokens = Number(usage.prompt_tokens || promptTokens);
-        completionTokens = Number(usage.completion_tokens || completionTokens);
-      }
-    }
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-
-  return { reply, promptTokens, completionTokens, sawDelta };
-}
-
-function toErrorDetails(err) {
-  if (!err || typeof err !== "object") {
-    return { message: String(err || "Unknown error"), status: null, code: null, type: null, requestId: null };
-  }
-  const anyErr = err;
-  return {
-    message: typeof anyErr.message === "string" ? anyErr.message : "Unknown error",
-    status: typeof anyErr.status === "number" ? anyErr.status : null,
-    code: typeof anyErr.code === "string" ? anyErr.code : null,
-    type: typeof anyErr.type === "string" ? anyErr.type : null,
-    param: typeof anyErr.param === "string" ? anyErr.param : null,
-    requestId:
-      typeof anyErr.request_id === "string"
-        ? anyErr.request_id
-        : typeof anyErr.requestId === "string"
-          ? anyErr.requestId
-          : null
-  };
-}
-
-function normalizeWakeText(input) {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function containsWakeWord(input) {
-  const normalized = normalizeWakeText(input);
-  if (!normalized) return false;
-
-  const tokens = normalized.split(" ").filter(Boolean);
-  if (tokens.length === 0) return false;
-  const filler = new Set(["hey", "hi", "hello", "yo", "ok", "okay", "please"]);
-  let i = 0;
-  while (i < tokens.length && filler.has(tokens[i])) i += 1;
-  return i < tokens.length && isWakeToken(tokens[i]);
-}
-
-function isWakeToken(token) {
-  if (!token) return false;
-  if (token === WAKE_WORD) return true;
-  if (WAKE_WORD_VARIANTS.includes(token)) return true;
-  return false;
-}
-
-function stripWakePrompt(input) {
-  const normalized = normalizeWakeText(input);
-  if (!normalized) return "";
-  const tokens = normalized.split(" ").filter(Boolean);
-  if (tokens.length === 0) return "";
-
-  const filler = new Set(["hey", "hi", "hello", "yo", "ok", "okay", "please"]);
-  let i = 0;
-  while (i < tokens.length && filler.has(tokens[i])) i += 1;
-  while (i < tokens.length && isWakeToken(tokens[i])) i += 1;
-  while (i < tokens.length && filler.has(tokens[i])) i += 1;
-
-  return tokens.slice(i).join(" ").trim();
-}
-
-function loadOpenAIIntegrationRuntime() {
-  try {
-    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-    const apiKey = unwrapStoredSecret(integration.apiKey);
-    const baseURL = toOpenAiLikeBase(
-      typeof integration.baseUrl === "string" ? integration.baseUrl : "",
-      DEFAULT_OPENAI_BASE_URL
+  const globalOpenAiKey = String(runtime.openai.apiKey || "").trim();
+  if (!globalOpenAiKey && !hasScopedOpenAiKey) {
+    console.warn("[Preflight] OpenAI key missing. Voice transcription (STT) may fail.");
+  } else if (!globalOpenAiKey && hasScopedOpenAiKey) {
+    console.log(
+      "[Preflight] OpenAI key found in user-scoped runtime; global STT fallback key is not configured.",
     );
-    const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
-      ? integration.defaultModel.trim()
-      : DEFAULT_CHAT_MODEL;
-
-    return { apiKey, baseURL, model };
-  } catch {
-    return { apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL };
   }
 }
 
-function loadIntegrationsRuntime() {
-  try {
-    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    const openaiIntegration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-    const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
-    const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
-    const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
-    const activeProvider = parsed?.activeLlmProvider === "claude"
-      ? "claude"
-      : parsed?.activeLlmProvider === "grok"
-        ? "grok"
-        : parsed?.activeLlmProvider === "gemini"
-          ? "gemini"
-        : "openai";
-    return {
-      activeProvider,
-      openai: {
-        connected: Boolean(openaiIntegration.connected),
-        apiKey: unwrapStoredSecret(openaiIntegration.apiKey),
-        baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
-        model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
-          ? openaiIntegration.defaultModel.trim()
-          : DEFAULT_CHAT_MODEL
-      },
-      claude: {
-        connected: Boolean(claudeIntegration.connected),
-        apiKey: unwrapStoredSecret(claudeIntegration.apiKey),
-        baseURL: typeof claudeIntegration.baseUrl === "string" && claudeIntegration.baseUrl.trim()
-          ? claudeIntegration.baseUrl.trim().replace(/\/+$/, "")
-          : DEFAULT_CLAUDE_BASE_URL,
-        model: typeof claudeIntegration.defaultModel === "string" && claudeIntegration.defaultModel.trim()
-          ? claudeIntegration.defaultModel.trim()
-          : DEFAULT_CLAUDE_MODEL
-      },
-      grok: {
-        connected: Boolean(grokIntegration.connected),
-        apiKey: unwrapStoredSecret(grokIntegration.apiKey),
-        baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
-        model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
-          ? grokIntegration.defaultModel.trim()
-          : DEFAULT_GROK_MODEL
-      },
-      gemini: {
-        connected: Boolean(geminiIntegration.connected),
-        apiKey: unwrapStoredSecret(geminiIntegration.apiKey),
-        baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
-        model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
-          ? geminiIntegration.defaultModel.trim()
-          : DEFAULT_GEMINI_MODEL
-      }
-    };
-  } catch {
-    return {
-      activeProvider: "openai",
-      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
-    };
-  }
-}
-
-function getActiveChatRuntime(integrations) {
-  if (integrations.activeProvider === "claude") {
-    return {
-      provider: "claude",
-      apiKey: integrations.claude.apiKey,
-      baseURL: integrations.claude.baseURL,
-      model: integrations.claude.model
-    };
-  }
-  if (integrations.activeProvider === "grok") {
-    return {
-      provider: "grok",
-      apiKey: integrations.grok.apiKey,
-      baseURL: integrations.grok.baseURL,
-      model: integrations.grok.model
-    };
-  }
-  if (integrations.activeProvider === "gemini") {
-    return {
-      provider: "gemini",
-      apiKey: integrations.gemini.apiKey,
-      baseURL: integrations.gemini.baseURL,
-      model: integrations.gemini.model
-    };
-  }
-  return {
-    provider: "openai",
-    apiKey: integrations.openai.apiKey,
-    baseURL: integrations.openai.baseURL,
-    model: integrations.openai.model
-  };
-}
-
-function toClaudeBase(baseURL) {
-  const trimmed = String(baseURL || "").trim().replace(/\/+$/, "");
-  if (!trimmed) return DEFAULT_CLAUDE_BASE_URL;
-  return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
-}
-
-async function claudeMessagesCreate({ apiKey, baseURL, model, system, userText, maxTokens = 300, temperature = 0.75 }) {
-  const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      system,
-      messages: [{ role: "user", content: userText }]
-    })
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const message = data?.error?.message || `Claude request failed (${res.status})`;
-    throw new Error(message);
-  }
-  const text = Array.isArray(data?.content)
-    ? data.content.filter((c) => c?.type === "text").map((c) => c?.text || "").join("\n").trim()
-    : "";
-  return {
-    text,
-    usage: {
-      promptTokens: Number(data?.usage?.input_tokens || 0),
-      completionTokens: Number(data?.usage?.output_tokens || 0)
-    }
-  };
-}
-
-async function claudeMessagesStream({
-  apiKey,
-  baseURL,
-  model,
-  system,
-  userText,
-  maxTokens = 300,
-  temperature = 0.75,
-  timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
-  onDelta
-}) {
-  const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error(`Claude model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
-
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      stream: true,
-      system,
-      messages: [{ role: "user", content: userText }]
-    }),
-    signal: controller.signal
-  });
-
-  if (!res.ok) {
-    clearTimeout(timer);
-    const data = await res.json().catch(() => ({}));
-    const message = data?.error?.message || `Claude request failed (${res.status})`;
-    throw new Error(message);
-  }
-
-  if (!res.body) {
-    clearTimeout(timer);
-    throw new Error("Claude stream returned no body.");
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-  let text = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      buffer = buffer.replace(/\r\n/g, "\n");
-
-      while (true) {
-        const boundary = buffer.indexOf("\n\n");
-        if (boundary === -1) break;
-        const rawEvent = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        if (!rawEvent.trim()) continue;
-
-        const lines = rawEvent.split("\n");
-        const eventLine = lines.find((line) => line.startsWith("event:"));
-        const eventName = eventLine ? eventLine.slice(6).trim() : "";
-        const dataRaw = lines
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trim())
-          .join("\n");
-        if (!dataRaw || dataRaw === "[DONE]") continue;
-
-        let payload = null;
-        try {
-          payload = JSON.parse(dataRaw);
-        } catch {
-          payload = null;
-        }
-        if (!payload) continue;
-
-        if (eventName === "message_start") {
-          promptTokens = Number(payload?.message?.usage?.input_tokens || promptTokens);
-          completionTokens = Number(payload?.message?.usage?.output_tokens || completionTokens);
-          continue;
-        }
-
-        if (eventName === "content_block_delta") {
-          const delta = payload?.delta?.type === "text_delta" ? String(payload?.delta?.text || "") : "";
-          if (delta.length > 0) {
-            text += delta;
-            onDelta(delta);
-          }
-          continue;
-        }
-
-        if (eventName === "message_delta") {
-          promptTokens = Number(payload?.usage?.input_tokens || promptTokens);
-          completionTokens = Number(payload?.usage?.output_tokens || completionTokens);
-          continue;
-        }
-
-        if (eventName === "error") {
-          const msg = payload?.error?.message || "Claude stream error.";
-          throw new Error(msg);
-        }
-      }
-    }
-  } finally {
-    clearTimeout(timer);
-    try {
-      reader.releaseLock();
-    } catch {}
-  }
-
-  return {
-    text,
-    usage: {
-      promptTokens,
-      completionTokens
-    }
-  };
-}
-
-function getOpenAIClient(runtime) {
-  const key = `${runtime.baseURL}|${runtime.apiKey}`;
-  if (openAiClientCache.has(key)) return openAiClientCache.get(key);
-  const client = new OpenAI({ apiKey: runtime.apiKey, baseURL: runtime.baseURL });
-  openAiClientCache.set(key, client);
-  return client;
-}
-
-function resolveModelPricing(model) {
-  const exact = OPENAI_MODEL_PRICING_USD_PER_1M[model] || CLAUDE_MODEL_PRICING_USD_PER_1M[model];
-  if (exact) return exact;
-  const normalized = String(model || "").trim().toLowerCase();
-  if (normalized.includes("claude-opus-4")) return { input: 15.0, output: 75.0 };
-  if (normalized.includes("claude-sonnet-4")) return { input: 3.0, output: 15.0 };
-  if (normalized.includes("claude-3-7-sonnet")) return { input: 3.0, output: 15.0 };
-  if (normalized.includes("claude-3-5-sonnet")) return { input: 3.0, output: 15.0 };
-  if (normalized.includes("claude-3-5-haiku")) return { input: 0.8, output: 4.0 };
-  return null;
-}
-
-function estimateTokenCostUsd(model, promptTokens = 0, completionTokens = 0) {
-  const pricing = resolveModelPricing(model);
-  if (!pricing) return null;
-  const inputCost = (promptTokens / 1_000_000) * pricing.input;
-  const outputCost = (completionTokens / 1_000_000) * pricing.output;
-  return Number((inputCost + outputCost).toFixed(6));
-}
 
 const fishAudio = new FishAudioClient({
   apiKey: process.env.FISH_API_KEY
@@ -627,7 +376,18 @@ const MPV = path.join(ROOT, "mpv", "mpv.exe");
 const THINK_SOUND = path.join(ROOT, "thinking.mp3");
 
 // ===== WebSocket HUD server =====
-const wss = new WebSocketServer({ port: 8765 });
+function startHudWebSocketServer() {
+  try {
+    return new WebSocketServer({ port: 8765 });
+  } catch (err) {
+    const details = describeUnknownError(err);
+    console.error(`[Gateway] Failed to start HUD WebSocket server on port 8765: ${details}`);
+    console.error('[Gateway] Another process may be using port 8765. Stop existing Nova/agent processes and retry.');
+    process.exit(1);
+  }
+}
+
+const wss = startHudWebSocketServer();
 
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
@@ -670,6 +430,69 @@ function shouldBuildWorkflowFromPrompt(text) {
 function shouldDraftOnlyWorkflow(text) {
   const n = String(text || "").toLowerCase();
   return /(draft|preview|don't deploy|do not deploy|just show|show me first)/.test(n);
+}
+
+function shouldPreloadWebSearch(text) {
+  const n = String(text || "").toLowerCase();
+  if (!n.trim()) return false;
+  return /\b(latest|most recent|today|tonight|yesterday|last night|current|breaking|update|updates|live|score|scores|recap|price|prices|market|news|weather)\b/.test(
+    n,
+  );
+}
+
+function replyClaimsNoLiveAccess(text) {
+  const n = String(text || "").toLowerCase();
+  if (!n.trim()) return false;
+  return (
+    n.includes("don't have live access") ||
+    n.includes("do not have live access") ||
+    n.includes("don't have access to the internet") ||
+    n.includes("no live access to the internet") ||
+    n.includes("can't access current") ||
+    n.includes("cannot access current") ||
+    n.includes("cannot browse") ||
+    n.includes("can't browse") ||
+    n.includes("without web access")
+  );
+}
+
+function buildWebSearchReadableReply(query, rawResults) {
+  const raw = String(rawResults || "").trim();
+  if (!raw || /^web_search error/i.test(raw) || raw === "No results found.") {
+    return "";
+  }
+
+  const blocks = raw
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const items = [];
+  for (const block of blocks) {
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.length < 2) continue;
+    const title = lines[0].replace(/^\[\d+\]\s*/, "").trim();
+    const url = /^https?:\/\//i.test(lines[1]) ? lines[1] : "";
+    const snippet = lines.slice(url ? 2 : 1).join(" ").replace(/\s+/g, " ").trim();
+    if (!title && !snippet) continue;
+    items.push({
+      title: title || "Result",
+      url,
+      snippet: snippet || "No snippet available.",
+    });
+    if (items.length >= 3) break;
+  }
+
+  if (items.length === 0) return "";
+
+  const lines = [
+    `Here is a quick live-web recap for: "${String(query || "").trim()}".`,
+    "",
+  ];
+  for (const item of items) {
+    lines.push(`- ${item.title}: ${item.snippet}`);
+    if (item.url) lines.push(`  Source: ${item.url}`);
+  }
+  return lines.join("\n");
 }
 
 // ===== handle incoming HUD messages =====
@@ -743,7 +566,39 @@ wss.on("connection", (ws) => {
         stopSpeaking();
         busy = true;
         try {
-          await handleInput(data.content, { voice: data.voice !== false, ttsVoice: data.ttsVoice || currentVoice });
+          const incomingUserId = sessionRuntime.normalizeUserContextId(
+            typeof data.userId === "string" ? data.userId : "",
+          );
+          await handleInput(data.content, {
+            voice: data.voice !== false,
+            ttsVoice: data.ttsVoice || currentVoice,
+            source: "hud",
+            sender: typeof data.sender === "string" ? data.sender : "hud-user",
+            userContextId: incomingUserId || undefined,
+            sessionKeyHint:
+              typeof data.sessionKey === "string"
+                ? data.sessionKey
+                : typeof data.conversationId === "string"
+                  ? incomingUserId
+                    ? `agent:nova:hud:user:${incomingUserId}:dm:${data.conversationId}`
+                    : `agent:nova:hud:dm:${data.conversationId}`
+                  : undefined,
+          });
+        } catch (err) {
+          const details = toErrorDetails(err);
+          const msg = details.message || "Unexpected runtime failure.";
+          console.error(
+            `[HUD] handleInput failed status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} type=${details.type ?? "n/a"} message=${msg}`,
+          );
+          const streamId = createAssistantStreamId();
+          broadcastAssistantStreamStart(streamId, "hud");
+          broadcastAssistantStreamDelta(
+            streamId,
+            `Request failed${details.status ? ` (${details.status})` : ""}${details.code ? ` [${details.code}]` : ""}: ${msg}`,
+            "hud",
+          );
+          broadcastAssistantStreamDone(streamId, "hud");
+          broadcastState("idle");
         } finally {
           busy = false;
         }
@@ -772,7 +627,7 @@ wss.on("connection", (ws) => {
         broadcastState(muted ? "muted" : "idle");
       }
     } catch (e) {
-      console.error("[WS] Bad message from HUD:", e.message);
+      console.error("[WS] Bad message from HUD:", describeUnknownError(e));
     }
   });
 });
@@ -871,18 +726,6 @@ function playThinking() {
 // ===== token enforcement =====
 const MAX_PROMPT_TOKENS = 600; // identity(300) + working(200) + buffer
 
-function enforceTokenBound(systemPrompt, userMessage) {
-  const systemTokens = countTokens(systemPrompt);
-  const userTokens = countTokens(userMessage);
-  const total = systemTokens + userTokens;
-
-  if (total > MAX_PROMPT_TOKENS) {
-    console.warn(`[Token] Prompt exceeds ${MAX_PROMPT_TOKENS} tokens (${total}). Truncating.`);
-  }
-
-  return { systemTokens, userTokens, total };
-}
-
 // ===== command ACKs =====
 const COMMAND_ACKS = [
   "On it.",
@@ -892,14 +735,31 @@ const COMMAND_ACKS = [
 
 // ===== input handler =====
 async function handleInput(text, opts = {}) {
-  const integrationsRuntime = loadIntegrationsRuntime();
-  const openaiRuntime = integrationsRuntime.openai;
-  const activeChatRuntime = getActiveChatRuntime(integrationsRuntime);
+  const sessionContext = sessionRuntime.resolveSessionContext(opts);
+  const sessionKey = sessionContext.sessionKey;
+  const userContextId = sessionRuntime.resolveUserContextId(opts);
+  appendRawStream({
+    event: "request_start",
+    source: opts.source || "hud",
+    sessionKey,
+    userContextId: userContextId || undefined,
+    chars: String(text || "").length,
+  });
+  const integrationsRuntime = loadIntegrationsRuntime({ userContextId });
+  const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, {
+    strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
+  });
   if (!activeChatRuntime.apiKey) {
     const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : activeChatRuntime.provider === "gemini" ? "Gemini" : "OpenAI";
-    throw new Error(`Missing ${providerName} API key. Configure Integrations first.`);
+    throw new Error(
+      `Missing ${providerName} API key for active provider "${activeChatRuntime.provider}". Configure Integrations first (source: ${integrationsRuntime.sourcePath || INTEGRATIONS_CONFIG_PATH}).`,
+    );
   }
-  const openai = openaiRuntime.apiKey ? getOpenAIClient(openaiRuntime) : null;
+  if (!activeChatRuntime.connected) {
+    throw new Error(
+      `Active provider "${activeChatRuntime.provider}" is not enabled in Integrations. Enable it or switch activeLlmProvider.`,
+    );
+  }
   const activeOpenAiCompatibleClient = activeChatRuntime.provider === "claude"
     ? null
     : getOpenAIClient({ apiKey: activeChatRuntime.apiKey, baseURL: activeChatRuntime.baseURL });
@@ -911,11 +771,22 @@ async function handleInput(text, opts = {}) {
         : activeChatRuntime.provider === "gemini"
           ? DEFAULT_GEMINI_MODEL
         : DEFAULT_CHAT_MODEL);
-
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
   const source = opts.source || "hud";
   const n = text.toLowerCase().trim();
+  const sender = String(opts.sender || "").trim();
+  const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded();
+  const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
+  const canRunToolLoop =
+    TOOL_LOOP_ENABLED &&
+    availableTools.length > 0 &&
+    typeof runtimeTools?.executeToolUse === "function";
+  const canRunWebSearch =
+    canRunToolLoop && availableTools.some((tool) => String(tool?.name || "") === "web_search");
+  console.log(
+    `[RuntimeSelection] session=${sessionKey} provider=${activeChatRuntime.provider} model=${selectedChatModel} source=${source} strictActive=${activeChatRuntime.strict ? "on" : "off"}`,
+  );
 
   // ===== ABSOLUTE SHUTDOWN =====
   if (
@@ -1065,24 +936,104 @@ Output ONLY valid JSON, nothing else.`
   }
 
   // ===== CHAT =====
-  // One request = one prompt build (no session accumulation)
+  // Use per-session transcript history (JSONL) so Nova keeps context by session key.
   broadcastState("thinking");
   broadcastMessage("user", text, source);
   if (useVoice) playThinking();
 
-  // Build fresh system prompt with selective memory injection
-  const { prompt: systemPrompt, tokenBreakdown } = buildSystemPrompt({
-    includeIdentity: true,
-    includeWorkingContext: true
+  const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+  const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
+    buildAgentSystemPrompt,
+    buildPersonaPrompt,
+    workspaceDir: personaWorkspaceDir,
+    promptArgs: {
+      workspaceDir: ROOT_WORKSPACE_DIR,
+      promptMode:
+        AGENT_PROMPT_MODE === PromptMode.MINIMAL || AGENT_PROMPT_MODE === PromptMode.NONE
+          ? AGENT_PROMPT_MODE
+          : PromptMode.FULL,
+      memoryCitationsMode:
+        String(process.env.NOVA_MEMORY_CITATIONS_MODE || "off").trim().toLowerCase() === "on"
+          ? "on"
+          : "off",
+      userTimezone: process.env.NOVA_USER_TIMEZONE || "America/New_York",
+      skillsPrompt: process.env.NOVA_SKILLS_PROMPT || "",
+      heartbeatPrompt: process.env.NOVA_HEARTBEAT_PROMPT || "",
+      docsPath: process.env.NOVA_DOCS_PATH || "",
+      ttsHint: "Keep voice responses concise, clear, and natural.",
+      reasoningLevel: "off",
+      runtimeInfo: {
+        agentId: "nova-agent",
+        host: process.env.COMPUTERNAME || "",
+        os: process.platform,
+        arch: process.arch,
+        node: process.version,
+        model: selectedChatModel,
+        defaultModel: selectedChatModel,
+        shell: process.env.ComSpec || process.env.SHELL || "",
+        channel: source,
+        capabilities: ["voice", "websocket"],
+        repoRoot: ROOT_WORKSPACE_DIR,
+      },
+      workspaceNotes: [
+        "This is a first-pass prompt framework integration for Nova.",
+        "Future skill/memory metadata plumbing can extend this prompt builder.",
+      ],
+    },
   });
 
-  // Enforce token bounds before model call
-  const tokenInfo = enforceTokenBound(systemPrompt, text);
-  console.log(`[Memory] Tokens - identity: ${tokenBreakdown.identity}, context: ${tokenBreakdown.working_context}, user: ${tokenInfo.userTokens}`);
+  let systemPrompt = baseSystemPrompt;
+  if (canRunWebSearch && shouldPreloadWebSearch(text)) {
+    try {
+      const preloadResult = await runtimeTools.executeToolUse(
+        {
+          id: `tool_preload_${Date.now()}`,
+          name: "web_search",
+          input: { query: text },
+          type: "tool_use",
+        },
+        availableTools,
+      );
+      const preloadContent = String(preloadResult?.content || "").trim();
+      if (preloadContent && !/^web_search error/i.test(preloadContent)) {
+        systemPrompt += `\n\n## Live Web Search Context\nUse these current results when answering:\n${preloadContent.slice(0, 2200)}`;
+      }
+    } catch (err) {
+      console.warn(`[ToolLoop] web_search preload failed: ${describeUnknownError(err)}`);
+    }
+  }
+  if (runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
+    try {
+      runtimeTools.memoryManager.warmSession();
+      const recalled = await runtimeTools.memoryManager.search(text, 3);
+      if (Array.isArray(recalled) && recalled.length > 0) {
+        const memoryContext = recalled
+          .map((item, idx) => {
+            const sourcePath = String(item.source || "unknown");
+            const content = String(item.content || "").slice(0, 600);
+            return `[${idx + 1}] ${sourcePath}\n${content}`;
+          })
+          .join("\n\n");
+        systemPrompt += `\n\n## Live Memory Recall\nUse this indexed context when relevant:\n${memoryContext}`;
+      }
+    } catch (err) {
+      console.warn(`[MemoryLoop] Search failed: ${describeUnknownError(err)}`);
+    }
+  }
 
-  // Build ephemeral messages array (no RAM accumulation)
+  // Enforce token bounds before model call
+  const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
+  console.log(`[Prompt] Tokens - persona: ${tokenBreakdown.persona}, user: ${tokenInfo.userTokens}`);
+
+  // Build request messages using limited transcript history + current user turn.
+  const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
+  const historyMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
+  console.log(
+    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length}`,
+  );
   const messages = [
     { role: "system", content: systemPrompt },
+    ...historyMessages,
     { role: "user", content: text }
   ];
   const assistantStreamId = createAssistantStreamId();
@@ -1111,53 +1062,176 @@ Output ONLY valid JSON, nothing else.`
       promptTokens = claudeCompletion.usage.promptTokens;
       completionTokens = claudeCompletion.usage.completionTokens;
     } else {
-      let streamed = null;
-      let sawPrimaryDelta = false;
-      try {
-        streamed = await streamOpenAiChatCompletion({
-          client: activeOpenAiCompatibleClient,
-          model: modelUsed,
-          messages,
-          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          onDelta: (delta) => {
-            sawPrimaryDelta = true;
-            broadcastAssistantStreamDelta(assistantStreamId, delta, source);
-          }
-        });
-      } catch (primaryError) {
-        if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) {
-          throw primaryError;
-        }
-        const fallbackModel = OPENAI_FALLBACK_MODEL;
-        const primaryDetails = toErrorDetails(primaryError);
-        console.warn(
-          `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
-          ` status=${primaryDetails.status ?? "n/a"} code=${primaryDetails.code ?? "n/a"} type=${primaryDetails.type ?? "n/a"} request_id=${primaryDetails.requestId ?? "n/a"}` +
-          ` message=${primaryDetails.message}. Retrying with configured fallback ${fallbackModel}.`
-        );
-        streamed = await streamOpenAiChatCompletion({
-          client: activeOpenAiCompatibleClient,
-          model: fallbackModel,
-          messages,
-          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          onDelta: (delta) => {
-            broadcastAssistantStreamDelta(assistantStreamId, delta, source);
-          }
-        });
-        modelUsed = fallbackModel;
-      }
+      if (canRunToolLoop) {
+        const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
+        const loopMessages = [...messages];
+        let usedFallback = false;
 
-      reply = streamed.reply;
-      if (!reply || !reply.trim()) {
-        throw new Error(`Model ${modelUsed} returned no text response.`);
+        for (let step = 0; step < Math.max(1, TOOL_LOOP_MAX_STEPS); step += 1) {
+          let completion = null;
+          try {
+            completion = await withTimeout(
+              activeOpenAiCompatibleClient.chat.completions.create({
+                model: modelUsed,
+                messages: loopMessages,
+                tools: openAiToolDefs,
+                tool_choice: "auto",
+              }),
+              OPENAI_REQUEST_TIMEOUT_MS,
+              `Tool loop model ${modelUsed}`,
+            );
+          } catch (err) {
+            if (!usedFallback && OPENAI_FALLBACK_MODEL) {
+              usedFallback = true;
+              modelUsed = OPENAI_FALLBACK_MODEL;
+              console.warn(
+                `[ToolLoop] Primary model failed; retrying with fallback model ${modelUsed}.`,
+              );
+              completion = await withTimeout(
+                activeOpenAiCompatibleClient.chat.completions.create({
+                  model: modelUsed,
+                  messages: loopMessages,
+                  tools: openAiToolDefs,
+                  tool_choice: "auto",
+                }),
+                OPENAI_REQUEST_TIMEOUT_MS,
+                `Tool loop fallback model ${modelUsed}`,
+              );
+            } else {
+              throw err;
+            }
+          }
+
+          const usage = completion?.usage || {};
+          promptTokens += Number(usage.prompt_tokens || 0);
+          completionTokens += Number(usage.completion_tokens || 0);
+
+          const choice = completion?.choices?.[0]?.message || {};
+          const assistantText = typeof choice.content === "string"
+            ? choice.content
+            : Array.isArray(choice.content)
+              ? choice.content
+                  .map((part) =>
+                    part && typeof part === "object" && part.type === "text"
+                      ? String(part.text || "")
+                      : "",
+                  )
+                  .join("")
+              : "";
+          const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+
+          if (toolCalls.length === 0) {
+            reply = assistantText.trim();
+            break;
+          }
+
+          loopMessages.push({
+            role: "assistant",
+            content: assistantText || "",
+            tool_calls: toolCalls,
+          });
+
+          for (const toolCall of toolCalls) {
+            const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
+            const toolResult = await runtimeTools.executeToolUse(toolUse, availableTools);
+            loopMessages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: String(toolResult?.content || ""),
+            });
+          }
+        }
+
+        if (!reply || !reply.trim()) {
+          throw new Error(`Model ${modelUsed} returned no text response after tool loop.`);
+        }
+      } else {
+        let streamed = null;
+        let sawPrimaryDelta = false;
+        try {
+          streamed = await streamOpenAiChatCompletion({
+            client: activeOpenAiCompatibleClient,
+            model: modelUsed,
+            messages,
+            timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            onDelta: (delta) => {
+              sawPrimaryDelta = true;
+              broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+            }
+          });
+        } catch (primaryError) {
+          if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) {
+            throw primaryError;
+          }
+          const fallbackModel = OPENAI_FALLBACK_MODEL;
+          const primaryDetails = toErrorDetails(primaryError);
+          console.warn(
+            `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
+            ` status=${primaryDetails.status ?? "n/a"} code=${primaryDetails.code ?? "n/a"} type=${primaryDetails.type ?? "n/a"} request_id=${primaryDetails.requestId ?? "n/a"}` +
+            ` message=${primaryDetails.message}. Retrying with configured fallback ${fallbackModel}.`
+          );
+          streamed = await streamOpenAiChatCompletion({
+            client: activeOpenAiCompatibleClient,
+            model: fallbackModel,
+            messages,
+            timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            onDelta: (delta) => {
+              broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+            }
+          });
+          modelUsed = fallbackModel;
+        }
+
+        reply = streamed.reply;
+        if (!reply || !reply.trim()) {
+          throw new Error(`Model ${modelUsed} returned no text response.`);
+        }
+        promptTokens = streamed.promptTokens || 0;
+        completionTokens = streamed.completionTokens || 0;
       }
-      promptTokens = streamed.promptTokens || 0;
-      completionTokens = streamed.completionTokens || 0;
+    }
+
+    if (replyClaimsNoLiveAccess(reply) && canRunWebSearch) {
+      try {
+        const fallbackResult = await runtimeTools.executeToolUse(
+          {
+            id: `tool_refusal_recover_${Date.now()}`,
+            name: "web_search",
+            input: { query: text },
+            type: "tool_use",
+          },
+          availableTools,
+        );
+        const fallbackContent = String(fallbackResult?.content || "").trim();
+        if (fallbackContent && !/^web_search error/i.test(fallbackContent)) {
+          const readable = buildWebSearchReadableReply(text, fallbackContent);
+          const correction = readable
+            ? `I do have live web access in this runtime.\n\n${readable}`
+            : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;
+          reply = reply ? `${reply}\n\n${correction}` : correction;
+          broadcastAssistantStreamDelta(assistantStreamId, correction, source);
+        }
+      } catch (err) {
+        console.warn(`[ToolLoop] refusal recovery search failed: ${describeUnknownError(err)}`);
+      }
+    } else if (canRunToolLoop && reply && !useVoice) {
+      broadcastAssistantStreamDelta(assistantStreamId, reply, source);
     }
 
     const modelForUsage = activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel);
     const totalTokens = promptTokens + completionTokens;
     const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens);
+    appendRawStream({
+      event: "request_done",
+      source,
+      sessionKey,
+      provider: activeChatRuntime.provider,
+      model: modelForUsage,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      estimatedCostUsd,
+    });
     console.log(
       `[LLM] provider=${activeChatRuntime.provider} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}` +
       `${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`
@@ -1172,18 +1246,47 @@ Output ONLY valid JSON, nothing else.`
       estimatedCostUsd,
       ts: Date.now()
     });
+    sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "user", text, {
+      source,
+      sender,
+      provider: activeChatRuntime.provider,
+      model: modelForUsage,
+      sessionKey,
+    });
+    sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, {
+      source,
+      sender: "nova",
+      provider: activeChatRuntime.provider,
+      model: modelForUsage,
+      sessionKey,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+    });
+    sessionContext.persistUsage({
+      model: modelForUsage,
+      promptTokens,
+      completionTokens,
+    });
 
     if (useVoice) {
       await speak(reply, ttsVoice);
     }
-
-    // Extract facts in the background (don't block) - saves to disk, not RAM
-    if (openai) {
-      extractFacts(openai, text, reply).catch(() => {});
-    }
   } catch (err) {
     const details = toErrorDetails(err);
     const msg = details.message || "Unknown model error.";
+    appendRawStream({
+      event: "request_error",
+      source,
+      sessionKey,
+      provider: activeChatRuntime.provider,
+      model: selectedChatModel,
+      status: details.status,
+      code: details.code,
+      type: details.type,
+      requestId: details.requestId,
+      message: msg,
+    });
     console.error(
       `[LLM] Chat request failed provider=${activeChatRuntime.provider} model=${selectedChatModel}` +
       ` status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} type=${details.type ?? "n/a"} param=${details.param ?? "n/a"} request_id=${details.requestId ?? "n/a"}` +
@@ -1202,6 +1305,11 @@ Output ONLY valid JSON, nothing else.`
 
 // ===== System metrics broadcast =====
 startMetricsBroadcast(broadcast, 2000);
+
+// ===== startup preflight diagnostics =====
+sessionRuntime.ensureSessionStorePaths();
+logUpgradeIndexSummary();
+logAgentRuntimePreflight();
 
 // ===== startup delay =====
 await new Promise(r => setTimeout(r, 15000));
@@ -1270,7 +1378,7 @@ while (true) {
     // Broadcast what was heard so the HUD can show it
     broadcast({ type: "transcript", text, ts: Date.now() });
 
-    const normalizedHeard = normalizeWakeText(text);
+    const normalizedHeard = wakeWordRuntime.normalizeWakeText(text);
     const now = Date.now();
     if (
       normalizedHeard &&
@@ -1282,7 +1390,7 @@ while (true) {
       continue;
     }
 
-    if (!containsWakeWord(text)) {
+    if (!wakeWordRuntime.containsWakeWord(text)) {
       if (!busy && !muted) broadcastState("idle");
       continue;
     }
@@ -1295,7 +1403,7 @@ while (true) {
     // Clear transcript once we start processing
     broadcast({ type: "transcript", text: "", ts: Date.now() });
 
-    const cleanedVoiceInput = stripWakePrompt(text);
+    const cleanedVoiceInput = wakeWordRuntime.stripWakePrompt(text);
     lastWakeHandledAt = now;
     lastVoiceTextHandled = normalizedHeard;
     lastVoiceTextHandledAt = now;
@@ -1323,7 +1431,12 @@ while (true) {
     lastVoiceCommandHandled = cleanedVoiceInput;
     lastVoiceCommandHandledAt = now;
     try {
-      await handleInput(cleanedVoiceInput, { voice: voiceEnabled, ttsVoice: currentVoice, source: "voice" });
+      await handleInput(cleanedVoiceInput, {
+        voice: voiceEnabled,
+        ttsVoice: currentVoice,
+        source: "voice",
+        sender: "local-mic",
+      });
     } finally {
       busy = false;
     }

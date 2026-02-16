@@ -29,6 +29,8 @@ export default function LoginPage() {
   const router = useRouter()
   const formRef = useRef<HTMLFormElement | null>(null)
   const debugMountIdRef = useRef(Math.random().toString(36).slice(2, 8))
+  const googlePopupRef = useRef<Window | null>(null)
+  const googlePopupPollRef = useRef<number | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [debugPanel, setDebugPanel] = useState(() => loginDebugSnapshot())
   const [email, setEmail] = useState("")
@@ -79,6 +81,7 @@ export default function LoginPage() {
     const next = sanitizeNextPath(params.get("next"))
     const requestedMode = String(params.get("mode") || "").trim()
     const allowLoginWhileAuthed = requestedMode === "signup" || params.get("switch") === "1"
+    const isGoogleOauthPopup = params.get("oauth") === "1" && Boolean(window.opener && window.opener !== window)
     if (requestedMode === "reset") switchMode("reset")
     else if (requestedMode === "signup") switchMode("signup")
     setNextPath(next)
@@ -91,9 +94,76 @@ export default function LoginPage() {
     void supabaseBrowser.auth.getSession().then(({ data }) => {
       if (debugEnabled) loginDebugEvent("login-page", "getSession", `authed=${data.session?.user ? "1" : "0"}`)
       setActiveUserId(data.session?.user?.id || null)
+      if (data.session?.user && isGoogleOauthPopup) {
+        try {
+          window.opener?.postMessage(
+            {
+              type: "nova:google-oauth",
+              status: "success",
+              nextPath: next,
+              userId: data.session.user.id,
+            },
+            window.location.origin,
+          )
+        } catch {
+          // no-op
+        }
+        try {
+          window.close()
+        } catch {
+          // no-op
+        }
+        return
+      }
       if (data.session?.user && !allowLoginWhileAuthed) router.replace(next)
     })
   }, [debugEnabled, router])
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      const payload = event.data as
+        | { type?: string; status?: "success" | "error"; nextPath?: string; userId?: string; message?: string }
+        | null
+      if (!payload || payload.type !== "nova:google-oauth") return
+
+      if (googlePopupPollRef.current !== null) {
+        window.clearInterval(googlePopupPollRef.current)
+        googlePopupPollRef.current = null
+      }
+      if (googlePopupRef.current && !googlePopupRef.current.closed) {
+        try {
+          googlePopupRef.current.close()
+        } catch {
+          // no-op
+        }
+      }
+      googlePopupRef.current = null
+
+      if (payload.status === "success") {
+        if (payload.userId) setActiveUserId(payload.userId)
+        void ensureSupabaseSessionPersisted().then(() => {
+          navigatePostAuth(payload.nextPath || nextPath)
+        })
+      } else {
+        setBusy(false)
+        setError(payload.message || "Google sign-in failed.")
+      }
+    }
+
+    window.addEventListener("message", onMessage)
+    return () => window.removeEventListener("message", onMessage)
+  }, [nextPath])
+
+  useEffect(() => {
+    return () => {
+      if (googlePopupPollRef.current !== null) {
+        window.clearInterval(googlePopupPollRef.current)
+      }
+      googlePopupPollRef.current = null
+      googlePopupRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const section = formRef.current
@@ -329,19 +399,22 @@ export default function LoginPage() {
       if (!popup) {
         const tab = window.open(authUrl, "_blank")
         if (!tab) throw new Error("Popup was blocked. Allow popups for Nova to continue with Google.")
+        setBusy(false)
+        setNotice("Google sign-in opened in a new tab. Complete auth there, then return.")
       } else {
-        const timer = window.setInterval(() => {
-          if (!popup.closed) return
-          window.clearInterval(timer)
-          void supabase.auth.getSession().then(async ({ data: sessionData }) => {
-            if (!sessionData.session?.user) {
-              setBusy(false)
-              return
-            }
-            setActiveUserId(sessionData.session.user.id)
-            await ensureSupabaseSessionPersisted()
-            navigatePostAuth(nextPath)
-          })
+        googlePopupRef.current = popup
+        if (googlePopupPollRef.current !== null) {
+          window.clearInterval(googlePopupPollRef.current)
+        }
+        googlePopupPollRef.current = window.setInterval(() => {
+          const handle = googlePopupRef.current
+          if (!handle || !handle.closed) return
+          if (googlePopupPollRef.current !== null) {
+            window.clearInterval(googlePopupPollRef.current)
+            googlePopupPollRef.current = null
+          }
+          googlePopupRef.current = null
+          setBusy(false)
         }, 400)
       }
       if (debugEnabled) loginDebugEvent("login-page", "oauth:google:start")

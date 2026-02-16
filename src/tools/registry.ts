@@ -1,0 +1,53 @@
+import type { ToolsConfig } from "../config/types.js";
+import type { MemoryIndexManager } from "../memory/manager.js";
+import { createExecTool } from "./exec.js";
+import { createFileTools } from "./file-tools.js";
+import { createMemoryTools } from "./memory-tools.js";
+import type { Tool } from "./types.js";
+import { createWebFetchTool } from "./web-fetch.js";
+import { createWebSearchTool } from "./web-search.js";
+
+export function createToolRegistry(
+  config: ToolsConfig,
+  params: { workspaceDir: string; memoryManager: MemoryIndexManager | null },
+): Tool[] {
+  const enabled = new Set(config.enabledTools.map((name) => name.trim()).filter(Boolean));
+  const registry: Tool[] = [];
+
+  const fileTools = createFileTools(params.workspaceDir);
+  for (const tool of fileTools) {
+    if (enabled.has(tool.name)) registry.push(tool);
+  }
+
+  if (enabled.has("exec")) {
+    registry.push(
+      createExecTool({
+        approvalMode: config.execApprovalMode,
+        safeBinaries: config.safeBinaries,
+      }),
+    );
+  }
+
+  if (enabled.has("web_search")) {
+    registry.push(
+      createWebSearchTool({
+        provider: config.webSearchProvider,
+        apiKey: config.webSearchApiKey,
+      }),
+    );
+  }
+
+  if (enabled.has("web_fetch")) {
+    registry.push(createWebFetchTool());
+  }
+
+  if (params.memoryManager && (enabled.has("memory_search") || enabled.has("memory_get"))) {
+    for (const tool of createMemoryTools(params.memoryManager)) {
+      if (enabled.has(tool.name)) {
+        registry.push(tool);
+      }
+    }
+  }
+
+  return registry;
+}

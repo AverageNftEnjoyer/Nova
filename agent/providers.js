@@ -1,0 +1,685 @@
+import fs from "fs";
+import path from "path";
+import { createDecipheriv, createHash, randomUUID } from "crypto";
+import OpenAI from "openai";
+import {
+  INTEGRATIONS_CONFIG_PATH,
+  ENCRYPTION_KEY_PATH,
+  DEFAULT_OPENAI_BASE_URL,
+  DEFAULT_CLAUDE_BASE_URL,
+  DEFAULT_GROK_BASE_URL,
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_CLAUDE_MODEL,
+  DEFAULT_GROK_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  OPENAI_REQUEST_TIMEOUT_MS,
+  OPENAI_MODEL_PRICING_USD_PER_1M,
+  CLAUDE_MODEL_PRICING_USD_PER_1M
+} from "./constants.js";
+
+// ===== Client Cache =====
+const openAiClientCache = new Map();
+const USER_CONTEXT_INTEGRATIONS_ROOT = path.join(
+  path.dirname(INTEGRATIONS_CONFIG_PATH),
+  "..",
+  "..",
+  ".agent",
+  "user-context",
+);
+const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
+
+// ===== Error Helpers =====
+export function describeUnknownError(err) {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+export function toErrorDetails(err) {
+  if (!err || typeof err !== "object") {
+    return { message: String(err || "Unknown error"), status: null, code: null, type: null, requestId: null };
+  }
+  const anyErr = err;
+  return {
+    message: typeof anyErr.message === "string" ? anyErr.message : "Unknown error",
+    status: typeof anyErr.status === "number" ? anyErr.status : null,
+    code: typeof anyErr.code === "string" ? anyErr.code : null,
+    type: typeof anyErr.type === "string" ? anyErr.type : null,
+    param: typeof anyErr.param === "string" ? anyErr.param : null,
+    requestId:
+      typeof anyErr.request_id === "string"
+        ? anyErr.request_id
+        : typeof anyErr.requestId === "string"
+          ? anyErr.requestId
+          : null
+  };
+}
+
+// ===== Encryption =====
+function deriveEncryptionKeyMaterial(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return null;
+  try {
+    const decoded = Buffer.from(raw, "base64");
+    if (decoded.length === 32) return decoded;
+  } catch {}
+  return createHash("sha256").update(raw).digest();
+}
+
+function readEnvValueFromFile(envPath, key) {
+  try {
+    if (!fs.existsSync(envPath)) return "";
+    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const idx = trimmed.indexOf("=");
+      if (idx <= 0) continue;
+      const candidateKey = trimmed.slice(0, idx).trim();
+      if (candidateKey !== key) continue;
+      let value = trimmed.slice(idx + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      return value.trim();
+    }
+  } catch {}
+  return "";
+}
+
+export function getEncryptionKeyMaterials() {
+  const candidates = [];
+  const envKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
+  if (envKey) {
+    candidates.push(envKey);
+  }
+
+  try {
+    const hudRoot = path.dirname(INTEGRATIONS_CONFIG_PATH);
+    const hudLocalEnvKey = readEnvValueFromFile(path.join(hudRoot, ".env.local"), "NOVA_ENCRYPTION_KEY");
+    if (hudLocalEnvKey) {
+      candidates.push(hudLocalEnvKey);
+    }
+    const rootEnvKey = readEnvValueFromFile(path.join(hudRoot, "..", ".env"), "NOVA_ENCRYPTION_KEY");
+    if (rootEnvKey) {
+      candidates.push(rootEnvKey);
+    }
+  } catch {}
+
+  try {
+    if (fs.existsSync(ENCRYPTION_KEY_PATH)) {
+      const fileRaw = fs.readFileSync(ENCRYPTION_KEY_PATH, "utf8").trim();
+      if (fileRaw) {
+        candidates.push(fileRaw);
+      }
+    }
+  } catch {}
+
+  const materials = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "").trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    const material = deriveEncryptionKeyMaterial(normalized);
+    if (material) {
+      materials.push(material);
+    }
+  }
+  return materials;
+}
+
+export function decryptStoredSecret(payload) {
+  const input = String(payload || "").trim();
+  if (!input) return "";
+  const parts = input.split(".");
+  if (parts.length !== 3) return "";
+  const keyMaterials = getEncryptionKeyMaterials();
+  if (keyMaterials.length === 0) return "";
+  for (const key of keyMaterials) {
+    try {
+    const iv = Buffer.from(parts[0], "base64");
+    const tag = Buffer.from(parts[1], "base64");
+    const enc = Buffer.from(parts[2], "base64");
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const out = Buffer.concat([decipher.update(enc), decipher.final()]);
+    return out.toString("utf8");
+    } catch {}
+  }
+  return "";
+}
+
+export function unwrapStoredSecret(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  const decrypted = decryptStoredSecret(raw);
+  if (decrypted) return decrypted;
+
+  const parts = raw.split(".");
+  if (parts.length === 3) {
+    try {
+      const iv = Buffer.from(parts[0], "base64");
+      const tag = Buffer.from(parts[1], "base64");
+      const enc = Buffer.from(parts[2], "base64");
+      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return "";
+    } catch {}
+  }
+  return raw;
+}
+
+// ===== URL Helpers =====
+export function toOpenAiLikeBase(baseUrl, fallbackBaseUrl) {
+  const trimmed = String(baseUrl || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return fallbackBaseUrl;
+  if (trimmed.includes("/v1beta/openai") || /\/openai$/i.test(trimmed)) return trimmed;
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+export function toClaudeBase(baseURL) {
+  const trimmed = String(baseURL || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return DEFAULT_CLAUDE_BASE_URL;
+  return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+}
+
+// ===== Timeout Helper =====
+export function withTimeout(promise, ms, label = "request") {
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+// ===== Load Integrations Config =====
+function normalizeUserContextId(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 96);
+}
+
+function resolveIntegrationsConfigPath(userContextId) {
+  const normalized = normalizeUserContextId(userContextId);
+  if (!normalized) return INTEGRATIONS_CONFIG_PATH;
+  const scopedPath = path.join(
+    USER_CONTEXT_INTEGRATIONS_ROOT,
+    normalized,
+    USER_CONTEXT_INTEGRATIONS_FILE,
+  );
+  return fs.existsSync(scopedPath) ? scopedPath : INTEGRATIONS_CONFIG_PATH;
+}
+
+export function loadIntegrationsRuntime(options = {}) {
+  const configPath = resolveIntegrationsConfigPath(options.userContextId);
+  try {
+    const raw = fs.readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const openaiIntegration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
+    const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
+    const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
+    const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
+    const activeProvider = parsed?.activeLlmProvider === "claude"
+      ? "claude"
+      : parsed?.activeLlmProvider === "grok"
+        ? "grok"
+        : parsed?.activeLlmProvider === "gemini"
+          ? "gemini"
+          : parsed?.activeLlmProvider === "openai"
+            ? "openai"
+            : "openai";
+    return {
+      sourcePath: configPath,
+      activeProvider,
+      openai: {
+        connected: Boolean(openaiIntegration.connected),
+        apiKey: unwrapStoredSecret(openaiIntegration.apiKey),
+        baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
+        model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
+          ? openaiIntegration.defaultModel.trim()
+          : DEFAULT_CHAT_MODEL
+      },
+      claude: {
+        connected: Boolean(claudeIntegration.connected),
+        apiKey: unwrapStoredSecret(claudeIntegration.apiKey),
+        baseURL: typeof claudeIntegration.baseUrl === "string" && claudeIntegration.baseUrl.trim()
+          ? claudeIntegration.baseUrl.trim().replace(/\/+$/, "")
+          : DEFAULT_CLAUDE_BASE_URL,
+        model: typeof claudeIntegration.defaultModel === "string" && claudeIntegration.defaultModel.trim()
+          ? claudeIntegration.defaultModel.trim()
+          : DEFAULT_CLAUDE_MODEL
+      },
+      grok: {
+        connected: Boolean(grokIntegration.connected),
+        apiKey: unwrapStoredSecret(grokIntegration.apiKey),
+        baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
+        model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
+          ? grokIntegration.defaultModel.trim()
+          : DEFAULT_GROK_MODEL
+      },
+      gemini: {
+        connected: Boolean(geminiIntegration.connected),
+        apiKey: unwrapStoredSecret(geminiIntegration.apiKey),
+        baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
+        model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
+          ? geminiIntegration.defaultModel.trim()
+          : DEFAULT_GEMINI_MODEL
+      }
+    };
+  } catch {
+    return {
+      sourcePath: configPath,
+      activeProvider: "openai",
+      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
+    };
+  }
+}
+
+export function loadOpenAIIntegrationRuntime() {
+  try {
+    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
+    const apiKey = unwrapStoredSecret(integration.apiKey);
+    const baseURL = toOpenAiLikeBase(
+      typeof integration.baseUrl === "string" ? integration.baseUrl : "",
+      DEFAULT_OPENAI_BASE_URL
+    );
+    const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
+      ? integration.defaultModel.trim()
+      : DEFAULT_CHAT_MODEL;
+
+    return { apiKey, baseURL, model };
+  } catch {
+    return { apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL };
+  }
+}
+
+// ===== Provider Resolution =====
+function getProviderRuntime(integrations, provider) {
+  if (provider === "claude") return integrations.claude;
+  if (provider === "grok") return integrations.grok;
+  if (provider === "gemini") return integrations.gemini;
+  return integrations.openai;
+}
+
+function isProviderReady(integrations, provider) {
+  const runtime = getProviderRuntime(integrations, provider);
+  return (
+    Boolean(runtime?.connected) &&
+    String(runtime?.apiKey || "").trim().length > 0 &&
+    String(runtime?.model || "").trim().length > 0
+  );
+}
+
+export function resolveConfiguredChatRuntime(integrations, options = {}) {
+  const strictActiveProvider = options.strictActiveProvider !== false;
+  const activeProvider =
+    integrations.activeProvider === "claude" ||
+    integrations.activeProvider === "grok" ||
+    integrations.activeProvider === "gemini" ||
+    integrations.activeProvider === "openai"
+      ? integrations.activeProvider
+      : "openai";
+
+  if (strictActiveProvider) {
+    const activeRuntime = getProviderRuntime(integrations, activeProvider);
+    return {
+      provider: activeProvider,
+      apiKey: String(activeRuntime?.apiKey || "").trim(),
+      baseURL: String(activeRuntime?.baseURL || "").trim(),
+      model: String(activeRuntime?.model || "").trim(),
+      connected: Boolean(activeRuntime?.connected),
+      strict: true,
+    };
+  }
+
+  if (isProviderReady(integrations, activeProvider)) {
+    const activeRuntime = getProviderRuntime(integrations, activeProvider);
+    return {
+      provider: activeProvider,
+      apiKey: String(activeRuntime?.apiKey || "").trim(),
+      baseURL: String(activeRuntime?.baseURL || "").trim(),
+      model: String(activeRuntime?.model || "").trim(),
+      connected: Boolean(activeRuntime?.connected),
+      strict: false,
+    };
+  }
+
+  const fallbackOrder = ["claude", "openai", "gemini", "grok"];
+  for (const provider of fallbackOrder) {
+    if (!isProviderReady(integrations, provider)) continue;
+    const runtime = getProviderRuntime(integrations, provider);
+    return {
+      provider,
+      apiKey: String(runtime?.apiKey || "").trim(),
+      baseURL: String(runtime?.baseURL || "").trim(),
+      model: String(runtime?.model || "").trim(),
+      connected: Boolean(runtime?.connected),
+      strict: false,
+    };
+  }
+
+  const activeRuntime = getProviderRuntime(integrations, activeProvider);
+  return {
+    provider: activeProvider,
+    apiKey: String(activeRuntime?.apiKey || "").trim(),
+    baseURL: String(activeRuntime?.baseURL || "").trim(),
+    model: String(activeRuntime?.model || "").trim(),
+    connected: Boolean(activeRuntime?.connected),
+    strict: false,
+  };
+}
+
+// ===== OpenAI Client =====
+export function getOpenAIClient(runtime) {
+  const key = `${runtime.baseURL}|${runtime.apiKey}`;
+  if (openAiClientCache.has(key)) return openAiClientCache.get(key);
+  const client = new OpenAI({ apiKey: runtime.apiKey, baseURL: runtime.baseURL });
+  openAiClientCache.set(key, client);
+  return client;
+}
+
+// ===== OpenAI Helpers =====
+export function extractOpenAIChatText(completion) {
+  const raw = completion?.choices?.[0]?.message?.content;
+  if (typeof raw === "string") return raw.trim();
+  if (Array.isArray(raw)) {
+    return raw
+      .map((part) => (part && typeof part === "object" && part.type === "text" ? String(part.text || "") : ""))
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
+export function extractOpenAIStreamDelta(chunk) {
+  const delta = chunk?.choices?.[0]?.delta?.content;
+  if (typeof delta === "string") return delta;
+  if (Array.isArray(delta)) {
+    return delta
+      .map((part) => (part && typeof part === "object" && typeof part.text === "string" ? part.text : ""))
+      .join("");
+  }
+  return "";
+}
+
+export async function streamOpenAiChatCompletion({ client, model, messages, timeoutMs, onDelta }) {
+  let timer = null;
+  const controller = new AbortController();
+  timer = setTimeout(() => controller.abort(new Error(`OpenAI model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
+
+  let stream = null;
+  try {
+    stream = await client.chat.completions.create(
+      {
+        model,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true }
+      },
+      { signal: controller.signal }
+    );
+  } catch (err) {
+    stream = await client.chat.completions.create(
+      {
+        model,
+        messages,
+        stream: true
+      },
+      { signal: controller.signal }
+    );
+  }
+
+  let reply = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let sawDelta = false;
+
+  try {
+    for await (const chunk of stream) {
+      const delta = extractOpenAIStreamDelta(chunk);
+      if (delta.length > 0) {
+        sawDelta = true;
+        reply += delta;
+        onDelta(delta);
+      }
+
+      const usage = chunk?.usage;
+      if (usage) {
+        promptTokens = Number(usage.prompt_tokens || promptTokens);
+        completionTokens = Number(usage.completion_tokens || completionTokens);
+      }
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  return { reply, promptTokens, completionTokens, sawDelta };
+}
+
+// ===== Claude API =====
+export async function claudeMessagesCreate({ apiKey, baseURL, model, system, userText, maxTokens = 300, temperature = 0.75 }) {
+  const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      system,
+      messages: [{ role: "user", content: userText }]
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = data?.error?.message || `Claude request failed (${res.status})`;
+    throw new Error(message);
+  }
+  const text = Array.isArray(data?.content)
+    ? data.content.filter((c) => c?.type === "text").map((c) => c?.text || "").join("\n").trim()
+    : "";
+  return {
+    text,
+    usage: {
+      promptTokens: Number(data?.usage?.input_tokens || 0),
+      completionTokens: Number(data?.usage?.output_tokens || 0)
+    }
+  };
+}
+
+export async function claudeMessagesStream({
+  apiKey,
+  baseURL,
+  model,
+  system,
+  userText,
+  maxTokens = 300,
+  temperature = 0.75,
+  timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
+  onDelta
+}) {
+  const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`Claude model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      temperature,
+      stream: true,
+      system,
+      messages: [{ role: "user", content: userText }]
+    }),
+    signal: controller.signal
+  });
+
+  if (!res.ok) {
+    clearTimeout(timer);
+    const data = await res.json().catch(() => ({}));
+    const message = data?.error?.message || `Claude request failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  if (!res.body) {
+    clearTimeout(timer);
+    throw new Error("Claude stream returned no body.");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let text = "";
+  let promptTokens = 0;
+  let completionTokens = 0;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
+
+      while (true) {
+        const boundary = buffer.indexOf("\n\n");
+        if (boundary === -1) break;
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        if (!rawEvent.trim()) continue;
+
+        const lines = rawEvent.split("\n");
+        const eventLine = lines.find((line) => line.startsWith("event:"));
+        const eventName = eventLine ? eventLine.slice(6).trim() : "";
+        const dataRaw = lines
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trim())
+          .join("\n");
+        if (!dataRaw || dataRaw === "[DONE]") continue;
+
+        let payload = null;
+        try {
+          payload = JSON.parse(dataRaw);
+        } catch {
+          payload = null;
+        }
+        if (!payload) continue;
+
+        if (eventName === "message_start") {
+          promptTokens = Number(payload?.message?.usage?.input_tokens || promptTokens);
+          completionTokens = Number(payload?.message?.usage?.output_tokens || completionTokens);
+          continue;
+        }
+
+        if (eventName === "content_block_delta") {
+          const delta = payload?.delta?.type === "text_delta" ? String(payload?.delta?.text || "") : "";
+          if (delta.length > 0) {
+            text += delta;
+            onDelta(delta);
+          }
+          continue;
+        }
+
+        if (eventName === "message_delta") {
+          promptTokens = Number(payload?.usage?.input_tokens || promptTokens);
+          completionTokens = Number(payload?.usage?.output_tokens || completionTokens);
+          continue;
+        }
+
+        if (eventName === "error") {
+          const msg = payload?.error?.message || "Claude stream error.";
+          throw new Error(msg);
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    try {
+      reader.releaseLock();
+    } catch {}
+  }
+
+  return {
+    text,
+    usage: {
+      promptTokens,
+      completionTokens
+    }
+  };
+}
+
+// ===== Pricing =====
+export function resolveModelPricing(model) {
+  const exact = OPENAI_MODEL_PRICING_USD_PER_1M[model] || CLAUDE_MODEL_PRICING_USD_PER_1M[model];
+  if (exact) return exact;
+  const normalized = String(model || "").trim().toLowerCase();
+  if (normalized.includes("claude-opus-4")) return { input: 15.0, output: 75.0 };
+  if (normalized.includes("claude-sonnet-4")) return { input: 3.0, output: 15.0 };
+  if (normalized.includes("claude-3-7-sonnet")) return { input: 3.0, output: 15.0 };
+  if (normalized.includes("claude-3-5-sonnet")) return { input: 3.0, output: 15.0 };
+  if (normalized.includes("claude-3-5-haiku")) return { input: 0.8, output: 4.0 };
+  return null;
+}
+
+export function estimateTokenCostUsd(model, promptTokens = 0, completionTokens = 0) {
+  const pricing = resolveModelPricing(model);
+  if (!pricing) return null;
+  const inputCost = (promptTokens / 1_000_000) * pricing.input;
+  const outputCost = (completionTokens / 1_000_000) * pricing.output;
+  return Number((inputCost + outputCost).toFixed(6));
+}
+
+// ===== Tool Helpers =====
+export function toOpenAiToolDefinitions(tools) {
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters:
+        tool.input_schema && typeof tool.input_schema === "object"
+          ? tool.input_schema
+          : { type: "object", properties: {} },
+    },
+  }));
+}
+
+export function toOpenAiToolUseBlock(toolCall) {
+  let parsedInput = {};
+  const raw = String(toolCall?.function?.arguments || "").trim();
+  if (raw) {
+    try {
+      parsedInput = JSON.parse(raw);
+    } catch {
+      parsedInput = { _raw: raw };
+    }
+  }
+  return {
+    id: String(toolCall?.id || randomUUID()),
+    name: String(toolCall?.function?.name || ""),
+    input: parsedInput,
+    type: "tool_use",
+  };
+}

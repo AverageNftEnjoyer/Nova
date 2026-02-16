@@ -542,12 +542,12 @@ async function fetchWebDocument(
   }
 }
 
-function getWebSearchProviderPreference(): "tavily" | "serper" | "builtin" {
-  // Enforce Tavily as the only web-search provider for mission scraping.
-  return "tavily"
+function getWebSearchProviderPreference(): "brave" {
+  // Enforce Brave as the only web-search provider for mission scraping.
+  return "brave"
 }
 
-async function searchWithTavily(query: string): Promise<null | {
+async function searchWithBrave(query: string, headers: Record<string, string>): Promise<null | {
   searchUrl: string
   query: string
   searchTitle: string
@@ -564,26 +564,30 @@ async function searchWithTavily(query: string): Promise<null | {
     error?: string
   }>
 }> {
-  const apiKey = String(process.env.TAVILY_API_KEY || "").trim()
+  const apiKey = String(
+    process.env.BRAVE_API_KEY || process.env.NOVA_WEB_SEARCH_API_KEY || process.env.MYAGENT_WEB_SEARCH_API_KEY || "",
+  ).trim()
   if (!apiKey) return null
   try {
-    const res = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        max_results: 8,
-        include_answer: false,
-        include_raw_content: true,
-        search_depth: "advanced",
-      }),
+    const searchUrl = new URL("https://api.search.brave.com/res/v1/web/search")
+    searchUrl.searchParams.set("q", query)
+    searchUrl.searchParams.set("count", "8")
+    const res = await fetch(searchUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "X-Subscription-Token": apiKey,
+      },
       cache: "no-store",
     })
+
     const payload = await res.json().catch(() => ({})) as {
-      results?: Array<{ url?: string; title?: string; content?: string; raw_content?: string }>
+      web?: {
+        results?: Array<{ url?: string; title?: string; description?: string }>
+      }
     }
-    if (!res.ok || !Array.isArray(payload.results)) return null
+    if (!res.ok || !Array.isArray(payload.web?.results)) return null
+
     const top: Array<{
       url: string
       title: string
@@ -593,38 +597,40 @@ async function searchWithTavily(query: string): Promise<null | {
       pageTitle?: string
       pageText?: string
       error?: string
-    }> = payload.results
+    }> = payload.web.results
       .map((item) => {
         const url = String(item.url || "").trim()
         const title = cleanText(String(item.title || "").trim()) || url
-        const pageText = truncateForModel(String(item.raw_content || item.content || ""), 10000)
-        const snippet = pageText.slice(0, 280)
+        const snippet = cleanText(String(item.description || "").trim()).slice(0, 280)
         if (!url) return null
         return {
           url,
           title,
           snippet,
-          ok: pageText.length > 0,
+          ok: snippet.length > 0,
           status: 200,
-          pageTitle: title,
-          pageText,
         }
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
       .slice(0, 8)
 
-    // Deepen retrieval: when Tavily text is thin or low-signal, fetch the page directly.
+    if (top.length === 0) return null
+
+    // Deepen retrieval: pull direct page content for reliable mission context.
     const enriched = await Promise.all(top.map(async (item) => {
-      const text = String(item.pageText || "")
-      if (text.length >= 800 && !isLowSignalNavigationPage({ title: item.title, url: item.url, text })) {
-        return item
-      }
       const doc = await fetchWebDocument(item.url, {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        ...headers,
+        ...(hasHeader(headers, "Accept")
+          ? {}
+          : { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" }),
+        ...(hasHeader(headers, "User-Agent")
+          ? {}
+          : { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" }),
       })
       const mergedText = truncateForModel(
-        (String(doc.text || "").length > text.length ? String(doc.text || "") : text),
+        (String(doc.text || "").length > String(item.snippet || "").length
+          ? String(doc.text || "")
+          : String(item.snippet || "")),
         10000,
       )
       return {
@@ -642,88 +648,11 @@ async function searchWithTavily(query: string): Promise<null | {
       .filter((item) => !isLowSignalNavigationPage({ title: item.title, url: item.url, text: item.pageText || item.snippet }))
       .slice(0, 6)
     return {
-      searchUrl: `https://app.tavily.com/search?q=${encodeURIComponent(query)}`,
+      searchUrl: `https://search.brave.com/search?q=${encodeURIComponent(query)}`,
       query,
-      searchTitle: "Tavily Search",
+      searchTitle: "Brave Search",
       searchText: results.map((item) => `${item.title} ${item.snippet}`).join(" "),
-      provider: "tavily",
-      results,
-    }
-  } catch {
-    return null
-  }
-}
-
-async function searchWithSerper(query: string, headers: Record<string, string>): Promise<null | {
-  searchUrl: string
-  query: string
-  searchTitle: string
-  searchText: string
-  provider: string
-  results: Array<{
-    url: string
-    title: string
-    snippet: string
-    ok: boolean
-    status: number
-    pageTitle?: string
-    pageText?: string
-    error?: string
-  }>
-}> {
-  const apiKey = String(process.env.SERPER_API_KEY || "").trim()
-  if (!apiKey) return null
-  try {
-    const res = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-      },
-      body: JSON.stringify({ q: query, num: 8 }),
-      cache: "no-store",
-    })
-    const payload = await res.json().catch(() => ({})) as {
-      organic?: Array<{ link?: string; title?: string; snippet?: string }>
-    }
-    if (!res.ok || !Array.isArray(payload.organic)) return null
-    const top = payload.organic
-      .map((item) => ({
-        url: String(item.link || "").trim(),
-        title: cleanText(String(item.title || "").trim()),
-        snippet: cleanText(String(item.snippet || "").trim()),
-      }))
-      .filter((item) => item.url)
-      .slice(0, 5)
-    const results: Array<{
-      url: string
-      title: string
-      snippet: string
-      ok: boolean
-      status: number
-      pageTitle?: string
-      pageText?: string
-      error?: string
-    }> = []
-    for (const row of top) {
-      const doc = await fetchWebDocument(row.url, headers)
-      results.push({
-        url: row.url,
-        title: row.title || doc.title || row.url,
-        snippet: doc.text.slice(0, 280) || row.snippet,
-        ok: doc.ok,
-        status: doc.status,
-        pageTitle: doc.title,
-        pageText: doc.text,
-        error: doc.error,
-      })
-    }
-    return {
-      searchUrl: `https://google.com/search?q=${encodeURIComponent(query)}`,
-      query,
-      searchTitle: "Serper Search",
-      searchText: top.map((item) => `${item.title} ${item.snippet}`).join(" "),
-      provider: "serper",
+      provider: "brave",
       results,
     }
   } catch {
@@ -753,7 +682,7 @@ async function searchWebAndCollect(
 }> {
   const preferred = getWebSearchProviderPreference()
   const queryVariants = buildSearchQueryVariants(query)
-  const collectFromProvider = async (provider: "tavily" | "serper") => {
+  const collectFromProvider = async () => {
     const merged: Array<{
       url: string
       title: string
@@ -774,9 +703,7 @@ async function searchWebAndCollect(
     } = null
 
     for (const variant of queryVariants) {
-      const found = provider === "tavily"
-        ? await searchWithTavily(variant)
-        : await searchWithSerper(variant, headers)
+      const found = await searchWithBrave(variant, headers)
       if (!found) continue
       if (!selected) {
         selected = {
@@ -805,18 +732,18 @@ async function searchWebAndCollect(
     }
   }
 
-  if (preferred === "tavily") {
-    const tavily = await collectFromProvider("tavily")
-    if (tavily && tavily.results.length > 0) return tavily
+  if (preferred === "brave") {
+    const brave = await collectFromProvider()
+    if (brave && brave.results.length > 0) return brave
   }
 
-  // Tavily-only mode: do not fall back to Serper or DuckDuckGo scraping.
+  // Brave-only mode: do not fall back to other providers.
   return {
-    searchUrl: `https://app.tavily.com/search?q=${encodeURIComponent(queryVariants[0] || query)}`,
+    searchUrl: `https://search.brave.com/search?q=${encodeURIComponent(queryVariants[0] || query)}`,
     query,
-    searchTitle: "Tavily Search",
+    searchTitle: "Brave Search",
     searchText: "",
-    provider: "tavily",
+    provider: "brave",
     results: [],
   }
 }

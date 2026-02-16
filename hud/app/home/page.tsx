@@ -211,6 +211,65 @@ export default function HomePage() {
     writeShellUiCache({ conversations: next })
   }, [])
 
+  const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
+    const res = await fetch("/api/threads", { cache: "no-store" })
+    if (res.status === 401) {
+      router.replace(`/login?next=${encodeURIComponent("/home")}`)
+      throw new Error("Unauthorized")
+    }
+    const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+    if (!res.ok) throw new Error("Failed to load conversations.")
+    return Array.isArray(data.conversations) ? data.conversations : []
+  }, [router])
+
+  const createServerConversation = useCallback(async (title = "New chat"): Promise<Conversation> => {
+    const res = await fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    })
+    if (res.status === 401) {
+      router.replace(`/login?next=${encodeURIComponent("/home")}`)
+      throw new Error("Unauthorized")
+    }
+    const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
+    if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
+    return data.conversation
+  }, [router])
+
+  const syncServerMessages = useCallback(async (convo: Conversation) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(convo.id)}/messages`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: convo.messages }),
+    })
+    if (res.status === 401) {
+      router.replace(`/login?next=${encodeURIComponent("/home")}`)
+      throw new Error("Unauthorized")
+    }
+    if (!res.ok) throw new Error("Failed to sync conversation messages.")
+  }, [router])
+
+  const ensureServerConversation = useCallback(async (convo: Conversation): Promise<Conversation> => {
+    const remoteConversations = await fetchConversationsFromServer().catch(() => [])
+    const existing = remoteConversations.find((entry) => entry.id === convo.id)
+    if (existing) return existing
+
+    const created = await createServerConversation(convo.title || "New chat")
+    const migrated: Conversation = {
+      ...created,
+      messages: convo.messages,
+      title: convo.title || created.title,
+      updatedAt: convo.updatedAt || created.updatedAt,
+      createdAt: convo.createdAt || created.createdAt,
+    }
+    await syncServerMessages(migrated)
+
+    const next = conversations.map((entry) => (entry.id === convo.id ? migrated : entry))
+    persistConversations(next)
+    return migrated
+  }, [conversations, createServerConversation, fetchConversationsFromServer, persistConversations, syncServerMessages])
+
   const refreshNotificationSchedules = useCallback(() => {
     void fetch("/api/notifications/schedules", { cache: "no-store" })
       .then(async (res) => {
@@ -248,6 +307,20 @@ export default function HomePage() {
       spotlightEnabled: nextSpotlight,
     })
   }, [isLight])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchConversationsFromServer()
+      .then((remote) => {
+        if (cancelled) return
+        persistConversations(remote)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [fetchConversationsFromServer, persistConversations])
 
   useLayoutEffect(() => {
     const integrations = loadIntegrationsSettings()
@@ -639,11 +712,16 @@ export default function HomePage() {
     }
   }, [agentMessages, conversations, persistConversations, clearAgentMessages, router])
 
-  const handleSend = useCallback((finalText: string) => {
+  const handleSend = useCallback(async (finalText: string) => {
     const text = finalText.trim()
     if (!text || !connected) return
 
-    const convo = createConversation()
+    const firstLine = text.split("\n")[0]?.trim() || "New chat"
+    const convo = await createServerConversation(
+      firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine,
+    ).catch(() => null)
+    if (!convo) return
+
     const userMsg: ChatMessage = {
       id: generateId(),
       role: "user",
@@ -651,30 +729,43 @@ export default function HomePage() {
       createdAt: new Date().toISOString(),
       source: "agent",
     }
-    convo.messages = [userMsg]
-    const firstLine = text.split("\n")[0]?.trim() || "New chat"
-    convo.title = firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine
+    const seededConvo: Conversation = {
+      ...convo,
+      messages: [userMsg],
+      title: firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine,
+      updatedAt: new Date().toISOString(),
+    }
+    await syncServerMessages(seededConvo).catch(() => {})
 
-    const next = [convo, ...conversations]
+    const next = [seededConvo, ...conversations.filter((existing) => existing.id !== seededConvo.id)]
     persistConversations(next)
-    setActiveId(convo.id)
+    setActiveId(seededConvo.id)
     try {
       sessionStorage.setItem(
         PENDING_CHAT_SESSION_KEY,
         JSON.stringify({
-          convoId: convo.id,
+          convoId: seededConvo.id,
           content: finalText,
+          messageId: userMsg.id,
+          messageCreatedAt: userMsg.createdAt,
           createdAt: Date.now(),
         }),
       )
     } catch {}
     router.push("/chat")
-  }, [connected, router, conversations, persistConversations])
+  }, [connected, createServerConversation, router, conversations, persistConversations, syncServerMessages])
 
-  const handleSelectConvo = useCallback((id: string) => {
-    setActiveId(id)
+  const handleSelectConvo = useCallback(async (id: string) => {
+    const local = conversations.find((entry) => entry.id === id)
+    if (!local) {
+      setActiveId(id)
+      router.push("/chat")
+      return
+    }
+    const ensured = await ensureServerConversation(local).catch(() => null)
+    setActiveId(ensured?.id || id)
     router.push("/chat")
-  }, [router])
+  }, [conversations, ensureServerConversation, router])
 
   const handleNewChat = useCallback(() => {
     // Home screen "New chat" should not navigate or create a conversation.

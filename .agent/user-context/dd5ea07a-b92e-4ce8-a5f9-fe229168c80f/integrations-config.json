@@ -1,0 +1,29 @@
+{
+  "activeLlmProvider": "openai",
+  "openai": {
+    "connected": true,
+    "apiKey": "SWET8Kt9lRBAjBzf.Tv/s6DAHE/nOQwHdG0InkA==.HkuELp3skTubAUcNuvFWoJTVIALtGHplBbW2TyLoqIPuMntVzi0oDfF+DhEY/wXo+461DfxRno3QwRqQ01TMmlXyVff/qC1neYYD0/6HBmvrVb1HaYXvoWhj6rlmJzE/10gEzFUzaYCTLO2UuRh57oJP3CyDwvXMc2LtXnWoJj6013R1JovgyCKJOMaxn7rafbVKr3byLYjxF5fVpDWnkQWIrbc=",
+    "baseUrl": "https://api.openai.com/v1",
+    "defaultModel": "gpt-5"
+  },
+  "claude": {
+    "connected": false,
+    "apiKey": "",
+    "baseUrl": "https://api.anthropic.com",
+    "defaultModel": "claude-sonnet-4-20250514"
+  },
+  "grok": {
+    "connected": false,
+    "apiKey": "",
+    "baseUrl": "https://api.x.ai/v1",
+    "defaultModel": "grok-4-0709"
+  },
+  "gemini": {
+    "connected": false,
+    "apiKey": "",
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "defaultModel": "gemini-2.5-pro"
+  },
+  "updatedAt": "2026-02-16T19:22:04.306Z",
+  "source": "user-scoped-runtime-sync"
+}

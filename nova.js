@@ -1,4 +1,4 @@
-import { spawn, exec, execSync } from "child_process";
+import { spawn, exec, execSync, execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -23,7 +23,7 @@ function launch(label, command, args, cwd) {
     process.stdout.write(`[${label}] ${d}`)
   );
   child.stderr.on("data", (d) =>
-    process.stderr.write(`[${label}] ${d}`)
+    process.stdout.write(`[${label}] ${d}`)
   );
   child.on("exit", (code) =>
     console.log(`[${label}] exited with code ${code}`)
@@ -137,7 +137,7 @@ function ensureHudBuildIfNeeded() {
 
   if (!buildIsStale) return;
   console.log(`[Nova] ${buildExists ? "HUD build is stale" : "No production HUD build found"}. Building...`);
-  execSync(`${process.execPath} scripts/next-runner.mjs build`, {
+  execFileSync(process.execPath, ["scripts/next-runner.mjs", "build"], {
     cwd: HUD_DIR,
     stdio: "inherit",
     shell: false,

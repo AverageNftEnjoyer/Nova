@@ -111,6 +111,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const bootMusicInputRef = useRef<HTMLInputElement | null>(null)
   const backgroundVideoInputRef = useRef<HTMLInputElement | null>(null)
   const spotlightScopeRef = useRef<HTMLDivElement | null>(null)
+  const workspaceSyncTimeoutRef = useRef<number | null>(null)
+  const lastWorkspaceSyncPayloadRef = useRef<string>("")
+  const pendingWorkspaceSyncPayloadRef = useRef<string>("")
+  const pendingWorkspaceSyncDataRef = useRef<Record<string, unknown> | null>(null)
   const isLight = theme === "light"
 
   const refreshMediaLibraries = useCallback(async () => {
@@ -125,6 +129,67 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setBackgroundVideoAssets(videoAssets)
     setActiveBackgroundVideoAssetId(videoActiveId)
   }, [])
+
+  const pushWorkspaceContextSync = useCallback(async (payload: Record<string, unknown>, serialized: string) => {
+    try {
+      const res = await fetch("/api/workspace/context-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: true,
+      })
+      if (!res.ok) {
+        if (lastWorkspaceSyncPayloadRef.current === serialized) {
+          lastWorkspaceSyncPayloadRef.current = ""
+        }
+        return
+      }
+      lastWorkspaceSyncPayloadRef.current = serialized
+      if (pendingWorkspaceSyncPayloadRef.current === serialized) {
+        pendingWorkspaceSyncPayloadRef.current = ""
+        pendingWorkspaceSyncDataRef.current = null
+      }
+    } catch {
+      if (lastWorkspaceSyncPayloadRef.current === serialized) {
+        lastWorkspaceSyncPayloadRef.current = ""
+      }
+    }
+  }, [])
+
+  const queueWorkspaceContextSync = useCallback((nextSettings: UserSettings, options?: { immediate?: boolean }) => {
+    if (typeof window === "undefined") return
+    const payload: Record<string, unknown> = {
+      assistantName: nextSettings.personalization.assistantName,
+      userName: nextSettings.profile.name,
+      nickname: nextSettings.personalization.nickname,
+      occupation: nextSettings.personalization.occupation,
+      preferredLanguage: nextSettings.personalization.preferredLanguage,
+      communicationStyle: nextSettings.personalization.communicationStyle,
+      tone: nextSettings.personalization.tone,
+      characteristics: nextSettings.personalization.characteristics,
+      customInstructions: nextSettings.personalization.customInstructions,
+      interests: nextSettings.personalization.interests,
+    }
+    const serialized = JSON.stringify(payload)
+    if (serialized === lastWorkspaceSyncPayloadRef.current) return
+    if (serialized === pendingWorkspaceSyncPayloadRef.current) return
+    pendingWorkspaceSyncPayloadRef.current = serialized
+    pendingWorkspaceSyncDataRef.current = payload
+    if (workspaceSyncTimeoutRef.current !== null) {
+      window.clearTimeout(workspaceSyncTimeoutRef.current)
+    }
+    if (options?.immediate) {
+      void pushWorkspaceContextSync(payload, serialized)
+      return
+    }
+    workspaceSyncTimeoutRef.current = window.setTimeout(async () => {
+      workspaceSyncTimeoutRef.current = null
+      const nextPayload = pendingWorkspaceSyncDataRef.current
+      const nextSerialized = pendingWorkspaceSyncPayloadRef.current
+      if (!nextPayload || !nextSerialized) return
+      void pushWorkspaceContextSync(nextPayload, nextSerialized)
+    }, 650)
+  }, [pushWorkspaceContextSync])
 
   const palette = {
     bg: isLight ? "#f6f8fc" : "rgba(255,255,255,0.04)",
@@ -285,16 +350,47 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   }, [deletePassword, navigateToLogin])
 
+  useEffect(() => {
+    return () => {
+      if (workspaceSyncTimeoutRef.current !== null) {
+        window.clearTimeout(workspaceSyncTimeoutRef.current)
+      }
+      workspaceSyncTimeoutRef.current = null
+      const pendingPayload = pendingWorkspaceSyncDataRef.current
+      const pendingSerialized = pendingWorkspaceSyncPayloadRef.current
+      if (pendingPayload && pendingSerialized) {
+        void pushWorkspaceContextSync(pendingPayload, pendingSerialized)
+      }
+    }
+  }, [pushWorkspaceContextSync])
+
+  useEffect(() => {
+    if (isOpen) return
+    if (workspaceSyncTimeoutRef.current !== null) {
+      window.clearTimeout(workspaceSyncTimeoutRef.current)
+      workspaceSyncTimeoutRef.current = null
+    }
+    const pendingPayload = pendingWorkspaceSyncDataRef.current
+    const pendingSerialized = pendingWorkspaceSyncPayloadRef.current
+    if (pendingPayload && pendingSerialized) {
+      void pushWorkspaceContextSync(pendingPayload, pendingSerialized)
+    }
+  }, [isOpen, pushWorkspaceContextSync])
+
   // Auto-save helper
-  const autoSave = useCallback((newSettings: UserSettings) => {
+  const autoSave = useCallback((newSettings: UserSettings, options?: { syncWorkspace?: boolean }) => {
     setSettings(newSettings)
     saveUserSettings(newSettings)
-  }, [])
+    if (options?.syncWorkspace) {
+      queueWorkspaceContextSync(newSettings)
+    }
+  }, [queueWorkspaceContextSync])
 
   const handleReset = useCallback(() => {
     const fresh = resetSettings()
     setSettings(fresh)
-  }, [])
+    queueWorkspaceContextSync(fresh, { immediate: true })
+  }, [queueWorkspaceContextSync])
 
   const updateProfile = useCallback((key: string, value: string | null) => {
     if (!settings) return
@@ -302,7 +398,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       ...settings,
       profile: { ...settings.profile, [key]: value },
     }
-    autoSave(newSettings)
+    autoSave(newSettings, { syncWorkspace: key === "name" })
   }, [settings, autoSave])
 
   const CROP_FRAME = 240
@@ -550,7 +646,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       ...settings,
       personalization: { ...settings.personalization, [key]: value },
     }
-    autoSave(newSettings)
+    autoSave(newSettings, { syncWorkspace: true })
+    if (key === "communicationStyle" || key === "tone") {
+      queueWorkspaceContextSync(newSettings, { immediate: true })
+    }
   }
 
   const selectBootMusicAsset = useCallback((assetId: string | null) => {
@@ -1232,6 +1331,15 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         This information helps personalize your experience.
                       </p>
                     </div>
+
+                    <SettingInput
+                      label="Assistant Name"
+                      description="What do you want to call your assistant?"
+                      value={settings.personalization.assistantName}
+                      onChange={(v) => updatePersonalization("assistantName", v)}
+                      placeholder="e.g., Nova, Atlas..."
+                      isLight={isLight}
+                    />
 
                     <SettingInput
                       label="Nickname"
