@@ -252,26 +252,6 @@ function normalizeWakeText(input) {
     .trim();
 }
 
-function levenshtein(a, b) {
-  const s = String(a || "");
-  const t = String(b || "");
-  if (!s.length) return t.length;
-  if (!t.length) return s.length;
-  const dp = Array.from({ length: s.length + 1 }, (_, i) => [i]);
-  for (let j = 1; j <= t.length; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= s.length; i += 1) {
-    for (let j = 1; j <= t.length; j += 1) {
-      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
-      );
-    }
-  }
-  return dp[s.length][t.length];
-}
-
 function containsWakeWord(input) {
   const normalized = normalizeWakeText(input);
   if (!normalized) return false;
