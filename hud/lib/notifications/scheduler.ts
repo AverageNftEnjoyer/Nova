@@ -16,7 +16,7 @@ const state = (globalThis as { __novaNotificationScheduler?: SchedulerState })._
 ;(globalThis as { __novaNotificationScheduler?: SchedulerState }).__novaNotificationScheduler = state
 
 async function runScheduleTick() {
-  const schedules = await loadSchedules()
+  const schedules = await loadSchedules({ allUsers: true })
   if (schedules.length === 0) return
 
   const now = new Date()
@@ -68,7 +68,7 @@ async function runScheduleTick() {
   }
 
   if (changed) {
-    await saveSchedules(nextSchedules)
+    await saveSchedules(nextSchedules, { allUsers: true })
   }
 }
 

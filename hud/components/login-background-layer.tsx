@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { usePathname } from "next/navigation"
 import FloatingLines from "@/components/FloatingLines"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, type OrbColor, loadUserSettings } from "@/lib/userSettings"
@@ -21,13 +21,6 @@ export function LoginBackgroundLayer() {
     if (typeof window === "undefined") return "violet"
     return loadUserSettings().app.orbColor
   })
-
-  useLayoutEffect(() => {
-    const cached = readShellUiCache().orbColor
-    const next = cached ?? loadUserSettings().app.orbColor
-    setOrbColor(next)
-    writeShellUiCache({ orbColor: next })
-  }, [])
 
   useEffect(() => {
     const refresh = () => {

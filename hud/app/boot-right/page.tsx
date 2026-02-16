@@ -1,32 +1,37 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { NovaBootup } from "@/components/Nova-Bootup"
 import { loadUserSettings } from "@/lib/userSettings"
 
 export default function BootRightPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [booting, setBooting] = useState(true)
   const [checked, setChecked] = useState(false)
 
   useEffect(() => {
+    const nextParam = String(searchParams.get("next") || "").trim()
+    const nextPath = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/home"
     // Check if boot animation is enabled in settings
     const settings = loadUserSettings()
     if (!settings.app.bootAnimationEnabled) {
       sessionStorage.removeItem("nova-home-intro-pending")
       // Skip boot animation, go directly to home
-      router.replace("/home")
+      router.replace(nextPath)
       return
     }
     setChecked(true) // eslint-disable-line react-hooks/set-state-in-effect
-  }, [router])
+  }, [router, searchParams])
 
   useEffect(() => {
     if (!booting && checked) {
-      router.replace("/home")
+      const nextParam = String(searchParams.get("next") || "").trim()
+      const nextPath = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/home"
+      router.replace(nextPath)
     }
-  }, [booting, checked, router])
+  }, [booting, checked, router, searchParams])
 
   if (!checked) return null
 

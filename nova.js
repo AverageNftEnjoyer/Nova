@@ -102,8 +102,41 @@ function prepareCleanLaunch() {
 function ensureHudBuildIfNeeded() {
   const buildIdPath = path.join(HUD_DIR, ".next", "BUILD_ID");
   if (HUD_MODE !== "start") return;
-  if (fs.existsSync(buildIdPath)) return;
-  console.log("[Nova] No production HUD build found. Building once...");
+  const sourcePaths = [
+    path.join(HUD_DIR, "app"),
+    path.join(HUD_DIR, "components"),
+    path.join(HUD_DIR, "lib"),
+    path.join(HUD_DIR, "scripts"),
+    path.join(HUD_DIR, "package.json"),
+    path.join(HUD_DIR, "tsconfig.json"),
+    path.join(HUD_DIR, "next.config.ts"),
+    path.join(HUD_DIR, "postcss.config.mjs"),
+  ];
+
+  function getLatestMtimeMs(targetPath) {
+    if (!fs.existsSync(targetPath)) return 0;
+    const stat = fs.statSync(targetPath);
+    if (stat.isFile()) return stat.mtimeMs;
+    if (!stat.isDirectory()) return 0;
+
+    let latest = stat.mtimeMs;
+    const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === ".next" || entry.name === "node_modules") continue;
+      const full = path.join(targetPath, entry.name);
+      const entryLatest = getLatestMtimeMs(full);
+      if (entryLatest > latest) latest = entryLatest;
+    }
+    return latest;
+  }
+
+  const buildExists = fs.existsSync(buildIdPath);
+  const buildMtime = buildExists ? fs.statSync(buildIdPath).mtimeMs : 0;
+  const sourceMtime = sourcePaths.reduce((max, p) => Math.max(max, getLatestMtimeMs(p)), 0);
+  const buildIsStale = !buildExists || sourceMtime > buildMtime;
+
+  if (!buildIsStale) return;
+  console.log(`[Nova] ${buildExists ? "HUD build is stale" : "No production HUD build found"}. Building...`);
   execSync(`${process.execPath} scripts/next-runner.mjs build`, {
     cwd: HUD_DIR,
     stdio: "inherit",

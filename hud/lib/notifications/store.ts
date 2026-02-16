@@ -5,6 +5,7 @@ import path from "node:path"
 
 export interface NotificationSchedule {
   id: string
+  userId?: string
   integration: string
   label: string
   message: string
@@ -66,6 +67,7 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
 
   return {
     id: raw.id,
+    userId: typeof raw.userId === "string" ? raw.userId.trim() : "",
     integration: normalizeIntegration(raw.integration, raw),
     label: raw.label?.trim() || "Scheduled notification",
     message: raw.message,
@@ -83,7 +85,7 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
   }
 }
 
-export async function loadSchedules(): Promise<NotificationSchedule[]> {
+export async function loadSchedules(options?: { userId?: string | null; allUsers?: boolean }): Promise<NotificationSchedule[]> {
   await ensureDataFile()
 
   try {
@@ -104,21 +106,46 @@ export async function loadSchedules(): Promise<NotificationSchedule[]> {
       })
 
     if (shouldRewrite) {
-      await saveSchedules(normalized)
+      await saveSchedules(normalized, { allUsers: true })
     }
+    if (options?.allUsers) return normalized
+    const userId = String(options?.userId || "").trim()
+    if (!userId) return []
+    const scoped = normalized.filter((row) => String(row.userId || "").trim() === userId)
+    if (scoped.length > 0) return scoped
 
-    return normalized
+    // One-time legacy migration: adopt previously unscoped rows for first authenticated owner.
+    const legacyUnscoped = normalized.filter((row) => !String(row.userId || "").trim())
+    if (legacyUnscoped.length === 0) return scoped
+    const migrated = normalized.map((row) => (String(row.userId || "").trim() ? row : { ...row, userId }))
+    await writeFile(DATA_FILE, JSON.stringify(migrated, null, 2), "utf8")
+    return migrated.filter((row) => String(row.userId || "").trim() === userId)
   } catch {
     return []
   }
 }
 
-export async function saveSchedules(schedules: NotificationSchedule[]): Promise<void> {
+export async function saveSchedules(
+  schedules: NotificationSchedule[],
+  options?: { userId?: string | null; allUsers?: boolean },
+): Promise<void> {
   await ensureDataFile()
   const normalized = schedules
     .map((row) => normalizeRecord(row))
     .filter((row): row is NotificationSchedule => row !== null)
-  await writeFile(DATA_FILE, JSON.stringify(normalized, null, 2), "utf8")
+  if (!options || options.allUsers) {
+    await writeFile(DATA_FILE, JSON.stringify(normalized, null, 2), "utf8")
+    return
+  }
+  const userId = String(options?.userId || "").trim()
+  if (!userId) {
+    await writeFile(DATA_FILE, JSON.stringify([], null, 2), "utf8")
+    return
+  }
+  const existingAll = await loadSchedules({ allUsers: true })
+  const others = existingAll.filter((row) => String(row.userId || "").trim() !== userId)
+  const scoped = normalized.map((row) => ({ ...row, userId }))
+  await writeFile(DATA_FILE, JSON.stringify([...others, ...scoped], null, 2), "utf8")
 }
 
 export function parseDailyTime(value: string): { hour: number; minute: number } | null {
@@ -134,6 +161,7 @@ export function parseDailyTime(value: string): { hour: number; minute: number } 
 }
 
 export function buildSchedule(input: {
+  userId?: string
   integration?: string
   label?: string
   message: string
@@ -146,6 +174,7 @@ export function buildSchedule(input: {
 
   return {
     id: crypto.randomUUID(),
+    userId: String(input.userId || "").trim(),
     integration: normalizeIntegration(input.integration),
     label: input.label?.trim() || "Scheduled notification",
     message: input.message.trim(),

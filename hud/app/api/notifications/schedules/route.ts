@@ -15,17 +15,19 @@ function parseIntegration(raw: unknown): string | null {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const userId = verified.user.id
 
   ensureNotificationSchedulerStarted()
-  const schedules = await loadSchedules()
+  const schedules = await loadSchedules({ userId })
   return NextResponse.json({ schedules })
 }
 
 export async function POST(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const userId = verified.user.id
 
   ensureNotificationSchedulerStarted()
 
@@ -49,6 +51,7 @@ export async function POST(req: Request) {
     }
 
     const schedule = buildSchedule({
+      userId,
       integration,
       label: typeof body?.label === "string" ? body.label : undefined,
       message,
@@ -58,9 +61,9 @@ export async function POST(req: Request) {
       chatIds: Array.isArray(body?.chatIds) ? body.chatIds.map((v: unknown) => String(v)) : [],
     })
 
-    const schedules = await loadSchedules()
+    const schedules = await loadSchedules({ userId })
     schedules.push(schedule)
-    await saveSchedules(schedules)
+    await saveSchedules(schedules, { userId })
 
     return NextResponse.json({ schedule }, { status: 201 })
   } catch (error) {
@@ -74,8 +77,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const userId = verified.user.id
 
   ensureNotificationSchedulerStarted()
 
@@ -86,7 +90,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "schedule id is required" }, { status: 400 })
     }
 
-    const schedules = await loadSchedules()
+    const schedules = await loadSchedules({ userId })
     const targetIndex = schedules.findIndex((s) => s.id === id)
 
     if (targetIndex < 0) {
@@ -118,7 +122,7 @@ export async function PATCH(req: Request) {
     }
 
     schedules[targetIndex] = updated
-    await saveSchedules(schedules)
+    await saveSchedules(schedules, { userId })
 
     return NextResponse.json({ schedule: updated })
   } catch (error) {
@@ -132,8 +136,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const userId = verified.user.id
 
   ensureNotificationSchedulerStarted()
 
@@ -145,14 +150,14 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "schedule id is required via query param: ?id=..." }, { status: 400 })
     }
 
-    const schedules = await loadSchedules()
+    const schedules = await loadSchedules({ userId })
     const next = schedules.filter((s) => s.id !== id)
 
     if (next.length === schedules.length) {
       return NextResponse.json({ error: "schedule not found" }, { status: 404 })
     }
 
-    await saveSchedules(next)
+    await saveSchedules(next, { userId })
     return NextResponse.json({ ok: true })
   } catch (error) {
     return NextResponse.json(

@@ -1120,7 +1120,10 @@ export function ChatShell() {
         : "border-rose-300/50 bg-rose-500/35 text-rose-100"
   const runningProvider = latestUsage?.provider ?? activeLlmProvider
   const runningModel = latestUsage?.model ?? activeLlmModel
-  const runningLabel = `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
+  const hasAnyLlmApiSetup = openaiConfigured || claudeConfigured || grokConfigured || geminiConfigured
+  const runningLabel = !latestUsage && !hasAnyLlmApiSetup
+    ? "Needs Setup"
+    : `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-page">

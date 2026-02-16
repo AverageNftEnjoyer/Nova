@@ -1,3 +1,5 @@
+import { getActiveUserId } from "@/lib/active-user"
+
 const DB_NAME = "nova-assets"
 const DB_VERSION = 3
 const STORE_NAME = "background-video"
@@ -6,6 +8,7 @@ const ACTIVE_ASSET_ID_KEY = "active-id"
 const ASSET_KEY_PREFIX = "asset:"
 const REQUIRED_STORES = ["boot-audio", "background-video"] as const
 let objectUrlCache: { assetId: string | null; url: string } | null = null
+let objectUrlCacheUserId: string | null = null
 
 export interface BackgroundVideoAssetMeta {
   id: string
@@ -18,6 +21,23 @@ export interface BackgroundVideoAssetMeta {
 interface BackgroundVideoAssetRecord {
   meta: BackgroundVideoAssetMeta
   blob: Blob
+}
+
+function getUserScopePrefix(): string {
+  const userId = getActiveUserId()
+  return userId ? `user:${userId}:` : ""
+}
+
+function hasActiveUserScope(): boolean {
+  return Boolean(getActiveUserId())
+}
+
+function toScopedAssetKey(assetId: string): string {
+  return `${getUserScopePrefix()}${ASSET_KEY_PREFIX}${assetId}`
+}
+
+function toScopedActiveKey(): string {
+  return `${getUserScopePrefix()}${ACTIVE_ASSET_ID_KEY}`
 }
 
 function makeAssetId(): string {
@@ -57,34 +77,62 @@ function openDb(): Promise<IDBDatabase> {
 async function migrateLegacyBlobIfNeeded(db: IDBDatabase): Promise<void> {
   const tx = db.transaction(STORE_NAME, "readwrite")
   const store = tx.objectStore(STORE_NAME)
+  const prefix = getUserScopePrefix()
+  if (!prefix) return
   const keys = await requestAsPromise<IDBValidKey[]>(store.getAllKeys())
-  const hasAsset = keys.some((k) => typeof k === "string" && k.startsWith(ASSET_KEY_PREFIX))
+  const scopedAssetPrefix = `${prefix}${ASSET_KEY_PREFIX}`
+  const hasAsset = keys.some((k) => typeof k === "string" && k.startsWith(scopedAssetPrefix))
   if (hasAsset) return
 
-  const legacyBlob = (await requestAsPromise<Blob | undefined>(store.get(LEGACY_BACKGROUND_VIDEO_KEY))) ?? null
-  if (!legacyBlob) return
-
-  const id = makeAssetId()
-  const meta: BackgroundVideoAssetMeta = {
-    id,
-    fileName: "Imported Background Video.mp4",
-    mimeType: legacyBlob.type || "video/mp4",
-    sizeBytes: legacyBlob.size,
-    createdAt: new Date().toISOString(),
+  const legacyBlob = (await requestAsPromise<Blob | undefined>(store.get(`${prefix}${LEGACY_BACKGROUND_VIDEO_KEY}`))) ?? null
+  if (legacyBlob) {
+    const id = makeAssetId()
+    const meta: BackgroundVideoAssetMeta = {
+      id,
+      fileName: "Imported Background Video.mp4",
+      mimeType: legacyBlob.type || "video/mp4",
+      sizeBytes: legacyBlob.size,
+      createdAt: new Date().toISOString(),
+    }
+    const record: BackgroundVideoAssetRecord = { meta, blob: legacyBlob }
+    await requestAsPromise(store.put(record, toScopedAssetKey(id)))
+    await requestAsPromise(store.put(id, toScopedActiveKey()))
+    await requestAsPromise(store.delete(`${prefix}${LEGACY_BACKGROUND_VIDEO_KEY}`))
+    return
   }
-  const record: BackgroundVideoAssetRecord = { meta, blob: legacyBlob }
-  await requestAsPromise(store.put(record, `${ASSET_KEY_PREFIX}${id}`))
-  await requestAsPromise(store.put(id, ACTIVE_ASSET_ID_KEY))
-  await requestAsPromise(store.delete(LEGACY_BACKGROUND_VIDEO_KEY))
+
+  // One-time migration from legacy unscoped keys to current user's scoped keys.
+  const unscopedAssetKeys = keys
+    .filter((k): k is string => typeof k === "string" && k.startsWith(ASSET_KEY_PREFIX))
+  if (unscopedAssetKeys.length === 0) return
+
+  let migratedAny = false
+  for (const key of unscopedAssetKeys) {
+    const value = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(key))
+    if (!value?.meta || !(value.blob instanceof Blob)) continue
+    await requestAsPromise(store.put(value, `${prefix}${key}`))
+    await requestAsPromise(store.delete(key))
+    migratedAny = true
+  }
+  if (!migratedAny) return
+
+  const unscopedActive = await requestAsPromise<string | undefined>(store.get(ACTIVE_ASSET_ID_KEY))
+  if (typeof unscopedActive === "string" && unscopedActive) {
+    await requestAsPromise(store.put(unscopedActive, toScopedActiveKey()))
+    await requestAsPromise(store.delete(ACTIVE_ASSET_ID_KEY))
+  }
 }
 
 async function readAssetRecords(db: IDBDatabase): Promise<BackgroundVideoAssetRecord[]> {
   const tx = db.transaction(STORE_NAME, "readonly")
   const store = tx.objectStore(STORE_NAME)
+  const prefix = getUserScopePrefix()
+  if (!prefix) return []
+  const scopedAssetPrefix = `${prefix}${ASSET_KEY_PREFIX}`
   const keys = await requestAsPromise<IDBValidKey[]>(store.getAllKeys())
   const records: BackgroundVideoAssetRecord[] = []
   for (const key of keys) {
-    if (typeof key !== "string" || !key.startsWith(ASSET_KEY_PREFIX)) continue
+    if (typeof key !== "string" || !key.startsWith(scopedAssetPrefix)) continue
     const value = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(key))
     if (value?.meta && value?.blob instanceof Blob) {
       records.push(value)
@@ -94,6 +142,7 @@ async function readAssetRecords(db: IDBDatabase): Promise<BackgroundVideoAssetRe
 }
 
 export async function listBackgroundVideoAssets(): Promise<BackgroundVideoAssetMeta[]> {
+  if (!hasActiveUserScope()) return []
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -105,12 +154,13 @@ export async function listBackgroundVideoAssets(): Promise<BackgroundVideoAssetM
 }
 
 export async function getActiveBackgroundVideoAssetId(): Promise<string | null> {
+  if (!hasActiveUserScope()) return null
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readonly")
     const store = tx.objectStore(STORE_NAME)
-    const active = await requestAsPromise<string | undefined>(store.get(ACTIVE_ASSET_ID_KEY))
+    const active = await requestAsPromise<string | undefined>(store.get(toScopedActiveKey()))
     return typeof active === "string" && active ? active : null
   } finally {
     db.close()
@@ -118,22 +168,25 @@ export async function getActiveBackgroundVideoAssetId(): Promise<string | null> 
 }
 
 export async function setActiveBackgroundVideoAsset(assetId: string | null): Promise<void> {
+  if (!hasActiveUserScope()) return
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readwrite")
     const store = tx.objectStore(STORE_NAME)
+    const activeKey = toScopedActiveKey()
     if (!assetId) {
-      await requestAsPromise(store.delete(ACTIVE_ASSET_ID_KEY))
+      await requestAsPromise(store.delete(activeKey))
       return
     }
-    await requestAsPromise(store.put(assetId, ACTIVE_ASSET_ID_KEY))
+    await requestAsPromise(store.put(assetId, activeKey))
   } finally {
     db.close()
   }
 }
 
 export async function saveBackgroundVideoBlob(blob: Blob, fileName = "Background Video.mp4"): Promise<BackgroundVideoAssetMeta> {
+  if (!hasActiveUserScope()) throw new Error("Cannot save background video without an active user session.")
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
@@ -147,8 +200,8 @@ export async function saveBackgroundVideoBlob(blob: Blob, fileName = "Background
     }
     const tx = db.transaction(STORE_NAME, "readwrite")
     const store = tx.objectStore(STORE_NAME)
-    await requestAsPromise(store.put({ meta, blob } as BackgroundVideoAssetRecord, `${ASSET_KEY_PREFIX}${id}`))
-    await requestAsPromise(store.put(id, ACTIVE_ASSET_ID_KEY))
+    await requestAsPromise(store.put({ meta, blob } as BackgroundVideoAssetRecord, toScopedAssetKey(id)))
+    await requestAsPromise(store.put(id, toScopedActiveKey()))
     return meta
   } finally {
     db.close()
@@ -156,14 +209,15 @@ export async function saveBackgroundVideoBlob(blob: Blob, fileName = "Background
 }
 
 export async function loadBackgroundVideoBlob(assetId?: string | null): Promise<Blob | null> {
+  if (!hasActiveUserScope()) return null
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readonly")
     const store = tx.objectStore(STORE_NAME)
-    const id = assetId || ((await requestAsPromise<string | undefined>(store.get(ACTIVE_ASSET_ID_KEY))) ?? null)
+    const id = assetId || ((await requestAsPromise<string | undefined>(store.get(toScopedActiveKey()))) ?? null)
     if (!id) return null
-    const record = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(`${ASSET_KEY_PREFIX}${id}`))
+    const record = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(toScopedAssetKey(id)))
     return record?.blob instanceof Blob ? record.blob : null
   } finally {
     db.close()
@@ -171,13 +225,18 @@ export async function loadBackgroundVideoBlob(assetId?: string | null): Promise<
 }
 
 export function getCachedBackgroundVideoObjectUrl(assetId?: string | null): string | null {
+  if (!hasActiveUserScope()) return null
   if (!objectUrlCache) return null
+  const userId = getActiveUserId() || null
+  if (objectUrlCacheUserId !== userId) return null
   if (assetId && objectUrlCache.assetId !== assetId) return null
   return objectUrlCache.url
 }
 
 export async function loadBackgroundVideoObjectUrl(assetId?: string | null): Promise<string | null> {
-  if (objectUrlCache && (!assetId || objectUrlCache.assetId === assetId)) {
+  if (!hasActiveUserScope()) return null
+  const userId = getActiveUserId() || null
+  if (objectUrlCache && objectUrlCacheUserId === userId && (!assetId || objectUrlCache.assetId === assetId)) {
     return objectUrlCache.url
   }
   const blob = await loadBackgroundVideoBlob(assetId)
@@ -187,19 +246,22 @@ export async function loadBackgroundVideoObjectUrl(assetId?: string | null): Pro
     URL.revokeObjectURL(objectUrlCache.url)
   }
   objectUrlCache = { assetId: assetId ?? null, url: nextUrl }
+  objectUrlCacheUserId = userId
   return nextUrl
 }
 
 export async function removeBackgroundVideoAsset(assetId: string): Promise<void> {
+  if (!hasActiveUserScope()) return
   const db = await openDb()
   try {
     await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readwrite")
     const store = tx.objectStore(STORE_NAME)
-    await requestAsPromise(store.delete(`${ASSET_KEY_PREFIX}${assetId}`))
-    const activeId = await requestAsPromise<string | undefined>(store.get(ACTIVE_ASSET_ID_KEY))
+    await requestAsPromise(store.delete(toScopedAssetKey(assetId)))
+    const activeKey = toScopedActiveKey()
+    const activeId = await requestAsPromise<string | undefined>(store.get(activeKey))
     if (activeId === assetId) {
-      await requestAsPromise(store.delete(ACTIVE_ASSET_ID_KEY))
+      await requestAsPromise(store.delete(activeKey))
     }
   } finally {
     db.close()

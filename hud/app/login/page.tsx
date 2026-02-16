@@ -15,6 +15,16 @@ function sanitizeNextPath(raw: string | null): string {
   return value
 }
 
+function navigatePostAuth(nextPath: string): void {
+  const target = `/boot-right?next=${encodeURIComponent(nextPath || "/home")}`
+  window.location.assign(target)
+}
+
+async function ensureSupabaseSessionPersisted() {
+  if (!hasSupabaseClientConfig || !supabaseBrowser) return
+  await supabaseBrowser.auth.getSession()
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const formRef = useRef<HTMLFormElement | null>(null)
@@ -232,7 +242,17 @@ export default function LoginPage() {
           password,
         })
         if (signUpError) throw signUpError
-        setActiveUserId(signUpData.user?.id || signUpData.session?.user?.id || null)
+        let authedUserId = signUpData.session?.user?.id || null
+        if (!signUpData.session) {
+          const { data: autoSignIn, error: autoSignInError } = await supabaseBrowser.auth.signInWithPassword({
+            email: trimmedEmail,
+            password,
+          })
+          if (!autoSignInError && autoSignIn.session?.user?.id) {
+            authedUserId = autoSignIn.session.user.id
+          }
+        }
+        setActiveUserId(authedUserId || signUpData.user?.id || null)
         if (trimmedName) {
           const current = loadUserSettings()
           saveUserSettings({
@@ -243,6 +263,11 @@ export default function LoginPage() {
               accessTier: "Core Access",
             },
           })
+        }
+        if (authedUserId) {
+          await ensureSupabaseSessionPersisted()
+          navigatePostAuth(nextPath)
+          return
         }
         setNotice("Account created. If email confirmation is enabled, verify your email first.")
       } else {
@@ -255,7 +280,8 @@ export default function LoginPage() {
         })
         if (signInError) throw signInError
         setActiveUserId(signInData.user?.id || null)
-        router.replace(nextPath)
+        await ensureSupabaseSessionPersisted()
+        navigatePostAuth(nextPath)
       }
     } catch (err) {
       if (debugEnabled) loginDebugEvent("login-page", "submit:error", err instanceof Error ? err.message : "unknown")
@@ -291,14 +317,14 @@ export default function LoginPage() {
       const authUrl = String(data?.url || "").trim()
       if (!authUrl) throw new Error("Google sign-in did not return an authorization URL.")
 
-      const width = 540
-      const height = 720
+      const width = 420
+      const height = 620
       const left = Math.max(0, Math.floor(window.screenX + (window.outerWidth - width) / 2))
       const top = Math.max(0, Math.floor(window.screenY + (window.outerHeight - height) / 2))
       const popup = window.open(
         authUrl,
         "nova-google-oauth",
-        `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+        `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,toolbar=no,menubar=no,location=no,status=no`,
       )
       if (!popup) {
         const tab = window.open(authUrl, "_blank")
@@ -307,13 +333,14 @@ export default function LoginPage() {
         const timer = window.setInterval(() => {
           if (!popup.closed) return
           window.clearInterval(timer)
-          void supabase.auth.getSession().then(({ data: sessionData }) => {
+          void supabase.auth.getSession().then(async ({ data: sessionData }) => {
             if (!sessionData.session?.user) {
               setBusy(false)
               return
             }
             setActiveUserId(sessionData.session.user.id)
-            router.replace(nextPath)
+            await ensureSupabaseSessionPersisted()
+            navigatePostAuth(nextPath)
           })
         }, 400)
       }

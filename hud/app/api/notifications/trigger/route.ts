@@ -9,8 +9,9 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { unauthorized, verified } = await requireSupabaseApiUser(req)
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const userId = verified.user.id
 
   ensureNotificationSchedulerStarted()
 
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
     const time = typeof body?.time === "string" ? body.time.trim() : "09:00"
 
     if (scheduleId) {
-      const schedules = await loadSchedules()
+      const schedules = await loadSchedules({ userId })
       const target = schedules.find((item) => item.id === scheduleId)
       if (!target) {
         return NextResponse.json({ error: "schedule not found" }, { status: 404 })
@@ -54,6 +55,7 @@ export async function POST(req: Request) {
     }
 
     const tempSchedule = buildSchedule({
+      userId,
       integration,
       label: typeof body?.label === "string" ? body.label : "Manual trigger",
       message: text,
