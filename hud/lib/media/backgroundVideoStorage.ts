@@ -10,6 +10,9 @@ const REQUIRED_STORES = ["boot-audio", "background-video"] as const
 let objectUrlCache: { assetId: string | null; url: string } | null = null
 let objectUrlCacheUserId: string | null = null
 
+const IMAGE_FILE_NAME_PATTERN = /\.(png|jpe?g|webp|svg|gif|bmp)$/i
+const VIDEO_FILE_NAME_PATTERN = /\.(mp4)$/i
+
 export interface BackgroundVideoAssetMeta {
   id: string
   fileName: string
@@ -21,6 +24,30 @@ export interface BackgroundVideoAssetMeta {
 interface BackgroundVideoAssetRecord {
   meta: BackgroundVideoAssetMeta
   blob: Blob
+}
+
+export function guessBackgroundMediaMimeType(fileName?: string | null): string | null {
+  const normalized = String(fileName || "").trim().toLowerCase()
+  if (!normalized) return null
+  if (normalized.endsWith(".png")) return "image/png"
+  if (normalized.endsWith(".jpg") || normalized.endsWith(".jpeg")) return "image/jpeg"
+  if (normalized.endsWith(".webp")) return "image/webp"
+  if (normalized.endsWith(".svg")) return "image/svg+xml"
+  if (normalized.endsWith(".gif")) return "image/gif"
+  if (normalized.endsWith(".bmp")) return "image/bmp"
+  if (normalized.endsWith(".mp4")) return "video/mp4"
+  return null
+}
+
+export function isBackgroundAssetImage(mimeType?: string | null, fileName?: string | null): boolean {
+  const mime = String(mimeType || "").trim().toLowerCase()
+  if (mime.startsWith("image/")) return true
+  if (mime.startsWith("video/")) return false
+  const normalizedName = String(fileName || "").trim().toLowerCase()
+  if (!normalizedName) return false
+  if (IMAGE_FILE_NAME_PATTERN.test(normalizedName)) return true
+  if (VIDEO_FILE_NAME_PATTERN.test(normalizedName)) return false
+  return false
 }
 
 function getUserScopePrefix(): string {
@@ -90,7 +117,7 @@ async function migrateLegacyBlobIfNeeded(db: IDBDatabase): Promise<void> {
     const meta: BackgroundVideoAssetMeta = {
       id,
       fileName: "Imported Background Video.mp4",
-      mimeType: legacyBlob.type || "video/mp4",
+      mimeType: legacyBlob.type || guessBackgroundMediaMimeType("Imported Background Video.mp4") || "video/mp4",
       sizeBytes: legacyBlob.size,
       createdAt: new Date().toISOString(),
     }
@@ -194,7 +221,7 @@ export async function saveBackgroundVideoBlob(blob: Blob, fileName = "Background
     const meta: BackgroundVideoAssetMeta = {
       id,
       fileName,
-      mimeType: blob.type || "video/mp4",
+      mimeType: blob.type || guessBackgroundMediaMimeType(fileName) || "application/octet-stream",
       sizeBytes: blob.size,
       createdAt: new Date().toISOString(),
     }

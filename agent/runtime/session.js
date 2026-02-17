@@ -19,7 +19,12 @@ export function createSessionRuntime({
   transcriptDir,
   sessionIdleMinutes,
   sessionMainKey,
+  transcriptsEnabled = true,
+  maxTranscriptLines = 400,
+  transcriptRetentionDays = 30,
 }) {
+  let lastTranscriptPruneAt = 0;
+
   function ensureSessionStorePaths() {
     try {
       fs.mkdirSync(path.dirname(sessionStorePath), { recursive: true });
@@ -88,6 +93,7 @@ export function createSessionRuntime({
   }
 
   function loadTranscript(sessionId) {
+    if (!transcriptsEnabled) return [];
     const transcriptPath = getTranscriptPath(sessionId);
     if (!fs.existsSync(transcriptPath)) return [];
     try {
@@ -110,6 +116,7 @@ export function createSessionRuntime({
   }
 
   function appendTranscriptTurn(sessionId, role, content, meta = null) {
+    if (!transcriptsEnabled) return;
     ensureSessionStorePaths();
     const transcriptPath = getTranscriptPath(sessionId);
     const payload = {
@@ -119,6 +126,54 @@ export function createSessionRuntime({
       ...(meta && typeof meta === "object" ? { meta } : {}),
     };
     fs.appendFileSync(transcriptPath, `${JSON.stringify(payload)}\n`, "utf8");
+    trimTranscriptFile(transcriptPath);
+  }
+
+  function trimTranscriptFile(transcriptPath) {
+    const maxLines = Number.isFinite(maxTranscriptLines) && maxTranscriptLines > 0
+      ? maxTranscriptLines
+      : 0;
+    if (maxLines <= 0) return;
+    try {
+      const raw = fs.readFileSync(transcriptPath, "utf8");
+      const lines = raw.split(/\r?\n/).filter(Boolean);
+      if (lines.length <= maxLines) return;
+      const trimmed = lines.slice(-maxLines).join("\n");
+      fs.writeFileSync(transcriptPath, `${trimmed}\n`, "utf8");
+    } catch {
+      // Ignore best-effort pruning failures.
+    }
+  }
+
+  function pruneOldTranscriptsIfNeeded() {
+    if (!transcriptsEnabled) return;
+    const now = Date.now();
+    if (now - lastTranscriptPruneAt < 10 * 60 * 1000) return;
+    lastTranscriptPruneAt = now;
+
+    const retentionDays =
+      Number.isFinite(transcriptRetentionDays) && transcriptRetentionDays > 0
+        ? transcriptRetentionDays
+        : 0;
+    if (retentionDays <= 0) return;
+    const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+    try {
+      const entries = fs.readdirSync(transcriptDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".jsonl")) continue;
+        const fullPath = path.join(transcriptDir, entry.name);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (now - stat.mtimeMs > retentionMs) {
+            fs.unlinkSync(fullPath);
+          }
+        } catch {
+          // Ignore per-file failures.
+        }
+      }
+    } catch {
+      // Ignore pruning failures.
+    }
   }
 
   function limitTranscriptTurns(turns, maxTurns) {
@@ -150,6 +205,7 @@ export function createSessionRuntime({
   }
 
   function resolveSessionContext(opts = {}) {
+    pruneOldTranscriptsIfNeeded();
     const sessionKey = buildSessionKeyFromInput(opts);
     const store = loadSessionStore();
     const now = Date.now();
@@ -176,7 +232,7 @@ export function createSessionRuntime({
 
     store[sessionKey] = sessionEntry;
     saveSessionStore(store);
-    const transcript = loadTranscript(sessionEntry.sessionId);
+    const transcript = transcriptsEnabled ? loadTranscript(sessionEntry.sessionId) : [];
 
     return {
       sessionKey,
@@ -212,4 +268,3 @@ export function createSessionRuntime({
     transcriptToChatMessages,
   };
 }
-

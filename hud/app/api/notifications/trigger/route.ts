@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMissionWorkflow } from "@/lib/missions/runtime"
-import { buildSchedule, loadSchedules } from "@/lib/notifications/store"
+import { buildSchedule, loadSchedules, saveSchedules } from "@/lib/notifications/store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -25,7 +25,8 @@ export async function POST(req: Request) {
 
     if (scheduleId) {
       const schedules = await loadSchedules({ userId })
-      const target = schedules.find((item) => item.id === scheduleId)
+      const targetIndex = schedules.findIndex((item) => item.id === scheduleId)
+      const target = targetIndex >= 0 ? schedules[targetIndex] : undefined
       if (!target) {
         return NextResponse.json({ error: "schedule not found" }, { status: 404 })
       }
@@ -33,7 +34,19 @@ export async function POST(req: Request) {
         schedule: target,
         source: "trigger",
         enforceOutputTime: false,
+        scope: verified,
       })
+      const nowIso = new Date().toISOString()
+      const updatedSchedule = {
+        ...target,
+        runCount: (Number.isFinite(target.runCount) ? target.runCount : 0) + 1,
+        successCount: (Number.isFinite(target.successCount) ? target.successCount : 0) + (execution.ok ? 1 : 0),
+        failureCount: (Number.isFinite(target.failureCount) ? target.failureCount : 0) + (execution.ok ? 0 : 1),
+        lastRunAt: nowIso,
+        updatedAt: nowIso,
+      }
+      schedules[targetIndex] = updatedSchedule
+      await saveSchedules(schedules, { userId })
       return NextResponse.json(
         {
           ok: execution.ok,
@@ -41,6 +54,7 @@ export async function POST(req: Request) {
           reason: execution.reason,
           results: execution.outputs,
           stepTraces: execution.stepTraces,
+          schedule: updatedSchedule,
         },
         { status: execution.ok ? 200 : 502 },
       )
@@ -67,6 +81,7 @@ export async function POST(req: Request) {
     const execution = await executeMissionWorkflow({
       schedule: tempSchedule,
       source: "trigger",
+      scope: verified,
     })
 
     return NextResponse.json(

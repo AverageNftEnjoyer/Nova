@@ -53,6 +53,7 @@ export interface AppSettings {
   bootMusicAssetId: string | null
   customBackgroundVideoDataUrl: string | null
   customBackgroundVideoFileName: string | null
+  customBackgroundVideoMimeType: string | null
   customBackgroundVideoAssetId: string | null
   compactMode: boolean
   fontSize: "small" | "medium" | "large"
@@ -93,6 +94,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     bootMusicAssetId: null,
     customBackgroundVideoDataUrl: null,
     customBackgroundVideoFileName: null,
+    customBackgroundVideoMimeType: null,
     customBackgroundVideoAssetId: null,
     compactMode: false,
     fontSize: "medium",
@@ -325,7 +327,7 @@ export const BACKGROUNDS: Record<BackgroundType, { name: string; description: st
 
 export const DARK_BACKGROUNDS: Record<DarkBackgroundType, { name: string; description: string }> = {
   floatingLines: { name: "Floating Lines", description: "Interactive wave lines" },
-  customVideo: { name: "Custom Video (MP4)", description: "Play your uploaded MP4 as the background" },
+  customVideo: { name: "Custom Media", description: "Use an uploaded MP4 or image as the background" },
   none: { name: "None", description: "No background animation" },
 }
 

@@ -48,6 +48,12 @@ async function runScheduleTick() {
         source: "scheduler",
         now,
         enforceOutputTime: true,
+        scope: schedule.userId
+          ? {
+              userId: schedule.userId,
+              allowServiceRole: true,
+            }
+          : undefined,
       })
       hadSuccess = execution.ok
     } catch {

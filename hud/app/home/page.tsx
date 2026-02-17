@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import {
   PanelLeftOpen,
   PanelLeftClose,
@@ -19,6 +20,7 @@ import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import {
   createConversation,
+  getActiveId,
   saveConversations,
   loadConversations,
   setActiveId,
@@ -38,7 +40,7 @@ import {
   updateOpenAIIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateTelegramIntegrationSettings,
-} from "@/lib/integrations"
+} from "@/lib/integrations/client-store"
 import FloatingLines from "@/components/FloatingLines"
 import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
@@ -49,7 +51,7 @@ import { GeminiIcon } from "@/components/gemini-icon"
 import { GmailIcon } from "@/components/gmail-icon"
 import { Composer } from "@/components/composer"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
+import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
 import "@/components/FloatingLines.css"
 
 interface NotificationSchedule {
@@ -136,6 +138,11 @@ function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
   return null
 }
 
+function resolveCustomBackgroundIsImage() {
+  const app = loadUserSettings().app
+  return isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName)
+}
+
 const GREETINGS = [
   "Hello sir, what are we working on today?",
   "Good to see you! What's on the agenda?",
@@ -185,6 +192,7 @@ export default function HomePage() {
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
   const [backgroundVideoAssetId, setBackgroundVideoAssetId] = useState<string | null>(() => loadUserSettings().app.customBackgroundVideoAssetId)
+  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
@@ -248,6 +256,17 @@ export default function HomePage() {
       throw new Error("Unauthorized")
     }
     if (!res.ok) throw new Error("Failed to sync conversation messages.")
+  }, [router])
+
+  const deleteServerConversation = useCallback(async (id: string) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    })
+    if (res.status === 401) {
+      router.replace(`/login?next=${encodeURIComponent("/home")}`)
+      throw new Error("Unauthorized")
+    }
+    if (!res.ok) throw new Error("Failed to delete conversation.")
   }, [router])
 
   const ensureServerConversation = useCallback(async (convo: Conversation): Promise<Conversation> => {
@@ -378,7 +397,9 @@ export default function HomePage() {
     if (uiCached) {
       setBackgroundVideoUrl(uiCached)
     }
-    const selectedAssetId = backgroundVideoAssetId ?? loadUserSettings().app.customBackgroundVideoAssetId
+    const app = loadUserSettings().app
+    setBackgroundMediaIsImage(isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName))
+    const selectedAssetId = backgroundVideoAssetId ?? app.customBackgroundVideoAssetId
     const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
     if (cached) {
       setBackgroundVideoUrl(cached)
@@ -465,6 +486,7 @@ export default function HomePage() {
       const nextBackground = resolveThemeBackground(isLight)
       setBackground(nextBackground)
       setBackgroundVideoAssetId(settings.app.customBackgroundVideoAssetId)
+      setBackgroundMediaIsImage(isBackgroundAssetImage(settings.app.customBackgroundVideoMimeType, settings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: settings.app.orbColor,
@@ -771,10 +793,23 @@ export default function HomePage() {
     // Home screen "New chat" should not navigate or create a conversation.
   }, [])
 
-  const handleDeleteConvo = useCallback((id: string) => {
+  const handleDeleteConvo = useCallback(async (id: string) => {
+    const previous = conversations
     const remaining = conversations.filter((c) => c.id !== id)
     persistConversations(remaining)
-  }, [conversations, persistConversations])
+    if (getActiveId() === id) {
+      setActiveId(null)
+    }
+
+    try {
+      await deleteServerConversation(id)
+      const remote = await fetchConversationsFromServer()
+      persistConversations(remote)
+    } catch {
+      // Roll back local optimistic delete if server delete failed.
+      persistConversations(previous)
+    }
+  }, [conversations, deleteServerConversation, fetchConversationsFromServer, persistConversations])
 
   const handleRenameConvo = useCallback((id: string, title: string) => {
     const trimmed = title.trim()
@@ -1007,15 +1042,27 @@ export default function HomePage() {
       )}
       {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <video
-            className="absolute inset-0 h-full w-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            src={backgroundVideoUrl}
-          />
+          {backgroundMediaIsImage ? (
+            <Image
+              fill
+              unoptimized
+              sizes="100vw"
+              className="object-cover"
+              src={backgroundVideoUrl}
+              alt=""
+              aria-hidden="true"
+            />
+          ) : (
+            <video
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              src={backgroundVideoUrl}
+            />
+          )}
           <div className="absolute inset-0 bg-black/45" />
         </div>
       )}

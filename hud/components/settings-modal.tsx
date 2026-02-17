@@ -33,15 +33,16 @@ import {
   getActiveBootMusicAssetId,
   setActiveBootMusicAsset,
   type BootMusicAssetMeta,
-} from "@/lib/bootMusicStorage"
+} from "@/lib/media/bootMusicStorage"
 import {
   saveBackgroundVideoBlob,
   removeBackgroundVideoAsset,
   listBackgroundVideoAssets,
   getActiveBackgroundVideoAssetId,
   setActiveBackgroundVideoAsset,
+  isBackgroundAssetImage,
   type BackgroundVideoAssetMeta,
-} from "@/lib/backgroundVideoStorage"
+} from "@/lib/media/backgroundVideoStorage"
 import {
   loadUserSettings,
   saveUserSettings,
@@ -57,7 +58,9 @@ import {
 } from "@/lib/userSettings"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 
-const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+const AVATAR_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+const BACKGROUND_IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|svg)$/i
+const BACKGROUND_VIDEO_FILE_PATTERN = /\.(mp4)$/i
 
 // Play click sound for settings interactions (respects soundEnabled setting)
 function playClickSound() {
@@ -100,6 +103,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeBootMusicAssetId, setActiveBootMusicAssetId] = useState<string | null>(null)
   const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<BackgroundVideoAssetMeta[]>([])
   const [activeBackgroundVideoAssetId, setActiveBackgroundVideoAssetId] = useState<string | null>(null)
+  const [memoryMarkdown, setMemoryMarkdown] = useState("")
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [memorySaving, setMemorySaving] = useState(false)
+  const [memoryDirty, setMemoryDirty] = useState(false)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
+  const [memorySavedAt, setMemorySavedAt] = useState<number | null>(null)
   const [cropSource, setCropSource] = useState<string | null>(null)
   const [cropZoom, setCropZoom] = useState(1)
   const [cropOffset, setCropOffset] = useState<CropOffset>({ x: 0, y: 0 })
@@ -129,6 +138,46 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setBackgroundVideoAssets(videoAssets)
     setActiveBackgroundVideoAssetId(videoActiveId)
   }, [])
+
+  const loadMemoryMarkdown = useCallback(async () => {
+    setMemoryLoading(true)
+    setMemoryError(null)
+    try {
+      const res = await fetch("/api/workspace/memory-md", { cache: "no-store" })
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; content?: string; error?: string }
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to load MEMORY.md")
+      }
+      setMemoryMarkdown(String(data.content || ""))
+      setMemoryDirty(false)
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : "Failed to load MEMORY.md")
+    } finally {
+      setMemoryLoading(false)
+    }
+  }, [])
+
+  const saveMemoryMarkdown = useCallback(async () => {
+    setMemorySaving(true)
+    setMemoryError(null)
+    try {
+      const res = await fetch("/api/workspace/memory-md", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: memoryMarkdown }),
+      })
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to save MEMORY.md")
+      }
+      setMemoryDirty(false)
+      setMemorySavedAt(Date.now())
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : "Failed to save MEMORY.md")
+    } finally {
+      setMemorySaving(false)
+    }
+  }, [memoryMarkdown])
 
   const pushWorkspaceContextSync = useCallback(async (payload: Record<string, unknown>, serialized: string) => {
     try {
@@ -246,11 +295,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           setBackgroundVideoAssets([])
           setActiveBackgroundVideoAssetId(null)
         })
+      void loadMemoryMarkdown()
     }
     return () => {
       cancelled = true
     }
-  }, [isOpen, refreshMediaLibraries])
+  }, [isOpen, loadMemoryMarkdown, refreshMediaLibraries])
 
   const navigateToLogin = useCallback(() => {
     const nextPath = typeof window !== "undefined" ? window.location.pathname : "/home"
@@ -429,7 +479,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const handleAvatarUpload = useCallback(async (file: File) => {
     if (!settings) return
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+    if (!AVATAR_ALLOWED_MIME_TYPES.has(file.type)) {
       setAvatarError("Only JPG, PNG, or WEBP images are allowed.")
       return
     }
@@ -574,15 +624,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleBackgroundVideoUpload = useCallback(async (file: File) => {
     if (!settings) return
 
-    const isMp4 = file.type === "video/mp4" || file.name.toLowerCase().endsWith(".mp4")
-    if (!isMp4) {
-      setBackgroundVideoError("Only MP4 files are supported.")
+    const normalizedName = file.name.toLowerCase()
+    const isVideo = file.type === "video/mp4" || BACKGROUND_VIDEO_FILE_PATTERN.test(normalizedName)
+    const isImage = file.type.startsWith("image/") || BACKGROUND_IMAGE_FILE_PATTERN.test(normalizedName)
+    if (!isVideo && !isImage) {
+      setBackgroundVideoError("Only MP4, JPG, PNG, WEBP, or SVG files are supported.")
       return
     }
 
     // Soft upper bound to reduce large local storage pressure.
-    if (file.size > 300 * 1024 * 1024) {
+    if (isVideo && file.size > 300 * 1024 * 1024) {
       setBackgroundVideoError("File is too large. Max size is 300MB.")
+      return
+    }
+    if (isImage && file.size > 25 * 1024 * 1024) {
+      setBackgroundVideoError("Image is too large. Max size is 25MB.")
       return
     }
 
@@ -596,6 +652,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         darkModeBackground: "customVideo" as DarkBackgroundType,
         customBackgroundVideoDataUrl: null,
         customBackgroundVideoFileName: asset.fileName,
+        customBackgroundVideoMimeType: asset.mimeType,
         customBackgroundVideoAssetId: asset.id,
       },
     }
@@ -620,6 +677,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         ...settings.app,
         customBackgroundVideoDataUrl: null,
         customBackgroundVideoFileName: nextActive?.fileName ?? null,
+        customBackgroundVideoMimeType: nextActive?.mimeType ?? null,
         customBackgroundVideoAssetId: nextActive?.id ?? null,
         darkModeBackground:
           settings.app.darkModeBackground === "customVideo" && !nextActive
@@ -682,6 +740,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         ...settings.app,
         customBackgroundVideoDataUrl: null,
         customBackgroundVideoFileName: selected?.fileName ?? null,
+        customBackgroundVideoMimeType: selected?.mimeType ?? null,
         customBackgroundVideoAssetId: selected?.id ?? null,
         darkModeBackground: (
           selected ? "customVideo" : (settings.app.darkModeBackground === "customVideo" ? "floatingLines" : settings.app.darkModeBackground)
@@ -981,6 +1040,75 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       onChange={(v) => updateProfile("name", v)}
                       isLight={isLight}
                     />
+
+                    <div className={cn(getSettingsCardClass(isLight), "p-4")}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-200")}>Memory</p>
+                          <p className={cn("text-xs", isLight ? "text-s-30" : "text-slate-500")}>
+                            Edit your full <code>MEMORY.md</code> directly. Nova reads this every turn.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => void loadMemoryMarkdown()}
+                            variant="outline"
+                            size="sm"
+                            disabled={memoryLoading || memorySaving}
+                            className={cn(
+                              "fx-spotlight-card fx-border-glow",
+                              isLight
+                                ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
+                                : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10"
+                            )}
+                          >
+                            {memoryLoading ? "Loading..." : "Reload"}
+                          </Button>
+                          <Button
+                            onClick={() => void saveMemoryMarkdown()}
+                            size="sm"
+                            disabled={memorySaving || memoryLoading || !memoryDirty}
+                            className={cn(
+                              "fx-spotlight-card fx-border-glow border text-white disabled:opacity-60",
+                              isLight
+                                ? "bg-emerald-600 border-emerald-700 hover:bg-emerald-700"
+                                : "bg-emerald-500/80 border-emerald-300/60 hover:bg-emerald-500",
+                            )}
+                          >
+                            {memorySaving ? "Saving..." : "Save"}
+                          </Button>
+                        </div>
+                      </div>
+                      <textarea
+                        value={memoryMarkdown}
+                        onChange={(e) => {
+                          setMemoryMarkdown(e.target.value)
+                          setMemoryDirty(true)
+                          setMemorySavedAt(null)
+                        }}
+                        spellCheck={false}
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        data-gramm="false"
+                        data-gramm_editor="false"
+                        data-enable-grammarly="false"
+                        rows={12}
+                        className={cn(getSettingsFieldClass(isLight), "mt-3 min-h-[260px] font-mono text-xs leading-5")}
+                        placeholder="# Persistent Memory"
+                      />
+                      <div className="mt-2 flex items-center justify-between">
+                        <p className={cn("text-xs", isLight ? "text-s-30" : "text-slate-500")}>
+                          {memoryMarkdown.length} chars
+                        </p>
+                        {memoryError ? (
+                          <p className="text-xs text-red-400">{memoryError}</p>
+                        ) : memoryDirty ? (
+                          <p className={cn("text-xs", isLight ? "text-amber-600" : "text-amber-300")}>Unsaved changes</p>
+                        ) : memorySavedAt ? (
+                          <p className={cn("text-xs", isLight ? "text-emerald-600" : "text-emerald-300")}>Saved</p>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1108,11 +1236,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                     <div className={cn(getSettingsCardClass(isLight), "p-4")}>
                       <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Custom Background</p>
-                      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>Upload your Background</p>
+                      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>Upload an MP4 or image (JPG, PNG, WEBP, SVG)</p>
                       <input
                         ref={backgroundVideoInputRef}
                         type="file"
-                        accept=".mp4,video/mp4"
+                        accept=".mp4,video/mp4,.jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"
                         className="hidden"
                         onChange={async (e) => {
                           const inputEl = e.currentTarget
@@ -1121,7 +1249,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           try {
                             await handleBackgroundVideoUpload(file)
                           } catch (err) {
-                            const msg = err instanceof Error ? err.message : "Failed to upload background video."
+                            const msg = err instanceof Error ? err.message : "Failed to upload background media."
                             setBackgroundVideoError(msg)
                           } finally {
                             inputEl.value = ""
@@ -1147,7 +1275,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           "flex-1 px-3 py-2 rounded-md text-sm border whitespace-nowrap overflow-hidden text-ellipsis",
                           isLight ? "bg-white text-s-50 border-[#d5dce8]" : "bg-black/20 text-slate-400 border-white/10"
                         )}>
-                          {activeBackgroundVideo?.fileName || "No background selected"}
+                          {activeBackgroundVideo
+                            ? `${activeBackgroundVideo.fileName}${isBackgroundAssetImage(activeBackgroundVideo.mimeType, activeBackgroundVideo.fileName) ? " (Image)" : " (Video)"}`
+                            : "No background selected"}
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -1168,7 +1298,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                 isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
                               )}
                             >
-                              Upload your Background
+                              Upload Background
                             </span>
                             +
                           </button>

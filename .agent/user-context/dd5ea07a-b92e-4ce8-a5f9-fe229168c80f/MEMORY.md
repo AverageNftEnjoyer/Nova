@@ -17,15 +17,13 @@ The AI can also write to this file when significant decisions are made. Review p
 
 ## Important Facts
 
+- 2026-02-16: [memory:current-student-ddebt] my current student ddebt is now 24k
 - YYYY-MM-DD: [Infrastructure fact, endpoint, constraint, or limit]
-- YYYY-MM-DD: [Service dependency and known caveat]
-- YYYY-MM-DD: [Operational detail that is frequently needed]
 
 ## Preferences Learned
 
 - YYYY-MM-DD: [User communication preference]
-- YYYY-MM-DD: [Coding style or tooling preference]
-- YYYY-MM-DD: [Workflow preference discovered in conversation]
+
 
 ## Meeting Notes / Action Items
 
@@ -50,7 +48,7 @@ Example high-signal entry:
 
 <!-- NOVA_SETTINGS_SYNC:START -->
 ## Runtime Snapshot (Auto-Synced)
-2026-02-16: Assistant name set to "Julia".
-2026-02-16: User name "User" with communication style "friendly" and tone "neutral".
+2026-02-16: Assistant name set to "Lana".
+2026-02-16: User name "User" with communication style "casual" and tone "neutral".
 2026-02-16: Occupation context "Software Dev".
 <!-- NOVA_SETTINGS_SYNC:END -->

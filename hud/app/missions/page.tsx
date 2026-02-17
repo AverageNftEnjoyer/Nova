@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { Trash2, Pin, Settings, Search, Sparkles, SlidersHorizontal, X, Clock3, Zap, Database, WandSparkles, GitBranch, Send, GripVertical, LayoutGrid, List, MoreVertical, Mail, MessageCircle, Activity, Pencil, Copy, Play, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
@@ -12,10 +13,14 @@ import { NovaSwitch } from "@/components/ui/nova-switch"
 import { SettingsModal } from "@/components/settings-modal"
 import FloatingLines from "@/components/FloatingLines"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
+import { useNovaState } from "@/lib/useNovaState"
+import { getNovaPresence } from "@/lib/nova-presence"
+import { usePageActive } from "@/lib/use-page-active"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
-import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations"
+import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
+import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
 import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/integrations/catalog"
+import { NOVA_VERSION } from "@/lib/version"
 import "@/components/FloatingLines.css"
 
 interface NotificationSchedule {
@@ -50,6 +55,11 @@ interface MissionRunProgress {
   reason?: string
   steps: MissionRunStepTrace[]
 }
+
+type MissionRuntimeStatus =
+  | { kind: "running"; step: number; total: number }
+  | { kind: "completed"; at: number }
+  | { kind: "failed"; at: number }
 
 const FLOATING_LINES_ENABLED_WAVES: string[] = ["top", "middle", "bottom"]
 const FLOATING_LINES_LINE_COUNT: number[] = [5, 5, 5]
@@ -141,6 +151,7 @@ interface WorkflowStep {
   aiPrompt?: string
   aiModel?: string
   aiIntegration?: AiIntegrationType
+  aiDetailLevel?: "concise" | "standard" | "detailed"
   triggerMode?: "once" | "daily" | "weekly" | "interval"
   triggerTime?: string
   triggerTimezone?: string
@@ -154,6 +165,7 @@ interface WorkflowStep {
   fetchHeaders?: string
   fetchSelector?: string
   fetchRefreshMinutes?: string
+  fetchIncludeSources?: boolean
   transformAction?: "normalize" | "dedupe" | "aggregate" | "format" | "enrich"
   transformFormat?: "text" | "json" | "markdown" | "table"
   transformInstruction?: string
@@ -195,12 +207,7 @@ const STEP_TYPE_OPTIONS: Array<{ type: WorkflowStepType; label: string }> = [
 ]
 
 const STEP_FETCH_SOURCE_OPTIONS: FluidSelectOption[] = [
-  { value: "api", label: "API Endpoint" },
-  { value: "web", label: "Web Scrape" },
-  { value: "calendar", label: "Calendar Feed" },
-  { value: "crypto", label: "Crypto Market Feed" },
-  { value: "rss", label: "RSS Feed" },
-  { value: "database", label: "Database Query" },
+  { value: "web", label: "Brave Web Search" },
 ]
 
 const STEP_FETCH_METHOD_OPTIONS: FluidSelectOption[] = [
@@ -387,6 +394,12 @@ const AI_MODEL_OPTIONS: Record<AiIntegrationType, FluidSelectOption[]> = {
   gemini: GEMINI_MODEL_SELECT_OPTIONS,
 }
 
+const AI_DETAIL_LEVEL_OPTIONS: FluidSelectOption[] = [
+  { value: "concise", label: "Concise" },
+  { value: "standard", label: "Standard" },
+  { value: "detailed", label: "Detailed" },
+]
+
 function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "")
   const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
@@ -529,6 +542,11 @@ function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
   return null
 }
 
+function resolveCustomBackgroundIsImage() {
+  const app = loadUserSettings().app
+  return isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName)
+}
+
 function to12HourParts(time24: string): { text: string; meridiem: "AM" | "PM" } {
   const match = /^(\d{2}):(\d{2})$/.exec(time24)
   if (!match) return { text: "09:00", meridiem: "AM" }
@@ -601,6 +619,22 @@ function sanitizeOutputRecipients(
   if (usesSavedIntegrationDestination(channel)) return ""
   if (isTemplateSecret(value)) return ""
   return value
+}
+
+function normalizeAiDetailLevel(value: unknown): "concise" | "standard" | "detailed" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "concise" || normalized === "standard" || normalized === "detailed") {
+    return normalized
+  }
+  return "standard"
+}
+
+function normalizeFetchIncludeSources(value: unknown): boolean {
+  if (typeof value === "boolean") return value
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "false" || normalized === "0" || normalized === "off" || normalized === "no") return false
+  if (normalized === "true" || normalized === "1" || normalized === "on" || normalized === "yes") return true
+  return true
 }
 
 interface TimeFieldProps {
@@ -683,6 +717,8 @@ function TimeField({ value24, onChange24, isLight, className }: TimeFieldProps) 
 export default function MissionsPage() {
   const router = useRouter()
   const { theme } = useTheme()
+  const pageActive = usePageActive()
+  const { state: novaState, connected: agentConnected } = useNovaState()
   const isLight = theme === "light"
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<ThemeBackgroundType>(() => {
@@ -695,6 +731,7 @@ export default function MissionsPage() {
     const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
+  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)
@@ -739,6 +776,7 @@ export default function MissionsPage() {
   const [novaGeneratingMission, setNovaGeneratingMission] = useState(false)
   const [runImmediatelyOnCreate, setRunImmediatelyOnCreate] = useState(false)
   const [runProgress, setRunProgress] = useState<MissionRunProgress | null>(null)
+  const [missionRuntimeStatusById, setMissionRuntimeStatusById] = useState<Record<string, MissionRuntimeStatus>>({})
 
   const catalogApiById = useMemo(() => {
     const next: Record<string, IntegrationCatalogItem> = {}
@@ -776,6 +814,10 @@ export default function MissionsPage() {
     }
     return deduped
   }, [integrationCatalog])
+
+  const formatStatusTime = useCallback((value: number) => {
+    return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+  }, [])
 
   const listSectionRef = useRef<HTMLElement | null>(null)
   const createSectionRef = useRef<HTMLElement | null>(null)
@@ -827,14 +869,15 @@ export default function MissionsPage() {
         id,
         type,
         title: titleOverride ?? "Fetch source data",
-        fetchSource: "api",
+        fetchSource: "web",
         fetchMethod: "GET",
         fetchApiIntegrationId: "",
         fetchUrl: "",
         fetchQuery: "",
         fetchHeaders: "",
-        fetchSelector: "",
+        fetchSelector: "a[href]",
         fetchRefreshMinutes: "15",
+        fetchIncludeSources: true,
       }
     }
     if (type === "transform") {
@@ -882,6 +925,7 @@ export default function MissionsPage() {
       aiPrompt: "",
       aiIntegration,
       aiModel,
+      aiDetailLevel: "standard",
     }
   }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
 
@@ -944,7 +988,7 @@ export default function MissionsPage() {
   }, [])
 
   const updateWorkflowStepAi = useCallback(
-    (id: string, updates: Partial<Pick<WorkflowStep, "aiPrompt" | "aiModel" | "aiIntegration">>) => {
+    (id: string, updates: Partial<Pick<WorkflowStep, "aiPrompt" | "aiModel" | "aiIntegration" | "aiDetailLevel">>) => {
       setWorkflowSteps((prev) => (
         prev.map((step) => {
           if (step.id !== id || step.type !== "ai") return step
@@ -1073,6 +1117,7 @@ export default function MissionsPage() {
             fetchHeaders: typeof step.fetchHeaders === "string" ? step.fetchHeaders : base.fetchHeaders,
             fetchSelector: typeof step.fetchSelector === "string" ? step.fetchSelector : base.fetchSelector,
             fetchRefreshMinutes: typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes.trim() ? step.fetchRefreshMinutes : base.fetchRefreshMinutes,
+            fetchIncludeSources: normalizeFetchIncludeSources(step.fetchIncludeSources),
           } as WorkflowStep
         }
 
@@ -1114,6 +1159,7 @@ export default function MissionsPage() {
             aiPrompt: typeof step.aiPrompt === "string" ? step.aiPrompt : base.aiPrompt,
             aiIntegration,
             aiModel: typeof step.aiModel === "string" && step.aiModel.trim() ? step.aiModel : getDefaultModelForProvider(aiIntegration, integrationsSettings),
+            aiDetailLevel: normalizeAiDetailLevel(step.aiDetailLevel),
           } as WorkflowStep
         }
 
@@ -1425,6 +1471,7 @@ export default function MissionsPage() {
     const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
     setOrbColor(nextOrbColor)
     setBackground(nextBackground)
+    setBackgroundMediaIsImage(isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName))
     setSpotlightEnabled(nextSpotlight)
     writeShellUiCache({
       orbColor: nextOrbColor,
@@ -1448,6 +1495,7 @@ export default function MissionsPage() {
       setOrbColor(userSettings.app.orbColor)
       const nextBackground = resolveThemeBackground(isLight)
       setBackground(nextBackground)
+      setBackgroundMediaIsImage(isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: userSettings.app.orbColor,
@@ -1467,7 +1515,9 @@ export default function MissionsPage() {
     if (uiCached) {
       setBackgroundVideoUrl(uiCached)
     }
-    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const app = loadUserSettings().app
+    setBackgroundMediaIsImage(isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName))
+    const selectedAssetId = app.customBackgroundVideoAssetId
     const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
     if (cached) {
       setBackgroundVideoUrl(cached)
@@ -1705,6 +1755,7 @@ export default function MissionsPage() {
       ),
     )
 
+    setBuilderOpen(false)
     setDeployingMission(true)
     setStatus(null)
     try {
@@ -1754,6 +1805,11 @@ export default function MissionsPage() {
       }
       if (!res.ok) throw new Error(data?.error || (isEditing ? "Failed to save mission" : "Failed to create mission"))
 
+      // Immediately add the new mission to the list so it shows up right away
+      if (!isEditing && data?.schedule) {
+        setSchedules((prev) => [data.schedule, ...prev])
+      }
+
       if (runImmediatelyOnCreate) {
         const runScheduleId = isEditing
           ? (typeof editingMissionId === "string" ? editingMissionId.trim() : "")
@@ -1766,6 +1822,11 @@ export default function MissionsPage() {
           )
         }
         const pendingSteps = toPendingRunSteps(workflowStepsForSave as Array<Partial<WorkflowStep>>)
+        const runningTotal = Math.max(pendingSteps.length, 1)
+        setMissionRuntimeStatusById((prev) => ({
+          ...prev,
+          [runScheduleId]: { kind: "running", step: 1, total: runningTotal },
+        }))
         setRunProgress({
           missionId: runScheduleId,
           missionLabel: label,
@@ -1784,9 +1845,15 @@ export default function MissionsPage() {
           reason?: string
           stepTraces?: unknown
           error?: string
+          schedule?: NotificationSchedule
         }
         const finalizedSteps = normalizeRunStepTraces(triggerData?.stepTraces, pendingSteps)
         if (!triggerRes.ok) {
+        const failedAt = Date.now()
+        setMissionRuntimeStatusById((prev) => ({
+          ...prev,
+          [runScheduleId]: { kind: "failed", at: failedAt },
+        }))
         setRunProgress({
           missionId: runScheduleId,
           missionLabel: label,
@@ -1805,6 +1872,31 @@ export default function MissionsPage() {
           reason: triggerData?.reason,
           steps: finalizedSteps,
         })
+        if (triggerData?.schedule) {
+          updateLocalSchedule(runScheduleId, triggerData.schedule)
+          setBaselineById((prev) => ({ ...prev, [runScheduleId]: triggerData.schedule as NotificationSchedule }))
+        } else {
+          setSchedules((prev) =>
+            prev.map((item) =>
+              item.id === runScheduleId
+                ? {
+                    ...item,
+                    runCount: (Number.isFinite(item.runCount) ? Number(item.runCount) : 0) + 1,
+                    successCount:
+                      (Number.isFinite(item.successCount) ? Number(item.successCount) : 0) + (triggerData?.ok ? 1 : 0),
+                    failureCount:
+                      (Number.isFinite(item.failureCount) ? Number(item.failureCount) : 0) + (triggerData?.ok ? 0 : 1),
+                    lastRunAt: new Date().toISOString(),
+                  }
+                : item,
+            ),
+          )
+        }
+        const finishedAt = Date.now()
+        setMissionRuntimeStatusById((prev) => ({
+          ...prev,
+          [runScheduleId]: triggerData?.ok ? { kind: "completed", at: finishedAt } : { kind: "failed", at: finishedAt },
+        }))
       }
 
       setStatus({
@@ -1903,6 +1995,11 @@ export default function MissionsPage() {
         delete next[id]
         return next
       })
+      setMissionRuntimeStatusById((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
       setStatus({ type: "success", message: "Mission deleted." })
     } catch (error) {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to delete mission." })
@@ -1948,19 +2045,21 @@ export default function MissionsPage() {
               : getDefaultModelForProvider(aiIntegration, integrationsSettings))
             : undefined,
           aiIntegration: resolvedType === "ai" ? aiIntegration : undefined,
+          aiDetailLevel: resolvedType === "ai" ? normalizeAiDetailLevel(step.aiDetailLevel) : undefined,
           triggerMode: resolvedType === "trigger" ? (step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval" ? step.triggerMode : "daily") : undefined,
           triggerTime: resolvedType === "trigger" ? (typeof step.triggerTime === "string" && step.triggerTime ? step.triggerTime : mission.time || "09:00") : undefined,
           triggerTimezone: resolvedType === "trigger" ? (typeof step.triggerTimezone === "string" && step.triggerTimezone ? step.triggerTimezone : (mission.timezone || detectedTimezone || "America/New_York")) : undefined,
           triggerDays: resolvedType === "trigger" ? (Array.isArray(step.triggerDays) ? step.triggerDays.map((day) => String(day)) : ["mon", "tue", "wed", "thu", "fri"]) : undefined,
           triggerIntervalMinutes: resolvedType === "trigger" ? (typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes ? step.triggerIntervalMinutes : "30") : undefined,
-          fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "api") : undefined,
+          fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "web") : undefined,
           fetchMethod: resolvedType === "fetch" ? (step.fetchMethod === "POST" ? "POST" : "GET") : undefined,
           fetchApiIntegrationId: resolvedType === "fetch" ? (typeof step.fetchApiIntegrationId === "string" ? step.fetchApiIntegrationId : "") : undefined,
           fetchUrl: resolvedType === "fetch" ? (typeof step.fetchUrl === "string" ? step.fetchUrl : "") : undefined,
           fetchQuery: resolvedType === "fetch" ? (typeof step.fetchQuery === "string" ? step.fetchQuery : "") : undefined,
           fetchHeaders: resolvedType === "fetch" ? (typeof step.fetchHeaders === "string" ? step.fetchHeaders : "") : undefined,
-          fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" ? step.fetchSelector : "") : undefined,
+          fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" && step.fetchSelector.trim() ? step.fetchSelector : "a[href]") : undefined,
           fetchRefreshMinutes: resolvedType === "fetch" ? (typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes ? step.fetchRefreshMinutes : "15") : undefined,
+          fetchIncludeSources: resolvedType === "fetch" ? normalizeFetchIncludeSources(step.fetchIncludeSources) : undefined,
           transformAction: resolvedType === "transform" ? (step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich" ? step.transformAction : "normalize") : undefined,
           transformFormat: resolvedType === "transform" ? (step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table" ? step.transformFormat : "markdown") : undefined,
           transformInstruction: resolvedType === "transform" ? (typeof step.transformInstruction === "string" ? step.transformInstruction : "") : undefined,
@@ -2027,19 +2126,21 @@ export default function MissionsPage() {
               : getDefaultModelForProvider(aiIntegration, integrationsSettings))
             : undefined,
           aiIntegration: resolvedType === "ai" ? aiIntegration : undefined,
+          aiDetailLevel: resolvedType === "ai" ? normalizeAiDetailLevel(step.aiDetailLevel) : undefined,
           triggerMode: resolvedType === "trigger" ? (step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval" ? step.triggerMode : "daily") : undefined,
           triggerTime: resolvedType === "trigger" ? (typeof step.triggerTime === "string" && step.triggerTime ? step.triggerTime : mission.time || "09:00") : undefined,
           triggerTimezone: resolvedType === "trigger" ? (typeof step.triggerTimezone === "string" && step.triggerTimezone ? step.triggerTimezone : (mission.timezone || detectedTimezone || "America/New_York")) : undefined,
           triggerDays: resolvedType === "trigger" ? (Array.isArray(step.triggerDays) ? step.triggerDays.map((day) => String(day)) : ["mon", "tue", "wed", "thu", "fri"]) : undefined,
           triggerIntervalMinutes: resolvedType === "trigger" ? (typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes ? step.triggerIntervalMinutes : "30") : undefined,
-          fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "api") : undefined,
+          fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "web") : undefined,
           fetchMethod: resolvedType === "fetch" ? (step.fetchMethod === "POST" ? "POST" : "GET") : undefined,
           fetchApiIntegrationId: resolvedType === "fetch" ? (typeof step.fetchApiIntegrationId === "string" ? step.fetchApiIntegrationId : "") : undefined,
           fetchUrl: resolvedType === "fetch" ? (typeof step.fetchUrl === "string" ? step.fetchUrl : "") : undefined,
           fetchQuery: resolvedType === "fetch" ? (typeof step.fetchQuery === "string" ? step.fetchQuery : "") : undefined,
           fetchHeaders: resolvedType === "fetch" ? (typeof step.fetchHeaders === "string" ? step.fetchHeaders : "") : undefined,
-          fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" ? step.fetchSelector : "") : undefined,
+          fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" && step.fetchSelector.trim() ? step.fetchSelector : "a[href]") : undefined,
           fetchRefreshMinutes: resolvedType === "fetch" ? (typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes ? step.fetchRefreshMinutes : "15") : undefined,
+          fetchIncludeSources: resolvedType === "fetch" ? normalizeFetchIncludeSources(step.fetchIncludeSources) : undefined,
           transformAction: resolvedType === "transform" ? (step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich" ? step.transformAction : "normalize") : undefined,
           transformFormat: resolvedType === "transform" ? (step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table" ? step.transformFormat : "markdown") : undefined,
           transformInstruction: resolvedType === "transform" ? (typeof step.transformInstruction === "string" ? step.transformInstruction : "") : undefined,
@@ -2082,6 +2183,11 @@ export default function MissionsPage() {
     setStatus(null)
     const meta = parseMissionWorkflowMeta(mission.message)
     const pendingSteps = toPendingRunSteps(meta.workflowSteps)
+    const runningTotal = Math.max(pendingSteps.length, 1)
+    setMissionRuntimeStatusById((prev) => ({
+      ...prev,
+      [mission.id]: { kind: "running", step: 1, total: runningTotal },
+    }))
     setRunProgress({
       missionId: mission.id,
       missionLabel: mission.label || "Untitled mission",
@@ -2103,6 +2209,7 @@ export default function MissionsPage() {
         reason?: string
         stepTraces?: unknown
         error?: string
+        schedule?: NotificationSchedule
       }
       const finalizedSteps = normalizeRunStepTraces(data?.stepTraces, pendingSteps)
       setRunProgress({
@@ -2113,10 +2220,40 @@ export default function MissionsPage() {
         reason: data?.reason,
         steps: finalizedSteps,
       })
+      if (data?.schedule) {
+        updateLocalSchedule(mission.id, data.schedule)
+        setBaselineById((prev) => ({ ...prev, [mission.id]: data.schedule as NotificationSchedule }))
+      } else {
+        setSchedules((prev) =>
+          prev.map((item) =>
+            item.id === mission.id
+              ? {
+                  ...item,
+                  runCount: (Number.isFinite(item.runCount) ? Number(item.runCount) : 0) + 1,
+                  successCount:
+                    (Number.isFinite(item.successCount) ? Number(item.successCount) : 0) + (data?.ok ? 1 : 0),
+                  failureCount:
+                    (Number.isFinite(item.failureCount) ? Number(item.failureCount) : 0) + (data?.ok ? 0 : 1),
+                  lastRunAt: new Date().toISOString(),
+                }
+              : item,
+          ),
+        )
+      }
+      const finishedAt = Date.now()
+      setMissionRuntimeStatusById((prev) => ({
+        ...prev,
+        [mission.id]: data?.ok ? { kind: "completed", at: finishedAt } : { kind: "failed", at: finishedAt },
+      }))
       if (!res.ok) throw new Error(data?.error || "Run now failed.")
       await refreshSchedules()
       setStatus({ type: "success", message: "Mission run completed. Review step trace panel for details." })
     } catch (error) {
+      const failedAt = Date.now()
+      setMissionRuntimeStatusById((prev) => ({
+        ...prev,
+        [mission.id]: { kind: "failed", at: failedAt },
+      }))
       setRunProgress((prev) => prev ? {
         ...prev,
         running: false,
@@ -2127,10 +2264,23 @@ export default function MissionsPage() {
     }
   }, [normalizeRunStepTraces, refreshSchedules, toPendingRunSteps])
 
+  useEffect(() => {
+    if (!runProgress || runProgress.running) return
+    const timer = window.setTimeout(() => {
+      setRunProgress((prev) => {
+        if (!prev) return null
+        if (prev.running) return prev
+        if (prev.missionId !== runProgress.missionId) return prev
+        return null
+      })
+    }, 30000)
+    return () => window.clearTimeout(timer)
+  }, [runProgress])
+
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo(() => [orbPalette.circle1, orbPalette.circle2], [orbPalette.circle1, orbPalette.circle2])
   const orbHoverFilter = useMemo(
-    () => `drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle1, 0.45)}) drop-shadow(0 0 28px ${hexToRgba(orbPalette.circle2, 0.28)})`,
+    () => `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`,
     [orbPalette.circle1, orbPalette.circle2],
   )
   const panelClass =
@@ -2142,6 +2292,7 @@ export default function MissionsPage() {
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
   const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
+  const presence = getNovaPresence({ agentConnected, novaState })
   const filteredSchedules = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
@@ -2195,15 +2346,27 @@ export default function MissionsPage() {
       )}
       {mounted && background === "customVideo" && !isLight && !!backgroundVideoUrl && (
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <video
-            className="absolute inset-0 h-full w-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            src={backgroundVideoUrl}
-          />
+          {backgroundMediaIsImage ? (
+            <Image
+              fill
+              unoptimized
+              sizes="100vw"
+              className="object-cover"
+              src={backgroundVideoUrl}
+              alt=""
+              aria-hidden="true"
+            />
+          ) : (
+            <video
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              src={backgroundVideoUrl}
+            />
+          )}
           <div className="absolute inset-0 bg-black/45" />
         </div>
       )}
@@ -2217,20 +2380,29 @@ export default function MissionsPage() {
                   onClick={() => router.push("/home")}
                   onMouseEnter={() => setOrbHovered(true)}
                   onMouseLeave={() => setOrbHovered(false)}
-                  className="group relative h-10 w-10 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-105"
+                  className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
                   aria-label="Go to home"
                 >
                   <NovaOrbIndicator
                     palette={orbPalette}
-                    size={26}
-                    animated={false}
+                    size={30}
+                    animated={pageActive}
                     className="transition-all duration-200"
                     style={{ filter: orbHovered ? orbHoverFilter : "none" }}
                   />
                 </button>
-                <div>
-                  <h1 className={cn("text-2xl font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
-                  <p className="text-[10px] text-accent font-mono">V.0 Beta</p>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                    <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                    <div className="inline-flex items-center gap-1.5">
+                      <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                      <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                        {presence.label}
+                      </span>
+                    </div>
+                    <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Missions & Automations Hub</p>
+                  </div>
                 </div>
               </div>
               <div className="min-w-0 px-1">
@@ -2244,7 +2416,7 @@ export default function MissionsPage() {
                     <div
                       key={tile.label}
                       className={cn(
-                        "h-9 rounded-md border px-2 py-1.5 flex items-center justify-between home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        "h-9 rounded-md border px-2 py-1.5 flex items-center justify-between transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-dynamic",
                         subPanelClass,
                       )}
                     >
@@ -2273,7 +2445,7 @@ export default function MissionsPage() {
                     setBuilderOpen(true)
                   }}
                   className={cn(
-                    "h-8 px-3 rounded-lg border transition-colors text-sm font-medium inline-flex items-center justify-center home-spotlight-card home-border-glow",
+                    "h-8 px-3 rounded-lg border transition-colors text-sm font-medium inline-flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-dynamic",
                     isLight
                       ? "border-accent-30 bg-accent-10 text-accent"
                       : "border-accent-30 bg-accent-10 text-accent",
@@ -2389,7 +2561,7 @@ export default function MissionsPage() {
                       </div>
                       <button
                         onClick={() => applyTemplate(template.id)}
-                        className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors text-[11px]"
+                        className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 hover:shadow-[0_8px_18px_-12px_rgba(var(--accent-rgb),0.75)] transition-all duration-150 text-[11px]"
                       >
                         Use Template
                       </button>
@@ -2419,7 +2591,7 @@ export default function MissionsPage() {
                       void generateMissionDraftFromPrompt()
                     }}
                     disabled={novaGeneratingMission}
-                    className="mt-2.5 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors text-xs disabled:opacity-60"
+                    className="mt-2.5 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent hover:bg-accent-20 transition-colors text-xs disabled:opacity-60 home-spotlight-card home-border-glow home-spotlight-dynamic"
                   >
                     {novaGeneratingMission ? "Generating Draft..." : "Generate Mission Draft"}
                   </button>
@@ -2493,24 +2665,56 @@ export default function MissionsPage() {
                     const successRate = runs > 0 ? Math.round((successes / runs) * 100) : 100
                     const processChips = details.process.slice(0, 4)
                     const runState = runProgress && runProgress.missionId === mission.id ? runProgress : null
-                    const runningStepIndex = runState?.running ? runState.steps.findIndex((step) => step.status === "running") : -1
-                    const runningStep = runningStepIndex !== undefined && runningStepIndex >= 0 ? runState?.steps[runningStepIndex] : null
-                    const missionStatusText = runState?.running
-                      ? `Running now${runningStep ? `: ${runningStepIndex + 1}/${runState.steps.length} ${runningStep.title}` : "..."}`
-                      : runState
-                        ? `${runState.success ? "Last run completed" : "Last run failed"}${runState.reason ? `: ${runState.reason}` : ""}`
-                        : mission.lastRunAt
-                          ? `Last run ${formatRelativeTime(mission.lastRunAt)}`
-                          : mission.enabled
-                            ? "Scheduled"
-                            : "Paused and not running"
-                    const missionStatusToneClass = runState?.running
+                    const runtimeStatus = missionRuntimeStatusById[mission.id]
+                    const dynamicRunningTotal = runState?.running ? Math.max(runState.steps.length, 1) : null
+                    const dynamicRunningStep = runState?.running
+                      ? (() => {
+                          const runningIndex = runState.steps.findIndex((step) => step.status === "running")
+                          if (runningIndex >= 0) return runningIndex + 1
+                          const completedCount = runState.steps.filter((step) => step.status === "completed" || step.status === "skipped").length
+                          return Math.min(completedCount + 1, Math.max(runState.steps.length, 1))
+                        })()
+                      : null
+                    const completedFromServer = mission.lastRunAt ? new Date(mission.lastRunAt).getTime() : null
+                    const missionStatusText = dynamicRunningStep && dynamicRunningTotal
+                      ? `Running ${dynamicRunningStep}/${dynamicRunningTotal}`
+                      : runtimeStatus?.kind === "running"
+                        ? `Running ${runtimeStatus.step}/${runtimeStatus.total}`
+                      : runtimeStatus?.kind === "completed"
+                        ? `Completed at ${formatStatusTime(runtimeStatus.at)}`
+                        : runtimeStatus?.kind === "failed"
+                          ? `Failed at ${formatStatusTime(runtimeStatus.at)}`
+                          : completedFromServer && Number.isFinite(completedFromServer)
+                            ? `Completed at ${formatStatusTime(completedFromServer)}`
+                            : mission.enabled
+                              ? "Scheduled"
+                              : "Paused and not running"
+                    const missionStatusToneClass = dynamicRunningStep && dynamicRunningTotal
                       ? "text-sky-300"
-                      : runState
-                        ? (runState.success ? "text-emerald-300" : "text-rose-300")
-                        : mission.enabled
-                          ? "text-slate-300"
-                          : "text-rose-300"
+                      : runtimeStatus?.kind === "running"
+                      ? "text-sky-300"
+                      : runtimeStatus?.kind === "completed"
+                        ? "text-emerald-300"
+                        : runtimeStatus?.kind === "failed"
+                          ? "text-rose-300"
+                          : completedFromServer && Number.isFinite(completedFromServer)
+                            ? "text-emerald-300"
+                            : mission.enabled
+                              ? "text-slate-300"
+                              : "text-rose-300"
+                    const missionStatusDotClass = dynamicRunningStep && dynamicRunningTotal
+                      ? "bg-sky-400"
+                      : runtimeStatus?.kind === "running"
+                      ? "bg-sky-400"
+                      : runtimeStatus?.kind === "completed"
+                        ? "bg-emerald-400"
+                        : runtimeStatus?.kind === "failed"
+                          ? "bg-rose-400"
+                          : completedFromServer && Number.isFinite(completedFromServer)
+                            ? "bg-emerald-400"
+                            : mission.enabled
+                              ? "bg-slate-400"
+                              : "bg-rose-400"
                     return (
                       <div key={mission.id} className={cn("rounded-xl border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
                         <div className="flex items-start justify-between gap-2">
@@ -2536,31 +2740,48 @@ export default function MissionsPage() {
                               </div>
                             </div>
                           </div>
-                          <button
-                            onClick={(event) => {
-                              const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect()
-                              const menuWidth = 180
-                              const viewportPadding = 8
-                              const left = Math.max(
-                                viewportPadding,
-                                Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - viewportPadding),
-                              )
-                              const top = rect.bottom + 6
-                              setMissionActionMenu({
-                                mission,
-                                left,
-                                top,
-                              })
-                            }}
-                            className={cn(
-                              "h-8 w-8 rounded-md inline-flex items-center justify-center transition-all duration-150",
-                              "home-spotlight-card home-border-glow home-spotlight-card--hover",
-                              isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-500 hover:bg-white/8",
-                            )}
-                            aria-label="Mission actions"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em]",
+                                mission.enabled
+                                  ? (isLight
+                                      ? "border border-emerald-300 bg-emerald-100 text-emerald-700"
+                                      : "border border-emerald-300/40 bg-emerald-500/15 text-emerald-300")
+                                  : (isLight
+                                      ? "border border-rose-300 bg-rose-100 text-rose-700"
+                                      : "border border-rose-300/40 bg-rose-500/15 text-rose-300"),
+                              )}
+                            >
+                              <span className={cn("h-1.5 w-1.5 rounded-full", mission.enabled ? "bg-emerald-400" : "bg-rose-400")} />
+                              {mission.enabled ? "Active" : "Paused"}
+                            </span>
+                            <button
+                              onClick={(event) => {
+                                const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect()
+                                const menuWidth = 180
+                                const viewportPadding = 8
+                                const left = Math.max(
+                                  viewportPadding,
+                                  Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - viewportPadding),
+                                )
+                                const top = rect.bottom + 6
+                                setMissionActionMenu({
+                                  mission,
+                                  left,
+                                  top,
+                                })
+                              }}
+                              className={cn(
+                                "h-8 w-8 rounded-md inline-flex items-center justify-center transition-all duration-150",
+                                "home-spotlight-card home-border-glow home-spotlight-card--hover",
+                                isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-500 hover:bg-white/8",
+                              )}
+                              aria-label="Mission actions"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
                         <p className={cn("mt-3 text-sm line-clamp-2", isLight ? "text-s-70" : "text-slate-300")}>{details.description}</p>
@@ -2595,15 +2816,10 @@ export default function MissionsPage() {
 
                         <div className={cn("mt-4 pt-3 border-t", isLight ? "border-[#dde4ef]" : "border-white/10")}>
                           <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-start gap-3 min-w-0">
+                          <div className="flex-1 min-w-0">
                             <span className={cn("inline-flex items-start gap-1 text-sm font-medium min-w-0", missionStatusToneClass)}>
-                              <span className={cn("h-2 w-2 rounded-full", runState?.running ? "bg-sky-400" : runState ? (runState.success ? "bg-emerald-400" : "bg-rose-400") : mission.enabled ? "bg-slate-400" : "bg-rose-400")} />
-                              <span className={cn("shrink-0", isLight ? "text-s-60" : "text-slate-400")}>Status:</span>
+                              <span className={cn("h-2 w-2 rounded-full", missionStatusDotClass)} />
                               <span className="min-w-0 whitespace-normal wrap-break-word leading-snug">{missionStatusText}</span>
-                            </span>
-                            <span className={cn("inline-flex items-center gap-1 text-sm font-medium", mission.enabled ? "text-emerald-300" : "text-rose-300")}>
-                              <span className={cn("h-2 w-2 rounded-full", mission.enabled ? "bg-emerald-400" : "bg-rose-400")} />
-                              {mission.enabled ? "Active" : "Paused"}
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -2909,7 +3125,7 @@ export default function MissionsPage() {
                           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Data Source</label>
-                              <FluidSelect value={step.fetchSource ?? "api"} onChange={(next) => updateWorkflowStep(step.id, { fetchSource: next as WorkflowStep["fetchSource"] })} options={STEP_FETCH_SOURCE_OPTIONS} isLight={isLight} />
+                              <FluidSelect value={step.fetchSource ?? "web"} onChange={(next) => updateWorkflowStep(step.id, { fetchSource: next as WorkflowStep["fetchSource"] })} options={STEP_FETCH_SOURCE_OPTIONS} isLight={isLight} />
                             </div>
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>HTTP Method</label>
@@ -2945,25 +3161,31 @@ export default function MissionsPage() {
                               />
                             </div>
                           )}
-                          <div className="space-y-1.5">
-                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Endpoint / URL</label>
-                            <input
-                              value={step.fetchUrl ?? ""}
-                              onChange={(e) => updateWorkflowStep(step.id, { fetchUrl: e.target.value })}
-                              placeholder={step.fetchSource === "web" ? "https://example.com/prices" : "https://api.example.com/data"}
-                              className={cn(
-                                "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                              )}
-                            />
-                          </div>
+                          {step.fetchSource === "web" ? (
+                            <div className={cn("rounded-md border px-3 py-2 text-xs", isLight ? "border-sky-200 bg-sky-50/80 text-sky-800" : "border-sky-300/25 bg-sky-500/10 text-sky-200")}>
+                              Brave search is managed automatically. No endpoint URL or auth headers are needed.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Endpoint / URL</label>
+                              <input
+                                value={step.fetchUrl ?? ""}
+                                onChange={(e) => updateWorkflowStep(step.id, { fetchUrl: e.target.value })}
+                                placeholder="https://api.example.com/data"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          )}
                           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Query / Params</label>
                               <input
                                 value={step.fetchQuery ?? ""}
                                 onChange={(e) => updateWorkflowStep(step.id, { fetchQuery: e.target.value })}
-                                placeholder="symbol=BTC&window=24h or calendar=today"
+                                placeholder={step.fetchSource === "web" ? "nba last night highlights final scores top performers" : "symbol=BTC&window=24h"}
                                 className={cn(
                                   "h-9 w-full rounded-md border px-3 text-sm outline-none",
                                   isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
@@ -2975,7 +3197,7 @@ export default function MissionsPage() {
                               <input
                                 value={step.fetchSelector ?? ""}
                                 onChange={(e) => updateWorkflowStep(step.id, { fetchSelector: e.target.value })}
-                                placeholder=".price-table .row"
+                                placeholder="a[href]"
                                 className={cn(
                                   "h-9 w-full rounded-md border px-3 text-sm outline-none",
                                   isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
@@ -2983,18 +3205,36 @@ export default function MissionsPage() {
                               />
                             </div>
                           </div>
-                          <div className="space-y-1.5">
-                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Headers / Auth JSON</label>
-                            <textarea
-                              value={step.fetchHeaders ?? ""}
-                              onChange={(e) => updateWorkflowStep(step.id, { fetchHeaders: e.target.value })}
-                              placeholder='{"Authorization":"Bearer ...","X-Source":"nova"}'
-                              className={cn(
-                                "min-h-16 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
-                                isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                              )}
-                            />
+                          <div className={cn("flex items-center justify-between rounded-md border px-3 py-2", isLight ? "border-sky-200 bg-white/90" : "border-sky-300/30 bg-black/20")}>
+                            <div>
+                              <p className={cn("text-xs font-medium", isLight ? "text-sky-700" : "text-sky-300")}>Include Sources In Output</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
+                                Add up to 2 source buttons at the end of summaries.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => updateWorkflowStep(step.id, { fetchIncludeSources: !(step.fetchIncludeSources !== false) })}
+                              className="inline-flex items-center"
+                              aria-label="Toggle source links in output"
+                            >
+                              <NovaSwitch checked={step.fetchIncludeSources !== false} />
+                            </button>
                           </div>
+                          {step.fetchSource !== "web" && (
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Headers / Auth JSON</label>
+                              <textarea
+                                value={step.fetchHeaders ?? ""}
+                                onChange={(e) => updateWorkflowStep(step.id, { fetchHeaders: e.target.value })}
+                                placeholder='{"Authorization":"Bearer ...","X-Source":"nova"}'
+                                className={cn(
+                                  "min-h-16 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
+                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                       {step.type === "transform" && (
@@ -3137,7 +3377,7 @@ export default function MissionsPage() {
                               )}
                             />
                           </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                             <div className="space-y-1.5">
                               <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-violet-700" : "text-violet-300")}>Model</label>
                               <FluidSelect
@@ -3159,6 +3399,15 @@ export default function MissionsPage() {
                                   })
                                 }}
                                 options={configuredAiIntegrationOptions.length > 0 ? configuredAiIntegrationOptions : [{ value: integrationsSettings.activeLlmProvider, label: AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider] }]}
+                                isLight={isLight}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-violet-700" : "text-violet-300")}>Detail Level</label>
+                              <FluidSelect
+                                value={step.aiDetailLevel ?? "standard"}
+                                onChange={(next) => updateWorkflowStepAi(step.id, { aiDetailLevel: normalizeAiDetailLevel(next) })}
+                                options={AI_DETAIL_LEVEL_OPTIONS}
                                 isLight={isLight}
                               />
                             </div>

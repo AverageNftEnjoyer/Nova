@@ -5,8 +5,8 @@ import DecryptedText from "@/components/DecryptedText"
 import GradientText from "@/components/GradientText"
 import { AnimatedOrb } from "@/components/animated-orb"
 import { BootRotatingGlobe } from "@/components/boot-rotating-globe"
-import { loadBootMusicBlob } from "@/lib/bootMusicStorage"
-import { playBootMusic } from "@/lib/bootMusicPlayer"
+import { loadBootMusicBlob } from "@/lib/media/bootMusicStorage"
+import { playBootMusic } from "@/lib/media/bootMusicPlayer"
 import { loadUserSettings, ORB_COLORS, ACCENT_COLORS, type OrbColor, type AccentColor } from "@/lib/userSettings"
 
 interface NovaBootupProps {

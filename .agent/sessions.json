@@ -25,7 +25,7 @@
     "sessionId": "e2d91c79-666e-4eef-81a0-be3d6a9bfe74",
     "sessionKey": "agent:nova:hud:user:dd5ea07a-b92e-4ce8-a5f9-fe229168c80f:dm:ecc09394-75d4-4ac3-9a66-6d74280b45f5",
     "createdAt": 1771268834240,
-    "updatedAt": 1771268839861,
+    "updatedAt": 1771270337204,
     "inputTokens": 3002,
     "outputTokens": 213,
     "totalTokens": 3215,
@@ -52,6 +52,17 @@
     "outputTokens": 211,
     "totalTokens": 3214,
     "contextTokens": 3003,
+    "model": "gpt-5"
+  },
+  "agent:nova:hud:user:dd5ea07a-b92e-4ce8-a5f9-fe229168c80f:dm:5ad889f4-4192-4966-bb47-2a9dec028e24": {
+    "sessionId": "9fb02b1a-d780-4bb1-b5c2-077ca72f9c95",
+    "sessionKey": "agent:nova:hud:user:dd5ea07a-b92e-4ce8-a5f9-fe229168c80f:dm:5ad889f4-4192-4966-bb47-2a9dec028e24",
+    "createdAt": 1771283511043,
+    "updatedAt": 1771283551991,
+    "inputTokens": 9094,
+    "outputTokens": 1146,
+    "totalTokens": 10240,
+    "contextTokens": 9094,
     "model": "gpt-5"
   }
 }

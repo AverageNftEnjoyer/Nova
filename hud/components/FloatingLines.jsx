@@ -247,6 +247,7 @@ export default function FloatingLines({
   mixBlendMode = 'screen'
 }) {
   const containerRef = useRef(null);
+  const uniformsRef = useRef(null);
   const targetMouseRef = useRef(new Vector2(-1000, -1000));
   const currentMouseRef = useRef(new Vector2(-1000, -1000));
   const targetInfluenceRef = useRef(0);
@@ -350,6 +351,7 @@ export default function FloatingLines({
         uniforms.lineGradient.value[i].set(color.x, color.y, color.z);
       });
     }
+    uniformsRef.current = uniforms;
 
     const material = new ShaderMaterial({
       uniforms,
@@ -434,6 +436,7 @@ export default function FloatingLines({
     renderLoop();
 
     return () => {
+      uniformsRef.current = null;
       cancelAnimationFrame(raf);
       // eslint-disable-next-line react-hooks/exhaustive-deps
       if (ro && containerRef.current) {
@@ -456,6 +459,24 @@ export default function FloatingLines({
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const uniforms = uniformsRef.current;
+    if (!uniforms) return;
+
+    if (linesGradient && linesGradient.length > 0) {
+      const stops = linesGradient.slice(0, MAX_GRADIENT_STOPS);
+      uniforms.lineGradientCount.value = stops.length;
+
+      stops.forEach((hex, i) => {
+        const color = hexToVec3(hex);
+        uniforms.lineGradient.value[i].set(color.x, color.y, color.z);
+      });
+      return;
+    }
+
+    uniforms.lineGradientCount.value = 0;
+  }, [linesGradient]);
 
   return (
     <div

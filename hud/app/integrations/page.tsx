@@ -8,21 +8,24 @@ import { Blocks, Save, Eye, EyeOff, Settings, User } from "lucide-react"
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type ThemeBackgroundType, type UserProfile } from "@/lib/userSettings"
-import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations"
+import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
 import { FluidSelect, type FluidSelectOption } from "@/components/ui/fluid-select"
 import { SettingsModal } from "@/components/settings-modal"
 import { useNovaState } from "@/lib/useNovaState"
+import { getNovaPresence } from "@/lib/nova-presence"
+import { usePageActive } from "@/lib/use-page-active"
 import FloatingLines from "@/components/FloatingLines"
 import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
+import { NOVA_VERSION } from "@/lib/version"
 import { GeminiIcon } from "@/components/gemini-icon"
 import { GmailIcon } from "@/components/gmail-icon"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
+import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
 import "@/components/FloatingLines.css"
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -208,6 +211,11 @@ function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
   return null
 }
 
+function resolveCustomBackgroundIsImage() {
+  const app = loadUserSettings().app
+  return isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName)
+}
+
 function resolveModelPricing(model: string): ModelPricing | null {
   if (!model) return null
   if (OPENAI_MODEL_PRICING_USD_PER_1M[model]) return OPENAI_MODEL_PRICING_USD_PER_1M[model]
@@ -290,6 +298,7 @@ function normalizeGmailAccountsForUi(raw: unknown, activeAccountId: string) {
 export default function IntegrationsPage() {
   const router = useRouter()
   const { theme } = useTheme()
+  const pageActive = usePageActive()
   const isLight = theme === "light"
   const { state: novaState, connected: agentConnected } = useNovaState()
 
@@ -330,6 +339,7 @@ export default function IntegrationsPage() {
   // Keep initial render deterministic between server and client to avoid hydration mismatch.
   const [background, setBackground] = useState<ThemeBackgroundType>("none")
   const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(null)
+  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [geminiApiKey, setGeminiApiKey] = useState("")
   const [geminiBaseUrl, setGeminiBaseUrl] = useState("https://generativelanguage.googleapis.com/v1beta/openai")
@@ -403,11 +413,16 @@ export default function IntegrationsPage() {
     const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
     const selectedAssetId = userSettings.app.customBackgroundVideoAssetId
     const nextBackgroundVideoUrl = cached.backgroundVideoUrl ?? getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
+    const nextBackgroundMediaIsImage = isBackgroundAssetImage(
+      userSettings.app.customBackgroundVideoMimeType,
+      userSettings.app.customBackgroundVideoFileName,
+    )
     const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
     setProfile(userSettings.profile)
     setOrbColor(nextOrbColor)
     setBackground(nextBackground)
     setBackgroundVideoUrl(nextBackgroundVideoUrl ?? null)
+    setBackgroundMediaIsImage(nextBackgroundMediaIsImage)
     setSpotlightEnabled(nextSpotlight)
     writeShellUiCache({
       orbColor: nextOrbColor,
@@ -645,6 +660,7 @@ export default function IntegrationsPage() {
       setProfile(userSettings.profile)
       setOrbColor(userSettings.app.orbColor)
       setBackground(resolveThemeBackground(isLight))
+      setBackgroundMediaIsImage(isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: userSettings.app.orbColor,
@@ -664,7 +680,9 @@ export default function IntegrationsPage() {
     if (uiCached) {
       setBackgroundVideoUrl(uiCached)
     }
-    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
+    const app = loadUserSettings().app
+    setBackgroundMediaIsImage(isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName))
+    const selectedAssetId = app.customBackgroundVideoAssetId
     const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
     if (cached) {
       setBackgroundVideoUrl(cached)
@@ -810,25 +828,7 @@ export default function IntegrationsPage() {
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
   const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
   const moduleHeightClass = "h-[clamp(620px,88vh,1240px)]"
-  const showStatus = typeof agentConnected === "boolean" && typeof novaState !== "undefined"
-  const statusText = !agentConnected
-    ? "Agent offline"
-    : novaState === "muted"
-    ? "Nova muted"
-    : novaState === "listening"
-    ? "Nova online"
-    : `Nova ${novaState}`
-  const statusDotClass = !agentConnected
-    ? "bg-red-400"
-    : novaState === "muted"
-    ? "bg-red-400"
-    : novaState === "speaking"
-    ? "bg-violet-400"
-    : novaState === "thinking"
-    ? "bg-amber-400"
-    : novaState === "listening"
-    ? "bg-emerald-400"
-    : "bg-slate-400"
+  const presence = getNovaPresence({ agentConnected, novaState })
   const integrationBadgeClass = (connected: boolean) =>
     !integrationsHydrated
       ? "border-white/15 bg-white/10 text-slate-200"
@@ -2188,15 +2188,27 @@ export default function IntegrationsPage() {
       )}
       {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
         <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          <video
-            className="absolute inset-0 h-full w-full object-cover"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            src={backgroundVideoUrl}
-          />
+          {backgroundMediaIsImage ? (
+            <Image
+              fill
+              unoptimized
+              sizes="100vw"
+              className="object-cover"
+              src={backgroundVideoUrl}
+              alt=""
+              aria-hidden="true"
+            />
+          ) : (
+            <video
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              src={backgroundVideoUrl}
+            />
+          )}
           <div className="absolute inset-0 bg-black/45" />
         </div>
       )}
@@ -2228,30 +2240,28 @@ export default function IntegrationsPage() {
               onClick={() => router.push("/home")}
               onMouseEnter={() => setOrbHovered(true)}
               onMouseLeave={() => setOrbHovered(false)}
-              className="group relative h-10 w-10 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-105"
+              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
               aria-label="Go to home"
             >
               <NovaOrbIndicator
                 palette={orbPalette}
-                size={26}
-                animated={false}
+                size={30}
+                animated={pageActive}
                 className="transition-all duration-200"
                 style={{ filter: orbHovered ? orbHoverFilter : "none" }}
               />
             </button>
-            <div>
-              <h1 className={cn("text-2xl font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
-              <div className="mt-1 flex items-center gap-2">
-                <p className="text-[10px] text-accent font-mono">V.0 Beta</p>
-                <div
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] font-semibold",
-                    isLight ? "border border-[#d5dce8] bg-[#f4f7fd] text-s-80" : "border border-white/10 bg-black/25 text-slate-300",
-                  )}
-                >
-                  <span className={cn("h-2 w-2 rounded-full", statusDotClass)} aria-hidden="true" />
-                  <span>{showStatus ? statusText : "Status unknown"}</span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                <div className="inline-flex items-center gap-1.5">
+                  <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                  <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                    {presence.label}
+                  </span>
                 </div>
+                <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Integrations Hub</p>
               </div>
             </div>
           </div>

@@ -470,7 +470,31 @@ export async function streamOpenAiChatCompletion({ client, model, messages, time
 }
 
 // ===== Claude API =====
-export async function claudeMessagesCreate({ apiKey, baseURL, model, system, userText, maxTokens = 300, temperature = 0.75 }) {
+function normalizeClaudeMessages(messages, userText) {
+  if (Array.isArray(messages) && messages.length > 0) {
+    return messages
+      .map((msg) => {
+        const role = msg?.role === "assistant" ? "assistant" : "user";
+        const content = String(msg?.content || "").trim();
+        if (!content) return null;
+        return { role, content };
+      })
+      .filter(Boolean);
+  }
+  return [{ role: "user", content: String(userText || "") }];
+}
+
+export async function claudeMessagesCreate({
+  apiKey,
+  baseURL,
+  model,
+  system,
+  userText,
+  messages,
+  maxTokens = 300,
+  temperature = 0.75
+}) {
+  const requestMessages = normalizeClaudeMessages(messages, userText);
   const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
   const res = await fetch(endpoint, {
     method: "POST",
@@ -484,7 +508,7 @@ export async function claudeMessagesCreate({ apiKey, baseURL, model, system, use
       max_tokens: maxTokens,
       temperature,
       system,
-      messages: [{ role: "user", content: userText }]
+      messages: requestMessages
     })
   });
   const data = await res.json().catch(() => ({}));
@@ -510,11 +534,13 @@ export async function claudeMessagesStream({
   model,
   system,
   userText,
+  messages,
   maxTokens = 300,
   temperature = 0.75,
   timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
   onDelta
 }) {
+  const requestMessages = normalizeClaudeMessages(messages, userText);
   const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`Claude model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -532,7 +558,7 @@ export async function claudeMessagesStream({
       temperature,
       stream: true,
       system,
-      messages: [{ role: "user", content: userText }]
+      messages: requestMessages
     }),
     signal: controller.signal
   });

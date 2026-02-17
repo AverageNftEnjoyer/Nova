@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import {
   Plus,
   Trash2,
@@ -17,10 +17,13 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { NOVA_VERSION } from "@/lib/version"
 import type { Conversation } from "@/lib/conversations"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type UserSettings } from "@/lib/userSettings"
 import type { NovaState } from "@/lib/useNovaState"
 import { useTheme } from "@/lib/theme-context"
+import { getNovaPresence } from "@/lib/nova-presence"
+import { usePageActive } from "@/lib/use-page-active"
 import { SettingsModal } from "./settings-modal"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { NovaOrbIndicator } from "./nova-orb-indicator"
@@ -83,6 +86,7 @@ export function ChatSidebar({
   const sidebarRef = useRef<HTMLDivElement | null>(null)
   const spotlightRef = useRef<HTMLDivElement | null>(null)
   const router = useRouter()
+  const pathname = usePathname()
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -90,6 +94,7 @@ export function ChatSidebar({
   const [archivedOpen, setArchivedOpen] = useState(true)
   const [orbHovered, setOrbHovered] = useState(false)
   const { theme } = useTheme()
+  const pageActive = usePageActive()
   const isLight = theme === "light"
   const orbPalette = ORB_COLORS[userSettings?.app.orbColor ?? "violet"]
   const spotlightEnabled = userSettings?.app.spotlightEnabled ?? true
@@ -211,31 +216,24 @@ export function ChatSidebar({
   const profile = userSettings?.profile
   const activeConversations = conversations.filter((c) => !c.archived)
   const archivedConversations = conversations.filter((c) => c.archived)
-  const showStatus = typeof agentConnected === "boolean" && typeof novaState !== "undefined"
   const panelClass = "bg-transparent border-transparent shadow-none rounded-none backdrop-blur-none"
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
   const spotlightCardClass = "chat-sidebar-card home-spotlight-card home-border-glow sidebar-spotlight-card"
 
-  const statusText = !agentConnected
-    ? "Agent offline"
-    : novaState === "muted"
-    ? "Nova muted"
-    : novaState === "listening"
-    ? "Nova online"
-    : `Nova ${novaState}`
-  const statusDotClass = !agentConnected
-    ? "bg-red-400"
-    : novaState === "muted"
-    ? "bg-red-400"
-    : novaState === "speaking"
-    ? "bg-violet-400"
-    : novaState === "thinking"
-    ? "bg-amber-400"
-    : novaState === "listening"
-    ? "bg-emerald-400"
-    : "bg-slate-400"
+  const presence = getNovaPresence({ agentConnected, novaState })
+  const hubLabel = pathname?.startsWith("/chat")
+    ? "Communications Hub"
+    : pathname?.startsWith("/home")
+    ? "Home Page"
+    : pathname?.startsWith("/missions")
+    ? "Missions & Automations Hub"
+    : pathname?.startsWith("/integrations")
+    ? "Integrations Hub"
+    : pathname?.startsWith("/history")
+    ? "Communications Hub"
+    : "Home Page"
   const beginRename = (c: Conversation) => {
     setRenamingId(c.id)
     setRenamingTitle(c.title)
@@ -400,14 +398,14 @@ export function ChatSidebar({
               onClick={() => router.push("/home")}
               onMouseEnter={() => setOrbHovered(true)}
               onMouseLeave={() => setOrbHovered(false)}
-              className="group relative h-10 w-10 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
               aria-label="Go to home"
             >
               {userSettings ? (
                 <NovaOrbIndicator
                   palette={orbPalette}
-                  size={26}
-                  animated={false}
+                  size={30}
+                  animated={pageActive}
                   className="transition-all duration-200"
                   style={{ filter: orbHovered ? orbHoverFilter : "none" }}
                 />
@@ -415,18 +413,17 @@ export function ChatSidebar({
                 <div className="h-6.5 w-6.5 rounded-full" />
               )}
             </button>
-            <div>
-              <h1 className="text-s-90 text-2xl font-semibold tracking-tight">NovaOS</h1>
-              <div className="mt-1 flex items-center gap-2">
-                <p className="text-[10px] text-accent font-mono">V.0 Beta</p>
-                {showStatus && (
-                  <div className={cn(`${spotlightCardClass} inline-flex items-center gap-2 rounded-full px-2.5 py-1`, subPanelClass)}>
-                    <span className={`h-2 w-2 rounded-full ${statusDotClass}`} />
-                    <span className="text-[10px] uppercase tracking-[0.16em] text-s-70 font-semibold">
-                      {statusText}
-                    </span>
-                  </div>
-                )}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-s-90 text-[30px] leading-none font-semibold tracking-tight">NovaOS</h1>
+                <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                <div className="inline-flex items-center gap-1.5">
+                  <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                  <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                    {presence.label}
+                  </span>
+                </div>
+                <p className="text-[13px] text-s-50 whitespace-nowrap">{hubLabel}</p>
               </div>
             </div>
           </div>

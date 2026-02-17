@@ -98,12 +98,12 @@ Accounts and services:
 
 <!-- NOVA_SETTINGS_SYNC:START -->
 ## Synced From Nova Settings
-- Assistant name: Julia
+- Assistant name: Lana
 - Name: User
 - Nickname: Past
 - Occupation: Software Dev
 - Preferred language: English
-- Communication style: friendly
+- Communication style: casual
 - Tone: neutral
 ### Active Custom Instructions
 - (none set)

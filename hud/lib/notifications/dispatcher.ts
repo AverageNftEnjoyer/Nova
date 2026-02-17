@@ -1,5 +1,6 @@
 import "server-only"
 
+import { type IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { sendDiscordMessage } from "@/lib/notifications/discord"
 import { sendTelegramMessage } from "@/lib/notifications/telegram"
 
@@ -14,6 +15,7 @@ export interface DispatchNotificationInput {
   source?: string
   scheduleId?: string
   label?: string
+  scope?: IntegrationsStoreScope
 }
 
 export async function dispatchNotification(
@@ -23,7 +25,7 @@ export async function dispatchNotification(
     return sendDiscordMessage({
       text: input.text,
       webhookUrls: input.targets,
-    })
+    }, input.scope)
   }
 
   if (input.integration === "telegram") {
@@ -32,7 +34,7 @@ export async function dispatchNotification(
       chatIds: input.targets,
       parseMode: input.parseMode,
       disableNotification: input.disableNotification,
-    })
+    }, input.scope)
   }
 
   throw new Error(`Unsupported integration: ${input.integration}`)

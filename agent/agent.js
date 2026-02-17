@@ -12,7 +12,11 @@ import { buildPersonaPrompt } from "./bootstrap.js";
 import { createSessionRuntime } from "./runtime/session.js";
 import { createToolRuntime } from "./runtime/tools-runtime.js";
 import { createWakeWordRuntime } from "./runtime/voice.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "./runtime/context-prompt.js";
+import {
+  buildSystemPromptWithPersona,
+  countApproxTokens,
+  enforcePromptTokenBound,
+} from "./runtime/context-prompt.js";
 import {
   claudeMessagesCreate,
   claudeMessagesStream,
@@ -93,10 +97,28 @@ const RAW_STREAM_PATH = String(
 const SESSION_STORE_PATH = path.join(__dirname, "..", ".agent", "sessions.json");
 const SESSION_TRANSCRIPT_DIR = path.join(__dirname, "..", ".agent", "transcripts");
 const SESSION_MAX_TURNS = Number.parseInt(process.env.NOVA_SESSION_MAX_TURNS || "20", 10);
+const SESSION_MAX_HISTORY_TOKENS = Number.parseInt(
+  process.env.NOVA_SESSION_MAX_HISTORY_TOKENS || "2200",
+  10,
+);
+const SESSION_TRANSCRIPTS_ENABLED =
+  String(process.env.NOVA_SESSION_TRANSCRIPTS_ENABLED || "1").trim() !== "0";
+const SESSION_MAX_TRANSCRIPT_LINES = Number.parseInt(
+  process.env.NOVA_SESSION_MAX_TRANSCRIPT_LINES || "400",
+  10,
+);
+const SESSION_TRANSCRIPT_RETENTION_DAYS = Number.parseInt(
+  process.env.NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS || "30",
+  10,
+);
 const SESSION_IDLE_MINUTES = Number.parseInt(process.env.NOVA_SESSION_IDLE_MINUTES || "120", 10);
 const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "main").trim() || "main";
 const ENABLE_PROVIDER_FALLBACK =
   String(process.env.NOVA_ALLOW_PROVIDER_FALLBACK || "").trim() === "1";
+const MEMORY_FACT_MAX_CHARS = Number.parseInt(
+  process.env.NOVA_MEMORY_FACT_MAX_CHARS || "280",
+  10,
+);
 const UPGRADE_MODULE_INDEX = [
   "src/agent/runner.ts",
   "src/agent/queue.ts",
@@ -132,6 +154,9 @@ const sessionRuntime = createSessionRuntime({
   transcriptDir: SESSION_TRANSCRIPT_DIR,
   sessionIdleMinutes: SESSION_IDLE_MINUTES,
   sessionMainKey: SESSION_MAIN_KEY,
+  transcriptsEnabled: SESSION_TRANSCRIPTS_ENABLED,
+  maxTranscriptLines: SESSION_MAX_TRANSCRIPT_LINES,
+  transcriptRetentionDays: SESSION_TRANSCRIPT_RETENTION_DAYS,
 });
 const toolRuntime = createToolRuntime({
   enabled: TOOL_LOOP_ENABLED,
@@ -342,6 +367,152 @@ function logAgentRuntimePreflight() {
       "[Preflight] OpenAI key found in user-scoped runtime; global STT fallback key is not configured.",
     );
   }
+}
+
+function trimHistoryMessagesByTokenBudget(messages, maxTokens) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return { messages: [], trimmed: 0, tokens: 0 };
+  }
+  const budget = Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : 0;
+  if (budget <= 0) {
+    return { messages: [], trimmed: messages.length, tokens: 0 };
+  }
+
+  const tokenPerMessage = messages.map((msg) =>
+    countApproxTokens(`${String(msg?.role || "user")}: ${String(msg?.content || "")}`),
+  );
+  let tokens = tokenPerMessage.reduce((sum, value) => sum + value, 0);
+  if (tokens <= budget) {
+    return { messages, trimmed: 0, tokens };
+  }
+
+  let start = 0;
+  const minKeep = Math.min(2, messages.length);
+  while (start < messages.length && tokens > budget && messages.length - start > minKeep) {
+    tokens -= tokenPerMessage[start] || 0;
+    start += 1;
+  }
+  const kept = messages.slice(start);
+  const keptTokens = kept.reduce(
+    (sum, msg) => sum + countApproxTokens(`${String(msg?.role || "user")}: ${String(msg?.content || "")}`),
+    0,
+  );
+  return {
+    messages: kept,
+    trimmed: start,
+    tokens: keptTokens,
+  };
+}
+
+function normalizeMemoryFieldKey(rawField) {
+  return String(rawField || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
+
+function extractMemoryUpdateFact(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+  const directPatterns = [
+    /update\s+(?:your|ur)\s+memory(?:\s+to\s+this)?\s*[:,-]?\s*(.+)$/i,
+    /remember\s+this\s*[:,-]?\s*(.+)$/i,
+    /remember\s+that\s*[:,-]?\s*(.+)$/i,
+  ];
+  for (const pattern of directPatterns) {
+    const match = raw.match(pattern);
+    if (!match) continue;
+    return String(match[1] || "").trim();
+  }
+  if (/update\s+(?:your|ur)\s+memory/i.test(raw)) {
+    return "";
+  }
+  return "";
+}
+
+function isMemoryUpdateRequest(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return false;
+  return (
+    /update\s+(?:your|ur)\s+memory/i.test(raw) ||
+    /remember\s+this/i.test(raw) ||
+    /remember\s+that/i.test(raw)
+  );
+}
+
+function buildMemoryFactMetadata(factText) {
+  const normalizedFact = String(factText || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, Math.max(60, MEMORY_FACT_MAX_CHARS));
+  const relationMatch = normalizedFact.match(
+    /^(?:my|our)\s+(.+?)\s+(?:is|are|was|were|equals|=)\s+(.+)$/i,
+  );
+  const field = relationMatch ? String(relationMatch[1] || "").trim() : "";
+  const value = relationMatch ? String(relationMatch[2] || "").trim() : "";
+  const key = field ? normalizeMemoryFieldKey(field) : "";
+  return {
+    fact: normalizedFact,
+    key,
+    hasStructuredField: Boolean(field && value),
+  };
+}
+
+function ensureMemoryTemplate() {
+  return [
+    "# Persistent Memory",
+    "This file is loaded into every conversation. Add important facts, decisions, and context here.",
+    "",
+    "## Important Facts",
+    "",
+  ].join("\n");
+}
+
+function upsertMemoryFactInMarkdown(existingContent, factText, key) {
+  const content = String(existingContent || "");
+  const lines = content.length > 0 ? content.split(/\r?\n/) : ensureMemoryTemplate().split(/\r?\n/);
+  const today = new Date().toISOString().slice(0, 10);
+  const marker = key ? `[memory:${key}]` : "[memory:general]";
+  const memoryLine = `- ${today}: ${marker} ${factText}`;
+
+  const filtered = lines.filter((line) => {
+    if (!key) return true;
+    return !line.includes(`[memory:${key}]`);
+  });
+
+  const sectionIndex = filtered.findIndex((line) => line.trim().toLowerCase() === "## important facts");
+  if (sectionIndex === -1) {
+    if (filtered.length > 0 && filtered[filtered.length - 1].trim() !== "") {
+      filtered.push("");
+    }
+    filtered.push("## Important Facts", "", memoryLine);
+    return filtered.join("\n");
+  }
+
+  let insertAt = sectionIndex + 1;
+  while (insertAt < filtered.length && filtered[insertAt].trim() === "") {
+    insertAt += 1;
+  }
+  filtered.splice(insertAt, 0, memoryLine);
+
+  // Keep MEMORY.md bounded: retain latest 80 tagged memory lines.
+  const memoryLineIndexes = [];
+  for (let i = 0; i < filtered.length; i += 1) {
+    if (/\[memory:[a-z0-9-]+\]/i.test(filtered[i])) {
+      memoryLineIndexes.push(i);
+    }
+  }
+  const maxMemoryLines = 80;
+  if (memoryLineIndexes.length > maxMemoryLines) {
+    const removeCount = memoryLineIndexes.length - maxMemoryLines;
+    const toRemove = new Set(memoryLineIndexes.slice(memoryLineIndexes.length - removeCount));
+    const compacted = filtered.filter((_, idx) => !toRemove.has(idx));
+    return compacted.join("\n");
+  }
+
+  return filtered.join("\n");
 }
 
 
@@ -738,13 +909,95 @@ async function handleInput(text, opts = {}) {
   const sessionContext = sessionRuntime.resolveSessionContext(opts);
   const sessionKey = sessionContext.sessionKey;
   const userContextId = sessionRuntime.resolveUserContextId(opts);
+  const useVoice = opts.voice !== false;
+  const ttsVoice = opts.ttsVoice || "default";
+  const source = opts.source || "hud";
+  const sender = String(opts.sender || "").trim();
+  const n = text.toLowerCase().trim();
   appendRawStream({
     event: "request_start",
-    source: opts.source || "hud",
+    source,
     sessionKey,
     userContextId: userContextId || undefined,
     chars: String(text || "").length,
   });
+
+  if (isMemoryUpdateRequest(text)) {
+    const fact = extractMemoryUpdateFact(text);
+    const sessionId = sessionContext.sessionEntry?.sessionId;
+    broadcastState("thinking");
+    broadcastMessage("user", text, source);
+    if (sessionId) {
+      sessionRuntime.appendTranscriptTurn(sessionId, "user", text, {
+        source,
+        sender: sender || null,
+      });
+    }
+
+    if (!fact) {
+      const missingFactReply = "Tell me exactly what to remember after 'update your memory'.";
+      broadcastMessage("assistant", missingFactReply, source);
+      if (sessionId) {
+        sessionRuntime.appendTranscriptTurn(sessionId, "assistant", missingFactReply, {
+          source,
+          sender: "nova",
+        });
+      }
+      if (useVoice) {
+        await speak(missingFactReply, ttsVoice);
+      } else {
+        broadcastState("idle");
+      }
+      return;
+    }
+
+    try {
+      const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+      const memoryFilePath = path.join(personaWorkspaceDir, "MEMORY.md");
+      const existingContent = fs.existsSync(memoryFilePath)
+        ? fs.readFileSync(memoryFilePath, "utf8")
+        : ensureMemoryTemplate();
+      const memoryMeta = buildMemoryFactMetadata(fact);
+      const updatedContent = upsertMemoryFactInMarkdown(
+        existingContent,
+        memoryMeta.fact,
+        memoryMeta.key,
+      );
+      fs.writeFileSync(memoryFilePath, updatedContent, "utf8");
+      const confirmation = memoryMeta.hasStructuredField
+        ? `Memory updated. I will remember this as current: ${memoryMeta.fact}`
+        : `Memory updated. I saved: ${memoryMeta.fact}`;
+      broadcastMessage("assistant", confirmation, source);
+      if (sessionId) {
+        sessionRuntime.appendTranscriptTurn(sessionId, "assistant", confirmation, {
+          source,
+          sender: "nova",
+        });
+      }
+      if (useVoice) {
+        await speak(confirmation, ttsVoice);
+      } else {
+        broadcastState("idle");
+      }
+      return;
+    } catch (err) {
+      const failure = `I couldn't update MEMORY.md: ${describeUnknownError(err)}`;
+      broadcastMessage("assistant", failure, source);
+      if (sessionId) {
+        sessionRuntime.appendTranscriptTurn(sessionId, "assistant", failure, {
+          source,
+          sender: "nova",
+        });
+      }
+      if (useVoice) {
+        await speak(failure, ttsVoice);
+      } else {
+        broadcastState("idle");
+      }
+      return;
+    }
+  }
+
   const integrationsRuntime = loadIntegrationsRuntime({ userContextId });
   const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, {
     strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
@@ -771,11 +1024,6 @@ async function handleInput(text, opts = {}) {
         : activeChatRuntime.provider === "gemini"
           ? DEFAULT_GEMINI_MODEL
         : DEFAULT_CHAT_MODEL);
-  const useVoice = opts.voice !== false;
-  const ttsVoice = opts.ttsVoice || "default";
-  const source = opts.source || "hud";
-  const n = text.toLowerCase().trim();
-  const sender = String(opts.sender || "").trim();
   const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded();
   const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
   const canRunToolLoop =
@@ -1027,9 +1275,14 @@ Output ONLY valid JSON, nothing else.`
 
   // Build request messages using limited transcript history + current user turn.
   const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
-  const historyMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
+  const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
+  const historyBudget = trimHistoryMessagesByTokenBudget(
+    rawHistoryMessages,
+    SESSION_MAX_HISTORY_TOKENS,
+  );
+  const historyMessages = historyBudget.messages;
   console.log(
-    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length}`,
+    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens} history_budget=${SESSION_MAX_HISTORY_TOKENS}`,
   );
   const messages = [
     { role: "system", content: systemPrompt },
@@ -1045,11 +1298,13 @@ Output ONLY valid JSON, nothing else.`
     let completionTokens = 0;
     let modelUsed = selectedChatModel;
     if (activeChatRuntime.provider === "claude") {
+      const claudeMessages = [...historyMessages, { role: "user", content: text }];
       const claudeCompletion = await claudeMessagesStream({
         apiKey: activeChatRuntime.apiKey,
         baseURL: activeChatRuntime.baseURL,
         model: selectedChatModel,
         system: systemPrompt,
+        messages: claudeMessages,
         userText: text,
         maxTokens: 250,
         temperature: 0.75,

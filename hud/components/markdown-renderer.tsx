@@ -39,6 +39,14 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
     }
   }, [animatingContent])
 
+  const getLinkClassName = (label: string) => {
+    const isSourceLink = /^source\s+\d+$/i.test(String(label || "").trim())
+    if (isSourceLink) {
+      return "inline-flex items-center rounded-full border border-violet-400/40 bg-violet-500/15 px-2.5 py-0.5 text-xs font-medium text-violet-200 hover:bg-violet-500/25 hover:text-violet-100 transition-colors"
+    }
+    return "text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+  }
+
   const renderPlainInlineMarkdown = (text: string) => {
     const elements: (string | React.ReactNode)[] = []
     let remaining = text
@@ -82,7 +90,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+            className={getLinkClassName(linkMatch[1])}
           >
             {linkMatch[1]}
           </a>,
@@ -169,7 +177,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+            className={getLinkClassName(linkMatch[1])}
           >
             {linkMatch[1]}
           </a>,

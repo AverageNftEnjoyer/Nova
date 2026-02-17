@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { Blocks, Pin, Settings } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "./composer"
@@ -30,11 +31,11 @@ import {
   updateGeminiIntegrationSettings,
   updateGrokIntegrationSettings,
   type LlmProvider,
-} from "@/lib/integrations"
+} from "@/lib/integrations/client-store"
 import { loadUserSettings, ORB_COLORS, type OrbColor, type ThemeBackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import FloatingLines from "@/components/FloatingLines"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { getCachedBackgroundVideoObjectUrl, loadBackgroundVideoObjectUrl } from "@/lib/backgroundVideoStorage"
+import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
 import { getActiveUserId } from "@/lib/active-user"
 import { DiscordIcon } from "@/components/discord-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
@@ -97,6 +98,11 @@ function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
   if (value === "floatingLines" || value === "none" || value === "customVideo") return value
   if (value === "default") return "floatingLines"
   return null
+}
+
+function resolveCustomBackgroundIsImage() {
+  const app = loadUserSettings().app
+  return isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName)
 }
 
 function formatDailyTime(time: string, timezone: string): string {
@@ -212,6 +218,7 @@ export function ChatShell() {
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
   const [backgroundVideoAssetId, setBackgroundVideoAssetId] = useState<string | null>(() => loadUserSettings().app.customBackgroundVideoAssetId)
+  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
@@ -365,6 +372,7 @@ export function ChatShell() {
       const nextBackground = resolveThemeBackground(isLight)
       setBackground(nextBackground)
       setBackgroundVideoAssetId(settings.app.customBackgroundVideoAssetId)
+      setBackgroundMediaIsImage(isBackgroundAssetImage(settings.app.customBackgroundVideoMimeType, settings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       writeShellUiCache({ background: nextBackground, orbColor: settings.app.orbColor })
     }
@@ -486,7 +494,9 @@ export function ChatShell() {
     if (uiCached) {
       setBackgroundVideoUrl(uiCached)
     }
-    const selectedAssetId = backgroundVideoAssetId ?? loadUserSettings().app.customBackgroundVideoAssetId
+    const app = loadUserSettings().app
+    setBackgroundMediaIsImage(isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName))
+    const selectedAssetId = backgroundVideoAssetId ?? app.customBackgroundVideoAssetId
     const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
     if (cached) {
       setBackgroundVideoUrl(cached)
@@ -1249,15 +1259,27 @@ export function ChatShell() {
       {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
         <div className="absolute inset-0 z-0 pointer-events-none">
           <>
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              src={backgroundVideoUrl}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-            />
+            {backgroundMediaIsImage ? (
+              <Image
+                fill
+                unoptimized
+                sizes="100vw"
+                className="object-cover"
+                src={backgroundVideoUrl}
+                alt=""
+                aria-hidden="true"
+              />
+            ) : (
+              <video
+                className="absolute inset-0 h-full w-full object-cover"
+                src={backgroundVideoUrl}
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="auto"
+              />
+            )}
             <div className="absolute inset-0 bg-black/35" />
           </>
         </div>

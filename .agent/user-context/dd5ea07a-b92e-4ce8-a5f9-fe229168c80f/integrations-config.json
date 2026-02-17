@@ -2,7 +2,7 @@
   "activeLlmProvider": "openai",
   "openai": {
     "connected": true,
-    "apiKey": "SWET8Kt9lRBAjBzf.Tv/s6DAHE/nOQwHdG0InkA==.HkuELp3skTubAUcNuvFWoJTVIALtGHplBbW2TyLoqIPuMntVzi0oDfF+DhEY/wXo+461DfxRno3QwRqQ01TMmlXyVff/qC1neYYD0/6HBmvrVb1HaYXvoWhj6rlmJzE/10gEzFUzaYCTLO2UuRh57oJP3CyDwvXMc2LtXnWoJj6013R1JovgyCKJOMaxn7rafbVKr3byLYjxF5fVpDWnkQWIrbc=",
+    "apiKey": "rrIlWFBB0QNgLiUH.abh74iMO+qJgEevMvMKbLw==.5RHxmlyVw8UUUZzreV8diXXgL4Qj9jMqO4oLAOJuMUVOcA9LCIxb1eyL41uIz+3mV2CqqxI4+ANQ5Dm5wXs1xuCARcgkPLDFO5CatlJT5ld21/ACkbGNqyfh7wn6nxfWChEe4Z1PdxH6i3A6qJ47zmZmkYxNPEjrBOAavV/lA/t243d+PxYyp6RtN9xi9g4cvqsAU1LYjWWm/6w6bMr9fggT/JE=",
     "baseUrl": "https://api.openai.com/v1",
     "defaultModel": "gpt-5"
   },
@@ -24,6 +24,6 @@
     "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
     "defaultModel": "gemini-2.5-pro"
   },
-  "updatedAt": "2026-02-16T19:22:04.306Z",
+  "updatedAt": "2026-02-17T00:20:30.722Z",
   "source": "user-scoped-runtime-sync"
 }

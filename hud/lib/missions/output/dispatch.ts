@@ -1,0 +1,63 @@
+/**
+ * Output Dispatch
+ *
+ * Functions for sending mission output to various channels.
+ */
+
+import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
+import type { NotificationSchedule } from "@/lib/notifications/store"
+import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { formatNotificationText } from "../text/formatting"
+import type { OutputResult } from "../types"
+
+/**
+ * Dispatch mission output to a channel.
+ */
+export async function dispatchOutput(
+  channel: string,
+  text: string,
+  targets: string[] | undefined,
+  schedule: NotificationSchedule,
+  scope?: IntegrationsStoreScope,
+): Promise<OutputResult[]> {
+  if (channel === "discord" || channel === "telegram") {
+    const formattedText = formatNotificationText(text)
+    return dispatchNotification({
+      integration: channel as NotificationIntegration,
+      text: formattedText,
+      targets,
+      parseMode: channel === "telegram" ? "HTML" : undefined,
+      source: "workflow",
+      scheduleId: schedule.id,
+      label: schedule.label,
+      scope,
+    })
+  }
+
+  if (channel === "webhook") {
+    const urls = (targets || []).map((t) => String(t || "").trim()).filter(Boolean)
+    if (!urls.length) {
+      return [{ ok: false, error: "Webhook output requires at least one URL in recipients." }]
+    }
+    const results = await Promise.all(urls.map(async (url) => {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            scheduleId: schedule.id,
+            label: schedule.label,
+            ts: new Date().toISOString(),
+          }),
+        })
+        return { ok: res.ok, status: res.status, error: res.ok ? undefined : `Webhook returned ${res.status}` }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Webhook send failed" }
+      }
+    }))
+    return results
+  }
+
+  return [{ ok: false, error: `Unsupported output channel: ${channel}` }]
+}
