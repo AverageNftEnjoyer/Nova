@@ -8,6 +8,7 @@ import {
   loadIntegrationsSettings,
   type IntegrationsSettings,
   type LlmProvider,
+  updateBraveIntegrationSettings,
   updateClaudeIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateGeminiIntegrationSettings,
@@ -48,11 +49,13 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
+  const [braveConnected, setBraveConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
   const [gmailConnected, setGmailConnected] = useState(false)
+  const [braveConfigured, setBraveConfigured] = useState(false)
   const [openaiConfigured, setOpenaiConfigured] = useState(false)
   const [claudeConfigured, setClaudeConfigured] = useState(false)
   const [grokConfigured, setGrokConfigured] = useState(false)
@@ -64,11 +67,13 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const applyLocalSettings = useCallback((settings: IntegrationsSettings) => {
     setTelegramConnected(settings.telegram.connected)
     setDiscordConnected(settings.discord.connected)
+    setBraveConnected(settings.brave.connected)
     setOpenaiConnected(settings.openai.connected)
     setClaudeConnected(settings.claude.connected)
     setGrokConnected(settings.grok.connected)
     setGeminiConnected(settings.gemini.connected)
     setGmailConnected(settings.gmail.connected)
+    setBraveConfigured(Boolean(settings.brave.apiKeyConfigured))
     setOpenaiConfigured(Boolean(settings.openai.apiKeyConfigured))
     setClaudeConfigured(Boolean(settings.claude.apiKeyConfigured))
     setGrokConfigured(Boolean(settings.grok.apiKeyConfigured))
@@ -124,11 +129,13 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         const provider = providerFromValue(config?.activeLlmProvider)
         setTelegramConnected(Boolean(config?.telegram?.connected))
         setDiscordConnected(Boolean(config?.discord?.connected))
+        setBraveConnected(Boolean(config?.brave?.connected))
         setOpenaiConnected(Boolean(config?.openai?.connected))
         setClaudeConnected(Boolean(config?.claude?.connected))
         setGrokConnected(Boolean(config?.grok?.connected))
         setGeminiConnected(Boolean(config?.gemini?.connected))
         setGmailConnected(Boolean(config?.gmail?.connected))
+        setBraveConfigured(Boolean(config?.brave?.apiKeyConfigured))
         setOpenaiConfigured(Boolean(config?.openai?.apiKeyConfigured))
         setClaudeConfigured(Boolean(config?.claude?.apiKeyConfigured))
         setGrokConfigured(Boolean(config?.grok?.apiKeyConfigured))
@@ -173,6 +180,18 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       body: JSON.stringify({ discord: { connected: next } }),
     }).catch(() => {})
   }, [discordConnected])
+
+  const handleToggleBraveIntegration = useCallback(() => {
+    if (!braveConnected && !braveConfigured) return
+    const next = !braveConnected
+    setBraveConnected(next)
+    updateBraveIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brave: { connected: next } }),
+    }).catch(() => {})
+  }, [braveConnected, braveConfigured])
 
   const handleToggleOpenAIIntegration = useCallback(() => {
     if (!openaiConnected && !openaiConfigured) return
@@ -296,6 +315,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     integrationBadgeClass,
     telegramConnected,
     discordConnected,
+    braveConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -303,6 +323,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     gmailConnected,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
+    handleToggleBraveIntegration,
     handleToggleOpenAIIntegration,
     handleToggleClaudeIntegration,
     handleToggleGrokIntegration,

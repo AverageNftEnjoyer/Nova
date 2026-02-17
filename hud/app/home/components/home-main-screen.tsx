@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import FloatingLines from "@/components/FloatingLines"
 import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
+import { BraveIcon } from "@/components/brave-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
@@ -65,6 +66,7 @@ export function HomeMainScreen() {
     openIntegrations,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
+    handleToggleBraveIntegration,
     handleToggleOpenAIIntegration,
     handleToggleClaudeIntegration,
     handleToggleGrokIntegration,
@@ -73,6 +75,7 @@ export function HomeMainScreen() {
     integrationBadgeClass,
     telegramConnected,
     discordConnected,
+    braveConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -365,7 +368,7 @@ export function HomeMainScreen() {
                       aria-label={openaiConnected ? "Disable OpenAI integration" : "Enable OpenAI integration"}
                       title={openaiConnected ? "OpenAI connected (click to disable)" : "OpenAI disconnected (click to enable)"}
                     >
-                      <OpenAIIcon className="w-4.5 h-4.5" />
+                      <OpenAIIcon className="w-4 h-4" />
                     </button>
                     <button
                       onClick={handleToggleClaudeIntegration}
@@ -411,7 +414,18 @@ export function HomeMainScreen() {
                     >
                       <GmailIcon className="w-3.5 h-3.5" />
                     </button>
-                    {Array.from({ length: 17 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleBraveIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(braveConnected),
+                      )}
+                      aria-label={braveConnected ? "Disable Brave integration" : "Enable Brave integration"}
+                      title={braveConnected ? "Brave connected (click to disable)" : "Brave disconnected (click to enable)"}
+                    >
+                      <BraveIcon className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: 16 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

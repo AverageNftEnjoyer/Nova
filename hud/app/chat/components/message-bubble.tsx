@@ -1,11 +1,11 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import type { Message } from "./chat-shell"
-import { MarkdownRenderer } from "./markdown-renderer"
+import type { Message } from "./chat-types"
+import { MarkdownRenderer } from "@/components/markdown-renderer"
 import Image from "next/image"
 import { useTheme } from "@/lib/theme-context"
-import { NovaOrbIndicator, type OrbPalette } from "./nova-orb-indicator"
+import { NovaOrbIndicator, type OrbPalette } from "@/components/nova-orb-indicator"
 import { User } from "lucide-react"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -117,28 +117,28 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
     return (
       <div className="flex w-full min-w-0 items-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <NovaOrbIndicator palette={orbPalette} size={28} animated={orbAnimated} className="mt-1.5 shrink-0" />
-        <div className="flex min-w-0 flex-col items-start max-w-[82%] sm:max-w-[78%]">
+        <div className={cn("flex min-w-0 flex-col items-start", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
           <div
             className={cn(
-              "min-w-0",
+              "home-spotlight-card home-border-glow min-w-0 rounded-lg border",
               isLight
-                ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-                : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
+                ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90"
+                : "border-white/10 bg-black/25 backdrop-blur-md text-slate-100",
             )}
             style={{
+              boxShadow: "none",
               willChange: isStreaming ? "height" : "auto",
               transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
             <div
               className={cn(
-                "text-s-85",
                 assistantIsLoading
                   ? compactMode
-                    ? "px-[11px] py-[8px]"
-                    : "px-[14px] py-[10px]"
+                    ? "px-4 py-2"
+                    : "px-4 py-3"
                   : compactMode
-                    ? "px-3 py-2"
+                    ? "px-4 py-2"
                     : "px-4 py-3"
               )}
               style={{
@@ -158,7 +158,7 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
                   />
                 </div>
               ) : (
-                <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7" />
+                <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7 text-sm" />
               )}
             </div>
           </div>
@@ -170,11 +170,11 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
 
   return (
     <div className="flex w-full min-w-0 justify-end items-start gap-2">
-      <div className="flex min-w-0 flex-col items-end max-w-[82%] sm:max-w-[78%]">
+      <div className={cn("flex min-w-0 flex-col items-end", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
         {/* Bubble */}
         <div
           className={cn(
-            "min-w-0",
+            "home-spotlight-card home-border-glow min-w-0",
             isLight
               ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd] text-s-90"
               : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md text-slate-100",

@@ -8,38 +8,49 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ * - V.08 Alpha: Chat refactor and Brave integration
+ *     - Refactored chat-shell-controller from 1688 lines to 616 lines.
+ *     - Extracted logic into reusable hooks: useConversations, useIntegrationsStatus,
+ *       useMissions, useChatBackground.
+ *     - Removed dead code: nova-chat-module.tsx, redundant chat-shell.tsx wrapper.
+ *     - Added Brave API integration across all pages (home, chat, integrations).
+ *     - Brave API key stored encrypted, user-configured via Integrations UI.
+ *
+ * - V.07 Alpha: Chat workspace responsiveness and shell/header overhaul
+ *     - Reworked chat shell into responsive 3-column desktop layout:
+ *       Sidebar -> Chat -> Mission/Integrations.
+ *     - Added central chat header with animated orb, live status, and version badge.
+ *     - Restored orb animation/hover behavior with live presence indicator.
+ *     - Removed container styling around Nova responses for cleaner module blending.
+ * 
  * - V.06 Alpha: Consolidated data cleanup, mission run-trace, and NovaChat UX stabilization
- *     - Added NovaChat as a mission output channel with server-side pending queue + cleanup
- *     - Mission outputs can create/open Nova conversations reliably from run-trace CTA
- *     - Added real-time per-step mission run-trace streaming with true started/ended timings
- *     - Fixed run-trace auth/401 stream issues by switching to fetch-based SSE parsing
- *     - Step timer now reflects actual execution duration; status icons update per-step live
- *     - Output step labels now correctly reflect selected channel (NovaChat vs Telegram)
- *     - Added response date stamp to mission outputs for clearer report context
- *     - Improved multi-fetch handling so all fetch steps accumulate into final AI context
- *     - Improved section fallback behavior to pull factual lines from fetched context when possible
- *     - Fixed spacing cleanup in rendered mission responses (less blank-line bloat)
- *     - Sources now map one unique source per web request/fetch step with hover link preview support
- *     - Removed top-left orb square/header glow in Missions + Integrations; orb-only highlight behavior
- *     - Reduced spotlight hover overhead (RAF throttling + lower particle churn) for smoother UI
- *     - Reduced integrations catalog refetch spam that caused repeated connection-refused console noise
- *     - Nova Suggest now fails gracefully when provider returns empty/no content
+ *     - Added NovaChat mission output channel with pending-queue handling and cleanup.
+ *     - Mission outputs can reliably create/open Nova conversations from run-trace CTA.
+ *     - Added per-step real-time run-trace streaming with true start/end timings.
+ *     - Fixed run-trace auth/401 stream issues using fetch-based SSE parsing.
+ *     - Step timer reflects real execution duration; step icons update live.
+ * 
  * - V.05 Alpha: Multi-fetch fixes
- *     - Fixed multi-fetch execution: all fetch steps now run and accumulate results
- *     - Sources now display stacked (one per line) instead of inline
- *     - Better quote extraction: targets single clean quote with attribution
+ *     - Fixed multi-fetch execution so all fetch steps run and accumulate results.
+ *     - Sources display stacked (one per line) instead of inline.
+ *     - Improved quote extraction for one clean quote with attribution.
+ * 
  * - V.04 Alpha: Output formatting improvements
- *     - Improved AI prompts with strict section formatting rules
- *     - Topic-specific report formatting (scores, market data, quotes)
+ *     - Improved AI prompts with strict section formatting rules.
+ *     - Added topic-specific report formatting for scores, markets, and quotes.
+ * 
  * - V.03 Alpha: Multi-topic mission architecture
- *     - Added topic detection for prompts (sports, markets, crypto, quotes, tech, news)
- *     - Missions now create separate fetch steps for each detected topic
- *     - Enhanced search queries with date-aware, site-filtered strategies
- *     - AI prompts generate structured multi-section summaries
- *     - New quick templates: Morning Multi-Topic Brief, Sports Recap, Market Update, Tech Digest
- *     - Fixed illegible text and poor summarization in mission outputs
+ *     - Added prompt topic detection: sports, markets, crypto, quotes, tech, news.
+ *     - Missions create separate fetch steps per detected topic.
+ *     - Enhanced search queries with date-aware and site-filtered strategies.
+ *     - AI prompts now generate structured multi-section summaries.
+ *     - Added templates: Morning Multi-Topic Brief, Sports Recap,
+ *       Market Update, Tech Digest.
+ *     - Fixed illegible text and weak summarization in mission outputs.
+ * 
  * - V.02 Alpha: Missions refactor (page split into hooks/components, behavior preserved)
+ * 
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.06 Alpha"
+export const NOVA_VERSION = "V.08 Alpha"

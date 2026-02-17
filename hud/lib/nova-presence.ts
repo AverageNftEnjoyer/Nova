@@ -1,7 +1,7 @@
 import type { NovaState } from "@/lib/useNovaState"
 
 type NovaPresence = {
-  label: "NOVA ONLINE" | "NOVA THINKING" | "NOVA DISCONNECTED"
+  label: "ONLINE" | "SPEAKING" | "DOWN"
   dotClassName: string
   textClassName: string
 }
@@ -14,24 +14,23 @@ export function getNovaPresence(params: {
 
   if (!agentConnected) {
     return {
-      label: "NOVA DISCONNECTED",
+      label: "DOWN",
       dotClassName: "bg-red-400",
       textClassName: "text-red-300",
     }
   }
 
-  if (novaState === "thinking") {
+  if (novaState === "thinking" || novaState === "speaking") {
     return {
-      label: "NOVA THINKING",
+      label: "SPEAKING",
       dotClassName: "bg-amber-400",
       textClassName: "text-amber-300",
     }
   }
 
   return {
-    label: "NOVA ONLINE",
+    label: "ONLINE",
     dotClassName: "bg-emerald-400",
     textClassName: "text-emerald-300",
   }
 }
-

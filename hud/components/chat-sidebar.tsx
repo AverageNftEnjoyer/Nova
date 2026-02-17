@@ -12,9 +12,10 @@ import {
   Pencil,
   Archive,
   Pin,
-  FolderArchive,
   ChevronDown,
   ChevronRight,
+  FolderOpen,
+  FolderArchive,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { NOVA_VERSION } from "@/lib/version"
@@ -32,6 +33,8 @@ interface ChatSidebarProps {
   conversations: Conversation[]
   activeId: string | null
   isOpen: boolean
+  embedded?: boolean
+  showShellHeader?: boolean
   showNewChatButton?: boolean
   onSelect: (id: string) => void
   onNew: () => void
@@ -71,6 +74,8 @@ export function ChatSidebar({
   conversations,
   activeId,
   isOpen,
+  embedded = false,
+  showShellHeader = true,
   showNewChatButton = true,
   onSelect,
   onNew,
@@ -91,8 +96,9 @@ export function ChatSidebar({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renamingTitle, setRenamingTitle] = useState("")
-  const [archivedOpen, setArchivedOpen] = useState(true)
   const [orbHovered, setOrbHovered] = useState(false)
+  const [chatsOpen, setChatsOpen] = useState(true)
+  const [archivedOpen, setArchivedOpen] = useState(false)
   const { theme } = useTheme()
   const pageActive = usePageActive()
   const isLight = theme === "light"
@@ -216,7 +222,15 @@ export function ChatSidebar({
   const profile = userSettings?.profile
   const activeConversations = conversations.filter((c) => !c.archived)
   const archivedConversations = conversations.filter((c) => c.archived)
-  const panelClass = "bg-transparent border-transparent shadow-none rounded-none backdrop-blur-none"
+  const filteredActiveConversations = activeConversations
+  const filteredArchivedConversations = archivedConversations
+  const quickActionConversations = filteredActiveConversations.filter((c) => c.pinned).slice(0, 3)
+  const listConversations = filteredActiveConversations
+  const panelClass = embedded
+    ? (isLight
+        ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
+        : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl")
+    : "bg-transparent border-transparent shadow-none rounded-none backdrop-blur-none"
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
@@ -387,45 +401,101 @@ export function ChatSidebar({
       <div
         ref={sidebarRef}
         className={cn(
-          "home-spotlight-shell fixed left-0 top-0 bottom-0 z-30 m-0 w-72 flex flex-col overflow-hidden",
+          embedded
+            ? "home-spotlight-shell relative z-10 h-full w-full min-h-0 flex flex-col overflow-hidden"
+            : "home-spotlight-shell fixed left-0 top-0 bottom-0 z-30 m-0 w-72 flex flex-col overflow-hidden",
           panelClass,
         )}
+        style={embedded && !isLight ? { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" } : undefined}
       >
         <div ref={spotlightRef} className="home-global-spotlight" />
-        <div className="px-4 pt-4 pb-3">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push("/home")}
-              onMouseEnter={() => setOrbHovered(true)}
-              onMouseLeave={() => setOrbHovered(false)}
-              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
-              aria-label="Go to home"
-            >
-              {userSettings ? (
-                <NovaOrbIndicator
-                  palette={orbPalette}
-                  size={30}
-                  animated={pageActive}
-                  className="transition-all duration-200"
-                  style={{ filter: orbHovered ? orbHoverFilter : "none" }}
-                />
-              ) : (
-                <div className="h-6.5 w-6.5 rounded-full" />
-              )}
-            </button>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-s-90 text-[30px] leading-none font-semibold tracking-tight">NovaOS</h1>
-                <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
-                <div className="inline-flex items-center gap-1.5">
-                  <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
-                  <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
-                    {presence.label}
-                  </span>
+        {showShellHeader && (
+          <div className="px-4 pt-4 pb-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push("/home")}
+                onMouseEnter={() => setOrbHovered(true)}
+                onMouseLeave={() => setOrbHovered(false)}
+                className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+                aria-label="Go to home"
+              >
+                {userSettings ? (
+                  <NovaOrbIndicator
+                    palette={orbPalette}
+                    size={30}
+                    animated={pageActive}
+                    className="transition-all duration-200"
+                    style={{ filter: orbHovered ? orbHoverFilter : "none" }}
+                  />
+                ) : (
+                  <div className="h-6.5 w-6.5 rounded-full" />
+                )}
+              </button>
+              <div className="min-w-0">
+                <div className="flex flex-col leading-tight">
+                  <div className="flex items-baseline gap-3">
+                    <h1 className="text-s-90 text-[30px] leading-none font-semibold tracking-tight">NovaOS</h1>
+                    <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-3">
+                    <div className="inline-flex items-center gap-1.5">
+                      <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                      <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                        {presence.label}
+                      </span>
+                    </div>
+                    <p className="text-[13px] text-s-50 whitespace-nowrap">{hubLabel}</p>
+                  </div>
                 </div>
-                <p className="text-[13px] text-s-50 whitespace-nowrap">{hubLabel}</p>
               </div>
             </div>
+          </div>
+        )}
+
+        {showNewChatButton && (
+          <div className="px-4 pt-4 pb-2">
+            <button
+              onClick={onNew}
+              className={cn(
+                "group appearance-none w-full h-11 px-4 rounded-xl border border-transparent inline-flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-150",
+                spotlightCardClass,
+                subPanelClass,
+                "text-s-90 hover:text-accent",
+              )}
+            >
+              <Plus className="w-4 h-4 transition-all group-hover:brightness-125" />
+              New Conversation
+            </button>
+          </div>
+        )}
+
+        <div className="px-4 py-2">
+          <p className={cn("text-xs uppercase tracking-[0.16em] font-semibold", isLight ? "text-s-50" : "text-slate-400")}>Quick Actions</p>
+          <div className="mt-2 space-y-2">
+            {quickActionConversations.length === 0 ? (
+              <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>Pin chats to show quick actions.</p>
+            ) : (
+              quickActionConversations.map((convo) => (
+                <button
+                  key={`quick-${convo.id}`}
+                  onClick={() => onSelect(convo.id)}
+                  className={cn(
+                    "w-full px-2.5 py-2 rounded-lg border inline-flex items-center justify-start gap-2 text-sm transition-colors text-left",
+                    spotlightCardClass,
+                    convo.id === activeId ? "bg-s-10 border-s-10 text-s-90 sidebar-selected-flat" : "text-s-50",
+                    isLight
+                      ? "border-[#d5dce8] bg-[#f4f7fd]"
+                      : "border-white/10 bg-black/25 text-slate-100 hover:bg-white/8",
+                  )}
+                >
+                  <Pin className="h-4 w-4 shrink-0 text-s-50" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-s-80">{convo.title}</span>
+                    <span className="block text-xs text-s-40">{formatDate(convo.updatedAt)}</span>
+                  </span>
+                </button>
+              ))
+            )}
           </div>
         </div>
 
@@ -440,52 +510,58 @@ export function ChatSidebar({
           </div>
         )}
 
-        {showNewChatButton && (
-          <div className="px-4 py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto py-2 px-4">
+          <div className="mb-2">
             <button
-              onClick={onNew}
+              type="button"
+              onClick={() => setChatsOpen((v) => !v)}
               className={cn(
-                "appearance-none w-full h-11 px-4 flex items-center justify-start gap-2 text-s-80 text-sm font-medium transition-all duration-150",
-                spotlightCardClass,
-                subPanelClass,
+                "w-full mb-2 h-8 px-2 rounded-lg inline-flex items-center justify-between text-xs uppercase tracking-[0.14em] transition-colors",
+                "chat-sidebar-card home-spotlight-card",
+                isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-400 hover:bg-white/6",
               )}
             >
-              <Plus className="w-4 h-4" />
-              New chat
+              <span className="inline-flex items-center gap-2">
+                <FolderOpen className="h-3.5 w-3.5" />
+                Chat History
+              </span>
+              {chatsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             </button>
+            {chatsOpen && (
+              <>
+                {listConversations.length === 0 ? (
+                  <p className={cn("text-xs px-2 py-2", isLight ? "text-s-40" : "text-slate-500")}>No chats yet.</p>
+                ) : (
+                  listConversations.map(renderConversationRow)
+                )}
+              </>
+            )}
           </div>
-        )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto py-2 px-4">
-          {activeConversations.length === 0 && (
-            <p className="text-xs text-s-30 text-center py-8">No conversations yet</p>
-          )}
-
-          {activeConversations.map(renderConversationRow)}
-
-          <div className="mt-2">
+          <div className="mb-2">
             <button
+              type="button"
               onClick={() => setArchivedOpen((v) => !v)}
               className={cn(
-                "appearance-none w-full h-10 px-3 flex items-center justify-between text-[12px] uppercase tracking-[0.15em] text-s-40 transition-all outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0",
-                spotlightCardClass,
-                subPanelClass,
+                "w-full mb-2 h-8 px-2 rounded-lg inline-flex items-center justify-between text-xs uppercase tracking-[0.14em] transition-colors",
+                "chat-sidebar-card home-spotlight-card",
+                isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-400 hover:bg-white/6",
               )}
             >
-              <span className="inline-flex items-center gap-1.5">
-                <FolderArchive className="w-3.5 h-3.5" />
-                Archived Chats ({archivedConversations.length})
+              <span className="inline-flex items-center gap-2">
+                <FolderArchive className="h-3.5 w-3.5" />
+                Archived Chats
               </span>
-              {archivedOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              {archivedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             </button>
             {archivedOpen && (
-              <div className="mt-1">
-                {archivedConversations.length === 0 ? (
-                  <p className="text-[11px] text-s-30 px-3 py-2">No archived chats.</p>
+              <>
+                {filteredArchivedConversations.length === 0 ? (
+                  <p className={cn("text-xs px-2 py-2", isLight ? "text-s-40" : "text-slate-500")}>No archived chats.</p>
                 ) : (
-                  archivedConversations.map(renderConversationRow)
+                  filteredArchivedConversations.map(renderConversationRow)
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>

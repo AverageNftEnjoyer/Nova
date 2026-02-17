@@ -2,20 +2,18 @@
 
 import { useEffect, useRef, useState } from "react"
 import { MessageBubble } from "./message-bubble"
-import type { Message } from "./chat-shell"
+import type { Message } from "./chat-types"
 import { TypingIndicator } from "./typing-indicator"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { NovaState } from "@/lib/useNovaState"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
 import { cn } from "@/lib/utils"
-import type { OrbPalette } from "./nova-orb-indicator"
+import type { OrbPalette } from "@/components/nova-orb-indicator"
 
 interface MessageListProps {
   messages: Message[]
   isStreaming: boolean
   streamingAssistantId?: string | null
-  novaState?: NovaState
   error: string | null
   onRetry: () => void
   isLoaded: boolean
@@ -27,7 +25,6 @@ export function MessageList({
   messages,
   isStreaming,
   streamingAssistantId = null,
-  novaState: _novaState,
   error,
   onRetry,
   isLoaded,
@@ -148,8 +145,8 @@ export function MessageList({
     >
     <div
       className={cn(
-        "ml-auto mr-0 w-full min-h-full origin-top px-4 sm:px-5 flex flex-col justify-start",
-        compactMode ? "max-w-[60rem] space-y-3" : "max-w-[68rem] space-y-4",
+        "mx-auto w-full min-h-full origin-top px-4 sm:px-5 flex flex-col justify-start",
+        compactMode ? "max-w-3xl space-y-3" : "max-w-none space-y-4",
       )}
       style={{
         transform: `scale(${zoom / 100})`,

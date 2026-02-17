@@ -121,7 +121,7 @@ export function extractArticleContent(
       wordCount: countWords(fallbackText),
       quality,
     }
-  } catch (error) {
+  } catch {
     // Ultimate fallback: basic regex stripping
     const basicText = stripHtmlTags(html)
     return {

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { Eye, EyeOff } from "lucide-react"
 import { setActiveUserId } from "@/lib/active-user"
 import { loginDebugBump, loginDebugEvent, loginDebugSnapshot } from "@/lib/login-debug"
@@ -66,13 +67,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!debugEnabled) return
+    const mountId = debugMountIdRef.current
     loginDebugBump("page.mount")
-    loginDebugEvent("login-page", "mount", `id=${debugMountIdRef.current}`)
+    loginDebugEvent("login-page", "mount", `id=${mountId}`)
     const timer = window.setInterval(() => setDebugPanel(loginDebugSnapshot()), 250)
     return () => {
       window.clearInterval(timer)
       loginDebugBump("page.unmount")
-      loginDebugEvent("login-page", "unmount", `id=${debugMountIdRef.current}`)
+      loginDebugEvent("login-page", "unmount", `id=${mountId}`)
     }
   }, [debugEnabled])
 
@@ -595,7 +597,7 @@ export default function LoginPage() {
               disabled={busy}
               className="home-spotlight-card home-border-glow home-spotlight-dynamic home-spotlight-card--hover flex h-12 w-full items-center justify-center gap-3 rounded-full border border-white/18 bg-black/30 text-base font-medium text-white transition-colors disabled:opacity-55"
             >
-              <img src="/images/google.svg" alt="" className="h-5 w-5" />
+              <Image src="/images/google.svg" alt="" width={20} height={20} className="h-5 w-5" />
               Continue with Google
             </button>
           </>

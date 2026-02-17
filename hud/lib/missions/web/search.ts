@@ -9,6 +9,7 @@ import { hasHeader } from "../utils/config"
 import { fetchWebDocument, getWebSearchProviderPreference } from "./fetch"
 import { isLowSignalNavigationPage, isUsableWebResult } from "./quality"
 import type { WebSearchResult, WebSearchResponse } from "../types"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
 
 /**
  * Build search query variants for better coverage.
@@ -143,10 +144,8 @@ export function buildSearchQueryVariants(query: string): string[] {
 export async function searchWithBrave(
   query: string,
   headers: Record<string, string>,
+  apiKey: string,
 ): Promise<WebSearchResponse | null> {
-  const apiKey = String(
-    process.env.BRAVE_API_KEY || process.env.NOVA_WEB_SEARCH_API_KEY || process.env.MYAGENT_WEB_SEARCH_API_KEY || "",
-  ).trim()
   if (!apiKey) return null
 
   try {
@@ -239,9 +238,39 @@ export async function searchWithBrave(
 export async function searchWebAndCollect(
   query: string,
   headers: Record<string, string>,
+  scope?: IntegrationsStoreScope,
 ): Promise<WebSearchResponse> {
   const preferred = getWebSearchProviderPreference()
   const queryVariants = buildSearchQueryVariants(query)
+  let braveApiKey = ""
+
+  if (scope) {
+    try {
+      const integrations = await loadIntegrationsConfig(scope)
+      if (integrations.brave.connected && integrations.brave.apiKey.trim().length > 0) {
+        braveApiKey = integrations.brave.apiKey.trim()
+      }
+    } catch {
+      // Keep fallback behavior below.
+    }
+  }
+
+  if (!braveApiKey) {
+    braveApiKey = String(
+      process.env.BRAVE_API_KEY || process.env.NOVA_WEB_SEARCH_API_KEY || process.env.MYAGENT_WEB_SEARCH_API_KEY || "",
+    ).trim()
+  }
+
+  if (!braveApiKey) {
+    return {
+      searchUrl: `https://search.brave.com/search?q=${encodeURIComponent(queryVariants[0] || query)}`,
+      query,
+      searchTitle: "Brave Search (API key missing)",
+      searchText: "Brave API key is missing. Add one in Integrations to improve web search coverage and reliability.",
+      provider: "brave-unconfigured",
+      results: [],
+    }
+  }
 
   const collectFromProvider = async (): Promise<WebSearchResponse | null> => {
     const merged: WebSearchResult[] = []
@@ -255,7 +284,7 @@ export async function searchWebAndCollect(
     } | null = null
 
     for (const variant of queryVariants) {
-      const found = await searchWithBrave(variant, headers)
+      const found = await searchWithBrave(variant, headers, braveApiKey)
       if (!found) continue
       if (!selected) {
         selected = {

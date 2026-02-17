@@ -39,6 +39,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
   const [value, setValue] = useState("")
   // Keep SSR and initial client render deterministic to avoid hydration mismatch.
   const [accentColor, setAccentColor] = useState<AccentColor>("violet")
+  const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -46,15 +47,23 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
   useEffect(() => {
     const syncAccent = () => setAccentColor(loadUserSettings().app.accentColor)
     syncAccent()
+    const syncCompactMode = () => setCompactMode(loadUserSettings().app.compactMode)
+    syncCompactMode()
     const onSettingsUpdated = () => syncAccent()
+    const onCompactUpdated = () => syncCompactMode()
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "nova_user_settings") syncAccent()
+      if (e.key === "nova_user_settings") {
+        syncAccent()
+        syncCompactMode()
+      }
     }
 
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, onCompactUpdated as EventListener)
     window.addEventListener("storage", onStorage)
     return () => {
       window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, onCompactUpdated as EventListener)
       window.removeEventListener("storage", onStorage)
     }
   }, [])
@@ -120,7 +129,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
 
   return (
     <div className="absolute bottom-3 left-0 right-0 px-2 sm:px-4 pointer-events-none z-10">
-      <div className="mx-auto w-[95%] sm:w-[90%] lg:max-w-3xl pointer-events-auto">
+      <div className={cn("mx-auto w-full pointer-events-auto", compactMode ? "max-w-[52rem]" : "max-w-none")}>
         <div className="relative w-full">
           {attachedFiles.length > 0 && (
             <div className="absolute left-0 right-0 bottom-full mb-2 z-40 flex flex-wrap gap-2 px-1 pointer-events-auto">
@@ -147,7 +156,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
           />
           <div
             className={cn(
-              "relative rounded-lg transition-colors border overflow-hidden",
+              "home-spotlight-card home-border-glow relative rounded-lg transition-colors border overflow-hidden",
               isLight
                 ? "border border-[#d5dce8] bg-[#f4f7fd]/98 focus-within:border-[#cfd7e5]"
                 : "border border-white/10 bg-black/25 backdrop-blur-md focus-within:border-white/20",

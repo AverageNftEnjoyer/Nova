@@ -5,6 +5,7 @@ import {
   loadIntegrationsConfig,
   updateIntegrationsConfig,
   type IntegrationsConfig,
+  type BraveIntegrationConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
   type GrokIntegrationConfig,
@@ -103,6 +104,20 @@ function normalizeOpenAIInput(raw: unknown, current: OpenAIIntegrationConfig): O
     defaultModel: typeof openai.defaultModel === "string" && openai.defaultModel.trim().length > 0
       ? openai.defaultModel.trim()
       : current.defaultModel,
+  }
+}
+
+function normalizeBraveInput(raw: unknown, current: BraveIntegrationConfig): BraveIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const brave = raw as Partial<BraveIntegrationConfig>
+  const nextApiKey =
+    typeof brave.apiKey === "string"
+      ? (brave.apiKey.trim().length > 0 ? brave.apiKey.trim() : current.apiKey)
+      : current.apiKey
+
+  return {
+    connected: (typeof brave.connected === "boolean" ? brave.connected : current.connected) && nextApiKey.trim().length > 0,
+    apiKey: nextApiKey,
   }
 }
 
@@ -225,6 +240,12 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.openai.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.openai.apiKey),
     },
+    brave: {
+      ...config.brave,
+      apiKey: "",
+      apiKeyConfigured: config.brave.apiKey.trim().length > 0,
+      apiKeyMasked: maskSecret(config.brave.apiKey),
+    },
     claude: {
       ...config.claude,
       apiKey: "",
@@ -291,6 +312,7 @@ export async function PATCH(req: Request) {
     const body = (await req.json()) as Partial<IntegrationsConfig> & {
       telegram?: Partial<TelegramIntegrationConfig> & { chatIds?: string[] | string }
       discord?: Partial<DiscordIntegrationConfig> & { webhookUrls?: string[] | string }
+      brave?: Partial<BraveIntegrationConfig>
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
@@ -301,6 +323,7 @@ export async function PATCH(req: Request) {
     const current = await loadIntegrationsConfig(verified)
     const telegram = normalizeTelegramInput(body.telegram, current.telegram)
     const discord = normalizeDiscordInput(body.discord, current.discord)
+    const brave = normalizeBraveInput(body.brave, current.brave)
     const openai = normalizeOpenAIInput(body.openai, current.openai)
     const claude = normalizeClaudeInput(body.claude, current.claude)
     const grok = normalizeGrokInput(body.grok, current.grok)
@@ -310,6 +333,7 @@ export async function PATCH(req: Request) {
     const next = await updateIntegrationsConfig({
       telegram,
       discord,
+      brave,
       openai,
       claude,
       grok,

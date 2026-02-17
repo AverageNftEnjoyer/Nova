@@ -11,6 +11,13 @@ export interface DiscordIntegrationSettings {
   webhookUrls: string
 }
 
+export interface BraveIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+}
+
 export interface OpenAIIntegrationSettings {
   connected: boolean
   apiKey: string
@@ -73,6 +80,7 @@ export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
+  brave: BraveIntegrationSettings
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
@@ -96,6 +104,12 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
   discord: {
     connected: false,
     webhookUrls: "",
+  },
+  brave: {
+    connected: false,
+    apiKey: "",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
   },
   openai: {
     connected: false,
@@ -171,6 +185,11 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...DEFAULT_SETTINGS.discord,
         ...(parsed.discord || {}),
       },
+      brave: {
+        ...DEFAULT_SETTINGS.brave,
+        ...(parsed.brave || {}),
+        apiKey: "",
+      },
       openai: {
         ...DEFAULT_SETTINGS.openai,
         ...(parsed.openai || {}),
@@ -235,6 +254,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     discord: {
       ...settings.discord,
     },
+    brave: {
+      ...settings.brave,
+      apiKey: "",
+    },
     openai: {
       ...settings.openai,
       apiKey: "",
@@ -290,6 +313,20 @@ export function updateDiscordIntegrationSettings(partial: Partial<DiscordIntegra
     ...current,
     discord: {
       ...current.discord,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateBraveIntegrationSettings(partial: Partial<BraveIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    brave: {
+      ...current.brave,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

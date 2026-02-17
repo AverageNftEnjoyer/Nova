@@ -52,6 +52,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "brave",
+      label: "Brave",
+      kind: "api",
+      connected: config.brave.connected && config.brave.apiKey.trim().length > 0,
+      source: "core",
+      capabilities: ["fetch"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "openai",
       label: "OpenAI",
       kind: "llm",

@@ -59,5 +59,9 @@ export async function retrieveMemories(
   })
 
   if (error) throw new Error(error.message || "Failed to retrieve memories.")
-  return ((data || []) as Array<MemoryRecord & { distance?: number }>).map(({ distance: _distance, ...row }) => row)
+  return ((data || []) as Array<MemoryRecord & { distance?: number }>).map((row) => {
+    const normalized = { ...row }
+    delete (normalized as { distance?: number }).distance
+    return normalized
+  })
 }

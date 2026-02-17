@@ -155,9 +155,9 @@ export default function HistoryPage() {
               </p>
               <button
                 onClick={handleNewChat}
-                className="mt-6 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 text-violet-400 text-sm transition-colors"
+                className="group mt-6 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-500/20 hover:bg-violet-500/30 text-violet-400 text-sm transition-colors"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4 transition-all group-hover:brightness-125" />
                 New chat
               </button>
             </div>

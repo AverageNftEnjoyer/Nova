@@ -218,16 +218,20 @@ export default function MissionsPage() {
                   />
                 </button>
                 <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
-                    <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
-                    <div className="inline-flex items-center gap-1.5">
-                      <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
-                      <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
-                        {presence.label}
-                      </span>
+                  <div className="flex flex-col leading-tight">
+                    <div className="flex items-baseline gap-3">
+                      <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                      <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                     </div>
-                    <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Missions & Automations Hub</p>
+                    <div className="mt-0.5 flex items-center gap-3">
+                      <div className="inline-flex items-center gap-1.5">
+                        <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                        <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                          {presence.label}
+                        </span>
+                      </div>
+                      <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Missions & Automations Hub</p>
+                    </div>
                   </div>
                 </div>
               </div>

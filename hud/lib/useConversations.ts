@@ -1,0 +1,623 @@
+"use client"
+
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import {
+  type Conversation,
+  type ChatMessage,
+  generateId,
+  getActiveId,
+  loadConversations,
+  saveConversations,
+  setActiveId,
+  autoTitle,
+} from "@/lib/conversations"
+import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+
+function parseIsoTimestamp(value: string | undefined): number {
+  const ts = Date.parse(String(value || ""))
+  return Number.isFinite(ts) ? ts : 0
+}
+
+function mergeConversationsPreferLocal(
+  local: Conversation[],
+  remote: Conversation[],
+): Conversation[] {
+  if (local.length === 0) return remote
+  if (remote.length === 0) return local
+
+  const localById = new Map(local.map((entry) => [entry.id, entry]))
+  const merged = remote.map((serverConvo) => {
+    const localConvo = localById.get(serverConvo.id)
+    if (!localConvo) return serverConvo
+
+    const localUpdated = parseIsoTimestamp(localConvo.updatedAt)
+    const serverUpdated = parseIsoTimestamp(serverConvo.updatedAt)
+    const localLooksNewer =
+      localConvo.messages.length > serverConvo.messages.length || localUpdated > serverUpdated
+    if (!localLooksNewer) return serverConvo
+
+    return {
+      ...serverConvo,
+      title:
+        localConvo.title && localConvo.title !== "New chat" ? localConvo.title : serverConvo.title,
+      messages: localConvo.messages,
+      updatedAt: localUpdated >= serverUpdated ? localConvo.updatedAt : serverConvo.updatedAt,
+      pinned: localConvo.pinned ?? serverConvo.pinned,
+      archived: localConvo.archived ?? serverConvo.archived,
+    }
+  })
+
+  const remoteIds = new Set(remote.map((entry) => entry.id))
+  const localOnly = local.filter((entry) => !remoteIds.has(entry.id))
+  return [...merged, ...localOnly].sort(
+    (a, b) => parseIsoTimestamp(b.updatedAt) - parseIsoTimestamp(a.updatedAt),
+  )
+}
+
+export interface UseConversationsOptions {
+  agentConnected: boolean
+  agentMessages: Array<{
+    id: string
+    role: "user" | "assistant"
+    content: string
+    ts: number
+    source?: string
+    sender?: string
+  }>
+  clearAgentMessages: () => void
+}
+
+export interface UseConversationsReturn {
+  conversations: Conversation[]
+  activeConvo: Conversation | null
+  isLoaded: boolean
+  mergedCountRef: React.MutableRefObject<number>
+  sendMessage: (content: string, sendToAgent: (content: string, voiceEnabled: boolean, ttsVoice: string, meta: Record<string, unknown>) => void) => Promise<void>
+  handleNewChat: () => void
+  handleSelectConvo: (id: string) => Promise<void>
+  handleDeleteConvo: (id: string) => Promise<void>
+  handleRenameConvo: (id: string, title: string) => void
+  handleArchiveConvo: (id: string, archived: boolean) => void
+  handlePinConvo: (id: string, pinned: boolean) => void
+  addUserMessage: (content: string) => Conversation | null
+}
+
+export function useConversations({
+  agentConnected,
+  agentMessages,
+  clearAgentMessages,
+}: UseConversationsOptions): UseConversationsReturn {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const shouldOpenPendingNovaChat = searchParams.get("open") === "novachat"
+
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  const mergedCountRef = useRef(0)
+  const syncTimerRef = useRef<number | null>(null)
+  const pendingMessagesInFlightRef = useRef(false)
+
+  // Server API functions
+  const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
+    const res = await fetch("/api/threads", { cache: "no-store" })
+    const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+    if (!res.ok) throw new Error("Failed to load conversations.")
+    return Array.isArray(data.conversations) ? data.conversations : []
+  }, [])
+
+  const createServerConversation = useCallback(async (): Promise<Conversation> => {
+    const res = await fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New chat" }),
+    })
+    const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
+    if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
+    return data.conversation
+  }, [])
+
+  const patchServerConversation = useCallback(async (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error("Failed to update conversation.")
+  }, [])
+
+  const deleteServerConversation = useCallback(async (id: string) => {
+    const res = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    })
+    if (!res.ok) throw new Error("Failed to delete conversation.")
+  }, [])
+
+  const syncServerMessages = useCallback(async (convo: Conversation) => {
+    await fetch(`/api/threads/${encodeURIComponent(convo.id)}/messages`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: convo.messages }),
+    })
+  }, [])
+
+  // Persist conversations
+  const persist = useCallback(
+    (convos: Conversation[], active: Conversation | null) => {
+      setConversations(convos)
+      saveConversations(convos)
+      writeShellUiCache({ conversations: convos })
+      if (active) {
+        setActiveConvo(active)
+        setActiveId(active.id)
+        if (syncTimerRef.current !== null) {
+          window.clearTimeout(syncTimerRef.current)
+        }
+        syncTimerRef.current = window.setTimeout(() => {
+          void syncServerMessages(active).catch(() => {})
+        }, 280)
+      }
+      if (!active) {
+        setActiveConvo(null)
+        setActiveId(null)
+      }
+    },
+    [syncServerMessages],
+  )
+
+  // Initial load from cache
+  useLayoutEffect(() => {
+    const cachedConversations = readShellUiCache().conversations ?? loadConversations()
+    if (cachedConversations.length === 0) {
+      setIsLoaded(true)
+      return
+    }
+    if (shouldOpenPendingNovaChat) {
+      setConversations(cachedConversations)
+      setActiveConvo(null)
+      setActiveId(null)
+      setIsLoaded(true)
+      return
+    }
+    const activeId = getActiveId()
+    const activeFromCache =
+      (activeId ? cachedConversations.find((c) => c.id === activeId) : null) ?? cachedConversations[0]
+    setConversations(cachedConversations)
+    setActiveConvo(activeFromCache || null)
+    if (activeFromCache) {
+      setActiveId(activeFromCache.id)
+    }
+    setIsLoaded(true)
+  }, [shouldOpenPendingNovaChat])
+
+  // Load from server and merge
+  useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const convos = await fetchConversationsFromServer()
+        if (cancelled) return
+        const mergedConvos = mergeConversationsPreferLocal(
+          readShellUiCache().conversations ?? loadConversations(),
+          convos,
+        )
+        const activeId = getActiveId()
+        const found = mergedConvos.find((c) => c.id === activeId)
+        if (shouldOpenPendingNovaChat) {
+          setConversations(mergedConvos)
+          saveConversations(mergedConvos)
+          writeShellUiCache({ conversations: mergedConvos })
+          setActiveConvo(null)
+          setActiveId(null)
+          setIsLoaded(true)
+          return
+        }
+        if (found) {
+          setConversations(mergedConvos)
+          saveConversations(mergedConvos)
+          writeShellUiCache({ conversations: mergedConvos })
+          setActiveConvo(found)
+          setIsLoaded(true)
+          return
+        }
+        if (mergedConvos.length > 0) {
+          setConversations(mergedConvos)
+          saveConversations(mergedConvos)
+          writeShellUiCache({ conversations: mergedConvos })
+          setActiveConvo(mergedConvos[0])
+          setActiveId(mergedConvos[0].id)
+          setIsLoaded(true)
+          return
+        }
+        const fresh = await createServerConversation()
+        if (cancelled) return
+        setConversations([fresh])
+        saveConversations([fresh])
+        writeShellUiCache({ conversations: [fresh] })
+        setActiveConvo(fresh)
+        setActiveId(fresh.id)
+        setIsLoaded(true)
+      } catch {
+        if (cancelled) return
+        setConversations([])
+        setActiveConvo(null)
+        setIsLoaded(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [createServerConversation, fetchConversationsFromServer, shouldOpenPendingNovaChat])
+
+  // Process pending NovaChat messages
+  const processPendingNovaChatMessages = useCallback(async (): Promise<number> => {
+    if (!isLoaded || pendingMessagesInFlightRef.current) return 0
+    pendingMessagesInFlightRef.current = true
+    try {
+      const res = await fetch("/api/novachat/pending", { cache: "no-store" })
+      if (!res.ok) return 0
+      const data = await res.json() as {
+        ok: boolean
+        messages?: Array<{
+          id: string
+          title: string
+          content: string
+          missionId?: string
+          missionLabel?: string
+          createdAt: string
+        }>
+      }
+      if (!data.ok || !Array.isArray(data.messages) || data.messages.length === 0) return 0
+
+      const consumedIds: string[] = []
+      let latestConvo: Conversation | null = null
+      let updatedConvos = [...conversations]
+
+      for (const msg of data.messages) {
+        const newConvo = await createServerConversation().catch(() => null)
+        if (!newConvo) continue
+
+        const assistantMsg: ChatMessage = {
+          id: generateId(),
+          role: "assistant",
+          content: msg.content,
+          createdAt: msg.createdAt || new Date().toISOString(),
+          source: "agent",
+          sender: msg.missionLabel || "Nova Mission",
+        }
+
+        const convoWithMessage: Conversation = {
+          ...newConvo,
+          title: msg.title || msg.missionLabel || "Mission Report",
+          messages: [assistantMsg],
+          updatedAt: new Date().toISOString(),
+        }
+
+        const synced = await syncServerMessages(convoWithMessage).then(() => true).catch(() => false)
+        if (!synced) continue
+
+        consumedIds.push(msg.id)
+        updatedConvos = [convoWithMessage, ...updatedConvos.filter((c) => c.id !== convoWithMessage.id)]
+        latestConvo = convoWithMessage
+      }
+
+      if (latestConvo) {
+        persist(updatedConvos, latestConvo)
+      }
+
+      if (consumedIds.length > 0) {
+        await fetch("/api/novachat/pending", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: consumedIds }),
+        }).catch(() => {})
+      }
+      return consumedIds.length
+    } catch {
+      return 0
+    } finally {
+      pendingMessagesInFlightRef.current = false
+    }
+  }, [isLoaded, conversations, createServerConversation, syncServerMessages, persist])
+
+  // Poll for pending messages
+  useEffect(() => {
+    if (!isLoaded) return
+    void processPendingNovaChatMessages()
+    const intervalId = window.setInterval(() => {
+      void processPendingNovaChatMessages()
+    }, 15000)
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isLoaded, processPendingNovaChatMessages])
+
+  // Handle pending nova chat redirect
+  useEffect(() => {
+    if (!isLoaded) return
+    if (!shouldOpenPendingNovaChat) return
+    let attempts = 0
+    const maxAttempts = 40
+    void (async () => {
+      const consumed = await processPendingNovaChatMessages()
+      if (consumed > 0) {
+        router.replace("/chat")
+      }
+    })()
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        const consumed = await processPendingNovaChatMessages()
+        if (consumed > 0 || attempts >= maxAttempts) {
+          window.clearInterval(intervalId)
+          router.replace("/chat")
+          return
+        }
+        attempts += 1
+      })()
+    }, 250)
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isLoaded, processPendingNovaChatMessages, router, shouldOpenPendingNovaChat])
+
+  // Merge agent messages into active conversation
+  useEffect(() => {
+    if (!activeConvo || agentMessages.length <= mergedCountRef.current) return
+
+    const newOnes = agentMessages.slice(mergedCountRef.current)
+    mergedCountRef.current = agentMessages.length
+
+    const nextMessages = [...activeConvo.messages]
+    const dedupedExisting: ChatMessage[] = []
+    for (const existing of nextMessages) {
+      if (existing.role !== "assistant") {
+        dedupedExisting.push(existing)
+        continue
+      }
+      const prevIdx = dedupedExisting.findIndex((m) => m.role === "assistant" && m.id === existing.id)
+      if (prevIdx === -1) {
+        dedupedExisting.push(existing)
+        continue
+      }
+      dedupedExisting[prevIdx] = {
+        ...dedupedExisting[prevIdx],
+        content: `${dedupedExisting[prevIdx].content}${existing.content}`,
+        createdAt: existing.createdAt,
+        source: existing.source || dedupedExisting[prevIdx].source,
+        sender: existing.sender || dedupedExisting[prevIdx].sender,
+      }
+    }
+
+    const mergedMessages = dedupedExisting
+    for (const am of newOnes) {
+      const normalizedSource: ChatMessage["source"] =
+        am.source === "hud" || am.source === "agent" || am.source === "voice"
+          ? am.source
+          : "agent"
+      const incoming: ChatMessage = {
+        id: am.id,
+        role: am.role,
+        content: am.content,
+        createdAt: new Date(am.ts).toISOString(),
+        source: normalizedSource,
+        sender: am.sender,
+      }
+
+      if (incoming.role === "assistant") {
+        const existingIdx = mergedMessages.findIndex((m) => m.role === "assistant" && m.id === incoming.id)
+        if (existingIdx !== -1) {
+          const existing = mergedMessages[existingIdx]
+          mergedMessages[existingIdx] = {
+            ...existing,
+            content: `${existing.content}${incoming.content}`,
+            createdAt: incoming.createdAt,
+            source: incoming.source || existing.source,
+            sender: incoming.sender || existing.sender,
+          }
+          continue
+        }
+
+        const last = mergedMessages[mergedMessages.length - 1]
+        if (last?.role === "assistant" && last.id === incoming.id) {
+          last.content = `${last.content}${incoming.content}`
+          last.createdAt = incoming.createdAt
+          if (incoming.source) last.source = incoming.source
+          if (incoming.sender) last.sender = incoming.sender
+          continue
+        }
+
+        mergedMessages.push(incoming)
+        continue
+      }
+
+      mergedMessages.push(incoming)
+    }
+
+    const updated: Conversation = {
+      ...activeConvo,
+      messages: mergedMessages,
+      updatedAt: new Date().toISOString(),
+      title: activeConvo.messages.length === 0 ? autoTitle(mergedMessages) : activeConvo.title,
+    }
+
+    const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
+    persist(convos, updated)
+  }, [agentMessages, activeConvo, conversations, persist])
+
+  // Cleanup sync timer
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current !== null) {
+        window.clearTimeout(syncTimerRef.current)
+      }
+    }
+  }, [])
+
+  // Handlers
+  const handleNewChat = useCallback(() => {
+    router.push("/home")
+  }, [router])
+
+  const handleSelectConvo = useCallback(
+    async (id: string) => {
+      clearAgentMessages()
+      mergedCountRef.current = 0
+
+      let found = conversations.find((c) => c.id === id)
+      if (!found) {
+        const remote = await fetchConversationsFromServer().catch(() => [])
+        if (remote.length > 0) {
+          const merged = mergeConversationsPreferLocal(conversations, remote)
+          setConversations(merged)
+          saveConversations(merged)
+          writeShellUiCache({ conversations: merged })
+          found = merged.find((c) => c.id === id)
+        }
+      }
+      if (found) {
+        setActiveConvo(found)
+        setActiveId(found.id)
+      }
+    },
+    [conversations, clearAgentMessages, fetchConversationsFromServer],
+  )
+
+  const handleDeleteConvo = useCallback(
+    async (id: string) => {
+      await deleteServerConversation(id).catch(() => {})
+      const remaining = conversations.filter((c) => c.id !== id)
+
+      if (activeConvo?.id === id) {
+        clearAgentMessages()
+        mergedCountRef.current = 0
+
+        if (remaining.length > 0) {
+          persist(remaining, remaining[0])
+        } else {
+          const fresh = await createServerConversation().catch(() => null)
+          if (!fresh) {
+            setConversations([])
+            setActiveConvo(null)
+            setActiveId(null)
+            return
+          }
+          persist([fresh], fresh)
+        }
+      } else {
+        persist(remaining, activeConvo)
+      }
+    },
+    [conversations, activeConvo, clearAgentMessages, createServerConversation, deleteServerConversation, persist],
+  )
+
+  const handleRenameConvo = useCallback(
+    (id: string, title: string) => {
+      const trimmed = title.trim()
+      if (!trimmed) return
+      void patchServerConversation(id, { title: trimmed }).catch(() => {})
+      const next = conversations.map((c) =>
+        c.id === id ? { ...c, title: trimmed, updatedAt: new Date().toISOString() } : c,
+      )
+      const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+      persist(next, nextActive)
+    },
+    [conversations, activeConvo, patchServerConversation, persist],
+  )
+
+  const handleArchiveConvo = useCallback(
+    (id: string, archived: boolean) => {
+      void patchServerConversation(id, { archived }).catch(() => {})
+      const next = conversations.map((c) =>
+        c.id === id ? { ...c, archived, updatedAt: new Date().toISOString() } : c,
+      )
+
+      if (activeConvo?.id === id && archived) {
+        const fallback = next.find((c) => !c.archived && c.id !== id) ?? next.find((c) => c.id !== id) ?? null
+        persist(next, fallback)
+        return
+      }
+
+      const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+      persist(next, nextActive)
+    },
+    [conversations, activeConvo, patchServerConversation, persist],
+  )
+
+  const handlePinConvo = useCallback(
+    (id: string, pinned: boolean) => {
+      void patchServerConversation(id, { pinned }).catch(() => {})
+      const next = conversations.map((c) => (c.id === id ? { ...c, pinned } : c))
+      const nextActive = activeConvo ? next.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+      persist(next, nextActive)
+    },
+    [conversations, activeConvo, patchServerConversation, persist],
+  )
+
+  const addUserMessage = useCallback(
+    (content: string): Conversation | null => {
+      if (!content.trim() || !activeConvo) return null
+
+      const userMsg: ChatMessage = {
+        id: generateId(),
+        role: "user",
+        content: content.trim(),
+        createdAt: new Date().toISOString(),
+        source: "agent",
+      }
+
+      const updated: Conversation = {
+        ...activeConvo,
+        messages: [...activeConvo.messages, userMsg],
+        updatedAt: new Date().toISOString(),
+        title: activeConvo.messages.length === 0 ? autoTitle([userMsg]) : activeConvo.title,
+      }
+
+      const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
+      persist(convos, updated)
+      mergedCountRef.current += 1
+
+      return updated
+    },
+    [activeConvo, conversations, persist],
+  )
+
+  const sendMessage = useCallback(
+    async (
+      content: string,
+      sendToAgent: (content: string, voiceEnabled: boolean, ttsVoice: string, meta: Record<string, unknown>) => void,
+    ) => {
+      if (!content.trim() || !agentConnected || !activeConvo) return
+
+      addUserMessage(content)
+
+      const { loadUserSettings } = await import("@/lib/userSettings")
+      const { getActiveUserId } = await import("@/lib/active-user")
+      const settings = loadUserSettings()
+      sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
+        conversationId: activeConvo.id,
+        sender: "hud-user",
+        userId: getActiveUserId(),
+      })
+    },
+    [activeConvo, agentConnected, addUserMessage],
+  )
+
+  return {
+    conversations,
+    activeConvo,
+    isLoaded,
+    mergedCountRef,
+    sendMessage,
+    handleNewChat,
+    handleSelectConvo,
+    handleDeleteConvo,
+    handleRenameConvo,
+    handleArchiveConvo,
+    handlePinConvo,
+    addUserMessage,
+  }
+}

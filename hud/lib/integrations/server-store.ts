@@ -17,6 +17,11 @@ export interface DiscordIntegrationConfig {
   webhookUrls: string[]
 }
 
+export interface BraveIntegrationConfig {
+  connected: boolean
+  apiKey: string
+}
+
 export interface OpenAIIntegrationConfig {
   connected: boolean
   apiKey: string
@@ -79,6 +84,7 @@ export interface AgentIntegrationConfig {
 export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
   discord: DiscordIntegrationConfig
+  brave: BraveIntegrationConfig
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
   grok: GrokIntegrationConfig
@@ -113,6 +119,10 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   discord: {
     connected: false,
     webhookUrls: [],
+  },
+  brave: {
+    connected: false,
+    apiKey: "",
   },
   openai: {
     connected: false,
@@ -294,6 +304,10 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
         ? raw.discord.webhookUrls.map((url) => String(url).trim()).filter(Boolean)
         : [],
     },
+    brave: {
+      connected: raw?.brave?.connected ?? DEFAULT_CONFIG.brave.connected,
+      apiKey: unwrapStoredSecret(raw?.brave?.apiKey),
+    },
     openai: {
       connected: raw?.openai?.connected ?? DEFAULT_CONFIG.openai.connected,
       apiKey: unwrapStoredSecret(raw?.openai?.apiKey),
@@ -368,6 +382,10 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
       ...config.openai,
       apiKey: wrapStoredSecret(config.openai.apiKey),
     },
+    brave: {
+      ...config.brave,
+      apiKey: wrapStoredSecret(config.brave.apiKey),
+    },
     claude: {
       ...config.claude,
       apiKey: wrapStoredSecret(config.claude.apiKey),
@@ -416,6 +434,10 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
     openai: {
       ...current.openai,
       ...(partial.openai || {}),
+    },
+    brave: {
+      ...current.brave,
+      ...(partial.brave || {}),
     },
     claude: {
       ...current.claude,

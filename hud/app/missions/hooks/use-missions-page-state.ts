@@ -27,7 +27,6 @@ import {
   updateMissionSchedule,
   type BuildMissionResponse,
   type NovaSuggestResponse,
-  type TriggerMissionResponse,
 } from "../api"
 import {
   buildBuilderWorkflowStepsFromMeta,

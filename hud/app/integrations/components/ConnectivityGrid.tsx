@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 export type IntegrationSetupKey =
   | "telegram"
   | "discord"
+  | "brave"
   | "openai"
   | "claude"
   | "grok"
@@ -46,7 +47,7 @@ export function ConnectivityGrid({
           {item.icon}
         </button>
       ))}
-      {Array.from({ length: 17 }).map((_, index) => (
+      {Array.from({ length: 22 }).map((_, index) => (
         <div
           key={index}
           className={cn(

@@ -4,7 +4,7 @@
  * Functions for building prompts for mission AI steps.
  */
 
-import { cleanText, normalizeSnippetText, normalizeSourceSnippet, isRawTableData, extractReadableSentences, cleanScrapedText, extractSingleQuote } from "../text/cleaning"
+import { cleanText, isRawTableData, extractReadableSentences, cleanScrapedText, extractSingleQuote } from "../text/cleaning"
 import { extractFactSentences } from "../text/formatting"
 import { getByPath, toNumberSafe } from "../utils/paths"
 import type { AiDetailLevel } from "../types"

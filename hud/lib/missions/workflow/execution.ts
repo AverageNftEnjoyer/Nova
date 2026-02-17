@@ -13,7 +13,7 @@ import { toNumberSafe } from "../utils/paths"
 import { hasUsableContextData, isNoDataText } from "../utils/validation"
 import { normalizeWorkflowStep, parseHeadersJson, hasHeader, resolveIncludeSources, resolveAiDetailLevel } from "../utils/config"
 import { isSearchEngineUrl, isUsableWebResult, hasWebSearchUsableSources } from "../web/quality"
-import { fetchWebDocument, extractHtmlLinks, normalizeWebSearchRequestUrl, deriveWebSearchQuery } from "../web/fetch"
+import { extractHtmlLinks, normalizeWebSearchRequestUrl, deriveWebSearchQuery } from "../web/fetch"
 import { searchWebAndCollect } from "../web/search"
 import { humanizeMissionOutputText } from "../output/formatters"
 import { dispatchOutput } from "../output/dispatch"
@@ -177,7 +177,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       }
       const useSearchPipeline = source === "web" && inferredSearchQuery.length > 0 && (!url || isSearchEngineUrl(url) || query.length > 0)
       if (useSearchPipeline) {
-        const webResearch = await searchWebAndCollect(inferredSearchQuery, requestHeaders)
+        const webResearch = await searchWebAndCollect(inferredSearchQuery, requestHeaders, input.scope)
         const usable = webResearch.results.filter((item) => isUsableWebResult(item))
         const fetchData = {
           source,
@@ -213,7 +213,15 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         if (usable.length > 0) {
           await completeStepTrace(step, "completed", `Searched web via ${webResearch.provider} for "${inferredSearchQuery}" and found ${usable.length} usable sources.`, startedAt)
         } else {
-          await completeStepTrace(step, "failed", `Web search via ${webResearch.provider} for "${inferredSearchQuery}" returned no usable sources.`, startedAt)
+          const noKeyMessage = webResearch.provider === "brave-unconfigured"
+            ? 'Brave API key missing. Add your key in Integrations -> Brave Search API to improve web search reliability.'
+            : null
+          await completeStepTrace(
+            step,
+            "failed",
+            noKeyMessage || `Web search via ${webResearch.provider} for "${inferredSearchQuery}" returned no usable sources.`,
+            startedAt,
+          )
         }
         continue
       }

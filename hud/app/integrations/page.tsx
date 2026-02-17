@@ -17,6 +17,7 @@ import { usePageActive } from "@/lib/use-page-active"
 import FloatingLines from "@/components/FloatingLines"
 import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
+import { BraveIcon } from "@/components/brave-icon"
 import { OpenAIIcon } from "@/components/openai-icon"
 import { ClaudeIcon } from "@/components/claude-icon"
 import { XAIIcon } from "@/components/xai-icon"
@@ -94,6 +95,9 @@ export default function IntegrationsPage() {
   const [botTokenMasked, setBotTokenMasked] = useState("")
   const [chatIds, setChatIds] = useState("")
   const [discordWebhookUrls, setDiscordWebhookUrls] = useState("")
+  const [braveApiKey, setBraveApiKey] = useState("")
+  const [braveApiKeyConfigured, setBraveApiKeyConfigured] = useState(false)
+  const [braveApiKeyMasked, setBraveApiKeyMasked] = useState("")
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [profile, setProfile] = useState<UserProfile>({
@@ -114,6 +118,7 @@ export default function IntegrationsPage() {
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
+  const braveSetupSectionRef = useRef<HTMLElement | null>(null)
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -146,6 +151,9 @@ export default function IntegrationsPage() {
     setBotTokenMasked(local.telegram.botTokenMasked || "")
     setChatIds(local.telegram.chatIds)
     setDiscordWebhookUrls(local.discord.webhookUrls)
+    setBraveApiKey(local.brave.apiKey)
+    setBraveApiKeyConfigured(Boolean(local.brave.apiKeyConfigured))
+    setBraveApiKeyMasked(local.brave.apiKeyMasked || "")
     hydrateOpenAISetup(local)
     hydrateClaudeSetup(local)
     hydrateGrokSetup(local)
@@ -206,6 +214,9 @@ export default function IntegrationsPage() {
           setBotTokenMasked(fallback.telegram.botTokenMasked || "")
           setChatIds(fallback.telegram.chatIds)
           setDiscordWebhookUrls(fallback.discord.webhookUrls)
+          setBraveApiKey(fallback.brave.apiKey)
+          setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
+          setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
           hydrateOpenAISetup(fallback)
           hydrateClaudeSetup(fallback)
           hydrateGrokSetup(fallback)
@@ -233,6 +244,12 @@ export default function IntegrationsPage() {
               : typeof config.discord?.webhookUrls === "string"
                 ? config.discord.webhookUrls
                 : "",
+          },
+          brave: {
+            connected: Boolean(config.brave?.connected),
+            apiKey: config.brave?.apiKey || "",
+            apiKeyConfigured: Boolean(config.brave?.apiKeyConfigured),
+            apiKeyMasked: typeof config.brave?.apiKeyMasked === "string" ? config.brave.apiKeyMasked : "",
           },
           openai: {
             connected: Boolean(config.openai?.connected),
@@ -299,6 +316,9 @@ export default function IntegrationsPage() {
         setBotTokenMasked(normalized.telegram.botTokenMasked || "")
         setChatIds(normalized.telegram.chatIds)
         setDiscordWebhookUrls(normalized.discord.webhookUrls)
+        setBraveApiKey(normalized.brave.apiKey)
+        setBraveApiKeyConfigured(Boolean(normalized.brave.apiKeyConfigured))
+        setBraveApiKeyMasked(normalized.brave.apiKeyMasked || "")
         hydrateOpenAISetup(normalized)
         hydrateClaudeSetup(normalized)
         hydrateGrokSetup(normalized)
@@ -316,6 +336,9 @@ export default function IntegrationsPage() {
         setBotTokenMasked(fallback.telegram.botTokenMasked || "")
         setChatIds(fallback.telegram.chatIds)
         setDiscordWebhookUrls(fallback.discord.webhookUrls)
+        setBraveApiKey(fallback.brave.apiKey)
+        setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
+        setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
         hydrateOpenAISetup(fallback)
         hydrateClaudeSetup(fallback)
         hydrateGrokSetup(fallback)
@@ -364,6 +387,7 @@ export default function IntegrationsPage() {
       { ref: connectivitySectionRef },
       { ref: telegramSetupSectionRef },
       { ref: discordSetupSectionRef },
+      { ref: braveSetupSectionRef },
       { ref: openaiSetupSectionRef },
       { ref: claudeSetupSectionRef },
       { ref: grokSetupSectionRef },
@@ -398,6 +422,7 @@ export default function IntegrationsPage() {
     !integrationsHydrated ? "bg-slate-400" : connected ? "bg-emerald-400" : "bg-rose-400"
   const integrationTextClass = (connected: boolean) =>
     !integrationsHydrated ? "text-slate-400" : connected ? "text-emerald-400" : "text-rose-400"
+  const braveNeedsKeyWarning = !(settings.brave.connected && (settings.brave.apiKeyConfigured || braveApiKeyConfigured))
   const connectivityItems = [
     { key: "telegram" as const, connected: settings.telegram.connected, icon: <TelegramIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Telegram setup" },
     { key: "discord" as const, connected: settings.discord.connected, icon: <DiscordIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Discord setup" },
@@ -406,6 +431,7 @@ export default function IntegrationsPage() {
     { key: "grok" as const, connected: settings.grok.connected, icon: <XAIIcon size={16} />, ariaLabel: "Open Grok setup" },
     { key: "gemini" as const, connected: settings.gemini.connected, icon: <GeminiIcon size={16} />, ariaLabel: "Open Gemini setup" },
     { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
+    { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
   ]
   const providerDefinitions = useMemo(() => ({
     openai: {
@@ -679,6 +705,65 @@ export default function IntegrationsPage() {
     }
   }, [settings])
 
+  const toggleBrave = useCallback(async () => {
+    const canEnableFromSavedKey = Boolean(braveApiKeyConfigured || settings.brave.apiKeyConfigured)
+    if (!settings.brave.connected && !canEnableFromSavedKey) {
+      setSaveStatus({
+        type: "error",
+        message: "Save a Brave API key first, then enable Brave.",
+      })
+      return
+    }
+
+    const next = {
+      ...settings,
+      brave: {
+        ...settings.brave,
+        connected: !settings.brave.connected,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("brave")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brave: { connected: next.brave.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update Brave status")
+      const payload = await res.json().catch(() => ({}))
+      const connected = Boolean(payload?.config?.brave?.connected)
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          brave: {
+            ...prev.brave,
+            connected,
+            apiKeyConfigured: Boolean(payload?.config?.brave?.apiKeyConfigured) || prev.brave.apiKeyConfigured,
+            apiKeyMasked: typeof payload?.config?.brave?.apiKeyMasked === "string" ? payload.config.brave.apiKeyMasked : prev.brave.apiKeyMasked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: "success",
+        message: `Brave ${connected ? "enabled" : "disabled"}.`,
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update Brave status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [braveApiKeyConfigured, settings])
+
   const saveActiveProvider = useCallback(async (provider: LlmProvider) => {
     if (provider === "openai" && !settings.openai.connected) {
       setSaveStatus({ type: "error", message: "OpenAI is inactive. Save a valid key + model first." })
@@ -911,6 +996,74 @@ export default function IntegrationsPage() {
       setIsSavingTarget(null)
     }
   }, [discordWebhookUrls, settings])
+
+  const saveBraveConfig = useCallback(async () => {
+    const trimmedApiKey = braveApiKey.trim()
+    const shouldEnable = settings.brave.connected || trimmedApiKey.length > 0 || braveApiKeyConfigured
+    const payloadBrave: Record<string, string> = {}
+    if (trimmedApiKey) payloadBrave.apiKey = trimmedApiKey
+
+    const next = {
+      ...settings,
+      brave: {
+        ...settings.brave,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("brave")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brave: {
+            ...payloadBrave,
+            connected: shouldEnable,
+          },
+        }),
+      })
+      const savedData = await saveRes.json().catch(() => ({}))
+      if (!saveRes.ok) {
+        const message =
+          typeof savedData?.error === "string" && savedData.error.trim().length > 0
+            ? savedData.error.trim()
+            : "Failed to save Brave configuration."
+        throw new Error(message)
+      }
+      const masked = typeof savedData?.config?.brave?.apiKeyMasked === "string" ? savedData.config.brave.apiKeyMasked : ""
+      const configured = Boolean(savedData?.config?.brave?.apiKeyConfigured) || trimmedApiKey.length > 0
+      const connected = Boolean(savedData?.config?.brave?.connected)
+      setBraveApiKey("")
+      setBraveApiKeyMasked(masked)
+      setBraveApiKeyConfigured(configured)
+      setSettings((prev) => {
+        const updated = {
+          ...prev,
+          brave: {
+            ...prev.brave,
+            connected,
+            apiKeyConfigured: configured,
+            apiKeyMasked: masked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: "success",
+        message: "Brave saved.",
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save Brave configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [braveApiKey, braveApiKeyConfigured, settings])
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
       {background === "floatingLines" && !isLight && (
@@ -987,16 +1140,20 @@ export default function IntegrationsPage() {
               />
             </button>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
-                <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
-                <div className="inline-flex items-center gap-1.5">
-                  <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
-                  <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
-                    {presence.label}
-                  </span>
+              <div className="flex flex-col leading-tight">
+                <div className="flex items-baseline gap-3">
+                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                  <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                 </div>
-                <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Integrations Hub</p>
+                <div className="mt-0.5 flex items-center gap-3">
+                  <div className="inline-flex items-center gap-1.5">
+                    <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                    <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                      {presence.label}
+                    </span>
+                  </div>
+                  <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Integrations Hub</p>
+                </div>
               </div>
             </div>
           </div>
@@ -1019,7 +1176,6 @@ export default function IntegrationsPage() {
                 items={connectivityItems}
               />
             </div>
-
             <div className={cn("mt-3 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
               <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Profile & Settings</p>
               <div className="flex items-center gap-3">
@@ -1148,7 +1304,14 @@ export default function IntegrationsPage() {
                 </div>
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                    {braveNeedsKeyWarning && (
+                      <p className={cn("text-[11px]", isLight ? "text-amber-700" : "text-amber-300")}>
+                        Key missing
+                      </p>
+                    )}
+                  </div>
                   <div className="space-y-2">
                     <div
                       className={cn(
@@ -1265,6 +1428,126 @@ export default function IntegrationsPage() {
             </section>
             )}
 
+            {activeSetup === "brave" && (
+            <section ref={braveSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Brave Search API
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save a per-user Brave API key for secure web search access.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleBrave}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.brave.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.brave.connected ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={saveBraveConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "brave" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key</p>
+                  {braveApiKeyConfigured && braveApiKeyMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Key on server: <span className="font-mono">{braveApiKeyMasked}</span>
+                    </p>
+                  )}
+                  <input
+                    type="password"
+                    value={braveApiKey}
+                    onChange={(e) => setBraveApiKey(e.target.value)}
+                    placeholder={braveApiKeyConfigured ? "Enter new key to replace current key" : "BSAI-xxxxxxxxxxxxxxxx"}
+                    name="brave_api_key_input"
+                    autoComplete="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-form-type="other"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <div className="space-y-2">
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Brave API Key</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Open <span className="font-mono">api.search.brave.com</span> and sign in to your Brave Search API account.</li>
+                        <li>2. Create a new key for this Nova workspace and give it a clear label (for example: <span className="font-mono">Nova Desktop - Personal</span>).</li>
+                        <li>3. Copy the key immediately and keep it private. Treat it like a password.</li>
+                      </ol>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Paste the key into <span className="font-mono">API Key</span> and click <span className="font-mono">Save</span>.</li>
+                        <li>2. Confirm you see a masked server value (for example: <span className="font-mono">BSAI****ABCD</span>).</li>
+                        <li>3. Click <span className="font-mono">Enable</span> so mission web-search and scraping can use Brave.</li>
+                      </ol>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Verification and Security</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Run a mission that includes web fetch/search and check run trace for successful web sources.</li>
+                        <li>2. If you still see low-source or key-missing warnings, disable then re-enable Brave after saving a fresh key.</li>
+                        <li>3. Rotate the key in Brave dashboard immediately if it is ever exposed in logs, screenshots, or shared text.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            )}
+
             {activeProviderDefinition && (
               <LlmSetupPanel
                 sectionRef={activeProviderDefinition.sectionRef}
@@ -1371,6 +1654,7 @@ export default function IntegrationsPage() {
                 { name: "Grok", active: settings.grok.connected },
                 { name: "Gemini", active: settings.gemini.connected },
                 { name: "Gmail", active: settings.gmail.connected },
+                { name: "Brave", active: settings.brave.connected },
               ].map((item) => (
                 <div
                   key={item.name}
@@ -1402,6 +1686,3 @@ export default function IntegrationsPage() {
     </div>
   )
 }
-
-
-

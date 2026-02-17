@@ -1,4 +1,4 @@
-import { ChatShell } from "@/components/chat-shell"
+import { ChatShellController } from "./components/chat-shell-controller"
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function ChatPage() {
-  return <ChatShell />
+  return <ChatShellController />
 }
