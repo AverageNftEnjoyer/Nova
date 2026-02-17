@@ -14,11 +14,9 @@ export default function BootRightPage() {
   useEffect(() => {
     const nextParam = String(searchParams.get("next") || "").trim()
     const nextPath = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/home"
-    // Check if boot animation is enabled in settings
     const settings = loadUserSettings()
     if (!settings.app.bootAnimationEnabled) {
       sessionStorage.removeItem("nova-home-intro-pending")
-      // Skip boot animation, go directly to home
       router.replace(nextPath)
       return
     }

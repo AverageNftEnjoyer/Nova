@@ -229,7 +229,7 @@ export default function MissionsPage() {
                 </div>
               </div>
               <div className="min-w-0 px-1">
-                <div className="mx-auto grid w-full max-w-[46rem] grid-cols-4 items-stretch gap-2">
+                <div className="mx-auto grid w-full max-w-184 grid-cols-4 items-stretch gap-2">
                   {[
                     { label: "Total Missions", value: String(missionStats.total), dotClass: isLight ? "bg-s-40" : "bg-slate-400" },
                     { label: "Active Missions", value: String(missionStats.enabled), dotClass: isLight ? "bg-emerald-400" : "bg-emerald-400" },

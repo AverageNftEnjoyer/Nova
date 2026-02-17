@@ -616,7 +616,7 @@ export default function LoginPage() {
       {debugEnabled && (
         <div className="fixed bottom-2 right-2 z-50 w-105 max-h-[48vh] overflow-auto rounded-md border border-white/20 bg-black/75 p-2 text-[11px] text-white/90">
           <div className="mb-1 font-mono text-white/95">Login Debug id={debugMountIdRef.current}</div>
-          <pre className="whitespace-pre-wrap break-words font-mono">
+          <pre className="whitespace-pre-wrap wrap-break-word font-mono">
             {JSON.stringify(
               {
                 counters: debugPanel.counters,
