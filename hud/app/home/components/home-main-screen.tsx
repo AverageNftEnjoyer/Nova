@@ -209,14 +209,6 @@ export function HomeMainScreen() {
                           }}
                         />
                       )}
-                      <div
-                        className="absolute -inset-6 rounded-full animate-spin animation-duration-[16s]"
-                        style={{ border: `1px solid ${hexToRgba(orbPalette.circle1, isLight ? 0.16 : 0.22)}` }}
-                      />
-                      <div
-                        className="absolute -inset-4 rounded-full"
-                        style={{ boxShadow: `0 0 80px -15px ${hexToRgba(orbPalette.circle1, isLight ? 0.34 : 0.55)}` }}
-                      />
                       <AnimatedOrb size={280} palette={orbPalette} showStateLabel={false} />
                     </>
                   )}

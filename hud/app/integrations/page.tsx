@@ -81,6 +81,7 @@ import {
 
 export default function IntegrationsPage() {
   const router = useRouter()
+  const [orbHovered, setOrbHovered] = useState(false)
   const { theme } = useTheme()
   const pageActive = usePageActive()
   const isLight = theme === "light"
@@ -360,7 +361,6 @@ export default function IntegrationsPage() {
   useSpotlightEffect(
     spotlightEnabled,
     [
-      { ref: topHeaderRef, showSpotlightCore: false },
       { ref: connectivitySectionRef },
       { ref: telegramSetupSectionRef },
       { ref: discordSetupSectionRef },
@@ -387,6 +387,7 @@ export default function IntegrationsPage() {
   const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
   const moduleHeightClass = "h-[clamp(620px,88vh,1240px)]"
   const presence = getNovaPresence({ agentConnected, novaState })
+  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
   const integrationBadgeClass = (connected: boolean) =>
     !integrationsHydrated
       ? "border-white/15 bg-white/10 text-slate-200"
@@ -969,10 +970,12 @@ export default function IntegrationsPage() {
         <div className="w-full">
           <SaveStatusToast status={saveStatus} isLight={isLight} />
 
-          <div ref={topHeaderRef} className="home-spotlight-shell mb-4 flex items-center gap-3">
+          <div ref={topHeaderRef} className="mb-4 flex items-center gap-3">
             <button
               onClick={() => router.push("/home")}
-              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110 home-spotlight-card home-spotlight-card--hover"
+              onMouseEnter={() => setOrbHovered(true)}
+              onMouseLeave={() => setOrbHovered(false)}
+              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
               aria-label="Go to home"
             >
               <NovaOrbIndicator
@@ -980,6 +983,7 @@ export default function IntegrationsPage() {
                 size={30}
                 animated={pageActive}
                 className="transition-all duration-200"
+                style={{ filter: orbHovered ? orbHoverFilter : "none" }}
               />
             </button>
             <div className="min-w-0">

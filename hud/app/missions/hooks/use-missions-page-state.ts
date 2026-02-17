@@ -23,7 +23,7 @@ import {
   fetchIntegrationCatalog as fetchIntegrationCatalogApi,
   fetchSchedules as fetchSchedulesApi,
   requestNovaSuggest,
-  triggerMissionSchedule,
+  triggerMissionScheduleStream,
   updateMissionSchedule,
   type BuildMissionResponse,
   type NovaSuggestResponse,
@@ -115,6 +115,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const [runImmediatelyOnCreate, setRunImmediatelyOnCreate] = useState(false)
   const [runProgress, setRunProgress] = useState<MissionRunProgress | null>(null)
   const [missionRuntimeStatusById, setMissionRuntimeStatusById] = useState<Record<string, MissionRuntimeStatus>>({})
+  const runProgressAnimationTimerRef = useRef<number | null>(null)
 
   const catalogApiById = useMemo(() => {
     const next: Record<string, IntegrationCatalogItem> = {}
@@ -297,8 +298,35 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setNewDescription(template.description)
     setNewTime(template.time)
     setMissionTags(template.tags)
+    // Create base workflow steps and then apply template-specific overrides
     setWorkflowSteps(
-      template.steps.map((step) => createWorkflowStep(step.type, step.title)),
+      template.steps.map((step) => {
+        const baseStep = createWorkflowStep(step.type, step.title)
+        // Apply template-specific properties
+        return {
+          ...baseStep,
+          // Fetch step overrides
+          ...(step.fetchQuery ? { fetchQuery: step.fetchQuery } : {}),
+          ...(step.fetchSource ? { fetchSource: step.fetchSource } : {}),
+          ...(step.fetchUrl ? { fetchUrl: step.fetchUrl } : {}),
+          ...(step.fetchIncludeSources !== undefined ? { fetchIncludeSources: step.fetchIncludeSources } : {}),
+          // AI step overrides
+          ...(step.aiPrompt ? { aiPrompt: step.aiPrompt } : {}),
+          ...(step.aiIntegration ? { aiIntegration: step.aiIntegration } : {}),
+          ...(step.aiDetailLevel ? { aiDetailLevel: step.aiDetailLevel } : {}),
+          // Trigger overrides
+          ...(step.triggerMode ? { triggerMode: step.triggerMode } : {}),
+          ...(step.triggerIntervalMinutes ? { triggerIntervalMinutes: step.triggerIntervalMinutes } : {}),
+          // Condition overrides
+          ...(step.conditionField ? { conditionField: step.conditionField } : {}),
+          ...(step.conditionOperator ? { conditionOperator: step.conditionOperator } : {}),
+          ...(step.conditionValue ? { conditionValue: step.conditionValue } : {}),
+          ...(step.conditionFailureAction ? { conditionFailureAction: step.conditionFailureAction } : {}),
+          // Output overrides
+          ...(step.outputChannel ? { outputChannel: step.outputChannel } : {}),
+          ...(step.outputTiming ? { outputTiming: step.outputTiming } : {}),
+        }
+      }),
     )
     setCollapsedStepIds({})
     setBuilderOpen(true)
@@ -356,16 +384,60 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   }, [])
 
   const toPendingRunSteps = useCallback((steps: Array<Partial<WorkflowStep>> | undefined): MissionRunStepTrace[] => {
+    const nowIso = new Date().toISOString()
     if (!Array.isArray(steps) || steps.length === 0) {
-      return [{ stepId: "output", type: "output", title: "Run mission output", status: "running" }]
+      return [{ stepId: "output", type: "output", title: "Run mission output", status: "running", startedAt: nowIso }]
     }
     return steps.map((step, index) => ({
       stepId: String(step.id || `step-${index + 1}`),
       type: String(step.type || "output"),
-      title: String(step.title || STEP_TYPE_OPTIONS.find((option) => option.type === step.type)?.label || `Step ${index + 1}`),
+      title: (() => {
+        const rawTitle = String(step.title || STEP_TYPE_OPTIONS.find((option) => option.type === step.type)?.label || `Step ${index + 1}`)
+        const channel = String(step.outputChannel || "").trim().toLowerCase()
+        if (String(step.type || "").toLowerCase() !== "output") return rawTitle
+        if (channel === "novachat" && /telegram/i.test(rawTitle)) return rawTitle.replace(/telegram/ig, "NovaChat")
+        if (channel === "novachat" && /^send notification$/i.test(rawTitle)) return "Send to NovaChat"
+        return rawTitle
+      })(),
       status: index === 0 ? "running" : "pending",
+      startedAt: index === 0 ? nowIso : undefined,
     }))
   }, [])
+
+  const stopRunProgressAnimation = useCallback(() => {
+    if (runProgressAnimationTimerRef.current !== null) {
+      window.clearInterval(runProgressAnimationTimerRef.current)
+      runProgressAnimationTimerRef.current = null
+    }
+  }, [])
+
+  const startRunProgressAnimation = useCallback((missionId: string) => {
+    stopRunProgressAnimation()
+    setRunProgress((prev) => {
+      if (!prev || !prev.running || prev.missionId !== missionId) return prev
+      if (!Array.isArray(prev.steps) || prev.steps.length === 0) return prev
+      const nowIso = new Date().toISOString()
+      const runningIndex = prev.steps.findIndex((step) => step.status === "running")
+      if (runningIndex >= 0) {
+        return {
+          ...prev,
+          steps: prev.steps.map((step, index) => (
+            index === runningIndex
+              ? { ...step, startedAt: step.startedAt || nowIso }
+              : step
+          )),
+        }
+      }
+      return {
+        ...prev,
+        steps: prev.steps.map((step, index) => ({
+          ...step,
+          status: index === 0 ? "running" : "pending",
+          startedAt: index === 0 ? (step.startedAt || nowIso) : step.startedAt,
+        })),
+      }
+    })
+  }, [stopRunProgressAnimation])
 
   const normalizeRunStepTraces = useCallback(
     (
@@ -374,7 +446,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     ): MissionRunStepTrace[] => {
       if (!Array.isArray(raw)) return fallbackSteps
       const mapped = raw
-        .map((item, index) => {
+        .map((item, index): MissionRunStepTrace | null => {
           if (!item || typeof item !== "object") return null
           const next = item as {
             stepId?: string
@@ -382,25 +454,86 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
             title?: string
             status?: string
             detail?: string
+            startedAt?: string
+            endedAt?: string
           }
           const status = String(next.status || "").toLowerCase()
-          const normalizedStatus: "pending" | "completed" | "failed" | "skipped" =
-            status === "completed" || status === "failed" || status === "skipped"
+          const normalizedStatus: "pending" | "running" | "completed" | "failed" | "skipped" =
+            status === "running" || status === "completed" || status === "failed" || status === "skipped"
               ? status
               : "pending"
           return {
             stepId: String(next.stepId || `step-${index + 1}`),
             type: String(next.type || "output"),
-            title: String(next.title || `Step ${index + 1}`),
+            title: (() => {
+              const rawTitle = String(next.title || `Step ${index + 1}`)
+              const detail = String(next.detail || "")
+              if (String(next.type || "").toLowerCase() === "output" && /via\s+novachat/i.test(detail) && /telegram/i.test(rawTitle)) {
+                return rawTitle.replace(/telegram/ig, "NovaChat")
+              }
+              return rawTitle
+            })(),
             status: normalizedStatus,
             detail: typeof next.detail === "string" && next.detail.trim() ? next.detail.trim() : undefined,
+            startedAt: typeof next.startedAt === "string" && next.startedAt.trim() ? next.startedAt : undefined,
+            endedAt: typeof next.endedAt === "string" && next.endedAt.trim() ? next.endedAt : undefined,
           }
         })
-        .filter((item): item is { stepId: string; type: string; title: string; status: "pending" | "completed" | "failed" | "skipped"; detail: string | undefined } => Boolean(item))
+        .filter((item): item is MissionRunStepTrace => item !== null)
       return mapped.length > 0 ? mapped : fallbackSteps
     },
     [],
   )
+
+  const applyStreamingStepTrace = useCallback((missionId: string, trace: {
+    stepId?: string
+    type?: string
+    title?: string
+    status?: string
+    detail?: string
+    startedAt?: string
+    endedAt?: string
+  }) => {
+    setRunProgress((prev) => {
+      if (!prev || prev.missionId !== missionId || !Array.isArray(prev.steps) || prev.steps.length === 0) return prev
+      const stepId = String(trace.stepId || "").trim()
+      const matchIndex = stepId
+        ? prev.steps.findIndex((step) => step.stepId === stepId)
+        : prev.steps.findIndex((step) => String(step.type || "").toLowerCase() === String(trace.type || "").toLowerCase() && step.status === "running")
+      if (matchIndex < 0) return prev
+      const statusRaw = String(trace.status || "").toLowerCase()
+      const status: MissionRunStepTrace["status"] =
+        statusRaw === "completed" || statusRaw === "failed" || statusRaw === "skipped" || statusRaw === "running"
+          ? statusRaw
+          : "pending"
+      const finished = status === "completed" || status === "failed" || status === "skipped"
+      const nextIndex = matchIndex + 1
+      const nextStartedAt = typeof trace.endedAt === "string" && trace.endedAt.trim() ? trace.endedAt : new Date().toISOString()
+      return {
+        ...prev,
+        steps: prev.steps.map((step, index) => {
+          if (index === matchIndex) {
+            return {
+              ...step,
+              title: String(trace.title || step.title || `Step ${index + 1}`),
+              status,
+              detail: typeof trace.detail === "string" && trace.detail.trim() ? trace.detail.trim() : step.detail,
+              startedAt: typeof trace.startedAt === "string" && trace.startedAt.trim() ? trace.startedAt : step.startedAt,
+              endedAt: typeof trace.endedAt === "string" && trace.endedAt.trim() ? trace.endedAt : step.endedAt,
+            }
+          }
+          if (finished && index === nextIndex && step.status === "pending") {
+            return {
+              ...step,
+              status: "running",
+              startedAt: step.startedAt || nextStartedAt,
+            }
+          }
+          return step
+        }),
+      }
+    })
+  }, [])
 
   const mapWorkflowStepsForBuilder = useCallback(
     (rawSteps: Array<Partial<WorkflowStep>> | undefined, fallbackTime: string, fallbackTimezone: string): WorkflowStep[] => {
@@ -492,7 +625,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         return {
           ...base,
           title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
-          outputChannel: step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+          outputChannel: step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
             ? step.outputChannel
             : base.outputChannel,
           outputTiming: step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate",
@@ -500,7 +633,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           outputFrequency: step.outputFrequency === "multiple" ? "multiple" : "once",
           outputRepeatCount: typeof step.outputRepeatCount === "string" && step.outputRepeatCount.trim() ? step.outputRepeatCount : base.outputRepeatCount,
           outputRecipients: sanitizeOutputRecipients(
-            step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+            step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
               ? step.outputChannel
               : base.outputChannel,
             typeof step.outputRecipients === "string" ? step.outputRecipients : base.outputRecipients,
@@ -591,8 +724,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setStatus(null)
 
     try {
+      const stepTitle = String(step.title || "").trim() || "AI Process"
       const response = await requestNovaSuggest({
-        stepTitle: step.title || "AI Process",
+        stepTitle,
       })
       const data = response.data as NovaSuggestResponse
       if (!response.ok) {
@@ -690,6 +824,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
 
   useEffect(() => {
     let cancelled = false
+    let refreshTimer: number | null = null
     const refreshCatalog = async () => {
       try {
         const response = await fetchIntegrationCatalogApi()
@@ -697,14 +832,19 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         if (cancelled) return
         setIntegrationCatalog(normalizeIntegrationCatalog(payload.catalog))
       } catch {
-        if (!cancelled) setIntegrationCatalog([])
+        if (!cancelled) {
+          setIntegrationCatalog([])
+          if (refreshTimer === null) {
+            refreshTimer = window.setTimeout(() => {
+              refreshTimer = null
+              if (!cancelled) void refreshCatalog()
+            }, 15000)
+          }
+        }
       }
     }
 
     void refreshCatalog()
-    const interval = window.setInterval(() => {
-      void refreshCatalog()
-    }, 4000)
     const onUpdated = () => {
       void refreshCatalog()
     }
@@ -712,7 +852,10 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     window.addEventListener("storage", onUpdated)
     return () => {
       cancelled = true
-      window.clearInterval(interval)
+      if (refreshTimer !== null) {
+        window.clearTimeout(refreshTimer)
+        refreshTimer = null
+      }
       window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdated as EventListener)
       window.removeEventListener("storage", onUpdated)
     }
@@ -827,7 +970,6 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   useMissionsSpotlight({
     spotlightEnabled,
     builderOpen,
-    heroHeaderRef,
     createSectionRef,
     listSectionRef,
     headerActionsRef,
@@ -870,7 +1012,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
 
     const workflowStepsForSave = workflowSteps.map((step) => {
       if (step.type !== "output") return step
-      const outputChannel = step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+      const outputChannel = step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
         ? step.outputChannel
         : "telegram"
       const outputTiming = step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate"
@@ -956,6 +1098,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         setSchedules((prev) => [createdSchedule, ...prev])
       }
 
+      let immediateRunNovachatQueued = false
       if (runImmediatelyOnCreate) {
         const runScheduleId = isEditing
           ? (typeof editingMissionId === "string" ? editingMissionId.trim() : "")
@@ -980,10 +1123,16 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           success: false,
           steps: pendingSteps,
         })
-        const triggerResponse = await triggerMissionSchedule(runScheduleId)
-        const triggerData = triggerResponse.data as TriggerMissionResponse
+        startRunProgressAnimation(runScheduleId)
+        const triggerData = await triggerMissionScheduleStream(runScheduleId, (event) => {
+          if (event.type === "step" && event.trace) {
+            applyStreamingStepTrace(runScheduleId, event.trace)
+          }
+        })
+        immediateRunNovachatQueued = Boolean(triggerData?.novachatQueued)
         const finalizedSteps = normalizeRunStepTraces(triggerData?.stepTraces, pendingSteps)
-        if (!triggerResponse.ok) {
+        stopRunProgressAnimation()
+        if (!triggerData?.ok) {
         const failedAt = Date.now()
         setMissionRuntimeStatusById((prev) => ({
           ...prev,
@@ -996,7 +1145,12 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           success: false,
             reason: triggerData?.error || triggerData?.reason || "Immediate run failed.",
             steps: finalizedSteps,
+            outputResults: Array.isArray(triggerData?.results) ? triggerData.results : [],
+            novachatQueued: immediateRunNovachatQueued,
           })
+          if (Array.isArray(triggerData?.results) && triggerData.results.length > 0) {
+            console.debug("[missions] output results", triggerData.results)
+          }
           throw new Error(triggerData?.error || (isEditing ? "Mission was saved but immediate run failed." : "Mission was created but immediate run failed."))
         }
         setRunProgress({
@@ -1006,7 +1160,12 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           success: Boolean(triggerData?.ok),
           reason: triggerData?.reason,
           steps: finalizedSteps,
+          outputResults: Array.isArray(triggerData?.results) ? triggerData.results : [],
+          novachatQueued: immediateRunNovachatQueued,
         })
+        if (Array.isArray(triggerData?.results) && triggerData.results.length > 0) {
+          console.debug("[missions] output results", triggerData.results)
+        }
         if (triggerData?.schedule) {
           updateLocalSchedule(runScheduleId, triggerData.schedule)
           setBaselineById((prev) => ({ ...prev, [runScheduleId]: triggerData.schedule as NotificationSchedule }))
@@ -1037,13 +1196,16 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       setStatus({
         type: "success",
         message: runImmediatelyOnCreate
-          ? (isEditing ? "Mission saved and run started." : "Mission deployed and run started.")
+          ? (isEditing
+            ? (immediateRunNovachatQueued ? "Mission saved, run started, and NovaChat is ready." : "Mission saved and run started.")
+            : (immediateRunNovachatQueued ? "Mission deployed, run started, and NovaChat is ready." : "Mission deployed and run started."))
           : (isEditing ? "Mission saved." : "Mission deployed."),
       })
       setBuilderOpen(false)
       resetMissionBuilder()
       await refreshSchedules()
     } catch (error) {
+      stopRunProgressAnimation()
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to deploy mission." })
     } finally {
       setDeployingMission(false)
@@ -1066,6 +1228,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     router,
     toPendingRunSteps,
     normalizeRunStepTraces,
+    applyStreamingStepTrace,
+    startRunProgressAnimation,
+    stopRunProgressAnimation,
     updateLocalSchedule,
     workflowSteps,
   ])
@@ -1213,10 +1378,15 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       success: false,
       steps: pendingSteps,
     })
+    startRunProgressAnimation(mission.id)
     try {
-      const response = await triggerMissionSchedule(mission.id)
-      const data = response.data as TriggerMissionResponse
+      const data = await triggerMissionScheduleStream(mission.id, (event) => {
+        if (event.type === "step" && event.trace) {
+          applyStreamingStepTrace(mission.id, event.trace)
+        }
+      })
       const finalizedSteps = normalizeRunStepTraces(data?.stepTraces, pendingSteps)
+      stopRunProgressAnimation()
       setRunProgress({
         missionId: mission.id,
         missionLabel: mission.label || "Untitled mission",
@@ -1224,7 +1394,12 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         success: Boolean(data?.ok),
         reason: data?.reason,
         steps: finalizedSteps,
+        outputResults: Array.isArray(data?.results) ? data.results : [],
+        novachatQueued: Boolean(data?.novachatQueued),
       })
+      if (Array.isArray(data?.results) && data.results.length > 0) {
+        console.debug("[missions] output results", data.results)
+      }
       if (data?.schedule) {
         updateLocalSchedule(mission.id, data.schedule)
         setBaselineById((prev) => ({ ...prev, [mission.id]: data.schedule as NotificationSchedule }))
@@ -1250,10 +1425,16 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         ...prev,
         [mission.id]: data?.ok ? { kind: "completed", at: finishedAt } : { kind: "failed", at: finishedAt },
       }))
-      if (!response.ok) throw new Error(data?.error || "Run now failed.")
+      if (!data?.ok) throw new Error(data?.error || "Run now failed.")
       await refreshSchedules()
-      setStatus({ type: "success", message: "Mission run completed. Review step trace panel for details." })
+      setStatus({
+        type: "success",
+        message: data?.novachatQueued
+          ? "Mission run completed. NovaChat message queued - use Open NovaChat in the run trace."
+          : "Mission run completed. Review step trace panel for details.",
+      })
     } catch (error) {
+      stopRunProgressAnimation()
       const failedAt = Date.now()
       setMissionRuntimeStatusById((prev) => ({
         ...prev,
@@ -1267,7 +1448,13 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       } : prev)
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to run mission now." })
     }
-  }, [normalizeRunStepTraces, refreshSchedules, toPendingRunSteps, updateLocalSchedule])
+  }, [applyStreamingStepTrace, normalizeRunStepTraces, refreshSchedules, startRunProgressAnimation, stopRunProgressAnimation, toPendingRunSteps, updateLocalSchedule])
+
+  useEffect(() => {
+    return () => {
+      stopRunProgressAnimation()
+    }
+  }, [stopRunProgressAnimation])
 
   useAutoDismissRunProgress(runProgress, setRunProgress)
 

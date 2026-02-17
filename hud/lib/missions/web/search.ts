@@ -12,16 +12,22 @@ import type { WebSearchResult, WebSearchResponse } from "../types"
 
 /**
  * Build search query variants for better coverage.
+ * Enhanced with topic-specific query strategies.
  */
 export function buildSearchQueryVariants(query: string): string[] {
   const base = cleanText(query)
   if (!base) return []
   const variants = new Set<string>([base])
 
+  // Get current date info
+  const now = new Date()
+  const currentMonth = now.toLocaleString("en-US", { month: "long", year: "numeric" })
+  const today = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  const yesterdayStr = yesterday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+
   // Add article-targeting variants
-  const currentMonth = new Date().toLocaleString("en-US", { month: "long", year: "numeric" })
   variants.add(`${base} ${currentMonth}`)
-  variants.add(`${base} article`)
 
   const noYear = base.replace(/\b20\d{2}\b/g, "").replace(/\s+/g, " ").trim()
   if (noYear && noYear !== base) {
@@ -31,19 +37,104 @@ export function buildSearchQueryVariants(query: string): string[] {
 
   const lower = base.toLowerCase()
 
-  // AI/tech queries
-  if (/\b(ai|artificial intelligence|tech|technology)\b/.test(lower) && /\b(news|latest|updates|breakthroughs?)\b/.test(lower)) {
-    variants.add(`${base} site:techcrunch.com OR site:theverge.com OR site:arstechnica.com OR site:wired.com`)
-    variants.add(`${base} announced OR released OR launched ${currentMonth}`)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Sports-specific queries
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // NBA
+  if (/\bnba\b/.test(lower)) {
+    if (/\b(last night|yesterday)\b/.test(lower)) {
+      variants.add(`NBA scores ${yesterdayStr} final results`)
+      variants.add(`NBA games ${yesterdayStr} box scores site:espn.com OR site:nba.com`)
+    } else {
+      variants.add(`NBA scores ${today} final results`)
+      variants.add(`NBA games today scores site:espn.com OR site:nba.com`)
+    }
+    variants.add("NBA scores recap highlights site:espn.com OR site:nba.com OR site:bleacherreport.com")
   }
 
-  // Sports queries
-  if (/\bnba\b/.test(lower) && /\b(last night|recap|scores|games)\b/.test(lower)) {
-    variants.add("nba games last night final scores site:nba.com OR site:espn.com OR site:apnews.com OR site:reuters.com")
-    variants.add("nba recap last night final score box score")
+  // NFL
+  if (/\bnfl\b/.test(lower)) {
+    variants.add(`NFL scores ${currentMonth} game results`)
+    variants.add(`NFL scores recap site:espn.com OR site:nfl.com`)
   }
 
-  return Array.from(variants).filter(Boolean).slice(0, 6)
+  // MLB
+  if (/\bmlb\b/.test(lower)) {
+    variants.add(`MLB scores ${today} game results`)
+    variants.add(`MLB scores recap site:espn.com OR site:mlb.com`)
+  }
+
+  // Generic sports
+  if (/\b(sports?|scores?|games?)\b/.test(lower) && !/\b(nba|nfl|mlb|nhl)\b/.test(lower)) {
+    variants.add(`sports scores ${today} site:espn.com OR site:sports.yahoo.com`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Market/Finance queries
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (/\b(market|stock|stocks|trading|s&p|dow|nasdaq)\b/.test(lower)) {
+    variants.add(`stock market news ${today} S&P 500 Dow Jones`)
+    variants.add(`market update ${today} site:reuters.com OR site:bloomberg.com OR site:cnbc.com`)
+    variants.add(`stock market recap ${currentMonth} major indexes`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Crypto queries
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (/\b(crypto|bitcoin|btc|ethereum|eth|cryptocurrency)\b/.test(lower)) {
+    variants.add(`cryptocurrency news ${today} Bitcoin Ethereum prices`)
+    variants.add(`crypto market update ${currentMonth} site:coindesk.com OR site:cointelegraph.com`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Motivational quotes
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (/\b(motivational?|inspirational?|quote|quotes|wisdom)\b/.test(lower)) {
+    variants.add(`motivational quote of the day ${today}`)
+    variants.add(`inspirational quote daily site:brainyquote.com OR site:goodreads.com`)
+    variants.add(`motivational quotes ${currentMonth}`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Tech/AI queries
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (/\b(ai|artificial intelligence|tech|technology)\b/.test(lower)) {
+    variants.add(`technology news ${today} announcements`)
+    variants.add(`AI news ${currentMonth} site:techcrunch.com OR site:theverge.com OR site:wired.com`)
+    variants.add(`tech news latest ${currentMonth} breakthroughs`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // News/Headlines queries
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (/\b(news|headlines?|current events?|breaking)\b/.test(lower)) {
+    variants.add(`top news headlines ${today}`)
+    variants.add(`breaking news ${today} site:apnews.com OR site:reuters.com OR site:bbc.com`)
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Weather queries
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (/\b(weather|forecast|temperature)\b/.test(lower)) {
+    // Try to extract city name
+    const cityMatch = lower.match(/weather\s+(?:in|for|at)?\s*([a-z\s]+?)(?:\s|$)/i)
+    if (cityMatch) {
+      const city = cityMatch[1].trim()
+      variants.add(`${city} weather forecast today`)
+      variants.add(`${city} weather ${today}`)
+    } else {
+      variants.add(`weather forecast today`)
+    }
+  }
+
+  return Array.from(variants).filter(Boolean).slice(0, 8)
 }
 
 /**

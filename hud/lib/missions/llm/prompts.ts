@@ -4,7 +4,7 @@
  * Functions for building prompts for mission AI steps.
  */
 
-import { cleanText, normalizeSnippetText, normalizeSourceSnippet, isRawTableData, extractReadableSentences, cleanScrapedText } from "../text/cleaning"
+import { cleanText, normalizeSnippetText, normalizeSourceSnippet, isRawTableData, extractReadableSentences, cleanScrapedText, extractSingleQuote } from "../text/cleaning"
 import { extractFactSentences } from "../text/formatting"
 import { getByPath, toNumberSafe } from "../utils/paths"
 import type { AiDetailLevel } from "../types"
@@ -203,4 +203,217 @@ export function deriveCredibleSourceCountFromContext(context: Record<string, unk
   if (Array.isArray(payloadLinks)) return payloadLinks.filter(Boolean).length
 
   return 0
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-Fetch Support
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FetchResultItem {
+  stepTitle: string
+  data: Record<string, unknown>
+}
+
+/**
+ * Check if context has multiple fetch results.
+ */
+export function hasMultipleFetchResults(context: Record<string, unknown>): boolean {
+  const fetchResults = context.fetchResults
+  return Array.isArray(fetchResults) && fetchResults.length > 1
+}
+
+/**
+ * Check if a section title indicates data-heavy content (sports, markets, crypto).
+ * These topics need numbers preserved, not filtered.
+ */
+function isDataHeavySection(sectionTitle: string): boolean {
+  const lower = sectionTitle.toLowerCase()
+  return /\b(nba|nfl|mlb|nhl|sports?|scores?|market|stock|crypto|bitcoin|weather|forecast)\b/.test(lower)
+}
+
+function isQuoteSection(sectionTitle: string): boolean {
+  const lower = sectionTitle.toLowerCase()
+  return /\b(quote|quotes|motivational|inspirational|wisdom)\b/.test(lower)
+}
+
+/**
+ * Extract key data points from data-heavy content (sports scores, market data).
+ * More lenient than extractReadableSentences - keeps numbers and short facts.
+ */
+function extractDataPoints(text: string, maxPoints: number): string[] {
+  if (!text) return []
+  const cleaned = cleanScrapedText(text)
+  const points: string[] = []
+
+  // Split by common delimiters and filter for useful content
+  const chunks = cleaned.split(/[.\n]/).map(s => s.trim()).filter(s => s.length > 15)
+
+  for (const chunk of chunks) {
+    if (points.length >= maxPoints) break
+    // Keep chunks that have some letters (not pure numbers) and aren't too long
+    const letters = (chunk.match(/[a-zA-Z]/g) || []).length
+    if (letters >= 5 && chunk.length < 200) {
+      points.push(chunk)
+    }
+  }
+
+  return points
+}
+
+/**
+ * Build web evidence context for multiple fetch results.
+ * Creates sections for each topic's data.
+ */
+export function buildMultiFetchWebEvidenceContext(
+  fetchResults: FetchResultItem[],
+  detailLevel: AiDetailLevel,
+): string {
+  if (!fetchResults || fetchResults.length === 0) return ""
+
+  const sections: string[] = []
+  const maxSourcesPerSection = detailLevel === "concise" ? 2 : detailLevel === "detailed" ? 4 : 3
+
+  for (const fetchResult of fetchResults) {
+    const sectionTitle = extractSectionTitleFromStepTitle(fetchResult.stepTitle)
+    const data = fetchResult.data
+    if (!data || typeof data !== "object") continue
+
+    const record = data as Record<string, unknown>
+    const payload = record.payload
+    if (!payload || typeof payload !== "object") continue
+
+    const results = Array.isArray((payload as Record<string, unknown>).results)
+      ? ((payload as Record<string, unknown>).results as Array<Record<string, unknown>>)
+      : []
+
+    const sectionLines: string[] = []
+    sectionLines.push(`=== SECTION: ${sectionTitle.toUpperCase()} ===`)
+    sectionLines.push("")
+
+    if (results.length === 0) {
+      sectionLines.push("No data retrieved for this section.")
+      sectionLines.push("")
+      sections.push(sectionLines.join("\n"))
+      continue
+    }
+
+    // For data-heavy sections (sports, markets), use lenient extraction
+    const isDataHeavy = isDataHeavySection(sectionTitle)
+    const top = results.slice(0, maxSourcesPerSection)
+    let validSourceCount = 0
+    const maxFactsPerSource = detailLevel === "concise" ? 3 : detailLevel === "detailed" ? 6 : 4
+
+    for (const row of top) {
+      const title = cleanText(String(row.title || row.pageTitle || ""))
+      const rawText = String(row.pageText || row.snippet || "")
+
+      // For data-heavy sections, don't filter by isRawTableData - we WANT the numbers
+      if (!isDataHeavy && isRawTableData(rawText)) continue
+
+      let facts: string[]
+      if (isQuoteSection(sectionTitle)) {
+        const quote = extractSingleQuote(rawText) || extractSingleQuote(String(row.snippet || ""))
+        facts = quote ? [quote] : []
+      } else if (isDataHeavy) {
+        // Use lenient extraction for sports/market data
+        facts = extractDataPoints(rawText, maxFactsPerSource)
+      } else {
+        // Use standard extraction for prose content
+        const readableSentences = extractReadableSentences(rawText)
+        facts = readableSentences.length > 0
+          ? readableSentences.slice(0, maxFactsPerSource)
+          : extractFactSentences(cleanScrapedText(rawText), maxFactsPerSource)
+      }
+
+      if (facts.length === 0) continue
+
+      validSourceCount++
+      if (title) sectionLines.push(`Source: ${title}`)
+      sectionLines.push("Content:")
+      for (const fact of facts) {
+        // For data-heavy sections, be lenient with filtering
+        const shouldInclude = isDataHeavy
+          ? fact.length > 10
+          : !isRawTableData(fact) && fact.length > 20
+        if (shouldInclude) {
+          sectionLines.push(`  - ${fact}`)
+        }
+      }
+      sectionLines.push("")
+    }
+
+    if (validSourceCount === 0) {
+      // For data-heavy sections that found no content, include raw snippets as fallback
+      if (isDataHeavy && results.length > 0) {
+        sectionLines.push("Raw data (may need interpretation):")
+        for (const row of results.slice(0, 2)) {
+          const snippet = cleanText(String(row.snippet || "")).slice(0, 300)
+          if (snippet) sectionLines.push(`  - ${snippet}`)
+        }
+        sectionLines.push("")
+      } else {
+        sectionLines.push("No readable content extracted for this section.")
+        sectionLines.push("")
+      }
+    }
+
+    sections.push(sectionLines.join("\n"))
+  }
+
+  if (sections.length === 0) {
+    return "No readable article content found across all topics."
+  }
+
+  return [
+    "=== MULTI-TOPIC DATA (use this to build your report) ===",
+    "",
+    ...sections,
+    "=== END OF DATA ===",
+  ].join("\n").trim()
+}
+
+/**
+ * Extract a section title from a fetch step title.
+ * e.g., "Fetch NBA Scores" -> "NBA Scores"
+ */
+function extractSectionTitleFromStepTitle(stepTitle: string): string {
+  const cleaned = cleanText(stepTitle || "")
+  // Remove common prefixes
+  const withoutPrefix = cleaned
+    .replace(/^Fetch\s+/i, "")
+    .replace(/^Get\s+/i, "")
+    .replace(/^Search\s+/i, "")
+    .replace(/^data$/i, "Results")
+  return withoutPrefix || "Results"
+}
+
+/**
+ * Check if any of the fetch results have usable data.
+ */
+export function hasUsableMultiFetchData(fetchResults: FetchResultItem[]): boolean {
+  if (!fetchResults || fetchResults.length === 0) return false
+  return fetchResults.some((item) => {
+    const data = item.data
+    if (!data || typeof data !== "object") return false
+    const record = data as Record<string, unknown>
+    return record.ok === true && (record.credibleSourceCount as number) > 0
+  })
+}
+
+/**
+ * Combine source URLs from multiple fetch results.
+ */
+export function collectSourceUrlsFromMultiFetch(fetchResults: FetchResultItem[]): string[] {
+  if (!fetchResults || fetchResults.length === 0) return []
+  const urls: string[] = []
+  for (const item of fetchResults) {
+    const data = item.data
+    if (!data || typeof data !== "object") continue
+    const record = data as Record<string, unknown>
+    const sourceUrls = record.sourceUrls
+    if (Array.isArray(sourceUrls)) {
+      urls.push(...sourceUrls.filter((url): url is string => typeof url === "string" && url.length > 0))
+    }
+  }
+  return urls
 }

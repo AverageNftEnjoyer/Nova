@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils"
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { AnalysisWordSpan } from "./analysis-word-span"
 
 interface MarkdownRendererProps {
@@ -12,20 +12,24 @@ interface MarkdownRendererProps {
 }
 
 export function MarkdownRenderer({ content, className, isStreaming = false }: MarkdownRendererProps) {
+  const normalizedContent = useMemo(
+    () => String(content || "").replace(/^#{1,6}\s+(.+)$/gm, "**$1**"),
+    [content],
+  )
   const [staticContent, setStaticContent] = useState("")
   const [animatingContent, setAnimatingContent] = useState("")
 
   useEffect(() => {
     if (isStreaming) {
       // New content is everything after what we've already rendered as static
-      const newContent = content.slice(staticContent.length)
+      const newContent = normalizedContent.slice(staticContent.length)
       setAnimatingContent(newContent)
     } else {
       // Streaming ended - move all content to static
-      setStaticContent(content)
+      setStaticContent(normalizedContent)
       setAnimatingContent("")
     }
-  }, [content, isStreaming, staticContent.length])
+  }, [normalizedContent, isStreaming, staticContent.length])
 
   // When animating content gets long enough, move older parts to static
   useEffect(() => {
@@ -39,12 +43,37 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
     }
   }, [animatingContent])
 
+  const isSourceLinkLabel = (label: string) => /^source\s+\d+$/i.test(String(label || "").trim())
+
   const getLinkClassName = (label: string) => {
     const isSourceLink = /^source\s+\d+$/i.test(String(label || "").trim())
     if (isSourceLink) {
-      return "inline-flex items-center rounded-full border border-violet-400/40 bg-violet-500/15 px-2.5 py-0.5 text-xs font-medium text-violet-200 hover:bg-violet-500/25 hover:text-violet-100 transition-colors"
+      return "group relative inline-flex items-center rounded-full border border-accent-30 bg-accent-10 px-2.5 py-0.5 text-xs font-medium text-accent hover:bg-accent-15 transition-colors"
     }
-    return "text-violet-400 hover:text-violet-300 underline underline-offset-2 transition-colors"
+    return "text-accent hover:text-accent-secondary underline underline-offset-2 transition-colors"
+  }
+
+  const renderLinkNode = (key: number, label: string, href: string) => {
+    const isSourceLink = isSourceLinkLabel(label)
+    return (
+      <a
+        key={key}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={href}
+        className={getLinkClassName(label)}
+      >
+        {label}
+        {isSourceLink && (
+          <span
+            className="pointer-events-none absolute -top-8 left-1/2 z-20 hidden max-w-[260px] -translate-x-1/2 truncate rounded-md border border-accent-30 bg-black/80 px-2 py-1 text-[10px] text-slate-100 shadow-lg backdrop-blur group-hover:block"
+          >
+            {href}
+          </span>
+        )}
+      </a>
+    )
   }
 
   const renderPlainInlineMarkdown = (text: string) => {
@@ -84,17 +113,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       // Check for links
       const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]+)\)/)
       if (linkMatch) {
-        elements.push(
-          <a
-            key={keyIndex++}
-            href={linkMatch[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={getLinkClassName(linkMatch[1])}
-          >
-            {linkMatch[1]}
-          </a>,
-        )
+        elements.push(renderLinkNode(keyIndex++, linkMatch[1], linkMatch[2]))
         remaining = remaining.slice(linkMatch[0].length)
         continue
       }
@@ -171,17 +190,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       // Check for links
       const linkMatch = remaining.match(/^\[([^\]]+)\]\(([^)]+)\)/)
       if (linkMatch) {
-        elements.push(
-          <a
-            key={keyIndex++}
-            href={linkMatch[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={getLinkClassName(linkMatch[1])}
-          >
-            {linkMatch[1]}
-          </a>,
-        )
+        elements.push(renderLinkNode(keyIndex++, linkMatch[1], linkMatch[2]))
         remaining = remaining.slice(linkMatch[0].length)
         continue
       }

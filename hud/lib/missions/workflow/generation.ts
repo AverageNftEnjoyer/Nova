@@ -15,6 +15,7 @@ import { isInvalidConditionFieldPath } from "../utils/validation"
 import { extractSearchQueryFromUrl } from "../web/fetch"
 import { isSearchLikeUrl } from "../web/quality"
 import { completeWithConfiguredLlm } from "../llm/providers"
+import { detectTopicsInPrompt, type DetectedTopic } from "../topics/detection"
 import type { WorkflowStep, WorkflowSummary, Provider } from "../types"
 
 /**
@@ -175,6 +176,7 @@ function simplifyGeneratedWorkflowSteps(input: {
 
 /**
  * Build stable web summary steps.
+ * Now supports multi-topic detection - creates separate fetch steps for each topic.
  */
 export function buildStableWebSummarySteps(input: {
   prompt: string
@@ -183,26 +185,34 @@ export function buildStableWebSummarySteps(input: {
   defaultOutput: string
   defaultLlm: string
 }): WorkflowStep[] {
-  const query = cleanText(input.prompt).slice(0, 180) || "latest recap"
-  const aiPrompt = [
-    "Use only fetched web-search data from context.",
-    "Summarize key facts concisely and clearly in bullet points.",
-    "Do not invent data. If uncertain, say it is uncertain.",
-    "If useful data is insufficient, state that briefly.",
-    "Add sources only when source sharing is enabled for the fetch step.",
-  ].join(" ")
-  return [
-    normalizeWorkflowStep({
-      type: "trigger",
-      title: "Mission triggered",
-      triggerMode: "daily",
-      triggerTime: input.time || "09:00",
-      triggerTimezone: input.timezone || "America/New_York",
-      triggerDays: ["mon", "tue", "wed", "thu", "fri"],
-    }, 0),
-    normalizeWorkflowStep({
+  // Detect topics in the prompt
+  const topicResult = detectTopicsInPrompt(input.prompt)
+  const topics = topicResult.topics
+
+  // Build steps array
+  const steps: WorkflowStep[] = []
+  let stepIndex = 0
+
+  // Trigger step
+  steps.push(normalizeWorkflowStep({
+    type: "trigger",
+    title: "Mission triggered",
+    triggerMode: "daily",
+    triggerTime: input.time || "09:00",
+    triggerTimezone: input.timezone || "America/New_York",
+    triggerDays: ["mon", "tue", "wed", "thu", "fri"],
+  }, stepIndex++))
+
+  // Create a fetch step for each detected topic
+  for (const topic of topics) {
+    const siteFilter = topic.siteHints.length > 0
+      ? ` site:${topic.siteHints.slice(0, 2).join(" OR site:")}`
+      : ""
+    const query = `${topic.searchQuery}${siteFilter}`.slice(0, 200)
+
+    steps.push(normalizeWorkflowStep({
       type: "fetch",
-      title: "Fetch data",
+      title: `Fetch ${topic.label}`,
       fetchSource: "web",
       fetchMethod: "GET",
       fetchUrl: "",
@@ -211,24 +221,57 @@ export function buildStableWebSummarySteps(input: {
       fetchHeaders: "",
       fetchRefreshMinutes: "15",
       fetchIncludeSources: true,
-    }, 1),
-    normalizeWorkflowStep({
-      type: "ai",
-      title: "Summarize report",
-      aiPrompt,
-      aiIntegration: input.defaultLlm,
-      aiDetailLevel: "standard",
-    }, 2),
-    normalizeWorkflowStep({
-      type: "output",
-      title: "Send notification",
-      outputChannel: input.defaultOutput,
-      outputTiming: promptRequestsImmediateOutput(input.prompt) ? "immediate" : "scheduled",
-      outputTime: input.time || "09:00",
-      outputFrequency: "once",
-      outputRepeatCount: "1",
-    }, 3),
-  ]
+    }, stepIndex++))
+  }
+
+  // AI step with multi-topic prompt
+  const aiPrompt = topicResult.aiPrompt
+  steps.push(normalizeWorkflowStep({
+    type: "ai",
+    title: "Summarize report",
+    aiPrompt,
+    aiIntegration: input.defaultLlm,
+    aiDetailLevel: "standard",
+  }, stepIndex++))
+
+  // Output step
+  steps.push(normalizeWorkflowStep({
+    type: "output",
+    title: "Send notification",
+    outputChannel: input.defaultOutput,
+    outputTiming: promptRequestsImmediateOutput(input.prompt) ? "immediate" : "scheduled",
+    outputTime: input.time || "09:00",
+    outputFrequency: "once",
+    outputRepeatCount: "1",
+  }, stepIndex++))
+
+  return steps
+}
+
+/**
+ * Build fetch steps for detected topics.
+ * Used by both AI generator and manual workflow builder.
+ */
+export function buildFetchStepsForTopics(topics: DetectedTopic[], startIndex: number): WorkflowStep[] {
+  return topics.map((topic, idx) => {
+    const siteFilter = topic.siteHints.length > 0
+      ? ` site:${topic.siteHints.slice(0, 2).join(" OR site:")}`
+      : ""
+    const query = `${topic.searchQuery}${siteFilter}`.slice(0, 200)
+
+    return normalizeWorkflowStep({
+      type: "fetch",
+      title: `Fetch ${topic.label}`,
+      fetchSource: "web",
+      fetchMethod: "GET",
+      fetchUrl: "",
+      fetchQuery: query,
+      fetchSelector: "a[href]",
+      fetchHeaders: "",
+      fetchRefreshMinutes: "15",
+      fetchIncludeSources: true,
+    }, startIndex + idx)
+  })
 }
 
 /**
@@ -245,7 +288,7 @@ export async function buildWorkflowFromPrompt(
   const apiIntegrations = catalog
     .filter((item) => item.kind === "api" && item.connected && item.endpoint)
     .map((item) => ({ id: item.id, label: item.label, endpoint: item.endpoint as string }))
-  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["telegram", "discord", "webhook"])
+  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["novachat", "telegram", "discord", "webhook"])
   const defaultOutput = outputOptions[0] || "telegram"
   const activeLlmProvider = config.activeLlmProvider
   const defaultLlm =
@@ -313,7 +356,7 @@ export async function buildWorkflowFromPrompt(
     "When no reliable data is fetched, prefer workflow condition failure action 'skip' or explicit no-data output.",
     "Use 24h HH:mm time and realistic defaults.",
     `Connected AI providers: ${llmOptions.join(", ") || "openai"}.`,
-    `Connected output channels: ${outputOptions.join(", ") || "telegram, discord, webhook"}.`,
+    `Connected output channels: ${outputOptions.join(", ") || "novachat, telegram, discord, webhook"}.`,
     `Configured API integrations: ${apiIntegrations.length > 0 ? JSON.stringify(apiIntegrations) : "none"}.`,
   ].join(" ")
 

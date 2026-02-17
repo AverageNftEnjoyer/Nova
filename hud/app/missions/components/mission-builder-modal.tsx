@@ -515,7 +515,7 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-sky-700" : "text-sky-300")}>Include Sources In Output</p>
                               <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
-                                Add up to 2 source buttons at the end of summaries.
+                                Adds 1 source per Web Request.
                               </p>
                             </div>
                             <button

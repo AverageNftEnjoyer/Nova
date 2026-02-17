@@ -141,6 +141,45 @@ export function extractReadableSentences(text: string): string[] {
 }
 
 /**
+ * Extract a single clean quote with attribution from text.
+ * Used specifically for motivational/inspirational quote extraction.
+ */
+export function extractSingleQuote(text: string): string | null {
+  if (!text) return null
+
+  // Common quote patterns with attribution
+  const quotePatterns = [
+    // "Quote text" — Author Name
+    /"([^"]{20,300})"\s*[—–-]\s*([A-Z][a-zA-Z\s.]+)/,
+    // "Quote text" - Author Name
+    /"([^"]{20,300})"\s+-\s+([A-Z][a-zA-Z\s.]+)/,
+    // "Quote text" by Author Name
+    /"([^"]{20,300})"\s+by\s+([A-Z][a-zA-Z\s.]+)/i,
+    // Quote text. - Author Name (without quotes)
+    /([A-Z][^.!?]{20,250}[.!?])\s*[—–-]\s*([A-Z][a-zA-Z\s.]+)/,
+  ]
+
+  for (const pattern of quotePatterns) {
+    const match = pattern.exec(text)
+    if (match) {
+      const quoteText = match[1].trim()
+      const author = match[2].trim().replace(/[,.]$/, "")
+
+      // Validate it looks like an actual quote
+      if (quoteText.length >= 20 && quoteText.length <= 300 && author.length >= 3 && author.length <= 50) {
+        // Filter out junk authors
+        const junkAuthors = /^(read more|click here|subscribe|sign up|photo|image|credit|getty|reuters)/i
+        if (!junkAuthors.test(author)) {
+          return `"${quoteText}" — ${author}`
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Strip HTML tags and convert to plain text.
  */
 export function stripHtmlToText(html: string): string {

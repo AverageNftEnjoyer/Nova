@@ -20,6 +20,8 @@ export interface MissionRunStepTrace {
   title: string
   status: "pending" | "running" | "completed" | "failed" | "skipped"
   detail?: string
+  startedAt?: string
+  endedAt?: string
 }
 
 export interface MissionRunProgress {
@@ -29,6 +31,8 @@ export interface MissionRunProgress {
   success: boolean
   reason?: string
   steps: MissionRunStepTrace[]
+  outputResults?: Array<{ ok?: boolean; status?: number; error?: string }>
+  novachatQueued?: boolean
 }
 
 export type MissionStatusMessage = null | { type: "success" | "error"; message: string }
@@ -77,7 +81,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any"
   conditionFailureAction?: "skip" | "notify" | "stop"
-  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook"
+  outputChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook"
   outputTiming?: "immediate" | "scheduled" | "digest"
   outputTime?: string
   outputFrequency?: "once" | "multiple"
@@ -100,6 +104,31 @@ export interface GeneratedMissionSummary {
   workflowSteps?: Array<Partial<WorkflowStep>>
 }
 
+export interface QuickTemplateStep {
+  type: WorkflowStepType
+  title: string
+  // Fetch step properties
+  fetchQuery?: string
+  fetchSource?: "api" | "web" | "calendar" | "crypto" | "rss" | "database"
+  fetchUrl?: string
+  fetchIncludeSources?: boolean
+  // AI step properties
+  aiPrompt?: string
+  aiIntegration?: AiIntegrationType
+  aiDetailLevel?: "concise" | "standard" | "detailed"
+  // Trigger properties
+  triggerMode?: "once" | "daily" | "weekly" | "interval"
+  triggerIntervalMinutes?: string
+  // Condition properties
+  conditionField?: string
+  conditionOperator?: "contains" | "equals" | "not_equals" | "greater_than" | "less_than" | "regex" | "exists"
+  conditionValue?: string
+  conditionFailureAction?: "skip" | "notify" | "stop"
+  // Output properties
+  outputChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook"
+  outputTiming?: "immediate" | "scheduled" | "digest"
+}
+
 export interface QuickTemplateOption {
   id: string
   label: string
@@ -110,5 +139,5 @@ export interface QuickTemplateOption {
   message: string
   time: string
   tags: string[]
-  steps: Array<{ type: WorkflowStepType; title: string }>
+  steps: QuickTemplateStep[]
 }

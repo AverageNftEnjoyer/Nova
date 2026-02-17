@@ -4,7 +4,7 @@
  * Functions for formatting mission output for display.
  */
 
-import { cleanText, parseJsonObject, normalizeSnippetText, normalizeSourceSnippet } from "../text/cleaning"
+import { cleanText, parseJsonObject, normalizeSnippetText, normalizeSourceSnippet, extractSingleQuote } from "../text/cleaning"
 import { extractFactSentences } from "../text/formatting"
 import { toNumberSafe } from "../utils/paths"
 import { uniqueSourceUrls, formatSourceButtons, collectSourceUrlsFromContextData, normalizeMissionSourcePresentation } from "./sources"
@@ -140,6 +140,162 @@ export function formatWebSearchObjectOutput(
   return lines.join("\n").trim() || null
 }
 
+function normalizeMarkdownHeadings(raw: string): string {
+  return String(raw || "").replace(/^#{1,6}\s+(.+)$/gm, "**$1**")
+}
+
+function sectionExists(raw: string, section: string): boolean {
+  const pattern = new RegExp(`(^|\\n)(\\*\\*)?${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\*\\*)?\\s*(\\n|$)`, "i")
+  return pattern.test(raw) || new RegExp(`(^|\\n)#{1,6}\\s*${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*(\\n|$)`, "i").test(raw)
+}
+
+function replaceSectionBody(raw: string, sectionName: string, replacementLines: string[]): string {
+  const lines = String(raw || "").split("\n")
+  const startIndex = lines.findIndex((line) => {
+    const trimmed = line.trim()
+    return new RegExp(`^(\\*\\*)?${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\*\\*)?$`, "i").test(trimmed) ||
+      new RegExp(`^#{1,6}\\s*${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i").test(trimmed)
+  })
+  if (startIndex < 0) return raw
+  let endIndex = lines.length
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim()
+    if (/^(\*\*)?[A-Za-z][^:]{2,}(\*\*)?$/.test(trimmed) || /^#{1,6}\s+/.test(trimmed)) {
+      endIndex = i
+      break
+    }
+  }
+  const next = [
+    ...lines.slice(0, startIndex + 1),
+    ...replacementLines,
+    ...lines.slice(endIndex),
+  ]
+  return next.join("\n").replace(/\n{3,}/g, "\n\n").trim()
+}
+
+function collectQuoteFromContextData(contextData?: unknown): string | null {
+  if (!contextData || typeof contextData !== "object") return null
+  const record = contextData as Record<string, unknown>
+  const fetchResults = Array.isArray(record.fetchResults) ? record.fetchResults : []
+  for (const item of fetchResults) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Record<string, unknown>
+    const stepTitle = String(row.stepTitle || "").toLowerCase()
+    if (!/\bquote|motivational|inspirational\b/.test(stepTitle)) continue
+    const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : null
+    const payload = data?.payload && typeof data.payload === "object" ? (data.payload as Record<string, unknown>) : null
+    const results = Array.isArray(payload?.results) ? (payload?.results as Array<Record<string, unknown>>) : []
+    for (const source of results) {
+      const quote = extractSingleQuote(String(source.pageText || "")) || extractSingleQuote(String(source.snippet || ""))
+      if (quote) return quote.replace(/\u2014|\u2013/g, "-")
+    }
+  }
+  return null
+}
+
+function extractSectionFactFromContextData(section: string, contextData?: unknown): string | null {
+  if (!contextData || typeof contextData !== "object") return null
+  const record = contextData as Record<string, unknown>
+  const fetchResults = Array.isArray(record.fetchResults) ? record.fetchResults : []
+  const sectionKey = String(section || "").trim().toLowerCase()
+  if (!sectionKey) return null
+
+  for (const item of fetchResults) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Record<string, unknown>
+    const stepTitle = String(row.stepTitle || "").trim().toLowerCase()
+    if (!stepTitle) continue
+    if (!stepTitle.includes(sectionKey) && !sectionKey.includes(stepTitle.replace(/^fetch\s+/i, "").trim())) continue
+    const data = row.data && typeof row.data === "object" ? (row.data as Record<string, unknown>) : null
+    const payload = data?.payload && typeof data.payload === "object" ? (data.payload as Record<string, unknown>) : null
+    const results = Array.isArray(payload?.results) ? (payload?.results as Array<Record<string, unknown>>) : []
+    const combined = results
+      .slice(0, 4)
+      .map((source) => normalizeSnippetText(String(source.pageText || source.snippet || ""), 280))
+      .filter(Boolean)
+      .join("\n")
+    if (!combined) continue
+    const facts = extractFactSentences(combined, 1)
+    if (facts.length > 0) return facts[0]
+  }
+  return null
+}
+
+function normalizeReadableSpacing(raw: string): string {
+  const text = String(raw || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/(\*\*[^*\n]+\*\*)\n{2,}(-\s+)/g, "$1\n$2")
+    .replace(/([A-Za-z][^\n:]{2,})\n{2,}(-\s+)/g, "$1\n$2")
+    .replace(/\n{2,}(Sources:\s+)/gi, "\n\n$1")
+    .replace(/Sources:\s*\*\*/gi, "Sources:")
+    .trim()
+  return text
+}
+
+function enforceContentGuards(raw: string, contextData?: unknown): string {
+  let text = normalizeMarkdownHeadings(raw)
+  const fetchSections = (() => {
+    if (!contextData || typeof contextData !== "object") return [] as string[]
+    const record = contextData as Record<string, unknown>
+    const fetchResults = Array.isArray(record.fetchResults) ? record.fetchResults : []
+    const titles: string[] = []
+    for (const item of fetchResults) {
+      if (!item || typeof item !== "object") continue
+      const row = item as Record<string, unknown>
+      const stepTitle = String(row.stepTitle || "").trim()
+      if (!stepTitle) continue
+      const section = stepTitle.replace(/^Fetch\s+/i, "").trim()
+      if (!section) continue
+      if (!titles.some((entry) => entry.toLowerCase() === section.toLowerCase())) {
+        titles.push(section)
+      }
+    }
+    return titles
+  })()
+  for (const section of fetchSections) {
+    if (sectionExists(text, section)) continue
+    if (/quote|motivational|inspirational/i.test(section)) continue
+    const extractedFact = extractSectionFactFromContextData(section, contextData)
+    const fallbackLine = extractedFact
+      ? `- ${extractedFact}`
+      : /nba/i.test(section)
+        ? "- No NBA games were played last night."
+        : "- No reliable data available for this section."
+    text = `${text.trim()}\n\n**${section}**\n\n${fallbackLine}`.trim()
+  }
+  const hasNbaSection = sectionExists(text, "NBA Scores")
+  if (hasNbaSection) {
+    const noGamesPattern = /\b(no nba games were played last night|no games were played last night)\b/i
+    const missingPattern = /\bmissing:|no completed games|no final scores|no data available\b/i
+    if (!noGamesPattern.test(text) && missingPattern.test(text)) {
+      text = replaceSectionBody(text, "NBA Scores", ["", "- No NBA games were played last night.", ""])
+    }
+  }
+
+  const wantsQuoteSection = sectionExists(text, "Today's Quote") || sectionExists(text, "Daily Quote") || (() => {
+    if (!contextData || typeof contextData !== "object") return false
+    const fetchResults = (contextData as Record<string, unknown>).fetchResults
+    if (!Array.isArray(fetchResults)) return false
+    return fetchResults.some((item) => {
+      if (!item || typeof item !== "object") return false
+      const stepTitle = String((item as Record<string, unknown>).stepTitle || "").toLowerCase()
+      return /\bquote|motivational|inspirational\b/.test(stepTitle)
+    })
+  })()
+
+  if (wantsQuoteSection) {
+    const hasQuote = /"[^"\n]{12,}"\s*[-\u2014\u2013]\s*[A-Za-z][^\n]{1,80}/.test(text)
+    if (!hasQuote) {
+      const quote = collectQuoteFromContextData(contextData)
+      const quoteSection = `**Today's Quote**\n\n- ${quote || "No reliable motivational quote found today."}`
+      text = `${text.trim()}\n\n${quoteSection}`.trim()
+    }
+  }
+
+  return normalizeReadableSpacing(text)
+}
+
 /**
  * Humanize mission output text.
  */
@@ -151,7 +307,7 @@ export function humanizeMissionOutputText(
     detailLevel?: AiDetailLevel
   },
 ): string {
-  const text = String(raw || "").trim()
+  const text = enforceContentGuards(String(raw || "").trim(), contextData)
   const formatted = formatStructuredMissionOutput(text)
   const includeSources = options?.includeSources !== false
   const detailLevel = options?.detailLevel || "standard"
@@ -159,7 +315,7 @@ export function humanizeMissionOutputText(
   if (parsed) {
     const webFormatted = formatWebSearchObjectOutput(parsed, { includeSources, detailLevel })
     if (webFormatted) {
-      return normalizeMissionSourcePresentation(webFormatted, collectSourceUrlsFromContextData(contextData), includeSources)
+      return normalizeMissionSourcePresentation(enforceContentGuards(webFormatted, contextData), collectSourceUrlsFromContextData(contextData), includeSources)
     }
   }
 
@@ -168,10 +324,11 @@ export function humanizeMissionOutputText(
     if (String(contextRecord.mode || "") === "web-search") {
       const fromContext = formatWebSearchObjectOutput(contextRecord, { includeSources, detailLevel })
       if (fromContext) {
-        return normalizeMissionSourcePresentation(fromContext, collectSourceUrlsFromContextData(contextData), includeSources)
+        return normalizeMissionSourcePresentation(enforceContentGuards(fromContext, contextData), collectSourceUrlsFromContextData(contextData), includeSources)
       }
     }
   }
 
-  return normalizeMissionSourcePresentation(formatted || text, collectSourceUrlsFromContextData(contextData), includeSources)
+  return normalizeMissionSourcePresentation(enforceContentGuards(formatted || text, contextData), collectSourceUrlsFromContextData(contextData), includeSources)
 }
+

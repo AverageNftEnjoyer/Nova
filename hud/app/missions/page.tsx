@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import { useState } from "react"
 import Image from "next/image"
 import { Settings } from "lucide-react"
 
@@ -32,6 +33,7 @@ import { hexToRgba } from "./helpers"
 import { useMissionsPageState } from "./hooks/use-missions-page-state"
 export default function MissionsPage() {
   const router = useRouter()
+  const [orbHovered, setOrbHovered] = useState(false)
   const { theme } = useTheme()
   const pageActive = usePageActive()
   const { state: novaState, connected: agentConnected } = useNovaState()
@@ -140,6 +142,7 @@ export default function MissionsPage() {
   } = useMissionsPageState({ isLight })
 
   const presence = getNovaPresence({ agentConnected, novaState })
+  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
       {mounted && background === "floatingLines" && (
@@ -197,14 +200,13 @@ export default function MissionsPage() {
       <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
         <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">
           <div className="w-full">
-            <div ref={heroHeaderRef} className="home-spotlight-shell mb-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+            <div ref={heroHeaderRef} className="mb-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   onClick={() => router.push("/home")}
-                  className={cn(
-                    "group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110",
-                    "home-spotlight-card home-spotlight-card--hover",
-                  )}
+                  onMouseEnter={() => setOrbHovered(true)}
+                  onMouseLeave={() => setOrbHovered(false)}
+                  className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
                   aria-label="Go to home"
                 >
                   <NovaOrbIndicator
@@ -212,6 +214,7 @@ export default function MissionsPage() {
                     size={30}
                     animated={pageActive}
                     className="transition-all duration-200"
+                    style={{ filter: orbHovered ? orbHoverFilter : "none" }}
                   />
                 </button>
                 <div className="min-w-0">
@@ -298,6 +301,10 @@ export default function MissionsPage() {
                 isLight={isLight}
                 runProgress={runProgress}
                 onClose={() => setRunProgress(null)}
+                onOpenChat={() => {
+                  setRunProgress(null)
+                  router.push(`/chat?open=novachat&t=${Date.now()}`)
+                }}
               />
             )}
 

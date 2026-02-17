@@ -2,7 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { Blocks, Pin, Settings } from "lucide-react"
 import { MessageList } from "./message-list"
@@ -200,6 +200,8 @@ function mergeConversationsPreferLocal(
 
 export function ChatShell() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const shouldOpenPendingNovaChat = searchParams.get("open") === "novachat"
   const { theme } = useTheme()
   const isLight = theme === "light"
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -247,6 +249,7 @@ export function ChatShell() {
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
   const syncTimerRef = useRef<number | null>(null)
+  const pendingMessagesInFlightRef = useRef(false)
 
   const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
     const res = await fetch("/api/threads", { cache: "no-store" })
@@ -296,6 +299,13 @@ export function ChatShell() {
       setIsLoaded(true)
       return
     }
+    if (shouldOpenPendingNovaChat) {
+      setConversations(cachedConversations)
+      setActiveConvo(null)
+      setActiveId(null)
+      setIsLoaded(true)
+      return
+    }
     const activeId = getActiveId()
     const activeFromCache =
       (activeId ? cachedConversations.find((c) => c.id === activeId) : null) ?? cachedConversations[0]
@@ -305,7 +315,7 @@ export function ChatShell() {
       setActiveId(activeFromCache.id)
     }
     setIsLoaded(true)
-  }, [])
+  }, [shouldOpenPendingNovaChat])
 
   // Load conversations and muted state on mount
   useEffect(() => {
@@ -327,6 +337,15 @@ export function ChatShell() {
         )
         const activeId = getActiveId()
         const found = mergedConvos.find((c) => c.id === activeId)
+        if (shouldOpenPendingNovaChat) {
+          setConversations(mergedConvos)
+          saveConversations(mergedConvos)
+          writeShellUiCache({ conversations: mergedConvos })
+          setActiveConvo(null)
+          setActiveId(null)
+          setIsLoaded(true)
+          return
+        }
         if (found) {
           setConversations(mergedConvos)
           saveConversations(mergedConvos)
@@ -363,7 +382,7 @@ export function ChatShell() {
     return () => {
       cancelled = true
     }
-  }, [isLight, createServerConversation, fetchConversationsFromServer])
+  }, [isLight, createServerConversation, fetchConversationsFromServer, shouldOpenPendingNovaChat])
 
   useEffect(() => {
     const refresh = () => {
@@ -833,6 +852,119 @@ export function ChatShell() {
       }
     }
   }, [])
+
+  const processPendingNovaChatMessages = useCallback(async (): Promise<number> => {
+    if (!isLoaded || pendingMessagesInFlightRef.current) return 0
+    pendingMessagesInFlightRef.current = true
+    try {
+      const res = await fetch("/api/novachat/pending", { cache: "no-store" })
+      if (!res.ok) return 0
+      const data = await res.json() as {
+        ok: boolean
+        messages?: Array<{
+          id: string
+          title: string
+          content: string
+          missionId?: string
+          missionLabel?: string
+          createdAt: string
+        }>
+      }
+      if (!data.ok || !Array.isArray(data.messages) || data.messages.length === 0) return 0
+
+      const consumedIds: string[] = []
+      let latestConvo: Conversation | null = null
+      let updatedConvos = [...conversations]
+
+      for (const msg of data.messages) {
+        // Create a new conversation for this mission output
+        const newConvo = await createServerConversation().catch(() => null)
+        if (!newConvo) continue
+
+        // Add the mission output as an assistant message
+        const assistantMsg: ChatMessage = {
+          id: generateId(),
+          role: "assistant",
+          content: msg.content,
+          createdAt: msg.createdAt || new Date().toISOString(),
+          source: "agent",
+          sender: msg.missionLabel || "Nova Mission",
+        }
+
+        const convoWithMessage: Conversation = {
+          ...newConvo,
+          title: msg.title || msg.missionLabel || "Mission Report",
+          messages: [assistantMsg],
+          updatedAt: new Date().toISOString(),
+        }
+
+        // Only consume message after sync succeeds.
+        const synced = await syncServerMessages(convoWithMessage).then(() => true).catch(() => false)
+        if (!synced) continue
+
+        consumedIds.push(msg.id)
+        updatedConvos = [convoWithMessage, ...updatedConvos.filter((c) => c.id !== convoWithMessage.id)]
+        latestConvo = convoWithMessage
+      }
+
+      if (latestConvo) {
+        persist(updatedConvos, latestConvo)
+      }
+
+      if (consumedIds.length > 0) {
+        await fetch("/api/novachat/pending", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: consumedIds }),
+        }).catch(() => {})
+      }
+      return consumedIds.length
+    } catch {
+      // Ignore errors - pending messages are optional.
+      return 0
+    } finally {
+      pendingMessagesInFlightRef.current = false
+    }
+  }, [isLoaded, conversations, createServerConversation, syncServerMessages, persist])
+
+  // Poll for pending NovaChat messages from missions and create conversations.
+  useEffect(() => {
+    if (!isLoaded) return
+    void processPendingNovaChatMessages()
+    const intervalId = window.setInterval(() => {
+      void processPendingNovaChatMessages()
+    }, 15000)
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isLoaded, processPendingNovaChatMessages])
+
+  useEffect(() => {
+    if (!isLoaded) return
+    if (!shouldOpenPendingNovaChat) return
+    let attempts = 0
+    const maxAttempts = 40
+    void (async () => {
+      const consumed = await processPendingNovaChatMessages()
+      if (consumed > 0) {
+        router.replace("/chat")
+      }
+    })()
+    const intervalId = window.setInterval(() => {
+      void (async () => {
+        const consumed = await processPendingNovaChatMessages()
+        if (consumed > 0 || attempts >= maxAttempts) {
+          window.clearInterval(intervalId)
+          router.replace("/chat")
+          return
+        }
+        attempts += 1
+      })()
+    }, 250)
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isLoaded, processPendingNovaChatMessages, router, shouldOpenPendingNovaChat])
 
   // Merge incoming agent messages into the active conversation
   useEffect(() => {

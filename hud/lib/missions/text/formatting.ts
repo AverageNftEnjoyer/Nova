@@ -26,6 +26,8 @@ export function formatNotificationText(text: string): string {
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
     .replace(/&nbsp;/gi, " ")
+    // Convert markdown headings to bold lines for channels that do not render markdown headings
+    .replace(/^#{1,6}\s+(.+)$/gim, "<b>$1</b>")
     // Remove navigation junk
     .replace(/Image Credits?:?\s*[A-Za-z0-9\s,./]+(?:Getty|Reuters|AP|Images?)/gi, "")
     .replace(/By\s+Credit[A-Za-z\s]+/gi, "")

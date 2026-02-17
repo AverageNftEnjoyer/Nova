@@ -7,6 +7,7 @@
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
 import type { NotificationSchedule } from "@/lib/notifications/store"
 import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { addPendingMessage } from "@/lib/novachat/pending-messages"
 import { formatNotificationText } from "../text/formatting"
 import type { OutputResult } from "../types"
 
@@ -32,6 +33,26 @@ export async function dispatchOutput(
       label: schedule.label,
       scope,
     })
+  }
+
+  if (channel === "novachat") {
+    // NovaChat: Store the message for the chat UI to pick up
+    const userId = String(schedule.userId || "").trim()
+    if (!userId) {
+      return [{ ok: false, error: "NovaChat output requires a user ID." }]
+    }
+    try {
+      await addPendingMessage({
+        userId,
+        title: schedule.label || "Mission Report",
+        content: text,
+        missionId: schedule.id,
+        missionLabel: schedule.label,
+      })
+      return [{ ok: true }]
+    } catch (error) {
+      return [{ ok: false, error: error instanceof Error ? error.message : "Failed to queue NovaChat message" }]
+    }
   }
 
   if (channel === "webhook") {

@@ -85,25 +85,39 @@ export function AnimatedOrb({
     ? `${hexToRgba(colors.circle4, 0.3)} 0px 0px 60px 15px, ${hexToRgba(colors.circle2, 0.15)} 0px 0px 120px 30px`
     : `${hexToRgba(colors.circle4, 0.15)} 0px 0px 40px 8px, ${hexToRgba(colors.circle3, 0.08)} 0px 0px 80px 20px`
 
-  // State-dependent animation
-  const stateAnimation = isSpeaking
+  const motionAnimation = isSpeaking
+    ? "orb-pulse 1.5s ease-in-out infinite"
+    : isListening
+    ? "orb-pulse 2s ease-in-out infinite, orb-listening-breathe 1.5s ease-in-out infinite"
+    : isThinking
+    ? "orb-thinking-spin 3s linear infinite"
+    : "orb-idle-float 4s ease-in-out infinite"
+
+  const colorAnimation = isSpeaking
     ? useCustomPalette
-      ? "orb-pulse 1.5s ease-in-out infinite, orb-morph 2s ease-in-out infinite, orb-custom-color-surge 1.25s ease-in-out infinite"
-      : "orb-hue-rotate 3s linear infinite, orb-pulse 1.5s ease-in-out infinite, orb-morph 2s ease-in-out infinite"
+      ? "orb-custom-color-surge 1.25s ease-in-out infinite"
+      : "orb-hue-rotate 3s linear infinite"
     : isListening
     ? useCustomPalette
-      ? "orb-pulse 2s ease-in-out infinite, orb-listening-breathe 1.5s ease-in-out infinite, orb-custom-color-breathe 2.2s ease-in-out infinite"
-      : "orb-hue-rotate 4s linear infinite, orb-pulse 2s ease-in-out infinite, orb-listening-breathe 1.5s ease-in-out infinite"
+      ? "orb-custom-color-breathe 2.2s ease-in-out infinite"
+      : "orb-hue-rotate 4s linear infinite"
     : isThinking
     ? useCustomPalette
-      ? "orb-thinking-spin 3s linear infinite, orb-custom-color-breathe 1.8s ease-in-out infinite"
-      : "orb-hue-rotate 2s linear infinite, orb-thinking-spin 3s linear infinite"
+      ? "orb-custom-color-breathe 1.8s ease-in-out infinite"
+      : "orb-hue-rotate 2s linear infinite"
     : useCustomPalette
-    ? "orb-idle-float 4s ease-in-out infinite, orb-custom-color-breathe 3.2s ease-in-out infinite"
-    : "orb-hue-rotate 10s linear infinite, orb-idle-float 4s ease-in-out infinite"
+    ? "orb-custom-color-breathe 3.2s ease-in-out infinite"
+    : "orb-hue-rotate 10s linear infinite"
 
   return (
-    <div className="relative" style={{ width: size, height: size }}>
+    <div
+      className="relative"
+      style={{
+        width: size,
+        height: size,
+        animation: motionAnimation,
+      }}
+    >
       {/* State indicator ring */}
       {size >= 64 && (
         <div
@@ -145,7 +159,9 @@ export function AnimatedOrb({
           width: size,
           height: size,
           backgroundColor: colors.bg,
-          animation: stateAnimation,
+          animation: isSpeaking
+            ? `${colorAnimation}, orb-morph 2s ease-in-out infinite`
+            : colorAnimation,
           boxShadow: stateGlow,
           transition: "box-shadow 0.5s ease-out",
           opacity: connected ? 1 : 0.4,

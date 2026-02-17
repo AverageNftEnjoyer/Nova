@@ -6,7 +6,6 @@ import type { RefObject } from "react"
 interface UseMissionsSpotlightInput {
   spotlightEnabled: boolean
   builderOpen: boolean
-  heroHeaderRef: RefObject<HTMLDivElement | null>
   createSectionRef: RefObject<HTMLElement | null>
   listSectionRef: RefObject<HTMLElement | null>
   headerActionsRef: RefObject<HTMLDivElement | null>
@@ -17,7 +16,6 @@ interface UseMissionsSpotlightInput {
 export function useMissionsSpotlight({
   spotlightEnabled,
   builderOpen,
-  heroHeaderRef,
   createSectionRef,
   listSectionRef,
   headerActionsRef,
@@ -38,10 +36,12 @@ export function useMissionsSpotlight({
       let liveStars = 0
       let suppressSpotlightUntil = 0
       let suppressResetTimer: number | null = null
+      let rafId: number | null = null
+      let pendingEvent: MouseEvent | null = null
+      const cards = Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
 
       const clearSpotlightState = () => {
         if (spotlight) spotlight.style.opacity = "0"
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         cards.forEach((card) => {
           card.style.setProperty("--glow-intensity", "0")
           const stars = card.querySelectorAll(".fx-star-particle")
@@ -50,7 +50,7 @@ export function useMissionsSpotlight({
         liveStars = 0
       }
 
-      const handleMouseMove = (e: MouseEvent) => {
+      const renderFrame = (e: MouseEvent) => {
         if (Date.now() < suppressSpotlightUntil) return
         if (spotlight) {
           const rect = section.getBoundingClientRect()
@@ -59,7 +59,6 @@ export function useMissionsSpotlight({
           spotlight.style.opacity = "1"
         }
 
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         const proximity = 70
         const fadeDistance = 140
         cards.forEach((card) => {
@@ -92,8 +91,8 @@ export function useMissionsSpotlight({
           }
 
           const shouldSpawnStar = enableGlow ? glowIntensity > 0.2 : true
-          const spawnRate = enableGlow ? 0.16 : 0.12
-          if (inside && shouldSpawnStar && Math.random() <= spawnRate && liveStars < 42) {
+          const spawnRate = enableGlow ? 0.05 : 0.03
+          if (inside && shouldSpawnStar && Math.random() <= spawnRate && liveStars < 12) {
             liveStars += 1
             const star = document.createElement("span")
             star.className = "fx-star-particle"
@@ -114,6 +113,17 @@ export function useMissionsSpotlight({
               { once: true },
             )
           }
+        })
+      }
+
+      const handleMouseMove = (e: MouseEvent) => {
+        pendingEvent = e
+        if (rafId !== null) return
+        rafId = window.requestAnimationFrame(() => {
+          const nextEvent = pendingEvent
+          pendingEvent = null
+          rafId = null
+          if (nextEvent) renderFrame(nextEvent)
         })
       }
 
@@ -145,6 +155,7 @@ export function useMissionsSpotlight({
         section.removeEventListener("wheel", handleScroll, true)
         section.removeEventListener("touchmove", handleScroll, true)
         window.removeEventListener("wheel", handleScroll)
+        if (rafId !== null) window.cancelAnimationFrame(rafId)
         if (suppressResetTimer !== null) window.clearTimeout(suppressResetTimer)
         clearSpotlightState()
         spotlight?.remove()
@@ -152,12 +163,11 @@ export function useMissionsSpotlight({
     }
 
     const cleanups: Array<() => void> = []
-    if (heroHeaderRef.current) cleanups.push(setupSectionSpotlight(heroHeaderRef.current, { showSpotlightCore: false }))
     if (createSectionRef.current) cleanups.push(setupSectionSpotlight(createSectionRef.current))
     if (listSectionRef.current) cleanups.push(setupSectionSpotlight(listSectionRef.current))
     if (headerActionsRef.current) cleanups.push(setupSectionSpotlight(headerActionsRef.current, { showSpotlightCore: false }))
     if (builderOpen && builderBodyRef.current) cleanups.push(setupSectionSpotlight(builderBodyRef.current, { enableGlow: false }))
     if (builderOpen && builderFooterRef.current) cleanups.push(setupSectionSpotlight(builderFooterRef.current, { showSpotlightCore: false }))
     return () => cleanups.forEach((cleanup) => cleanup())
-  }, [builderBodyRef, builderFooterRef, builderOpen, createSectionRef, headerActionsRef, heroHeaderRef, listSectionRef, spotlightEnabled])
+  }, [builderBodyRef, builderFooterRef, builderOpen, createSectionRef, headerActionsRef, listSectionRef, spotlightEnabled])
 }

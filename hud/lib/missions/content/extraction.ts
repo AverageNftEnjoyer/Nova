@@ -7,11 +7,21 @@
  */
 
 import { Readability } from "@mozilla/readability"
-import { JSDOM } from "jsdom"
+import { JSDOM, VirtualConsole } from "jsdom"
 import TurndownService from "turndown"
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+
+function createSilentDom(html: string, url: string): JSDOM {
+  const virtualConsole = new VirtualConsole()
+  virtualConsole.on("jsdomError", (error) => {
+    const message = String(error?.message || "")
+    if (/Could not parse CSS stylesheet/i.test(message)) return
+    console.warn(message)
+  })
+  return new JSDOM(html, { url, virtualConsole })
+}
 
 // ============================================================================
 // TYPES
@@ -59,9 +69,7 @@ export function extractArticleContent(
 
   try {
     // Create DOM from HTML
-    const dom = new JSDOM(html, {
-      url: sourceUrl || "https://example.com",
-    })
+    const dom = createSilentDom(html, sourceUrl || "https://example.com")
     const document = dom.window.document
 
     // Remove unwanted elements before Readability processes
@@ -584,7 +592,7 @@ function extractLinks(
   const seen = new Set<string>()
 
   try {
-    const dom = new JSDOM(html, { url: baseUrl })
+    const dom = createSilentDom(html, baseUrl)
     const document = dom.window.document
 
     document.querySelectorAll("a[href]").forEach((anchor) => {

@@ -36,6 +36,11 @@ export async function POST(req: Request) {
         enforceOutputTime: false,
         scope: verified,
       })
+      const novachatQueued = execution.stepTraces.some((trace) =>
+        String(trace.type || "").toLowerCase() === "output" &&
+        String(trace.status || "").toLowerCase() === "completed" &&
+        /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
+      )
       const nowIso = new Date().toISOString()
       const updatedSchedule = {
         ...target,
@@ -54,6 +59,7 @@ export async function POST(req: Request) {
           reason: execution.reason,
           results: execution.outputs,
           stepTraces: execution.stepTraces,
+          novachatQueued,
           schedule: updatedSchedule,
         },
         { status: execution.ok ? 200 : 502 },
@@ -83,6 +89,11 @@ export async function POST(req: Request) {
       source: "trigger",
       scope: verified,
     })
+    const novachatQueued = execution.stepTraces.some((trace) =>
+      String(trace.type || "").toLowerCase() === "output" &&
+      String(trace.status || "").toLowerCase() === "completed" &&
+      /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
+    )
 
     return NextResponse.json(
       {
@@ -91,6 +102,7 @@ export async function POST(req: Request) {
         reason: execution.reason,
         results: execution.outputs,
         stepTraces: execution.stepTraces,
+        novachatQueued,
       },
       { status: execution.ok ? 200 : 502 },
     )

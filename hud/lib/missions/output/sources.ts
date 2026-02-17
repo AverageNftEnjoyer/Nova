@@ -9,7 +9,7 @@ import { extractUrlsFromText } from "../text/formatting"
 /**
  * Deduplicate and normalize source URLs.
  */
-export function uniqueSourceUrls(urls: string[], limit = 2): string[] {
+export function uniqueSourceUrls(urls: string[], limit = 20): string[] {
   const out: string[] = []
   const seen = new Set<string>()
   for (const candidate of urls) {
@@ -32,12 +32,21 @@ export function uniqueSourceUrls(urls: string[], limit = 2): string[] {
 }
 
 /**
- * Format source URLs as markdown buttons.
+ * Format source URLs as markdown buttons (inline).
  */
 export function formatSourceButtons(urls: string[]): string {
-  return uniqueSourceUrls(urls, 2)
+  return uniqueSourceUrls(urls, 3)
     .map((url, idx) => `[Source ${idx + 1}](${url})`)
     .join(" ")
+}
+
+/**
+ * Format source URLs as stacked list (one per line).
+ */
+export function formatSourcesStacked(urls: string[]): string {
+  return uniqueSourceUrls(urls, 3)
+    .map((url, idx) => `[Source ${idx + 1}](${url})`)
+    .join("\n")
 }
 
 /**
@@ -47,6 +56,23 @@ export function collectSourceUrlsFromContextData(contextData?: unknown): string[
   if (!contextData || typeof contextData !== "object") return []
   const record = contextData as Record<string, unknown>
   const urls: string[] = []
+
+  const fetchResults = record.fetchResults
+  if (Array.isArray(fetchResults)) {
+    const perFetchUrls: string[] = []
+    for (const item of fetchResults) {
+      if (!item || typeof item !== "object") continue
+      const row = item as Record<string, unknown>
+      const nestedData = row.data
+      if (!nestedData || typeof nestedData !== "object") continue
+      const nestedUrls = collectSourceUrlsFromContextData(nestedData)
+      if (nestedUrls.length > 0) perFetchUrls.push(nestedUrls[0])
+    }
+    if (perFetchUrls.length > 0) {
+      return uniqueSourceUrls(perFetchUrls, perFetchUrls.length)
+    }
+  }
+
   const direct = record.sourceUrls
   if (Array.isArray(direct)) {
     urls.push(...direct.map((item) => String(item || "")))
@@ -65,7 +91,7 @@ export function collectSourceUrlsFromContextData(contextData?: unknown): string[
       )
     }
   }
-  return uniqueSourceUrls(urls, 2)
+  return uniqueSourceUrls(urls, Math.max(3, urls.length))
 }
 
 /**
@@ -75,7 +101,7 @@ export function normalizeMissionSourcePresentation(raw: string, fallbackUrls?: s
   const text = String(raw || "").trim()
   if (!text) return text
   const extracted = extractUrlsFromText(text)
-  const urls = uniqueSourceUrls([...(fallbackUrls || []), ...extracted], 2)
+  const urls = uniqueSourceUrls([...(fallbackUrls || []), ...extracted], 3)
   let body = text
   // Remove existing "Sources:" section
   body = body.replace(/\n{0,2}sources:\s*[\s\S]*$/i, "").trim()
@@ -85,6 +111,6 @@ export function normalizeMissionSourcePresentation(raw: string, fallbackUrls?: s
     .join("\n")
     .trim()
   if (!includeSources || urls.length === 0) return body || text
-  const sourceLine = `Sources: ${formatSourceButtons(urls)}`
-  return `${body}\n\n${sourceLine}`.trim()
+  const sourceSection = `Sources: ${formatSourceButtons(urls)}`
+  return `${body}\n\n${sourceSection}`.trim()
 }

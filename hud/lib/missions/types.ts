@@ -51,7 +51,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any" | string
   conditionFailureAction?: "skip" | "notify" | "stop" | string
-  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook" | string
+  outputChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook" | string
   outputTiming?: "immediate" | "scheduled" | "digest" | string
   outputTime?: string
   outputFrequency?: "once" | "multiple" | string
@@ -109,6 +109,7 @@ export interface ExecuteMissionWorkflowInput {
   now?: Date
   enforceOutputTime?: boolean
   scope?: IntegrationsStoreScope
+  onStepTrace?: (trace: WorkflowStepTrace) => void | Promise<void>
 }
 
 export interface ExecuteMissionWorkflowResult {
@@ -129,10 +130,10 @@ export interface WorkflowStepTrace {
   stepId: string
   type: string
   title: string
-  status: "completed" | "failed" | "skipped"
+  status: "running" | "completed" | "failed" | "skipped"
   detail?: string
   startedAt: string
-  endedAt: string
+  endedAt?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

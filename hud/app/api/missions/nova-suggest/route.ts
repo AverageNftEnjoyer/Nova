@@ -26,6 +26,15 @@ function cleanPrompt(raw: string): string {
   return raw.trim().replace(/^["'`]+|["'`]+$/g, "").trim()
 }
 
+function buildFallbackSuggestion(stepTitle: string): string {
+  const name = String(stepTitle || "AI Process").trim() || "AI Process"
+  return [
+    `Analyze the incoming mission data for "${name}" and surface the most actionable findings first.`,
+    "Prioritize concrete signals, anomalies, and trend changes, then add one brief recommendation for what to do next based on the evidence.",
+    "Return output as 3-5 bullets with: key finding, why it matters, and recommended next action.",
+  ].join(" ")
+}
+
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
@@ -33,15 +42,28 @@ export async function POST(req: Request) {
   let debugSelected = "server_llm=unknown model=unknown"
   try {
     const body = (await req.json().catch(() => ({}))) as { stepTitle?: string }
-    const stepTitle = typeof body.stepTitle === "string" ? body.stepTitle.trim() : ""
-    if (!stepTitle) {
-      return NextResponse.json({ ok: false, error: "Step title is required." }, { status: 400 })
-    }
+    const stepTitle = (typeof body.stepTitle === "string" ? body.stepTitle.trim() : "") || "AI Process"
 
     const config = await loadIntegrationsConfig(verified)
     const selected = resolveConfiguredLlmProvider(config)
     const provider: Provider = selected.provider
     debugSelected = `server_llm=${selected.provider} model=${selected.model}`
+    const selectedModelLabel = String(selected.model || "").trim() || "fallback"
+
+    const hasCredentials =
+      (provider === "claude" && Boolean(config.claude.apiKey.trim())) ||
+      (provider === "grok" && Boolean(config.grok.apiKey.trim())) ||
+      (provider === "gemini" && Boolean(config.gemini.apiKey.trim())) ||
+      (provider === "openai" && Boolean(config.openai.apiKey.trim()))
+    if (!hasCredentials || !String(selected.model || "").trim()) {
+      return NextResponse.json({
+        ok: true,
+        prompt: buildFallbackSuggestion(stepTitle),
+        provider,
+        model: selectedModelLabel,
+        debug: `${debugSelected} fallback=local-suggest`,
+      })
+    }
 
     const systemText = [
       "You are Nova, an expert workflow automation prompt writer.",
@@ -95,7 +117,15 @@ export async function POST(req: Request) {
           ? ((payload as { content: Array<{ type?: string; text?: string }> }).content.find((c) => c?.type === "text")?.text || "")
           : ""
       const prompt = cleanPrompt(text)
-      if (!prompt) return NextResponse.json({ ok: false, error: "Claude returned an empty suggestion." }, { status: 502 })
+      if (!prompt) {
+        return NextResponse.json({
+          ok: true,
+          prompt: buildFallbackSuggestion(stepTitle),
+          provider,
+          model,
+          debug: `${debugSelected} fallback=empty-response`,
+        })
+      }
       return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
     }
 
@@ -114,7 +144,6 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           model,
-          temperature: 0.2,
           max_tokens: 320,
           messages: [
             { role: "system", content: systemText },
@@ -133,7 +162,15 @@ export async function POST(req: Request) {
       }
       const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
       const prompt = cleanPrompt(text)
-      if (!prompt) return NextResponse.json({ ok: false, error: "Grok returned an empty suggestion." }, { status: 502 })
+      if (!prompt) {
+        return NextResponse.json({
+          ok: true,
+          prompt: buildFallbackSuggestion(stepTitle),
+          provider,
+          model,
+          debug: `${debugSelected} fallback=empty-response`,
+        })
+      }
       return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
     }
 
@@ -152,7 +189,6 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           model,
-          temperature: 0.2,
           max_tokens: 320,
           messages: [
             { role: "system", content: systemText },
@@ -171,7 +207,15 @@ export async function POST(req: Request) {
       }
       const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
       const prompt = cleanPrompt(text)
-      if (!prompt) return NextResponse.json({ ok: false, error: "Gemini returned an empty suggestion." }, { status: 502 })
+      if (!prompt) {
+        return NextResponse.json({
+          ok: true,
+          prompt: buildFallbackSuggestion(stepTitle),
+          provider,
+          model,
+          debug: `${debugSelected} fallback=empty-response`,
+        })
+      }
       return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
     }
 
@@ -189,7 +233,6 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
         max_completion_tokens: 320,
         messages: [
           { role: "system", content: systemText },
@@ -208,7 +251,15 @@ export async function POST(req: Request) {
     }
     const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
     const prompt = cleanPrompt(text)
-    if (!prompt) return NextResponse.json({ ok: false, error: "OpenAI returned an empty suggestion." }, { status: 502 })
+    if (!prompt) {
+      return NextResponse.json({
+        ok: true,
+        prompt: buildFallbackSuggestion(stepTitle),
+        provider,
+        model,
+        debug: `${debugSelected} fallback=empty-response`,
+      })
+    }
     return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
   } catch (error) {
     return NextResponse.json(

@@ -28,8 +28,11 @@ export function useSpotlightEffect(
         section.appendChild(spotlight)
       }
       let liveStars = 0
+      const cards = Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
+      let rafId: number | null = null
+      let pendingEvent: MouseEvent | null = null
 
-      const handleMouseMove = (e: MouseEvent) => {
+      const renderFrame = (e: MouseEvent) => {
         const rect = section.getBoundingClientRect()
         const mouseX = e.clientX - rect.left
         const mouseY = e.clientY - rect.top
@@ -40,7 +43,6 @@ export function useSpotlightEffect(
           spotlight.style.opacity = "1"
         }
 
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         const proximity = 70
         const fadeDistance = 140
 
@@ -72,7 +74,7 @@ export function useSpotlightEffect(
           card.style.setProperty("--glow-intensity", glowIntensity.toString())
           card.style.setProperty("--glow-radius", "120px")
 
-          if (isInsideCard && glowIntensity > 0.2 && Math.random() <= 0.16 && liveStars < 42) {
+          if (isInsideCard && glowIntensity > 0.2 && Math.random() <= 0.05 && liveStars < 12) {
             liveStars += 1
             const star = document.createElement("span")
             star.className = "fx-star-particle"
@@ -96,9 +98,19 @@ export function useSpotlightEffect(
         })
       }
 
+      const handleMouseMove = (e: MouseEvent) => {
+        pendingEvent = e
+        if (rafId !== null) return
+        rafId = window.requestAnimationFrame(() => {
+          const nextEvent = pendingEvent
+          pendingEvent = null
+          rafId = null
+          if (nextEvent) renderFrame(nextEvent)
+        })
+      }
+
       const handleMouseLeave = () => {
         if (spotlight) spotlight.style.opacity = "0"
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
       }
 
@@ -108,7 +120,7 @@ export function useSpotlightEffect(
       return () => {
         section.removeEventListener("mousemove", handleMouseMove)
         section.removeEventListener("mouseleave", handleMouseLeave)
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
+        if (rafId !== null) window.cancelAnimationFrame(rafId)
         cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
         spotlight?.remove()
       }

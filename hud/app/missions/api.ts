@@ -31,6 +31,8 @@ export interface TriggerMissionResponse {
   skipped?: boolean
   reason?: string
   stepTraces?: unknown
+  results?: Array<{ ok?: boolean; status?: number; error?: string }>
+  novachatQueued?: boolean
   error?: string
   schedule?: NotificationSchedule
 }
@@ -93,6 +95,98 @@ export function triggerMissionSchedule(scheduleId: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scheduleId }),
+  })
+}
+
+export interface TriggerMissionStreamEvent {
+  type: "started" | "step" | "done" | "error"
+  trace?: {
+    stepId?: string
+    type?: string
+    title?: string
+    status?: string
+    detail?: string
+    startedAt?: string
+    endedAt?: string
+  }
+  data?: TriggerMissionResponse
+  error?: string
+}
+
+export function triggerMissionScheduleStream(
+  scheduleId: string,
+  onEvent?: (event: TriggerMissionStreamEvent) => void,
+) {
+  return new Promise<TriggerMissionResponse>((resolve, reject) => {
+    if (typeof window === "undefined") {
+      void triggerMissionSchedule(scheduleId)
+        .then((res) => resolve(res.data as TriggerMissionResponse))
+        .catch((error) => reject(error))
+      return
+    }
+    void (async () => {
+      try {
+        const res = await fetch(`/api/notifications/trigger/stream?scheduleId=${encodeURIComponent(scheduleId)}`, {
+          method: "GET",
+          headers: { Accept: "text/event-stream" },
+          cache: "no-store",
+        })
+        if (!res.ok || !res.body) {
+          const fallback = await triggerMissionSchedule(scheduleId)
+          resolve(fallback.data as TriggerMissionResponse)
+          return
+        }
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        let settled = false
+
+        while (true) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          buffer += decoder.decode(chunk.value, { stream: true })
+          const events = buffer.split("\n\n")
+          buffer = events.pop() || ""
+          for (const rawEvent of events) {
+            const dataLine = rawEvent
+              .split("\n")
+              .map((line) => line.trim())
+              .find((line) => line.startsWith("data:"))
+            if (!dataLine) continue
+            let payload: TriggerMissionStreamEvent | null = null
+            try {
+              payload = JSON.parse(dataLine.slice(5).trim()) as TriggerMissionStreamEvent
+            } catch {
+              continue
+            }
+            if (!payload) continue
+            onEvent?.(payload)
+            if (payload.type === "done") {
+              settled = true
+              resolve((payload.data || {}) as TriggerMissionResponse)
+              return
+            }
+            if (payload.type === "error") {
+              settled = true
+              reject(new Error(payload.error || "Mission stream failed."))
+              return
+            }
+          }
+        }
+
+        if (!settled) {
+          const fallback = await triggerMissionSchedule(scheduleId)
+          resolve(fallback.data as TriggerMissionResponse)
+        }
+      } catch (error) {
+        try {
+          const fallback = await triggerMissionSchedule(scheduleId)
+          resolve(fallback.data as TriggerMissionResponse)
+        } catch {
+          reject(error instanceof Error ? error : new Error("Mission progress stream failed."))
+        }
+      }
+    })()
   })
 }
 

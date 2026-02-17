@@ -18,7 +18,15 @@ import { searchWebAndCollect } from "../web/search"
 import { humanizeMissionOutputText } from "../output/formatters"
 import { dispatchOutput } from "../output/dispatch"
 import { completeWithConfiguredLlm } from "../llm/providers"
-import { buildWebEvidenceContext, buildForcedWebSummaryPrompt, deriveCredibleSourceCountFromContext } from "../llm/prompts"
+import {
+  buildWebEvidenceContext,
+  buildForcedWebSummaryPrompt,
+  deriveCredibleSourceCountFromContext,
+  hasMultipleFetchResults,
+  buildMultiFetchWebEvidenceContext,
+  hasUsableMultiFetchData,
+  type FetchResultItem,
+} from "../llm/prompts"
 import { parseMissionWorkflow } from "./parsing"
 import { getLocalTimeParts, parseTime } from "./scheduling"
 import type {
@@ -55,6 +63,8 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     summary: parsed.summary || {},
     nowIso: now.toISOString(),
     data: null,
+    // Multi-fetch support: accumulate data from multiple fetch steps
+    fetchResults: [] as Array<{ stepTitle: string; data: unknown }>,
     ai: null,
     presentation: {
       includeSources: true,
@@ -67,13 +77,32 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
   let outputs: Array<{ ok: boolean; error?: string; status?: number }> = []
   const stepTraces: WorkflowStepTrace[] = []
 
-  const completeStepTrace = (
+  const emitStepTrace = async (trace: WorkflowStepTrace) => {
+    if (input.onStepTrace) {
+      await input.onStepTrace(trace)
+    }
+  }
+
+  const startStepTrace = async (step: WorkflowStep): Promise<string> => {
+    const startedAt = new Date().toISOString()
+    const trace: WorkflowStepTrace = {
+      stepId: String(step.id || "").trim() || `step-${stepTraces.length + 1}`,
+      type: String(step.type || "output"),
+      title: String(step.title || step.type || "Step"),
+      status: "running",
+      startedAt,
+    }
+    await emitStepTrace(trace)
+    return startedAt
+  }
+
+  const completeStepTrace = async (
     step: WorkflowStep,
     status: WorkflowStepTrace["status"],
     detail?: string,
     startedAt?: string,
   ) => {
-    stepTraces.push({
+    const trace: WorkflowStepTrace = {
       stepId: String(step.id || "").trim() || `step-${stepTraces.length + 1}`,
       type: String(step.type || "output"),
       title: String(step.title || step.type || "Step"),
@@ -81,25 +110,27 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       detail: detail?.trim() || undefined,
       startedAt: startedAt || new Date().toISOString(),
       endedAt: new Date().toISOString(),
-    })
+    }
+    stepTraces.push(trace)
+    await emitStepTrace(trace)
   }
 
   for (const step of steps) {
     const type = String(step.type || "").toLowerCase()
 
     if (type === "trigger") {
-      const startedAt = new Date().toISOString()
+      const startedAt = await startStepTrace(step)
       context.trigger = {
         mode: step.triggerMode || "daily",
         time: step.triggerTime || input.schedule.time,
         timezone: step.triggerTimezone || input.schedule.timezone,
       }
-      completeStepTrace(step, "completed", "Trigger context prepared.", startedAt)
+      await completeStepTrace(step, "completed", "Trigger context prepared.", startedAt)
       continue
     }
 
     if (type === "fetch") {
-      const startedAt = new Date().toISOString()
+      const startedAt = await startStepTrace(step)
       let source = String(step.fetchSource || "api").toLowerCase()
       const includeSourcesForStep = resolveIncludeSources(step.fetchIncludeSources, true)
       context.presentation = {
@@ -148,11 +179,12 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       if (useSearchPipeline) {
         const webResearch = await searchWebAndCollect(inferredSearchQuery, requestHeaders)
         const usable = webResearch.results.filter((item) => isUsableWebResult(item))
-        context.data = {
+        const fetchData = {
           source,
           mode: "web-search",
           provider: webResearch.provider,
           query: webResearch.query,
+          stepTitle: step.title || "Fetch data",
           status: usable.length > 0 ? 200 : 502,
           ok: usable.length > 0,
           credibleSourceCount: usable.length,
@@ -173,16 +205,30 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
             ),
           },
         }
+        // Store in context.data for backward compatibility
+        context.data = fetchData
+        // Also accumulate in fetchResults for multi-fetch support
+        const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+        fetchResults.push({ stepTitle: step.title || "Fetch data", data: fetchData })
         if (usable.length > 0) {
-          completeStepTrace(step, "completed", `Searched web via ${webResearch.provider} for "${inferredSearchQuery}" and found ${usable.length} usable sources.`, startedAt)
+          await completeStepTrace(step, "completed", `Searched web via ${webResearch.provider} for "${inferredSearchQuery}" and found ${usable.length} usable sources.`, startedAt)
         } else {
-          completeStepTrace(step, "failed", `Web search via ${webResearch.provider} for "${inferredSearchQuery}" returned no usable sources.`, startedAt)
+          await completeStepTrace(step, "failed", `Web search via ${webResearch.provider} for "${inferredSearchQuery}" returned no usable sources.`, startedAt)
         }
         continue
       }
       if (!url) {
-        context.data = { source, error: source === "web" ? "No fetch URL or search query configured." : "No fetch URL configured." }
-        completeStepTrace(step, "failed", source === "web" ? "No fetch URL or search query configured." : "No fetch URL configured.", startedAt)
+        const errorData = {
+          source,
+          stepTitle: step.title || "Fetch data",
+          ok: false,
+          error: source === "web" ? "No fetch URL or search query configured." : "No fetch URL configured.",
+        }
+        context.data = errorData
+        // Still add to fetchResults so we track all fetch attempts
+        const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+        fetchResults.push({ stepTitle: step.title || "Fetch data", data: errorData })
+        await completeStepTrace(step, "failed", source === "web" ? "No fetch URL or search query configured." : "No fetch URL configured.", startedAt)
         continue
       }
 
@@ -257,9 +303,10 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
               return 0
             })()
           : 0
-        context.data = {
+        const fetchData = {
           source,
           url: effectiveRequestUrl,
+          stepTitle: step.title || "Fetch data",
           status: res.status,
           ok: res.ok,
           payload,
@@ -273,20 +320,35 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
               }
             : {}),
         }
+        // Store in context.data for backward compatibility
+        context.data = fetchData
+        // Also accumulate in fetchResults for multi-fetch support
+        const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+        fetchResults.push({ stepTitle: step.title || "Fetch data", data: fetchData })
         if (!res.ok) {
-          completeStepTrace(step, "failed", `Fetch returned status ${res.status} from ${effectiveRequestUrl}.`, startedAt)
+          await completeStepTrace(step, "failed", `Fetch returned status ${res.status} from ${effectiveRequestUrl}.`, startedAt)
         } else {
-          completeStepTrace(step, "completed", `Fetched data from ${effectiveRequestUrl}.`, startedAt)
+          await completeStepTrace(step, "completed", `Fetched data from ${effectiveRequestUrl}.`, startedAt)
         }
       } catch (error) {
-        context.data = { source, url: effectiveRequestUrl, error: error instanceof Error ? error.message : "fetch failed" }
-        completeStepTrace(step, "failed", error instanceof Error ? error.message : "Fetch failed.", startedAt)
+        const errorData = {
+          source,
+          url: effectiveRequestUrl,
+          stepTitle: step.title || "Fetch data",
+          ok: false,
+          error: error instanceof Error ? error.message : "fetch failed",
+        }
+        context.data = errorData
+        // Still add to fetchResults so we track all fetch attempts
+        const fetchResultsErr = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+        fetchResultsErr.push({ stepTitle: step.title || "Fetch data", data: errorData })
+        await completeStepTrace(step, "failed", error instanceof Error ? error.message : "Fetch failed.", startedAt)
       }
       continue
     }
 
     if (type === "transform") {
-      const startedAt = new Date().toISOString()
+      const startedAt = await startStepTrace(step)
       const action = String(step.transformAction || "normalize").toLowerCase()
       const format = String(step.transformFormat || "markdown").toLowerCase()
       const inputData = context.data
@@ -307,12 +369,12 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       }
 
       context.data = outputData
-      completeStepTrace(step, "completed", `Transform action '${action}' applied (${format}).`, startedAt)
+      await completeStepTrace(step, "completed", `Transform action '${action}' applied (${format}).`, startedAt)
       continue
     }
 
     if (type === "condition") {
-      const startedAt = new Date().toISOString()
+      const startedAt = await startStepTrace(step)
       const field = String(step.conditionField || "").trim()
       const operator = String(step.conditionOperator || "contains").trim()
       const expected = String(step.conditionValue || "")
@@ -345,7 +407,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       if (!pass) {
         const failure = String(step.conditionFailureAction || "skip").toLowerCase()
         if (failure === "stop") {
-          completeStepTrace(step, "failed", `Condition failed on '${field}' with stop action.`, startedAt)
+          await completeStepTrace(step, "failed", `Condition failed on '${field}' with stop action.`, startedAt)
           return { ok: false, skipped: true, outputs, reason: "Condition failed with stop action.", stepTraces }
         }
         if (failure === "notify") {
@@ -358,24 +420,24 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
             input.scope,
           )
           outputs = outputs.concat(notifyResults)
-          completeStepTrace(step, "completed", `Condition failed and notify fallback was sent for '${field}'.`, startedAt)
+          await completeStepTrace(step, "completed", `Condition failed and notify fallback was sent for '${field}'.`, startedAt)
         } else {
-          completeStepTrace(step, "skipped", `Condition failed on '${field}'.`, startedAt)
+          await completeStepTrace(step, "skipped", `Condition failed on '${field}'.`, startedAt)
         }
         skipped = true
         skipReason = "Condition check failed."
       } else {
-        completeStepTrace(step, "completed", `Condition passed on '${field || "context"}'.`, startedAt)
+        await completeStepTrace(step, "completed", `Condition passed on '${field || "context"}'.`, startedAt)
       }
       if (skipped) break
       continue
     }
 
     if (type === "ai") {
-      const startedAt = new Date().toISOString()
+      const startedAt = await startStepTrace(step)
       const aiPrompt = String(step.aiPrompt || "").trim()
       if (!aiPrompt) {
-        completeStepTrace(step, "skipped", "AI prompt is empty.", startedAt)
+        await completeStepTrace(step, "skipped", "AI prompt is empty.", startedAt)
         continue
       }
       const includeSources = resolveIncludeSources(
@@ -392,29 +454,50 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
           : {}),
         detailLevel,
       }
-      if (!hasUsableContextData(context.data)) {
+
+      // Check for multi-fetch results
+      const fetchResults = context.fetchResults as FetchResultItem[] | undefined
+      const isMultiFetch = hasMultipleFetchResults(context as Record<string, unknown>)
+      const hasUsableData = isMultiFetch
+        ? hasUsableMultiFetchData(fetchResults || [])
+        : hasUsableContextData(context.data)
+      const hasUsableWebSources = isMultiFetch
+        ? hasUsableMultiFetchData(fetchResults || [])
+        : hasWebSearchUsableSources(context.data)
+      const formattingContextData = isMultiFetch && fetchResults
+        ? { fetchResults }
+        : context.data
+
+      if (!hasUsableData) {
         context.ai = "No reliable fetched data is available for this run. Skipping AI analysis to avoid fabricated output."
         context.aiSkipped = true
-        completeStepTrace(step, "skipped", "No reliable fetched data available for AI analysis.", startedAt)
+        await completeStepTrace(step, "skipped", "No reliable fetched data available for AI analysis.", startedAt)
         continue
       }
+
       const detailInstruction = detailLevel === "concise"
         ? "Keep output brief and skimmable. Prefer short bullets and tight phrasing."
         : detailLevel === "detailed"
           ? "Provide fuller context and specifics while keeping structure readable."
           : "Keep output balanced: concise but informative."
       const sourceInstruction = includeSources
-        ? "Include at most 2 source links when available."
+        ? "Include at most 2 source links per section when available."
         : "Do not include source links in the final output."
-      const webEvidence = buildWebEvidenceContext(context.data, detailLevel)
+
+      // Build web evidence from either multi-fetch or single fetch
+      const webEvidence = isMultiFetch && fetchResults
+        ? buildMultiFetchWebEvidenceContext(fetchResults, detailLevel)
+        : buildWebEvidenceContext(context.data, detailLevel)
+
       const systemText = [
         "You are Nova workflow AI.",
         "Use only the provided context data.",
         "Never fabricate facts, events, prices, or links.",
-        "If context is incomplete, state that clearly.",
+        "If context is incomplete for a section, state that clearly.",
+        isMultiFetch ? "Organize your output by the sections provided in the context." : "",
         detailInstruction,
         sourceInstruction,
-      ].join(" ")
+      ].filter(Boolean).join(" ")
       const userText = [
         `Step: ${step.title || "AI step"}`,
         `Instruction: ${aiPrompt}`,
@@ -442,8 +525,16 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         let provider = completion.provider
         let model = completion.model
 
-        if (isNoDataText(aiText) && hasWebSearchUsableSources(context.data)) {
-          const forcedPrompt = buildForcedWebSummaryPrompt(context.data, { includeSources, detailLevel })
+        if (isNoDataText(aiText) && hasUsableWebSources) {
+          const forcedPrompt = isMultiFetch && fetchResults
+            ? [
+                "Use the multi-section context and produce a clean report.",
+                "Keep section structure, summarize readable facts only, and avoid raw table dumps.",
+                includeSources ? "Include at most 2 source links per section." : "Do not include source links.",
+                "",
+                webEvidence || "No context available.",
+              ].join("\n")
+            : buildForcedWebSummaryPrompt(context.data, { includeSources, detailLevel })
           const retry = await completeWithConfiguredLlm(
             systemText,
             forcedPrompt,
@@ -465,12 +556,12 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
           model = retry.model
         }
 
-        aiText = humanizeMissionOutputText(aiText, context.data, { includeSources, detailLevel })
+        aiText = humanizeMissionOutputText(aiText, formattingContextData, { includeSources, detailLevel })
 
         context.ai = aiText
         context.lastAiProvider = provider
         context.lastAiModel = model
-        completeStepTrace(step, "completed", `AI completed using ${provider}/${model}.`, startedAt)
+        await completeStepTrace(step, "completed", `AI completed using ${provider}/${model}.`, startedAt)
       } catch (error) {
         const includeSources = resolveIncludeSources(
           getByPath(context, "presentation.includeSources"),
@@ -480,18 +571,21 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
           getByPath(context, "presentation.detailLevel"),
           "standard",
         )
-        if (hasWebSearchUsableSources(context.data)) {
-          context.ai = humanizeMissionOutputText("", context.data, { includeSources, detailLevel })
+        if (hasUsableWebSources) {
+          const fallbackAiText = isMultiFetch
+            ? (webEvidence || "No reliable multi-topic evidence was available.")
+            : ""
+          context.ai = humanizeMissionOutputText(fallbackAiText, formattingContextData, { includeSources, detailLevel })
         } else {
           context.ai = `AI step failed: ${error instanceof Error ? error.message : "Unknown error"}`
         }
-        completeStepTrace(step, "failed", error instanceof Error ? error.message : "AI step failed.", startedAt)
+        await completeStepTrace(step, "failed", error instanceof Error ? error.message : "AI step failed.", startedAt)
       }
       continue
     }
 
     if (type === "output") {
-      const startedAt = new Date().toISOString()
+      const startedAt = await startStepTrace(step)
       const channel = String(step.outputChannel || input.schedule.integration || "telegram").toLowerCase()
       const timing = String(step.outputTiming || "immediate").toLowerCase()
       const outputTime = String(step.outputTime || input.schedule.time || "").trim()
@@ -501,7 +595,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         if (target && local && (target.hour !== local.hour || target.minute !== local.minute)) {
           skipped = true
           skipReason = "Output timing does not match this tick."
-          completeStepTrace(step, "skipped", skipReason, startedAt)
+          await completeStepTrace(step, "skipped", skipReason, startedAt)
           continue
         }
       }
@@ -521,7 +615,11 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         : String(context.ai || parsed.description || input.schedule.message)
       const includeSources = resolveIncludeSources(getByPath(context, "presentation.includeSources"), true)
       const detailLevel = resolveAiDetailLevel(getByPath(context, "presentation.detailLevel"), "standard")
-      const baseText = humanizeMissionOutputText(baseTextRaw, context.data, { includeSources, detailLevel })
+      const fetchResults = context.fetchResults as FetchResultItem[] | undefined
+      const formattingContextData = hasMultipleFetchResults(context as Record<string, unknown>) && fetchResults
+        ? { fetchResults }
+        : context.data
+      const baseText = humanizeMissionOutputText(baseTextRaw, formattingContextData, { includeSources, detailLevel })
 
       const recipientString = String(step.outputRecipients || "").trim()
       const parsedRecipients = recipientString
@@ -540,7 +638,14 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
 
       for (let i = 0; i < loops; i += 1) {
         const missionTitle = input.schedule.label || "Mission Report"
-        const textWithTitle = `**${missionTitle}**\n\n${baseText}`
+        const reportDate = now.toLocaleDateString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          timeZone: input.schedule.timezone || "America/New_York",
+        })
+        const textWithTitle = `**${missionTitle}**\nDate: ${reportDate}\n\n${baseText}`
         const text = loops > 1 ? `${textWithTitle}\n\n(${i + 1}/${loops})` : textWithTitle
         const result = await dispatchOutput(channel, text, resolvedRecipients, input.schedule, input.scope)
         outputs = outputs.concat(result)
@@ -548,7 +653,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const stepResults = outputs.slice(-loops)
       const outputOk = stepResults.some((result) => result.ok)
       const outputError = stepResults.find((result) => !result.ok && result.error)?.error
-      completeStepTrace(
+      await completeStepTrace(
         step,
         outputOk ? "completed" : "failed",
         outputOk ? `Output sent via ${channel}.` : `Output failed via ${channel}${outputError ? `: ${outputError}` : "."}`,
@@ -563,10 +668,23 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     const fallbackTextRaw = String(context.ai || parsed.description || input.schedule.message)
     const includeSources = resolveIncludeSources(getByPath(context, "presentation.includeSources"), true)
     const detailLevel = resolveAiDetailLevel(getByPath(context, "presentation.detailLevel"), "standard")
-    const fallbackText = humanizeMissionOutputText(fallbackTextRaw, context.data, { includeSources, detailLevel })
+    const fetchResults = context.fetchResults as FetchResultItem[] | undefined
+    const formattingContextData = hasMultipleFetchResults(context as Record<string, unknown>) && fetchResults
+      ? { fetchResults }
+      : context.data
+    const fallbackText = humanizeMissionOutputText(fallbackTextRaw, formattingContextData, { includeSources, detailLevel })
+    const fallbackDate = now.toLocaleDateString("en-US", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: input.schedule.timezone || "America/New_York",
+    })
+    const fallbackMissionTitle = input.schedule.label || "Mission Report"
+    const fallbackTextWithDate = `**${fallbackMissionTitle}**\nDate: ${fallbackDate}\n\n${fallbackText}`
     const result = await dispatchOutput(
       input.schedule.integration || "telegram",
-      fallbackText,
+      fallbackTextWithDate,
       input.schedule.chatIds,
       input.schedule,
       input.scope,
