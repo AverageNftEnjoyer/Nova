@@ -34,13 +34,14 @@ export function stopBootMusic() {
 
 export function playBootMusic(
   src: string,
-  opts?: { maxSeconds?: number; volume?: number; objectUrl?: string | null },
+  opts?: { maxSeconds?: number | null; volume?: number; objectUrl?: string | null },
 ): Promise<boolean> {
   if (typeof window === "undefined" || !src) return Promise.resolve(false)
 
-  const maxSeconds = opts?.maxSeconds ?? MAX_SECONDS_DEFAULT
+  const maxSeconds = opts?.maxSeconds === undefined ? MAX_SECONDS_DEFAULT : opts.maxSeconds
   const volume = opts?.volume ?? VOLUME_DEFAULT
   const objectUrl = opts?.objectUrl ?? null
+  const limitSeconds = typeof maxSeconds === "number" && Number.isFinite(maxSeconds) && maxSeconds >= 0 ? maxSeconds : null
 
   if (activeAudio && activeSrc === src && !activeAudio.paused) {
     return Promise.resolve(true)
@@ -55,15 +56,16 @@ export function playBootMusic(
   activeObjectUrl = objectUrl
 
   const stopAtLimit = () => {
-    if (audio.currentTime >= maxSeconds) {
+    if (limitSeconds !== null && audio.currentTime >= limitSeconds) {
       stopBootMusic()
     }
   }
 
   const scheduleStop = () => {
     clearTimer()
+    if (limitSeconds === null) return
     const duration = Number.isFinite(audio.duration) ? audio.duration : 0
-    const maxPlayMs = Math.max(0, Math.min(maxSeconds, duration || maxSeconds) * 1000)
+    const maxPlayMs = Math.max(0, Math.min(limitSeconds, duration || limitSeconds) * 1000)
     stopTimer = window.setTimeout(() => stopBootMusic(), maxPlayMs)
   }
 

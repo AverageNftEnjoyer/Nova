@@ -48,6 +48,7 @@ export interface AppSettings {
   ttsVoice: string // Voice ID for TTS
   bootAnimationEnabled: boolean
   bootMusicEnabled: boolean
+  extendedBootMusicEnabled: boolean
   bootMusicDataUrl: string | null
   bootMusicFileName: string | null
   bootMusicAssetId: string | null
@@ -89,6 +90,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     ttsVoice: "default",
     bootAnimationEnabled: true,
     bootMusicEnabled: true,
+    extendedBootMusicEnabled: false,
     bootMusicDataUrl: null,
     bootMusicFileName: null,
     bootMusicAssetId: null,

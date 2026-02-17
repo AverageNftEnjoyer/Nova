@@ -233,9 +233,10 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
 
       attempts += 1
       let didStart = false
+      const maxSeconds = settings.app.extendedBootMusicEnabled ? null : 30
 
       if (settings.app.bootMusicDataUrl) {
-        didStart = await playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds: 30, volume: 0.5 })
+        didStart = await playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds, volume: 0.5 })
       }
 
       if (!didStart && !blobChecked) {
@@ -251,7 +252,7 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
       }
 
       if (!didStart && blobUrl) {
-        didStart = await playBootMusic(blobUrl, { maxSeconds: 30, volume: 0.5, objectUrl: blobUrl })
+        didStart = await playBootMusic(blobUrl, { maxSeconds, volume: 0.5, objectUrl: blobUrl })
       }
 
       if (didStart) {

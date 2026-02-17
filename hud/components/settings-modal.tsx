@@ -1577,6 +1577,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       isLight={isLight}
                     />
 
+                    <SettingToggle
+                      label="Extended Bootup Music"
+                      description="Play full track once on launch (otherwise capped to 30 seconds)"
+                      checked={settings.app.extendedBootMusicEnabled}
+                      onChange={(v) => updateApp("extendedBootMusicEnabled", v)}
+                      isLight={isLight}
+                    />
+
                     <div className={cn(
                       "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
                       isLight
@@ -1584,7 +1592,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         : "border-white/10 bg-black/20 hover:bg-white/[0.06]"
                     )}>
                       <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Bootup Music</p>
-                      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>Plays the first 30 seconds on launch. Upload once, switch anytime.</p>
+                      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>
+                        {settings.app.extendedBootMusicEnabled
+                          ? "Plays the full selected track once on launch."
+                          : "Plays the first 30 seconds on launch."} Upload once, switch anytime.
+                      </p>
                       <input
                         ref={bootMusicInputRef}
                         type="file"

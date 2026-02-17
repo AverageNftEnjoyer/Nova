@@ -1,4 +1,0 @@
-{"role":"user","content":"hey nova","timestamp":1771268839858,"meta":{"source":"hud","sender":"hud-user","provider":"openai","model":"gpt-5","sessionKey":"agent:nova:hud:user:dd5ea07a-b92e-4ce8-a5f9-fe229168c80f:dm:ecc09394-75d4-4ac3-9a66-6d74280b45f5"}}
-{"role":"assistant","content":"Hey! Here and ready—what can I help with?","timestamp":1771268839860,"meta":{"source":"hud","sender":"nova","provider":"openai","model":"gpt-5","sessionKey":"agent:nova:hud:user:dd5ea07a-b92e-4ce8-a5f9-fe229168c80f:dm:ecc09394-75d4-4ac3-9a66-6d74280b45f5","promptTokens":3002,"completionTokens":213,"totalTokens":3215}}
-{"role":"user","content":"Hey nova update your memory my current student ddebt is now 24k","timestamp":1771270337206,"meta":{"source":"hud","sender":"hud-user"}}
-{"role":"assistant","content":"Memory updated. I will remember this as current: my current student ddebt is now 24k","timestamp":1771270337209,"meta":{"source":"hud","sender":"nova"}}

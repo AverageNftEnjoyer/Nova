@@ -8,7 +8,8 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ * - V.02 Alpha: Missions refactor (page split into hooks/components, behavior preserved)
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.01 Alpha"
+export const NOVA_VERSION = "V.02 Alpha"

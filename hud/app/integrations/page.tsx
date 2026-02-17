@@ -330,7 +330,6 @@ export default function IntegrationsPage() {
   const [showGrokApiKey, setShowGrokApiKey] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [orbHovered, setOrbHovered] = useState(false)
   const [profile, setProfile] = useState<UserProfile>({
     name: "User",
     avatar: null,
@@ -361,6 +360,7 @@ export default function IntegrationsPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const gmailPopupRef = useRef<Window | null>(null)
   const gmailPopupWatchRef = useRef<number | null>(null)
+  const topHeaderRef = useRef<HTMLDivElement | null>(null)
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -714,10 +714,13 @@ export default function IntegrationsPage() {
   useEffect(() => {
     if (!spotlightEnabled) return
 
-    const setupSectionSpotlight = (section: HTMLElement) => {
-      const spotlight = document.createElement("div")
-      spotlight.className = "home-global-spotlight"
-      section.appendChild(spotlight)
+    const setupSectionSpotlight = (section: HTMLElement, options?: { showSpotlightCore?: boolean }) => {
+      const showSpotlightCore = options?.showSpotlightCore ?? true
+      const spotlight = showSpotlightCore ? document.createElement("div") : null
+      if (spotlight) {
+        spotlight.className = "home-global-spotlight"
+        section.appendChild(spotlight)
+      }
       let liveStars = 0
 
       const handleMouseMove = (e: MouseEvent) => {
@@ -725,9 +728,11 @@ export default function IntegrationsPage() {
         const mouseX = e.clientX - rect.left
         const mouseY = e.clientY - rect.top
 
-        spotlight.style.left = `${mouseX}px`
-        spotlight.style.top = `${mouseY}px`
-        spotlight.style.opacity = "1"
+        if (spotlight) {
+          spotlight.style.left = `${mouseX}px`
+          spotlight.style.top = `${mouseY}px`
+          spotlight.style.opacity = "1"
+        }
 
         const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         const proximity = 70
@@ -785,7 +790,7 @@ export default function IntegrationsPage() {
       }
 
       const handleMouseLeave = () => {
-        spotlight.style.opacity = "0"
+        if (spotlight) spotlight.style.opacity = "0"
         const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
       }
@@ -798,11 +803,12 @@ export default function IntegrationsPage() {
         section.removeEventListener("mouseleave", handleMouseLeave)
         const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
-        spotlight.remove()
+        spotlight?.remove()
       }
     }
 
     const cleanups: Array<() => void> = []
+    if (topHeaderRef.current) cleanups.push(setupSectionSpotlight(topHeaderRef.current, { showSpotlightCore: false }))
     if (connectivitySectionRef.current) cleanups.push(setupSectionSpotlight(connectivitySectionRef.current))
     if (telegramSetupSectionRef.current) cleanups.push(setupSectionSpotlight(telegramSetupSectionRef.current))
     if (discordSetupSectionRef.current) cleanups.push(setupSectionSpotlight(discordSetupSectionRef.current))
@@ -816,7 +822,6 @@ export default function IntegrationsPage() {
   }, [activeSetup, spotlightEnabled])
 
   const orbPalette = ORB_COLORS[orbColor]
-  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
   const floatingLinesGradient = useMemo(() => [orbPalette.circle1, orbPalette.circle2], [orbPalette.circle1, orbPalette.circle2])
 
   const panelClass =
@@ -2235,12 +2240,10 @@ export default function IntegrationsPage() {
             </div>
           )}
 
-          <div className="mb-4 flex items-center gap-3">
+          <div ref={topHeaderRef} className="home-spotlight-shell mb-4 flex items-center gap-3">
             <button
               onClick={() => router.push("/home")}
-              onMouseEnter={() => setOrbHovered(true)}
-              onMouseLeave={() => setOrbHovered(false)}
-              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110 home-spotlight-card home-spotlight-card--hover"
               aria-label="Go to home"
             >
               <NovaOrbIndicator
@@ -2248,7 +2251,6 @@ export default function IntegrationsPage() {
                 size={30}
                 animated={pageActive}
                 className="transition-all duration-200"
-                style={{ filter: orbHovered ? orbHoverFilter : "none" }}
               />
             </button>
             <div className="min-w-0">
@@ -2383,7 +2385,7 @@ export default function IntegrationsPage() {
                 <button
                   onClick={() => setSettingsOpen(true)}
                   className={cn(
-                    "h-8 w-8 rounded-lg border inline-flex items-center justify-center transition-colors group/gear home-spotlight-card home-border-glow",
+                    "h-8 w-8 rounded-lg border inline-flex items-center justify-center transition-colors group/gear home-spotlight-card home-border-glow home-spotlight-card--hover",
                     isLight ? "border-[#d5dce8] bg-white text-s-80" : "border-white/10 bg-black/20 text-slate-300",
                   )}
                   aria-label="Open settings"
