@@ -8,6 +8,13 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ * - V.10 Alpha: Global background persistence and hydration stabilization
+ *     - Added app-level persistent background layer to prevent custom video flash/reset on route changes.
+ *     - Fixed hydration mismatch by deferring background layer rendering until client mount.
+ *     - Corrected background-mode mapping bug in settings (floating lines vs custom video selection).
+ *     - Restored floating-lines visual brightness after overlay regression.
+ *     - Removed duplicate page-level background state/effects from home, missions, and chat flows.
+ *
  * - V.09 Alpha: Analytics baseline module and nav integration
  *     - Added new /analytics route with modular analytics architecture.
  *     - Implemented frosted-glass analytics modules, spotlight effects, and D3 charts.
@@ -60,4 +67,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.09 Alpha"
+export const NOVA_VERSION = "V.10 Alpha"

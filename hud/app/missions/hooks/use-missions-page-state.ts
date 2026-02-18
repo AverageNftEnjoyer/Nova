@@ -4,11 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from "next/navigation"
 
 import { type FluidSelectOption } from "@/components/ui/fluid-select"
-import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
 import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/integrations/catalog"
 import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type ThemeBackgroundType } from "@/lib/userSettings"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/userSettings"
 
 import {
   AI_PROVIDER_LABELS,
@@ -34,12 +33,9 @@ import {
   hexToRgba,
   isWorkflowStepType,
   normalizeAiDetailLevel,
-  normalizeCachedBackground,
   normalizeFetchIncludeSources,
   normalizePriority,
   parseMissionWorkflowMeta,
-  resolveCustomBackgroundIsImage,
-  resolveThemeBackground,
   sanitizeOutputRecipients,
 } from "../helpers"
 import { useMissionsSpotlight } from "./use-missions-spotlight"
@@ -63,21 +59,9 @@ interface UseMissionsPageStateInput {
 export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const router = useRouter()
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [background, setBackground] = useState<ThemeBackgroundType>(() => {
-    const cached = readShellUiCache()
-    return normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
-  })
-  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(() => {
-    const cached = readShellUiCache().backgroundVideoUrl
-    if (cached) return cached
-    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
-    return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
-  })
-  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)
-  const [mounted, setMounted] = useState(false)
 
   const [schedules, setSchedules] = useState<NotificationSchedule[]>([])
   const [baselineById, setBaselineById] = useState<Record<string, NotificationSchedule>>({})
@@ -804,10 +788,6 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   }, [router])
 
   useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
     const refreshIntegrationSettings = () => {
       setIntegrationsSettings(loadIntegrationsSettings())
     }
@@ -887,15 +867,11 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     const cached = readShellUiCache()
     const userSettings = loadUserSettings()
     const nextOrbColor = cached.orbColor ?? userSettings.app.orbColor
-    const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
     const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
     setOrbColor(nextOrbColor)
-    setBackground(nextBackground)
-    setBackgroundMediaIsImage(isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName))
     setSpotlightEnabled(nextSpotlight)
     writeShellUiCache({
       orbColor: nextOrbColor,
-      background: nextBackground,
       spotlightEnabled: nextSpotlight,
     })
 
@@ -913,58 +889,15 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     const refresh = () => {
       const userSettings = loadUserSettings()
       setOrbColor(userSettings.app.orbColor)
-      const nextBackground = resolveThemeBackground(isLight)
-      setBackground(nextBackground)
-      setBackgroundMediaIsImage(isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: userSettings.app.orbColor,
-        background: nextBackground,
         spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
       })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [isLight])
-
-  useEffect(() => {
-    let cancelled = false
-    if (isLight || background !== "customVideo") return
-
-    const uiCached = readShellUiCache().backgroundVideoUrl
-    if (uiCached) {
-      setBackgroundVideoUrl(uiCached)
-    }
-    const app = loadUserSettings().app
-    setBackgroundMediaIsImage(isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName))
-    const selectedAssetId = app.customBackgroundVideoAssetId
-    const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
-    if (cached) {
-      setBackgroundVideoUrl(cached)
-      writeShellUiCache({ backgroundVideoUrl: cached })
-    }
-    void loadBackgroundVideoObjectUrl(selectedAssetId || undefined)
-      .then((url) => {
-        if (cancelled) return
-        setBackgroundVideoUrl(url)
-        writeShellUiCache({ backgroundVideoUrl: url })
-      })
-      .catch(() => {
-        if (cancelled) return
-        const fallback = readShellUiCache().backgroundVideoUrl
-        if (!fallback) setBackgroundVideoUrl(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [background, isLight])
-
-  useLayoutEffect(() => {
-    const nextBackground = resolveThemeBackground(isLight)
-    setBackground(nextBackground)
-    writeShellUiCache({ background: nextBackground })
-  }, [isLight])
+  }, [])
 
   useMissionsSpotlight({
     spotlightEnabled,
@@ -1458,7 +1391,6 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   useAutoDismissRunProgress(runProgress, setRunProgress)
 
   const orbPalette = ORB_COLORS[orbColor]
-  const floatingLinesGradient = useMemo(() => [orbPalette.circle1, orbPalette.circle2], [orbPalette.circle1, orbPalette.circle2])
   const orbHoverFilter = useMemo(
     () => `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`,
     [orbPalette.circle1, orbPalette.circle2],
@@ -1500,20 +1432,12 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   return {
     orbColor,
     setOrbColor,
-    background,
-    setBackground,
-    backgroundVideoUrl,
-    setBackgroundVideoUrl,
-    backgroundMediaIsImage,
-    setBackgroundMediaIsImage,
     spotlightEnabled,
     setSpotlightEnabled,
     settingsOpen,
     setSettingsOpen,
     builderOpen,
     setBuilderOpen,
-    mounted,
-    setMounted,
     schedules,
     setSchedules,
     baselineById,
@@ -1625,7 +1549,6 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     duplicateMission,
     runMissionNow,
     orbPalette,
-    floatingLinesGradient,
     orbHoverFilter,
     panelClass,
     moduleHeightClass,

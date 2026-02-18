@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import Image from "next/image"
 import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "@/components/composer"
@@ -11,7 +10,6 @@ import { useNovaState } from "@/lib/useNovaState"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { cn } from "@/lib/utils"
 import { loadUserSettings } from "@/lib/userSettings"
-import FloatingLines from "@/components/FloatingLines"
 import { getActiveUserId } from "@/lib/active-user"
 import { DiscordIcon } from "@/components/discord-icon"
 import { BraveIcon } from "@/components/brave-icon"
@@ -21,22 +19,12 @@ import { XAIIcon } from "@/components/xai-icon"
 import { GeminiIcon } from "@/components/gemini-icon"
 import { GmailIcon } from "@/components/gmail-icon"
 import { TelegramIcon } from "@/components/telegram-icon"
-import "@/components/FloatingLines.css"
 
 // Hooks
 import { useConversations } from "@/lib/useConversations"
 import { useIntegrationsStatus } from "@/lib/useIntegrationsStatus"
 import { useMissions, formatDailyTime } from "@/lib/useMissions"
-import {
-  useChatBackground,
-  hexToRgba,
-  FLOATING_LINES_ENABLED_WAVES,
-  FLOATING_LINES_LINE_COUNT,
-  FLOATING_LINES_LINE_DISTANCE,
-  FLOATING_LINES_TOP_WAVE_POSITION,
-  FLOATING_LINES_MIDDLE_WAVE_POSITION,
-  FLOATING_LINES_BOTTOM_WAVE_POSITION,
-} from "@/lib/useChatBackground"
+import { useChatBackground } from "@/lib/useChatBackground"
 
 const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
 
@@ -73,11 +61,7 @@ export function ChatShellController() {
   const {
     isLight,
     orbPalette,
-    background,
-    backgroundVideoUrl,
-    backgroundMediaIsImage,
     spotlightEnabled,
-    floatingLinesGradient,
   } = useChatBackground()
 
   // Conversations
@@ -367,71 +351,7 @@ export function ChatShellController() {
         : "border-rose-300/50 bg-rose-500/35 text-rose-100"
 
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-page">
-      {/* Custom video background */}
-      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          {backgroundMediaIsImage ? (
-            <Image
-              fill
-              unoptimized
-              sizes="100vw"
-              className="object-cover"
-              src={backgroundVideoUrl}
-              alt=""
-              aria-hidden="true"
-            />
-          ) : (
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              src={backgroundVideoUrl}
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-            />
-          )}
-          <div className="absolute inset-0 bg-black/35" />
-        </div>
-      )}
-
-      {/* Floating lines background */}
-      {background === "floatingLines" && !isLight && (
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute inset-0 opacity-30">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-          <div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
-            }}
-          />
-          <div className="absolute inset-0">
-            <div
-              className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
-              style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
-            />
-            <div
-              className="absolute bottom-[8%] right-[14%] h-64 w-64 rounded-full blur-[100px]"
-              style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
-            />
-          </div>
-        </div>
-      )}
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-page" : "bg-transparent")}>
 
       {/* Sidebar */}
       <ChatSidebar

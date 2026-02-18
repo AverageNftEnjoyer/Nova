@@ -1,12 +1,10 @@
 "use client"
 
-import Image from "next/image"
 import { PanelLeftOpen, PanelLeftClose, Blocks, Pin, Settings, BarChart3 } from "lucide-react"
 import { AnimatedOrb } from "@/components/animated-orb"
 import TextType from "@/components/TextType"
 import { ChatSidebar } from "@/components/chat-sidebar"
 import { Button } from "@/components/ui/button"
-import FloatingLines from "@/components/FloatingLines"
 import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
 import { BraveIcon } from "@/components/brave-icon"
@@ -17,24 +15,12 @@ import { GeminiIcon } from "@/components/gemini-icon"
 import { GmailIcon } from "@/components/gmail-icon"
 import { Composer } from "@/components/composer"
 import { cn } from "@/lib/utils"
-import {
-  FLOATING_LINES_ENABLED_WAVES,
-  FLOATING_LINES_LINE_COUNT,
-  FLOATING_LINES_LINE_DISTANCE,
-  FLOATING_LINES_TOP_WAVE_POSITION,
-  FLOATING_LINES_MIDDLE_WAVE_POSITION,
-  FLOATING_LINES_BOTTOM_WAVE_POSITION,
-} from "../constants"
-import { formatDailyTime, hexToRgba } from "../helpers"
+import { formatDailyTime } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
-import "@/components/FloatingLines.css"
 
 export function HomeMainScreen() {
   const {
     isLight,
-    background,
-    backgroundVideoUrl,
-    backgroundMediaIsImage,
     conversations,
     sidebarOpen,
     toggleSidebar,
@@ -83,73 +69,10 @@ export function HomeMainScreen() {
     grokConnected,
     geminiConnected,
     gmailConnected,
-    floatingLinesGradient,
   } = useHomeMainScreenState()
 
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {background === "floatingLines" && !isLight && (
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute inset-0 opacity-30">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
-            }}
-          />
-          <div className="absolute inset-0">
-            <div
-              className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
-              style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
-            />
-            <div
-              className="absolute bottom-[8%] right-[18%] h-80 w-80 rounded-full blur-[130px]"
-              style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
-            />
-          </div>
-        </div>
-      )}
-      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          {backgroundMediaIsImage ? (
-            <Image
-              fill
-              unoptimized
-              sizes="100vw"
-              className="object-cover"
-              src={backgroundVideoUrl}
-              alt=""
-              aria-hidden="true"
-            />
-          ) : (
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              src={backgroundVideoUrl}
-            />
-          )}
-          <div className="absolute inset-0 bg-black/45" />
-        </div>
-      )}
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
       <ChatSidebar
         conversations={conversations}

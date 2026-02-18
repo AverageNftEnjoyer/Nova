@@ -6,6 +6,7 @@ import { AccentProvider } from "@/lib/accent-context"
 import { AuthGate } from "@/components/auth-gate"
 import { AuthFetchBridge } from "@/components/auth-fetch-bridge"
 import { LoginBackgroundLayer } from "@/components/login-background-layer"
+import { AppBackgroundLayer } from "@/components/app-background-layer"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -48,8 +49,11 @@ export default function RootLayout({
         <ThemeProvider>
           <AccentProvider>
             <LoginBackgroundLayer />
+            <AppBackgroundLayer />
             <AuthFetchBridge />
-            <AuthGate>{children}</AuthGate>
+            <div className="relative z-10">
+              <AuthGate>{children}</AuthGate>
+            </div>
           </AccentProvider>
         </ThemeProvider>
       </body>

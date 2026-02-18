@@ -2,28 +2,16 @@
 
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import Image from "next/image"
 import { Settings } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
 import { SettingsModal } from "@/components/settings-modal"
-import FloatingLines from "@/components/FloatingLines"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { useNovaState } from "@/lib/useNovaState"
 import { getNovaPresence } from "@/lib/nova-presence"
 import { usePageActive } from "@/lib/use-page-active"
 import { NOVA_VERSION } from "@/lib/version"
-import "@/components/FloatingLines.css"
-
-import {
-  FLOATING_LINES_BOTTOM_WAVE_POSITION,
-  FLOATING_LINES_ENABLED_WAVES,
-  FLOATING_LINES_LINE_COUNT,
-  FLOATING_LINES_LINE_DISTANCE,
-  FLOATING_LINES_MIDDLE_WAVE_POSITION,
-  FLOATING_LINES_TOP_WAVE_POSITION,
-} from "./constants"
 import { DeleteMissionDialog } from "./components/delete-mission-dialog"
 import { MissionActionMenu } from "./components/mission-action-menu"
 import { MissionBuilderModal } from "./components/mission-builder-modal"
@@ -40,10 +28,6 @@ export default function MissionsPage() {
   const isLight = theme === "light"
 
   const {
-    mounted,
-    background,
-    backgroundVideoUrl,
-    backgroundMediaIsImage,
     settingsOpen,
     setSettingsOpen,
     builderOpen,
@@ -131,7 +115,6 @@ export default function MissionsPage() {
     pendingDeleteMission,
     confirmDeleteMission,
     orbPalette,
-    floatingLinesGradient,
     panelStyle,
     panelClass,
     moduleHeightClass,
@@ -144,58 +127,7 @@ export default function MissionsPage() {
   const presence = getNovaPresence({ agentConnected, novaState })
   const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {mounted && background === "floatingLines" && (
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute inset-0 opacity-30">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-          <div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(circle at 48% 42%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.16)} 30%, transparent 60%)`,
-            }}
-          />
-        </div>
-      )}
-      {mounted && background === "customVideo" && !isLight && !!backgroundVideoUrl && (
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          {backgroundMediaIsImage ? (
-            <Image
-              fill
-              unoptimized
-              sizes="100vw"
-              className="object-cover"
-              src={backgroundVideoUrl}
-              alt=""
-              aria-hidden="true"
-            />
-          ) : (
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              src={backgroundVideoUrl}
-            />
-          )}
-          <div className="absolute inset-0 bg-black/45" />
-        </div>
-      )}
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
       <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
         <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">

@@ -8,3 +8,4 @@
 ## Communication
 - Keep updates short and progress-driven.
 - Call out exactly what is done vs still pending.
+- Prefer "NovaOS" naming in docs/changelogs for consistency.

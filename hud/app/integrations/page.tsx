@@ -7,14 +7,13 @@ import { Blocks, Save, Settings, User } from "lucide-react"
 
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type ThemeBackgroundType, type UserProfile } from "@/lib/userSettings"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { SettingsModal } from "@/components/settings-modal"
 import { useNovaState } from "@/lib/useNovaState"
 import { getNovaPresence } from "@/lib/nova-presence"
 import { usePageActive } from "@/lib/use-page-active"
-import FloatingLines from "@/components/FloatingLines"
 import { TelegramIcon } from "@/components/telegram-icon"
 import { DiscordIcon } from "@/components/discord-icon"
 import { BraveIcon } from "@/components/brave-icon"
@@ -26,9 +25,7 @@ import { GeminiIcon } from "@/components/gemini-icon"
 import { GmailIcon } from "@/components/gmail-icon"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 import { formatCompactModelLabelFromIntegrations } from "@/lib/model-label"
-import "@/components/FloatingLines.css"
 
 // Constants
 import {
@@ -47,26 +44,16 @@ import {
   estimateDailyCostRange,
   getClaudePriceHint,
   hexToRgba,
-  FLOATING_LINES_ENABLED_WAVES,
-  FLOATING_LINES_LINE_COUNT,
-  FLOATING_LINES_LINE_DISTANCE,
-  FLOATING_LINES_TOP_WAVE_POSITION,
-  FLOATING_LINES_MIDDLE_WAVE_POSITION,
-  FLOATING_LINES_BOTTOM_WAVE_POSITION,
 } from "./constants"
 
 // Hooks and utilities
 import {
   useSpotlightEffect,
-  useBackgroundVideo,
   useOpenAISetup,
   useClaudeSetup,
   useGrokSetup,
   useGeminiSetup,
   useGmailSetup,
-  resolveThemeBackground,
-  normalizeCachedBackground,
-  resolveCustomBackgroundIsImage,
   normalizeGmailAccountsForUi,
   type IntegrationsSaveStatus,
   type IntegrationsSaveTarget,
@@ -106,10 +93,6 @@ export default function IntegrationsPage() {
     avatar: null,
     accessTier: "Model Unset",
   })
-  // Keep initial render deterministic between server and client to avoid hydration mismatch.
-  const [background, setBackground] = useState<ThemeBackgroundType>("none")
-  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(null)
-  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [activeSetup, setActiveSetup] = useState<IntegrationSetupKey>("telegram")
   const [isSavingTarget, setIsSavingTarget] = useState<IntegrationsSaveTarget>(null)
@@ -166,28 +149,16 @@ export default function IntegrationsPage() {
 
     const userSettings = loadUserSettings()
     const nextOrbColor = cached.orbColor ?? userSettings.app.orbColor
-    const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
-    const selectedAssetId = userSettings.app.customBackgroundVideoAssetId
-    const nextBackgroundVideoUrl = cached.backgroundVideoUrl ?? getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
-    const nextBackgroundMediaIsImage = isBackgroundAssetImage(
-      userSettings.app.customBackgroundVideoMimeType,
-      userSettings.app.customBackgroundVideoFileName,
-    )
     const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
     setProfile(userSettings.profile)
     setOrbColor(nextOrbColor)
-    setBackground(nextBackground)
-    setBackgroundVideoUrl(nextBackgroundVideoUrl ?? null)
-    setBackgroundMediaIsImage(nextBackgroundMediaIsImage)
     setSpotlightEnabled(nextSpotlight)
     writeShellUiCache({
       orbColor: nextOrbColor,
-      background: nextBackground,
-      backgroundVideoUrl: nextBackgroundVideoUrl ?? null,
       spotlightEnabled: nextSpotlight,
     })
     setIntegrationsHydrated(true)
-  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, isLight])
+  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup])
 
   useEffect(() => {
     let cancelled = false
@@ -358,21 +329,15 @@ export default function IntegrationsPage() {
       const userSettings = loadUserSettings()
       setProfile(userSettings.profile)
       setOrbColor(userSettings.app.orbColor)
-      setBackground(resolveThemeBackground(isLight))
-      setBackgroundMediaIsImage(isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
       writeShellUiCache({
         orbColor: userSettings.app.orbColor,
-        background: resolveThemeBackground(isLight),
         spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
       })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [isLight])
-
-  // Background video loading
-  useBackgroundVideo(isLight, background, setBackgroundVideoUrl, setBackgroundMediaIsImage)
+  }, [])
 
   // Auto-dismiss save status
   useEffect(() => {
@@ -400,7 +365,6 @@ export default function IntegrationsPage() {
   )
 
   const orbPalette = ORB_COLORS[orbColor]
-  const floatingLinesGradient = useMemo(() => [orbPalette.circle1, orbPalette.circle2], [orbPalette.circle1, orbPalette.circle2])
 
   const panelClass =
     isLight
@@ -1067,58 +1031,7 @@ export default function IntegrationsPage() {
     }
   }, [braveApiKey, braveApiKeyConfigured, settings])
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {background === "floatingLines" && !isLight && (
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute inset-0 opacity-30">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-          <div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(circle at 48% 42%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.16)} 30%, transparent 60%)`,
-            }}
-          />
-        </div>
-      )}
-      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          {backgroundMediaIsImage ? (
-            <Image
-              fill
-              unoptimized
-              sizes="100vw"
-              className="object-cover"
-              src={backgroundVideoUrl}
-              alt=""
-              aria-hidden="true"
-            />
-          ) : (
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              src={backgroundVideoUrl}
-            />
-          )}
-          <div className="absolute inset-0 bg-black/45" />
-        </div>
-      )}
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
       <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
       <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">

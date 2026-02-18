@@ -94,9 +94,6 @@ export function useHomeMainScreenState() {
 
   return {
     isLight,
-    background: visuals.background,
-    backgroundVideoUrl: visuals.backgroundVideoUrl,
-    backgroundMediaIsImage: visuals.backgroundMediaIsImage,
     conversations: conversationState.conversations,
     sidebarOpen,
     toggleSidebar: handleSidebarToggle,
@@ -147,6 +144,5 @@ export function useHomeMainScreenState() {
     grokConnected: integrations.grokConnected,
     geminiConnected: integrations.geminiConnected,
     gmailConnected: integrations.gmailConnected,
-    floatingLinesGradient: visuals.floatingLinesGradient,
   }
 }

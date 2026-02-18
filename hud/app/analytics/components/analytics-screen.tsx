@@ -1,22 +1,20 @@
 ﻿"use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { BarChart3, Settings } from "lucide-react"
 
-import FloatingLines from "@/components/FloatingLines"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { SettingsModal } from "@/components/settings-modal"
 import { useTheme } from "@/lib/theme-context"
 import { cn } from "@/lib/utils"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type ThemeBackgroundType } from "@/lib/userSettings"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/userSettings"
 import { useNovaState } from "@/lib/useNovaState"
 import { usePageActive } from "@/lib/use-page-active"
 import { getNovaPresence } from "@/lib/nova-presence"
 import { NOVA_VERSION } from "@/lib/version"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { useBackgroundVideo, resolveThemeBackground, normalizeCachedBackground } from "@/app/integrations/hooks"
+import { hexToRgba } from "@/app/integrations/constants"
 
 import { FilterBar } from "./filter-bar"
 import { StatsStrip } from "./stats-strip"
@@ -31,17 +29,6 @@ import { useAnalyticsData } from "../hooks/use-analytics-data"
 import { useAnalyticsSpotlight } from "../hooks/use-analytics-spotlight"
 import { DEFAULT_ANALYTICS_FILTERS } from "../constants"
 
-import {
-  FLOATING_LINES_BOTTOM_WAVE_POSITION,
-  FLOATING_LINES_ENABLED_WAVES,
-  FLOATING_LINES_LINE_COUNT,
-  FLOATING_LINES_LINE_DISTANCE,
-  FLOATING_LINES_MIDDLE_WAVE_POSITION,
-  FLOATING_LINES_TOP_WAVE_POSITION,
-  hexToRgba,
-} from "@/app/integrations/constants"
-
-import "@/components/FloatingLines.css"
 
 export function AnalyticsScreen() {
   const router = useRouter()
@@ -52,9 +39,6 @@ export function AnalyticsScreen() {
 
   const [orbHovered, setOrbHovered] = useState(false)
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [background, setBackground] = useState<ThemeBackgroundType>("none")
-  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(null)
-  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState(false)
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -70,8 +54,6 @@ export function AnalyticsScreen() {
 
   const { filters, setFilters, enabledModules, toggleModule, resetLayout, resetFilters } = useAnalyticsState()
   const { integrationRows, requestVolume, usageSlices, apiBalances, activityFeed } = useAnalyticsData(filters)
-
-  useBackgroundVideo(isLight, background, setBackgroundVideoUrl, setBackgroundMediaIsImage)
 
   useAnalyticsSpotlight(
     spotlightEnabled,
@@ -92,18 +74,16 @@ export function AnalyticsScreen() {
       const user = loadUserSettings()
       const cached = readShellUiCache()
       const nextOrb = cached.orbColor ?? user.app.orbColor
-      const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
       const nextSpotlight = cached.spotlightEnabled ?? (user.app.spotlightEnabled ?? true)
       setOrbColor(nextOrb)
-      setBackground(nextBackground)
       setSpotlightEnabled(nextSpotlight)
-      writeShellUiCache({ orbColor: nextOrb, background: nextBackground, spotlightEnabled: nextSpotlight })
+      writeShellUiCache({ orbColor: nextOrb, spotlightEnabled: nextSpotlight })
     }
 
     syncFromSettings()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
-  }, [isLight])
+  }, [])
 
   useEffect(() => {
     const handleOutside = (event: MouseEvent) => {
@@ -118,7 +98,6 @@ export function AnalyticsScreen() {
   const orbPalette = ORB_COLORS[orbColor]
   const presence = getNovaPresence({ agentConnected, novaState })
   const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
-  const floatingLinesGradient = useMemo(() => [orbPalette.circle1, orbPalette.circle2], [orbPalette.circle1, orbPalette.circle2])
 
   // Same glass panel treatment as Mission Pipeline on home page.
   // Background + spotlight ref live on the same element so the glow renders ON the glass.
@@ -138,37 +117,7 @@ export function AnalyticsScreen() {
   const updateFilters = useCallback((next: typeof filters) => setFilters(next), [setFilters])
 
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#05070a] text-slate-100")}>
-      {background === "floatingLines" && !isLight && (
-        <div className="absolute inset-0 z-0 pointer-events-none">
-          <div className="absolute inset-0 opacity-30">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-        </div>
-      )}
-
-      {background === "customVideo" && !isLight && !!backgroundVideoUrl && (
-        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-          {backgroundMediaIsImage ? (
-            <Image fill unoptimized sizes="100vw" className="object-cover" src={backgroundVideoUrl} alt="" aria-hidden="true" />
-          ) : (
-            <video className="absolute inset-0 h-full w-full object-cover" autoPlay muted loop playsInline preload="metadata" src={backgroundVideoUrl} />
-          )}
-          <div className="absolute inset-0 bg-black/45" />
-        </div>
-      )}
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
       <div className="relative z-10 flex h-full w-full flex-col overflow-hidden px-4 py-4 sm:px-6">
         <header className="mb-4 space-y-4">

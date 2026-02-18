@@ -1,20 +1,17 @@
 "use client"
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   loadUserSettings,
   normalizeResponseTone,
   ORB_COLORS,
   type OrbColor,
   type ResponseTone,
-  type ThemeBackgroundType,
   USER_SETTINGS_UPDATED_EVENT,
 } from "@/lib/userSettings"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
 import { GREETINGS_BY_TONE, pickGreetingForTone } from "../constants"
-import { normalizeCachedBackground, resolveCustomBackgroundIsImage, resolveThemeBackground } from "../helpers"
 
 interface UseHomeVisualsInput {
   isLight: boolean
@@ -26,18 +23,6 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const [welcomeMessage, setWelcomeMessage] = useState(GREETINGS_BY_TONE.neutral[0])
   const [assistantName, setAssistantName] = useState("Nova")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
-  const [background, setBackground] = useState<ThemeBackgroundType>(() => {
-    const cached = readShellUiCache()
-    return normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
-  })
-  const [backgroundVideoUrl, setBackgroundVideoUrl] = useState<string | null>(() => {
-    const cached = readShellUiCache().backgroundVideoUrl
-    if (cached) return cached
-    const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
-    return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
-  })
-  const [backgroundVideoAssetId, setBackgroundVideoAssetId] = useState<string | null>(() => loadUserSettings().app.customBackgroundVideoAssetId)
-  const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => resolveCustomBackgroundIsImage())
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
 
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
@@ -47,19 +32,16 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     const cached = readShellUiCache()
     const settings = loadUserSettings()
     const nextOrbColor = cached.orbColor ?? settings.app.orbColor
-    const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
     const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
     const nextAssistantName = String(settings.personalization?.assistantName || "").trim() || "Nova"
     const nextTone = normalizeResponseTone(settings.personalization?.tone)
     setOrbColor(nextOrbColor)
-    setBackground(nextBackground)
     setSpotlightEnabled(nextSpotlight)
     setAssistantName(nextAssistantName)
     setTone(nextTone)
     setWelcomeMessage(pickGreetingForTone(nextTone))
     writeShellUiCache({
       orbColor: nextOrbColor,
-      background: nextBackground,
       spotlightEnabled: nextSpotlight,
     })
   }, [isLight])
@@ -79,46 +61,9 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   }, [tone])
 
   useEffect(() => {
-    let cancelled = false
-    if (isLight || background !== "customVideo") return
-
-    const uiCached = readShellUiCache().backgroundVideoUrl
-    if (uiCached) {
-      setBackgroundVideoUrl(uiCached)
-    }
-    const app = loadUserSettings().app
-    setBackgroundMediaIsImage(isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName))
-    const selectedAssetId = backgroundVideoAssetId ?? app.customBackgroundVideoAssetId
-    const cached = getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
-    if (cached) {
-      setBackgroundVideoUrl(cached)
-      writeShellUiCache({ backgroundVideoUrl: cached })
-    }
-    void loadBackgroundVideoObjectUrl(selectedAssetId || undefined)
-      .then((url) => {
-        if (cancelled) return
-        setBackgroundVideoUrl(url)
-        writeShellUiCache({ backgroundVideoUrl: url })
-      })
-      .catch(() => {
-        if (cancelled) return
-        const fallback = readShellUiCache().backgroundVideoUrl
-        if (!fallback) setBackgroundVideoUrl(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [background, isLight, backgroundVideoAssetId])
-
-  useEffect(() => {
     const refresh = () => {
       const settings = loadUserSettings()
       setOrbColor(settings.app.orbColor)
-      const nextBackground = resolveThemeBackground(isLight)
-      setBackground(nextBackground)
-      setBackgroundVideoAssetId(settings.app.customBackgroundVideoAssetId)
-      setBackgroundMediaIsImage(isBackgroundAssetImage(settings.app.customBackgroundVideoMimeType, settings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       setAssistantName(String(settings.personalization?.assistantName || "").trim() || "Nova")
       const nextTone = normalizeResponseTone(settings.personalization?.tone)
@@ -126,18 +71,11 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
       setWelcomeMessage(pickGreetingForTone(nextTone))
       writeShellUiCache({
         orbColor: settings.app.orbColor,
-        background: nextBackground,
         spotlightEnabled: settings.app.spotlightEnabled ?? true,
       })
     }
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [isLight])
-
-  useLayoutEffect(() => {
-    const nextBackground = resolveThemeBackground(isLight)
-    setBackground(nextBackground)
-    writeShellUiCache({ background: nextBackground })
   }, [isLight])
 
   useEffect(() => {
@@ -252,24 +190,16 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
     : "hover:bg-[#141923] hover:border-[#2b3240]"
   const orbPalette = ORB_COLORS[orbColor]
-  const floatingLinesGradient = useMemo(
-    () => [orbPalette.circle1, orbPalette.circle2],
-    [orbPalette.circle1, orbPalette.circle2],
-  )
 
   return {
     hasAnimated,
     welcomeMessage,
     assistantName,
-    background,
-    backgroundVideoUrl,
-    backgroundMediaIsImage,
     panelClass,
     panelStyle,
     subPanelClass,
     missionHover,
     orbPalette,
-    floatingLinesGradient,
     pipelineSectionRef,
     integrationsSectionRef,
   }

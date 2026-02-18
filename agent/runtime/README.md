@@ -1,6 +1,7 @@
-# Nova Runtime Skeleton
+# NovaOS Runtime Skeleton
 
 This folder is a staged runtime scaffold for Nova's next-gen agent core.
+Branding note: user-facing docs should prefer "NovaOS" naming.
 
 Goals:
 - Split monolithic `agent.js` responsibilities into focused modules.

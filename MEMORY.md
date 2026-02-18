@@ -1,4 +1,4 @@
-# Nova Memory
+# NovaOS Memory
 
 ## Stable User Preferences
 - Prefer concrete implementation over abstract planning.
