@@ -67,7 +67,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
         {label}
         {isSourceLink && (
           <span
-            className="pointer-events-none absolute -top-8 left-1/2 z-20 hidden max-w-[260px] -translate-x-1/2 truncate rounded-md border border-accent-30 bg-black/80 px-2 py-1 text-[10px] text-slate-100 shadow-lg backdrop-blur group-hover:block"
+            className="pointer-events-none absolute -top-8 left-1/2 z-20 hidden max-w-65 -translate-x-1/2 truncate rounded-md border border-accent-30 bg-black/80 px-2 py-1 text-[10px] text-slate-100 shadow-lg backdrop-blur group-hover:block"
           >
             {href}
           </span>
@@ -269,7 +269,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
   }
 
   return (
-    <div className={cn("text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]", className)}>
+    <div className={cn("text-sm whitespace-pre-wrap wrap-break-word wrap-anywhere", className)}>
       {renderContent(staticContent, false)}
       {renderContent(animatingContent, true)}
     </div>

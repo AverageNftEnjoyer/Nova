@@ -31,6 +31,8 @@ interface IntegrationConfigShape {
   gemini?: { defaultModel?: unknown }
 }
 
+type IntegrationGuardTarget = "brave" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
+
 function modelForProvider(provider: LlmProvider, config: IntegrationConfigShape): string {
   if (provider === "claude") return String(config?.claude?.defaultModel || "claude-sonnet-4-20250514")
   if (provider === "grok") return String(config?.grok?.defaultModel || "grok-4-0709")
@@ -63,6 +65,17 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [gmailTokenConfigured, setGmailTokenConfigured] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
+  const [integrationGuardNotice, setIntegrationGuardNotice] = useState<string | null>(null)
+  const [integrationGuardTarget, setIntegrationGuardTarget] = useState<IntegrationGuardTarget>(null)
+
+  useEffect(() => {
+    if (!integrationGuardNotice) return
+    const timer = window.setTimeout(() => {
+      setIntegrationGuardNotice(null)
+      setIntegrationGuardTarget(null)
+    }, 3000)
+    return () => window.clearTimeout(timer)
+  }, [integrationGuardNotice])
 
   const applyLocalSettings = useCallback((settings: IntegrationsSettings) => {
     setTelegramConnected(settings.telegram.connected)
@@ -182,7 +195,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   }, [discordConnected])
 
   const handleToggleBraveIntegration = useCallback(() => {
-    if (!braveConnected && !braveConfigured) return
+    if (!braveConnected && !braveConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("brave")
+      return
+    }
     const next = !braveConnected
     setBraveConnected(next)
     updateBraveIntegrationSettings({ connected: next })
@@ -194,7 +211,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   }, [braveConnected, braveConfigured])
 
   const handleToggleOpenAIIntegration = useCallback(() => {
-    if (!openaiConnected && !openaiConfigured) return
+    if (!openaiConnected && !openaiConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("openai")
+      return
+    }
     const next = !openaiConnected
     setOpenaiConnected(next)
     updateOpenAIIntegrationSettings({ connected: next })
@@ -206,7 +227,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   }, [openaiConnected, openaiConfigured])
 
   const handleToggleClaudeIntegration = useCallback(() => {
-    if (!claudeConnected && !claudeConfigured) return
+    if (!claudeConnected && !claudeConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("claude")
+      return
+    }
     const next = !claudeConnected
     setClaudeConnected(next)
     updateClaudeIntegrationSettings({ connected: next })
@@ -218,7 +243,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   }, [claudeConnected, claudeConfigured])
 
   const handleToggleGrokIntegration = useCallback(() => {
-    if (!grokConnected && !grokConfigured) return
+    if (!grokConnected && !grokConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("grok")
+      return
+    }
     const next = !grokConnected
     setGrokConnected(next)
     updateGrokIntegrationSettings({ connected: next })
@@ -230,7 +259,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   }, [grokConnected, grokConfigured])
 
   const handleToggleGeminiIntegration = useCallback(() => {
-    if (!geminiConnected && !geminiConfigured) return
+    if (!geminiConnected && !geminiConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("gemini")
+      return
+    }
     const next = !geminiConnected
     setGeminiConnected(next)
     updateGeminiIntegrationSettings({ connected: next })
@@ -242,7 +275,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   }, [geminiConnected, geminiConfigured])
 
   const handleToggleGmailIntegration = useCallback(() => {
-    if (!gmailConnected && !gmailTokenConfigured) return
+    if (!gmailConnected && !gmailTokenConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("gmail")
+      return
+    }
     const next = !gmailConnected
     setGmailConnected(next)
     updateGmailIntegrationSettings({ connected: next })
@@ -329,5 +366,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     handleToggleGrokIntegration,
     handleToggleGeminiIntegration,
     handleToggleGmailIntegration,
+    integrationGuardNotice,
+    integrationGuardTarget,
   }
 }

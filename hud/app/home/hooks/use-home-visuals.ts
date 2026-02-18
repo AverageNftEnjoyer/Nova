@@ -2,10 +2,18 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { loadUserSettings, ORB_COLORS, type OrbColor, type ThemeBackgroundType, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import {
+  loadUserSettings,
+  normalizeResponseTone,
+  ORB_COLORS,
+  type OrbColor,
+  type ResponseTone,
+  type ThemeBackgroundType,
+  USER_SETTINGS_UPDATED_EVENT,
+} from "@/lib/userSettings"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage, loadBackgroundVideoObjectUrl } from "@/lib/media/backgroundVideoStorage"
-import { GREETINGS } from "../constants"
+import { GREETINGS_BY_TONE, pickGreetingForTone } from "../constants"
 import { normalizeCachedBackground, resolveCustomBackgroundIsImage, resolveThemeBackground } from "../helpers"
 
 interface UseHomeVisualsInput {
@@ -14,7 +22,9 @@ interface UseHomeVisualsInput {
 
 export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const [hasAnimated, setHasAnimated] = useState(false)
-  const [welcomeMessage, setWelcomeMessage] = useState(GREETINGS[0])
+  const [tone, setTone] = useState<ResponseTone>("neutral")
+  const [welcomeMessage, setWelcomeMessage] = useState(GREETINGS_BY_TONE.neutral[0])
+  const [assistantName, setAssistantName] = useState("Nova")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [background, setBackground] = useState<ThemeBackgroundType>(() => {
     const cached = readShellUiCache()
@@ -39,9 +49,14 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     const nextOrbColor = cached.orbColor ?? settings.app.orbColor
     const nextBackground = normalizeCachedBackground(cached.background) ?? resolveThemeBackground(isLight)
     const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
+    const nextAssistantName = String(settings.personalization?.assistantName || "").trim() || "Nova"
+    const nextTone = normalizeResponseTone(settings.personalization?.tone)
     setOrbColor(nextOrbColor)
     setBackground(nextBackground)
     setSpotlightEnabled(nextSpotlight)
+    setAssistantName(nextAssistantName)
+    setTone(nextTone)
+    setWelcomeMessage(pickGreetingForTone(nextTone))
     writeShellUiCache({
       orbColor: nextOrbColor,
       background: nextBackground,
@@ -57,11 +72,11 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
         setHasAnimated(true)
       }
 
-      setWelcomeMessage(GREETINGS[Math.floor(Math.random() * GREETINGS.length)])
+      setWelcomeMessage(pickGreetingForTone(tone))
     }, 0)
 
     return () => window.clearTimeout(sync)
-  }, [])
+  }, [tone])
 
   useEffect(() => {
     let cancelled = false
@@ -105,6 +120,10 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
       setBackgroundVideoAssetId(settings.app.customBackgroundVideoAssetId)
       setBackgroundMediaIsImage(isBackgroundAssetImage(settings.app.customBackgroundVideoMimeType, settings.app.customBackgroundVideoFileName))
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
+      setAssistantName(String(settings.personalization?.assistantName || "").trim() || "Nova")
+      const nextTone = normalizeResponseTone(settings.personalization?.tone)
+      setTone(nextTone)
+      setWelcomeMessage(pickGreetingForTone(nextTone))
       writeShellUiCache({
         orbColor: settings.app.orbColor,
         background: nextBackground,
@@ -241,6 +260,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   return {
     hasAnimated,
     welcomeMessage,
+    assistantName,
     background,
     backgroundVideoUrl,
     backgroundMediaIsImage,

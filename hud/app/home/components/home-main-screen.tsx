@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { PanelLeftOpen, PanelLeftClose, Blocks, Pin, Settings } from "lucide-react"
+import { PanelLeftOpen, PanelLeftClose, Blocks, Pin, Settings, BarChart3 } from "lucide-react"
 import { AnimatedOrb } from "@/components/animated-orb"
 import TextType from "@/components/TextType"
 import { ChatSidebar } from "@/components/chat-sidebar"
@@ -38,7 +38,6 @@ export function HomeMainScreen() {
     conversations,
     sidebarOpen,
     toggleSidebar,
-    runningLabel,
     handleSelectConvo,
     handleNewChat,
     handleDeleteConvo,
@@ -49,6 +48,7 @@ export function HomeMainScreen() {
     novaState,
     connected,
     hasAnimated,
+    assistantName,
     orbPalette,
     welcomeMessage,
     handleSend,
@@ -64,6 +64,7 @@ export function HomeMainScreen() {
     missions,
     openMissions,
     openIntegrations,
+    openAnalytics,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
@@ -72,6 +73,7 @@ export function HomeMainScreen() {
     handleToggleGrokIntegration,
     handleToggleGeminiIntegration,
     handleToggleGmailIntegration,
+    integrationGuardNotice,
     integrationBadgeClass,
     telegramConnected,
     discordConnected,
@@ -153,7 +155,6 @@ export function HomeMainScreen() {
         conversations={conversations}
         activeId={null}
         isOpen={sidebarOpen}
-        runningNowLabel={runningLabel}
         onSelect={handleSelectConvo}
         onNew={handleNewChat}
         onDelete={handleDeleteConvo}
@@ -218,7 +219,7 @@ export function HomeMainScreen() {
                 </div>
                 <div className="text-center">
                   <p className={cn(`mt-2 text-5xl font-semibold ${hasAnimated ? "text-blur-intro" : ""}`, isLight ? "text-s-90" : "text-white")}>
-                    Hi, I&apos;m Nova
+                    Hi, I&apos;m {assistantName}
                   </p>
                   <p className={cn(`mt-3 text-lg ${hasAnimated ? "text-blur-intro-delay" : ""}`, isLight ? "text-s-50" : "text-slate-400")}>
                     <TextType
@@ -286,28 +287,32 @@ export function HomeMainScreen() {
                           >
                             {mission.enabledCount > 0 ? "Active" : "Paused"}
                           </span>
-                          <span
-                            title={`Priority: ${mission.priority}`}
-                            aria-label={`Priority ${mission.priority}`}
-                            className={cn(
-                              "h-2.5 w-2.5 rounded-full shrink-0",
-                              mission.priority === "low" && "bg-emerald-400",
-                              mission.priority === "medium" && "bg-amber-400",
-                              mission.priority === "high" && "bg-orange-400",
-                              mission.priority === "critical" && "bg-rose-400",
-                            )}
-                          />
                         </div>
                       </div>
                       {mission.description ? (
                         <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
                       ) : null}
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {mission.times.map((time, index) => (
-                          <span key={`${mission.id}-${time}-${index}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/4 text-slate-300")}>
-                            {formatDailyTime(time, mission.timezone)}
-                          </span>
-                        ))}
+                      <div className="mt-1.5 flex items-end justify-between gap-2">
+                        <div className="flex flex-wrap gap-1">
+                          {mission.times.map((time, index) => (
+                            <span key={`${mission.id}-${time}-${index}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/4 text-slate-300")}>
+                              {formatDailyTime(time, mission.timezone)}
+                            </span>
+                          ))}
+                        </div>
+                        <span
+                          title={`Priority: ${mission.priority}`}
+                          aria-label={`Priority ${mission.priority}`}
+                          className={cn(
+                            "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap capitalize shrink-0",
+                            mission.priority === "low" && (isLight ? "border-emerald-300 bg-emerald-100 text-emerald-700" : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
+                            mission.priority === "medium" && (isLight ? "border-amber-300 bg-amber-100 text-amber-700" : "border-amber-300/40 bg-amber-500/15 text-amber-300"),
+                            mission.priority === "high" && (isLight ? "border-orange-300 bg-orange-100 text-orange-700" : "border-orange-300/40 bg-orange-500/15 text-orange-300"),
+                            mission.priority === "critical" && (isLight ? "border-rose-300 bg-rose-100 text-rose-700" : "border-rose-300/40 bg-rose-500/15 text-rose-300"),
+                          )}
+                        >
+                          {mission.priority}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -324,16 +329,35 @@ export function HomeMainScreen() {
                     <Blocks className="w-4 h-4 text-accent" />
                     <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
                   </div>
-                  <button
-                    onClick={openIntegrations}
-                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}
-                    aria-label="Open integrations settings"
-                  >
-                    <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={openAnalytics}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover`, subPanelClass)}
+                      aria-label="Open analytics"
+                      title="Open analytics"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
+                    </button>
+                    <button
+                      onClick={openIntegrations}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}
+                      aria-label="Open integrations settings"
+                    >
+                      <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
+                    </button>
+                  </div>
                 </div>
 
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+                <div className="relative mt-1 h-5">
+                  <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+                  {integrationGuardNotice ? (
+                    <div className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2">
+                      <div className={cn("rounded-xl border px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap backdrop-blur-xl shadow-[0_14px_30px_-16px_rgba(0,0,0,0.7)]", isLight ? "border-rose-300 bg-rose-100 text-rose-700" : "border-rose-300/50 bg-rose-950 text-rose-100")}>
+                        {integrationGuardNotice}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
 
                 <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
                   <div className="grid grid-cols-6 gap-1">

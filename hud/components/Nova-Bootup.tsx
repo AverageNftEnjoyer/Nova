@@ -193,6 +193,7 @@ function arcPath(cx: number, cy: number, r: number, startAngle: number, span: nu
 export function NovaBootup({ onComplete }: NovaBootupProps) {
   const [bootOrbColor, setBootOrbColor] = useState<OrbColor>("violet")
   const [bootAccentColor, setBootAccentColor] = useState<AccentColor>("violet")
+  const [bootAssistantName, setBootAssistantName] = useState("NOVA")
   const [progress, setProgress] = useState(0)
   const [fadeOut, setFadeOut] = useState(false)
   const [phase, setPhase] = useState(0)
@@ -218,8 +219,10 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     const settings = loadUserSettings()
     const nextOrbColor = settings.app.orbColor in ORB_COLORS ? (settings.app.orbColor as OrbColor) : "violet"
     const nextAccentColor = settings.app.accentColor in ACCENT_COLORS ? (settings.app.accentColor as AccentColor) : "violet"
+    const nextAssistantName = String(settings.personalization?.assistantName || "").trim().toUpperCase() || "NOVA"
     setBootOrbColor(nextOrbColor)
     setBootAccentColor(nextAccentColor)
+    setBootAssistantName(nextAssistantName)
     if (!settings.app.bootMusicEnabled) {
       return () => {}
     }
@@ -738,7 +741,7 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
               showBorder={false}
               className="text-7xl font-extralight tracking-[0.7em] ml-6 cursor-default"
             >
-              NOVA
+              {bootAssistantName}
             </GradientText>
           </div>
           <p className="text-sm tracking-[0.5em] mt-2 uppercase font-mono"

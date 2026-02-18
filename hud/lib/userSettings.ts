@@ -1,7 +1,7 @@
 // User Settings - Persisted across sessions
 import { getActiveUserId } from "@/lib/active-user"
 
-export type AccessTier = "Core Access"
+export type AccessTier = string
 
 export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
 export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
@@ -22,11 +22,13 @@ export interface Personalization {
   occupation: string
   interests: string[] // List of interests
   communicationStyle: "formal" | "casual" | "friendly" | "professional"
-  tone: "neutral" | "enthusiastic" | "calm" | "direct"
+  tone: ResponseTone
   customInstructions: string // Freeform instructions for Nova
   characteristics: string // User personality traits to remember
   preferredLanguage: string
 }
+
+export type ResponseTone = "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed"
 
 export interface NotificationSettings {
   enabled: boolean
@@ -75,7 +77,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   profile: {
     name: "User",
     avatar: null,
-    accessTier: "Core Access",
+    accessTier: "Model Unset",
   },
   app: {
     theme: "dark",
@@ -121,6 +123,15 @@ const DEFAULT_SETTINGS: UserSettings = {
   updatedAt: new Date().toISOString(),
 }
 
+export function normalizeResponseTone(value: unknown): ResponseTone {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "enthusiastic") return "enthusiastic"
+  if (normalized === "calm") return "calm"
+  if (normalized === "direct") return "direct"
+  if (normalized === "relaxed") return "relaxed"
+  return "neutral"
+}
+
 function getStorageKey(): string {
   const userId = getActiveUserId()
   if (!userId) return ""
@@ -138,12 +149,19 @@ export function loadUserSettings(): UserSettings {
 
     const parsed = JSON.parse(stored) as Partial<UserSettings>
     // Merge with defaults to handle new fields
-    return {
-      profile: { ...DEFAULT_SETTINGS.profile, ...parsed.profile, accessTier: "Core Access" },
+    const merged = {
+      profile: { ...DEFAULT_SETTINGS.profile, ...parsed.profile },
       app: { ...DEFAULT_SETTINGS.app, ...parsed.app },
       notifications: { ...DEFAULT_SETTINGS.notifications, ...parsed.notifications },
       personalization: { ...DEFAULT_SETTINGS.personalization, ...parsed.personalization },
       updatedAt: parsed.updatedAt || new Date().toISOString(),
+    }
+    return {
+      ...merged,
+      personalization: {
+        ...merged.personalization,
+        tone: normalizeResponseTone(merged.personalization.tone),
+      },
     }
   } catch {
     return DEFAULT_SETTINGS

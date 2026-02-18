@@ -4,7 +4,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
-import { Blocks, Pin, Settings } from "lucide-react"
+import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "@/components/composer"
 import { useNovaState } from "@/lib/useNovaState"
@@ -64,7 +64,6 @@ export function ChatShellController() {
     connected: agentConnected,
     agentMessages,
     streamingAssistantId,
-    latestUsage,
     sendToAgent,
     clearAgentMessages,
     setMuted,
@@ -111,13 +110,8 @@ export function ChatShellController() {
     grokConnected,
     geminiConnected,
     gmailConnected,
+    integrationGuardNotice,
     braveConfigured,
-    openaiConfigured,
-    claudeConfigured,
-    grokConfigured,
-    geminiConfigured,
-    activeLlmProvider,
-    activeLlmModel,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
@@ -238,10 +232,19 @@ export function ChatShellController() {
       mergedCountRef.current += 1
       setLocalThinking(true)
       const settings = loadUserSettings()
+      const activeUserId = getActiveUserId()
+      if (!activeUserId) {
+        setLocalThinking(false)
+        return
+      }
       sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: activeConvo.id,
         sender: "hud-user",
-        userId: getActiveUserId(),
+        userId: activeUserId,
+        assistantName: settings.personalization.assistantName,
+        communicationStyle: settings.personalization.communicationStyle,
+        tone: settings.personalization.tone,
+        customInstructions: settings.personalization.customInstructions,
       })
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
@@ -313,10 +316,19 @@ export function ChatShellController() {
       setThinkingStalled(false)
 
       const settings = loadUserSettings()
+      const activeUserId = getActiveUserId()
+      if (!activeUserId) {
+        setLocalThinking(false)
+        return
+      }
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: activeConvo.id,
         sender: "hud-user",
-        userId: getActiveUserId(),
+        userId: activeUserId,
+        assistantName: settings.personalization.assistantName,
+        communicationStyle: settings.personalization.communicationStyle,
+        tone: settings.personalization.tone,
+        customInstructions: settings.personalization.customInstructions,
       })
     },
     [activeConvo, agentConnected, sendToAgent, addUserMessage, mergedCountRef],
@@ -353,13 +365,6 @@ export function ChatShellController() {
       : connected
         ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
         : "border-rose-300/50 bg-rose-500/35 text-rose-100"
-
-  const runningProvider = latestUsage?.provider ?? activeLlmProvider
-  const runningModel = latestUsage?.model ?? activeLlmModel
-  const hasAnyLlmApiSetup = openaiConfigured || claudeConfigured || grokConfigured || geminiConfigured
-  const runningLabel = !latestUsage && !hasAnyLlmApiSetup
-    ? "Needs Setup"
-    : `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
 
   return (
     <div className="relative flex h-dvh overflow-hidden bg-page">
@@ -433,7 +438,6 @@ export function ChatShellController() {
         conversations={conversations}
         activeId={activeConvo?.id || null}
         isOpen={true}
-        runningNowLabel={runningLabel}
         onSelect={handleSelectConvo}
         onNew={handleNewChat}
         onDelete={handleDeleteConvo}
@@ -551,16 +555,35 @@ export function ChatShellController() {
                     <Blocks className="w-4 h-4 text-accent" />
                     <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
                   </div>
-                  <button
-                    onClick={() => router.push("/integrations")}
-                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}
-                    aria-label="Open integrations settings"
-                  >
-                    <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => router.push("/analytics")}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover`, subPanelClass)}
+                      aria-label="Open analytics"
+                      title="Open analytics"
+                    >
+                      <BarChart3 className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
+                    </button>
+                    <button
+                      onClick={() => router.push("/integrations")}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}
+                      aria-label="Open integrations settings"
+                    >
+                      <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
+                    </button>
+                  </div>
                 </div>
 
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+                <div className="relative mt-1 h-5">
+                  <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+                  {integrationGuardNotice ? (
+                    <div className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2">
+                      <div className={cn("rounded-xl border px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap backdrop-blur-xl shadow-[0_14px_30px_-16px_rgba(0,0,0,0.7)]", isLight ? "border-rose-300 bg-rose-100 text-rose-700" : "border-rose-300/50 bg-rose-950 text-rose-100")}>
+                        {integrationGuardNotice}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
 
                 <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
                   <div className="grid grid-cols-6 gap-1">

@@ -24,6 +24,33 @@ export interface WorkspaceContextSyncResult {
   updatedFiles: string[]
 }
 
+type SyncedTone = "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed"
+
+function normalizeTone(value: unknown): SyncedTone {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "enthusiastic") return "enthusiastic"
+  if (normalized === "calm") return "calm"
+  if (normalized === "direct") return "direct"
+  if (normalized === "relaxed") return "relaxed"
+  return "neutral"
+}
+
+function toneDirective(tone: SyncedTone): string {
+  if (tone === "enthusiastic") {
+    return "Use energetic, motivating language with positive momentum while staying precise."
+  }
+  if (tone === "calm") {
+    return "Use steady, reassuring language with low urgency and clear, measured pacing."
+  }
+  if (tone === "direct") {
+    return "Use concise, action-first language with minimal filler and explicit next steps."
+  }
+  if (tone === "relaxed") {
+    return "Use casual, easygoing language that stays clear and practical without sounding rushed."
+  }
+  return "Use balanced, neutral language that is clear, practical, and professional."
+}
+
 function sanitizeUserContextId(value: unknown): string {
   const normalized = String(value ?? "")
     .trim()
@@ -100,6 +127,7 @@ export async function syncWorkspaceContextFiles(
   const userContextDir = resolveUserContextDir(workspaceRoot, userId)
   await mkdir(userContextDir, { recursive: true })
 
+  const resolvedTone = normalizeTone(rawInput.tone || "neutral")
   const input: WorkspaceContextSyncInput = {
     assistantName: compactText(rawInput.assistantName || "Nova", 60) || "Nova",
     userName: compactText(rawInput.userName || "User", 80) || "User",
@@ -107,7 +135,7 @@ export async function syncWorkspaceContextFiles(
     occupation: compactText(rawInput.occupation, 120),
     preferredLanguage: compactText(rawInput.preferredLanguage || "English", 80) || "English",
     communicationStyle: compactText(rawInput.communicationStyle || "friendly", 60) || "friendly",
-    tone: compactText(rawInput.tone || "neutral", 60) || "neutral",
+    tone: resolvedTone,
     characteristics: compactText(rawInput.characteristics, 240),
     customInstructions: compactText(rawInput.customInstructions, 320),
     interests: compactList(rawInput.interests, 6, 48),
@@ -141,6 +169,7 @@ export async function syncWorkspaceContextFiles(
     `- Assistant display name: ${input.assistantName}`,
     `- Primary user: ${input.userName}`,
     `- Default tone: ${input.tone}`,
+    `- Tone directive: ${toneDirective(resolvedTone)}`,
     `- Communication style: ${input.communicationStyle}`,
     input.customInstructions ? `- Priority behavior note: ${input.customInstructions}` : "",
   ]
@@ -153,6 +182,7 @@ export async function syncWorkspaceContextFiles(
     "When user-specific instructions are present, apply them unless they conflict with safety constraints.",
     `- User: ${input.userName}`,
     `- Preferred language: ${input.preferredLanguage}`,
+    `- Enforced tone behavior: ${toneDirective(resolvedTone)}`,
     input.occupation ? `- Occupation context: ${input.occupation}` : "",
     input.customInstructions ? `- Custom instructions: ${input.customInstructions}` : "- Custom instructions: none",
   ]

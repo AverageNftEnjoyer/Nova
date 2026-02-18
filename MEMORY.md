@@ -14,3 +14,6 @@
 - Active provider/model is controlled by Integrations settings.
 - Do not silently switch providers unless explicit fallback is enabled.
 - Session transcripts are persisted per session key.
+- Nova desktop dev launch in PowerShell must quote env values:
+  - Use: `$env:NOVA_HUD_MODE = "dev"; Set-Location C:\Nova; node nova.js`
+  - Do not use: `$env:NOVA_HUD_MODE=dev` (PowerShell treats `dev` as a command).

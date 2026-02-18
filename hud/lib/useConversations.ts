@@ -597,10 +597,16 @@ export function useConversations({
       const { loadUserSettings } = await import("@/lib/userSettings")
       const { getActiveUserId } = await import("@/lib/active-user")
       const settings = loadUserSettings()
+      const activeUserId = getActiveUserId()
+      if (!activeUserId) return
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: activeConvo.id,
         sender: "hud-user",
-        userId: getActiveUserId(),
+        userId: activeUserId,
+        assistantName: settings.personalization.assistantName,
+        communicationStyle: settings.personalization.communicationStyle,
+        tone: settings.personalization.tone,
+        customInstructions: settings.personalization.customInstructions,
       })
     },
     [activeConvo, agentConnected, addUserMessage],

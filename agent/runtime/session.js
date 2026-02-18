@@ -81,6 +81,10 @@ export function createSessionRuntime({
     }
 
     const source = normalizeToken(opts.source || "hud");
+    if (source === "voice") {
+      const voiceSender = normalizeUserContextId(sender || "local-mic");
+      return voiceSender || "local-mic";
+    }
     if (source !== "hud") return "";
 
     const senderFallback = normalizeUserContextId(sender);

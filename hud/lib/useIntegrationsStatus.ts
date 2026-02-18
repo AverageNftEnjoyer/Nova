@@ -35,6 +35,8 @@ export interface IntegrationsStatus {
 }
 
 export interface UseIntegrationsStatusReturn extends IntegrationsStatus {
+  integrationGuardNotice: string | null
+  integrationGuardTarget: "brave" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
   handleToggleTelegramIntegration: () => void
   handleToggleDiscordIntegration: () => void
   handleToggleBraveIntegration: () => void
@@ -77,7 +79,10 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   const [claudeConfigured, setClaudeConfigured] = useState(Boolean(initialIntegrations.claude.apiKeyConfigured))
   const [grokConfigured, setGrokConfigured] = useState(Boolean(initialIntegrations.grok.apiKeyConfigured))
   const [geminiConfigured, setGeminiConfigured] = useState(Boolean(initialIntegrations.gemini.apiKeyConfigured))
+  const [gmailTokenConfigured, setGmailTokenConfigured] = useState(Boolean(initialIntegrations.gmail?.tokenConfigured))
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>(initialIntegrations.activeLlmProvider)
+  const [integrationGuardNotice, setIntegrationGuardNotice] = useState<string | null>(null)
+  const [integrationGuardTarget, setIntegrationGuardTarget] = useState<"brave" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null>(null)
   const [activeLlmModel, setActiveLlmModel] = useState(
     resolveActiveModelFromProvider(initialIntegrations.activeLlmProvider, {
       openai: initialIntegrations.openai.defaultModel,
@@ -86,6 +91,15 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
       gemini: initialIntegrations.gemini.defaultModel,
     }),
   )
+
+  useEffect(() => {
+    if (!integrationGuardNotice) return
+    const timer = window.setTimeout(() => {
+      setIntegrationGuardNotice(null)
+      setIntegrationGuardTarget(null)
+    }, 3000)
+    return () => window.clearTimeout(timer)
+  }, [integrationGuardNotice])
 
   // Load from server
   useEffect(() => {
@@ -110,6 +124,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         const claudeReady = Boolean(data?.config?.claude?.apiKeyConfigured)
         const grokReady = Boolean(data?.config?.grok?.apiKeyConfigured)
         const geminiReady = Boolean(data?.config?.gemini?.apiKeyConfigured)
+        const gmailReady = Boolean(data?.config?.gmail?.tokenConfigured)
         const provider: LlmProvider =
           data?.config?.activeLlmProvider === "claude"
             ? "claude"
@@ -130,6 +145,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         setClaudeConfigured(claudeReady)
         setGrokConfigured(grokReady)
         setGeminiConfigured(geminiReady)
+        setGmailTokenConfigured(gmailReady)
         setActiveLlmProvider(provider)
         setActiveLlmModel(resolveActiveModelFromProvider(provider, {
           openai: data?.config?.openai?.defaultModel,
@@ -173,6 +189,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
           setClaudeConfigured(Boolean(data?.config?.claude?.apiKeyConfigured))
           setGrokConfigured(Boolean(data?.config?.grok?.apiKeyConfigured))
           setGeminiConfigured(Boolean(data?.config?.gemini?.apiKeyConfigured))
+          setGmailTokenConfigured(Boolean(data?.config?.gmail?.tokenConfigured))
           setActiveLlmProvider(provider)
           setActiveLlmModel(resolveActiveModelFromProvider(provider, {
             openai: data?.config?.openai?.defaultModel,
@@ -211,7 +228,11 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   }, [discordConnected])
 
   const handleToggleBraveIntegration = useCallback(() => {
-    if (!braveConnected && !braveConfigured) return
+    if (!braveConnected && !braveConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("brave")
+      return
+    }
     const next = !braveConnected
     setBraveConnected(next)
     updateBraveIntegrationSettings({ connected: next })
@@ -223,7 +244,11 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   }, [braveConfigured, braveConnected])
 
   const handleToggleOpenAIIntegration = useCallback(() => {
-    if (!openaiConnected && !openaiConfigured) return
+    if (!openaiConnected && !openaiConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("openai")
+      return
+    }
     const next = !openaiConnected
     setOpenaiConnected(next)
     updateOpenAIIntegrationSettings({ connected: next })
@@ -235,7 +260,11 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   }, [openaiConnected, openaiConfigured])
 
   const handleToggleClaudeIntegration = useCallback(() => {
-    if (!claudeConnected && !claudeConfigured) return
+    if (!claudeConnected && !claudeConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("claude")
+      return
+    }
     const next = !claudeConnected
     setClaudeConnected(next)
     updateClaudeIntegrationSettings({ connected: next })
@@ -247,7 +276,11 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   }, [claudeConnected, claudeConfigured])
 
   const handleToggleGrokIntegration = useCallback(() => {
-    if (!grokConnected && !grokConfigured) return
+    if (!grokConnected && !grokConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("grok")
+      return
+    }
     const next = !grokConnected
     setGrokConnected(next)
     updateGrokIntegrationSettings({ connected: next })
@@ -259,7 +292,11 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   }, [grokConnected, grokConfigured])
 
   const handleToggleGeminiIntegration = useCallback(() => {
-    if (!geminiConnected && !geminiConfigured) return
+    if (!geminiConnected && !geminiConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("gemini")
+      return
+    }
     const next = !geminiConnected
     setGeminiConnected(next)
     updateGeminiIntegrationSettings({ connected: next })
@@ -271,6 +308,11 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   }, [geminiConnected, geminiConfigured])
 
   const handleToggleGmailIntegration = useCallback(() => {
+    if (!gmailConnected && !gmailTokenConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("gmail")
+      return
+    }
     const next = !gmailConnected
     setGmailConnected(next)
     void fetch("/api/integrations/config", {
@@ -278,7 +320,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gmail: { connected: next } }),
     }).catch(() => {})
-  }, [gmailConnected])
+  }, [gmailConnected, gmailTokenConfigured])
 
   return {
     integrationsHydrated,
@@ -295,6 +337,8 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
     claudeConfigured,
     grokConfigured,
     geminiConfigured,
+    integrationGuardNotice,
+    integrationGuardTarget,
     activeLlmProvider,
     activeLlmModel,
     handleToggleTelegramIntegration,

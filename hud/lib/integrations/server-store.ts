@@ -98,6 +98,7 @@ export interface IntegrationsConfig {
 const DATA_DIR = path.join(process.cwd(), "data")
 const DATA_FILE = path.join(DATA_DIR, "integrations-config.json")
 const INTEGRATIONS_TABLE = "integration_configs"
+const ALLOW_UNSCOPED_INTEGRATIONS = String(process.env.NOVA_ALLOW_UNSCOPED_INTEGRATIONS || "").trim() === "1"
 
 export type IntegrationsStoreScope =
   | {
@@ -371,6 +372,11 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
   throw new Error("Missing scoped Supabase auth client/token for integrations access.")
 }
 
+function assertScopedIntegrationsAccess(normalizedScope: { userId: string; client: SupabaseClient } | null): void {
+  if (normalizedScope || ALLOW_UNSCOPED_INTEGRATIONS) return
+  throw new Error("Scoped user context is required for integrations config access.")
+}
+
 function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig {
   return {
     ...config,
@@ -487,6 +493,7 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
 
 export async function loadIntegrationsConfig(scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
   const normalizedScope = normalizeStoreScope(scope)
+  assertScopedIntegrationsAccess(normalizedScope)
   if (normalizedScope) {
     const { userId, client } = normalizedScope
     const { data, error } = await client
@@ -519,6 +526,7 @@ export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?:
   const toStore = toEncryptedStoreConfig(normalized)
 
   const normalizedScope = normalizeStoreScope(scope)
+  assertScopedIntegrationsAccess(normalizedScope)
   if (normalizedScope) {
     const { userId, client } = normalizedScope
     const { error } = await client

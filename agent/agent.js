@@ -194,11 +194,16 @@ const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "I
 
 function resolvePersonaWorkspaceDir(userContextId) {
   const normalized = sessionRuntime.normalizeUserContextId(userContextId || "");
+  const fallbackContextId = normalized || "anonymous";
+  const fallbackDir = path.join(USER_CONTEXT_ROOT, fallbackContextId);
   if (!normalized) {
-    return ROOT_WORKSPACE_DIR;
+    try {
+      fs.mkdirSync(fallbackDir, { recursive: true });
+    } catch {}
+    return fallbackDir;
   }
 
-  const userDir = path.join(USER_CONTEXT_ROOT, normalized);
+  const userDir = fallbackDir;
   try {
     fs.mkdirSync(userDir, { recursive: true });
     for (const fileName of BOOTSTRAP_FILE_NAMES) {
@@ -220,7 +225,7 @@ function resolvePersonaWorkspaceDir(userContextId) {
     console.warn(
       `[Persona] Failed preparing per-user workspace for ${normalized}: ${describeUnknownError(err)}`,
     );
-    return ROOT_WORKSPACE_DIR;
+    return fallbackDir;
   }
 }
 
@@ -740,12 +745,28 @@ wss.on("connection", (ws) => {
           const incomingUserId = sessionRuntime.normalizeUserContextId(
             typeof data.userId === "string" ? data.userId : "",
           );
+          if (!incomingUserId) {
+            const streamId = createAssistantStreamId();
+            broadcastAssistantStreamStart(streamId, "hud");
+            broadcastAssistantStreamDelta(
+              streamId,
+              "Request blocked: missing user identity. Please sign in again and retry.",
+              "hud",
+            );
+            broadcastAssistantStreamDone(streamId, "hud");
+            broadcastState("idle");
+            return;
+          }
           await handleInput(data.content, {
             voice: data.voice !== false,
             ttsVoice: data.ttsVoice || currentVoice,
             source: "hud",
             sender: typeof data.sender === "string" ? data.sender : "hud-user",
             userContextId: incomingUserId || undefined,
+            assistantName: typeof data.assistantName === "string" ? data.assistantName : "",
+            communicationStyle: typeof data.communicationStyle === "string" ? data.communicationStyle : "",
+            tone: typeof data.tone === "string" ? data.tone : "",
+            customInstructions: typeof data.customInstructions === "string" ? data.customInstructions : "",
             sessionKeyHint:
               typeof data.sessionKey === "string"
                 ? data.sessionKey
@@ -904,6 +925,31 @@ const COMMAND_ACKS = [
   "Working on that now."
 ];
 
+function normalizeRuntimeTone(rawTone) {
+  const normalized = String(rawTone || "").trim().toLowerCase();
+  if (normalized === "enthusiastic") return "enthusiastic";
+  if (normalized === "calm") return "calm";
+  if (normalized === "direct") return "direct";
+  if (normalized === "relaxed") return "relaxed";
+  return "neutral";
+}
+
+function runtimeToneDirective(tone) {
+  if (tone === "enthusiastic") {
+    return "Use energetic, upbeat wording while preserving precision and factual clarity.";
+  }
+  if (tone === "calm") {
+    return "Use calm, steady language and measured pacing; keep responses reassuring and clear.";
+  }
+  if (tone === "direct") {
+    return "Use concise, action-first responses with minimal filler and explicit next steps.";
+  }
+  if (tone === "relaxed") {
+    return "Use relaxed, easygoing phrasing that stays practical, clear, and not rushed.";
+  }
+  return "Use balanced, neutral language that is concise, practical, and professional.";
+}
+
 // ===== input handler =====
 async function handleInput(text, opts = {}) {
   const sessionContext = sessionRuntime.resolveSessionContext(opts);
@@ -912,7 +958,14 @@ async function handleInput(text, opts = {}) {
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
   const source = opts.source || "hud";
+  if (source === "hud" && !userContextId) {
+    throw new Error("Missing user context id for HUD request.");
+  }
   const sender = String(opts.sender || "").trim();
+  const runtimeTone = normalizeRuntimeTone(opts.tone);
+  const runtimeCommunicationStyle = String(opts.communicationStyle || "").trim();
+  const runtimeAssistantName = String(opts.assistantName || "").trim();
+  const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
   const n = text.toLowerCase().trim();
   appendRawStream({
     event: "request_start",
@@ -1231,6 +1284,19 @@ Output ONLY valid JSON, nothing else.`
   });
 
   let systemPrompt = baseSystemPrompt;
+  const runtimePersonaOverlay = [
+    "## Runtime Persona (HUD)",
+    runtimeAssistantName ? `- Assistant name: ${runtimeAssistantName}` : "",
+    runtimeCommunicationStyle ? `- Communication style: ${runtimeCommunicationStyle}` : "",
+    `- Tone: ${runtimeTone}`,
+    `- Tone behavior: ${runtimeToneDirective(runtimeTone)}`,
+    runtimeCustomInstructions ? `- Custom instructions: ${runtimeCustomInstructions}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (runtimePersonaOverlay) {
+    systemPrompt += `\n\n${runtimePersonaOverlay}`;
+  }
   if (canRunWebSearch && shouldPreloadWebSearch(text)) {
     try {
       const preloadResult = await runtimeTools.executeToolUse(

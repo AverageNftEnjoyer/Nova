@@ -332,7 +332,7 @@ export default function LoginPage() {
             profile: {
               ...current.profile,
               name: trimmedName,
-              accessTier: "Core Access",
+              accessTier: "Model Unset",
             },
           })
         }

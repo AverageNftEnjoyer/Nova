@@ -1726,6 +1726,91 @@
   display: none;
 }
 
+.module-hover-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  -ms-overflow-style: none;
+  scrollbar-gutter: stable both-edges;
+}
+
+.module-hover-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.module-hover-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+.module-hover-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.module-hover-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.26) rgba(255, 255, 255, 0.08);
+}
+
+.module-hover-scroll:hover::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+}
+
+.module-hover-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.26);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.module-hover-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.module-scroll-visible {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.module-scroll-visible::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.module-scroll-visible::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+.module-scroll-visible::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.module-scroll-strong {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.12);
+}
+
+.module-scroll-strong::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.module-scroll-strong::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.module-scroll-strong::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.module-scroll-strong::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
 .mission-builder-popup-no-glow .home-spotlight-card--hover:hover {
   box-shadow: none !important;
   border-color: inherit !important;

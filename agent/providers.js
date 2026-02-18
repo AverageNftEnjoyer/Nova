@@ -210,12 +210,11 @@ function normalizeUserContextId(value) {
 function resolveIntegrationsConfigPath(userContextId) {
   const normalized = normalizeUserContextId(userContextId);
   if (!normalized) return INTEGRATIONS_CONFIG_PATH;
-  const scopedPath = path.join(
+  return path.join(
     USER_CONTEXT_INTEGRATIONS_ROOT,
     normalized,
     USER_CONTEXT_INTEGRATIONS_FILE,
   );
-  return fs.existsSync(scopedPath) ? scopedPath : INTEGRATIONS_CONFIG_PATH;
 }
 
 export function loadIntegrationsRuntime(options = {}) {

@@ -27,6 +27,7 @@ import { GmailIcon } from "@/components/gmail-icon"
 import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import { getCachedBackgroundVideoObjectUrl, isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
+import { formatCompactModelLabelFromIntegrations } from "@/lib/model-label"
 import "@/components/FloatingLines.css"
 
 // Constants
@@ -103,7 +104,7 @@ export default function IntegrationsPage() {
   const [profile, setProfile] = useState<UserProfile>({
     name: "User",
     avatar: null,
-    accessTier: "Core Access",
+    accessTier: "Model Unset",
   })
   // Keep initial render deterministic between server and client to avoid hydration mismatch.
   const [background, setBackground] = useState<ThemeBackgroundType>("none")
@@ -420,6 +421,7 @@ export default function IntegrationsPage() {
         : "border-rose-300/50 bg-rose-500/35 text-rose-100"
   const integrationDotClass = (connected: boolean) =>
     !integrationsHydrated ? "bg-slate-400" : connected ? "bg-emerald-400" : "bg-rose-400"
+  const compactModelLabel = useMemo(() => formatCompactModelLabelFromIntegrations(settings), [settings])
   const integrationTextClass = (connected: boolean) =>
     !integrationsHydrated ? "text-slate-400" : connected ? "text-emerald-400" : "text-rose-400"
   const braveNeedsKeyWarning = !(settings.brave.connected && (settings.brave.apiKeyConfigured || braveApiKeyConfigured))
@@ -1188,7 +1190,7 @@ export default function IntegrationsPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className={cn("text-sm font-medium truncate", isLight ? "text-s-90" : "text-slate-100")}>{profile.name || "User"}</p>
-                  <p className="text-[11px] text-accent font-mono truncate">{profile.accessTier || "Core Access"}</p>
+                  <p className="text-[11px] text-accent font-mono truncate">{compactModelLabel}</p>
                 </div>
                 <button
                   onClick={() => setSettingsOpen(true)}

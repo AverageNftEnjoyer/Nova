@@ -21,6 +21,8 @@ import { cn } from "@/lib/utils"
 import { NOVA_VERSION } from "@/lib/version"
 import type { Conversation } from "@/lib/conversations"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type UserSettings } from "@/lib/userSettings"
+import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings } from "@/lib/integrations/client-store"
+import { formatCompactModelLabelFromIntegrations, formatCompactModelLabelFromRunningLabel } from "@/lib/model-label"
 import type { NovaState } from "@/lib/useNovaState"
 import { useTheme } from "@/lib/theme-context"
 import { getNovaPresence } from "@/lib/nova-presence"
@@ -94,6 +96,7 @@ export function ChatSidebar({
   const pathname = usePathname()
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [fallbackModelLabel, setFallbackModelLabel] = useState("Model Unset")
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renamingTitle, setRenamingTitle] = useState("")
   const [orbHovered, setOrbHovered] = useState(false)
@@ -212,6 +215,16 @@ export function ChatSidebar({
   }, [])
 
   useEffect(() => {
+    const refreshModelLabel = () => {
+      const integrations = loadIntegrationsSettings()
+      setFallbackModelLabel(formatCompactModelLabelFromIntegrations(integrations))
+    }
+    refreshModelLabel()
+    window.addEventListener(INTEGRATIONS_UPDATED_EVENT, refreshModelLabel as EventListener)
+    return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, refreshModelLabel as EventListener)
+  }, [])
+
+  useEffect(() => {
     if (!settingsOpen) {
       setUserSettings(loadUserSettings()) // eslint-disable-line react-hooks/set-state-in-effect
     }
@@ -245,9 +258,12 @@ export function ChatSidebar({
     ? "Missions & Automations Hub"
     : pathname?.startsWith("/integrations")
     ? "Integrations Hub"
+    : pathname?.startsWith("/analytics")
+    ? "Analytics Hub"
     : pathname?.startsWith("/history")
     ? "Communications Hub"
     : "Home Page"
+  const compactModelLabel = formatCompactModelLabelFromRunningLabel(runningNowLabel) || fallbackModelLabel
   const beginRename = (c: Conversation) => {
     setRenamingId(c.id)
     setRenamingTitle(c.title)
@@ -470,10 +486,13 @@ export function ChatSidebar({
         )}
 
         <div className="px-4 py-2">
-          <p className={cn("text-xs uppercase tracking-[0.16em] font-semibold", isLight ? "text-s-50" : "text-slate-400")}>Quick Actions</p>
+          <div className={cn("px-2.5 inline-flex items-center gap-2 text-xs uppercase tracking-[0.16em] font-semibold", isLight ? "text-s-50" : "text-slate-400")}>
+            <Pin className="h-3.5 w-3.5" />
+            <span>Quick Actions</span>
+          </div>
           <div className="mt-2 space-y-2">
             {quickActionConversations.length === 0 ? (
-              <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>Pin chats to show quick actions.</p>
+              <p className={cn("px-2.5 text-xs", isLight ? "text-s-40" : "text-slate-500")}>Pin chats to show quick actions.</p>
             ) : (
               quickActionConversations.map((convo) => (
                 <button
@@ -516,7 +535,7 @@ export function ChatSidebar({
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
               className={cn(
-                "w-full mb-2 h-8 px-2 rounded-lg inline-flex items-center justify-between text-xs uppercase tracking-[0.14em] transition-colors",
+                "w-full mb-2 h-8 px-2.5 rounded-lg inline-flex items-center justify-between text-xs uppercase tracking-[0.14em] transition-colors",
                 "chat-sidebar-card home-spotlight-card",
                 isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-400 hover:bg-white/6",
               )}
@@ -543,7 +562,7 @@ export function ChatSidebar({
               type="button"
               onClick={() => setArchivedOpen((v) => !v)}
               className={cn(
-                "w-full mb-2 h-8 px-2 rounded-lg inline-flex items-center justify-between text-xs uppercase tracking-[0.14em] transition-colors",
+                "w-full mb-2 h-8 px-2.5 rounded-lg inline-flex items-center justify-between text-xs uppercase tracking-[0.14em] transition-colors",
                 "chat-sidebar-card home-spotlight-card",
                 isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-400 hover:bg-white/6",
               )}
@@ -588,7 +607,7 @@ export function ChatSidebar({
                 {profile?.name || "User"}
               </p>
               <p className="text-xs text-accent font-mono truncate">
-                {profile?.accessTier || "Core Access"}
+                {compactModelLabel}
               </p>
             </div>
 

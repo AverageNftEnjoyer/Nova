@@ -140,7 +140,16 @@ export function useNovaState() {
     text: string,
     voice: boolean = true,
     ttsVoice: string = "default",
-    options?: { conversationId?: string; sender?: string; sessionKey?: string; userId?: string },
+    options?: {
+      conversationId?: string
+      sender?: string
+      sessionKey?: string
+      userId?: string
+      assistantName?: string
+      communicationStyle?: string
+      tone?: string
+      customInstructions?: string
+    },
   ) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -154,6 +163,10 @@ export function useNovaState() {
           ...(options?.sender ? { sender: options.sender } : {}),
           ...(options?.sessionKey ? { sessionKey: options.sessionKey } : {}),
           ...(options?.userId ? { userId: options.userId } : {}),
+          ...(options?.assistantName ? { assistantName: options.assistantName } : {}),
+          ...(options?.communicationStyle ? { communicationStyle: options.communicationStyle } : {}),
+          ...(options?.tone ? { tone: options.tone } : {}),
+          ...(options?.customInstructions ? { customInstructions: options.customInstructions } : {}),
         }),
       );
     }

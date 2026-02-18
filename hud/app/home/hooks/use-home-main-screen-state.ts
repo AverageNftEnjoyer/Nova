@@ -4,9 +4,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTheme } from "@/lib/theme-context"
-import { loadUserSettings } from "@/lib/userSettings"
+import { loadUserSettings, normalizeResponseTone } from "@/lib/userSettings"
 import { useNovaState } from "@/lib/useNovaState"
-import { GREETINGS } from "../constants"
+import { pickGreetingForTone } from "../constants"
 import { useHomeConversations } from "./use-home-conversations"
 import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeVisuals } from "./use-home-visuals"
@@ -75,7 +75,7 @@ export function useHomeMainScreenState() {
     const lastGreetingAt = Number(localStorage.getItem("nova-last-greeting-at") || "0")
     if (Number.isFinite(lastGreetingAt) && now - lastGreetingAt < GREETING_COOLDOWN_MS) return
 
-    const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
+    const greeting = pickGreetingForTone(normalizeResponseTone(settings.personalization?.tone))
     const timer = window.setTimeout(() => {
       localStorage.setItem("nova-last-greeting-at", String(Date.now()))
       sendGreeting(greeting, settings.app.ttsVoice, settings.app.voiceEnabled)
@@ -90,6 +90,7 @@ export function useHomeMainScreenState() {
   const goToBootup = useCallback(() => router.push("/boot-right"), [router])
   const openMissions = useCallback(() => router.push("/missions"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
+  const openAnalytics = useCallback(() => router.push("/analytics"), [router])
 
   return {
     isLight,
@@ -110,6 +111,7 @@ export function useHomeMainScreenState() {
     novaState,
     connected,
     hasAnimated: visuals.hasAnimated,
+    assistantName: visuals.assistantName,
     orbPalette: visuals.orbPalette,
     welcomeMessage: visuals.welcomeMessage,
     handleSend: conversationState.handleSend,
@@ -125,6 +127,7 @@ export function useHomeMainScreenState() {
     missions: integrations.missions,
     openMissions,
     openIntegrations,
+    openAnalytics,
     handleToggleTelegramIntegration: integrations.handleToggleTelegramIntegration,
     handleToggleDiscordIntegration: integrations.handleToggleDiscordIntegration,
     handleToggleBraveIntegration: integrations.handleToggleBraveIntegration,
@@ -133,6 +136,8 @@ export function useHomeMainScreenState() {
     handleToggleGrokIntegration: integrations.handleToggleGrokIntegration,
     handleToggleGeminiIntegration: integrations.handleToggleGeminiIntegration,
     handleToggleGmailIntegration: integrations.handleToggleGmailIntegration,
+    integrationGuardNotice: integrations.integrationGuardNotice,
+    integrationGuardTarget: integrations.integrationGuardTarget,
     integrationBadgeClass: integrations.integrationBadgeClass,
     telegramConnected: integrations.telegramConnected,
     discordConnected: integrations.discordConnected,

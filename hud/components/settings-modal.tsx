@@ -1521,6 +1521,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         { value: "enthusiastic", label: "Enthusiastic" },
                         { value: "calm", label: "Calm" },
                         { value: "direct", label: "Direct" },
+                        { value: "relaxed", label: "Relaxed" },
                       ]}
                       onChange={(v) => updatePersonalization("tone", v)}
                     />

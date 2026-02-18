@@ -147,13 +147,13 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
             >
               {assistantIsLoading ? (
                 <div className="flex items-center gap-1 py-1">
-                  <span className="h-[7px] w-[7px] rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]" />
+                  <span className="h-1.75 w-1.75 rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]" />
                   <span
-                    className="h-[7px] w-[7px] rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
+                    className="h-1.75 w-1.75 rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
                     style={{ animationDelay: "160ms" }}
                   />
                   <span
-                    className="h-[7px] w-[7px] rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
+                    className="h-1.75 w-1.75 rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
                     style={{ animationDelay: "320ms" }}
                   />
                 </div>
@@ -203,7 +203,7 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
                   />
                 </div>
               )}
-              <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.content}</p>
+              <p className="text-sm whitespace-pre-wrap wrap-break-word">{message.content}</p>
             </div>
           </div>
         </div>
@@ -213,7 +213,7 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
       </div>
       <div
         className={cn(
-          "mt-1.5 h-[28px] w-[28px] shrink-0 overflow-hidden rounded-full",
+          "mt-1.5 h-7 w-7 shrink-0 overflow-hidden rounded-full",
           isLight ? "border border-[#d5dce8] bg-white" : "border border-white/15 bg-white/5",
         )}
       >

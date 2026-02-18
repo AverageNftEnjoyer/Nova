@@ -18,9 +18,10 @@ interface FluidSelectProps {
   onChange: (value: string) => void
   isLight: boolean
   className?: string
+  buttonClassName?: string
 }
 
-export function FluidSelect({ value, options, onChange, isLight, className }: FluidSelectProps) {
+export function FluidSelect({ value, options, onChange, isLight, className, buttonClassName }: FluidSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [hoveredValue, setHoveredValue] = useState<string | null>(null)
   const [menuStyle, setMenuStyle] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
@@ -112,6 +113,7 @@ export function FluidSelect({ value, options, onChange, isLight, className }: Fl
             isLight
               ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 hover:bg-[#eef3fb]"
               : "border-white/12 bg-white/[0.06] text-slate-100 backdrop-blur-md hover:bg-white/[0.1]",
+            buttonClassName,
           )}
           aria-expanded={isOpen}
           aria-haspopup="listbox"

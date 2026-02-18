@@ -8,6 +8,13 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ * - V.09 Alpha: Analytics baseline module and nav integration
+ *     - Added new /analytics route with modular analytics architecture.
+ *     - Implemented frosted-glass analytics modules, spotlight effects, and D3 charts.
+ *     - Added rotating settings wheel with module visibility controls and persistence.
+ *     - Wired Analytics entry points into Home and Chat right-rail module controls.
+ *     - Updated sidebar hub labeling to recognize Analytics Hub context.
+ *
  * - V.08 Alpha: Chat refactor and Brave integration
  *     - Refactored chat-shell-controller from 1688 lines to 616 lines.
  *     - Extracted logic into reusable hooks: useConversations, useIntegrationsStatus,
@@ -53,4 +60,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.08 Alpha"
+export const NOVA_VERSION = "V.09 Alpha"
