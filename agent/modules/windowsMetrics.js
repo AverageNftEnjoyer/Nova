@@ -1,4 +1,4 @@
-﻿import { spawn } from "child_process";
+import { spawn } from "child_process";
 
 const DEFAULT_INTERVAL_MS = 2000;
 const MIN_INTERVAL_MS = 2000;

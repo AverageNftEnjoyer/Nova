@@ -32,7 +32,7 @@ export function startMetricsBroadcast(broadcast, intervalMs = DEFAULT_INTERVAL_M
   const safeIntervalMs = resolveIntervalMs(intervalMs);
   const mode = String(process.env.NOVA_METRICS_MODE || DEFAULT_METRICS_MODE).toLowerCase();
 
-  // Send initial metrics
+  // Send initial metrics (fire-and-forget, errors logged not thrown)
   sendMetrics(broadcast);
 
   // Default mode is one-shot to avoid background polling CPU cost on Windows.
@@ -50,12 +50,18 @@ export function startMetricsBroadcast(broadcast, intervalMs = DEFAULT_INTERVAL_M
 }
 
 async function sendMetrics(broadcast) {
-  const metrics = await getSystemMetrics();
-  if (metrics) {
-    broadcast({
-      type: "system_metrics",
-      metrics,
-      ts: Date.now(),
-    });
+  try {
+    const metrics = await getSystemMetrics();
+    if (metrics) {
+      broadcast({
+        type: "system_metrics",
+        metrics,
+        ts: Date.now(),
+      });
+    }
+  } catch (err) {
+    if (process.env.NOVA_METRICS_DEBUG === "1") {
+      console.debug(`[Metrics] sendMetrics failed: ${err.message}`);
+    }
   }
 }

@@ -56,6 +56,15 @@ interface UseMissionsPageStateInput {
   isLight: boolean
 }
 
+type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
+
+const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["novachat", "telegram", "discord", "email", "push", "webhook"]
+const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "webhook", "novachat"]
+
+function isOutputChannel(value: string): value is OutputChannel {
+  return OUTPUT_CHANNEL_VALUES.includes(value as OutputChannel)
+}
+
 export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const router = useRouter()
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
@@ -136,6 +145,23 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     }
     return deduped
   }, [integrationCatalog])
+
+  const resolvePreferredOutputChannel = useCallback((): OutputChannel => {
+    const schedulePreference = schedules
+      .map((schedule) => String(schedule.integration || "").trim().toLowerCase())
+      .find((integration) => isOutputChannel(integration))
+    if (schedulePreference) return schedulePreference
+
+    const connectedChannels = new Set(
+      integrationCatalog
+        .filter((item) => item.kind === "channel" && item.connected)
+        .map((item) => String(item.id || "").trim().toLowerCase()),
+    )
+    for (const channel of CONNECTED_CHANNEL_PREFERENCE) {
+      if (connectedChannels.has(channel)) return channel
+    }
+    return "telegram"
+  }, [integrationCatalog, schedules])
 
   const formatStatusTime = useCallback((value: number) => {
     return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
@@ -230,7 +256,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         id,
         type,
         title: titleOverride ?? "Send notification",
-        outputChannel: "telegram",
+        outputChannel: resolvePreferredOutputChannel(),
         outputTiming: "immediate",
         outputTime: "09:00",
         outputFrequency: "once",
@@ -250,7 +276,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       aiModel,
       aiDetailLevel: "standard",
     }
-  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
+  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration, resolvePreferredOutputChannel])
 
   const setItemBusy = useCallback((id: string, busy: boolean) => {
     setBusyById((prev) => ({ ...prev, [id]: busy }))
@@ -275,6 +301,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const applyTemplate = useCallback((templateId: string) => {
     const template = QUICK_TEMPLATE_OPTIONS.find((item) => item.id === templateId)
     if (!template) return
+    const preferredOutputChannel = resolvePreferredOutputChannel()
     setEditingMissionId(null)
     setNewPriority(template.priority)
     setNewLabel(template.title)
@@ -306,14 +333,14 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           ...(step.conditionValue ? { conditionValue: step.conditionValue } : {}),
           ...(step.conditionFailureAction ? { conditionFailureAction: step.conditionFailureAction } : {}),
           // Output overrides
-          ...(step.outputChannel ? { outputChannel: step.outputChannel } : {}),
+          ...(step.outputChannel ? { outputChannel: preferredOutputChannel } : {}),
           ...(step.outputTiming ? { outputTiming: step.outputTiming } : {}),
         }
       }),
     )
     setCollapsedStepIds({})
     setBuilderOpen(true)
-  }, [createWorkflowStep])
+  }, [createWorkflowStep, resolvePreferredOutputChannel])
 
   const toggleScheduleDay = useCallback((day: string) => {
     setNewScheduleDays((prev) => (

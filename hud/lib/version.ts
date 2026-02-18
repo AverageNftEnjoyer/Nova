@@ -8,6 +8,14 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ *
+ * - V.12 Alpha: Runtime skill routing efficiency and continuity upgrades
+ *     - Added starter operational skills: `pickup` and `handoff` for fast context rehydration and deterministic task transfer.
+ *     - Runtime skill discovery now parses optional `metadata.read_when` hints and includes them in prompt-time skill selection.
+ *     - Added short-lived runtime cache for discovered skills to reduce repeated per-turn filesystem scans.
+ *     - Skills API now supports optional frontmatter key `metadata` (with `read_when`) and returns hint metadata in skill summaries.
+ *     - Starter skill seeding now uses catalog versioning so newly added starter skills propagate safely to existing users.
+ *
  * - V.11 Alpha: User-facing Skills manager and starter template rollout
  *     - Added Settings -> Skills editor for creating and updating user `SKILL.md` files directly.
  *     - Added validated skill API flow (list/read/create/save) with enforced frontmatter and verification sections.
@@ -71,4 +79,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.11 Alpha"
+export const NOVA_VERSION = "V.13 Alpha"

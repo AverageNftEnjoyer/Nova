@@ -4,7 +4,8 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const ROOT_DIR = path.join(__dirname, "..");
+// modules/ is one level deeper than the original agent/ root
+const ROOT_DIR = path.join(__dirname, "../..");
 
 const BOOTSTRAP_FILES = ["SOUL.md", "USER.md", "MEMORY.md", "IDENTITY.md", "AGENTS.md"];
 const MAX_CHARS_PER_FILE = 20000;
@@ -22,7 +23,8 @@ export function discoverBootstrapFiles(workspaceDir = ROOT_DIR) {
   let entries = [];
   try {
     entries = fs.readdirSync(absWorkspace, { withFileTypes: true });
-  } catch {
+  } catch (err) {
+    console.warn(`[Bootstrap] Cannot read workspace directory "${absWorkspace}": ${err.message}`);
     return BOOTSTRAP_FILES.map(name => ({
       name,
       content: `[${name} - directory unreadable]`,
@@ -58,7 +60,8 @@ export function discoverBootstrapFiles(workspaceDir = ROOT_DIR) {
 
     try {
       content = fs.readFileSync(filePath, "utf8");
-    } catch {
+    } catch (err) {
+      console.warn(`[Bootstrap] Cannot read "${filePath}": ${err.message}`);
       results.push({
         name,
         content: `[${name} - unreadable]`,

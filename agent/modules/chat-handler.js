@@ -1,0 +1,597 @@
+// ===== Chat Handler =====
+// handleInput dispatcher split into focused sub-handlers.
+// Bug Fix 2: Tool loop errors are now caught, logged, and surfaced to HUD.
+
+import fs from "fs";
+import path from "path";
+import { exec } from "child_process";
+import {
+  DEFAULT_CHAT_MODEL,
+  DEFAULT_CLAUDE_MODEL,
+  DEFAULT_GROK_MODEL,
+  DEFAULT_GEMINI_MODEL,
+  ENABLE_PROVIDER_FALLBACK,
+  OPENAI_FALLBACK_MODEL,
+  OPENAI_REQUEST_TIMEOUT_MS,
+  TOOL_LOOP_ENABLED,
+  TOOL_LOOP_MAX_STEPS,
+  CLAUDE_CHAT_MAX_TOKENS,
+  SPOTIFY_INTENT_MAX_TOKENS,
+  OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+  MEMORY_LOOP_ENABLED,
+  SESSION_MAX_TURNS,
+  SESSION_MAX_HISTORY_TOKENS,
+  MAX_PROMPT_TOKENS,
+  COMMAND_ACKS,
+  AGENT_PROMPT_MODE,
+  ROOT_WORKSPACE_DIR,
+} from "../constants.js";
+import { sessionRuntime, toolRuntime } from "./config.js";
+import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "./persona-context.js";
+import { isMemoryUpdateRequest, extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate } from "./memory.js";
+import { buildRuntimeSkillsPrompt } from "./skills.js";
+import { shouldBuildWorkflowFromPrompt, shouldDraftOnlyWorkflow, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "./intent-router.js";
+import { speak, playThinking, stopSpeaking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "./voice.js";
+import {
+  broadcast,
+  broadcastState,
+  broadcastMessage,
+  createAssistantStreamId,
+  broadcastAssistantStreamStart,
+  broadcastAssistantStreamDelta,
+  broadcastAssistantStreamDone,
+} from "./hud-gateway.js";
+import {
+  claudeMessagesCreate,
+  claudeMessagesStream,
+  describeUnknownError,
+  estimateTokenCostUsd,
+  extractOpenAIChatText,
+  getOpenAIClient,
+  resolveConfiguredChatRuntime,
+  streamOpenAiChatCompletion,
+  toErrorDetails,
+  withTimeout,
+} from "./providers.js";
+import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../runtime/context-prompt.js";
+import { buildAgentSystemPrompt, PromptMode } from "./system-prompt.js";
+import { buildPersonaPrompt } from "./bootstrap.js";
+
+// ===== Memory update sub-handler =====
+async function handleMemoryUpdate(text, ctx) {
+  const { source, sender, sessionId, useVoice, ttsVoice, userContextId } = ctx;
+  const fact = extractMemoryUpdateFact(text);
+
+  broadcastState("thinking");
+  broadcastMessage("user", text, source);
+  if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "user", text, { source, sender: sender || null });
+
+  if (!fact) {
+    const reply = "Tell me exactly what to remember after 'update your memory'.";
+    broadcastMessage("assistant", reply, source);
+    if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", reply, { source, sender: "nova" });
+    if (useVoice) await speak(reply, ttsVoice); else broadcastState("idle");
+    return;
+  }
+
+  try {
+    const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+    const memoryFilePath = path.join(personaWorkspaceDir, "MEMORY.md");
+    const existingContent = fs.existsSync(memoryFilePath) ? fs.readFileSync(memoryFilePath, "utf8") : ensureMemoryTemplate();
+    const memoryMeta = buildMemoryFactMetadata(fact);
+    const updatedContent = upsertMemoryFactInMarkdown(existingContent, memoryMeta.fact, memoryMeta.key);
+    fs.writeFileSync(memoryFilePath, updatedContent, "utf8");
+    const confirmation = memoryMeta.hasStructuredField
+      ? `Memory updated. I will remember this as current: ${memoryMeta.fact}`
+      : `Memory updated. I saved: ${memoryMeta.fact}`;
+    broadcastMessage("assistant", confirmation, source);
+    if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", confirmation, { source, sender: "nova" });
+    if (useVoice) await speak(confirmation, ttsVoice); else broadcastState("idle");
+  } catch (err) {
+    const failure = `I couldn't update MEMORY.md: ${describeUnknownError(err)}`;
+    broadcastMessage("assistant", failure, source);
+    if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", failure, { source, sender: "nova" });
+    if (useVoice) await speak(failure, ttsVoice); else broadcastState("idle");
+  }
+}
+
+// ===== Shutdown sub-handler =====
+async function handleShutdown(ctx) {
+  const { ttsVoice } = ctx;
+  stopSpeaking();
+  await speak("Shutting down now. If you need me again, just restart the system.", ttsVoice);
+  process.exit(0);
+}
+
+// ===== Spotify sub-handler =====
+async function handleSpotify(text, ctx, llmCtx) {
+  const { source, useVoice, ttsVoice } = ctx;
+  const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel } = llmCtx;
+  stopSpeaking();
+
+  const spotifySystemPrompt = `You parse Spotify commands. Given user input, respond with ONLY a JSON object:
+{
+  "action": "open" | "play" | "pause" | "next" | "previous",
+  "query": "search query if playing something, otherwise empty string",
+  "type": "track" | "artist" | "playlist" | "album" | "genre",
+  "response": "short friendly acknowledgment to say to the user"
+}
+Examples:
+- "open spotify" → { "action": "open", "query": "", "type": "track", "response": "Opening Spotify." }
+- "play some jazz" → { "action": "play", "query": "jazz", "type": "genre", "response": "Putting on some jazz for you." }
+- "next song" → { "action": "next", "query": "", "type": "track", "response": "Skipping to the next track." }
+- "pause the music" → { "action": "pause", "query": "", "type": "track", "response": "Pausing the music." }
+Output ONLY valid JSON, nothing else.`;
+
+  let spotifyRaw = "";
+  if (activeChatRuntime.provider === "claude") {
+    const r = await claudeMessagesCreate({
+      apiKey: activeChatRuntime.apiKey,
+      baseURL: activeChatRuntime.baseURL,
+      model: selectedChatModel,
+      system: spotifySystemPrompt,
+      userText: text,
+      maxTokens: SPOTIFY_INTENT_MAX_TOKENS,
+    });
+    spotifyRaw = r.text;
+  } else {
+    const parse = await withTimeout(
+      activeOpenAiCompatibleClient.chat.completions.create({
+        model: selectedChatModel,
+        messages: [{ role: "system", content: spotifySystemPrompt }, { role: "user", content: text }],
+      }),
+      OPENAI_REQUEST_TIMEOUT_MS,
+      "OpenAI Spotify parse",
+    );
+    spotifyRaw = extractOpenAIChatText(parse);
+  }
+
+  try {
+    const intent = JSON.parse(spotifyRaw);
+    if (useVoice) await speak(intent.response, ttsVoice);
+    else broadcastMessage("assistant", intent.response, source);
+
+    if (intent.action === "open") {
+      exec("start spotify:");
+    } else if (intent.action === "pause") {
+      exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
+    } else if (intent.action === "next") {
+      exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB0)"');
+    } else if (intent.action === "previous") {
+      exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB1)"');
+    } else if (intent.action === "play" && intent.query) {
+      const encoded = encodeURIComponent(intent.query);
+      exec(`start "spotify" "spotify:search:${encoded}" && timeout /t 2 >nul && powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"`);
+    } else {
+      exec("start spotify:");
+    }
+  } catch (e) {
+    console.error("[Spotify] Parse error:", e.message);
+    const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
+    if (useVoice) await speak(ack, ttsVoice);
+    else broadcastMessage("assistant", ack, source);
+    exec("start spotify:");
+  }
+
+  broadcastState("idle");
+}
+
+// ===== Workflow builder sub-handler =====
+async function handleWorkflowBuild(text, ctx) {
+  const { source, useVoice, ttsVoice } = ctx;
+  stopSpeaking();
+  broadcastState("thinking");
+  broadcastMessage("user", text, source);
+  try {
+    const deploy = !shouldDraftOnlyWorkflow(text);
+    const res = await fetch("http://localhost:3000/api/missions/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: text, deploy }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
+
+    const label = data?.workflow?.label || "Generated Workflow";
+    const provider = data?.provider || "LLM";
+    const model = data?.model || "default model";
+    const stepCount = Array.isArray(data?.workflow?.summary?.workflowSteps) ? data.workflow.summary.workflowSteps.length : 0;
+    const scheduleTime = data?.workflow?.summary?.schedule?.time || "09:00";
+    const scheduleTimezone = data?.workflow?.summary?.schedule?.timezone || "America/New_York";
+
+    const reply = data?.deployed
+      ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}.`
+      : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}.`;
+
+    broadcastMessage("assistant", reply, source);
+    if (useVoice) await speak(reply, ttsVoice);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Workflow build failed.";
+    const reply = `I couldn't build that workflow yet: ${msg}`;
+    broadcastMessage("assistant", reply, source);
+    if (useVoice) await speak(reply, ttsVoice);
+  } finally {
+    broadcastState("idle");
+  }
+}
+
+// ===== Core chat request =====
+async function executeChatRequest(text, ctx, llmCtx) {
+  const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId,
+    runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions } = ctx;
+  const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch } = llmCtx;
+
+  broadcastState("thinking");
+  broadcastMessage("user", text, source);
+  if (useVoice) playThinking();
+
+  const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+  const runtimeSkillsPrompt = buildRuntimeSkillsPrompt(personaWorkspaceDir);
+  const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
+    buildAgentSystemPrompt,
+    buildPersonaPrompt,
+    workspaceDir: personaWorkspaceDir,
+    promptArgs: {
+      workspaceDir: ROOT_WORKSPACE_DIR,
+      promptMode:
+        AGENT_PROMPT_MODE === PromptMode.MINIMAL || AGENT_PROMPT_MODE === PromptMode.NONE
+          ? AGENT_PROMPT_MODE : PromptMode.FULL,
+      memoryCitationsMode: String(process.env.NOVA_MEMORY_CITATIONS_MODE || "off").trim().toLowerCase() === "on" ? "on" : "off",
+      userTimezone: process.env.NOVA_USER_TIMEZONE || "America/New_York",
+      skillsPrompt: runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "",
+      heartbeatPrompt: process.env.NOVA_HEARTBEAT_PROMPT || "",
+      docsPath: process.env.NOVA_DOCS_PATH || "",
+      ttsHint: "Keep voice responses concise, clear, and natural.",
+      reasoningLevel: "off",
+      runtimeInfo: {
+        agentId: "nova-agent",
+        host: process.env.COMPUTERNAME || "",
+        os: process.platform,
+        arch: process.arch,
+        node: process.version,
+        model: selectedChatModel,
+        defaultModel: selectedChatModel,
+        shell: process.env.ComSpec || process.env.SHELL || "",
+        channel: source,
+        capabilities: ["voice", "websocket"],
+        repoRoot: process.env.ROOT_WORKSPACE_DIR || "",
+      },
+      workspaceNotes: [
+        "This is a first-pass prompt framework integration for Nova.",
+        "Future skill/memory metadata plumbing can extend this prompt builder.",
+      ],
+    },
+  });
+
+  let systemPrompt = baseSystemPrompt;
+  const personaOverlay = [
+    "## Runtime Persona (HUD)",
+    runtimeAssistantName ? `- Assistant name: ${runtimeAssistantName}` : "",
+    runtimeCommunicationStyle ? `- Communication style: ${runtimeCommunicationStyle}` : "",
+    `- Tone: ${runtimeTone}`,
+    `- Tone behavior: ${runtimeToneDirective(runtimeTone)}`,
+    runtimeCustomInstructions ? `- Custom instructions: ${runtimeCustomInstructions}` : "",
+  ].filter(Boolean).join("\n");
+  if (personaOverlay) systemPrompt += `\n\n${personaOverlay}`;
+
+  if (canRunWebSearch && shouldPreloadWebSearch(text)) {
+    try {
+      const preloadResult = await runtimeTools.executeToolUse(
+        { id: `tool_preload_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
+        availableTools,
+      );
+      const preloadContent = String(preloadResult?.content || "").trim();
+      if (preloadContent && !/^web_search error/i.test(preloadContent)) {
+        systemPrompt += `\n\n## Live Web Search Context\nUse these current results when answering:\n${preloadContent.slice(0, 2200)}`;
+      }
+    } catch (err) {
+      console.warn(`[ToolLoop] web_search preload failed: ${describeUnknownError(err)}`);
+    }
+  }
+
+  if (runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
+    try {
+      runtimeTools.memoryManager.warmSession();
+      const recalled = await runtimeTools.memoryManager.search(text, 3);
+      if (Array.isArray(recalled) && recalled.length > 0) {
+        const memoryContext = recalled
+          .map((item, idx) => `[${idx + 1}] ${String(item.source || "unknown")}\n${String(item.content || "").slice(0, 600)}`)
+          .join("\n\n");
+        systemPrompt += `\n\n## Live Memory Recall\nUse this indexed context when relevant:\n${memoryContext}`;
+      }
+    } catch (err) {
+      console.warn(`[MemoryLoop] Search failed: ${describeUnknownError(err)}`);
+    }
+  }
+
+  const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
+  console.log(`[Prompt] Tokens - persona: ${tokenBreakdown.persona}, user: ${tokenInfo.userTokens}`);
+
+  const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
+  const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
+  const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, SESSION_MAX_HISTORY_TOKENS);
+  const historyMessages = historyBudget.messages;
+  console.log(
+    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens}`,
+  );
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...historyMessages,
+    { role: "user", content: text },
+  ];
+  const assistantStreamId = createAssistantStreamId();
+  broadcastAssistantStreamStart(assistantStreamId, source);
+
+  let reply = "";
+  try {
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let modelUsed = selectedChatModel;
+
+    if (activeChatRuntime.provider === "claude") {
+      const claudeMessages = [...historyMessages, { role: "user", content: text }];
+      const claudeCompletion = await claudeMessagesStream({
+        apiKey: activeChatRuntime.apiKey,
+        baseURL: activeChatRuntime.baseURL,
+        model: selectedChatModel,
+        system: systemPrompt,
+        messages: claudeMessages,
+        userText: text,
+        maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+        timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+        onDelta: (delta) => { broadcastAssistantStreamDelta(assistantStreamId, delta, source); },
+      });
+      reply = claudeCompletion.text;
+      promptTokens = claudeCompletion.usage.promptTokens;
+      completionTokens = claudeCompletion.usage.completionTokens;
+    } else if (canRunToolLoop) {
+      const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
+      const loopMessages = [...messages];
+      let usedFallback = false;
+
+      for (let step = 0; step < Math.max(1, TOOL_LOOP_MAX_STEPS); step += 1) {
+        let completion = null;
+        try {
+          completion = await withTimeout(
+            activeOpenAiCompatibleClient.chat.completions.create({
+              model: modelUsed,
+              messages: loopMessages,
+              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+              tools: openAiToolDefs,
+              tool_choice: "auto",
+            }),
+            OPENAI_REQUEST_TIMEOUT_MS,
+            `Tool loop model ${modelUsed}`,
+          );
+        } catch (err) {
+          if (!usedFallback && OPENAI_FALLBACK_MODEL) {
+            usedFallback = true;
+            modelUsed = OPENAI_FALLBACK_MODEL;
+            console.warn(`[ToolLoop] Primary model failed; retrying with fallback model ${modelUsed}.`);
+            completion = await withTimeout(
+              activeOpenAiCompatibleClient.chat.completions.create({
+                model: modelUsed,
+                messages: loopMessages,
+                max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+                tools: openAiToolDefs,
+                tool_choice: "auto",
+              }),
+              OPENAI_REQUEST_TIMEOUT_MS,
+              `Tool loop fallback model ${modelUsed}`,
+            );
+          } else {
+            throw err;
+          }
+        }
+
+        const usage = completion?.usage || {};
+        promptTokens += Number(usage.prompt_tokens || 0);
+        completionTokens += Number(usage.completion_tokens || 0);
+
+        const choice = completion?.choices?.[0]?.message || {};
+        const assistantText = typeof choice.content === "string"
+          ? choice.content
+          : Array.isArray(choice.content)
+            ? choice.content.map((p) => (p?.type === "text" ? String(p.text || "") : "")).join("")
+            : "";
+        const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+
+        if (toolCalls.length === 0) {
+          reply = assistantText.trim();
+          break;
+        }
+
+        loopMessages.push({ role: "assistant", content: assistantText || "", tool_calls: toolCalls });
+
+        // Bug Fix 2: tool errors are caught, logged, and surfaced instead of swallowed
+        for (const toolCall of toolCalls) {
+          const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
+          let toolResult;
+          try {
+            toolResult = await runtimeTools.executeToolUse(toolUse, availableTools);
+          } catch (toolErr) {
+            const errMsg = describeUnknownError(toolErr);
+            console.error(`[ToolLoop] Tool "${toolCall.function?.name ?? toolCall.id}" failed: ${errMsg}`);
+            broadcastAssistantStreamDelta(
+              assistantStreamId,
+              `[Tool error: ${toolCall.function?.name ?? "unknown"} — ${errMsg}]`,
+              source,
+            );
+            toolResult = { content: `Tool execution failed: ${errMsg}` };
+          }
+          loopMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: String(toolResult?.content || ""),
+          });
+        }
+      }
+
+      if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response after tool loop.`);
+    } else {
+      let streamed = null;
+      let sawPrimaryDelta = false;
+      try {
+        streamed = await streamOpenAiChatCompletion({
+          client: activeOpenAiCompatibleClient,
+          model: modelUsed,
+          messages,
+          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+          onDelta: (delta) => { sawPrimaryDelta = true; broadcastAssistantStreamDelta(assistantStreamId, delta, source); },
+        });
+      } catch (primaryError) {
+        if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) throw primaryError;
+        const fallbackModel = OPENAI_FALLBACK_MODEL;
+        const primaryDetails = toErrorDetails(primaryError);
+        console.warn(
+          `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
+          ` status=${primaryDetails.status ?? "n/a"} message=${primaryDetails.message}. Retrying with fallback ${fallbackModel}.`,
+        );
+        streamed = await streamOpenAiChatCompletion({
+          client: activeOpenAiCompatibleClient,
+          model: fallbackModel,
+          messages,
+          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+          onDelta: (delta) => { broadcastAssistantStreamDelta(assistantStreamId, delta, source); },
+        });
+        modelUsed = fallbackModel;
+      }
+      reply = streamed.reply;
+      if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response.`);
+      promptTokens = streamed.promptTokens || 0;
+      completionTokens = streamed.completionTokens || 0;
+    }
+
+    // Refusal recovery: if model claimed no web access, do a search and append results
+    if (replyClaimsNoLiveAccess(reply) && canRunWebSearch) {
+      try {
+        const fallbackResult = await runtimeTools.executeToolUse(
+          { id: `tool_refusal_recover_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
+          availableTools,
+        );
+        const fallbackContent = String(fallbackResult?.content || "").trim();
+        if (fallbackContent && !/^web_search error/i.test(fallbackContent)) {
+          const readable = buildWebSearchReadableReply(text, fallbackContent);
+          const correction = readable
+            ? `I do have live web access in this runtime.\n\n${readable}`
+            : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;
+          reply = reply ? `${reply}\n\n${correction}` : correction;
+          broadcastAssistantStreamDelta(assistantStreamId, correction, source);
+        }
+      } catch (err) {
+        console.warn(`[ToolLoop] refusal recovery search failed: ${describeUnknownError(err)}`);
+      }
+    } else if (canRunToolLoop && reply && !useVoice) {
+      broadcastAssistantStreamDelta(assistantStreamId, reply, source);
+    }
+
+    const modelForUsage = activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel);
+    const totalTokens = promptTokens + completionTokens;
+    const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens);
+
+    appendRawStream({ event: "request_done", source, sessionKey, provider: activeChatRuntime.provider, model: modelForUsage, promptTokens, completionTokens, totalTokens, estimatedCostUsd });
+    console.log(`[LLM] provider=${activeChatRuntime.provider} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`);
+    broadcast({ type: "usage", provider: activeChatRuntime.provider, model: modelForUsage, promptTokens, completionTokens, totalTokens, estimatedCostUsd, ts: Date.now() });
+
+    sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "user", text, { source, sender: ctx.sender, provider: activeChatRuntime.provider, model: modelForUsage, sessionKey });
+    sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, promptTokens, completionTokens, totalTokens });
+    sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens });
+
+    if (useVoice) await speak(reply, ttsVoice);
+  } catch (err) {
+    const details = toErrorDetails(err);
+    const msg = details.message || "Unknown model error.";
+    appendRawStream({ event: "request_error", source, sessionKey, provider: activeChatRuntime.provider, model: selectedChatModel, status: details.status, code: details.code, type: details.type, requestId: details.requestId, message: msg });
+    console.error(`[LLM] Chat request failed provider=${activeChatRuntime.provider} model=${selectedChatModel} status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} message=${msg}`);
+    broadcastAssistantStreamDelta(
+      assistantStreamId,
+      `Model request failed${details.status ? ` (${details.status})` : ""}${details.code ? ` [${details.code}]` : ""}: ${msg}`,
+      source,
+    );
+  } finally {
+    broadcastAssistantStreamDone(assistantStreamId, source);
+    broadcastState("idle");
+  }
+}
+
+// ===== Main dispatcher =====
+export async function handleInput(text, opts = {}) {
+  const sessionContext = sessionRuntime.resolveSessionContext(opts);
+  const sessionKey = sessionContext.sessionKey;
+  const userContextId = sessionRuntime.resolveUserContextId(opts);
+  const useVoice = opts.voice !== false;
+  const ttsVoice = opts.ttsVoice || "default";
+  const source = opts.source || "hud";
+  if (source === "hud" && !userContextId) throw new Error("Missing user context id for HUD request.");
+
+  const sender = String(opts.sender || "").trim();
+  const runtimeTone = normalizeRuntimeTone(opts.tone);
+  const runtimeCommunicationStyle = String(opts.communicationStyle || "").trim();
+  const runtimeAssistantName = String(opts.assistantName || "").trim();
+  const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
+  const n = text.toLowerCase().trim();
+
+  appendRawStream({ event: "request_start", source, sessionKey, userContextId: userContextId || undefined, chars: String(text || "").length });
+
+  const ctx = {
+    source, sender, sessionContext, sessionKey, userContextId,
+    useVoice, ttsVoice, runtimeTone, runtimeCommunicationStyle,
+    runtimeAssistantName, runtimeCustomInstructions,
+    sessionId: sessionContext.sessionEntry?.sessionId,
+  };
+
+  // Memory update — short-circuit before any LLM call
+  if (isMemoryUpdateRequest(text)) {
+    await handleMemoryUpdate(text, ctx);
+    return;
+  }
+
+  // Resolve provider (Bug Fix 4: uses cached loader)
+  const integrationsRuntime = cachedLoadIntegrationsRuntime({ userContextId });
+  const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, { strictActiveProvider: !ENABLE_PROVIDER_FALLBACK });
+
+  if (!activeChatRuntime.apiKey) {
+    const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : activeChatRuntime.provider === "gemini" ? "Gemini" : "OpenAI";
+    throw new Error(`Missing ${providerName} API key for active provider "${activeChatRuntime.provider}". Configure Integrations first.`);
+  }
+  if (!activeChatRuntime.connected) {
+    throw new Error(`Active provider "${activeChatRuntime.provider}" is not enabled. Enable it or switch activeLlmProvider.`);
+  }
+
+  const activeOpenAiCompatibleClient = activeChatRuntime.provider === "claude"
+    ? null
+    : getOpenAIClient({ apiKey: activeChatRuntime.apiKey, baseURL: activeChatRuntime.baseURL });
+  const selectedChatModel = activeChatRuntime.model
+    || (activeChatRuntime.provider === "claude" ? DEFAULT_CLAUDE_MODEL
+      : activeChatRuntime.provider === "grok" ? DEFAULT_GROK_MODEL
+      : activeChatRuntime.provider === "gemini" ? DEFAULT_GEMINI_MODEL
+      : DEFAULT_CHAT_MODEL);
+
+  const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded();
+  const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
+  const canRunToolLoop = TOOL_LOOP_ENABLED && availableTools.length > 0 && typeof runtimeTools?.executeToolUse === "function";
+  const canRunWebSearch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_search");
+
+  console.log(`[RuntimeSelection] session=${sessionKey} provider=${activeChatRuntime.provider} model=${selectedChatModel} source=${source}`);
+
+  const llmCtx = { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch };
+
+  // Route to sub-handler
+  if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
+    await handleShutdown(ctx);
+    return;
+  }
+
+  if (n.includes("spotify") || n.includes("play music") || n.includes("play some") || n.includes("put on ")) {
+    await handleSpotify(text, ctx, llmCtx);
+    return;
+  }
+
+  if (shouldBuildWorkflowFromPrompt(text)) {
+    await handleWorkflowBuild(text, ctx);
+    return;
+  }
+
+  await executeChatRequest(text, ctx, llmCtx);
+}

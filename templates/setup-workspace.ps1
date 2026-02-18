@@ -43,12 +43,17 @@ Write-Info "Setting up workspace at: $WorkspaceDir"
 
 New-DirectoryIfMissing $WorkspaceDir
 New-DirectoryIfMissing (Join-Path $WorkspaceDir "memory")
+New-DirectoryIfMissing (Join-Path $WorkspaceDir "tasks")
 New-DirectoryIfMissing (Join-Path $WorkspaceDir "skills")
 New-DirectoryIfMissing (Join-Path $WorkspaceDir "skills\research")
 New-DirectoryIfMissing (Join-Path $WorkspaceDir "skills\summarize")
 New-DirectoryIfMissing (Join-Path $WorkspaceDir "skills\daily-briefing")
 
-# Bootstrap templates (no TOOLS.md by request)
+# Seed task tracking files
+Copy-FileIfMissing (Join-Path $templatesDir "tasks\todo.md") (Join-Path $WorkspaceDir "tasks\todo.md")
+Copy-FileIfMissing (Join-Path $templatesDir "tasks\lessons.md") (Join-Path $WorkspaceDir "tasks\lessons.md")
+
+# Bootstrap templates
 Copy-FileIfMissing (Join-Path $templatesDir "SOUL.md") (Join-Path $WorkspaceDir "SOUL.md")
 Copy-FileIfMissing (Join-Path $templatesDir "USER.md") (Join-Path $WorkspaceDir "USER.md")
 Copy-FileIfMissing (Join-Path $templatesDir "AGENTS.md") (Join-Path $WorkspaceDir "AGENTS.md")

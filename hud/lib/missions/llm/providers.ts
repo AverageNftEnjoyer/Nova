@@ -17,7 +17,7 @@ import type { Provider, CompletionResult, CompletionOverride } from "../types"
 export async function completeWithConfiguredLlm(
   systemText: string,
   userText: string,
-  maxTokens = 1200,
+  maxTokens = 2200,
   scope?: IntegrationsStoreScope,
   override?: CompletionOverride,
 ): Promise<CompletionResult> {
@@ -92,7 +92,6 @@ export async function completeWithConfiguredLlm(
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
         max_tokens: maxTokens,
         messages: [
           { role: "system", content: systemText },
@@ -124,7 +123,6 @@ export async function completeWithConfiguredLlm(
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        temperature: 0.2,
         max_tokens: maxTokens,
         messages: [
           { role: "system", content: systemText },
@@ -151,12 +149,6 @@ export async function completeWithConfiguredLlm(
   if (!apiKey) throw new Error("OpenAI API key is missing.")
   if (!model) throw new Error("OpenAI default model is missing.")
 
-  const openAiModelLower = model.toLowerCase()
-  const supportsCustomTemperature =
-    !openAiModelLower.startsWith("gpt-5") &&
-    !openAiModelLower.startsWith("o1") &&
-    !openAiModelLower.startsWith("o3")
-
   const openAiBody: Record<string, unknown> = {
     model,
     max_completion_tokens: maxTokens,
@@ -164,9 +156,6 @@ export async function completeWithConfiguredLlm(
       { role: "system", content: systemText },
       { role: "user", content: userText },
     ],
-  }
-  if (supportsCustomTemperature) {
-    openAiBody.temperature = 0.2
   }
 
   const res = await fetch(`${baseUrl}/chat/completions`, {

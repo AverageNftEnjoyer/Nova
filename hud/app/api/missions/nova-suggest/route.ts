@@ -98,7 +98,7 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 320,
+          max_tokens: 640,
           system: systemText,
           messages: [{ role: "user", content: userText }],
         }),
@@ -144,7 +144,7 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 320,
+          max_tokens: 640,
           messages: [
             { role: "system", content: systemText },
             { role: "user", content: userText },
@@ -189,7 +189,7 @@ export async function POST(req: Request) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 320,
+          max_tokens: 640,
           messages: [
             { role: "system", content: systemText },
             { role: "user", content: userText },
@@ -233,7 +233,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model,
-        max_completion_tokens: 320,
+        max_completion_tokens: 640,
         messages: [
           { role: "system", content: systemText },
           { role: "user", content: userText },

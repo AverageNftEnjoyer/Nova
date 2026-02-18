@@ -12,12 +12,13 @@ import {
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
   withTimeout,
-} from "../../agent/providers.js";
+} from "../../agent/modules/providers.js";
 import { createSessionRuntime } from "../../agent/runtime/session.js";
 import { createToolRuntime } from "../../agent/runtime/tools-runtime.js";
 import { createWakeWordRuntime } from "../../agent/runtime/voice.js";
 
 const results = [];
+const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();
 
 function record(status, name, detail = "") {
   results.push({ status, name, detail });
@@ -85,6 +86,66 @@ await run("Integrations runtime loads valid provider shape", async () => {
   }
 });
 
+if (SMOKE_USER_CONTEXT_ID) {
+  const scopedLoaded = loadIntegrationsRuntime({ userContextId: SMOKE_USER_CONTEXT_ID });
+  await run(`User-scoped runtime loads valid provider shape (${SMOKE_USER_CONTEXT_ID})`, async () => {
+    assert.ok(["openai", "claude", "grok", "gemini"].includes(scopedLoaded.activeProvider));
+    for (const key of ["openai", "claude", "grok", "gemini"]) {
+      assert.equal(typeof scopedLoaded[key].connected, "boolean");
+      assert.equal(typeof scopedLoaded[key].apiKey, "string");
+      assert.equal(typeof scopedLoaded[key].baseURL, "string");
+      assert.equal(typeof scopedLoaded[key].model, "string");
+    }
+  });
+
+  await run(`User-scoped runtime has key for connected providers (${SMOKE_USER_CONTEXT_ID})`, async () => {
+    for (const key of ["openai", "claude", "grok", "gemini"]) {
+      if (!scopedLoaded[key].connected) continue;
+      assert.ok(
+        String(scopedLoaded[key].apiKey || "").trim().length > 0,
+        `${key} marked connected but key is empty`,
+      );
+    }
+  });
+
+  await run(`User-scoped active provider is ready (${SMOKE_USER_CONTEXT_ID})`, async () => {
+    const scopedActive = resolveConfiguredChatRuntime(scopedLoaded, { strictActiveProvider: true });
+    assert.equal(scopedActive.connected, true, `active provider "${scopedActive.provider}" is disconnected`);
+    assert.ok(
+      String(scopedActive.apiKey || "").trim().length > 0,
+      `active provider "${scopedActive.provider}" key is empty`,
+    );
+  });
+
+  if (scopedLoaded.openai.connected && scopedLoaded.openai.apiKey) {
+    await run(`OpenAI user-scoped live ping returns text (${SMOKE_USER_CONTEXT_ID})`, async () => {
+      const client = getOpenAIClient({ apiKey: scopedLoaded.openai.apiKey, baseURL: scopedLoaded.openai.baseURL });
+      const completion = await withTimeout(
+        client.chat.completions.create({
+          model: scopedLoaded.openai.model,
+          messages: [{ role: "user", content: "Reply with: PING_OK" }],
+          max_completion_tokens: 512,
+        }),
+        30000,
+        "OpenAI user-scoped live ping",
+      );
+      const text = extractOpenAIChatText(completion);
+      const completionTokens = Number(completion?.usage?.completion_tokens || 0);
+      const finishReason = String(completion?.choices?.[0]?.finish_reason || "");
+      assert.ok(
+        String(text || "").trim().length > 0 || (completionTokens > 0 && finishReason.length > 0),
+      );
+    });
+  } else {
+    skip(
+      `OpenAI user-scoped live ping returns text (${SMOKE_USER_CONTEXT_ID})`,
+      "OpenAI is not fully configured in user-scoped integrations",
+    );
+  }
+} else {
+  skip("User-scoped runtime validation", "Set NOVA_SMOKE_USER_CONTEXT_ID to enable.");
+}
+
 if (loaded.openai.connected && loaded.openai.apiKey) {
   await run("OpenAI live ping returns text", async () => {
     const client = getOpenAIClient({ apiKey: loaded.openai.apiKey, baseURL: loaded.openai.baseURL });
@@ -92,7 +153,7 @@ if (loaded.openai.connected && loaded.openai.apiKey) {
       client.chat.completions.create({
         model: loaded.openai.model,
         messages: [{ role: "user", content: "Reply with: PING_OK" }],
-        max_completion_tokens: 256,
+        max_completion_tokens: 512,
       }),
       30000,
       "OpenAI live ping",
@@ -118,7 +179,6 @@ if (loaded.claude.connected && loaded.claude.apiKey) {
         system: "You are a test bot.",
         userText: "Reply with CLAUDE_OK",
         maxTokens: 12,
-        temperature: 0,
       }),
       30000,
       "Claude live ping",
@@ -137,7 +197,6 @@ if (loaded.claude.connected && loaded.claude.apiKey) {
           system: "test",
           userText: "test",
           maxTokens: 8,
-          temperature: 0,
         }),
         20000,
         "Claude auth-fail path",
@@ -157,7 +216,7 @@ async function runOpenAiCompatibleCheck(name, runtime, configuredProviderLabel) 
         client.chat.completions.create({
           model: runtime.model,
           messages: [{ role: "user", content: `Reply with ${configuredProviderLabel}_OK` }],
-          max_completion_tokens: 256,
+          max_completion_tokens: 512,
         }),
         30000,
         `${name} live ping`,
@@ -288,12 +347,14 @@ await run("Voice wake logic gates/strips correctly", async () => {
 });
 
 await run("Brave-only web search remains enforced (no Tavily/Serper refs)", async () => {
-  const webSearchSource = await fsp.readFile(path.join(process.cwd(), "agent", "runtime", "tools-runtime.js"), "utf8");
-  const missionSource = await fsp.readFile(path.join(process.cwd(), "hud", "lib", "missions", "runtime.ts"), "utf8");
-  const combined = `${webSearchSource}\n${missionSource}`.toLowerCase();
+  const constantsSource = await fsp.readFile(path.join(process.cwd(), "agent", "constants.js"), "utf8");
+  const missionSearchSource = await fsp.readFile(path.join(process.cwd(), "hud", "lib", "missions", "web", "search.ts"), "utf8");
+  const missionFetchSource = await fsp.readFile(path.join(process.cwd(), "hud", "lib", "missions", "web", "fetch.ts"), "utf8");
+  const combined = `${constantsSource}\n${missionSearchSource}\n${missionFetchSource}`.toLowerCase();
   assert.equal(combined.includes("tavily"), false);
   assert.equal(combined.includes("serper"), false);
-  assert.equal(combined.includes("brave"), true);
+  assert.equal(/tool_web_search_provider\s*=\s*["']brave["']/i.test(constantsSource), true);
+  assert.equal(combined.includes("api.search.brave.com"), true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

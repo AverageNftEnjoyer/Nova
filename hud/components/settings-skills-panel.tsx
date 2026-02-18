@@ -30,6 +30,7 @@ type SkillMutationResponse = {
   errors?: string[]
   name?: string
   content?: string
+  deleted?: string
   installed?: string[]
   skills?: SkillSummary[]
 }
@@ -67,10 +68,12 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
   const [saving, setSaving] = useState(false)
   const [creating, setCreating] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState("")
   const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   const fetchSkillList = useCallback(async (preferredSkillName?: string) => {
     setListLoading(true)
@@ -251,6 +254,30 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
     }
   }, [fetchSkillList, selectedSkillName, skillContent])
 
+  const deleteSkill = useCallback(async () => {
+    if (!selectedSkillName) return
+    setDeleting(true)
+    setError(null)
+    setValidationErrors([])
+    try {
+      const res = await fetch(`/api/workspace/skills?name=${encodeURIComponent(selectedSkillName)}`, {
+        method: "DELETE",
+      })
+      const data = (await res.json().catch(() => ({}))) as SkillMutationResponse
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to delete skill.")
+      }
+      setStatus(`Deleted ${selectedSkillName}`)
+      setSkillContent("")
+      setDirty(false)
+      await fetchSkillList()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete skill.")
+    } finally {
+      setDeleting(false)
+    }
+  }, [fetchSkillList, selectedSkillName])
+
   const selectedSkillSummary = useMemo(
     () => skills.find((skill) => skill.name === selectedSkillName) ?? null,
     [selectedSkillName, skills],
@@ -259,48 +286,47 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
   return (
     <div className="space-y-5">
       <div className={cn(getCardClass(isLight), "p-4")}>
-        <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-200")}>
-          Skills are the primary user-facing way to define behavior now. Create or edit
-          <code className="mx-1">SKILL.md</code>
-          files directly, with best-practice validation enforced on save.
-        </p>
-        <div className="mt-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-200")}>Create Skill</p>
           <Button
             onClick={() => void installStarterTemplates()}
             disabled={installing || creating}
             variant="outline"
             size="sm"
             className={cn(
-              "fx-spotlight-card fx-border-glow",
+              "fx-spotlight-card fx-border-glow h-9",
               isLight
                 ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
                 : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
             )}
           >
-            {installing ? "Installing..." : "Install Starter Templates"}
+            {installing ? "Installing..." : "Install Starters"}
           </Button>
         </div>
-      </div>
-
-      <div className={cn(getCardClass(isLight), "p-4")}>
-        <p className={cn("text-sm mb-2", isLight ? "text-s-70" : "text-slate-200")}>Create Skill</p>
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_120px] items-center gap-2">
           <input
             value={newSkillName}
             onChange={(e) => setNewSkillName(e.target.value)}
-            className={getFieldClass(isLight)}
+            className={cn(getFieldClass(isLight), "h-10")}
             placeholder="skill-name (lowercase-hyphen)"
           />
           <input
             value={newSkillDescription}
             onChange={(e) => setNewSkillDescription(e.target.value)}
-            className={getFieldClass(isLight)}
+            className={cn(getFieldClass(isLight), "h-10")}
             placeholder="When this skill should trigger"
           />
           <Button
             onClick={() => void createSkill()}
             disabled={creating || installing}
-            className="fx-spotlight-card fx-border-glow"
+            variant="outline"
+            size="sm"
+            className={cn(
+              "fx-spotlight-card fx-border-glow h-10",
+              isLight
+                ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
+                : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
+            )}
           >
             {creating ? "Creating..." : "Create"}
           </Button>
@@ -319,7 +345,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
               onClick={() => void fetchSkillList(selectedSkillName)}
               disabled={listLoading}
               className={cn(
-                "fx-spotlight-card fx-border-glow",
+                "fx-spotlight-card fx-border-glow h-9 w-24",
                 isLight
                   ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
                   : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
@@ -381,7 +407,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
                 disabled={detailLoading || !selectedSkillName}
                 onClick={() => void loadSkill(selectedSkillName)}
                 className={cn(
-                  "fx-spotlight-card fx-border-glow",
+                  "fx-spotlight-card fx-border-glow h-9 w-24",
                   isLight
                     ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
                     : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
@@ -392,14 +418,28 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
               <Button
                 onClick={() => void saveSkill()}
                 disabled={saving || !dirty || !selectedSkillName}
+                size="sm"
                 className={cn(
-                  "fx-spotlight-card fx-border-glow border text-white disabled:opacity-60",
+                  "fx-spotlight-card fx-border-glow h-9 w-24 border text-white disabled:opacity-60",
                   isLight
                     ? "bg-emerald-600 border-emerald-700 hover:bg-emerald-700"
                     : "bg-emerald-500/80 border-emerald-300/60 hover:bg-emerald-500",
                 )}
               >
                 {saving ? "Saving..." : "Save"}
+              </Button>
+              <Button
+                onClick={() => setDeleteConfirmOpen(true)}
+                disabled={deleting || !selectedSkillName}
+                size="sm"
+                className={cn(
+                  "fx-spotlight-card fx-border-glow h-9 w-24 border disabled:opacity-60",
+                  isLight
+                    ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
+                    : "bg-rose-500/10 border-rose-400/40 text-rose-200 hover:bg-rose-500/20",
+                )}
+              >
+                {deleting ? "Deleting..." : "Delete"}
               </Button>
             </div>
           </div>
@@ -447,6 +487,51 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
           ) : null}
         </div>
       </div>
+
+      {deleteConfirmOpen && selectedSkillName ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 backdrop-blur-sm">
+          <div className={cn(
+            "w-[420px] rounded-2xl border p-4",
+            isLight
+              ? "border-rose-200 bg-white/95"
+              : "border-rose-400/35 bg-[#1a0f14]/90 backdrop-blur-xl",
+          )}>
+            <h4 className={cn("text-sm font-medium", isLight ? "text-rose-700" : "text-rose-200")}>
+              Delete skill
+            </h4>
+            <p className={cn("mt-1 text-xs", isLight ? "text-rose-500" : "text-rose-300")}>
+              This removes <code>{selectedSkillName}</code> from this user profile. This action cannot be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={deleting}
+                className={cn(isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/[0.06]")}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  await deleteSkill()
+                  setDeleteConfirmOpen(false)
+                }}
+                disabled={deleting}
+                className={cn(
+                  "border",
+                  isLight
+                    ? "bg-rose-600 hover:bg-rose-700 text-white border-rose-700"
+                    : "bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 border-rose-400/40",
+                )}
+              >
+                {deleting ? "Deleting..." : "Delete Skill"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

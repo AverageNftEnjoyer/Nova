@@ -46,6 +46,8 @@ export function hexToRgba(hex: string, alpha: number): string {
 
 export function formatIntegrationLabel(integration: string): string {
   const value = integration.trim().toLowerCase()
+  if (value === "preferred") return "Preferred Channel"
+  if (value === "novachat") return "NovaChat"
   if (value === "telegram") return "Telegram"
   if (value === "discord") return "Discord"
   if (value === "slack") return "Slack"
@@ -76,6 +78,7 @@ export function renderStepIcon(type: WorkflowStepType, className: string) {
 }
 
 export function getMissionIntegrationIcon(integration: string, className: string) {
+  if (integration === "novachat") return <Sparkles className={className} />
   if (integration === "telegram") return <Send className={className} />
   if (integration === "discord") return <MessageCircle className={className} />
   if (integration === "email") return <Mail className={className} />

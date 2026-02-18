@@ -128,5 +128,98 @@ export const THINK_SOUND_PATH = path.join(__dirname, "thinking.mp3");
 export const COMMAND_ACKS = [
   "On it.",
   "Right away.",
-  "Working on that now."
+  "Working on that now.",
+];
+
+// ===== Session (extended) =====
+export const SESSION_MAX_HISTORY_TOKENS = Number.parseInt(
+  process.env.NOVA_SESSION_MAX_HISTORY_TOKENS || "3200",
+  10,
+);
+export const SESSION_TRANSCRIPTS_ENABLED =
+  String(process.env.NOVA_SESSION_TRANSCRIPTS_ENABLED || "1").trim() !== "0";
+export const SESSION_MAX_TRANSCRIPT_LINES = Number.parseInt(
+  process.env.NOVA_SESSION_MAX_TRANSCRIPT_LINES || "400",
+  10,
+);
+export const SESSION_TRANSCRIPT_RETENTION_DAYS = Number.parseInt(
+  process.env.NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS || "30",
+  10,
+);
+
+// ===== LLM Token Limits =====
+export const CLAUDE_CHAT_MAX_TOKENS = Number.parseInt(
+  process.env.NOVA_CLAUDE_CHAT_MAX_TOKENS || "1200",
+  10,
+);
+export const SPOTIFY_INTENT_MAX_TOKENS = Number.parseInt(
+  process.env.NOVA_SPOTIFY_INTENT_MAX_TOKENS || "480",
+  10,
+);
+export const OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS = Number.parseInt(
+  process.env.NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS || "2048",
+  10,
+);
+
+// ===== Memory =====
+export const MEMORY_FACT_MAX_CHARS = Number.parseInt(
+  process.env.NOVA_MEMORY_FACT_MAX_CHARS || "280",
+  10,
+);
+
+// ===== STT Model (Bug Fix: was hardcoded to gpt-4o-transcribe) =====
+export const STT_MODEL = String(process.env.NOVA_STT_MODEL || "whisper-1").trim();
+
+// ===== User Context & Bootstrap =====
+export const USER_CONTEXT_ROOT = path.join(ROOT_WORKSPACE_DIR, ".agent", "user-context");
+export const BOOTSTRAP_BASELINE_DIR = path.join(ROOT_WORKSPACE_DIR, "templates");
+export const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "IDENTITY.md"];
+
+// ===== Skills =====
+export const STARTER_SKILLS_CATALOG_VERSION = 2;
+export const STARTER_SKILLS = [
+  { name: "nova-core", description: "Default execution policy for runtime and cross-file implementation work with plan-first and verification gates." },
+  { name: "research", description: "Deep factual research workflow for multi-source analysis, source conflicts, and confidence grading." },
+  { name: "summarize", description: "Structured summarization workflow for URLs or text with metadata, risk notes, and confidence grading." },
+  { name: "daily-briefing", description: "Concise daily briefing workflow combining memory context with date-fresh external updates and uncertainty labels." },
+  { name: "pickup", description: "Rapid context rehydration workflow that checks repo state, running processes, and next actions before execution." },
+  { name: "handoff", description: "Structured handoff workflow that captures status, risks, checks, and precise next steps for seamless continuation." },
+];
+export const STARTER_SKILL_META_FILE = ".meta.json";
+export const STARTER_SKILL_NAMES = new Set(STARTER_SKILLS.map((s) => String(s.name || "").trim()));
+export const SKILL_DISCOVERY_CACHE_TTL_MS = Number.parseInt(
+  process.env.NOVA_SKILL_DISCOVERY_CACHE_TTL_MS || "15000",
+  10,
+);
+
+// ===== Upgrade Module Index =====
+export const UPGRADE_MODULE_INDEX = [
+  "src/agent/runner.ts",
+  "src/agent/queue.ts",
+  "src/agent/system-prompt.ts",
+  "src/agent/bootstrap.ts",
+  "src/agent/tool-summaries.ts",
+  "src/agent/compact.ts",
+  "src/agent/history.ts",
+  "src/session/key.ts",
+  "src/session/store.ts",
+  "src/session/resolve.ts",
+  "src/session/lock.ts",
+  "src/memory/manager.ts",
+  "src/memory/hybrid.ts",
+  "src/memory/chunker.ts",
+  "src/memory/embeddings.ts",
+  "src/tools/registry.ts",
+  "src/tools/executor.ts",
+  "src/tools/web-search.ts",
+  "src/tools/web-fetch.ts",
+  "src/tools/memory-tools.ts",
+  "src/tools/exec.ts",
+  "src/tools/file-tools.ts",
+  "src/skills/discovery.ts",
+  "src/skills/formatter.ts",
+  "src/skills/snapshot.ts",
+  "src/config/index.ts",
+  "src/config/types.ts",
+  "src/index.ts",
 ];

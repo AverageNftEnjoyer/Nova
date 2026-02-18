@@ -16,7 +16,7 @@ import {
   OPENAI_REQUEST_TIMEOUT_MS,
   OPENAI_MODEL_PRICING_USD_PER_1M,
   CLAUDE_MODEL_PRICING_USD_PER_1M
-} from "./constants.js";
+} from "../constants.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
@@ -103,7 +103,7 @@ export function getEncryptionKeyMaterials() {
     if (hudLocalEnvKey) {
       candidates.push(hudLocalEnvKey);
     }
-    const rootEnvKey = readEnvValueFromFile(path.join(hudRoot, "..", ".env"), "NOVA_ENCRYPTION_KEY");
+    const rootEnvKey = readEnvValueFromFile(path.join(hudRoot, "..", "..", ".env"), "NOVA_ENCRYPTION_KEY");
     if (rootEnvKey) {
       candidates.push(rootEnvKey);
     }
@@ -217,8 +217,58 @@ function resolveIntegrationsConfigPath(userContextId) {
   );
 }
 
+function readFirstEnvCandidate(keys) {
+  if (!Array.isArray(keys) || keys.length === 0) return "";
+
+  for (const key of keys) {
+    const fromProcess = String(process.env[key] || "").trim();
+    if (fromProcess) return fromProcess;
+  }
+
+  const hudRoot = path.dirname(INTEGRATIONS_CONFIG_PATH);
+  const envPaths = [
+    path.join(hudRoot, ".env.local"),
+    path.join(hudRoot, "..", ".env"),
+  ];
+  for (const envPath of envPaths) {
+    for (const key of keys) {
+      const fromFile = readEnvValueFromFile(envPath, key);
+      if (fromFile) return fromFile;
+    }
+  }
+  return "";
+}
+
+function resolveProviderApiKey(provider, integrationApiKey) {
+  const fromIntegration = unwrapStoredSecret(integrationApiKey);
+  if (provider === "openai") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_OPENAI_API_KEY", "OPENAI_API_KEY"]);
+    return String(fromEnv || fromIntegration || "").trim();
+  }
+  if (provider === "claude") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]);
+    return String(fromEnv || fromIntegration || "").trim();
+  }
+  if (provider === "grok") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_GROK_API_KEY", "XAI_API_KEY", "GROK_API_KEY"]);
+    return String(fromEnv || fromIntegration || "").trim();
+  }
+  if (provider === "gemini") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]);
+    return String(fromEnv || fromIntegration || "").trim();
+  }
+  return String(fromIntegration || "").trim();
+}
+
+function resolveProviderConnectedState(connectedFlag, apiKey) {
+  return Boolean(connectedFlag) && String(apiKey || "").trim().length > 0;
+}
+
 export function loadIntegrationsRuntime(options = {}) {
   const configPath = resolveIntegrationsConfigPath(options.userContextId);
+  if (options.userContextId && configPath !== INTEGRATIONS_CONFIG_PATH && !fs.existsSync(configPath)) {
+    return loadIntegrationsRuntime({});
+  }
   try {
     const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
@@ -235,20 +285,24 @@ export function loadIntegrationsRuntime(options = {}) {
           : parsed?.activeLlmProvider === "openai"
             ? "openai"
             : "openai";
+    const openaiApiKey = resolveProviderApiKey("openai", openaiIntegration.apiKey);
+    const claudeApiKey = resolveProviderApiKey("claude", claudeIntegration.apiKey);
+    const grokApiKey = resolveProviderApiKey("grok", grokIntegration.apiKey);
+    const geminiApiKey = resolveProviderApiKey("gemini", geminiIntegration.apiKey);
     return {
       sourcePath: configPath,
       activeProvider,
       openai: {
-        connected: Boolean(openaiIntegration.connected),
-        apiKey: unwrapStoredSecret(openaiIntegration.apiKey),
+        connected: resolveProviderConnectedState(openaiIntegration.connected, openaiApiKey),
+        apiKey: openaiApiKey,
         baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
         model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
           ? openaiIntegration.defaultModel.trim()
           : DEFAULT_CHAT_MODEL
       },
       claude: {
-        connected: Boolean(claudeIntegration.connected),
-        apiKey: unwrapStoredSecret(claudeIntegration.apiKey),
+        connected: resolveProviderConnectedState(claudeIntegration.connected, claudeApiKey),
+        apiKey: claudeApiKey,
         baseURL: typeof claudeIntegration.baseUrl === "string" && claudeIntegration.baseUrl.trim()
           ? claudeIntegration.baseUrl.trim().replace(/\/+$/, "")
           : DEFAULT_CLAUDE_BASE_URL,
@@ -257,16 +311,16 @@ export function loadIntegrationsRuntime(options = {}) {
           : DEFAULT_CLAUDE_MODEL
       },
       grok: {
-        connected: Boolean(grokIntegration.connected),
-        apiKey: unwrapStoredSecret(grokIntegration.apiKey),
+        connected: resolveProviderConnectedState(grokIntegration.connected, grokApiKey),
+        apiKey: grokApiKey,
         baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
         model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
           ? grokIntegration.defaultModel.trim()
           : DEFAULT_GROK_MODEL
       },
       gemini: {
-        connected: Boolean(geminiIntegration.connected),
-        apiKey: unwrapStoredSecret(geminiIntegration.apiKey),
+        connected: resolveProviderConnectedState(geminiIntegration.connected, geminiApiKey),
+        apiKey: geminiApiKey,
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
         model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
           ? geminiIntegration.defaultModel.trim()
@@ -274,13 +328,17 @@ export function loadIntegrationsRuntime(options = {}) {
       }
     };
   } catch {
+    const openaiApiKey = resolveProviderApiKey("openai", "");
+    const claudeApiKey = resolveProviderApiKey("claude", "");
+    const grokApiKey = resolveProviderApiKey("grok", "");
+    const geminiApiKey = resolveProviderApiKey("gemini", "");
     return {
       sourcePath: configPath,
       activeProvider: "openai",
-      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
+      openai: { connected: Boolean(openaiApiKey), apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: Boolean(claudeApiKey), apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: Boolean(grokApiKey), apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: Boolean(geminiApiKey), apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
     };
   }
 }
@@ -290,7 +348,7 @@ export function loadOpenAIIntegrationRuntime() {
     const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
     const parsed = JSON.parse(raw);
     const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-    const apiKey = unwrapStoredSecret(integration.apiKey);
+    const apiKey = resolveProviderApiKey("openai", integration.apiKey);
     const baseURL = toOpenAiLikeBase(
       typeof integration.baseUrl === "string" ? integration.baseUrl : "",
       DEFAULT_OPENAI_BASE_URL
@@ -301,7 +359,11 @@ export function loadOpenAIIntegrationRuntime() {
 
     return { apiKey, baseURL, model };
   } catch {
-    return { apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL };
+    return {
+      apiKey: resolveProviderApiKey("openai", ""),
+      baseURL: DEFAULT_OPENAI_BASE_URL,
+      model: DEFAULT_CHAT_MODEL,
+    };
   }
 }
 
@@ -490,8 +552,7 @@ export async function claudeMessagesCreate({
   system,
   userText,
   messages,
-  maxTokens = 300,
-  temperature = 0.75
+  maxTokens = 1200
 }) {
   const requestMessages = normalizeClaudeMessages(messages, userText);
   const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
@@ -505,7 +566,6 @@ export async function claudeMessagesCreate({
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature,
       system,
       messages: requestMessages
     })
@@ -534,8 +594,7 @@ export async function claudeMessagesStream({
   system,
   userText,
   messages,
-  maxTokens = 300,
-  temperature = 0.75,
+  maxTokens = 1200,
   timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
   onDelta
 }) {
@@ -554,7 +613,6 @@ export async function claudeMessagesStream({
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature,
       stream: true,
       system,
       messages: requestMessages
