@@ -1,69 +1,78 @@
+---
+name: research
+description: Deep factual research workflow for multi-source analysis, comparison tasks, and time-sensitive questions using web_search and web_fetch.
+---
+
 # Research Skill
 
 ## Activation
-
-Activate this skill when the user asks to:
-- research
-- investigate
-- find out about
-- compare
+Use this skill when the user asks to:
+- research or investigate a topic
+- compare options with evidence
 - answer a complex factual question
+- verify current or rapidly changing information
 
-Use this skill for depth, not quick trivia.
+Use this for depth and evidence synthesis, not quick trivia.
 
 ## Workflow
 
-### Step 1: Frame the question
+### 1. Plan mode for non-trivial scope
+Create a short plan before execution when any of these apply:
+- 3+ distinct subtopics
+- decision-impacting comparisons
+- ambiguous scope that needs decomposition
 
-Convert the user's request into three to five focused search queries. Queries should separate:
+Track plan items in `tasks/todo.md` for non-trivial runs.
+
+### 2. Frame precise queries
+Convert the request into 3 to 5 focused queries spanning:
 - background context
 - current state
 - decision-critical comparisons
 
-If scope is broad, split by subtopic first.
+If the prompt is broad, split by subtopic first.
 
-### Step 2: Search broadly
+### 3. Search and gather candidates
+Run `web_search` per query.
+- Keep the strongest candidates, not only top rank.
+- Prefer primary sources: official docs, original announcements, standards bodies, direct data.
+- Use recency-aware queries for fast-changing topics.
 
-Run `web_search` for each query.
-Capture the strongest candidates, not just top rank.
-Prioritize primary sources when possible.
+### 4. Fetch and evaluate evidence
+Fetch the best sources with `web_fetch`.
+- Prioritize source quality over volume.
+- Reject low-signal mirrors unless they contain unique evidence.
 
-### Step 3: Fetch selectively
-
-Choose the three most promising sources and run `web_fetch` on each.
-Prefer:
-- official documentation
-- company or org announcements
-- standards bodies
-- peer-reviewed or direct datasets
-
-Avoid low-quality SEO mirrors unless they provide unique evidence.
-
-### Step 4: Cross-reference
-
-Compare facts across sources.
-Mark:
+### 5. Cross-reference and resolve conflicts
+For major claims, classify into:
 - agreements
 - conflicts
 - unknowns
 
-If conflicts remain unresolved, call them out explicitly with dates and source links.
+If conflicts remain unresolved, call them out explicitly with source links and dates.
 
-### Step 5: Synthesize output
+### 6. Synthesize with confidence grading
+Return:
+1. TLDR (1 to 2 sentences)
+2. Key findings by subtopic
+3. Sources (URL plus one-line relevance note)
+4. Confidence grade:
+   - High: multiple high-quality sources agree
+   - Medium: partial agreement or weaker source mix
+   - Low: unresolved conflict or sparse evidence
 
-Return a structured response with:
-1. TLDR (1-2 sentences)
-2. Key findings grouped by subtopic
-3. Sources (URL + one-line source description)
-4. Confidence notes (well-established vs uncertain claims)
+### 7. Verification Before Done
+Before final output:
+- Cite every material claim.
+- Include concrete dates for time-sensitive facts.
+- Ensure conclusions are proportional to evidence strength.
+- If evidence is weak or incomplete, say so directly.
 
-### Step 6: Extend when needed
+### 8. Follow-up path
+If coverage is incomplete, propose targeted follow-up queries and what uncertainty each would resolve.
 
-If question coverage is incomplete, propose targeted follow-up searches and explain what each follow-up would resolve.
-
-## Quality Bar
-
-- Include citations for material claims.
-- Include dates for time-sensitive facts.
-- Keep conclusions proportional to evidence strength.
-- If evidence is weak, say so directly.
+## Completion Criteria
+- Final response includes TLDR, findings, sources, and confidence grade.
+- Material claims are date-anchored and source-cited.
+- Unresolved conflicts/unknowns are explicitly labeled.
+- Next-step queries are provided when uncertainty remains.

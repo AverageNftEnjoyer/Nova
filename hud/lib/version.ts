@@ -8,11 +8,15 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ * - V.11 Alpha: User-facing Skills manager and starter template rollout
+ *     - Added Settings -> Skills editor for creating and updating user `SKILL.md` files directly.
+ *     - Added validated skill API flow (list/read/create/save) with enforced frontmatter and verification sections.
+ *     - Added starter skill templates (`nova-core`, `research`, `summarize`, `daily-briefing`) with one-click install.
+ *     - Runtime now discovers both workspace and per-user skills for prompt-time skill selection.
+ *
  * - V.10 Alpha: Global background persistence and hydration stabilization
  *     - Added app-level persistent background layer to prevent custom video flash/reset on route changes.
  *     - Fixed hydration mismatch by deferring background layer rendering until client mount.
- *     - Corrected background-mode mapping bug in settings (floating lines vs custom video selection).
- *     - Restored floating-lines visual brightness after overlay regression.
  *     - Removed duplicate page-level background state/effects from home, missions, and chat flows.
  *
  * - V.09 Alpha: Analytics baseline module and nav integration
@@ -67,4 +71,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.10 Alpha"
+export const NOVA_VERSION = "V.11 Alpha"

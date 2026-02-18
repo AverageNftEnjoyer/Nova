@@ -228,7 +228,6 @@ export function ChatShellController() {
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
-        customInstructions: settings.personalization.customInstructions,
       })
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
@@ -312,7 +311,6 @@ export function ChatShellController() {
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
-        customInstructions: settings.personalization.customInstructions,
       })
     },
     [activeConvo, agentConnected, sendToAgent, addUserMessage, mergedCountRef],

@@ -26,7 +26,7 @@ function buildSkillsSection(params) {
   if (!trimmed) return [];
   return [
     "## Skills (framework)",
-    "When skills are wired in, choose one best-fit skill before execution.",
+    "Choose one best-fit skill before execution.",
     "Do not load multiple skills up front.",
     trimmed,
     "",

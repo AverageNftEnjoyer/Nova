@@ -1,25 +1,27 @@
+---
+name: summarize
+description: Structured summarization workflow for URLs or raw text with metadata extraction, risk notes, and verification checks.
+---
+
 # Summarize Skill
 
 ## Activation
-
-Activate when the user asks to:
-- summarize
-- read this
-- what does this say
-- TLDR
+Use this skill when the user asks to:
+- summarize content
+- provide a TLDR
+- explain what a page or text says
 
 Primary input is usually a URL, but can also be provided text.
 
 ## Workflow
 
-### Step 1: Fetch content
+### 1. Input handling and fetch
+- If input is a URL, run `web_fetch`.
+- If fetch fails, report the exact failure and provide one concrete retry path.
+- If input is raw text, summarize directly and state that no source fetch was used.
 
-If input is a URL, run `web_fetch` first.
-If fetch fails, report the exact failure and offer one retry strategy.
-
-### Step 2: Identify content type
-
-Classify the source before summarizing:
+### 2. Classify source type
+Classify before summarizing:
 - news article
 - blog post
 - documentation
@@ -27,44 +29,47 @@ Classify the source before summarizing:
 - product page
 - forum/discussion thread
 
-Adjust summary style to content type. Docs need structure; news needs timeline/context.
+Adjust style to content type. Documentation needs structure; news needs timeline context.
 
-### Step 3: Produce three summary tiers
-
-Return all tiers in this order:
+### 3. Produce summary tiers
+Default output order:
 1. One-line TLDR
-2. Three to five key takeaways
-3. Detailed summary preserving important nuance, caveats, and assumptions
+2. 3 to 5 key takeaways
+3. Detailed summary with nuance, caveats, and assumptions
 
-Do not flatten uncertainty into false certainty.
+If user requests "just TLDR," return only tier 1.
 
-### Step 4: Metadata extraction
-
-If available, include:
+### 4. Extract metadata
+Include when available:
 - publication date
 - last updated date
 - author or publisher
 - source URL
 
-If metadata is missing, explicitly say "Not clearly provided."
+If missing, state: "Not clearly provided."
 
-### Step 5: Quality checks
-
-Before finalizing:
-- ensure no major claim was omitted
-- ensure dates and numbers are preserved correctly
-- ensure summary distinguishes fact vs opinion when obvious
-
-### Step 6: Risk notes
-
+### 5. Add risk notes
 Flag obvious:
 - bias
 - missing context
 - outdated indicators
 - promotional framing
 
-## Output Constraints
+### 6. Verification Before Done
+Before final output:
+- Preserve critical dates, numbers, and named entities.
+- Do not convert uncertainty into certainty.
+- Distinguish fact vs opinion when clear.
+- Ensure no major claim from the source is omitted.
 
-- Keep language direct and clean.
-- Keep bullets high-signal.
-- If user asks for "just TLDR," provide only tier 1 unless asked for more.
+### 7. Confidence grading
+End with a confidence grade:
+- High: source is clear and internally consistent
+- Medium: minor ambiguity or incomplete metadata
+- Low: substantial ambiguity, missing context, or source quality concerns
+
+## Completion Criteria
+- Output includes the requested summary tier(s) in the correct order.
+- Available metadata is included, or explicitly marked missing.
+- Risk notes call out bias/context/freshness concerns when present.
+- Confidence grade matches source quality and ambiguity level.

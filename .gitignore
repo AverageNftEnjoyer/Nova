@@ -1,5 +1,4 @@
 # dependencies
-node_modules/
 **/node_modules/
 
 # env / secrets
@@ -16,6 +15,11 @@ memory.json
 nova_memory.json
 telegram_history.json
 
+# databases (SQLite)
+*.db
+*.db-shm
+*.db-wal
+
 # local logs
 *.log
 logs/
@@ -23,18 +27,18 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-nova-runtime.log
-_nova_repro.log
-hud/dev.log
-hud/devserver.log
 
 # build / cache artifacts
 .next/
+.turbo/
 out/
 build/
 dist/
 coverage/
 *.tsbuildinfo
+
+# temp scripts (generated at runtime)
+_*.ps1
 
 # OS / editor noise
 .DS_Store

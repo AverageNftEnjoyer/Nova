@@ -192,6 +192,105 @@ const USER_CONTEXT_ROOT = path.join(ROOT_WORKSPACE_DIR, ".agent", "user-context"
 const BOOTSTRAP_BASELINE_DIR = path.join(ROOT_WORKSPACE_DIR, "templates");
 const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "IDENTITY.md"];
 
+function escapeXml(text) {
+  return String(text || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function walkSkillFiles(dir, out) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkSkillFiles(full, out);
+      continue;
+    }
+    if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
+      out.push(full);
+    }
+  }
+}
+
+function extractSkillDescription(content) {
+  const trimmed = String(content || "").trim();
+  if (!trimmed) return "No description provided.";
+
+  if (trimmed.startsWith("---")) {
+    const end = trimmed.indexOf("\n---", 3);
+    if (end > 0) {
+      const frontmatter = trimmed.slice(3, end);
+      const match = frontmatter.match(/description:\s*(.+)/i);
+      if (match && match[1]) {
+        return String(match[1]).trim().replace(/^['"]|['"]$/g, "");
+      }
+    }
+  }
+
+  const firstParagraph = trimmed
+    .split(/\n\s*\n/)
+    .map((part) => String(part || "").trim())
+    .find(Boolean);
+  return String(firstParagraph || "No description provided.").replace(/^#\s+/, "").trim();
+}
+
+function discoverRuntimeSkills(dirs) {
+  const byName = new Map();
+  for (const dir of dirs) {
+    if (!dir || !fs.existsSync(dir)) continue;
+    const files = [];
+    walkSkillFiles(dir, files);
+    for (const skillFile of files) {
+      let raw = "";
+      try {
+        raw = fs.readFileSync(skillFile, "utf8");
+      } catch {
+        continue;
+      }
+      const name = path.basename(path.dirname(skillFile));
+      if (!name) continue;
+      byName.set(name, {
+        name,
+        description: extractSkillDescription(raw),
+        location: skillFile,
+      });
+    }
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function formatRuntimeSkillsPrompt(skills) {
+  if (!Array.isArray(skills) || skills.length === 0) return "";
+  const body = skills
+    .map(
+      (skill) =>
+        `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(skill.description)}</description><location>${escapeXml(skill.location)}</location></skill>`,
+    )
+    .join("");
+  return [
+    "Scan descriptions. If one applies, use the read tool to load its SKILL.md. Never load more than one upfront.",
+    `<available_skills>${body}</available_skills>`,
+  ].join("\n");
+}
+
+function buildRuntimeSkillsPrompt(personaWorkspaceDir) {
+  const dirs = [path.join(ROOT_WORKSPACE_DIR, "skills")];
+  if (personaWorkspaceDir) {
+    dirs.push(path.join(personaWorkspaceDir, "skills"));
+  }
+  const skills = discoverRuntimeSkills(dirs);
+  return formatRuntimeSkillsPrompt(skills);
+}
+
 function resolvePersonaWorkspaceDir(userContextId) {
   const normalized = sessionRuntime.normalizeUserContextId(userContextId || "");
   const fallbackContextId = normalized || "anonymous";
@@ -1243,6 +1342,7 @@ Output ONLY valid JSON, nothing else.`
   if (useVoice) playThinking();
 
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+  const runtimeSkillsPrompt = buildRuntimeSkillsPrompt(personaWorkspaceDir);
   const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
     buildAgentSystemPrompt,
     buildPersonaPrompt,
@@ -1258,7 +1358,7 @@ Output ONLY valid JSON, nothing else.`
           ? "on"
           : "off",
       userTimezone: process.env.NOVA_USER_TIMEZONE || "America/New_York",
-      skillsPrompt: process.env.NOVA_SKILLS_PROMPT || "",
+      skillsPrompt: runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "",
       heartbeatPrompt: process.env.NOVA_HEARTBEAT_PROMPT || "",
       docsPath: process.env.NOVA_DOCS_PATH || "",
       ttsHint: "Keep voice responses concise, clear, and natural.",

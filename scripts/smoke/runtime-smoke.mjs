@@ -288,7 +288,7 @@ await run("Voice wake logic gates/strips correctly", async () => {
 });
 
 await run("Brave-only web search remains enforced (no Tavily/Serper refs)", async () => {
-  const webSearchSource = await fsp.readFile(path.join(process.cwd(), "src", "tools", "web-search.ts"), "utf8");
+  const webSearchSource = await fsp.readFile(path.join(process.cwd(), "agent", "runtime", "tools-runtime.js"), "utf8");
   const missionSource = await fsp.readFile(path.join(process.cwd(), "hud", "lib", "missions", "runtime.ts"), "utf8");
   const combined = `${webSearchSource}\n${missionSource}`.toLowerCase();
   assert.equal(combined.includes("tavily"), false);

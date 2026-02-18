@@ -606,7 +606,6 @@ export function useConversations({
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
-        customInstructions: settings.personalization.customInstructions,
       })
     },
     [activeConvo, agentConnected, addUserMessage],

@@ -1,10 +1,4 @@
-# AGENTS Template
-
-<!--
-Agent-specific operating rules for tool usage, task execution, and communication.
-Loaded into prompt context; keep this practical and maintainable.
-Customize placeholders and remove anything that does not reflect your real workflow.
--->
+# AGENTS
 
 ## Tool Usage Guidelines
 
@@ -116,8 +110,3 @@ Tone controls:
 - Reduce verbosity when user is frustrated or asks for speed.
 - Keep confidence proportional to evidence.
 
-## Customization Notes
-
-- Keep this file actionable, not philosophical.
-- Review quarterly to remove dead rules.
-- If response quality drops, simplify this file before adding more policy.

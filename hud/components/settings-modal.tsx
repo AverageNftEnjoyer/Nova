@@ -10,6 +10,7 @@ import {
   Volume2,
   Bell,
   Sparkles,
+  FileCode2,
   Shield,
   Power,
   RotateCcw,
@@ -57,6 +58,7 @@ import {
   DARK_BACKGROUNDS,
 } from "@/lib/userSettings"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
+import { SettingsSkillsPanel } from "@/components/settings-skills-panel"
 
 const AVATAR_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 const BACKGROUND_IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|svg)$/i
@@ -216,7 +218,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       communicationStyle: nextSettings.personalization.communicationStyle,
       tone: nextSettings.personalization.tone,
       characteristics: nextSettings.personalization.characteristics,
-      customInstructions: nextSettings.personalization.customInstructions,
       interests: nextSettings.personalization.interests,
     }
     const serialized = JSON.stringify(payload)
@@ -818,6 +819,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     { id: "audio", label: "Audio & Voice", icon: Volume2 },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "personalization", label: "Personalization", icon: Sparkles },
+    { id: "skills", label: "Skills", icon: FileCode2 },
     { id: "bootup", label: "Bootup", icon: Power },
     { id: "access", label: "Account", icon: Shield },
   ]
@@ -1536,16 +1538,36 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       isLight={isLight}
                     />
 
-                    <SettingTextarea
-                      label="Custom Instructions"
-                      description="Special instructions for Nova to follow"
-                      value={settings.personalization.customInstructions}
-                      onChange={(v) => updatePersonalization("customInstructions", v)}
-                      placeholder="e.g., Always provide code examples in Python, remind me to take breaks..."
-                      rows={4}
-                      isLight={isLight}
-                    />
+                    <div className={cn(getSettingsCardClass(isLight), "p-4")}>
+                      <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>Skill-Based Behavior</p>
+                      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>
+                        Behavior customization now lives in Skills. Create and edit
+                        <code className="mx-1">SKILL.md</code>
+                        templates in the Skills section.
+                      </p>
+                      <Button
+                        onClick={() => {
+                          playClickSound()
+                          setActiveSection("skills")
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          "fx-spotlight-card fx-border-glow",
+                          isLight
+                            ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
+                            : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
+                        )}
+                      >
+                        Open Skills
+                      </Button>
+                    </div>
                   </div>
+                )}
+
+                {/* Skills Section */}
+                {activeSection === "skills" && (
+                  <SettingsSkillsPanel isLight={isLight} />
                 )}
 
                 {/* Bootup Section */}

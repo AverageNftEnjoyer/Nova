@@ -1,30 +1,15 @@
 {
-  "name": "nova",
-  "version": "1.0.0",
-  "description": "Nova AI Assistant – voice agent + HUD unified launcher",
+  "name": "novaos",
+  "version": "0.10.0",
+  "description": "NovaOS — AI agent desktop OS. Unified launcher for the agent backend and Next.js HUD.",
   "type": "module",
   "scripts": {
     "start": "node nova.js",
-    "install:all": "cd agent && npm install && cd ../hud && npm install",
-    "agent:run": "tsx src/index.ts",
-    "build:agent-core": "tsc",
-    "typecheck": "tsc --noEmit"
+    "dev": "NOVA_HUD_MODE=dev node nova.js",
+    "install:all": "npm install --prefix agent && npm install --prefix hud",
+    "smoke": "node scripts/smoke/runtime-smoke.mjs"
   },
-  "dependencies": {
-    "@anthropic-ai/sdk": "latest",
-    "@mozilla/readability": "^0.5.0",
-    "better-sqlite3": "^11.0.0",
-    "concurrently": "^9.1.2",
-    "dotenv": "^17.2.3",
-    "jsdom": "^25.0.0",
-    "turndown": "^7.2.0"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.0",
-    "@types/jsdom": "^21.0.0",
-    "@types/turndown": "^5.0.0",
-    "eslint": "^10.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.5.0"
+  "engines": {
+    "node": ">=20"
   }
 }
