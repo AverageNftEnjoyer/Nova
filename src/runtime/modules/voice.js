@@ -103,12 +103,38 @@ export function stopSpeaking() {
   }
 }
 
+function normalizeTtsText(input) {
+  let text = String(input || "");
+  if (!text) return "";
+
+  text = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/[*_]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return text;
+}
+
 export async function speak(text, voiceId = "default") {
   const out = path.join(ROOT, `speech_${Date.now()}.mp3`);
   const referenceId = VOICE_MAP[voiceId] || REFERENCE_ID;
-  console.log(`[TTS] Using voice: ${voiceId} → ${referenceId}`);
+  const normalizedText = normalizeTtsText(text) || String(text || "");
+  console.log(`[TTS] Using voice: ${voiceId} -> ${referenceId}`);
 
-  const audio = await fishAudio.textToSpeech.convert({ text, reference_id: referenceId });
+  const audio = await fishAudio.textToSpeech.convert({ text: normalizedText, reference_id: referenceId });
   fs.writeFileSync(out, Buffer.from(await new Response(audio).arrayBuffer()));
 
   _broadcastState("speaking");

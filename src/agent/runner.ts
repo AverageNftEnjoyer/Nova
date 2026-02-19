@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Config } from "../config/types.js";
 import { discoverBootstrapFiles } from "./bootstrap.js";
+import { resolvePersonaWorkspaceDir } from "./persona-workspace.js";
 import { compactSession } from "./compact.js";
 import { getHistoryLimit, limitHistoryTurns } from "./history.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -9,8 +10,11 @@ import { SessionStore } from "../session/store.js";
 import type { InboundMessage, TranscriptTurn } from "../session/types.js";
 import { acquireLock } from "../session/lock.js";
 import type { MemoryIndexManager } from "../memory/manager.js";
+import { applyMemoryWriteThrough } from "../memory/write-through.js";
+import { buildMemoryRecallContext, injectMemoryRecallSection } from "../memory/recall.js";
 import type { Skill } from "../skills/types.js";
 import { executeToolUse, toAnthropicToolResultBlock } from "../tools/executor.js";
+import { toAnthropicToolDefinitions } from "../tools/protocol.js";
 import type { AnthropicToolUseBlock, Tool } from "../tools/types.js";
 
 export interface AgentRunResult {
@@ -42,6 +46,30 @@ function extractTextFromResponse(message: Anthropic.Messages.Message): string {
     .map((block) => block.text)
     .join("\n")
     .trim();
+}
+
+function toToolUseBlock(block: Anthropic.Messages.ContentBlock): AnthropicToolUseBlock | null {
+  if (block.type !== "tool_use") {
+    return null;
+  }
+
+  const id = typeof block.id === "string" ? block.id : "";
+  const name = typeof block.name === "string" ? block.name : "";
+  const input =
+    block.input && typeof block.input === "object" && !Array.isArray(block.input)
+      ? (block.input as Record<string, unknown>)
+      : {};
+
+  if (!id || !name) {
+    return null;
+  }
+
+  return {
+    type: "tool_use",
+    id,
+    name,
+    input,
+  };
 }
 
 function normalizeTranscriptTurnContent(content: unknown): string | Anthropic.Messages.ContentBlockParam[] {
@@ -103,11 +131,7 @@ async function callAnthropicWithRetry(params: {
         max_tokens: params.maxTokens,
         system: params.system,
         messages: params.messages,
-        tools: params.tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.input_schema,
-        })),
+        tools: toAnthropicToolDefinitions(params.tools),
       });
     } catch (error) {
       if (!isRateLimitError(error) || attempt === retries) {
@@ -140,7 +164,7 @@ export async function runAgentTurn(
   const release = await acquireLock(resolved.sessionKey);
   try {
     const sessionEntry = resolved.sessionEntry;
-    const transcript = sessionStore.loadTranscript(sessionEntry.sessionId);
+    const transcript = sessionStore.loadTranscript(sessionEntry.sessionId, sessionEntry.userContextId || "");
     const historyLimit = getHistoryLimit(resolved.sessionKey, config.session);
     const limitedHistory = limitHistoryTurns(transcript, historyLimit);
 
@@ -148,7 +172,29 @@ export async function runAgentTurn(
       memoryManager.warmSession();
     }
 
-    const bootstrapFiles = discoverBootstrapFiles(config.agent.workspace, {
+    const personaWorkspaceDir = resolvePersonaWorkspaceDir({
+      workspaceRoot: config.agent.workspace,
+      userContextRoot: config.session.userContextRoot,
+      userContextId: sessionEntry.userContextId || "",
+    });
+
+    const memoryUpdate = await applyMemoryWriteThrough({
+      input: inboundMessage.text,
+      personaWorkspaceDir,
+      memoryManager: memoryManager && config.memory.enabled ? memoryManager : null,
+    });
+    if (memoryUpdate.handled) {
+      sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "user", inboundMessage.text);
+      sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "assistant", memoryUpdate.response);
+      return {
+        response: memoryUpdate.response,
+        tokensUsed: 0,
+        toolCalls: [],
+        sessionKey: resolved.sessionKey,
+      };
+    }
+
+    const bootstrapFiles = discoverBootstrapFiles(personaWorkspaceDir, {
       bootstrapMaxChars: config.agent.bootstrapMaxChars,
       bootstrapTotalMaxChars: config.agent.bootstrapTotalMaxChars,
     });
@@ -167,6 +213,17 @@ export async function runAgentTurn(
 
     if (inheritedSummaries.length > 0) {
       systemPrompt += `\n\n## Prior Compaction Summary\n${inheritedSummaries.join("\n\n")}`;
+    }
+
+    if (memoryManager && config.memory.enabled) {
+      const recallContext = await buildMemoryRecallContext({
+        memoryManager,
+        query: inboundMessage.text,
+        topK: Math.min(3, Math.max(1, config.memory.topK)),
+        maxChars: 2200,
+        maxTokens: 480,
+      });
+      systemPrompt = injectMemoryRecallSection(systemPrompt, recallContext);
     }
 
     const client = new Anthropic({ apiKey: config.agent.apiKey });
@@ -221,9 +278,9 @@ export async function runAgentTurn(
       totalInputTokens += response.usage.input_tokens;
       totalOutputTokens += response.usage.output_tokens;
 
-      const toolUseBlocks = response.content.filter(
-        (block): block is AnthropicToolUseBlock => block.type === "tool_use",
-      );
+      const toolUseBlocks = response.content
+        .map((block) => toToolUseBlock(block))
+        .filter((block): block is AnthropicToolUseBlock => Boolean(block));
 
       if (toolUseBlocks.length === 0) {
         break;

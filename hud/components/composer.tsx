@@ -197,6 +197,14 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
             onKeyDown={handleKeyDown}
             placeholder={disabled ? "Waiting for agent..." : "Enter your command..."}
             disabled={disabled}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            autoComplete="off"
+            data-gramm="false"
+            data-gramm_editor="false"
+            data-enable-grammarly="false"
+            data-lt-active="false"
             rows={1}
             className={cn(
               "relative z-10 w-full bg-transparent text-sm pl-12 pt-4 pb-2.5 pr-34 resize-none outline-none disabled:opacity-40",

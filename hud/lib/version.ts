@@ -9,6 +9,13 @@
  *
  * Version History:
  *
+ * - V.14 Alpha: `src/` runtime cutover + stability patch set
+ *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/entrypoint.js` (replacing legacy `agent/` launch flow).
+ *     - Expanded `src/` runtime parity and smoke coverage for provider, session, transport, tools, memory, and shell wiring.
+ *     - Removed stale `src/index.ts` one-off harness and cleaned upgrade module index references.
+ *     - Fixed Home -> Chat first-send duplication by tightening pending message dedupe (message id + content checks).
+ *     - Added STT auth fallback to user-scoped OpenAI integration when global key is missing (401 mitigation for voice loop).
+ *
  * - V.12 Alpha: Runtime skill routing efficiency and continuity upgrades
  *     - Added starter operational skills: `pickup` and `handoff` for fast context rehydration and deterministic task transfer.
  *     - Runtime skill discovery now parses optional `metadata.read_when` hints and includes them in prompt-time skill selection.
@@ -79,4 +86,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.13 Alpha"
+export const NOVA_VERSION = "V.14 Alpha"

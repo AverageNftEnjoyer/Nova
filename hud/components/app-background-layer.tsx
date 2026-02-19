@@ -5,6 +5,7 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import FloatingLines from "@/components/FloatingLines"
 import { useTheme } from "@/lib/theme-context"
+import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/active-user"
 import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
 import {
   ORB_COLORS,
@@ -72,6 +73,9 @@ export function AppBackgroundLayer() {
     const selectedAssetId = loadUserSettings().app.customBackgroundVideoAssetId
     return getCachedBackgroundVideoObjectUrl(selectedAssetId || undefined)
   })
+  const [customBackgroundAssetId, setCustomBackgroundAssetId] = useState<string | null>(() => {
+    return loadUserSettings().app.customBackgroundVideoAssetId ?? null
+  })
   const [backgroundMediaIsImage, setBackgroundMediaIsImage] = useState<boolean>(() => {
     const app = loadUserSettings().app
     return isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName)
@@ -89,6 +93,7 @@ export function AppBackgroundLayer() {
       const nextBackground = resolveThemeBackground(isLight)
       setOrbColor(nextOrbColor)
       setBackground(nextBackground)
+      setCustomBackgroundAssetId(userSettings.app.customBackgroundVideoAssetId ?? null)
       setBackgroundMediaIsImage(
         isBackgroundAssetImage(userSettings.app.customBackgroundVideoMimeType, userSettings.app.customBackgroundVideoFileName),
       )
@@ -97,7 +102,11 @@ export function AppBackgroundLayer() {
 
     sync()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
-    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
+    window.addEventListener(ACTIVE_USER_CHANGED_EVENT, sync as EventListener)
+    return () => {
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
+      window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, sync as EventListener)
+    }
   }, [isLight])
 
   useEffect(() => {
@@ -105,7 +114,7 @@ export function AppBackgroundLayer() {
     if (!showForPath || isLight || background !== "customVideo") return
 
     const app = loadUserSettings().app
-    const selectedAssetId = app.customBackgroundVideoAssetId
+    const selectedAssetId = customBackgroundAssetId || app.customBackgroundVideoAssetId
 
     Promise.resolve().then(() => {
       if (cancelled) return
@@ -136,7 +145,7 @@ export function AppBackgroundLayer() {
     return () => {
       cancelled = true
     }
-  }, [background, isLight, showForPath])
+  }, [background, customBackgroundAssetId, isLight, showForPath])
 
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo<[string, string]>(

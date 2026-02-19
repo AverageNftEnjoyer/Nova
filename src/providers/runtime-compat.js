@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { createDecipheriv, createHash, randomUUID } from "crypto";
+import { createDecipheriv, createHash } from "crypto";
 import OpenAI from "openai";
 import {
   INTEGRATIONS_CONFIG_PATH,
@@ -16,7 +16,7 @@ import {
   OPENAI_REQUEST_TIMEOUT_MS,
   OPENAI_MODEL_PRICING_USD_PER_1M,
   CLAUDE_MODEL_PRICING_USD_PER_1M
-} from "../constants.js";
+} from "../runtime/constants.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
@@ -217,6 +217,54 @@ function resolveIntegrationsConfigPath(userContextId) {
   );
 }
 
+function loadLatestScopedOpenAiRuntimeFallback() {
+  try {
+    if (!fs.existsSync(USER_CONTEXT_INTEGRATIONS_ROOT)) return null;
+    const candidates = fs
+      .readdirSync(USER_CONTEXT_INTEGRATIONS_ROOT, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const scopedPath = path.join(
+          USER_CONTEXT_INTEGRATIONS_ROOT,
+          entry.name,
+          USER_CONTEXT_INTEGRATIONS_FILE,
+        );
+        if (!fs.existsSync(scopedPath)) return null;
+        let mtimeMs = 0;
+        try {
+          mtimeMs = fs.statSync(scopedPath).mtimeMs;
+        } catch {}
+        return { scopedPath, mtimeMs };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    for (const candidate of candidates) {
+      try {
+        const raw = fs.readFileSync(candidate.scopedPath, "utf8");
+        const parsed = JSON.parse(raw);
+        const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
+        const apiKey = resolveProviderApiKey("openai", integration.apiKey);
+        if (!apiKey) continue;
+        const baseURL = toOpenAiLikeBase(
+          typeof integration.baseUrl === "string" ? integration.baseUrl : "",
+          DEFAULT_OPENAI_BASE_URL,
+        );
+        const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
+          ? integration.defaultModel.trim()
+          : DEFAULT_CHAT_MODEL;
+        return {
+          apiKey,
+          baseURL,
+          model,
+          sourcePath: candidate.scopedPath,
+        };
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
 function readFirstEnvCandidate(keys) {
   if (!Array.isArray(keys) || keys.length === 0) return "";
 
@@ -357,13 +405,18 @@ export function loadOpenAIIntegrationRuntime() {
       ? integration.defaultModel.trim()
       : DEFAULT_CHAT_MODEL;
 
+    if (apiKey) return { apiKey, baseURL, model };
+    const scopedFallback = loadLatestScopedOpenAiRuntimeFallback();
+    if (scopedFallback) return scopedFallback;
     return { apiKey, baseURL, model };
   } catch {
-    return {
+    const fallback = {
       apiKey: resolveProviderApiKey("openai", ""),
       baseURL: DEFAULT_OPENAI_BASE_URL,
       model: DEFAULT_CHAT_MODEL,
     };
+    if (fallback.apiKey) return fallback;
+    return loadLatestScopedOpenAiRuntimeFallback() || fallback;
   }
 }
 
@@ -732,37 +785,4 @@ export function estimateTokenCostUsd(model, promptTokens = 0, completionTokens =
   const inputCost = (promptTokens / 1_000_000) * pricing.input;
   const outputCost = (completionTokens / 1_000_000) * pricing.output;
   return Number((inputCost + outputCost).toFixed(6));
-}
-
-// ===== Tool Helpers =====
-export function toOpenAiToolDefinitions(tools) {
-  return tools.map((tool) => ({
-    type: "function",
-    function: {
-      name: tool.name,
-      description: tool.description,
-      parameters:
-        tool.input_schema && typeof tool.input_schema === "object"
-          ? tool.input_schema
-          : { type: "object", properties: {} },
-    },
-  }));
-}
-
-export function toOpenAiToolUseBlock(toolCall) {
-  let parsedInput = {};
-  const raw = String(toolCall?.function?.arguments || "").trim();
-  if (raw) {
-    try {
-      parsedInput = JSON.parse(raw);
-    } catch {
-      parsedInput = { _raw: raw };
-    }
-  }
-  return {
-    id: String(toolCall?.id || randomUUID()),
-    name: String(toolCall?.function?.name || ""),
-    input: parsedInput,
-    type: "tool_use",
-  };
 }

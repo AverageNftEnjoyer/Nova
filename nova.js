@@ -248,8 +248,8 @@ ensureHudBuildIfNeeded();
 const monitors = getMonitors();
 const primaryMonitor = monitors[0];
 
-// Start the AI agent and HUD concurrently.
-launch("Agent", process.execPath, ["agent.js"], path.join(__dirname, "agent"));
+// Start the AI runtime shell and HUD concurrently.
+launch("Agent", process.execPath, ["src/runtime/entrypoint.js"], __dirname);
 
 const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
 const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR);

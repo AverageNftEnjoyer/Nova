@@ -1,0 +1,471 @@
+import { createDecipheriv, createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+
+export type ProviderName = "openai" | "claude" | "grok" | "gemini";
+
+export interface ProviderRuntime {
+  connected: boolean;
+  apiKey: string;
+  baseURL: string;
+  model: string;
+}
+
+export interface IntegrationsRuntime {
+  sourcePath: string;
+  activeProvider: ProviderName;
+  openai: ProviderRuntime;
+  claude: ProviderRuntime;
+  grok: ProviderRuntime;
+  gemini: ProviderRuntime;
+}
+
+export interface ResolvedChatRuntime extends ProviderRuntime {
+  provider: ProviderName;
+  strict: boolean;
+}
+
+export interface RuntimePaths {
+  workspaceRoot: string;
+  integrationsConfigPath: string;
+  encryptionKeyPath: string;
+  userContextRoot: string;
+  hudRoot: string;
+}
+
+export interface ErrorDetails {
+  message: string;
+  status: number | null;
+  code: string | null;
+  type: string | null;
+  param: string | null;
+  requestId: string | null;
+}
+
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
+const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
+const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+
+const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_GROK_MODEL = "grok-4-0709";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+
+const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function toNonEmptyString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function boolFlag(value: unknown): boolean {
+  return value === true;
+}
+
+export function describeUnknownError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+export function toErrorDetails(err: unknown): ErrorDetails {
+  if (!err || typeof err !== "object") {
+    return {
+      message: String(err || "Unknown error"),
+      status: null,
+      code: null,
+      type: null,
+      param: null,
+      requestId: null,
+    };
+  }
+  const anyErr = err as Record<string, unknown>;
+  return {
+    message: typeof anyErr.message === "string" ? anyErr.message : "Unknown error",
+    status: typeof anyErr.status === "number" ? anyErr.status : null,
+    code: typeof anyErr.code === "string" ? anyErr.code : null,
+    type: typeof anyErr.type === "string" ? anyErr.type : null,
+    param: typeof anyErr.param === "string" ? anyErr.param : null,
+    requestId:
+      typeof anyErr.request_id === "string"
+        ? anyErr.request_id
+        : typeof anyErr.requestId === "string"
+          ? anyErr.requestId
+          : null,
+  };
+}
+
+export function resolveRuntimePaths(workspaceRoot = process.cwd()): RuntimePaths {
+  const root = path.resolve(workspaceRoot);
+  const integrationsConfigPath = path.join(root, "hud", "data", "integrations-config.json");
+  const hudRoot = path.dirname(integrationsConfigPath);
+  return {
+    workspaceRoot: root,
+    integrationsConfigPath,
+    encryptionKeyPath: path.join(root, "hud", "data", ".nova_encryption_key"),
+    userContextRoot: path.join(root, ".agent", "user-context"),
+    hudRoot,
+  };
+}
+
+function deriveEncryptionKeyMaterial(rawValue: unknown): Buffer | null {
+  const raw = toNonEmptyString(rawValue);
+  if (!raw) return null;
+  try {
+    const decoded = Buffer.from(raw, "base64");
+    if (decoded.length === 32) return decoded;
+  } catch {
+    // ignore
+  }
+  return createHash("sha256").update(raw).digest();
+}
+
+function readEnvValueFromFile(envPath: string, key: string): string {
+  try {
+    if (!fs.existsSync(envPath)) return "";
+    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const idx = trimmed.indexOf("=");
+      if (idx <= 0) continue;
+      const candidateKey = trimmed.slice(0, idx).trim();
+      if (candidateKey !== key) continue;
+      let value = trimmed.slice(idx + 1).trim();
+      if (
+        (value.startsWith("\"") && value.endsWith("\"")) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      return value.trim();
+    }
+  } catch {
+    // ignore
+  }
+  return "";
+}
+
+export function getEncryptionKeyMaterials(paths = resolveRuntimePaths()): Buffer[] {
+  const candidates: string[] = [];
+  const envKey = toNonEmptyString(process.env.NOVA_ENCRYPTION_KEY);
+  if (envKey) candidates.push(envKey);
+
+  const hudLocalEnvKey = readEnvValueFromFile(path.join(paths.hudRoot, ".env.local"), "NOVA_ENCRYPTION_KEY");
+  if (hudLocalEnvKey) candidates.push(hudLocalEnvKey);
+
+  const rootEnvKey = readEnvValueFromFile(path.join(paths.hudRoot, "..", "..", ".env"), "NOVA_ENCRYPTION_KEY");
+  if (rootEnvKey) candidates.push(rootEnvKey);
+
+  try {
+    if (fs.existsSync(paths.encryptionKeyPath)) {
+      const fileRaw = fs.readFileSync(paths.encryptionKeyPath, "utf8").trim();
+      if (fileRaw) candidates.push(fileRaw);
+    }
+  } catch {
+    // ignore
+  }
+
+  const materials: Buffer[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const normalized = toNonEmptyString(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    const material = deriveEncryptionKeyMaterial(normalized);
+    if (material) materials.push(material);
+  }
+  return materials;
+}
+
+export function decryptStoredSecret(payload: unknown, paths = resolveRuntimePaths()): string {
+  const input = toNonEmptyString(payload);
+  if (!input) return "";
+  const parts = input.split(".");
+  if (parts.length !== 3) return "";
+  const keyMaterials = getEncryptionKeyMaterials(paths);
+  if (keyMaterials.length === 0) return "";
+
+  for (const key of keyMaterials) {
+    try {
+      const iv = Buffer.from(parts[0] || "", "base64");
+      const tag = Buffer.from(parts[1] || "", "base64");
+      const enc = Buffer.from(parts[2] || "", "base64");
+      const decipher = createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(tag);
+      const out = Buffer.concat([decipher.update(enc), decipher.final()]);
+      return out.toString("utf8");
+    } catch {
+      // try next key material
+    }
+  }
+  return "";
+}
+
+export function unwrapStoredSecret(value: unknown, paths = resolveRuntimePaths()): string {
+  const raw = toNonEmptyString(value);
+  if (!raw) return "";
+  const decrypted = decryptStoredSecret(raw, paths);
+  if (decrypted) return decrypted;
+
+  const parts = raw.split(".");
+  if (parts.length === 3) {
+    try {
+      const iv = Buffer.from(parts[0] || "", "base64");
+      const tag = Buffer.from(parts[1] || "", "base64");
+      const enc = Buffer.from(parts[2] || "", "base64");
+      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return "";
+    } catch {
+      // ignore
+    }
+  }
+  return raw;
+}
+
+export function toOpenAiLikeBase(baseUrl: unknown, fallbackBaseUrl: string): string {
+  const trimmed = toNonEmptyString(baseUrl).replace(/\/+$/, "");
+  if (!trimmed) return fallbackBaseUrl;
+  if (trimmed.includes("/v1beta/openai") || /\/openai$/i.test(trimmed)) return trimmed;
+  return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+}
+
+export function toClaudeBase(baseURL: unknown): string {
+  const trimmed = toNonEmptyString(baseURL).replace(/\/+$/, "");
+  if (!trimmed) return DEFAULT_CLAUDE_BASE_URL;
+  return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
+}
+
+function normalizeUserContextId(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 96);
+}
+
+function resolveIntegrationsConfigPath(userContextId: string, paths: RuntimePaths): string {
+  const normalized = normalizeUserContextId(userContextId);
+  if (!normalized) return paths.integrationsConfigPath;
+  return path.join(paths.userContextRoot, normalized, USER_CONTEXT_INTEGRATIONS_FILE);
+}
+
+function readFirstEnvCandidate(keys: string[], hudRoot: string): string {
+  for (const key of keys) {
+    const fromProcess = toNonEmptyString(process.env[key]);
+    if (fromProcess) return fromProcess;
+  }
+
+  const envPaths = [
+    path.join(hudRoot, ".env.local"),
+    path.join(hudRoot, "..", ".env"),
+  ];
+  for (const envPath of envPaths) {
+    for (const key of keys) {
+      const fromFile = readEnvValueFromFile(envPath, key);
+      if (fromFile) return fromFile;
+    }
+  }
+  return "";
+}
+
+function resolveProviderApiKey(provider: ProviderName, integrationApiKey: unknown, paths: RuntimePaths): string {
+  const fromIntegration = unwrapStoredSecret(integrationApiKey, paths);
+  if (provider === "openai") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_OPENAI_API_KEY", "OPENAI_API_KEY"], paths.hudRoot);
+    return toNonEmptyString(fromEnv || fromIntegration);
+  }
+  if (provider === "claude") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"], paths.hudRoot);
+    return toNonEmptyString(fromEnv || fromIntegration);
+  }
+  if (provider === "grok") {
+    const fromEnv = readFirstEnvCandidate(["NOVA_GROK_API_KEY", "XAI_API_KEY", "GROK_API_KEY"], paths.hudRoot);
+    return toNonEmptyString(fromEnv || fromIntegration);
+  }
+  const fromEnv = readFirstEnvCandidate(["NOVA_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"], paths.hudRoot);
+  return toNonEmptyString(fromEnv || fromIntegration);
+}
+
+function resolveProviderConnectedState(connectedFlag: unknown, apiKey: string): boolean {
+  return boolFlag(connectedFlag) && apiKey.length > 0;
+}
+
+function parseProviderModel(value: unknown, fallback: string): string {
+  const candidate = toNonEmptyString(value);
+  return candidate || fallback;
+}
+
+function parseActiveProvider(value: unknown): ProviderName {
+  const candidate = toNonEmptyString(value);
+  if (candidate === "claude" || candidate === "grok" || candidate === "gemini" || candidate === "openai") {
+    return candidate;
+  }
+  return "openai";
+}
+
+function getProviderRuntime(integrations: IntegrationsRuntime, provider: ProviderName): ProviderRuntime {
+  if (provider === "claude") return integrations.claude;
+  if (provider === "grok") return integrations.grok;
+  if (provider === "gemini") return integrations.gemini;
+  return integrations.openai;
+}
+
+function isProviderReady(integrations: IntegrationsRuntime, provider: ProviderName): boolean {
+  const runtime = getProviderRuntime(integrations, provider);
+  return runtime.connected && runtime.apiKey.length > 0 && runtime.model.length > 0;
+}
+
+export function loadIntegrationsRuntime(options?: {
+  userContextId?: string;
+  workspaceRoot?: string;
+}): IntegrationsRuntime {
+  const paths = resolveRuntimePaths(options?.workspaceRoot);
+  const configPath = resolveIntegrationsConfigPath(String(options?.userContextId || ""), paths);
+  if (options?.userContextId && configPath !== paths.integrationsConfigPath && !fs.existsSync(configPath)) {
+    return loadIntegrationsRuntime({ workspaceRoot: paths.workspaceRoot });
+  }
+
+  try {
+    const raw = fs.readFileSync(configPath, "utf8");
+    const parsed = toRecord(JSON.parse(raw));
+    const openaiIntegration = toRecord(parsed.openai);
+    const claudeIntegration = toRecord(parsed.claude);
+    const grokIntegration = toRecord(parsed.grok);
+    const geminiIntegration = toRecord(parsed.gemini);
+
+    const activeProvider = parseActiveProvider(parsed.activeLlmProvider);
+    const openaiApiKey = resolveProviderApiKey("openai", openaiIntegration.apiKey, paths);
+    const claudeApiKey = resolveProviderApiKey("claude", claudeIntegration.apiKey, paths);
+    const grokApiKey = resolveProviderApiKey("grok", grokIntegration.apiKey, paths);
+    const geminiApiKey = resolveProviderApiKey("gemini", geminiIntegration.apiKey, paths);
+
+    return {
+      sourcePath: configPath,
+      activeProvider,
+      openai: {
+        connected: resolveProviderConnectedState(openaiIntegration.connected, openaiApiKey),
+        apiKey: openaiApiKey,
+        baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
+        model: parseProviderModel(openaiIntegration.defaultModel, DEFAULT_CHAT_MODEL),
+      },
+      claude: {
+        connected: resolveProviderConnectedState(claudeIntegration.connected, claudeApiKey),
+        apiKey: claudeApiKey,
+        baseURL: toNonEmptyString(claudeIntegration.baseUrl).replace(/\/+$/, "") || DEFAULT_CLAUDE_BASE_URL,
+        model: parseProviderModel(claudeIntegration.defaultModel, DEFAULT_CLAUDE_MODEL),
+      },
+      grok: {
+        connected: resolveProviderConnectedState(grokIntegration.connected, grokApiKey),
+        apiKey: grokApiKey,
+        baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
+        model: parseProviderModel(grokIntegration.defaultModel, DEFAULT_GROK_MODEL),
+      },
+      gemini: {
+        connected: resolveProviderConnectedState(geminiIntegration.connected, geminiApiKey),
+        apiKey: geminiApiKey,
+        baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
+        model: parseProviderModel(geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
+      },
+    };
+  } catch {
+    const openaiApiKey = resolveProviderApiKey("openai", "", paths);
+    const claudeApiKey = resolveProviderApiKey("claude", "", paths);
+    const grokApiKey = resolveProviderApiKey("grok", "", paths);
+    const geminiApiKey = resolveProviderApiKey("gemini", "", paths);
+    return {
+      sourcePath: configPath,
+      activeProvider: "openai",
+      openai: { connected: Boolean(openaiApiKey), apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: Boolean(claudeApiKey), apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: Boolean(grokApiKey), apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: Boolean(geminiApiKey), apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
+    };
+  }
+}
+
+export function loadOpenAiIntegrationRuntime(options?: { workspaceRoot?: string }): {
+  apiKey: string;
+  baseURL: string;
+  model: string;
+} {
+  const paths = resolveRuntimePaths(options?.workspaceRoot);
+  try {
+    const raw = fs.readFileSync(paths.integrationsConfigPath, "utf8");
+    const parsed = toRecord(JSON.parse(raw));
+    const integration = toRecord(parsed.openai);
+    const apiKey = resolveProviderApiKey("openai", integration.apiKey, paths);
+    const baseURL = toOpenAiLikeBase(integration.baseUrl, DEFAULT_OPENAI_BASE_URL);
+    const model = parseProviderModel(integration.defaultModel, DEFAULT_CHAT_MODEL);
+    return { apiKey, baseURL, model };
+  } catch {
+    return {
+      apiKey: resolveProviderApiKey("openai", "", paths),
+      baseURL: DEFAULT_OPENAI_BASE_URL,
+      model: DEFAULT_CHAT_MODEL,
+    };
+  }
+}
+
+export function resolveConfiguredChatRuntime(
+  integrations: IntegrationsRuntime,
+  options?: { strictActiveProvider?: boolean },
+): ResolvedChatRuntime {
+  const strictActiveProvider = options?.strictActiveProvider !== false;
+  const activeProvider = parseActiveProvider(integrations.activeProvider);
+
+  if (strictActiveProvider) {
+    const activeRuntime = getProviderRuntime(integrations, activeProvider);
+    return {
+      provider: activeProvider,
+      apiKey: toNonEmptyString(activeRuntime.apiKey),
+      baseURL: toNonEmptyString(activeRuntime.baseURL),
+      model: toNonEmptyString(activeRuntime.model),
+      connected: boolFlag(activeRuntime.connected),
+      strict: true,
+    };
+  }
+
+  if (isProviderReady(integrations, activeProvider)) {
+    const activeRuntime = getProviderRuntime(integrations, activeProvider);
+    return {
+      provider: activeProvider,
+      apiKey: toNonEmptyString(activeRuntime.apiKey),
+      baseURL: toNonEmptyString(activeRuntime.baseURL),
+      model: toNonEmptyString(activeRuntime.model),
+      connected: boolFlag(activeRuntime.connected),
+      strict: false,
+    };
+  }
+
+  const fallbackOrder: ProviderName[] = ["claude", "openai", "gemini", "grok"];
+  for (const provider of fallbackOrder) {
+    if (!isProviderReady(integrations, provider)) continue;
+    const runtime = getProviderRuntime(integrations, provider);
+    return {
+      provider,
+      apiKey: toNonEmptyString(runtime.apiKey),
+      baseURL: toNonEmptyString(runtime.baseURL),
+      model: toNonEmptyString(runtime.model),
+      connected: boolFlag(runtime.connected),
+      strict: false,
+    };
+  }
+
+  const activeRuntime = getProviderRuntime(integrations, activeProvider);
+  return {
+    provider: activeProvider,
+    apiKey: toNonEmptyString(activeRuntime.apiKey),
+    baseURL: toNonEmptyString(activeRuntime.baseURL),
+    model: toNonEmptyString(activeRuntime.model),
+    connected: boolFlag(activeRuntime.connected),
+    strict: false,
+  };
+}

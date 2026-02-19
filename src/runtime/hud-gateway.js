@@ -2,11 +2,11 @@
 // WebSocket server on port 8765, all broadcast helpers, and incoming message routing.
 // Uses handleInput injection to break the circular dep with chat-handler.
 
-import { WebSocketServer } from "ws";
-import { getSystemMetrics } from "./metrics.js";
-import { describeUnknownError, toErrorDetails } from "./providers.js";
+import { getSystemMetrics } from "../compat/metrics.js";
+import { describeUnknownError, toErrorDetails } from "../providers/runtime-compat.js";
 import { sessionRuntime } from "./config.js";
-import { VOICE_AFTER_TTS_SUPPRESS_MS } from "../constants.js";
+import { VOICE_AFTER_TTS_SUPPRESS_MS } from "./constants.js";
+import { WebSocketServer } from "ws";
 import {
   VOICE_MAP,
   getBusy,
@@ -20,15 +20,13 @@ import {
   setSuppressVoiceWakeUntilMs,
   speak,
   stopSpeaking,
-} from "./voice.js";
+} from "../compat/voice.js";
 
-// Injected handleInput — set by agent.js after both modules load
 let _handleInput = null;
 export function registerHandleInput(fn) { _handleInput = fn; }
 
 let wss = null;
 
-// ===== Broadcast helpers =====
 export function broadcast(payload) {
   const msg = JSON.stringify(payload);
   wss.clients.forEach((c) => { if (c.readyState === 1) c.send(msg); });
@@ -58,7 +56,6 @@ export function broadcastAssistantStreamDone(id, source = "hud", sender = undefi
   broadcast({ type: "assistant_stream_done", id, source, sender, ts: Date.now() });
 }
 
-// ===== Gateway startup =====
 export function startGateway() {
   try {
     wss = new WebSocketServer({ port: 8765 });
@@ -70,7 +67,6 @@ export function startGateway() {
   }
 
   wss.on("connection", (ws) => {
-    // Push one metrics snapshot to new clients immediately
     void getSystemMetrics()
       .then((metrics) => {
         if (!metrics || ws.readyState !== 1) return;
@@ -122,7 +118,7 @@ export function startGateway() {
             setCurrentVoice(data.ttsVoice);
             console.log("[Voice] Preference updated to:", getCurrentVoice());
           }
-          console.log("[HUD →]", data.content, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
+          console.log("[HUD ->]", data.content, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
           stopSpeaking();
           setBusy(true);
           try {

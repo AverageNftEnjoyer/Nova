@@ -4,6 +4,7 @@
 
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import { exec } from "child_process";
 import {
   DEFAULT_CHAT_MODEL,
@@ -28,7 +29,7 @@ import {
 } from "../constants.js";
 import { sessionRuntime, toolRuntime } from "./config.js";
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "./persona-context.js";
-import { isMemoryUpdateRequest, extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate } from "./memory.js";
+import { isMemoryUpdateRequest, extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate, extractAutoMemoryFacts } from "./memory.js";
 import { buildRuntimeSkillsPrompt } from "./skills.js";
 import { shouldBuildWorkflowFromPrompt, shouldDraftOnlyWorkflow, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "./intent-router.js";
 import { speak, playThinking, stopSpeaking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "./voice.js";
@@ -53,14 +54,51 @@ import {
   toErrorDetails,
   withTimeout,
 } from "./providers.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../runtime/context-prompt.js";
+import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../context-prompt.js";
 import { buildAgentSystemPrompt, PromptMode } from "./system-prompt.js";
 import { buildPersonaPrompt } from "./bootstrap.js";
+
+function applyMemoryFactsToWorkspace(personaWorkspaceDir, facts) {
+  if (!Array.isArray(facts) || facts.length === 0) return 0;
+  const memoryFilePath = path.join(personaWorkspaceDir, "MEMORY.md");
+  const existingContent = fs.existsSync(memoryFilePath)
+    ? fs.readFileSync(memoryFilePath, "utf8")
+    : ensureMemoryTemplate();
+
+  let nextContent = existingContent;
+  let applied = 0;
+  for (const fact of facts) {
+    const memoryFact = String(fact?.fact || "").trim();
+    const memoryKey = String(fact?.key || "").trim();
+    if (!memoryFact) continue;
+    const updated = upsertMemoryFactInMarkdown(nextContent, memoryFact, memoryKey || undefined);
+    if (updated !== nextContent) {
+      nextContent = updated;
+      applied += 1;
+    }
+  }
+
+  if (nextContent !== existingContent) {
+    fs.writeFileSync(memoryFilePath, nextContent, "utf8");
+  }
+  return applied;
+}
+
+function hashShadowPayload(value) {
+  return createHash("sha256").update(String(value || "")).digest("hex").slice(0, 24);
+}
 
 // ===== Memory update sub-handler =====
 async function handleMemoryUpdate(text, ctx) {
   const { source, sender, sessionId, useVoice, ttsVoice, userContextId } = ctx;
   const fact = extractMemoryUpdateFact(text);
+  const assistantStreamId = createAssistantStreamId();
+
+  function sendAssistantReply(reply) {
+    broadcastAssistantStreamStart(assistantStreamId, source);
+    broadcastAssistantStreamDelta(assistantStreamId, reply, source);
+    broadcastAssistantStreamDone(assistantStreamId, source);
+  }
 
   broadcastState("thinking");
   broadcastMessage("user", text, source);
@@ -68,7 +106,7 @@ async function handleMemoryUpdate(text, ctx) {
 
   if (!fact) {
     const reply = "Tell me exactly what to remember after 'update your memory'.";
-    broadcastMessage("assistant", reply, source);
+    sendAssistantReply(reply);
     if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", reply, { source, sender: "nova" });
     if (useVoice) await speak(reply, ttsVoice); else broadcastState("idle");
     return;
@@ -84,12 +122,20 @@ async function handleMemoryUpdate(text, ctx) {
     const confirmation = memoryMeta.hasStructuredField
       ? `Memory updated. I will remember this as current: ${memoryMeta.fact}`
       : `Memory updated. I saved: ${memoryMeta.fact}`;
-    broadcastMessage("assistant", confirmation, source);
+    sendAssistantReply(confirmation);
     if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", confirmation, { source, sender: "nova" });
+    appendRawStream({
+      event: "memory_manual_upsert",
+      source,
+      sessionKey: ctx.sessionKey || "",
+      userContextId: userContextId || undefined,
+      key: memoryMeta.key || null,
+    });
+    console.log(`[Memory] Manual memory update applied for ${userContextId || "anonymous"} key=${memoryMeta.key || "general"}.`);
     if (useVoice) await speak(confirmation, ttsVoice); else broadcastState("idle");
   } catch (err) {
     const failure = `I couldn't update MEMORY.md: ${describeUnknownError(err)}`;
-    broadcastMessage("assistant", failure, source);
+    sendAssistantReply(failure);
     if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", failure, { source, sender: "nova" });
     if (useVoice) await speak(failure, ttsVoice); else broadcastState("idle");
   }
@@ -177,17 +223,26 @@ Output ONLY valid JSON, nothing else.`;
 }
 
 // ===== Workflow builder sub-handler =====
-async function handleWorkflowBuild(text, ctx) {
+async function handleWorkflowBuild(text, ctx, options = {}) {
   const { source, useVoice, ttsVoice } = ctx;
+  const engine = String(options.engine || "src").trim().toLowerCase() || "src";
   stopSpeaking();
   broadcastState("thinking");
   broadcastMessage("user", text, source);
   try {
     const deploy = !shouldDraftOnlyWorkflow(text);
+    appendRawStream({
+      event: "workflow_build_start",
+      source,
+      sessionKey: ctx.sessionKey || "",
+      userContextId: ctx.userContextId || undefined,
+      engine,
+      deploy,
+    });
     const res = await fetch("http://localhost:3000/api/missions/build", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: text, deploy }),
+      body: JSON.stringify({ prompt: text, deploy, engine }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
@@ -203,10 +258,29 @@ async function handleWorkflowBuild(text, ctx) {
       ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}.`
       : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}.`;
 
+    appendRawStream({
+      event: "workflow_build_done",
+      source,
+      sessionKey: ctx.sessionKey || "",
+      userContextId: ctx.userContextId || undefined,
+      engine,
+      deployed: Boolean(data?.deployed),
+      provider,
+      model,
+      stepCount,
+    });
     broadcastMessage("assistant", reply, source);
     if (useVoice) await speak(reply, ttsVoice);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Workflow build failed.";
+    appendRawStream({
+      event: "workflow_build_error",
+      source,
+      sessionKey: ctx.sessionKey || "",
+      userContextId: ctx.userContextId || undefined,
+      engine,
+      message: msg,
+    });
     const reply = `I couldn't build that workflow yet: ${msg}`;
     broadcastMessage("assistant", reply, source);
     if (useVoice) await speak(reply, ttsVoice);
@@ -220,7 +294,30 @@ async function executeChatRequest(text, ctx, llmCtx) {
   const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId,
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions } = ctx;
   const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch } = llmCtx;
-
+  const startedAt = Date.now();
+  const observedToolCalls = [];
+  let usedMemoryRecall = false;
+  let usedWebSearchPreload = false;
+  let preparedPromptHash = "";
+  let emittedAssistantDelta = false;
+  const runSummary = {
+    ok: false,
+    source,
+    sessionKey,
+    userContextId: userContextId || "",
+    provider: activeChatRuntime.provider,
+    model: selectedChatModel,
+    reply: "",
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    latencyMs: 0,
+    toolCalls: [],
+    memoryRecallUsed: false,
+    webSearchPreloadUsed: false,
+    promptHash: "",
+    error: "",
+  };
   broadcastState("thinking");
   broadcastMessage("user", text, source);
   if (useVoice) playThinking();
@@ -283,6 +380,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
       const preloadContent = String(preloadResult?.content || "").trim();
       if (preloadContent && !/^web_search error/i.test(preloadContent)) {
         systemPrompt += `\n\n## Live Web Search Context\nUse these current results when answering:\n${preloadContent.slice(0, 2200)}`;
+        usedWebSearchPreload = true;
       }
     } catch (err) {
       console.warn(`[ToolLoop] web_search preload failed: ${describeUnknownError(err)}`);
@@ -298,6 +396,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
           .map((item, idx) => `[${idx + 1}] ${String(item.source || "unknown")}\n${String(item.content || "").slice(0, 600)}`)
           .join("\n\n");
         systemPrompt += `\n\n## Live Memory Recall\nUse this indexed context when relevant:\n${memoryContext}`;
+        usedMemoryRecall = true;
       }
     } catch (err) {
       console.warn(`[MemoryLoop] Search failed: ${describeUnknownError(err)}`);
@@ -320,6 +419,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
     ...historyMessages,
     { role: "user", content: text },
   ];
+  preparedPromptHash = hashShadowPayload(JSON.stringify(messages));
   const assistantStreamId = createAssistantStreamId();
   broadcastAssistantStreamStart(assistantStreamId, source);
 
@@ -340,7 +440,10 @@ async function executeChatRequest(text, ctx, llmCtx) {
         userText: text,
         maxTokens: CLAUDE_CHAT_MAX_TOKENS,
         timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-        onDelta: (delta) => { broadcastAssistantStreamDelta(assistantStreamId, delta, source); },
+        onDelta: (delta) => {
+          emittedAssistantDelta = true;
+          broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+        },
       });
       reply = claudeCompletion.text;
       promptTokens = claudeCompletion.usage.promptTokens;
@@ -406,6 +509,8 @@ async function executeChatRequest(text, ctx, llmCtx) {
 
         // Bug Fix 2: tool errors are caught, logged, and surfaced instead of swallowed
         for (const toolCall of toolCalls) {
+          const toolName = String(toolCall?.function?.name || toolCall?.id || "").trim();
+          if (toolName) observedToolCalls.push(toolName);
           const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
           let toolResult;
           try {
@@ -415,7 +520,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
             console.error(`[ToolLoop] Tool "${toolCall.function?.name ?? toolCall.id}" failed: ${errMsg}`);
             broadcastAssistantStreamDelta(
               assistantStreamId,
-              `[Tool error: ${toolCall.function?.name ?? "unknown"} — ${errMsg}]`,
+              `[Tool error: ${toolCall.function?.name ?? "unknown"} - ${errMsg}]`,
               source,
             );
             toolResult = { content: `Tool execution failed: ${errMsg}` };
@@ -438,7 +543,11 @@ async function executeChatRequest(text, ctx, llmCtx) {
           model: modelUsed,
           messages,
           timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          onDelta: (delta) => { sawPrimaryDelta = true; broadcastAssistantStreamDelta(assistantStreamId, delta, source); },
+          onDelta: (delta) => {
+            sawPrimaryDelta = true;
+            emittedAssistantDelta = true;
+            broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+          },
         });
       } catch (primaryError) {
         if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) throw primaryError;
@@ -453,7 +562,10 @@ async function executeChatRequest(text, ctx, llmCtx) {
           model: fallbackModel,
           messages,
           timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          onDelta: (delta) => { broadcastAssistantStreamDelta(assistantStreamId, delta, source); },
+          onDelta: (delta) => {
+            emittedAssistantDelta = true;
+            broadcastAssistantStreamDelta(assistantStreamId, delta, source);
+          },
         });
         modelUsed = fallbackModel;
       }
@@ -477,12 +589,17 @@ async function executeChatRequest(text, ctx, llmCtx) {
             ? `I do have live web access in this runtime.\n\n${readable}`
             : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;
           reply = reply ? `${reply}\n\n${correction}` : correction;
+          emittedAssistantDelta = true;
           broadcastAssistantStreamDelta(assistantStreamId, correction, source);
+          observedToolCalls.push("web_search");
         }
       } catch (err) {
         console.warn(`[ToolLoop] refusal recovery search failed: ${describeUnknownError(err)}`);
       }
-    } else if (canRunToolLoop && reply && !useVoice) {
+    }
+
+    if (reply && !emittedAssistantDelta) {
+      emittedAssistantDelta = true;
       broadcastAssistantStreamDelta(assistantStreamId, reply, source);
     }
 
@@ -498,6 +615,37 @@ async function executeChatRequest(text, ctx, llmCtx) {
     sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, promptTokens, completionTokens, totalTokens });
     sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens });
 
+    try {
+      const autoFacts = extractAutoMemoryFacts(text);
+      const autoCaptured = applyMemoryFactsToWorkspace(personaWorkspaceDir, autoFacts);
+      if (autoCaptured > 0) {
+        appendRawStream({
+          event: "memory_auto_upsert",
+          source,
+          sessionKey,
+          userContextId: userContextId || undefined,
+          captured: autoCaptured,
+        });
+        console.log(
+          `[Memory] Auto-upserted ${autoCaptured} fact(s) for ${userContextId || "anonymous"} in MEMORY.md.`,
+        );
+      }
+    } catch (memoryErr) {
+      console.warn(`[Memory] Auto-upsert failed: ${describeUnknownError(memoryErr)}`);
+    }
+
+    runSummary.ok = true;
+    runSummary.provider = activeChatRuntime.provider;
+    runSummary.model = modelForUsage;
+    runSummary.reply = reply;
+    runSummary.promptTokens = promptTokens;
+    runSummary.completionTokens = completionTokens;
+    runSummary.totalTokens = totalTokens;
+    runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
+    runSummary.memoryRecallUsed = usedMemoryRecall;
+    runSummary.webSearchPreloadUsed = usedWebSearchPreload;
+    runSummary.promptHash = preparedPromptHash;
+
     if (useVoice) await speak(reply, ttsVoice);
   } catch (err) {
     const details = toErrorDetails(err);
@@ -509,10 +657,18 @@ async function executeChatRequest(text, ctx, llmCtx) {
       `Model request failed${details.status ? ` (${details.status})` : ""}${details.code ? ` [${details.code}]` : ""}: ${msg}`,
       source,
     );
+    runSummary.error = msg;
+    runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
+    runSummary.memoryRecallUsed = usedMemoryRecall;
+    runSummary.webSearchPreloadUsed = usedWebSearchPreload;
+    runSummary.promptHash = preparedPromptHash;
   } finally {
+    runSummary.latencyMs = Date.now() - startedAt;
     broadcastAssistantStreamDone(assistantStreamId, source);
     broadcastState("idle");
   }
+
+  return runSummary;
 }
 
 // ===== Main dispatcher =====
@@ -568,7 +724,7 @@ export async function handleInput(text, opts = {}) {
       : activeChatRuntime.provider === "gemini" ? DEFAULT_GEMINI_MODEL
       : DEFAULT_CHAT_MODEL);
 
-  const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded();
+  const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
   const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
   const canRunToolLoop = TOOL_LOOP_ENABLED && availableTools.length > 0 && typeof runtimeTools?.executeToolUse === "function";
   const canRunWebSearch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_search");
@@ -589,7 +745,7 @@ export async function handleInput(text, opts = {}) {
   }
 
   if (shouldBuildWorkflowFromPrompt(text)) {
-    await handleWorkflowBuild(text, ctx);
+    await handleWorkflowBuild(text, ctx, { engine: "src" });
     return;
   }
 

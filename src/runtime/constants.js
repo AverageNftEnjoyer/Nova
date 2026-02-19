@@ -6,9 +6,9 @@ const __dirname = path.dirname(__filename);
 
 // ===== Base Paths =====
 export const ROOT_DIR = __dirname;
-export const ROOT_WORKSPACE_DIR = path.join(__dirname, "..");
-export const INTEGRATIONS_CONFIG_PATH = path.join(__dirname, "..", "hud", "data", "integrations-config.json");
-export const ENCRYPTION_KEY_PATH = path.join(__dirname, "..", "hud", "data", ".nova_encryption_key");
+export const ROOT_WORKSPACE_DIR = path.join(__dirname, "..", "..");
+export const INTEGRATIONS_CONFIG_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", "integrations-config.json");
+export const ENCRYPTION_KEY_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", ".nova_encryption_key");
 
 // ===== API Base URLs =====
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -48,12 +48,12 @@ export const TOOL_EXEC_APPROVAL_MODE = ["ask", "auto", "off"].includes(
 export const TOOL_WEB_SEARCH_PROVIDER = "brave";
 
 // ===== Memory Paths =====
-export const MEMORY_DB_PATH = path.join(__dirname, "..", ".agent", "memory.db");
-export const MEMORY_SOURCE_DIR = path.join(__dirname, "..", "memory");
+export const MEMORY_DB_PATH = path.join(ROOT_WORKSPACE_DIR, ".agent", "memory.db");
+export const MEMORY_SOURCE_DIR = path.join(ROOT_WORKSPACE_DIR, "memory");
 
 // ===== Session Config =====
-export const SESSION_STORE_PATH = path.join(__dirname, "..", ".agent", "sessions.json");
-export const SESSION_TRANSCRIPT_DIR = path.join(__dirname, "..", ".agent", "transcripts");
+export const SESSION_STORE_PATH = path.join(ROOT_WORKSPACE_DIR, ".agent", "sessions.json");
+export const SESSION_TRANSCRIPT_DIR = path.join(ROOT_WORKSPACE_DIR, ".agent", "transcripts");
 export const SESSION_MAX_TURNS = Number.parseInt(process.env.NOVA_SESSION_MAX_TURNS || "20", 10);
 export const SESSION_IDLE_MINUTES = Number.parseInt(process.env.NOVA_SESSION_IDLE_MINUTES || "120", 10);
 export const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "main").trim() || "main";
@@ -87,7 +87,7 @@ export const RAW_STREAM_ENABLED =
 export const RAW_STREAM_PATH = String(
   process.env.OPENCLAW_RAW_STREAM_PATH ||
     process.env.NOVA_RAW_STREAM_PATH ||
-    path.join(__dirname, "..", "agent", "raw-stream.jsonl")
+    path.join(ROOT_WORKSPACE_DIR, ".agent", "raw-stream.jsonl")
 ).trim();
 
 // ===== Provider Fallback =====
@@ -95,7 +95,15 @@ export const ENABLE_PROVIDER_FALLBACK =
   String(process.env.NOVA_ALLOW_PROVIDER_FALLBACK || "").trim() === "1";
 
 // ===== Token Limits =====
-export const MAX_PROMPT_TOKENS = 600;
+const DEFAULT_MAX_PROMPT_TOKENS = 6000;
+const parsedMaxPromptTokens = Number.parseInt(
+  process.env.NOVA_MAX_PROMPT_TOKENS || String(DEFAULT_MAX_PROMPT_TOKENS),
+  10,
+);
+export const MAX_PROMPT_TOKENS =
+  Number.isFinite(parsedMaxPromptTokens) && parsedMaxPromptTokens > 0
+    ? parsedMaxPromptTokens
+    : DEFAULT_MAX_PROMPT_TOKENS;
 
 // ===== Model Pricing (USD per 1M tokens) =====
 export const OPENAI_MODEL_PRICING_USD_PER_1M = {
@@ -121,8 +129,8 @@ export const CLAUDE_MODEL_PRICING_USD_PER_1M = {
 };
 
 // ===== Asset Paths =====
-export const MPV_PATH = path.join(__dirname, "mpv", "mpv.exe");
-export const THINK_SOUND_PATH = path.join(__dirname, "thinking.mp3");
+export const MPV_PATH = path.join(ROOT_WORKSPACE_DIR, "src", "runtime", "assets", "mpv", "mpv.exe");
+export const THINK_SOUND_PATH = path.join(ROOT_WORKSPACE_DIR, "src", "runtime", "assets", "thinking.mp3");
 
 // ===== Command Acknowledgments =====
 export const COMMAND_ACKS = [
@@ -221,5 +229,4 @@ export const UPGRADE_MODULE_INDEX = [
   "src/skills/snapshot.ts",
   "src/config/index.ts",
   "src/config/types.ts",
-  "src/index.ts",
 ];

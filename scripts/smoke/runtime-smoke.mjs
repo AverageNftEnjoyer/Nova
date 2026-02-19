@@ -12,10 +12,11 @@ import {
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
   withTimeout,
-} from "../../agent/modules/providers.js";
-import { createSessionRuntime } from "../../agent/runtime/session.js";
-import { createToolRuntime } from "../../agent/runtime/tools-runtime.js";
-import { createWakeWordRuntime } from "../../agent/runtime/voice.js";
+} from "../../src/providers/runtime-compat.js";
+import { extractAutoMemoryFacts } from "../../src/memory/runtime-compat.js";
+import { createSessionRuntime } from "../../src/session/runtime-compat.js";
+import { createToolRuntime } from "../../src/tools/runtime-compat.js";
+import { createWakeWordRuntime } from "../../src/runtime/wake-runtime-compat.js";
 
 const results = [];
 const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();
@@ -249,6 +250,17 @@ async function runOpenAiCompatibleCheck(name, runtime, configuredProviderLabel) 
 await runOpenAiCompatibleCheck("Grok", loaded.grok, "GROK");
 await runOpenAiCompatibleCheck("Gemini", loaded.gemini, "GEMINI");
 
+await run("Auto memory extraction captures stable user facts", async () => {
+  const nameFacts = extractAutoMemoryFacts("Call me Jack");
+  assert.ok(nameFacts.some((f) => f.key === "preferred-name"));
+
+  const timezoneFacts = extractAutoMemoryFacts("My timezone is America/New_York");
+  assert.ok(timezoneFacts.some((f) => f.key === "timezone"));
+
+  const questionFacts = extractAutoMemoryFacts("What is my timezone?");
+  assert.equal(questionFacts.length, 0);
+});
+
 await run("Session/account isolation keeps per-key transcripts separated", async () => {
   const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-session-smoke-"));
   const runtime = createSessionRuntime({
@@ -274,9 +286,41 @@ await run("Session/account isolation keeps per-key transcripts separated", async
   assert.notEqual(a.sessionKey, b.sessionKey);
   assert.notEqual(a.sessionEntry.sessionId, b.sessionEntry.sessionId);
   assert.equal(runtime.resolveUserContextId({ source: "hud", sender: "hud-user:user-a" }), "user-a");
+  const aSessionStorePath = path.join(tmpRoot, "user-context", "user-a", "sessions.json");
+  const bSessionStorePath = path.join(tmpRoot, "user-context", "user-b", "sessions.json");
+  const legacySessionStorePath = path.join(tmpRoot, "sessions.json");
+  const aStore = JSON.parse(await fsp.readFile(aSessionStorePath, "utf8"));
+  const bStore = JSON.parse(await fsp.readFile(bSessionStorePath, "utf8"));
+  const legacyStore = JSON.parse(await fsp.readFile(legacySessionStorePath, "utf8"));
+
+  assert.ok(aStore[a.sessionKey], "user-a key should be in user-a scoped session store");
+  assert.ok(bStore[b.sessionKey], "user-b key should be in user-b scoped session store");
+  assert.equal(Boolean(legacyStore[a.sessionKey]), false, "user-a key should not remain in legacy session store");
+  assert.equal(Boolean(legacyStore[b.sessionKey]), false, "user-b key should not remain in legacy session store");
 
   runtime.appendTranscriptTurn(a.sessionEntry.sessionId, "user", "hello-a");
   runtime.appendTranscriptTurn(b.sessionEntry.sessionId, "user", "hello-b");
+  const aScopedPath = path.join(
+    tmpRoot,
+    "user-context",
+    "user-a",
+    "transcripts",
+    `${a.sessionEntry.sessionId}.jsonl`,
+  );
+  const bScopedPath = path.join(
+    tmpRoot,
+    "user-context",
+    "user-b",
+    "transcripts",
+    `${b.sessionEntry.sessionId}.jsonl`,
+  );
+  const aLegacyPath = path.join(tmpRoot, "transcripts", `${a.sessionEntry.sessionId}.jsonl`);
+  const bLegacyPath = path.join(tmpRoot, "transcripts", `${b.sessionEntry.sessionId}.jsonl`);
+
+  assert.equal(fs.existsSync(aScopedPath), true, "user-a transcript should be user-scoped");
+  assert.equal(fs.existsSync(bScopedPath), true, "user-b transcript should be user-scoped");
+  assert.equal(fs.existsSync(aLegacyPath), false, "user-a transcript should not be written to legacy global path");
+  assert.equal(fs.existsSync(bLegacyPath), false, "user-b transcript should not be written to legacy global path");
 
   const a2 = runtime.resolveSessionContext({ sessionKeyHint: "agent:nova:hud:user:user-a:dm:conv-1" });
   const b2 = runtime.resolveSessionContext({ sessionKeyHint: "agent:nova:hud:user:user-b:dm:conv-9" });
@@ -339,6 +383,48 @@ await run("Tool runtime initializes and executes file tool", async () => {
   assert.ok(hits.length > 0);
 });
 
+await run("Tool runtime scopes memory.db per user context", async () => {
+  const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-tools-scope-smoke-"));
+  const globalMemoryDir = path.join(tmpRoot, "memory-src");
+  await fsp.mkdir(globalMemoryDir, { recursive: true });
+  await fsp.writeFile(path.join(globalMemoryDir, "shared.md"), "# Shared\n\nglobal reference", "utf8");
+
+  const runtime = createToolRuntime({
+    enabled: true,
+    memoryEnabled: true,
+    rootDir: process.cwd(),
+    memoryDbPath: path.join(tmpRoot, "memory.db"),
+    memorySourceDir: globalMemoryDir,
+    enabledTools: ["memory_search", "memory_get"],
+    execApprovalMode: "ask",
+    safeBinaries: ["ls", "cat", "grep"],
+    webSearchProvider: "brave",
+    webSearchApiKey: String(process.env.BRAVE_API_KEY || "").trim(),
+    memoryConfig: {
+      embeddingProvider: "local",
+      embeddingModel: "text-embedding-3-small",
+      embeddingApiKey: "",
+      chunkSize: 400,
+      chunkOverlap: 80,
+      hybridVectorWeight: 0.7,
+      hybridBm25Weight: 0.3,
+      topK: 5,
+    },
+    describeUnknownError,
+  });
+
+  const a = await runtime.initToolRuntimeIfNeeded({ userContextId: "user-a" });
+  const b = await runtime.initToolRuntimeIfNeeded({ userContextId: "user-b" });
+
+  assert.notEqual(a, b);
+  assert.equal(String(a.scopeId), "user-a");
+  assert.equal(String(b.scopeId), "user-b");
+  assert.ok(String(a.memoryDbPath).toLowerCase().includes(path.join("user-context", "user-a", "memory.db")));
+  assert.ok(String(b.memoryDbPath).toLowerCase().includes(path.join("user-context", "user-b", "memory.db")));
+  assert.equal(fs.existsSync(String(a.memoryDbPath)), true);
+  assert.equal(fs.existsSync(String(b.memoryDbPath)), true);
+});
+
 await run("Voice wake logic gates/strips correctly", async () => {
   const wake = createWakeWordRuntime({ wakeWord: "nova", wakeWordVariants: ["nova", "nava"] });
   assert.equal(wake.containsWakeWord("hey nova what time is it"), true);
@@ -347,7 +433,7 @@ await run("Voice wake logic gates/strips correctly", async () => {
 });
 
 await run("Brave-only web search remains enforced (no Tavily/Serper refs)", async () => {
-  const constantsSource = await fsp.readFile(path.join(process.cwd(), "agent", "constants.js"), "utf8");
+  const constantsSource = await fsp.readFile(path.join(process.cwd(), "src", "runtime", "constants.js"), "utf8");
   const missionSearchSource = await fsp.readFile(path.join(process.cwd(), "hud", "lib", "missions", "web", "search.ts"), "utf8");
   const missionFetchSource = await fsp.readFile(path.join(process.cwd(), "hud", "lib", "missions", "web", "fetch.ts"), "utf8");
   const combined = `${constantsSource}\n${missionSearchSource}\n${missionFetchSource}`.toLowerCase();

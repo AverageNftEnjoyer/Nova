@@ -1,14 +1,14 @@
 // ===== Runtime Singletons =====
 // Creates and exports the three long-lived runtime instances.
-// All static constants are in ../constants.js — import from there directly.
+// Runtime constants are owned by src/runtime/constants.js.
 
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createSessionRuntime } from "../runtime/session.js";
-import { createToolRuntime } from "../runtime/tools-runtime.js";
-import { createWakeWordRuntime } from "../runtime/voice.js";
-import { describeUnknownError } from "./providers.js";
+import { createSessionRuntime } from "../session/runtime-compat.js";
+import { createToolRuntime } from "../tools/runtime-compat.js";
+import { createWakeWordRuntime } from "./wake-runtime-compat.js";
+import { describeUnknownError } from "../providers/runtime-compat.js";
 import {
   SESSION_STORE_PATH,
   SESSION_TRANSCRIPT_DIR,
@@ -28,7 +28,7 @@ import {
   TOOL_WEB_SEARCH_PROVIDER,
   WAKE_WORD,
   WAKE_WORD_VARIANTS,
-} from "../constants.js";
+} from "./constants.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

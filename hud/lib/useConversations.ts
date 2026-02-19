@@ -19,6 +19,8 @@ function parseIsoTimestamp(value: string | undefined): number {
   return Number.isFinite(ts) ? ts : 0
 }
 
+const USER_ECHO_DEDUP_MS = 15_000
+
 function mergeConversationsPreferLocal(
   local: Conversation[],
   remote: Conversation[],
@@ -432,6 +434,18 @@ export function useConversations({
 
         mergedMessages.push(incoming)
         continue
+      }
+
+      const incomingTrimmed = incoming.content.trim()
+      if (incomingTrimmed && incoming.source === "hud") {
+        const lastUser = [...mergedMessages].reverse().find((m) => m.role === "user")
+        if (lastUser && lastUser.content.trim() === incomingTrimmed) {
+          const incomingTs = parseIsoTimestamp(incoming.createdAt)
+          const lastUserTs = parseIsoTimestamp(lastUser.createdAt)
+          if (Math.abs(incomingTs - lastUserTs) <= USER_ECHO_DEDUP_MS) {
+            continue
+          }
+        }
       }
 
       mergedMessages.push(incoming)

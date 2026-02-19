@@ -32,11 +32,12 @@ export function resolveModelPricing(model: string): ModelPricing | null {
   if (normalized.includes("grok-3")) return { input: 3.0, output: 15.0 }
 
   // Gemini fallbacks
+  if (normalized.includes("gemini-3-pro")) return { input: 2.0, output: 12.0 }
+  if (normalized.includes("gemini-3-flash-lite")) return { input: 0.2, output: 1.5 }
+  if (normalized.includes("gemini-3-flash")) return { input: 0.35, output: 2.8 }
   if (normalized.includes("gemini-2.5-pro")) return { input: 1.25, output: 10.0 }
   if (normalized.includes("gemini-2.5-flash")) return { input: 0.3, output: 2.5 }
   if (normalized.includes("gemini-2.5-flash-lite")) return { input: 0.2, output: 1.6 }
-  if (normalized.includes("gemini-2.0-flash")) return { input: 0.15, output: 1.2 }
-  if (normalized.includes("gemini-2.0-flash-lite")) return { input: 0.1, output: 0.9 }
 
   return null
 }

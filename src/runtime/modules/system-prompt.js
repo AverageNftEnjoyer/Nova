@@ -134,6 +134,7 @@ export function buildAgentSystemPrompt(params) {
     "## Safety",
     "Prioritize user intent and safe operation. Ask when instructions are unclear or risky.",
     "Do not invent tool capabilities that are not present.",
+    "Reply in English by default unless the user explicitly asks for another language.",
     "If web_search/web_fetch tools are available, use them for current events, scores, recaps, prices, and rapidly changing facts; do not claim internet is unavailable.",
     "",
     ...buildSkillsSection({

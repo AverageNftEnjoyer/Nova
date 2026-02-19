@@ -1,15 +1,13 @@
 import crypto from "node:crypto";
 import type { SessionConfig } from "../config/types.js";
-import { buildSessionKey } from "./key.js";
+import {
+  buildSessionKey,
+  normalizeUserContextId,
+  parseSessionKeyUserContext,
+  resolveUserContextId,
+} from "./key.js";
 import { SessionStore } from "./store.js";
 import type { InboundMessage, ResolveSessionResult, SessionEntry } from "./types.js";
-
-function shouldResetByDailyBoundary(now: number, updatedAt: number, resetAtHour: number): boolean {
-  const hourOffsetMs = Math.max(0, Math.min(23, Math.trunc(resetAtHour))) * 60 * 60 * 1000;
-  const nowBucket = new Date(now - hourOffsetMs).toISOString().slice(0, 10);
-  const prevBucket = new Date(updatedAt - hourOffsetMs).toISOString().slice(0, 10);
-  return nowBucket !== prevBucket;
-}
 
 function shouldResetByIdle(now: number, updatedAt: number, idleMinutes: number): boolean {
   const idleMs = Math.max(1, idleMinutes) * 60 * 1000;
@@ -20,6 +18,7 @@ function createSessionEntry(params: {
   sessionKey: string;
   model: string;
   now: number;
+  userContextId?: string;
   origin?: SessionEntry["origin"];
 }): SessionEntry {
   return {
@@ -32,6 +31,7 @@ function createSessionEntry(params: {
     totalTokens: 0,
     contextTokens: 0,
     model: params.model,
+    ...(params.userContextId ? { userContextId: params.userContextId } : {}),
     ...(params.origin ? { origin: params.origin } : {}),
   };
 }
@@ -45,39 +45,48 @@ export function resolveSession(params: {
   now?: number;
 }): ResolveSessionResult {
   const now = params.now ?? Date.now();
-  const sessionKey = buildSessionKey(params.config, params.agentName, params.inboundMessage);
+  params.store.pruneOldTranscriptsIfNeeded();
+  params.store.migrateLegacySessionStoreIfNeeded();
 
-  const existing = params.store.getEntry(sessionKey);
+  const sessionKey = buildSessionKey(params.config, params.agentName, params.inboundMessage);
+  const resolvedUserContextId =
+    resolveUserContextId(params.inboundMessage) || parseSessionKeyUserContext(sessionKey);
+
+  const existing = params.store.getEntry(sessionKey, resolvedUserContextId);
   const origin = {
-    label: params.inboundMessage.channel,
-    provider: params.inboundMessage.channel,
-    from: params.inboundMessage.senderId,
-    to: params.inboundMessage.chatId ?? params.inboundMessage.senderId,
+    label: params.inboundMessage.source || params.inboundMessage.channel,
+    provider: params.inboundMessage.source || params.inboundMessage.channel,
+    from: params.inboundMessage.sender || params.inboundMessage.senderId,
+    to:
+      params.inboundMessage.chatId ??
+      params.inboundMessage.sender ??
+      params.inboundMessage.senderId,
   };
 
   let isNewSession = false;
   let entry: SessionEntry;
+  const effectiveUserContextId =
+    normalizeUserContextId(resolvedUserContextId) ||
+    normalizeUserContextId(existing?.userContextId || "");
 
   if (!existing) {
     entry = createSessionEntry({
       sessionKey,
       model: params.model,
       now,
+      userContextId: effectiveUserContextId || undefined,
       origin,
     });
     isNewSession = true;
   } else {
-    const resetMode = params.config.resetMode;
-    const shouldReset =
-      (resetMode === "daily" &&
-        shouldResetByDailyBoundary(now, existing.updatedAt, params.config.resetAtHour)) ||
-      (resetMode === "idle" && shouldResetByIdle(now, existing.updatedAt, params.config.idleMinutes));
+    const shouldReset = shouldResetByIdle(now, existing.updatedAt, params.config.idleMinutes);
 
     if (shouldReset) {
       entry = createSessionEntry({
         sessionKey,
         model: params.model,
         now,
+        userContextId: effectiveUserContextId || undefined,
         origin,
       });
       isNewSession = true;
@@ -86,10 +95,11 @@ export function resolveSession(params: {
         ...existing,
         updatedAt: now,
         model: params.model,
+        ...(effectiveUserContextId ? { userContextId: effectiveUserContextId } : {}),
       };
     }
   }
 
-  params.store.setEntry(sessionKey, entry);
+  params.store.setEntry(sessionKey, entry, effectiveUserContextId);
   return { sessionEntry: entry, isNewSession, sessionKey };
 }

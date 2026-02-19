@@ -21,7 +21,7 @@ import {
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
 } from "./providers.js";
-import { countApproxTokens } from "../runtime/context-prompt.js";
+import { countApproxTokens } from "../context-prompt.js";
 
 // ===== Persona workspace =====
 export function resolvePersonaWorkspaceDir(userContextId) {

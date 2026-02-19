@@ -1,6 +1,6 @@
 import "server-only"
 
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 export interface NotificationSchedule {
@@ -44,15 +44,40 @@ function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule
   return "telegram"
 }
 
-const DATA_DIR = path.join(process.cwd(), "data")
-const DATA_FILE = path.join(DATA_DIR, "notification-schedules.json")
+const DATA_FILE_NAME = "notification-schedules.json"
+const LEGACY_DATA_DIR = path.join(process.cwd(), "data")
+const LEGACY_DATA_FILE = path.join(LEGACY_DATA_DIR, DATA_FILE_NAME)
 
-async function ensureDataFile() {
-  await mkdir(DATA_DIR, { recursive: true })
+function resolveWorkspaceRoot(): string {
+  const cwd = process.cwd()
+  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd
+}
+
+function resolveUserContextRoot(): string {
+  return path.join(resolveWorkspaceRoot(), ".agent", "user-context")
+}
+
+function sanitizeUserContextId(value: unknown): string {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+  return normalized.slice(0, 96)
+}
+
+function resolveScopedDataFile(userId: string): string {
+  return path.join(resolveUserContextRoot(), userId, DATA_FILE_NAME)
+}
+
+async function ensureScopedDataFile(userId: string) {
+  const dataFile = resolveScopedDataFile(userId)
+  await mkdir(path.dirname(dataFile), { recursive: true })
   try {
-    await readFile(DATA_FILE, "utf8")
+    await readFile(dataFile, "utf8")
   } catch {
-    await writeFile(DATA_FILE, "[]", "utf8")
+    await writeFile(dataFile, "[]", "utf8")
   }
 }
 
@@ -85,67 +110,165 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
   }
 }
 
-export async function loadSchedules(options?: { userId?: string | null; allUsers?: boolean }): Promise<NotificationSchedule[]> {
-  await ensureDataFile()
-
+async function listScopedUserIdsWithDataFile(): Promise<string[]> {
+  const userContextRoot = resolveUserContextRoot()
   try {
-    const raw = await readFile(DATA_FILE, "utf8")
+    const entries = await readdir(userContextRoot, { withFileTypes: true })
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((name) => /^[a-z0-9_-]+$/.test(name))
+  } catch {
+    return []
+  }
+}
+
+async function loadScopedUserSchedules(userId: string): Promise<NotificationSchedule[]> {
+  const scopedUserId = sanitizeUserContextId(userId)
+  if (!scopedUserId) return []
+  await ensureScopedDataFile(scopedUserId)
+  const dataFile = resolveScopedDataFile(scopedUserId)
+  try {
+    const raw = await readFile(dataFile, "utf8")
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+    if (!Array.isArray(parsed)) {
+      await writeFile(dataFile, "[]", "utf8")
+      return []
+    }
+    const normalized = parsed
+      .map((row) => normalizeRecord(row as Partial<NotificationSchedule>))
+      .filter((row): row is NotificationSchedule => row !== null)
+      .map((row) => ({ ...row, userId: scopedUserId }))
+    const shouldRewrite =
+      normalized.length !== parsed.length ||
+      parsed.some((row) => {
+        if (!row || typeof row !== "object") return true
+        const maybe = row as { integration?: unknown; userId?: unknown }
+        return typeof maybe.integration !== "string" || String(maybe.userId || "").trim() !== scopedUserId
+      })
+    if (shouldRewrite) {
+      await writeFile(dataFile, JSON.stringify(normalized, null, 2), "utf8")
+    }
+    return normalized
+  } catch {
+    return []
+  }
+}
+
+async function saveScopedUserSchedules(userId: string, schedules: NotificationSchedule[]): Promise<void> {
+  const scopedUserId = sanitizeUserContextId(userId)
+  if (!scopedUserId) return
+  await ensureScopedDataFile(scopedUserId)
+  const dataFile = resolveScopedDataFile(scopedUserId)
+  const normalized = schedules
+    .map((row) => normalizeRecord(row))
+    .filter((row): row is NotificationSchedule => row !== null)
+    .map((row) => ({ ...row, userId: scopedUserId }))
+  await writeFile(dataFile, JSON.stringify(normalized, null, 2), "utf8")
+}
+
+let legacyMigrationPromise: Promise<void> | null = null
+async function migrateLegacySchedulesIfNeeded(): Promise<void> {
+  if (legacyMigrationPromise) {
+    await legacyMigrationPromise
+    return
+  }
+
+  legacyMigrationPromise = (async () => {
+    let parsed: unknown
+    try {
+      const raw = await readFile(LEGACY_DATA_FILE, "utf8")
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = []
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) return
 
     const normalized = parsed
       .map((row) => normalizeRecord(row as Partial<NotificationSchedule>))
       .filter((row): row is NotificationSchedule => row !== null)
 
-    const shouldRewrite =
-      normalized.length !== parsed.length ||
-      parsed.some((row) => {
-        if (!row || typeof row !== "object") return true
-        const maybe = row as { integration?: unknown }
-        return typeof maybe.integration !== "string"
-      })
-
-    if (shouldRewrite) {
-      await saveSchedules(normalized, { allUsers: true })
+    const byUser = new Map<string, NotificationSchedule[]>()
+    for (const row of normalized) {
+      const scopedUserId = sanitizeUserContextId(row.userId || "")
+      if (!scopedUserId) continue
+      if (!byUser.has(scopedUserId)) byUser.set(scopedUserId, [])
+      byUser.get(scopedUserId)!.push({ ...row, userId: scopedUserId })
     }
-    if (options?.allUsers) return normalized
-    const userId = String(options?.userId || "").trim()
-    if (!userId) return []
-    const scoped = normalized.filter((row) => String(row.userId || "").trim() === userId)
-    if (scoped.length > 0) return scoped
 
-    // One-time legacy migration: adopt previously unscoped rows for first authenticated owner.
-    const legacyUnscoped = normalized.filter((row) => !String(row.userId || "").trim())
-    if (legacyUnscoped.length === 0) return scoped
-    const migrated = normalized.map((row) => (String(row.userId || "").trim() ? row : { ...row, userId }))
-    await writeFile(DATA_FILE, JSON.stringify(migrated, null, 2), "utf8")
-    return migrated.filter((row) => String(row.userId || "").trim() === userId)
-  } catch {
-    return []
+    for (const [userId, incoming] of byUser.entries()) {
+      const existing = await loadScopedUserSchedules(userId)
+      const merged = [...existing]
+      const seen = new Set(existing.map((row) => row.id))
+      for (const row of incoming) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        merged.push(row)
+      }
+      await saveScopedUserSchedules(userId, merged)
+    }
+
+    await mkdir(LEGACY_DATA_DIR, { recursive: true })
+    await writeFile(LEGACY_DATA_FILE, "[]", "utf8")
+  })()
+
+  try {
+    await legacyMigrationPromise
+  } finally {
+    legacyMigrationPromise = null
   }
+}
+
+export async function loadSchedules(options?: { userId?: string | null; allUsers?: boolean }): Promise<NotificationSchedule[]> {
+  await migrateLegacySchedulesIfNeeded()
+
+  if (options?.allUsers) {
+    const userIds = await listScopedUserIdsWithDataFile()
+    const all: NotificationSchedule[] = []
+    for (const userId of userIds) {
+      const scoped = await loadScopedUserSchedules(userId)
+      all.push(...scoped)
+    }
+    return all
+  }
+
+  const userId = sanitizeUserContextId(options?.userId || "")
+  if (!userId) return []
+  return loadScopedUserSchedules(userId)
 }
 
 export async function saveSchedules(
   schedules: NotificationSchedule[],
   options?: { userId?: string | null; allUsers?: boolean },
 ): Promise<void> {
-  await ensureDataFile()
+  await migrateLegacySchedulesIfNeeded()
   const normalized = schedules
     .map((row) => normalizeRecord(row))
     .filter((row): row is NotificationSchedule => row !== null)
   if (!options || options.allUsers) {
-    await writeFile(DATA_FILE, JSON.stringify(normalized, null, 2), "utf8")
+    const byUser = new Map<string, NotificationSchedule[]>()
+    for (const row of normalized) {
+      const userId = sanitizeUserContextId(row.userId || "")
+      if (!userId) continue
+      if (!byUser.has(userId)) byUser.set(userId, [])
+      byUser.get(userId)!.push({ ...row, userId })
+    }
+
+    const existingUserIds = await listScopedUserIdsWithDataFile()
+    const touched = new Set<string>(existingUserIds)
+    for (const userId of byUser.keys()) touched.add(userId)
+
+    for (const userId of touched) {
+      const next = byUser.get(userId) || []
+      await saveScopedUserSchedules(userId, next)
+    }
     return
   }
-  const userId = String(options?.userId || "").trim()
+  const userId = sanitizeUserContextId(options?.userId || "")
   if (!userId) {
-    await writeFile(DATA_FILE, JSON.stringify([], null, 2), "utf8")
     return
   }
-  const existingAll = await loadSchedules({ allUsers: true })
-  const others = existingAll.filter((row) => String(row.userId || "").trim() !== userId)
-  const scoped = normalized.map((row) => ({ ...row, userId }))
-  await writeFile(DATA_FILE, JSON.stringify([...others, ...scoped], null, 2), "utf8")
+  await saveScopedUserSchedules(userId, normalized.map((row) => ({ ...row, userId })))
 }
 
 export function parseDailyTime(value: string): { hour: number; minute: number } | null {

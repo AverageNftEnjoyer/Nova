@@ -69,7 +69,6 @@ export function ChatShellController() {
     conversations,
     activeConvo,
     isLoaded,
-    mergedCountRef,
     handleNewChat,
     handleSelectConvo,
     handleDeleteConvo,
@@ -89,13 +88,13 @@ export function ChatShellController() {
     telegramConnected,
     discordConnected,
     braveConnected,
+    braveConfigured,
     openaiConnected,
     claudeConnected,
     grokConnected,
     geminiConnected,
     gmailConnected,
     integrationGuardNotice,
-    braveConfigured,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
@@ -200,11 +199,23 @@ export function ChatShellController() {
         messageId?: string
         messageCreatedAt?: string
       }
+      const pendingConvoId = typeof parsed.convoId === "string" ? parsed.convoId.trim() : ""
+      if (pendingConvoId && pendingConvoId !== activeConvo.id) {
+        void handleSelectConvo(pendingConvoId)
+        return
+      }
+
       const pendingContent = typeof parsed.content === "string" ? parsed.content.trim() : ""
       if (!pendingContent) return
 
+      const pendingMessageId = typeof parsed.messageId === "string" ? parsed.messageId.trim() : ""
       const userAlreadyPresent = activeConvo.messages.some(
-        (m) => m.role === "user" && m.content.trim() === pendingContent
+        (m) =>
+          m.role === "user" &&
+          (
+            (pendingMessageId.length > 0 && m.id === pendingMessageId) ||
+            m.content.trim() === pendingContent
+          )
       )
       if (!userAlreadyPresent) {
         addUserMessage(pendingContent)
@@ -213,7 +224,6 @@ export function ChatShellController() {
       pendingBootSendHandledRef.current = true
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
 
-      mergedCountRef.current += 1
       setLocalThinking(true)
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
@@ -233,7 +243,7 @@ export function ChatShellController() {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
       pendingBootSendHandledRef.current = true
     }
-  }, [activeConvo, agentConnected, sendToAgent, addUserMessage, mergedCountRef])
+  }, [activeConvo, agentConnected, sendToAgent, addUserMessage, handleSelectConvo])
 
   // Spotlight effect
   useEffect(() => {
@@ -294,7 +304,6 @@ export function ChatShellController() {
       if (!content.trim() || !agentConnected || !activeConvo) return
 
       addUserMessage(content)
-      mergedCountRef.current += 1
       setLocalThinking(true)
       setThinkingStalled(false)
 
@@ -313,7 +322,7 @@ export function ChatShellController() {
         tone: settings.personalization.tone,
       })
     },
-    [activeConvo, agentConnected, sendToAgent, addUserMessage, mergedCountRef],
+    [activeConvo, agentConnected, sendToAgent, addUserMessage],
   )
 
   // Convert ChatMessage[] to Message[] for MessageList
@@ -410,7 +419,7 @@ export function ChatShellController() {
                   </div>
                   <button
                     onClick={() => router.push("/missions")}
-                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/mission-gear`, subPanelClass)}
+                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/mission-gear`, subPanelClass)}
                     aria-label="Open mission settings"
                   >
                     <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/mission-gear:text-accent group-hover/mission-gear:rotate-90 transition-transform duration-200" />
@@ -439,16 +448,6 @@ export function ChatShellController() {
                           >
                             {mission.enabledCount > 0 ? "Active" : "Paused"}
                           </span>
-                          <span
-                            title={`Priority: ${mission.priority}`}
-                            className={cn(
-                              "h-2.5 w-2.5 rounded-full shrink-0",
-                              mission.priority === "low" && "bg-emerald-400",
-                              mission.priority === "medium" && "bg-amber-400",
-                              mission.priority === "high" && "bg-orange-400",
-                              mission.priority === "critical" && "bg-rose-400",
-                            )}
-                          />
                         </div>
                       </div>
                       {mission.description && (
@@ -476,7 +475,7 @@ export function ChatShellController() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => router.push("/analytics")}
-                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover`, subPanelClass)}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow`, subPanelClass)}
                       aria-label="Open analytics"
                       title="Open analytics"
                     >
@@ -484,7 +483,7 @@ export function ChatShellController() {
                     </button>
                     <button
                       onClick={() => router.push("/integrations")}
-                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/gear`, subPanelClass)}
                       aria-label="Open integrations settings"
                     >
                       <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
@@ -505,25 +504,53 @@ export function ChatShellController() {
 
                 <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
                   <div className="grid grid-cols-6 gap-1">
-                    <button onClick={handleToggleTelegramIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(telegramConnected))} title={telegramConnected ? "Telegram connected" : "Telegram disconnected"}>
+                    <button
+                      onClick={handleToggleTelegramIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(telegramConnected))}
+                      title={telegramConnected ? "Telegram connected" : "Telegram disconnected"}
+                    >
                       <TelegramIcon className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={handleToggleDiscordIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(discordConnected))} title={discordConnected ? "Discord connected" : "Discord disconnected"}>
+                    <button
+                      onClick={handleToggleDiscordIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(discordConnected))}
+                      title={discordConnected ? "Discord connected" : "Discord disconnected"}
+                    >
                       <DiscordIcon className="w-3.5 h-3.5 text-white" />
                     </button>
-                    <button onClick={handleToggleOpenAIIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(openaiConnected))} title={openaiConnected ? "OpenAI connected" : "OpenAI disconnected"}>
+                    <button
+                      onClick={handleToggleOpenAIIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(openaiConnected))}
+                      title={openaiConnected ? "OpenAI connected" : "OpenAI disconnected"}
+                    >
                       <OpenAIIcon className="w-4 h-4" />
                     </button>
-                    <button onClick={handleToggleClaudeIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(claudeConnected))} title={claudeConnected ? "Claude connected" : "Claude disconnected"}>
+                    <button
+                      onClick={handleToggleClaudeIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(claudeConnected))}
+                      title={claudeConnected ? "Claude connected" : "Claude disconnected"}
+                    >
                       <ClaudeIcon className="w-4 h-4" />
                     </button>
-                    <button onClick={handleToggleGrokIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(grokConnected))} title={grokConnected ? "Grok connected" : "Grok disconnected"}>
+                    <button
+                      onClick={handleToggleGrokIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(grokConnected))}
+                      title={grokConnected ? "Grok connected" : "Grok disconnected"}
+                    >
                       <XAIIcon size={16} />
                     </button>
-                    <button onClick={handleToggleGeminiIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(geminiConnected))} title={geminiConnected ? "Gemini connected" : "Gemini disconnected"}>
+                    <button
+                      onClick={handleToggleGeminiIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(geminiConnected))}
+                      title={geminiConnected ? "Gemini connected" : "Gemini disconnected"}
+                    >
                       <GeminiIcon size={16} />
                     </button>
-                    <button onClick={handleToggleGmailIntegration} className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(gmailConnected))} title={gmailConnected ? "Gmail connected" : "Gmail disconnected"}>
+                    <button
+                      onClick={handleToggleGmailIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(gmailConnected))}
+                      title={gmailConnected ? "Gmail connected" : "Gmail disconnected"}
+                    >
                       <GmailIcon className="w-3.5 h-3.5" />
                     </button>
                     <button

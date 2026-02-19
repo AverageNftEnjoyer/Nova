@@ -18,11 +18,14 @@ export interface BuildSystemPromptParams {
 
 function getBootstrapContent(files: BootstrapFile[], name: string): string {
   const found = files.find((file) => file.name.toLowerCase() === name.toLowerCase());
+  if (!found || found.missing) return "";
   return found?.content?.trim() ?? "";
 }
 
 function renderProjectContext(files: BootstrapFile[]): string {
-  const visible = files.filter((file) => ["AGENTS.md", "MEMORY.md", "IDENTITY.md"].includes(file.name));
+  const visible = files.filter(
+    (file) => ["AGENTS.md", "MEMORY.md", "IDENTITY.md"].includes(file.name) && !file.missing && file.content.trim(),
+  );
   if (visible.length === 0) return "";
   return visible
     .map((file) => `## ${file.name}\n${file.content}`)
@@ -48,6 +51,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
       "",
       "## Safety",
       "Do not attempt to bypass oversight or acquire resources beyond what's needed for the current task.",
+      "Reply in English by default unless the user explicitly asks for another language.",
       "",
       "## Tooling",
       tooling,
@@ -63,6 +67,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
     "",
     "## Safety",
     "Do not attempt to bypass oversight or acquire resources beyond what's needed for the current task.",
+    "Reply in English by default unless the user explicitly asks for another language.",
     "",
     "## Tooling",
     tooling,

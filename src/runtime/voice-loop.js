@@ -1,6 +1,6 @@
 // ===== Voice Loop =====
 // Wake-word gate, duplicate suppression, mic recording, and dispatch to handleInput.
-// All dependencies are injected via the deps parameter from agent.js.
+// All dependencies are injected via the deps parameter from runtime entrypoint.
 
 import fs from "fs";
 
@@ -39,19 +39,16 @@ export async function startVoiceLoop(deps) {
 
   while (true) {
     try {
-      // Skip entirely if muted — no listening, no tokens
       if (getMuted()) {
         await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
         continue;
       }
 
-      // Skip if HUD is driving the conversation
       if (getBusy()) {
         await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
         continue;
       }
 
-      // Prevent re-triggers from Nova hearing its own TTS playback
       if (Date.now() < getSuppressVoiceWakeUntilMs()) {
         await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
         continue;
@@ -63,7 +60,6 @@ export async function startVoiceLoop(deps) {
       const micCapturePath = createMicCapturePath();
       recordMic(micCapturePath, MIC_RECORD_SECONDS);
 
-      // Re-check after blocking record (HUD message may have arrived during recording)
       if (getBusy() || getMuted()) {
         try { fs.unlinkSync(micCapturePath); } catch {}
         continue;
@@ -72,7 +68,6 @@ export async function startVoiceLoop(deps) {
       let text = await transcribe(micCapturePath);
       try { fs.unlinkSync(micCapturePath); } catch {}
 
-      // One quick retry improves pickup reliability when the first clip is too short/noisy
       if (!text || !text.trim()) {
         const retryPath = createMicCapturePath();
         recordMic(retryPath, MIC_RETRY_SECONDS);
@@ -90,13 +85,11 @@ export async function startVoiceLoop(deps) {
         continue;
       }
 
-      // Broadcast what was heard so the HUD can show it
       broadcast({ type: "transcript", text, ts: Date.now() });
 
       const normalizedHeard = wakeWordRuntime.normalizeWakeText(text);
       const now = Date.now();
 
-      // Duplicate text suppression
       if (
         normalizedHeard &&
         normalizedHeard === lastVoiceTextHandled &&
@@ -107,19 +100,16 @@ export async function startVoiceLoop(deps) {
         continue;
       }
 
-      // Wake word gate
       if (!wakeWordRuntime.containsWakeWord(text)) {
         if (!getBusy() && !getMuted()) broadcastState("idle");
         continue;
       }
 
-      // Wake cooldown
       if (now - lastWakeHandledAt < VOICE_WAKE_COOLDOWN_MS) {
         if (!getBusy() && !getMuted()) broadcastState("idle");
         continue;
       }
 
-      // Clear transcript once we start processing
       broadcast({ type: "transcript", text: "", ts: Date.now() });
 
       const cleanedVoiceInput = wakeWordRuntime.stripWakePrompt(text);
@@ -132,7 +122,6 @@ export async function startVoiceLoop(deps) {
         continue;
       }
 
-      // Duplicate command suppression
       if (
         cleanedVoiceInput === lastVoiceCommandHandled &&
         now - lastVoiceCommandHandledAt < VOICE_DUPLICATE_COMMAND_COOLDOWN_MS
@@ -141,7 +130,6 @@ export async function startVoiceLoop(deps) {
         continue;
       }
 
-      // Suppress wake re-triggers immediately after processing
       if (VOICE_AFTER_WAKE_SUPPRESS_MS > 0) {
         setSuppressVoiceWakeUntilMs(Math.max(getSuppressVoiceWakeUntilMs(), Date.now() + VOICE_AFTER_WAKE_SUPPRESS_MS));
       }

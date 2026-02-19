@@ -13,12 +13,16 @@ export interface SessionConfig {
   dmScope: "main" | "per-channel-peer";
   storePath: string;
   transcriptDir: string;
+  userContextRoot: string;
   mainKey: string;
   resetMode: "daily" | "idle" | "manual";
   resetAtHour: number;
   idleMinutes: number;
   maxHistoryTurns: number;
   dmHistoryTurns: number;
+  transcriptsEnabled: boolean;
+  maxTranscriptLines: number;
+  transcriptRetentionDays: number;
 }
 
 export interface MemoryConfig {

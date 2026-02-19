@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { GEMINI_MODEL_OPTIONS } from "@/app/integrations/constants/gemini-models"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -17,6 +18,13 @@ type GeminiModel = {
   id?: string
   created?: number
 }
+
+const STANDARD_GEMINI_MODEL_MAP = new Map(
+  GEMINI_MODEL_OPTIONS.map((option, index) => [
+    option.value,
+    { label: option.label, order: index },
+  ]),
+)
 
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
@@ -57,15 +65,25 @@ export async function POST(req: Request) {
       payload && typeof payload === "object" && "data" in payload
         ? (payload as { data?: GeminiModel[] }).data
         : []
-    const models = Array.isArray(data)
-      ? data
-          .filter((m) => typeof m?.id === "string" && m.id.trim().length > 0)
-          .map((m) => ({
-            id: String(m.id).trim(),
-            label: String(m.id).trim(),
-            createdAt: Number.isFinite(m.created) ? Number(m.created) : 0,
-          }))
-      : []
+    const deduped = new Map<string, { id: string; label: string; createdAt: number; order: number }>()
+    if (Array.isArray(data)) {
+      for (const model of data) {
+        const id = typeof model?.id === "string" ? model.id.trim() : ""
+        if (!id) continue
+        const standard = STANDARD_GEMINI_MODEL_MAP.get(id)
+        if (!standard) continue
+        deduped.set(id, {
+          id,
+          label: standard.label,
+          createdAt: Number.isFinite(model.created) ? Number(model.created) : 0,
+          order: standard.order,
+        })
+      }
+    }
+
+    const models = Array.from(deduped.values())
+      .sort((a, b) => a.order - b.order)
+      .map(({ id, label, createdAt }) => ({ id, label, createdAt }))
 
     return NextResponse.json({ ok: true, models })
   } catch (error) {

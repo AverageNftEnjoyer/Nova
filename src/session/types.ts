@@ -8,6 +8,7 @@ export interface SessionEntry {
   totalTokens: number;
   contextTokens: number;
   model: string;
+  userContextId?: string;
   origin?: {
     label: string;
     provider: string;
@@ -24,6 +25,10 @@ export interface InboundMessage {
   chatId?: string;
   threadId?: string;
   timestamp: number;
+  source?: string;
+  sender?: string;
+  sessionKeyHint?: string;
+  userContextId?: string;
 }
 
 export interface TranscriptTurn {

@@ -5,6 +5,7 @@ export interface BootstrapFile {
   name: string;
   content: string;
   truncated: boolean;
+  missing?: boolean;
 }
 
 const BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "MEMORY.md", "IDENTITY.md"];
@@ -35,8 +36,9 @@ export function discoverBootstrapFiles(
     if (!actualName) {
       out.push({
         name,
-        content: `[${name} missing]`,
+        content: "",
         truncated: false,
+        missing: true,
       });
       continue;
     }
@@ -48,8 +50,9 @@ export function discoverBootstrapFiles(
     } catch {
       out.push({
         name,
-        content: `[${name} unreadable]`,
+        content: "",
         truncated: false,
+        missing: true,
       });
       continue;
     }
