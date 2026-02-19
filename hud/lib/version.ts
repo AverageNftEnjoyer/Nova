@@ -9,7 +9,19 @@
  *
  * Version History:
  *
- * - V.14 Alpha: `src/` runtime cutover + stability patch set
+ * - V.15 Alpha: OpenClaw phases 19-20 memory relevance/compression and security regression net completion
+ *     - Improved memory recall compaction with query-aware salient sentence extraction and duplicate suppression under token pressure.
+ *     - Added long-thread memory benchmark coverage to ensure critical facts survive noisy context.
+ *     - Added security regression net smoke suite (`smoke:src-security-regression`) for durable guardrail verification.
+ *     - Expanded `smoke:src-release` to include security, memory, routing arbitration, and plugin isolation gates.
+ *     - Added phase-20 release notes artifact: `tasks/openclaw-phase20-release-notes.md`.
+ *
+ * - V.14 Alpha: 10-phase hardening and release-readiness completion
+ *     - Completed Phase 10 hardening with a production release gate (`smoke:src-release`) that runs build + eval + mission + scheduler + transport + tools + HUD build.
+ *     - Added release-readiness smoke checks (`smoke:src-release-readiness`) covering script wiring, launcher stability, env documentation coverage, and release-note/version integrity.
+ *     - Added final release notes artifact: `tasks/openclaw-phase10-release-notes.md` with rollout checklist and rollback plan.
+ *
+ * - V.13 Alpha: `src/` runtime cutover + stability patch set
  *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/entrypoint.js` (replacing legacy `agent/` launch flow).
  *     - Expanded `src/` runtime parity and smoke coverage for provider, session, transport, tools, memory, and shell wiring.
  *     - Removed stale `src/index.ts` one-off harness and cleaned upgrade module index references.
@@ -86,4 +98,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.14 Alpha"
+export const NOVA_VERSION = "V.15 Alpha"

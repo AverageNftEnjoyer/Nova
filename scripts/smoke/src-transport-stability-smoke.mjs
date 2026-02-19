@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const results = [];
 
@@ -31,6 +32,7 @@ const srcVoiceLoopPath = "src/runtime/voice-loop.js";
 const srcEntrypointPath = "src/runtime/entrypoint.js";
 const srcChatHandlerPath = "src/runtime/modules/chat-handler.js";
 const srcConfigPath = "src/runtime/config.js";
+const srcVoiceModulePath = "src/runtime/modules/voice.js";
 const rootLauncherPath = "nova.js";
 
 const srcHudGateway = read(srcHudGatewayPath);
@@ -38,7 +40,14 @@ const srcVoiceLoop = read(srcVoiceLoopPath);
 const srcEntrypoint = read(srcEntrypointPath);
 const srcChatHandler = read(srcChatHandlerPath);
 const srcConfig = read(srcConfigPath);
+const srcVoiceModule = read(srcVoiceModulePath);
 const rootLauncher = read(rootLauncherPath);
+const inboundDedupeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/inbound-dedupe.js")).href);
+const replyNormalizerModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/reply-normalizer.js")).href);
+const wakeRuntimeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/wake-runtime-compat.js")).href);
+const { shouldSkipDuplicateInbound } = inboundDedupeModule;
+const { normalizeAssistantReply, normalizeAssistantSpeechText } = replyNormalizerModule;
+const { createWakeWordRuntime } = wakeRuntimeModule;
 
 await run("P14-C1 src runtime shell entrypoint wiring exists", async () => {
   assert.equal(srcEntrypoint.includes("export async function startNovaRuntime()"), true);
@@ -104,6 +113,56 @@ await run("Runtime launch/import graph is src-owned", async () => {
   assert.equal(srcEntrypoint.includes("agent/"), false, "src entrypoint should not reference agent paths");
   assert.equal(srcHudGateway.includes("agent/"), false, "src hud-gateway should not reference agent paths");
   assert.equal(srcConfig.includes("agent/"), false, "src runtime config should not reference agent paths");
+});
+
+await run("P14-C5 inbound dedupe catches retried text even when message ID changes", async () => {
+  const marker = `transport-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const baseParams = {
+    text: "hello from hud",
+    source: "hud",
+    sender: "hud-user",
+    userContextId: marker,
+    sessionKey: marker,
+  };
+
+  const first = shouldSkipDuplicateInbound({ ...baseParams, inboundMessageId: "msg-1" });
+  const retriedDifferentId = shouldSkipDuplicateInbound({ ...baseParams, inboundMessageId: "msg-2" });
+  const otherUser = shouldSkipDuplicateInbound({ ...baseParams, userContextId: `${marker}-other`, inboundMessageId: "msg-3" });
+
+  assert.equal(first, false, "first message should not be skipped");
+  assert.equal(retriedDifferentId, true, "same text retried with a different id should be skipped");
+  assert.equal(otherUser, false, "same text from another user scope must not be skipped");
+});
+
+await run("P14-C6 reply normalization keeps UI text clean and speech-safe", async () => {
+  const normalized = normalizeAssistantReply("Assistant:  hello\n\n\nworld  ");
+  assert.equal(normalized.skip, false);
+  assert.equal(normalized.text, "hello\n\nworld");
+
+  const silent = normalizeAssistantReply("__silent__");
+  assert.equal(silent.skip, true);
+
+  const speech = normalizeAssistantSpeechText("**Bold** [link](https://example.com) `code`");
+  assert.equal(speech.includes("*"), false);
+  assert.equal(speech.includes("https://"), false);
+  assert.equal(speech.length > 0, true);
+});
+
+await run("P14-C7 wake word follows assistant-name updates and STT hint wiring", async () => {
+  const wakeRuntime = createWakeWordRuntime({ wakeWord: "nova", wakeWordVariants: ["nova"] });
+  assert.equal(wakeRuntime.containsWakeWord("hey nova status"), true);
+  wakeRuntime.setAssistantName("Lana");
+  assert.equal(wakeRuntime.containsWakeWord("hey lana status"), true);
+  assert.equal(wakeRuntime.containsWakeWord("hey nova status"), true, "env/base wakeword should remain a fallback");
+  assert.equal(wakeRuntime.stripWakePrompt("lana what's up"), "what s up");
+  assert.equal(wakeRuntime.getPrimaryWakeWord(), "lana");
+
+  assert.equal(srcChatHandler.includes("wakeWordRuntime.setAssistantName(runtimeAssistantName)"), true);
+  assert.equal(srcVoiceLoop.includes("getPrimaryWakeWord"), true);
+  assert.equal(srcVoiceLoop.includes("transcribe(micCapturePath, wakeWordHint)"), true);
+  assert.equal(srcVoiceModule.includes("The wake word is"), true);
+  assert.equal(srcVoiceModule.includes("wakeWordHint"), true);
+  assert.equal(srcHudGateway.includes("wakeWordRuntime.setAssistantName"), true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

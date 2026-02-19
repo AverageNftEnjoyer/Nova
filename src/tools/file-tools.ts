@@ -32,6 +32,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
   const readTool: Tool = {
     name: "read",
     description: "Read file content from workspace. Optional line range support.",
+    capabilities: ["filesystem.read"],
     input_schema: {
       type: "object",
       properties: {
@@ -58,6 +59,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
   const writeTool: Tool = {
     name: "write",
     description: "Write content to a file (create or overwrite).",
+    capabilities: ["filesystem.write"],
     input_schema: {
       type: "object",
       properties: {
@@ -78,6 +80,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
   const editTool: Tool = {
     name: "edit",
     description: "Replace a unique string in a file.",
+    capabilities: ["filesystem.write"],
     input_schema: {
       type: "object",
       properties: {
@@ -105,6 +108,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
   const lsTool: Tool = {
     name: "ls",
     description: "List directory contents.",
+    capabilities: ["filesystem.read"],
     input_schema: {
       type: "object",
       properties: {
@@ -124,6 +128,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
   const grepTool: Tool = {
     name: "grep",
     description: "Search files in workspace for a pattern.",
+    capabilities: ["filesystem.read"],
     input_schema: {
       type: "object",
       properties: {

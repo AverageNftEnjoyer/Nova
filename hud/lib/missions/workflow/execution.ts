@@ -16,6 +16,7 @@ import { isSearchEngineUrl, isUsableWebResult, hasWebSearchUsableSources } from 
 import { extractHtmlLinks, normalizeWebSearchRequestUrl, deriveWebSearchQuery } from "../web/fetch"
 import { searchWebAndCollect } from "../web/search"
 import { humanizeMissionOutputText } from "../output/formatters"
+import { applyMissionOutputQualityGuardrails } from "../output/quality"
 import { dispatchOutput } from "../output/dispatch"
 import { completeWithConfiguredLlm } from "../llm/providers"
 import {
@@ -36,11 +37,31 @@ import type {
   WorkflowStepTrace,
 } from "../types"
 
+const MISSION_AI_CONTEXT_MAX_CHARS = (() => {
+  const parsed = Number.parseInt(process.env.NOVA_MISSION_AI_CONTEXT_MAX_CHARS || "9000", 10)
+  return Number.isFinite(parsed) && parsed > 500 ? parsed : 9000
+})()
+
+const MISSION_AI_PROMPT_MAX_CHARS = (() => {
+  const parsed = Number.parseInt(process.env.NOVA_MISSION_AI_PROMPT_MAX_CHARS || "11000", 10)
+  return Number.isFinite(parsed) && parsed > 1000 ? parsed : 11000
+})()
+
+const MISSION_AI_SKILL_GUIDANCE_MAX_CHARS = (() => {
+  const parsed = Number.parseInt(process.env.NOVA_MISSION_AI_SKILL_GUIDANCE_MAX_CHARS || "2600", 10)
+  return Number.isFinite(parsed) && parsed >= 400 ? parsed : 2600
+})()
+
 /**
  * Execute a mission workflow.
  */
 export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput): Promise<ExecuteMissionWorkflowResult> {
   const now = input.now ?? new Date()
+  const skillSnapshot = input.skillSnapshot
+  const stableSkillGuidance = truncateForModel(
+    String(skillSnapshot?.guidance || "").trim(),
+    MISSION_AI_SKILL_GUIDANCE_MAX_CHARS,
+  )
   const parsed = parseMissionWorkflow(input.schedule.message)
   const steps = (parsed.summary?.workflowSteps || []).map((s, i) => normalizeWorkflowStep(s, i))
   const integrationCatalog = await loadIntegrationCatalog()
@@ -62,6 +83,14 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     description: parsed.description,
     summary: parsed.summary || {},
     nowIso: now.toISOString(),
+    skillSnapshot:
+      skillSnapshot && skillSnapshot.version
+        ? {
+            version: skillSnapshot.version,
+            skillCount: Number(skillSnapshot.skillCount || 0),
+            createdAt: skillSnapshot.createdAt,
+          }
+        : null,
     data: null,
     // Multi-fetch support: accumulate data from multiple fetch steps
     fetchResults: [] as Array<{ stepTitle: string; data: unknown }>,
@@ -502,6 +531,9 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         "Use only the provided context data.",
         "Never fabricate facts, events, prices, or links.",
         "If context is incomplete for a section, state that clearly.",
+        stableSkillGuidance
+          ? `Stable skill snapshot guidance for this run:\n${stableSkillGuidance}`
+          : "",
         isMultiFetch ? "Organize your output by the sections provided in the context." : "",
         detailInstruction,
         sourceInstruction,
@@ -510,12 +542,13 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         `Step: ${step.title || "AI step"}`,
         `Instruction: ${aiPrompt}`,
         webEvidence ? "Context (Fact Extracts):" : "Context JSON:",
-        webEvidence || toTextPayload(context.data),
+        truncateForModel(webEvidence || toTextPayload(context.data), MISSION_AI_CONTEXT_MAX_CHARS),
       ].join("\n\n")
+      const boundedUserText = truncateForModel(userText, MISSION_AI_PROMPT_MAX_CHARS)
       try {
         const completion = await completeWithConfiguredLlm(
           systemText,
-          userText,
+          boundedUserText,
           900,
           input.scope,
           {
@@ -540,12 +573,13 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
                 "Keep section structure, summarize readable facts only, and avoid raw table dumps.",
                 includeSources ? "Include at most 2 source links per section." : "Do not include source links.",
                 "",
-                webEvidence || "No context available.",
+                truncateForModel(webEvidence || "No context available.", MISSION_AI_CONTEXT_MAX_CHARS),
               ].join("\n")
             : buildForcedWebSummaryPrompt(context.data, { includeSources, detailLevel })
+          const boundedForcedPrompt = truncateForModel(forcedPrompt, MISSION_AI_PROMPT_MAX_CHARS)
           const retry = await completeWithConfiguredLlm(
             systemText,
-            forcedPrompt,
+            boundedForcedPrompt,
             900,
             input.scope,
             {
@@ -628,6 +662,8 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         ? { fetchResults }
         : context.data
       const baseText = humanizeMissionOutputText(baseTextRaw, formattingContextData, { includeSources, detailLevel })
+      const qualityGuard = applyMissionOutputQualityGuardrails(baseText, formattingContextData, { includeSources, detailLevel })
+      const guardedText = qualityGuard.text
 
       const recipientString = String(step.outputRecipients || "").trim()
       const parsedRecipients = recipientString
@@ -653,7 +689,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
           day: "numeric",
           timeZone: input.schedule.timezone || "America/New_York",
         })
-        const textWithTitle = `**${missionTitle}**\nDate: ${reportDate}\n\n${baseText}`
+        const textWithTitle = `**${missionTitle}**\nDate: ${reportDate}\n\n${guardedText}`
         const text = loops > 1 ? `${textWithTitle}\n\n(${i + 1}/${loops})` : textWithTitle
         const result = await dispatchOutput(channel, text, resolvedRecipients, input.schedule, input.scope)
         outputs = outputs.concat(result)
@@ -661,10 +697,17 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const stepResults = outputs.slice(-loops)
       const outputOk = stepResults.some((result) => result.ok)
       const outputError = stepResults.find((result) => !result.ok && result.error)?.error
+      const qualityDetail = qualityGuard.applied
+        ? ` Quality guardrail applied (${qualityGuard.report.score} -> ${qualityGuard.fallbackReport?.score ?? qualityGuard.report.score}).`
+        : qualityGuard.report.lowSignal
+          ? ` Low-signal output detected (score ${qualityGuard.report.score}) but no stronger fallback was available.`
+          : ""
       await completeStepTrace(
         step,
         outputOk ? "completed" : "failed",
-        outputOk ? `Output sent via ${channel}.` : `Output failed via ${channel}${outputError ? `: ${outputError}` : "."}`,
+        outputOk
+          ? `Output sent via ${channel}.${qualityDetail}`
+          : `Output failed via ${channel}${outputError ? `: ${outputError}` : "."}${qualityDetail}`,
         startedAt,
       )
       continue
@@ -681,6 +724,8 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       ? { fetchResults }
       : context.data
     const fallbackText = humanizeMissionOutputText(fallbackTextRaw, formattingContextData, { includeSources, detailLevel })
+    const fallbackQualityGuard = applyMissionOutputQualityGuardrails(fallbackText, formattingContextData, { includeSources, detailLevel })
+    const guardedFallbackText = fallbackQualityGuard.text
     const fallbackDate = now.toLocaleDateString("en-US", {
       weekday: "long",
       year: "numeric",
@@ -689,7 +734,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       timeZone: input.schedule.timezone || "America/New_York",
     })
     const fallbackMissionTitle = input.schedule.label || "Mission Report"
-    const fallbackTextWithDate = `**${fallbackMissionTitle}**\nDate: ${fallbackDate}\n\n${fallbackText}`
+    const fallbackTextWithDate = `**${fallbackMissionTitle}**\nDate: ${fallbackDate}\n\n${guardedFallbackText}`
     const result = await dispatchOutput(
       input.schedule.integration || "telegram",
       fallbackTextWithDate,
@@ -704,7 +749,9 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       type: "output",
       title: "Fallback output",
       status: fallbackOk ? "completed" : "failed",
-      detail: fallbackOk ? "Fallback output sent." : "Fallback output failed.",
+      detail: fallbackOk
+        ? `Fallback output sent.${fallbackQualityGuard.applied ? ` Quality guardrail applied (${fallbackQualityGuard.report.score} -> ${fallbackQualityGuard.fallbackReport?.score ?? fallbackQualityGuard.report.score}).` : ""}`
+        : "Fallback output failed.",
       startedAt,
       endedAt: new Date().toISOString(),
     })

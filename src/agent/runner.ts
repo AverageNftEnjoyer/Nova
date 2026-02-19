@@ -113,6 +113,14 @@ function collectCompactionSummaries(turns: TranscriptTurn[]): string[] {
   return summaries;
 }
 
+function envPositiveInt(name: string, fallback: number, minValue: number): number {
+  const raw = String(process.env[name] || "").trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(minValue, Math.trunc(parsed));
+}
+
 async function callAnthropicWithRetry(params: {
   client: Anthropic;
   model: string;
@@ -216,12 +224,15 @@ export async function runAgentTurn(
     }
 
     if (memoryManager && config.memory.enabled) {
+      const recallTopK = envPositiveInt("NOVA_MEMORY_RECALL_TOP_K", Math.min(3, Math.max(1, config.memory.topK)), 1);
+      const recallMaxChars = envPositiveInt("NOVA_MEMORY_RECALL_MAX_CHARS", 2200, 200);
+      const recallMaxTokens = envPositiveInt("NOVA_MEMORY_RECALL_MAX_TOKENS", 480, 80);
       const recallContext = await buildMemoryRecallContext({
         memoryManager,
         query: inboundMessage.text,
-        topK: Math.min(3, Math.max(1, config.memory.topK)),
-        maxChars: 2200,
-        maxTokens: 480,
+        topK: recallTopK,
+        maxChars: recallMaxChars,
+        maxTokens: recallMaxTokens,
       });
       systemPrompt = injectMemoryRecallSection(systemPrompt, recallContext);
     }

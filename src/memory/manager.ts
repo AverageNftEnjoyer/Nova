@@ -6,7 +6,10 @@ import type { MemoryConfig } from "../config/types.js";
 import { chunkMarkdown } from "./chunker.js";
 import { createEmbeddingProvider, deserializeEmbedding, serializeEmbedding } from "./embeddings.js";
 import { hybridSearch } from "./hybrid.js";
+import { applyMmrRerank } from "./mmr.js";
+import { expandMemoryQuery } from "./query-expansion.js";
 import { ensureMemorySchema } from "./schema.js";
+import { applyTemporalDecayToSearchResults } from "./temporal-decay.js";
 import type { MemoryChunk, SearchResult } from "./types.js";
 
 async function walkMarkdownFiles(dir: string): Promise<string[]> {
@@ -29,6 +32,13 @@ async function walkMarkdownFiles(dir: string): Promise<string[]> {
 
 function hashText(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+function envNumber(name: string, fallback: number): number {
+  const raw = String(process.env[name] || "").trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export class MemoryIndexManager {
@@ -99,7 +109,8 @@ export class MemoryIndexManager {
   }
 
   public async search(query: string, topK = this.config.topK): Promise<SearchResult[]> {
-    const queryEmbedding = await this.provider.embed(query);
+    const expandedQuery = expandMemoryQuery(query);
+    const queryEmbedding = await this.provider.embed(expandedQuery);
     const rows = this.db
       .prepare("SELECT id, source, content, embedding, content_hash, updated_at FROM chunks")
       .all() as Array<{
@@ -120,10 +131,30 @@ export class MemoryIndexManager {
       updatedAt: row.updated_at,
     }));
 
-    return hybridSearch(query, queryEmbedding, chunks, {
+    const requestedTopK = Math.max(1, Number(topK || this.config.topK || 1));
+    const candidateTopK = Math.max(requestedTopK, requestedTopK * 4);
+
+    const merged = hybridSearch(query, queryEmbedding, chunks, {
       ...this.config,
-      topK,
+      topK: candidateTopK,
     });
+
+    const decayed = applyTemporalDecayToSearchResults(merged, {
+      enabled: true,
+      query,
+      halfLifeDays: envNumber("NOVA_MEMORY_DECAY_HALF_LIFE_DAYS", 45),
+      temporalHalfLifeDays: envNumber("NOVA_MEMORY_DECAY_TEMPORAL_HALF_LIFE_DAYS", 21),
+      evergreenHalfLifeDays: envNumber("NOVA_MEMORY_DECAY_EVERGREEN_HALF_LIFE_DAYS", 180),
+      minMultiplier: envNumber("NOVA_MEMORY_DECAY_MIN_MULTIPLIER", 0.35),
+    });
+    const reranked = applyMmrRerank(decayed, {
+      enabled: true,
+      lambda: envNumber("NOVA_MEMORY_MMR_LAMBDA", 0.72),
+      sourcePenaltyWeight: envNumber("NOVA_MEMORY_MMR_SOURCE_PENALTY", 0.12),
+      maxPerSourceSoft: envNumber("NOVA_MEMORY_MMR_MAX_PER_SOURCE_SOFT", 2),
+    });
+
+    return reranked.slice(0, requestedTopK);
   }
 
   public async sync(): Promise<void> {

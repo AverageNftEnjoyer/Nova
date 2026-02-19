@@ -10,6 +10,7 @@ export function createMemoryTools(memoryManager: MemoryIndexManager): Tool[] {
   const memorySearch: Tool = {
     name: "memory_search",
     description: "Search indexed memory chunks by semantic + keyword relevance.",
+    capabilities: ["memory.read"],
     input_schema: {
       type: "object",
       properties: {
@@ -40,6 +41,7 @@ export function createMemoryTools(memoryManager: MemoryIndexManager): Tool[] {
   const memoryGet: Tool = {
     name: "memory_get",
     description: "Fetch the full source content for a memory chunk id.",
+    capabilities: ["memory.read"],
     input_schema: {
       type: "object",
       properties: {

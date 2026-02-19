@@ -1,6 +1,9 @@
 ---
 name: nova-core
 description: Default execution policy for Nova runtime and cross-file implementation work. Use for planning, verification, bug fixing, and maintaining session/provider correctness.
+metadata:
+  read_when:
+    - Work spans runtime behavior, multi-file refactors, or behavior-sensitive bug fixes.
 ---
 
 # Nova Core Skill

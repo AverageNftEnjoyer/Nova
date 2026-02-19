@@ -41,6 +41,8 @@ const markdownModule = await import(pathToFileURL(path.join(process.cwd(), "dist
 const recallModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "recall.js")).href);
 const writeThroughModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "write-through.js")).href);
 const managerModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "manager.js")).href);
+const mmrModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "mmr.js")).href);
+const temporalDecayModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "temporal-decay.js")).href);
 
 const {
   buildMemoryFactMetadata,
@@ -52,6 +54,8 @@ const {
 const { buildMemoryRecallContext, injectMemoryRecallSection } = recallModule;
 const { applyMemoryWriteThrough } = writeThroughModule;
 const { MemoryIndexManager } = managerModule;
+const { applyMmrRerank } = mmrModule;
+const { applyTemporalDecayToSearchResults } = temporalDecayModule;
 
 function createMemoryConfig(rootDir) {
   return {
@@ -172,6 +176,112 @@ await run("P6-C3 fast reindex on write-through memory update", async () => {
   assert.equal(hits.length > 0, true);
   const joined = hits.map((hit) => String(hit.content || "")).join("\n").toLowerCase();
   assert.equal(joined.includes("timezone"), true);
+});
+
+await run("P6-C4 temporal intent + source diversity rerank behavior", async () => {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const rawResults = [
+    {
+      chunkId: "a-old",
+      source: "/memory/source-a.md",
+      content: "project alpha status update notes",
+      score: 1.0,
+      vectorScore: 0.9,
+      bm25Score: 0.9,
+      updatedAt: now - 180 * dayMs,
+    },
+    {
+      chunkId: "a-new",
+      source: "/memory/source-a.md",
+      content: "latest project alpha status update with decisions",
+      score: 0.97,
+      vectorScore: 0.88,
+      bm25Score: 0.91,
+      updatedAt: now - 2 * dayMs,
+    },
+    {
+      chunkId: "b-new",
+      source: "/memory/source-b.md",
+      content: "latest project alpha timeline and blockers",
+      score: 0.96,
+      vectorScore: 0.86,
+      bm25Score: 0.9,
+      updatedAt: now - 1 * dayMs,
+    },
+  ];
+
+  const decayed = applyTemporalDecayToSearchResults(rawResults, {
+    enabled: true,
+    query: "latest project alpha status today",
+    halfLifeDays: 45,
+    temporalHalfLifeDays: 14,
+    evergreenHalfLifeDays: 180,
+    minMultiplier: 0.2,
+  });
+
+  const oldest = decayed.find((item) => item.chunkId === "a-old");
+  const newest = decayed.find((item) => item.chunkId === "b-new");
+  assert.equal(Boolean(oldest), true);
+  assert.equal(Boolean(newest), true);
+  assert.equal((newest?.score || 0) > (oldest?.score || 0), true);
+
+  const reranked = applyMmrRerank(decayed, {
+    enabled: true,
+    lambda: 0.7,
+    sourcePenaltyWeight: 0.2,
+    maxPerSourceSoft: 1,
+  });
+
+  assert.equal(reranked.length >= 2, true);
+  assert.equal(reranked[0]?.chunkId, "b-new");
+});
+
+await run("P19-C1 long-thread recall benchmark retains fixed critical facts under token pressure", async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-memory-long-thread-smoke-"));
+  const memoryDir = path.join(root, "memory");
+  await fsp.mkdir(memoryDir, { recursive: true });
+
+  const canonicalFacts = [
+    "Project codename is Atlas.",
+    "Primary deployment region is us-east-2.",
+    "Incident bridge fallback channel is #atlas-war-room.",
+  ];
+  await fsp.writeFile(
+    path.join(memoryDir, "canonical.md"),
+    `# Canonical Facts\n\n${canonicalFacts.join("\n\n")}\n`,
+    "utf8",
+  );
+
+  for (let i = 0; i < 40; i += 1) {
+    await fsp.writeFile(
+      path.join(memoryDir, `noise-${String(i).padStart(2, "0")}.md`),
+      [
+        `# Noise ${i}`,
+        "",
+        "Daily notes about unrelated shell logs and UI polish work.",
+        "Random status updates with no deployment region details.",
+        "Discussion about typography, spacing, and dashboard cards.",
+      ].join("\n"),
+      "utf8",
+    );
+  }
+
+  const manager = new MemoryIndexManager(createMemoryConfig(root));
+  await manager.sync();
+
+  const recall = await buildMemoryRecallContext({
+    memoryManager: manager,
+    query: "what is the project codename and primary deployment region",
+    topK: 6,
+    maxChars: 900,
+    maxTokens: 220,
+  });
+
+  const normalized = recall.toLowerCase();
+  assert.equal(normalized.includes("atlas"), true);
+  assert.equal(normalized.includes("us-east-2"), true);
+  assert.equal(approxTokens(recall) <= 220, true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

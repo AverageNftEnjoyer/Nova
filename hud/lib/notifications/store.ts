@@ -1,6 +1,7 @@
 import "server-only"
 
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, writeFile, copyFile } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
 import path from "node:path"
 
 export interface NotificationSchedule {
@@ -20,6 +21,14 @@ export interface NotificationSchedule {
   successCount: number
   failureCount: number
   lastRunAt?: string
+  lastRunStatus?: "success" | "error" | "skipped"
+}
+
+interface NotificationScheduleStoreFile {
+  version: number
+  schedules: NotificationSchedule[]
+  updatedAt: string
+  migratedAt?: string
 }
 
 function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule>): string {
@@ -45,8 +54,10 @@ function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule
 }
 
 const DATA_FILE_NAME = "notification-schedules.json"
+const STORE_SCHEMA_VERSION = 2
 const LEGACY_DATA_DIR = path.join(process.cwd(), "data")
 const LEGACY_DATA_FILE = path.join(LEGACY_DATA_DIR, DATA_FILE_NAME)
+const writesByPath = new Map<string, Promise<void>>()
 
 function resolveWorkspaceRoot(): string {
   const cwd = process.cwd()
@@ -71,13 +82,50 @@ function resolveScopedDataFile(userId: string): string {
   return path.join(resolveUserContextRoot(), userId, DATA_FILE_NAME)
 }
 
+function defaultStorePayload(): NotificationScheduleStoreFile {
+  return {
+    version: STORE_SCHEMA_VERSION,
+    schedules: [],
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+function sortSchedulesDeterministically(rows: NotificationSchedule[]): NotificationSchedule[] {
+  return [...rows].sort((a, b) => {
+    const byCreatedAt = String(a.createdAt || "").localeCompare(String(b.createdAt || ""))
+    if (byCreatedAt !== 0) return byCreatedAt
+    return String(a.id || "").localeCompare(String(b.id || ""))
+  })
+}
+
+async function atomicWriteJson(filePath: string, payload: unknown): Promise<void> {
+  const resolved = path.resolve(filePath)
+  const previous = writesByPath.get(resolved) ?? Promise.resolve()
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(path.dirname(resolved), { recursive: true })
+      const tmpPath = `${resolved}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
+      const body = `${JSON.stringify(payload, null, 2)}\n`
+      await writeFile(tmpPath, body, "utf8")
+      await rename(tmpPath, resolved)
+      try {
+        await copyFile(resolved, `${resolved}.bak`)
+      } catch {
+        // Best effort backup only.
+      }
+    })
+  writesByPath.set(resolved, next)
+  await next
+}
+
 async function ensureScopedDataFile(userId: string) {
   const dataFile = resolveScopedDataFile(userId)
   await mkdir(path.dirname(dataFile), { recursive: true })
   try {
     await readFile(dataFile, "utf8")
   } catch {
-    await writeFile(dataFile, "[]", "utf8")
+    await atomicWriteJson(dataFile, defaultStorePayload())
   }
 }
 
@@ -107,6 +155,74 @@ function normalizeRecord(raw: Partial<NotificationSchedule>): NotificationSchedu
     successCount,
     failureCount,
     lastRunAt: raw.lastRunAt,
+    lastRunStatus:
+      raw.lastRunStatus === "success" || raw.lastRunStatus === "error" || raw.lastRunStatus === "skipped"
+        ? raw.lastRunStatus
+        : undefined,
+  }
+}
+
+function normalizeStorePayload(
+  parsed: unknown,
+  scopedUserId: string,
+): { store: NotificationScheduleStoreFile; mutated: boolean } {
+  const normalizedUserId = sanitizeUserContextId(scopedUserId)
+  const inputObject =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
+  const inputSchedules = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(inputObject?.schedules)
+      ? inputObject?.schedules
+      : []
+
+  const schedules = inputSchedules
+    .map((row) => normalizeRecord(row as Partial<NotificationSchedule>))
+    .filter((row): row is NotificationSchedule => row !== null)
+    .map((row) => ({ ...row, userId: normalizedUserId }))
+  const deterministic = sortSchedulesDeterministically(schedules)
+  const normalized: NotificationScheduleStoreFile = {
+    version: STORE_SCHEMA_VERSION,
+    schedules: deterministic,
+    updatedAt: new Date().toISOString(),
+  }
+
+  const sourceVersion = inputObject?.version
+  const hasValidVersion = Number.isInteger(sourceVersion) && Number(sourceVersion) === STORE_SCHEMA_VERSION
+  const sourceUpdatedAt = typeof inputObject?.updatedAt === "string" ? inputObject.updatedAt : ""
+  const shouldCarryUpdatedAt = Boolean(sourceUpdatedAt)
+  if (shouldCarryUpdatedAt) {
+    normalized.updatedAt = sourceUpdatedAt
+  }
+  if (!hasValidVersion || Array.isArray(parsed)) {
+    normalized.migratedAt = new Date().toISOString()
+  } else if (typeof inputObject?.migratedAt === "string" && inputObject.migratedAt.trim()) {
+    normalized.migratedAt = inputObject.migratedAt
+  }
+
+  const sourceComparable = inputObject
+    ? {
+        version: Number.isFinite(Number(inputObject.version)) ? Number(inputObject.version) : -1,
+        schedules: Array.isArray(inputObject.schedules) ? inputObject.schedules : [],
+      }
+    : {
+        version: Array.isArray(parsed) ? 1 : -1,
+        schedules: Array.isArray(parsed) ? parsed : [],
+      }
+  const normalizedComparable = {
+    version: STORE_SCHEMA_VERSION,
+    schedules: deterministic,
+  }
+
+  const mutated =
+    JSON.stringify(sourceComparable) !== JSON.stringify(normalizedComparable) ||
+    !hasValidVersion ||
+    Array.isArray(parsed)
+
+  return {
+    store: normalized,
+    mutated,
   }
 }
 
@@ -130,28 +246,29 @@ async function loadScopedUserSchedules(userId: string): Promise<NotificationSche
   const dataFile = resolveScopedDataFile(scopedUserId)
   try {
     const raw = await readFile(dataFile, "utf8")
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) {
-      await writeFile(dataFile, "[]", "utf8")
+    const parsed = JSON.parse(raw) as unknown
+    const { store, mutated } = normalizeStorePayload(parsed, scopedUserId)
+    if (mutated) {
+      await atomicWriteJson(dataFile, {
+        ...store,
+        updatedAt: new Date().toISOString(),
+      })
+    }
+    return store.schedules
+  } catch {
+    try {
+      const backupRaw = await readFile(`${dataFile}.bak`, "utf8")
+      const parsedBackup = JSON.parse(backupRaw) as unknown
+      const { store } = normalizeStorePayload(parsedBackup, scopedUserId)
+      await atomicWriteJson(dataFile, {
+        ...store,
+        updatedAt: new Date().toISOString(),
+      })
+      return store.schedules
+    } catch {
+      await atomicWriteJson(dataFile, defaultStorePayload())
       return []
     }
-    const normalized = parsed
-      .map((row) => normalizeRecord(row as Partial<NotificationSchedule>))
-      .filter((row): row is NotificationSchedule => row !== null)
-      .map((row) => ({ ...row, userId: scopedUserId }))
-    const shouldRewrite =
-      normalized.length !== parsed.length ||
-      parsed.some((row) => {
-        if (!row || typeof row !== "object") return true
-        const maybe = row as { integration?: unknown; userId?: unknown }
-        return typeof maybe.integration !== "string" || String(maybe.userId || "").trim() !== scopedUserId
-      })
-    if (shouldRewrite) {
-      await writeFile(dataFile, JSON.stringify(normalized, null, 2), "utf8")
-    }
-    return normalized
-  } catch {
-    return []
   }
 }
 
@@ -160,11 +277,17 @@ async function saveScopedUserSchedules(userId: string, schedules: NotificationSc
   if (!scopedUserId) return
   await ensureScopedDataFile(scopedUserId)
   const dataFile = resolveScopedDataFile(scopedUserId)
-  const normalized = schedules
+  const normalized = sortSchedulesDeterministically(
+    schedules
     .map((row) => normalizeRecord(row))
     .filter((row): row is NotificationSchedule => row !== null)
     .map((row) => ({ ...row, userId: scopedUserId }))
-  await writeFile(dataFile, JSON.stringify(normalized, null, 2), "utf8")
+  )
+  await atomicWriteJson(dataFile, {
+    version: STORE_SCHEMA_VERSION,
+    schedules: normalized,
+    updatedAt: new Date().toISOString(),
+  } satisfies NotificationScheduleStoreFile)
 }
 
 let legacyMigrationPromise: Promise<void> | null = null
@@ -209,7 +332,7 @@ async function migrateLegacySchedulesIfNeeded(): Promise<void> {
     }
 
     await mkdir(LEGACY_DATA_DIR, { recursive: true })
-    await writeFile(LEGACY_DATA_FILE, "[]", "utf8")
+    await atomicWriteJson(LEGACY_DATA_FILE, [])
   })()
 
   try {
@@ -311,5 +434,6 @@ export function buildSchedule(input: {
     successCount: 0,
     failureCount: 0,
     lastRunAt: undefined,
+    lastRunStatus: undefined,
   }
 }

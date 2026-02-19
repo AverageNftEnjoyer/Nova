@@ -4,7 +4,7 @@
 
 import { getSystemMetrics } from "../compat/metrics.js";
 import { describeUnknownError, toErrorDetails } from "../providers/runtime-compat.js";
-import { sessionRuntime } from "./config.js";
+import { sessionRuntime, wakeWordRuntime } from "./config.js";
 import { VOICE_AFTER_TTS_SUPPRESS_MS } from "./constants.js";
 import { WebSocketServer } from "ws";
 import {
@@ -94,6 +94,9 @@ export function startGateway() {
 
         if (data.type === "greeting") {
           console.log("[HUD] Greeting requested. voiceEnabled:", data.voiceEnabled);
+          if (typeof data.assistantName === "string" && data.assistantName.trim()) {
+            wakeWordRuntime.setAssistantName(data.assistantName);
+          }
           if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
             setCurrentVoice(data.ttsVoice);
             console.log("[Voice] Preference updated to:", getCurrentVoice());
@@ -142,6 +145,12 @@ export function startGateway() {
               ttsVoice: data.ttsVoice || getCurrentVoice(),
               source: "hud",
               sender: typeof data.sender === "string" ? data.sender : "hud-user",
+              inboundMessageId:
+                typeof data.messageId === "string"
+                  ? data.messageId
+                  : typeof data.clientMessageId === "string"
+                    ? data.clientMessageId
+                    : "",
               userContextId: incomingUserId || undefined,
               assistantName: typeof data.assistantName === "string" ? data.assistantName : "",
               communicationStyle: typeof data.communicationStyle === "string" ? data.communicationStyle : "",
@@ -177,6 +186,9 @@ export function startGateway() {
         }
 
         if (data.type === "set_voice") {
+          if (typeof data.assistantName === "string" && data.assistantName.trim()) {
+            wakeWordRuntime.setAssistantName(data.assistantName);
+          }
           if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
             setCurrentVoice(data.ttsVoice);
             console.log("[Voice] TTS voice set to:", getCurrentVoice());

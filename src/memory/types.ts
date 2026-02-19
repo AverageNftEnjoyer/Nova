@@ -14,6 +14,7 @@ export interface SearchResult {
   score: number;
   vectorScore: number;
   bm25Score: number;
+  updatedAt: number;
 }
 
 export interface Chunk {

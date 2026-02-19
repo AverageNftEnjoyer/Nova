@@ -1,10 +1,15 @@
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
+import { fetchWithSsrfGuard, readResponseTextWithLimit } from "./net-guard.js";
 import type { Tool } from "./types.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
+const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_MAX_RESPONSE_BYTES = 2_000_000;
+const FETCH_MAX_ERROR_BYTES = 64_000;
+const FETCH_MAX_REDIRECTS = 3;
 
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -15,6 +20,7 @@ export function createWebFetchTool(): Tool {
   return {
     name: "web_fetch",
     description: "Fetch a URL and extract readable Markdown content.",
+    capabilities: ["network.fetch"],
     input_schema: {
       type: "object",
       properties: {
@@ -38,24 +44,33 @@ export function createWebFetchTool(): Tool {
         return "web_fetch error: url must be http(s).";
       }
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15_000);
-
       try {
-        const response = await fetch(parsed, {
-          headers: {
-            "User-Agent": USER_AGENT,
-            Accept: "text/html,application/xhtml+xml",
+        const { response, finalUrl } = await fetchWithSsrfGuard({
+          url: parsed.toString(),
+          timeoutMs: FETCH_TIMEOUT_MS,
+          maxRedirects: FETCH_MAX_REDIRECTS,
+          auditContext: "web_fetch",
+          policy: {
+            allowPrivateNetwork: false,
           },
-          signal: controller.signal,
+          init: {
+            headers: {
+              "User-Agent": USER_AGENT,
+              Accept: "text/html,application/xhtml+xml",
+            },
+          },
         });
 
         if (!response.ok) {
-          return `web_fetch error (${response.status}): ${await response.text()}`;
+          const detail = await readResponseTextWithLimit(response, FETCH_MAX_ERROR_BYTES).catch(
+            () => "",
+          );
+          const message = detail.trim() || response.statusText || "request failed";
+          return `web_fetch error (${response.status}): ${truncate(message, 800)}`;
         }
 
-        const html = await response.text();
-        const dom = new JSDOM(html, { url: parsed.toString() });
+        const html = await readResponseTextWithLimit(response, FETCH_MAX_RESPONSE_BYTES);
+        const dom = new JSDOM(html, { url: finalUrl });
 
         const document = dom.window.document;
         for (const selector of ["script", "style", "iframe", "noscript", "img", "svg"]) {
@@ -76,12 +91,10 @@ export function createWebFetchTool(): Tool {
         }
 
         markdown = truncate(markdown.trim(), 16_000);
-        return `# ${title}\n\nSource: ${parsed.toString()}\n\n${markdown}`;
+        return `# ${title}\n\nSource: ${finalUrl}\n\n${markdown}`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `web_fetch error: ${message}`;
-      } finally {
-        clearTimeout(timeout);
       }
     },
   };

@@ -1,6 +1,9 @@
 ---
 name: summarize
 description: Structured summarization workflow for URLs or raw text with metadata extraction, risk notes, and verification checks.
+metadata:
+  read_when:
+    - User asks for a summary, TLDR, or explanation of provided content.
 ---
 
 # Summarize Skill

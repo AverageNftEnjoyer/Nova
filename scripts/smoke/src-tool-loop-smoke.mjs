@@ -28,10 +28,15 @@ function summarize(result) {
 const registryModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "tools", "registry.js")).href);
 const executorModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "tools", "executor.js")).href);
 const protocolModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "tools", "protocol.js")).href);
+const linkUnderstandingModule = await import(
+  pathToFileURL(path.join(process.cwd(), "src", "runtime", "modules", "link-understanding.js")).href,
+);
 
 const { createToolRegistry } = registryModule;
 const { executeToolUse } = executorModule;
 const { toOpenAiToolDefinitions, openAiToolCallToAnthropicToolUse } = protocolModule;
+const { extractLinksFromMessage, runLinkUnderstanding, formatLinkUnderstandingForPrompt } =
+  linkUnderstandingModule;
 
 function createRuntime(overrides = {}) {
   return createToolRuntime({
@@ -137,6 +142,75 @@ await run("P5-C3 exec approval mode enforcement (ask|auto|off)", async () => {
   const offExec = await getExecTool("off");
   const offResult = await offExec.execute({ command: "echo NOVA_EXEC_MODE_OFF" });
   assert.ok(String(offResult).toLowerCase().includes("disabled"));
+});
+
+await run("P17-C1 dangerous tools are blocked by default policy", async () => {
+  const dangerousTools = [
+    {
+      name: "apply_patch",
+      description: "dangerous patch executor",
+      input_schema: { type: "object" },
+      execute: async () => "should never run",
+    },
+  ];
+  const result = await executeToolUse(
+    {
+      id: "danger_1",
+      name: "apply_patch",
+      input: { patch: "x" },
+      type: "tool_use",
+    },
+    dangerousTools,
+  );
+  assert.equal(result.is_error, true);
+  assert.equal(String(result.content).toLowerCase().includes("blocked by policy"), true);
+});
+
+await run("P5-C4 link understanding extracts + compacts URL context", async () => {
+  const prompt = [
+    "Summarize [release notes](https://example.com/release-notes)",
+    "and also check https://example.com/blog/post?id=7",
+    "plus duplicate https://example.com/release-notes",
+  ].join(" ");
+  const links = extractLinksFromMessage(prompt, { maxLinks: 3 });
+  assert.equal(Array.isArray(links), true);
+  assert.equal(links.length, 2);
+  assert.equal(links.includes("https://example.com/release-notes"), true);
+  assert.equal(links.includes("https://example.com/blog/post?id=7"), true);
+
+  const runtimeTools = {
+    executeToolUse: async (toolUse) => {
+      const url = String(toolUse?.input?.url || "");
+      return {
+        content: [
+          "# Example Page",
+          "",
+          `Source: ${url}`,
+          "",
+          "This release includes stability improvements and workflow performance updates.",
+          "Token handling was improved and duplicate messages are now filtered.",
+        ].join("\n"),
+      };
+    },
+  };
+
+  const result = await runLinkUnderstanding({
+    text: prompt,
+    query: "release stability updates duplicate messages",
+    maxLinks: 2,
+    maxCharsPerLink: 420,
+    runtimeTools,
+    availableTools: [{ name: "web_fetch" }],
+  });
+
+  assert.equal(Array.isArray(result.outputs), true);
+  assert.equal(result.outputs.length, 2);
+  assert.equal(result.outputs[0].includes("Source: https://example.com/"), true);
+  assert.equal(result.outputs[0].includes("Title: Example Page"), true);
+
+  const formatted = formatLinkUnderstandingForPrompt(result.outputs, 900);
+  assert.equal(formatted.includes("[Link 1]"), true);
+  assert.equal(formatted.length <= 900 + 20, true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

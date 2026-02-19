@@ -2,6 +2,7 @@
 
 import fs from "fs";
 import path from "path";
+import { execSync } from "child_process";
 import {
   ROOT_WORKSPACE_DIR,
   SKILL_DISCOVERY_CACHE_TTL_MS,
@@ -14,6 +15,35 @@ import {
 // Module-internal cache — not exported
 const SKILL_DISCOVERY_CACHE = new Map();
 const STARTER_SKILLS_SEEDED_DIRS = new Set();
+const LEGACY_SKILLS_MIGRATED_DIRS = new Set();
+const BINARY_AVAILABILITY_CACHE = new Map();
+const SKILL_PROMPT_MAX_SKILLS = Number.parseInt(process.env.NOVA_SKILL_PROMPT_MAX_SKILLS || "4", 10);
+const SKILL_PROMPT_MAX_CHARS = Number.parseInt(process.env.NOVA_SKILL_PROMPT_MAX_CHARS || "1800", 10);
+const SKILL_PROMPT_MAX_HINT_CHARS = Number.parseInt(process.env.NOVA_SKILL_PROMPT_MAX_HINT_CHARS || "120", 10);
+const SKILL_PROMPT_MIN_SCORE = Number.parseInt(process.env.NOVA_SKILL_PROMPT_MIN_SCORE || "4", 10);
+const SKILL_PROMPT_DEBUG = String(process.env.NOVA_SKILL_PROMPT_DEBUG || "").trim() === "1";
+const SKILL_PROMPT_BASELINE_NAMES = Array.from(
+  new Set(
+    String(process.env.NOVA_SKILL_PROMPT_BASELINE || "nova-core")
+      .split(",")
+      .map((v) => String(v || "").trim().toLowerCase())
+      .filter(Boolean),
+  ),
+);
+const SKILL_ROUTING_STOPWORDS = new Set([
+  "the", "and", "for", "with", "this", "that", "from", "your", "you", "what", "when", "where", "why",
+  "how", "about", "into", "onto", "over", "under", "just", "need", "help", "please", "want", "would",
+  "could", "should", "have", "has", "had", "were", "was", "are", "can", "will", "hey", "hi", "hello",
+  "nova", "assistant", "chat", "message", "today", "now", "thanks", "thank", "there", "them", "they",
+]);
+const SKILL_PROMPT_FALLBACK_ORDER = Array.from(
+  new Set(
+    String(process.env.NOVA_SKILL_PROMPT_FALLBACK || "summarize,research,pickup,handoff,daily-briefing")
+      .split(",")
+      .map((v) => String(v || "").trim().toLowerCase())
+      .filter(Boolean),
+  ),
+);
 
 // ===== XML escape (used when building skill prompt XML) =====
 export function escapeXml(text) {
@@ -23,6 +53,221 @@ export function escapeXml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+}
+
+function compactText(value, maxChars = 180) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxChars - 3)).trim()}...`;
+}
+
+function parseFrontmatter(content) {
+  const trimmed = String(content || "").trim();
+  if (!trimmed.startsWith("---")) return "";
+  const end = trimmed.indexOf("\n---", 3);
+  if (end <= 0) return "";
+  return trimmed.slice(3, end);
+}
+
+function extractFrontmatterArray(frontmatter, key) {
+  const pattern = new RegExp(`["']?${key}["']?\\s*:\\s*\\[([^\\]]*)\\]`, "i");
+  const match = String(frontmatter || "").match(pattern);
+  if (!match?.[1]) return [];
+  return Array.from(
+    new Set(
+      match[1]
+        .split(",")
+        .map((v) => String(v || "").trim().replace(/^['"`]|['"`]$/g, ""))
+        .filter(Boolean),
+    ),
+  );
+}
+
+function extractSkillRequirements(content) {
+  const frontmatter = parseFrontmatter(content);
+  if (!frontmatter) return { bins: [], anyBins: [], env: [], os: [] };
+  return {
+    bins: extractFrontmatterArray(frontmatter, "bins"),
+    anyBins: extractFrontmatterArray(frontmatter, "anyBins"),
+    env: extractFrontmatterArray(frontmatter, "env"),
+    os: extractFrontmatterArray(frontmatter, "os"),
+  };
+}
+
+function isBinaryAvailable(binaryName) {
+  const name = String(binaryName || "").trim();
+  if (!name) return false;
+  if (BINARY_AVAILABILITY_CACHE.has(name)) return BINARY_AVAILABILITY_CACHE.get(name) === true;
+  try {
+    if (process.platform === "win32") {
+      execSync(`where ${name}`, { stdio: "ignore", windowsHide: true });
+    } else {
+      execSync(`command -v ${name}`, { stdio: "ignore" });
+    }
+    BINARY_AVAILABILITY_CACHE.set(name, true);
+    return true;
+  } catch {
+    BINARY_AVAILABILITY_CACHE.set(name, false);
+    return false;
+  }
+}
+
+function isSkillCompatible(skill) {
+  const req = skill?.requirements || {};
+  const requiredEnv = Array.isArray(req.env) ? req.env : [];
+  const requiredBins = Array.isArray(req.bins) ? req.bins : [];
+  const anyBins = Array.isArray(req.anyBins) ? req.anyBins : [];
+  const supportedOs = Array.isArray(req.os) ? req.os : [];
+
+  if (supportedOs.length > 0 && !supportedOs.includes(process.platform)) return false;
+  if (requiredEnv.some((envName) => !String(process.env[String(envName || "")] || "").trim())) return false;
+  if (requiredBins.some((bin) => !isBinaryAvailable(bin))) return false;
+  if (anyBins.length > 0 && !anyBins.some((bin) => isBinaryAvailable(bin))) return false;
+  return true;
+}
+
+function tokenizeForSkillMatch(value) {
+  return String(value || "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((v) => v.trim())
+    .filter((v) => v.length >= 3 && !SKILL_ROUTING_STOPWORDS.has(v));
+}
+
+function normalizeRequestForSkillScoring(value) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/\b(hey|hi|hello)\s+nova\b/g, "")
+    .replace(/\bnova\b/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized;
+}
+
+function isLikelyGenericGreeting(value) {
+  const normalized = normalizeRequestForSkillScoring(value);
+  if (!normalized) return true;
+  return /^(hey|hi|hello|yo|sup|test|ping|ok|okay|thanks|thank you)$/.test(normalized);
+}
+
+function estimateRequestComplexity(requestText) {
+  const normalized = normalizeRequestForSkillScoring(requestText);
+  if (!normalized) return "none";
+  const tokenCount = tokenizeForSkillMatch(normalized).length;
+  if (tokenCount <= 2) return "low";
+  if (/\b(and|also|plus|then|compare|versus|vs)\b/.test(normalized) || tokenCount >= 14) return "high";
+  return "medium";
+}
+
+function scoreSkillForRequest(skill, requestText) {
+  const request = normalizeRequestForSkillScoring(requestText);
+  if (!request) return 0;
+
+  const requestTokens = new Set(tokenizeForSkillMatch(request));
+  if (requestTokens.size === 0) return 0;
+
+  const name = String(skill?.name || "").toLowerCase();
+  const description = String(skill?.description || "").toLowerCase();
+  const readWhen = Array.isArray(skill?.readWhen)
+    ? skill.readWhen.map((v) => String(v || "").toLowerCase())
+    : [];
+
+  let score = 0;
+  const flatName = name.replace(/-/g, " ");
+  if (flatName && request.includes(flatName)) score += 24;
+  if (name && request.includes(name)) score += 16;
+
+  const nameTokens = new Set(tokenizeForSkillMatch(name));
+  for (const token of requestTokens) {
+    if (nameTokens.has(token)) score += 9;
+  }
+
+  const descriptionTokens = new Set(tokenizeForSkillMatch(description));
+  for (const token of requestTokens) {
+    if (descriptionTokens.has(token)) score += 2;
+  }
+
+  for (const hint of readWhen) {
+    const hintTokens = new Set(tokenizeForSkillMatch(hint));
+    let overlap = 0;
+    for (const token of requestTokens) {
+      if (hintTokens.has(token)) overlap += 1;
+    }
+    if (overlap > 0) score += Math.min(10, overlap * 3);
+    if (hint && request.includes(hint.slice(0, Math.min(36, hint.length)))) score += 5;
+  }
+
+  return score;
+}
+
+function uniqueSkillsByName(skills) {
+  const out = [];
+  const seen = new Set();
+  for (const skill of skills || []) {
+    const name = String(skill?.name || "").trim().toLowerCase();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(skill);
+  }
+  return out;
+}
+
+function selectSkillsForPrompt(skills, requestText) {
+  const compatibleSkills = Array.isArray(skills) ? skills.filter((skill) => isSkillCompatible(skill)) : [];
+  if (compatibleSkills.length === 0) return [];
+
+  const maxSkills = Number.isFinite(SKILL_PROMPT_MAX_SKILLS) && SKILL_PROMPT_MAX_SKILLS > 0
+    ? Math.trunc(SKILL_PROMPT_MAX_SKILLS)
+    : 4;
+
+  const byName = new Map(compatibleSkills.map((skill) => [String(skill.name || "").toLowerCase(), skill]));
+  const baseline = SKILL_PROMPT_BASELINE_NAMES
+    .map((name) => byName.get(name))
+    .filter(Boolean);
+
+  if (isLikelyGenericGreeting(requestText)) {
+    const greetingSelection = uniqueSkillsByName([
+      ...baseline,
+      ...compatibleSkills,
+    ]);
+    return greetingSelection.slice(0, Math.max(1, Math.min(2, maxSkills)));
+  }
+
+  const scored = compatibleSkills
+    .map((skill) => ({ skill, score: scoreSkillForRequest(skill, requestText) }))
+    .filter((entry) => entry.score >= Math.max(1, SKILL_PROMPT_MIN_SCORE))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(a.skill.name || "").localeCompare(String(b.skill.name || ""));
+    })
+    .map((entry) => entry.skill);
+
+  const fallback = SKILL_PROMPT_FALLBACK_ORDER
+    .map((name) => byName.get(name))
+    .filter(Boolean);
+
+  const complexity = estimateRequestComplexity(requestText);
+  const effectiveMax =
+    complexity === "low"
+      ? Math.max(1, Math.min(2, maxSkills))
+      : complexity === "medium"
+        ? Math.max(1, Math.min(3, maxSkills))
+        : maxSkills;
+
+  const merged = scored.length > 0
+    ? uniqueSkillsByName([...baseline, ...scored])
+    : uniqueSkillsByName([...baseline, ...fallback, ...compatibleSkills]);
+  const selected = merged.slice(0, effectiveMax);
+
+  if (SKILL_PROMPT_DEBUG) {
+    console.log(
+      `[Skills] Selected ${selected.length}/${compatibleSkills.length} for complexity=${complexity}: ${selected.map((s) => s.name).join(", ") || "none"}`,
+    );
+  }
+
+  return selected;
 }
 
 // ===== File walking =====
@@ -182,7 +427,14 @@ function discoverRuntimeSkills(dirs) {
       const name = path.basename(path.dirname(skillFile));
       if (!name) continue;
       const metadata = extractSkillMetadata(raw);
-      byName.set(name, { name, description: metadata.description, readWhen: metadata.readWhen, location: skillFile });
+      const requirements = extractSkillRequirements(raw);
+      byName.set(name, {
+        name,
+        description: metadata.description,
+        readWhen: metadata.readWhen,
+        requirements,
+        location: skillFile,
+      });
     }
   }
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -214,19 +466,54 @@ export function discoverRuntimeSkillsWithCache(dirs) {
 }
 
 // ===== Prompt builder =====
-function formatRuntimeSkillsPrompt(skills) {
+function formatRuntimeSkillsPrompt(skills, requestText = "") {
   if (!Array.isArray(skills) || skills.length === 0) return "";
-  const body = skills
-    .map(
-      (skill) =>
-        `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(skill.description)}</description>${Array.isArray(skill.readWhen) && skill.readWhen.length > 0 ? `<read_when>${escapeXml(skill.readWhen.join(" | "))}</read_when>` : ""}<location>${escapeXml(skill.location)}</location></skill>`,
-    )
-    .join("");
-  return [
+  const selectedSkills = selectSkillsForPrompt(skills, requestText);
+  if (selectedSkills.length === 0) return "";
+
+  const promptMaxChars = Number.isFinite(SKILL_PROMPT_MAX_CHARS) && SKILL_PROMPT_MAX_CHARS > 0
+    ? Math.trunc(SKILL_PROMPT_MAX_CHARS)
+    : 1800;
+  const promptLocation = (location) => {
+    const raw = String(location || "").trim();
+    if (!raw) return "";
+    try {
+      const relative = path.relative(ROOT_WORKSPACE_DIR, raw).replace(/\\/g, "/");
+      if (relative && !relative.startsWith("..")) return relative;
+    } catch {}
+    return raw;
+  };
+  const buildSkillEntry = (skill, includeReadWhen = true) => {
+    const readWhen = Array.isArray(skill.readWhen) && skill.readWhen.length > 0 && includeReadWhen
+      ? `<read_when>${escapeXml(compactText(skill.readWhen.join(" | "), SKILL_PROMPT_MAX_HINT_CHARS))}</read_when>`
+      : "";
+    return `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(compactText(skill.description, 120))}</description>${readWhen}<location>${escapeXml(promptLocation(skill.location))}</location></skill>`;
+  };
+
+  const prefix = [
     "Prefer skills whose metadata read_when hints match the request intent.",
     "Scan descriptions. If one applies, use the read tool to load its SKILL.md. Never load more than one upfront.",
-    `<available_skills>${body}</available_skills>`,
+    "<available_skills>",
   ].join("\n");
+  const suffix = "</available_skills>";
+
+  const parts = [];
+  let consumed = prefix.length + suffix.length + 2;
+  for (const skill of selectedSkills) {
+    let entry = buildSkillEntry(skill, true);
+    if (consumed + entry.length > promptMaxChars && parts.length > 0) {
+      entry = buildSkillEntry(skill, false);
+    }
+    if (consumed + entry.length > promptMaxChars) break;
+    parts.push(entry);
+    consumed += entry.length;
+  }
+
+  if (parts.length === 0) {
+    parts.push(buildSkillEntry(selectedSkills[0], false));
+  }
+
+  return `${prefix}${parts.join("")}\n${suffix}`;
 }
 
 // ===== Starter skill templates & seeding =====
@@ -330,11 +617,84 @@ export function ensureStarterSkillsForUser(personaWorkspaceDir) {
   } catch {}
 }
 
-export function buildRuntimeSkillsPrompt(personaWorkspaceDir) {
-  if (personaWorkspaceDir) ensureStarterSkillsForUser(personaWorkspaceDir);
-  const dirs = personaWorkspaceDir
-    ? [path.join(personaWorkspaceDir, "skills")]
-    : [path.join(ROOT_WORKSPACE_DIR, "skills")];
+function migrateLegacyUserSkillsToGlobal(personaWorkspaceDir) {
+  if (!personaWorkspaceDir) return;
+  const legacySkillsDir = path.join(personaWorkspaceDir, "skills");
+  if (LEGACY_SKILLS_MIGRATED_DIRS.has(legacySkillsDir)) return;
+  LEGACY_SKILLS_MIGRATED_DIRS.add(legacySkillsDir);
+  if (!fs.existsSync(legacySkillsDir)) return;
+
+  const globalSkillsDir = path.join(ROOT_WORKSPACE_DIR, "skills");
+  try { fs.mkdirSync(globalSkillsDir, { recursive: true }); } catch {}
+
+  let moved = 0;
+  let entries = [];
+  try {
+    entries = fs.readdirSync(legacySkillsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillName = String(entry.name || "").trim();
+    if (!skillName || !STARTER_SKILL_NAMES.has(skillName)) continue;
+    const legacySkillPath = path.join(legacySkillsDir, skillName, "SKILL.md");
+    if (!fs.existsSync(legacySkillPath)) continue;
+    const globalSkillPath = path.join(globalSkillsDir, skillName, "SKILL.md");
+    if (fs.existsSync(globalSkillPath)) continue;
+    try {
+      const raw = fs.readFileSync(legacySkillPath, "utf8");
+      fs.mkdirSync(path.dirname(globalSkillPath), { recursive: true });
+      fs.writeFileSync(globalSkillPath, `${String(raw || "").replace(/\r\n/g, "\n").trim()}\n`, "utf8");
+      moved += 1;
+    } catch {}
+  }
+
+  if (moved > 0) {
+    console.log(`[Skills] Migrated ${moved} legacy user skill(s) into global catalog.`);
+  }
+}
+
+function pruneLegacyStarterSkills(personaWorkspaceDir) {
+  if (!personaWorkspaceDir) return;
+  const legacySkillsDir = path.join(personaWorkspaceDir, "skills");
+  if (!fs.existsSync(legacySkillsDir)) return;
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(legacySkillsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillName = String(entry.name || "").trim();
+    if (!skillName || !STARTER_SKILL_NAMES.has(skillName)) continue;
+    const skillDir = path.join(legacySkillsDir, skillName);
+    try {
+      fs.rmSync(skillDir, { recursive: true, force: true });
+      removed += 1;
+    } catch {}
+  }
+
+  const metaPath = path.join(legacySkillsDir, STARTER_SKILL_META_FILE);
+  try {
+    if (fs.existsSync(metaPath)) fs.rmSync(metaPath, { force: true });
+  } catch {}
+
+  if (removed > 0) {
+    console.log(`[Skills] Pruned ${removed} legacy starter skill folder(s) from user context.`);
+  }
+}
+
+export function buildRuntimeSkillsPrompt(personaWorkspaceDir, requestText = "") {
+  migrateLegacyUserSkillsToGlobal(personaWorkspaceDir);
+  pruneLegacyStarterSkills(personaWorkspaceDir);
+  const dirs = [path.join(ROOT_WORKSPACE_DIR, "skills")];
+  if (personaWorkspaceDir) dirs.push(path.join(personaWorkspaceDir, "skills"));
   const skills = discoverRuntimeSkillsWithCache(dirs);
-  return formatRuntimeSkillsPrompt(skills);
+  return formatRuntimeSkillsPrompt(skills, requestText);
 }

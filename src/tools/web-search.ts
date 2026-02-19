@@ -1,4 +1,10 @@
 import type { Tool } from "./types.js";
+import { fetchWithSsrfGuard, readResponseTextWithLimit } from "./net-guard.js";
+
+const SEARCH_TIMEOUT_MS = 12_000;
+const SEARCH_MAX_RESPONSE_BYTES = 1_000_000;
+const SEARCH_MAX_ERROR_BYTES = 64_000;
+const BRAVE_HOSTNAME_ALLOWLIST = ["api.search.brave.com"];
 
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -10,10 +16,19 @@ async function searchBrave(query: string, apiKey: string): Promise<string> {
   url.searchParams.set("q", query);
   url.searchParams.set("count", "5");
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "X-Subscription-Token": apiKey,
+  const { response } = await fetchWithSsrfGuard({
+    url: url.toString(),
+    timeoutMs: SEARCH_TIMEOUT_MS,
+    maxRedirects: 2,
+    policy: {
+      hostnameAllowlist: BRAVE_HOSTNAME_ALLOWLIST,
+    },
+    auditContext: "web_search",
+    init: {
+      headers: {
+        Accept: "application/json",
+        "X-Subscription-Token": apiKey,
+      },
     },
   });
 
@@ -22,11 +37,12 @@ async function searchBrave(query: string, apiKey: string): Promise<string> {
   }
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail = await readResponseTextWithLimit(response, SEARCH_MAX_ERROR_BYTES).catch(() => "");
     return `web_search error (${response.status}): ${truncate(detail, 800)}`;
   }
 
-  const payload = (await response.json()) as {
+  const rawBody = await readResponseTextWithLimit(response, SEARCH_MAX_RESPONSE_BYTES);
+  const payload = JSON.parse(rawBody) as {
     web?: {
       results?: Array<{ title?: string; url?: string; description?: string }>;
     };
@@ -54,6 +70,7 @@ export function createWebSearchTool(params: {
   return {
     name: "web_search",
     description: "Search the web and return top results.",
+    capabilities: ["network.search"],
     input_schema: {
       type: "object",
       properties: {

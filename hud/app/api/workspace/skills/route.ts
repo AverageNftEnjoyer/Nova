@@ -97,6 +97,10 @@ function toTitleCaseSlug(slug: string): string {
 }
 
 function resolveSkillsDir(workspaceRoot: string, userId: string): string {
+  return path.join(path.resolve(workspaceRoot), "skills")
+}
+
+function resolveLegacySkillsDir(workspaceRoot: string, userId: string): string {
   return path.join(
     path.resolve(workspaceRoot),
     ".agent",
@@ -460,6 +464,35 @@ async function installStarterSkills(
   return installed
 }
 
+async function migrateLegacyUserSkillsToGlobal(workspaceRoot: string, userId: string): Promise<string[]> {
+  const legacySkillsDir = resolveLegacySkillsDir(workspaceRoot, userId)
+  const globalSkillsDir = resolveSkillsDir(workspaceRoot, userId)
+  const legacyEntries = await readdir(legacySkillsDir, { withFileTypes: true }).catch(() => [])
+  if (legacyEntries.length === 0) return []
+
+  await mkdir(globalSkillsDir, { recursive: true })
+  const migrated: string[] = []
+  for (const entry of legacyEntries) {
+    if (!entry.isDirectory()) continue
+    const name = entry.name.trim()
+    if (!SKILL_NAME_PATTERN.test(name)) continue
+
+    const legacySkillPath = path.join(legacySkillsDir, name, SKILL_FILE_NAME)
+    const legacyContent = await readFile(legacySkillPath, "utf8").catch(() => "")
+    if (!legacyContent) continue
+
+    const globalSkillPath = resolveSkillFilePath(workspaceRoot, userId, name)
+    const existingGlobal = await readFile(globalSkillPath, "utf8").catch(() => "")
+    if (existingGlobal) continue
+
+    await mkdir(path.dirname(globalSkillPath), { recursive: true })
+    await writeFile(globalSkillPath, legacyContent.replace(/\r\n/g, "\n").trim(), "utf8")
+    migrated.push(name)
+  }
+
+  return migrated
+}
+
 async function listSkillSummaries(skillsDir: string): Promise<SkillSummary[]> {
   const entries = await readdir(skillsDir, { withFileTypes: true }).catch(() => [])
   const summaries: SkillSummary[] = []
@@ -492,6 +525,7 @@ export async function GET(req: Request) {
 
   try {
     const workspaceRoot = path.resolve(process.cwd(), "..")
+    await migrateLegacyUserSkillsToGlobal(workspaceRoot, verified.user.id)
     const skillsDir = resolveSkillsDir(workspaceRoot, verified.user.id)
     const url = new URL(req.url)
     const rawName = url.searchParams.get("name")
@@ -540,6 +574,7 @@ export async function POST(req: Request) {
       .toLowerCase()
 
     const workspaceRoot = path.resolve(process.cwd(), "..")
+    await migrateLegacyUserSkillsToGlobal(workspaceRoot, verified.user.id)
     if (action === "install-starters") {
       const installed = await installStarterSkills(workspaceRoot, verified.user.id, {
         onlyWhenEmpty: false,
@@ -621,6 +656,7 @@ export async function PUT(req: Request) {
     }
 
     const workspaceRoot = path.resolve(process.cwd(), "..")
+    await migrateLegacyUserSkillsToGlobal(workspaceRoot, verified.user.id)
     const skillPath = resolveSkillFilePath(workspaceRoot, verified.user.id, name)
     await mkdir(path.dirname(skillPath), { recursive: true })
     await writeFile(skillPath, validation.normalized, "utf8")
@@ -640,6 +676,7 @@ export async function DELETE(req: Request) {
 
   try {
     const workspaceRoot = path.resolve(process.cwd(), "..")
+    await migrateLegacyUserSkillsToGlobal(workspaceRoot, verified.user.id)
     const url = new URL(req.url)
     const rawName = url.searchParams.get("name")
     const name = normalizeSkillName(rawName)

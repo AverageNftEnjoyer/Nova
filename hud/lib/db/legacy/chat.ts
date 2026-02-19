@@ -21,7 +21,7 @@ export type MessageRecord = {
   created_at: string
 }
 
-export async function createThread(client: SupabaseClient, userId: string, title = "New chat"): Promise<ThreadRecord> {
+export async function createThread(client: SupabaseClient, userId: string, title = "Greetings Exchange"): Promise<ThreadRecord> {
   const { data, error } = await client
     .from("threads")
     .insert({ user_id: userId, title })

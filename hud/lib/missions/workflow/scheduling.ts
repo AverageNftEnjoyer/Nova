@@ -9,6 +9,8 @@ import { normalizeWorkflowStep } from "../utils/config"
 import { parseMissionWorkflow } from "./parsing"
 import type { WorkflowScheduleGate } from "../types"
 
+const DEFAULT_SCHEDULE_WINDOW_MINUTES = 10
+
 /**
  * Get local time parts from a date and timezone.
  */
@@ -94,6 +96,23 @@ export function parseTime(value: string | undefined): { hour: number; minute: nu
   return { hour, minute }
 }
 
+function resolveScheduleWindowMinutes(trigger: unknown, parsedWindow: unknown): number {
+  const fromTrigger =
+    trigger && typeof trigger === "object" && "triggerWindowMinutes" in trigger
+      ? Number((trigger as Record<string, unknown>).triggerWindowMinutes)
+      : Number.NaN
+  const fromSummary = Number(parsedWindow)
+  const fromEnv = Number(process.env.NOVA_SCHEDULER_WINDOW_MINUTES || "")
+  const raw = Number.isFinite(fromTrigger)
+    ? fromTrigger
+    : Number.isFinite(fromSummary)
+      ? fromSummary
+      : Number.isFinite(fromEnv)
+        ? fromEnv
+        : DEFAULT_SCHEDULE_WINDOW_MINUTES
+  return Math.max(0, Math.min(120, Math.floor(raw)))
+}
+
 /**
  * Determine if a workflow should run now.
  */
@@ -108,27 +127,24 @@ export function shouldWorkflowRunNow(schedule: NotificationSchedule, now: Date):
     "America/New_York",
   ).trim() || "America/New_York"
   const local = getLocalParts(now, timezone)
-  if (!local) return { due: false, dayStamp: "", mode: "daily" }
+  if (!local) return { due: false, dayStamp: "", mode: "daily", timezone }
 
   const mode = String(trigger?.triggerMode || parsed.summary?.schedule?.mode || "daily").toLowerCase()
   const timeString = String(trigger?.triggerTime || parsed.summary?.schedule?.time || schedule.time || "09:00").trim()
   const target = parseTime(timeString)
   if ((mode === "daily" || mode === "weekly" || mode === "once") && !target) {
-    return { due: false, dayStamp: local.dayStamp, mode }
+    return { due: false, dayStamp: local.dayStamp, mode, timezone }
   }
 
   if (mode === "interval") {
     const every = Math.max(1, Number(trigger?.triggerIntervalMinutes || "30") || 30)
     const lastRun = schedule.lastRunAt ? new Date(schedule.lastRunAt) : null
     if (!lastRun || Number.isNaN(lastRun.getTime())) {
-      return { due: true, dayStamp: local.dayStamp, mode }
+      return { due: true, dayStamp: local.dayStamp, mode, timezone }
     }
     const minutesSince = (now.getTime() - lastRun.getTime()) / 60000
-    return { due: minutesSince >= every, dayStamp: local.dayStamp, mode }
+    return { due: minutesSince >= every, dayStamp: local.dayStamp, mode, timezone }
   }
-
-  const sameMinute = local.hour === (target?.hour ?? -1) && local.minute === (target?.minute ?? -1)
-  if (!sameMinute) return { due: false, dayStamp: local.dayStamp, mode }
 
   if (mode === "weekly" || mode === "once") {
     const days = Array.isArray(trigger?.triggerDays)
@@ -137,9 +153,23 @@ export function shouldWorkflowRunNow(schedule: NotificationSchedule, now: Date):
         ? parsed.summary!.schedule!.days!.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
         : []
     if (days.length > 0 && !days.includes(local.weekday)) {
-      return { due: false, dayStamp: local.dayStamp, mode }
+      return { due: false, dayStamp: local.dayStamp, mode, timezone }
     }
   }
 
-  return { due: true, dayStamp: local.dayStamp, mode }
+  const nowMinuteOfDay = local.hour * 60 + local.minute
+  const targetMinuteOfDay = (target?.hour ?? 0) * 60 + (target?.minute ?? 0)
+  if (nowMinuteOfDay < targetMinuteOfDay) {
+    return { due: false, dayStamp: local.dayStamp, mode, timezone }
+  }
+
+  const lagMinutes = nowMinuteOfDay - targetMinuteOfDay
+  const scheduleWindowMinutes = resolveScheduleWindowMinutes(trigger, parsed.summary?.schedule && typeof parsed.summary.schedule === "object"
+    ? (parsed.summary.schedule as Record<string, unknown>).windowMinutes
+    : undefined)
+  if (lagMinutes > scheduleWindowMinutes) {
+    return { due: false, dayStamp: local.dayStamp, mode, timezone }
+  }
+
+  return { due: true, dayStamp: local.dayStamp, mode, timezone }
 }

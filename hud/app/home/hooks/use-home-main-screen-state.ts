@@ -68,7 +68,11 @@ export function useHomeMainScreenState() {
 
     greetingSentRef.current = true
     const settings = loadUserSettings()
-    setVoicePreference(settings.app.ttsVoice, settings.app.voiceEnabled)
+    setVoicePreference(
+      settings.app.ttsVoice,
+      settings.app.voiceEnabled,
+      settings.personalization.assistantName,
+    )
     if (!settings.app.voiceEnabled) return
 
     const now = Date.now()
@@ -78,7 +82,12 @@ export function useHomeMainScreenState() {
     const greeting = pickGreetingForTone(normalizeResponseTone(settings.personalization?.tone))
     const timer = window.setTimeout(() => {
       localStorage.setItem("nova-last-greeting-at", String(Date.now()))
-      sendGreeting(greeting, settings.app.ttsVoice, settings.app.voiceEnabled)
+      sendGreeting(
+        greeting,
+        settings.app.ttsVoice,
+        settings.app.voiceEnabled,
+        settings.personalization.assistantName,
+      )
     }, 1500)
 
     return () => window.clearTimeout(timer)

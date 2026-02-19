@@ -23,6 +23,7 @@ export function createExecTool(params: {
   return {
     name: "exec",
     description: "Execute shell commands in the local environment.",
+    capabilities: ["process.exec"],
     input_schema: {
       type: "object",
       properties: {

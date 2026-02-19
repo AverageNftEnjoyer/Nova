@@ -5,9 +5,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation"
 import {
   createConversation,
+  DEFAULT_CONVERSATION_TITLE,
   generateId,
   getActiveId,
   loadConversations,
+  resolveConversationTitle,
   saveConversations,
   setActiveId,
   type ChatMessage,
@@ -56,7 +58,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     return Array.isArray(data.conversations) ? data.conversations : []
   }, [router])
 
-  const createServerConversation = useCallback(async (title = "New chat"): Promise<Conversation> => {
+  const createServerConversation = useCallback(async (title = DEFAULT_CONVERSATION_TITLE): Promise<Conversation> => {
     const res = await fetch("/api/threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -100,7 +102,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     const existing = remoteConversations.find((entry) => entry.id === convo.id)
     if (existing) return existing
 
-    const created = await createServerConversation(convo.title || "New chat")
+    const created = await createServerConversation(convo.title || DEFAULT_CONVERSATION_TITLE)
     const migrated: Conversation = {
       ...created,
       messages: convo.messages,
@@ -175,9 +177,12 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
         }
       }
       convo.messages = mergedVoiceMessages
-      convo.title = voiceUserMsg.content.length > 40
-        ? `${voiceUserMsg.content.slice(0, 40)}...`
-        : voiceUserMsg.content
+      convo.title = resolveConversationTitle({
+        messages: convo.messages,
+        currentTitle: convo.title,
+        conversations,
+        conversationId: convo.id,
+      })
 
       const next = [convo, ...conversations]
       persistConversations(next)
@@ -191,23 +196,27 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     const text = finalText.trim()
     if (!text || !connected) return
 
-    const firstLine = text.split("\n")[0]?.trim() || "New chat"
-    const convo = await createServerConversation(
-      firstLine.length > 80 ? `${firstLine.slice(0, 80)}...` : firstLine,
-    ).catch(() => null)
-    if (!convo) return
-
-    const userMsg: ChatMessage = {
+    const provisionalUserMessage: ChatMessage = {
       id: generateId(),
       role: "user",
       content: finalText,
       createdAt: new Date().toISOString(),
       source: "agent",
     }
+    const seededTitle = resolveConversationTitle({
+      messages: [provisionalUserMessage],
+      currentTitle: DEFAULT_CONVERSATION_TITLE,
+      conversations,
+    })
+    const convo = await createServerConversation(
+      seededTitle,
+    ).catch(() => null)
+    if (!convo) return
+
     const seededConvo: Conversation = {
       ...convo,
-      messages: [userMsg],
-      title: firstLine.length > 40 ? `${firstLine.slice(0, 40)}...` : firstLine,
+      messages: [provisionalUserMessage],
+      title: seededTitle,
       updatedAt: new Date().toISOString(),
     }
     await syncServerMessages(seededConvo).catch(() => {})
@@ -221,14 +230,14 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
         JSON.stringify({
           convoId: seededConvo.id,
           content: finalText,
-          messageId: userMsg.id,
-          messageCreatedAt: userMsg.createdAt,
+          messageId: provisionalUserMessage.id,
+          messageCreatedAt: provisionalUserMessage.createdAt,
           createdAt: Date.now(),
         }),
       )
     } catch {}
     router.push("/chat")
-  }, [connected, createServerConversation, router, conversations, persistConversations, syncServerMessages])
+  }, [connected, conversations, createServerConversation, persistConversations, router, syncServerMessages])
 
   const handleSelectConvo = useCallback(async (id: string) => {
     const local = conversations.find((entry) => entry.id === id)

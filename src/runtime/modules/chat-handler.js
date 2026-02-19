@@ -23,11 +23,19 @@ import {
   SESSION_MAX_TURNS,
   SESSION_MAX_HISTORY_TOKENS,
   MAX_PROMPT_TOKENS,
+  PROMPT_RESPONSE_RESERVE_TOKENS,
+  PROMPT_HISTORY_TARGET_TOKENS,
+  PROMPT_MIN_HISTORY_TOKENS,
+  PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+  PROMPT_BUDGET_DEBUG,
   COMMAND_ACKS,
   AGENT_PROMPT_MODE,
   ROOT_WORKSPACE_DIR,
+  ROUTING_PREFERENCE,
+  ROUTING_ALLOW_ACTIVE_OVERRIDE,
+  ROUTING_PREFERRED_PROVIDERS,
 } from "../constants.js";
-import { sessionRuntime, toolRuntime } from "./config.js";
+import { sessionRuntime, toolRuntime, wakeWordRuntime } from "./config.js";
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "./persona-context.js";
 import { isMemoryUpdateRequest, extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate, extractAutoMemoryFacts } from "./memory.js";
 import { buildRuntimeSkillsPrompt } from "./skills.js";
@@ -57,6 +65,11 @@ import {
 import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../context-prompt.js";
 import { buildAgentSystemPrompt, PromptMode } from "./system-prompt.js";
 import { buildPersonaPrompt } from "./bootstrap.js";
+import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
+import { normalizeAssistantReply, normalizeAssistantSpeechText } from "./reply-normalizer.js";
+import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "./link-understanding.js";
+import { appendBudgetedPromptSection, computeHistoryTokenBudget } from "./prompt-budget.js";
+import { detectSuspiciousPatterns, wrapWebContent } from "./external-content.js";
 
 function applyMemoryFactsToWorkspace(personaWorkspaceDir, facts) {
   if (!Array.isArray(facts) || facts.length === 0) return 0;
@@ -95,9 +108,12 @@ async function handleMemoryUpdate(text, ctx) {
   const assistantStreamId = createAssistantStreamId();
 
   function sendAssistantReply(reply) {
+    const normalized = normalizeAssistantReply(reply);
+    if (normalized.skip) return "";
     broadcastAssistantStreamStart(assistantStreamId, source);
-    broadcastAssistantStreamDelta(assistantStreamId, reply, source);
+    broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source);
     broadcastAssistantStreamDone(assistantStreamId, source);
+    return normalized.text;
   }
 
   broadcastState("thinking");
@@ -106,9 +122,11 @@ async function handleMemoryUpdate(text, ctx) {
 
   if (!fact) {
     const reply = "Tell me exactly what to remember after 'update your memory'.";
-    sendAssistantReply(reply);
-    if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", reply, { source, sender: "nova" });
-    if (useVoice) await speak(reply, ttsVoice); else broadcastState("idle");
+    const finalReply = sendAssistantReply(reply);
+    if (finalReply && sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", finalReply, { source, sender: "nova" });
+    if (finalReply && useVoice) {
+      await speak(normalizeAssistantSpeechText(finalReply) || finalReply, ttsVoice);
+    } else broadcastState("idle");
     return;
   }
 
@@ -122,8 +140,8 @@ async function handleMemoryUpdate(text, ctx) {
     const confirmation = memoryMeta.hasStructuredField
       ? `Memory updated. I will remember this as current: ${memoryMeta.fact}`
       : `Memory updated. I saved: ${memoryMeta.fact}`;
-    sendAssistantReply(confirmation);
-    if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", confirmation, { source, sender: "nova" });
+    const finalConfirmation = sendAssistantReply(confirmation);
+    if (finalConfirmation && sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", finalConfirmation, { source, sender: "nova" });
     appendRawStream({
       event: "memory_manual_upsert",
       source,
@@ -132,12 +150,16 @@ async function handleMemoryUpdate(text, ctx) {
       key: memoryMeta.key || null,
     });
     console.log(`[Memory] Manual memory update applied for ${userContextId || "anonymous"} key=${memoryMeta.key || "general"}.`);
-    if (useVoice) await speak(confirmation, ttsVoice); else broadcastState("idle");
+    if (finalConfirmation && useVoice) {
+      await speak(normalizeAssistantSpeechText(finalConfirmation) || finalConfirmation, ttsVoice);
+    } else broadcastState("idle");
   } catch (err) {
     const failure = `I couldn't update MEMORY.md: ${describeUnknownError(err)}`;
-    sendAssistantReply(failure);
-    if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", failure, { source, sender: "nova" });
-    if (useVoice) await speak(failure, ttsVoice); else broadcastState("idle");
+    const finalFailure = sendAssistantReply(failure);
+    if (finalFailure && sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", finalFailure, { source, sender: "nova" });
+    if (finalFailure && useVoice) {
+      await speak(normalizeAssistantSpeechText(finalFailure) || finalFailure, ttsVoice);
+    } else broadcastState("idle");
   }
 }
 
@@ -194,8 +216,11 @@ Output ONLY valid JSON, nothing else.`;
 
   try {
     const intent = JSON.parse(spotifyRaw);
-    if (useVoice) await speak(intent.response, ttsVoice);
-    else broadcastMessage("assistant", intent.response, source);
+    const normalized = normalizeAssistantReply(intent.response);
+    if (!normalized.skip) {
+      if (useVoice) await speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice);
+      else broadcastMessage("assistant", normalized.text, source);
+    }
 
     if (intent.action === "open") {
       exec("start spotify:");
@@ -214,8 +239,11 @@ Output ONLY valid JSON, nothing else.`;
   } catch (e) {
     console.error("[Spotify] Parse error:", e.message);
     const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
-    if (useVoice) await speak(ack, ttsVoice);
-    else broadcastMessage("assistant", ack, source);
+    const normalizedAck = normalizeAssistantReply(ack);
+    if (!normalizedAck.skip) {
+      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedAck.text) || normalizedAck.text, ttsVoice);
+      else broadcastMessage("assistant", normalizedAck.text, source);
+    }
     exec("start spotify:");
   }
 
@@ -257,6 +285,7 @@ async function handleWorkflowBuild(text, ctx, options = {}) {
     const reply = data?.deployed
       ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}.`
       : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}.`;
+    const normalizedReply = normalizeAssistantReply(reply);
 
     appendRawStream({
       event: "workflow_build_done",
@@ -269,8 +298,10 @@ async function handleWorkflowBuild(text, ctx, options = {}) {
       model,
       stepCount,
     });
-    broadcastMessage("assistant", reply, source);
-    if (useVoice) await speak(reply, ttsVoice);
+    if (!normalizedReply.skip) {
+      broadcastMessage("assistant", normalizedReply.text, source);
+      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Workflow build failed.";
     appendRawStream({
@@ -282,8 +313,11 @@ async function handleWorkflowBuild(text, ctx, options = {}) {
       message: msg,
     });
     const reply = `I couldn't build that workflow yet: ${msg}`;
-    broadcastMessage("assistant", reply, source);
-    if (useVoice) await speak(reply, ttsVoice);
+    const normalizedReply = normalizeAssistantReply(reply);
+    if (!normalizedReply.skip) {
+      broadcastMessage("assistant", normalizedReply.text, source);
+      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
+    }
   } finally {
     broadcastState("idle");
   }
@@ -293,11 +327,12 @@ async function handleWorkflowBuild(text, ctx, options = {}) {
 async function executeChatRequest(text, ctx, llmCtx) {
   const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId,
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions } = ctx;
-  const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch } = llmCtx;
+  const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch, canRunWebFetch } = llmCtx;
   const startedAt = Date.now();
   const observedToolCalls = [];
   let usedMemoryRecall = false;
   let usedWebSearchPreload = false;
+  let usedLinkUnderstanding = false;
   let preparedPromptHash = "";
   let emittedAssistantDelta = false;
   const runSummary = {
@@ -315,6 +350,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
     toolCalls: [],
     memoryRecallUsed: false,
     webSearchPreloadUsed: false,
+    linkUnderstandingUsed: false,
     promptHash: "",
     error: "",
   };
@@ -323,7 +359,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
   if (useVoice) playThinking();
 
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
-  const runtimeSkillsPrompt = buildRuntimeSkillsPrompt(personaWorkspaceDir);
+  const runtimeSkillsPrompt = buildRuntimeSkillsPrompt(personaWorkspaceDir, text);
   const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
     buildAgentSystemPrompt,
     buildPersonaPrompt,
@@ -371,6 +407,15 @@ async function executeChatRequest(text, ctx, llmCtx) {
   ].filter(Boolean).join("\n");
   if (personaOverlay) systemPrompt += `\n\n${personaOverlay}`;
 
+  const promptBudgetOptions = {
+    userMessage: text,
+    maxPromptTokens: MAX_PROMPT_TOKENS,
+    responseReserveTokens: PROMPT_RESPONSE_RESERVE_TOKENS,
+    historyTargetTokens: PROMPT_HISTORY_TARGET_TOKENS,
+    sectionMaxTokens: PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+    debug: PROMPT_BUDGET_DEBUG,
+  };
+
   if (canRunWebSearch && shouldPreloadWebSearch(text)) {
     try {
       const preloadResult = await runtimeTools.executeToolUse(
@@ -379,11 +424,63 @@ async function executeChatRequest(text, ctx, llmCtx) {
       );
       const preloadContent = String(preloadResult?.content || "").trim();
       if (preloadContent && !/^web_search error/i.test(preloadContent)) {
-        systemPrompt += `\n\n## Live Web Search Context\nUse these current results when answering:\n${preloadContent.slice(0, 2200)}`;
-        usedWebSearchPreload = true;
+        const suspiciousPatterns = detectSuspiciousPatterns(preloadContent);
+        if (suspiciousPatterns.length > 0) {
+          console.warn(
+            `[Security] suspicious web_search preload patterns=${suspiciousPatterns.length} session=${sessionKey}`,
+          );
+        }
+        const safePreloadContent = wrapWebContent(preloadContent, "web_search");
+        const prepend = "Use these current results when answering:\n";
+        const appended = appendBudgetedPromptSection({
+          ...promptBudgetOptions,
+          prompt: systemPrompt,
+          sectionTitle: "Live Web Search Context",
+          sectionBody: `${prepend}${safePreloadContent}`,
+        });
+        if (appended.included) {
+          systemPrompt = appended.prompt;
+          usedWebSearchPreload = true;
+        }
       }
     } catch (err) {
       console.warn(`[ToolLoop] web_search preload failed: ${describeUnknownError(err)}`);
+    }
+  }
+
+  if (canRunWebFetch) {
+    try {
+      const linkResult = await runLinkUnderstanding({
+        text,
+        runtimeTools,
+        availableTools,
+        maxLinks: 2,
+        maxCharsPerLink: 1800,
+      });
+      const formatted = formatLinkUnderstandingForPrompt(linkResult.outputs, 3600);
+      if (formatted) {
+        const suspiciousPatterns = detectSuspiciousPatterns(formatted);
+        if (suspiciousPatterns.length > 0) {
+          console.warn(
+            `[Security] suspicious link context patterns=${suspiciousPatterns.length} session=${sessionKey}`,
+          );
+        }
+        const safeLinkContext = wrapWebContent(formatted, "web_fetch");
+        const prepend = "Use this fetched URL context when relevant:\n";
+        const appended = appendBudgetedPromptSection({
+          ...promptBudgetOptions,
+          prompt: systemPrompt,
+          sectionTitle: "Link Context",
+          sectionBody: `${prepend}${safeLinkContext}`,
+        });
+        if (appended.included) {
+          systemPrompt = appended.prompt;
+          usedLinkUnderstanding = true;
+          observedToolCalls.push("web_fetch");
+        }
+      }
+    } catch (err) {
+      console.warn(`[ToolLoop] link understanding preload failed: ${describeUnknownError(err)}`);
     }
   }
 
@@ -395,8 +492,17 @@ async function executeChatRequest(text, ctx, llmCtx) {
         const memoryContext = recalled
           .map((item, idx) => `[${idx + 1}] ${String(item.source || "unknown")}\n${String(item.content || "").slice(0, 600)}`)
           .join("\n\n");
-        systemPrompt += `\n\n## Live Memory Recall\nUse this indexed context when relevant:\n${memoryContext}`;
-        usedMemoryRecall = true;
+        const prepend = "Use this indexed context when relevant:\n";
+        const appended = appendBudgetedPromptSection({
+          ...promptBudgetOptions,
+          prompt: systemPrompt,
+          sectionTitle: "Live Memory Recall",
+          sectionBody: `${prepend}${memoryContext}`,
+        });
+        if (appended.included) {
+          systemPrompt = appended.prompt;
+          usedMemoryRecall = true;
+        }
       }
     } catch (err) {
       console.warn(`[MemoryLoop] Search failed: ${describeUnknownError(err)}`);
@@ -408,10 +514,19 @@ async function executeChatRequest(text, ctx, llmCtx) {
 
   const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
   const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
-  const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, SESSION_MAX_HISTORY_TOKENS);
+  const computedHistoryTokenBudget = computeHistoryTokenBudget({
+    maxPromptTokens: MAX_PROMPT_TOKENS,
+    responseReserveTokens: PROMPT_RESPONSE_RESERVE_TOKENS,
+    userMessage: text,
+    systemPrompt,
+    maxHistoryTokens: SESSION_MAX_HISTORY_TOKENS,
+    minHistoryTokens: PROMPT_MIN_HISTORY_TOKENS,
+    targetHistoryTokens: PROMPT_HISTORY_TARGET_TOKENS,
+  });
+  const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, computedHistoryTokenBudget);
   const historyMessages = historyBudget.messages;
   console.log(
-    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens}`,
+    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens} history_budget=${computedHistoryTokenBudget}`,
   );
 
   const messages = [
@@ -528,7 +643,20 @@ async function executeChatRequest(text, ctx, llmCtx) {
           loopMessages.push({
             role: "tool",
             tool_call_id: toolCall.id,
-            content: String(toolResult?.content || ""),
+            content: (() => {
+              const content = String(toolResult?.content || "");
+              const normalizedName = String(toolName || "").toLowerCase();
+              if (normalizedName !== "web_search" && normalizedName !== "web_fetch") {
+                return content;
+              }
+              const suspiciousPatterns = detectSuspiciousPatterns(content);
+              if (suspiciousPatterns.length > 0) {
+                console.warn(
+                  `[Security] suspicious ${normalizedName} tool output patterns=${suspiciousPatterns.length} session=${sessionKey}`,
+                );
+              }
+              return wrapWebContent(content, normalizedName === "web_fetch" ? "web_fetch" : "web_search");
+            })(),
           });
         }
       }
@@ -598,6 +726,13 @@ async function executeChatRequest(text, ctx, llmCtx) {
       }
     }
 
+    const normalizedReply = normalizeAssistantReply(reply);
+    if (normalizedReply.skip) {
+      reply = "";
+    } else {
+      reply = normalizedReply.text;
+    }
+
     if (reply && !emittedAssistantDelta) {
       emittedAssistantDelta = true;
       broadcastAssistantStreamDelta(assistantStreamId, reply, source);
@@ -612,7 +747,9 @@ async function executeChatRequest(text, ctx, llmCtx) {
     broadcast({ type: "usage", provider: activeChatRuntime.provider, model: modelForUsage, promptTokens, completionTokens, totalTokens, estimatedCostUsd, ts: Date.now() });
 
     sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "user", text, { source, sender: ctx.sender, provider: activeChatRuntime.provider, model: modelForUsage, sessionKey });
-    sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, promptTokens, completionTokens, totalTokens });
+    if (reply) {
+      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, promptTokens, completionTokens, totalTokens });
+    }
     sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens });
 
     try {
@@ -644,9 +781,10 @@ async function executeChatRequest(text, ctx, llmCtx) {
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
     runSummary.memoryRecallUsed = usedMemoryRecall;
     runSummary.webSearchPreloadUsed = usedWebSearchPreload;
+    runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
     runSummary.promptHash = preparedPromptHash;
 
-    if (useVoice) await speak(reply, ttsVoice);
+    if (useVoice && reply) await speak(normalizeAssistantSpeechText(reply) || reply, ttsVoice);
   } catch (err) {
     const details = toErrorDetails(err);
     const msg = details.message || "Unknown model error.";
@@ -661,6 +799,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
     runSummary.memoryRecallUsed = usedMemoryRecall;
     runSummary.webSearchPreloadUsed = usedWebSearchPreload;
+    runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
     runSummary.promptHash = preparedPromptHash;
   } finally {
     runSummary.latencyMs = Date.now() - startedAt;
@@ -686,9 +825,32 @@ export async function handleInput(text, opts = {}) {
   const runtimeCommunicationStyle = String(opts.communicationStyle || "").trim();
   const runtimeAssistantName = String(opts.assistantName || "").trim();
   const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
+  const inboundMessageId = String(opts.inboundMessageId || "").trim();
   const n = text.toLowerCase().trim();
 
+  if (shouldSkipDuplicateInbound({
+    text,
+    source,
+    sender,
+    userContextId,
+    sessionKey,
+    inboundMessageId,
+  })) {
+    appendRawStream({
+      event: "request_duplicate_skipped",
+      source,
+      sessionKey,
+      userContextId: userContextId || undefined,
+      chars: String(text || "").length,
+    });
+    return;
+  }
+
   appendRawStream({ event: "request_start", source, sessionKey, userContextId: userContextId || undefined, chars: String(text || "").length });
+
+  if (runtimeAssistantName && typeof wakeWordRuntime?.setAssistantName === "function") {
+    wakeWordRuntime.setAssistantName(runtimeAssistantName);
+  }
 
   const ctx = {
     source, sender, sessionContext, sessionKey, userContextId,
@@ -703,9 +865,21 @@ export async function handleInput(text, opts = {}) {
     return;
   }
 
-  // Resolve provider (Bug Fix 4: uses cached loader)
+  const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
+  const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
+  const canRunToolLoop = TOOL_LOOP_ENABLED && availableTools.length > 0 && typeof runtimeTools?.executeToolUse === "function";
+  const canRunWebSearch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_search");
+  const canRunWebFetch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_fetch");
+
+  // Resolve provider (Bug Fix 4: uses cached loader) + routing arbitration
   const integrationsRuntime = cachedLoadIntegrationsRuntime({ userContextId });
-  const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, { strictActiveProvider: !ENABLE_PROVIDER_FALLBACK });
+  const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, {
+    strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
+    preference: ROUTING_PREFERENCE,
+    requiresToolCalling: canRunToolLoop,
+    allowActiveProviderOverride: ENABLE_PROVIDER_FALLBACK && ROUTING_ALLOW_ACTIVE_OVERRIDE,
+    preferredProviders: ROUTING_PREFERRED_PROVIDERS,
+  });
 
   if (!activeChatRuntime.apiKey) {
     const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : activeChatRuntime.provider === "gemini" ? "Gemini" : "OpenAI";
@@ -724,14 +898,14 @@ export async function handleInput(text, opts = {}) {
       : activeChatRuntime.provider === "gemini" ? DEFAULT_GEMINI_MODEL
       : DEFAULT_CHAT_MODEL);
 
-  const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
-  const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
-  const canRunToolLoop = TOOL_LOOP_ENABLED && availableTools.length > 0 && typeof runtimeTools?.executeToolUse === "function";
-  const canRunWebSearch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_search");
+  console.log(
+    `[RuntimeSelection] session=${sessionKey} provider=${activeChatRuntime.provider}` +
+    ` model=${selectedChatModel} source=${source}` +
+    ` route=${String(activeChatRuntime.routeReason || "n/a")}` +
+    ` candidates=${Array.isArray(activeChatRuntime.rankedCandidates) ? activeChatRuntime.rankedCandidates.join(">") : activeChatRuntime.provider}`,
+  );
 
-  console.log(`[RuntimeSelection] session=${sessionKey} provider=${activeChatRuntime.provider} model=${selectedChatModel} source=${source}`);
-
-  const llmCtx = { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch };
+  const llmCtx = { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch, canRunWebFetch };
 
   // Route to sub-handler
   if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {

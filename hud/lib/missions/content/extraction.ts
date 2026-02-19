@@ -9,9 +9,13 @@
 import { Readability } from "@mozilla/readability"
 import { JSDOM, VirtualConsole } from "jsdom"
 import TurndownService from "turndown"
+import { fetchWithSsrfGuard, readResponseTextWithLimit } from "@/lib/missions/web/safe-fetch"
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+const FETCH_MAX_RESPONSE_BYTES = 2_000_000
+const FETCH_MAX_ERROR_BYTES = 64_000
+const FETCH_MAX_REDIRECTS = 3
 
 function createSilentDom(html: string, url: string): JSDOM {
   const virtualConsole = new VirtualConsole()
@@ -501,28 +505,29 @@ export async function fetchAndExtractContent(
   }
 ): Promise<FetchedDocument> {
   const timeout = options?.timeout || 15000
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        ...options?.headers,
+    const { response, finalUrl } = await fetchWithSsrfGuard({
+      url,
+      timeoutMs: timeout,
+      maxRedirects: FETCH_MAX_REDIRECTS,
+      init: {
+        method: "GET",
+        headers: {
+          "User-Agent": USER_AGENT,
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          ...options?.headers,
+        },
+        cache: "no-store",
       },
-      signal: controller.signal,
-      cache: "no-store",
     })
 
-    const finalUrl = response.url || url
     const contentType = response.headers.get("content-type") || ""
 
     // Handle JSON responses
     if (contentType.includes("application/json")) {
-      const json = await response.json().catch(() => ({}))
-      const text = JSON.stringify(json, null, 2).slice(0, 10000)
+      const raw = await readResponseTextWithLimit(response, FETCH_MAX_RESPONSE_BYTES)
+      const text = raw.slice(0, 10000)
       return {
         ok: response.ok,
         status: response.status,
@@ -541,8 +546,30 @@ export async function fetchAndExtractContent(
       }
     }
 
+    if (!response.ok) {
+      const detail = await readResponseTextWithLimit(response, FETCH_MAX_ERROR_BYTES).catch(() => "")
+      const message = detail.trim() ? detail.trim().slice(0, 1000) : `HTTP ${response.status}`
+      return {
+        ok: false,
+        status: response.status,
+        finalUrl,
+        title: finalUrl,
+        text: "",
+        markdown: "",
+        excerpt: "",
+        quality: {
+          score: 0,
+          hasArticleStructure: false,
+          hasSubstantialContent: false,
+          contentType: "unknown",
+        },
+        links: [],
+        error: message,
+      }
+    }
+
     // Handle HTML
-    const html = await response.text()
+    const html = await readResponseTextWithLimit(response, FETCH_MAX_RESPONSE_BYTES)
     const extracted = extractArticleContent(html, finalUrl)
     const links = extractLinks(html, finalUrl)
 
@@ -556,7 +583,6 @@ export async function fetchAndExtractContent(
       excerpt: extracted.excerpt,
       quality: extracted.quality,
       links,
-      error: response.ok ? undefined : `HTTP ${response.status}`,
     }
   } catch (error) {
     return {
@@ -576,8 +602,6 @@ export async function fetchAndExtractContent(
       links: [],
       error: error instanceof Error ? error.message : "Fetch failed",
     }
-  } finally {
-    clearTimeout(timeoutId)
   }
 }
 

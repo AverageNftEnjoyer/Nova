@@ -22,6 +22,15 @@ function uniqueStrings(values) {
   return out;
 }
 
+function parseCsvList(values) {
+  return uniqueStrings(
+    String(values || "")
+      .split(",")
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 export function createToolRuntime(options) {
   const {
     enabled,
@@ -34,6 +43,13 @@ export function createToolRuntime(options) {
     safeBinaries,
     webSearchProvider,
     webSearchApiKey,
+    allowElevatedTools,
+    allowDangerousTools,
+    elevatedToolAllowlist,
+    dangerousToolAllowlist,
+    enforceCapabilities,
+    capabilityAllowlist,
+    capabilityDenylist,
     memoryConfig,
     describeUnknownError,
   } = options;
@@ -186,7 +202,29 @@ export function createToolRuntime(options) {
 
       runtimeState.tools = Array.isArray(tools) ? tools : [];
       runtimeState.memoryManager = memoryManager;
-      runtimeState.executeToolUse = modules.executeToolUse;
+      runtimeState.executeToolUse = (toolUse, availableTools, overridePolicy = {}) =>
+        modules.executeToolUse(toolUse, availableTools, {
+          source: "runtime-tool-loop",
+          allowElevatedTools:
+            typeof allowElevatedTools === "boolean" ? allowElevatedTools : undefined,
+          allowDangerousTools:
+            typeof allowDangerousTools === "boolean" ? allowDangerousTools : undefined,
+          enforceCapabilities:
+            typeof enforceCapabilities === "boolean" ? enforceCapabilities : undefined,
+          elevatedAllowlist: parseCsvList(elevatedToolAllowlist).concat(
+            parseCsvList(overridePolicy.elevatedAllowlist),
+          ),
+          dangerousAllowlist: parseCsvList(dangerousToolAllowlist).concat(
+            parseCsvList(overridePolicy.dangerousAllowlist),
+          ),
+          capabilityAllowlist: parseCsvList(capabilityAllowlist).concat(
+            parseCsvList(overridePolicy.capabilityAllowlist),
+          ),
+          capabilityDenylist: parseCsvList(capabilityDenylist).concat(
+            parseCsvList(overridePolicy.capabilityDenylist),
+          ),
+          ...overridePolicy,
+        });
       runtimeState.scopeId = scope.scopeId;
       runtimeState.memoryDbPath = scope.dbPath;
       runtimeState.memorySourceDirs = scope.sourceDirs;

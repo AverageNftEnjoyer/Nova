@@ -1,6 +1,9 @@
 ---
 name: research
 description: Deep factual research workflow for multi-source analysis, comparison tasks, and time-sensitive questions using web_search and web_fetch.
+metadata:
+  read_when:
+    - User asks for deep research, option comparison, or fact verification with sources.
 ---
 
 # Research Skill

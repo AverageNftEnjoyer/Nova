@@ -83,13 +83,19 @@ export function recordMic(outFile, seconds = 3) {
 }
 
 // ===== STT (Bug Fix 1: configurable model via NOVA_STT_MODEL env var) =====
-export async function transcribe(micFile) {
+export async function transcribe(micFile, wakeWordHint = "nova") {
   const runtime = loadOpenAIIntegrationRuntime();
   const openai = getOpenAIClient(runtime);
+  const normalizedWake = String(wakeWordHint || "nova")
+    .replace(/[^a-z0-9\s-]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase() || "nova";
+  const displayWake = normalizedWake.charAt(0).toUpperCase() + normalizedWake.slice(1);
   const r = await openai.audio.transcriptions.create({
     file: fs.createReadStream(micFile),
     model: STT_MODEL,
-    prompt: "The wake word is Nova. Prioritize correctly transcribing 'Nova' if spoken.",
+    prompt: `The wake word is ${displayWake}. Prioritize correctly transcribing '${displayWake}' if spoken.`,
   });
   return r.text;
 }

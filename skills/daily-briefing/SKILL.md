@@ -1,6 +1,9 @@
 ---
 name: daily-briefing
 description: Concise situational briefing workflow that blends local memory with date-fresh external updates and explicit verification labels.
+metadata:
+  read_when:
+    - User asks for a daily recap, morning briefing, or "catch me up" summary.
 ---
 
 # Daily Briefing Skill

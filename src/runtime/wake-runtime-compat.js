@@ -8,18 +8,52 @@ function normalizeWakeText(input) {
 
 export function createWakeWordRuntime({ wakeWord, wakeWordVariants }) {
   const normalizedWakeWord = String(wakeWord || "nova").trim().toLowerCase();
-  const variantSet = new Set(
+  const baseVariantSet = new Set(
     (Array.isArray(wakeWordVariants) ? wakeWordVariants : [])
       .map((value) => String(value || "").trim().toLowerCase())
       .filter(Boolean),
   );
   if (normalizedWakeWord) {
-    variantSet.add(normalizedWakeWord);
+    baseVariantSet.add(normalizedWakeWord);
+  }
+  let assistantVariantSet = new Set();
+  let primaryWakeWord = normalizedWakeWord || "nova";
+
+  function getAllVariants() {
+    return new Set([...baseVariantSet, ...assistantVariantSet]);
   }
 
   function isWakeToken(token) {
     if (!token) return false;
-    return variantSet.has(token);
+    return getAllVariants().has(token);
+  }
+
+  function setAssistantName(value) {
+    const normalized = normalizeWakeText(value);
+    if (!normalized) {
+      assistantVariantSet = new Set();
+      primaryWakeWord = normalizedWakeWord || "nova";
+      return false;
+    }
+
+    const tokens = normalized.split(" ").filter(Boolean);
+    if (tokens.length === 0) {
+      assistantVariantSet = new Set();
+      primaryWakeWord = normalizedWakeWord || "nova";
+      return false;
+    }
+
+    assistantVariantSet = new Set(tokens);
+    primaryWakeWord = tokens[0];
+    return true;
+  }
+
+  function getPrimaryWakeWord() {
+    return primaryWakeWord || normalizedWakeWord || "nova";
+  }
+
+  function getWakeWords() {
+    return Array.from(getAllVariants());
   }
 
   function containsWakeWord(input) {
@@ -53,5 +87,8 @@ export function createWakeWordRuntime({ wakeWord, wakeWordVariants }) {
     normalizeWakeText,
     containsWakeWord,
     stripWakePrompt,
+    setAssistantName,
+    getPrimaryWakeWord,
+    getWakeWords,
   };
 }

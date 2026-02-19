@@ -109,6 +109,12 @@ export interface ExecuteMissionWorkflowInput {
   now?: Date
   enforceOutputTime?: boolean
   scope?: IntegrationsStoreScope
+  skillSnapshot?: {
+    version: string
+    createdAt: string
+    skillCount: number
+    guidance: string
+  }
   onStepTrace?: (trace: WorkflowStepTrace) => void | Promise<void>
 }
 
@@ -124,6 +130,7 @@ export interface WorkflowScheduleGate {
   due: boolean
   dayStamp: string
   mode: string
+  timezone?: string
 }
 
 export interface WorkflowStepTrace {

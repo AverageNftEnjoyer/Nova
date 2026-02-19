@@ -217,8 +217,13 @@ export function ChatShellController() {
             m.content.trim() === pendingContent
           )
       )
+      let pendingLocalMessageId = ""
       if (!userAlreadyPresent) {
-        addUserMessage(pendingContent)
+        const updatedConvo = addUserMessage(pendingContent)
+        const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
+        pendingLocalMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
+      } else if (pendingMessageId) {
+        pendingLocalMessageId = pendingMessageId
       }
 
       pendingBootSendHandledRef.current = true
@@ -234,6 +239,7 @@ export function ChatShellController() {
       sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: activeConvo.id,
         sender: "hud-user",
+        messageId: pendingLocalMessageId || pendingMessageId,
         userId: activeUserId,
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
@@ -303,7 +309,9 @@ export function ChatShellController() {
     async (content: string) => {
       if (!content.trim() || !agentConnected || !activeConvo) return
 
-      addUserMessage(content)
+      const updatedConvo = addUserMessage(content)
+      const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
+      const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
       setLocalThinking(true)
       setThinkingStalled(false)
 
@@ -316,6 +324,7 @@ export function ChatShellController() {
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: activeConvo.id,
         sender: "hud-user",
+        messageId: localMessageId,
         userId: activeUserId,
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
+const DEFAULT_THREAD_TITLE = "Greetings Exchange"
 
 type ApiMessage = {
   id: string
@@ -80,7 +81,7 @@ export async function GET(req: Request) {
 
   const conversations: ApiConversation[] = (threads || []).map((thread) => ({
     id: String(thread.id),
-    title: String(thread.title || "New chat"),
+    title: String(thread.title || DEFAULT_THREAD_TITLE),
     pinned: Boolean((thread as { pinned?: boolean }).pinned),
     archived: Boolean((thread as { archived?: boolean }).archived),
     messages: grouped.get(String(thread.id)) || [],
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
   if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const body = (await req.json().catch(() => ({}))) as { title?: string }
-  const title = String(body.title || "New chat").trim() || "New chat"
+  const title = String(body.title || DEFAULT_THREAD_TITLE).trim() || DEFAULT_THREAD_TITLE
 
   const { data, error } = await verified.client
     .from("threads")
@@ -118,7 +119,7 @@ export async function POST(req: Request) {
     ok: true,
     conversation: {
       id: String(data.id),
-      title: String(data.title || "New chat"),
+      title: String(data.title || DEFAULT_THREAD_TITLE),
       pinned: Boolean((data as { pinned?: boolean }).pinned),
       archived: Boolean((data as { archived?: boolean }).archived),
       messages: [],

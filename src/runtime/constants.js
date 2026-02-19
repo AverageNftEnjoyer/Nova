@@ -45,6 +45,36 @@ export const TOOL_EXEC_APPROVAL_MODE = ["ask", "auto", "off"].includes(
 )
   ? String(process.env.NOVA_EXEC_APPROVAL_MODE || "ask").trim().toLowerCase()
   : "ask";
+export const TOOL_ALLOW_ELEVATED =
+  String(process.env.NOVA_TOOL_ALLOW_ELEVATED || "1").trim() !== "0";
+export const TOOL_ALLOW_DANGEROUS =
+  String(process.env.NOVA_TOOL_ALLOW_DANGEROUS || "0").trim() === "1";
+export const TOOL_ELEVATED_ALLOWLIST = String(
+  process.env.NOVA_TOOL_ELEVATED_ALLOWLIST || "",
+)
+  .split(",")
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
+export const TOOL_DANGEROUS_ALLOWLIST = String(
+  process.env.NOVA_TOOL_DANGEROUS_ALLOWLIST || "",
+)
+  .split(",")
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
+export const TOOL_CAPABILITY_ENFORCE =
+  String(process.env.NOVA_TOOL_CAPABILITY_ENFORCE || "0").trim() === "1";
+export const TOOL_CAPABILITY_ALLOWLIST = String(
+  process.env.NOVA_TOOL_CAPABILITY_ALLOWLIST || "",
+)
+  .split(",")
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
+export const TOOL_CAPABILITY_DENYLIST = String(
+  process.env.NOVA_TOOL_CAPABILITY_DENYLIST || "",
+)
+  .split(",")
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
 export const TOOL_WEB_SEARCH_PROVIDER = "brave";
 
 // ===== Memory Paths =====
@@ -93,6 +123,19 @@ export const RAW_STREAM_PATH = String(
 // ===== Provider Fallback =====
 export const ENABLE_PROVIDER_FALLBACK =
   String(process.env.NOVA_ALLOW_PROVIDER_FALLBACK || "").trim() === "1";
+export const ROUTING_PREFERENCE = (() => {
+  const value = String(process.env.NOVA_ROUTING_PREFERENCE || "balanced").trim().toLowerCase();
+  if (value === "cost" || value === "latency" || value === "quality") return value;
+  return "balanced";
+})();
+export const ROUTING_ALLOW_ACTIVE_OVERRIDE =
+  String(process.env.NOVA_ROUTING_ALLOW_ACTIVE_OVERRIDE || "0").trim() === "1";
+export const ROUTING_PREFERRED_PROVIDERS = String(
+  process.env.NOVA_ROUTING_PREFERRED_PROVIDERS || "",
+)
+  .split(",")
+  .map((value) => value.trim().toLowerCase())
+  .filter((value) => value === "openai" || value === "claude" || value === "grok" || value === "gemini");
 
 // ===== Token Limits =====
 const DEFAULT_MAX_PROMPT_TOKENS = 6000;
@@ -104,6 +147,49 @@ export const MAX_PROMPT_TOKENS =
   Number.isFinite(parsedMaxPromptTokens) && parsedMaxPromptTokens > 0
     ? parsedMaxPromptTokens
     : DEFAULT_MAX_PROMPT_TOKENS;
+
+const DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS = 1400;
+const parsedPromptResponseReserveTokens = Number.parseInt(
+  process.env.NOVA_PROMPT_RESPONSE_RESERVE_TOKENS || String(DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS),
+  10,
+);
+export const PROMPT_RESPONSE_RESERVE_TOKENS =
+  Number.isFinite(parsedPromptResponseReserveTokens) && parsedPromptResponseReserveTokens > 0
+    ? parsedPromptResponseReserveTokens
+    : DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS;
+
+const DEFAULT_PROMPT_HISTORY_TARGET_TOKENS = 1400;
+const parsedPromptHistoryTargetTokens = Number.parseInt(
+  process.env.NOVA_PROMPT_HISTORY_TARGET_TOKENS || String(DEFAULT_PROMPT_HISTORY_TARGET_TOKENS),
+  10,
+);
+export const PROMPT_HISTORY_TARGET_TOKENS =
+  Number.isFinite(parsedPromptHistoryTargetTokens) && parsedPromptHistoryTargetTokens > 0
+    ? parsedPromptHistoryTargetTokens
+    : DEFAULT_PROMPT_HISTORY_TARGET_TOKENS;
+
+const DEFAULT_PROMPT_MIN_HISTORY_TOKENS = 220;
+const parsedPromptMinHistoryTokens = Number.parseInt(
+  process.env.NOVA_PROMPT_MIN_HISTORY_TOKENS || String(DEFAULT_PROMPT_MIN_HISTORY_TOKENS),
+  10,
+);
+export const PROMPT_MIN_HISTORY_TOKENS =
+  Number.isFinite(parsedPromptMinHistoryTokens) && parsedPromptMinHistoryTokens >= 0
+    ? parsedPromptMinHistoryTokens
+    : DEFAULT_PROMPT_MIN_HISTORY_TOKENS;
+
+const DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS = 1000;
+const parsedPromptContextSectionMaxTokens = Number.parseInt(
+  process.env.NOVA_PROMPT_CONTEXT_SECTION_MAX_TOKENS || String(DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS),
+  10,
+);
+export const PROMPT_CONTEXT_SECTION_MAX_TOKENS =
+  Number.isFinite(parsedPromptContextSectionMaxTokens) && parsedPromptContextSectionMaxTokens > 0
+    ? parsedPromptContextSectionMaxTokens
+    : DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS;
+
+export const PROMPT_BUDGET_DEBUG =
+  String(process.env.NOVA_PROMPT_BUDGET_DEBUG || "").trim() === "1";
 
 // ===== Model Pricing (USD per 1M tokens) =====
 export const OPENAI_MODEL_PRICING_USD_PER_1M = {

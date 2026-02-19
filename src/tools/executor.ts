@@ -1,4 +1,14 @@
-import type { AnthropicToolUseBlock, Tool, ToolResult } from "./types.js";
+import {
+  evaluateToolCapabilityPolicy,
+  resolveToolCapabilities,
+} from "./capability-policy.js";
+import { classifyToolRisk, evaluateToolPolicy } from "./risk-policy.js";
+import type {
+  AnthropicToolUseBlock,
+  Tool,
+  ToolExecutionPolicyContext,
+  ToolResult,
+} from "./types.js";
 
 function stringifyInput(input: unknown): string {
   try {
@@ -11,12 +21,49 @@ function stringifyInput(input: unknown): string {
 export async function executeToolUse(
   toolUse: AnthropicToolUseBlock,
   tools: Tool[],
+  policyContext?: ToolExecutionPolicyContext,
 ): Promise<ToolResult> {
   const tool = tools.find((candidate) => candidate.name === toolUse.name);
   if (!tool) {
     return {
       tool_use_id: toolUse.id,
       content: `Unknown tool: ${toolUse.name}`,
+      is_error: true,
+    };
+  }
+
+  const risk = classifyToolRisk(tool.name, tool.riskLevel);
+  const policy = evaluateToolPolicy({
+    toolName: tool.name,
+    risk,
+    context: policyContext,
+  });
+  if (!policy.allowed) {
+    console.warn(
+      `[ToolPolicy] blocked tool=${tool.name} risk=${risk} source=${String(policyContext?.source || "unknown")}`,
+    );
+    return {
+      tool_use_id: toolUse.id,
+      content: `Tool blocked by policy: ${policy.reason}`,
+      is_error: true,
+    };
+  }
+
+  const requiredCapabilities = resolveToolCapabilities(tool.name, tool.capabilities);
+  const capabilityPolicy = evaluateToolCapabilityPolicy({
+    toolName: tool.name,
+    requiredCapabilities,
+    context: policyContext,
+  });
+  if (!capabilityPolicy.allowed) {
+    console.warn(
+      `[ToolCapability] blocked tool=${tool.name}` +
+      ` required=${requiredCapabilities.join("|") || "none"}` +
+      ` source=${String(policyContext?.source || "unknown")}`,
+    );
+    return {
+      tool_use_id: toolUse.id,
+      content: `Tool blocked by capability policy: ${capabilityPolicy.reason}`,
       is_error: true,
     };
   }

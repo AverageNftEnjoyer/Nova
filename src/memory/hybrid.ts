@@ -1,5 +1,6 @@
 import type { MemoryConfig } from "../config/types.js";
 import type { MemoryChunk, SearchResult } from "./types.js";
+import { expandMemoryQuery, extractMemoryQueryKeywords } from "./query-expansion.js";
 
 function tokenize(text: string): string[] {
   return (text.toLowerCase().match(/[a-z0-9_]+/g) ?? []).filter(Boolean);
@@ -24,7 +25,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 function buildBm25Scores(query: string, chunks: MemoryChunk[]): Map<string, number> {
-  const terms = tokenize(query);
+  const expandedQuery = expandMemoryQuery(query);
+  const terms = tokenize(expandedQuery);
   if (terms.length === 0 || chunks.length === 0) {
     return new Map();
   }
@@ -74,6 +76,25 @@ function buildBm25Scores(query: string, chunks: MemoryChunk[]): Map<string, numb
   return scores;
 }
 
+function computeKeywordCoverageScore(query: string, content: string): number {
+  const keywords = extractMemoryQueryKeywords(query);
+  if (keywords.length === 0) return 0;
+  const contentTokens = new Set(tokenize(content));
+  if (contentTokens.size === 0) return 0;
+  let matches = 0;
+  for (const keyword of keywords) {
+    if (contentTokens.has(keyword)) matches += 1;
+  }
+  return matches / Math.max(1, keywords.length);
+}
+
+function computePhraseBoost(query: string, content: string): number {
+  const normalizedQuery = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (normalizedQuery.length < 8) return 0;
+  const normalizedContent = String(content || "").toLowerCase().replace(/\s+/g, " ");
+  return normalizedContent.includes(normalizedQuery) ? 0.2 : 0;
+}
+
 export function hybridSearch(
   query: string,
   queryEmbedding: number[],
@@ -86,16 +107,23 @@ export function hybridSearch(
   const merged = chunks.map((chunk) => {
     const vectorScore = cosineSimilarity(queryEmbedding, chunk.embedding);
     const bm25Score = bm25.get(chunk.id) ?? 0;
+    const keywordCoverage = computeKeywordCoverageScore(query, chunk.content);
+    const phraseBoost = computePhraseBoost(query, chunk.content);
+    const lexicalScore = Math.max(
+      0,
+      Math.min(1.25, bm25Score + keywordCoverage * 0.35 + phraseBoost),
+    );
     const score =
       vectorScore * config.hybridVectorWeight +
-      bm25Score * config.hybridBm25Weight;
+      lexicalScore * config.hybridBm25Weight;
     return {
       chunkId: chunk.id,
       source: chunk.source,
       content: chunk.content,
       score,
       vectorScore,
-      bm25Score,
+      bm25Score: lexicalScore,
+      updatedAt: chunk.updatedAt,
     } satisfies SearchResult;
   });
 

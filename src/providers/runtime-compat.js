@@ -437,8 +437,104 @@ function isProviderReady(integrations, provider) {
   );
 }
 
+const PROVIDER_ARBITRATION_PROFILE = {
+  openai: { quality: 0.91, latency: 0.86, cost: 0.55, tool: 0.95 },
+  claude: { quality: 0.95, latency: 0.72, cost: 0.5, tool: 0.6 },
+  gemini: { quality: 0.88, latency: 0.84, cost: 0.8, tool: 0.9 },
+  grok: { quality: 0.86, latency: 0.78, cost: 0.58, tool: 0.9 },
+};
+const ROUTING_TIE_BREAK_ORDER = ["openai", "claude", "gemini", "grok"];
+const ROUTING_TIE_BREAK_WEIGHT = new Map(
+  ROUTING_TIE_BREAK_ORDER.map((provider, index) => [provider, ROUTING_TIE_BREAK_ORDER.length - index]),
+);
+
+function parseRoutingPreference(value) {
+  const candidate = String(value || "").trim().toLowerCase();
+  if (candidate === "cost" || candidate === "latency" || candidate === "quality") return candidate;
+  return "balanced";
+}
+
+function normalizePreferredProviders(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const entry of value) {
+    const candidate = String(entry || "").trim().toLowerCase();
+    if (candidate !== "openai" && candidate !== "claude" && candidate !== "gemini" && candidate !== "grok") {
+      continue;
+    }
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    out.push(candidate);
+  }
+  return out;
+}
+
+function resolveRoutingWeights(preference, requiresToolCalling) {
+  if (preference === "quality") {
+    return requiresToolCalling
+      ? { quality: 0.48, latency: 0.16, cost: 0.14, tool: 0.22, active: 0.06 }
+      : { quality: 0.62, latency: 0.2, cost: 0.18, tool: 0, active: 0.06 };
+  }
+  if (preference === "cost") {
+    return requiresToolCalling
+      ? { quality: 0.14, latency: 0.24, cost: 0.48, tool: 0.24, active: 0.05 }
+      : { quality: 0.18, latency: 0.26, cost: 0.56, tool: 0, active: 0.05 };
+  }
+  if (preference === "latency") {
+    return requiresToolCalling
+      ? { quality: 0.14, latency: 0.5, cost: 0.16, tool: 0.2, active: 0.05 }
+      : { quality: 0.22, latency: 0.58, cost: 0.2, tool: 0, active: 0.05 };
+  }
+  return requiresToolCalling
+    ? { quality: 0.26, latency: 0.3, cost: 0.2, tool: 0.24, active: 0.08 }
+    : { quality: 0.42, latency: 0.34, cost: 0.24, tool: 0, active: 0.08 };
+}
+
+function rankReadyProviders(integrations, activeProvider, options = {}) {
+  const readyProviders = ROUTING_TIE_BREAK_ORDER.filter((provider) =>
+    isProviderReady(integrations, provider),
+  );
+  if (readyProviders.length <= 1) return readyProviders;
+
+  const requiresToolCalling = options.requiresToolCalling === true;
+  const preference = parseRoutingPreference(options.preference);
+  const preferredProviders = normalizePreferredProviders(options.preferredProviders);
+  const preferredRank = new Map(
+    preferredProviders.map((provider, index) => [provider, preferredProviders.length - index]),
+  );
+  const weights = resolveRoutingWeights(preference, requiresToolCalling);
+
+  const ranked = readyProviders
+    .map((provider) => {
+      const profile = PROVIDER_ARBITRATION_PROFILE[provider];
+      const preferredBonus = Number(preferredRank.get(provider) || 0) * 0.03;
+      const activeBonus = provider === activeProvider ? weights.active : 0;
+      const tieWeight = Number(ROUTING_TIE_BREAK_WEIGHT.get(provider) || 0) * 0.00001;
+      const rawScore =
+        profile.quality * weights.quality +
+        profile.latency * weights.latency +
+        profile.cost * weights.cost +
+        profile.tool * weights.tool +
+        preferredBonus +
+        activeBonus +
+        tieWeight;
+      return { provider, score: Number(rawScore.toFixed(6)) };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (
+        Number(ROUTING_TIE_BREAK_WEIGHT.get(b.provider) || 0) -
+        Number(ROUTING_TIE_BREAK_WEIGHT.get(a.provider) || 0)
+      );
+    });
+
+  return ranked.map((entry) => entry.provider);
+}
+
 export function resolveConfiguredChatRuntime(integrations, options = {}) {
   const strictActiveProvider = options.strictActiveProvider !== false;
+  const allowActiveProviderOverride = options.allowActiveProviderOverride === true;
   const activeProvider =
     integrations.activeProvider === "claude" ||
     integrations.activeProvider === "grok" ||
@@ -456,10 +552,15 @@ export function resolveConfiguredChatRuntime(integrations, options = {}) {
       model: String(activeRuntime?.model || "").trim(),
       connected: Boolean(activeRuntime?.connected),
       strict: true,
+      routeReason: "strict-active-provider",
+      rankedCandidates: [activeProvider],
     };
   }
 
-  if (isProviderReady(integrations, activeProvider)) {
+  const rankedCandidates = rankReadyProviders(integrations, activeProvider, options);
+  const hasActiveReady = isProviderReady(integrations, activeProvider);
+
+  if (hasActiveReady && !allowActiveProviderOverride) {
     const activeRuntime = getProviderRuntime(integrations, activeProvider);
     return {
       provider: activeProvider,
@@ -468,12 +569,12 @@ export function resolveConfiguredChatRuntime(integrations, options = {}) {
       model: String(activeRuntime?.model || "").trim(),
       connected: Boolean(activeRuntime?.connected),
       strict: false,
+      routeReason: "active-provider-ready",
+      rankedCandidates: [activeProvider],
     };
   }
 
-  const fallbackOrder = ["claude", "openai", "gemini", "grok"];
-  for (const provider of fallbackOrder) {
-    if (!isProviderReady(integrations, provider)) continue;
+  for (const provider of rankedCandidates) {
     const runtime = getProviderRuntime(integrations, provider);
     return {
       provider,
@@ -482,6 +583,8 @@ export function resolveConfiguredChatRuntime(integrations, options = {}) {
       model: String(runtime?.model || "").trim(),
       connected: Boolean(runtime?.connected),
       strict: false,
+      routeReason: provider === activeProvider ? "active-provider-ranked" : "ranked-fallback",
+      rankedCandidates,
     };
   }
 
@@ -493,6 +596,8 @@ export function resolveConfiguredChatRuntime(integrations, options = {}) {
     model: String(activeRuntime?.model || "").trim(),
     connected: Boolean(activeRuntime?.connected),
     strict: false,
+    routeReason: "active-provider-unavailable",
+    rankedCandidates: [activeProvider],
   };
 }
 

@@ -1,5 +1,7 @@
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMissionWorkflow } from "@/lib/missions/runtime"
+import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
+import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
@@ -45,30 +47,46 @@ export async function GET(req: Request) {
             startedAt: new Date().toISOString(),
           })
 
+          const runKey = `manual-trigger-stream:${target.id}:${Date.now()}`
+          const skillSnapshot = await loadMissionSkillSnapshot({ userId })
+          const startedAtMs = Date.now()
           const execution = await executeMissionWorkflow({
             schedule: target,
             source: "trigger",
             enforceOutputTime: false,
+            skillSnapshot,
             scope: verified,
             onStepTrace: async (trace) => {
               streamPayload(controller, { type: "step", trace })
             },
           })
+          const durationMs = Date.now() - startedAtMs
 
           const novachatQueued = execution.stepTraces.some((trace) =>
             String(trace.type || "").toLowerCase() === "output" &&
             String(trace.status || "").toLowerCase() === "completed" &&
             /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
           )
-          const nowIso = new Date().toISOString()
-          const updatedSchedule = {
-            ...target,
-            runCount: (Number.isFinite(target.runCount) ? target.runCount : 0) + 1,
-            successCount: (Number.isFinite(target.successCount) ? target.successCount : 0) + (execution.ok ? 1 : 0),
-            failureCount: (Number.isFinite(target.failureCount) ? target.failureCount : 0) + (execution.ok ? 0 : 1),
-            lastRunAt: nowIso,
-            updatedAt: nowIso,
+          let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
+          try {
+            const logResult = await appendRunLogForExecution({
+              schedule: target,
+              source: "trigger",
+              execution,
+              durationMs,
+              mode: "manual-trigger-stream",
+              runKey,
+              attempt: 1,
+            })
+            logStatus = logResult.status
+          } catch {
+            // Logging failures should not block stream responses.
           }
+          const updatedSchedule = applyScheduleRunOutcome(target, {
+            status: logStatus,
+            now: new Date(),
+            mode: "manual-trigger-stream",
+          })
           schedules[targetIndex] = updatedSchedule
           await saveSchedules(schedules, { userId })
 
