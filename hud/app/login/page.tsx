@@ -4,10 +4,10 @@ import { FormEvent, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { Eye, EyeOff } from "lucide-react"
-import { setActiveUserId } from "@/lib/active-user"
-import { loginDebugBump, loginDebugEvent, loginDebugSnapshot } from "@/lib/login-debug"
+import { setActiveUserId } from "@/lib/auth/active-user"
+import { loginDebugBump, loginDebugEvent, loginDebugSnapshot } from "@/lib/auth/login-debug"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
-import { loadUserSettings, saveUserSettings } from "@/lib/userSettings"
+import { loadUserSettings, saveUserSettings } from "@/lib/settings/userSettings"
 
 function sanitizeNextPath(raw: string | null): string {
   const value = String(raw || "").trim()

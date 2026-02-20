@@ -1,4 +1,4 @@
-import { getActiveUserId } from "@/lib/active-user"
+import { getActiveUserId } from "@/lib/auth/active-user"
 
 const DB_NAME = "nova-assets"
 const DB_VERSION = 3

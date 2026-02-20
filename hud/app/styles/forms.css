@@ -1,0 +1,9 @@
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #f8fafc !important;
+  transition: background-color 9999s ease-out 0s;
+  -webkit-box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.35) inset !important;
+}

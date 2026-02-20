@@ -1,6 +1,7 @@
-﻿---
+---
 name: pickup
 description: Rapid context rehydration workflow that checks current state, active processes, and immediate next actions before execution.
+user-invokable: false
 metadata:
   read_when:
     - Starting a new task in an existing workspace.

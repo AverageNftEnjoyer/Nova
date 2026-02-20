@@ -1,4 +1,4 @@
-import type { ResponseTone } from "@/lib/userSettings"
+import type { ResponseTone } from "@/lib/settings/userSettings"
 
 export const GREETINGS_BY_TONE: Record<ResponseTone, string[]> = {
   neutral: [

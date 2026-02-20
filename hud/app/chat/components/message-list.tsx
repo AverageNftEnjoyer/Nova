@@ -6,14 +6,15 @@ import type { Message } from "./chat-types"
 import { TypingIndicator } from "./typing-indicator"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
-import { cn } from "@/lib/utils"
-import type { OrbPalette } from "@/components/nova-orb-indicator"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { cn } from "@/lib/shared/utils"
+import type { OrbPalette } from "@/components/chat/nova-orb-indicator"
 
 interface MessageListProps {
   messages: Message[]
   isStreaming: boolean
   streamingAssistantId?: string | null
+  thinkingStatus?: string
   error: string | null
   onRetry: () => void
   isLoaded: boolean
@@ -25,6 +26,7 @@ export function MessageList({
   messages,
   isStreaming,
   streamingAssistantId = null,
+  thinkingStatus = "",
   error,
   onRetry,
   isLoaded,
@@ -127,6 +129,12 @@ export function MessageList({
   }
 
   const lastMessage = messages[messages.length - 1]
+  const latestUserMessage = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === "user") return String(messages[i]?.content || "")
+    }
+    return ""
+  })()
   const showTypingIndicator = isStreaming && (messages.length === 0 || lastMessage?.role === "user")
   const shouldAnimateOrb = isStreaming
 
@@ -180,7 +188,13 @@ export function MessageList({
             )
           })}
 
-      {showTypingIndicator && <TypingIndicator orbPalette={orbPalette} />}
+      {showTypingIndicator && (
+        <TypingIndicator
+          orbPalette={orbPalette}
+          thinkingStatus={thinkingStatus}
+          latestUserMessage={latestUserMessage}
+        />
+      )}
 
       {error && (
         <div

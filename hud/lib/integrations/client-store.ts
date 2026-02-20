@@ -415,4 +415,4 @@ export function updateGmailIntegrationSettings(partial: Partial<GmailIntegration
   saveIntegrationsSettings(updated)
   return updated
 }
-import { getActiveUserId } from "@/lib/active-user"
+import { getActiveUserId } from "@/lib/auth/active-user"

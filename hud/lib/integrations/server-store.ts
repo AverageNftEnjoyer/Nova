@@ -1,7 +1,5 @@
 import "server-only"
 
-import { mkdir, readFile, writeFile } from "node:fs/promises"
-import path from "node:path"
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption"
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -95,10 +93,7 @@ export interface IntegrationsConfig {
   updatedAt: string
 }
 
-const DATA_DIR = path.join(process.cwd(), "data")
-const DATA_FILE = path.join(DATA_DIR, "integrations-config.json")
 const INTEGRATIONS_TABLE = "integration_configs"
-const ALLOW_UNSCOPED_INTEGRATIONS = String(process.env.NOVA_ALLOW_UNSCOPED_INTEGRATIONS || "").trim() === "1"
 
 export type IntegrationsStoreScope =
   | {
@@ -107,6 +102,7 @@ export type IntegrationsStoreScope =
       client?: SupabaseClient | null
       user?: { id?: string | null } | null
       allowServiceRole?: boolean
+      serviceRoleReason?: "scheduler" | "gmail-oauth-callback"
     }
   | null
   | undefined
@@ -165,15 +161,6 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   activeLlmProvider: "openai",
   agents: {},
   updatedAt: new Date().toISOString(),
-}
-
-async function ensureDataFile() {
-  await mkdir(DATA_DIR, { recursive: true })
-  try {
-    await readFile(DATA_FILE, "utf8")
-  } catch {
-    await writeFile(DATA_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2), "utf8")
-  }
 }
 
 function unwrapStoredSecret(value: unknown): string {
@@ -368,12 +355,20 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
   if (scope?.client) return { userId, client: scope.client }
   const accessToken = String(scope?.accessToken || "").trim()
   if (accessToken) return { userId, client: createSupabaseServerClient(accessToken) }
-  if (scope?.allowServiceRole) return { userId, client: createSupabaseAdminClient() }
+  if (scope?.allowServiceRole) {
+    const reason = String(scope.serviceRoleReason || "").trim()
+    if (reason !== "scheduler" && reason !== "gmail-oauth-callback") {
+      throw new Error("Service-role integrations access requires an approved internal reason.")
+    }
+    return { userId, client: createSupabaseAdminClient() }
+  }
   throw new Error("Missing scoped Supabase auth client/token for integrations access.")
 }
 
-function assertScopedIntegrationsAccess(normalizedScope: { userId: string; client: SupabaseClient } | null): void {
-  if (normalizedScope || ALLOW_UNSCOPED_INTEGRATIONS) return
+function assertScopedIntegrationsAccess(
+  normalizedScope: { userId: string; client: SupabaseClient } | null,
+): asserts normalizedScope is { userId: string; client: SupabaseClient } {
+  if (normalizedScope) return
   throw new Error("Scoped user context is required for integrations config access.")
 }
 
@@ -494,28 +489,16 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
 export async function loadIntegrationsConfig(scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
   const normalizedScope = normalizeStoreScope(scope)
   assertScopedIntegrationsAccess(normalizedScope)
-  if (normalizedScope) {
-    const { userId, client } = normalizedScope
-    const { data, error } = await client
-      .from(INTEGRATIONS_TABLE)
-      .select("config")
-      .eq("user_id", userId)
-      .maybeSingle()
-    if (error) throw new Error(`Failed to load integrations config: ${error.message}`)
-    const raw = (data?.config && typeof data.config === "object" ? (data.config as Partial<IntegrationsConfig>) : null) || null
-    if (!raw) return normalizeConfig(DEFAULT_CONFIG)
-    return normalizeConfig(raw)
-  }
-
-  await ensureDataFile()
-
-  try {
-    const raw = await readFile(DATA_FILE, "utf8")
-    const parsed = JSON.parse(raw) as Partial<IntegrationsConfig>
-    return normalizeConfig(parsed)
-  } catch {
-    return DEFAULT_CONFIG
-  }
+  const { userId, client } = normalizedScope
+  const { data, error } = await client
+    .from(INTEGRATIONS_TABLE)
+    .select("config")
+    .eq("user_id", userId)
+    .maybeSingle()
+  if (error) throw new Error(`Failed to load integrations config: ${error.message}`)
+  const raw = (data?.config && typeof data.config === "object" ? (data.config as Partial<IntegrationsConfig>) : null) || null
+  if (!raw) return normalizeConfig(DEFAULT_CONFIG)
+  return normalizeConfig(raw)
 }
 
 export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?: IntegrationsStoreScope): Promise<void> {
@@ -527,24 +510,18 @@ export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?:
 
   const normalizedScope = normalizeStoreScope(scope)
   assertScopedIntegrationsAccess(normalizedScope)
-  if (normalizedScope) {
-    const { userId, client } = normalizedScope
-    const { error } = await client
-      .from(INTEGRATIONS_TABLE)
-      .upsert(
-        {
-          user_id: userId,
-          config: toStore,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      )
-    if (error) throw new Error(`Failed to save integrations config: ${error.message}`)
-    return
-  }
-
-  await ensureDataFile()
-  await writeFile(DATA_FILE, JSON.stringify(toStore, null, 2), "utf8")
+  const { userId, client } = normalizedScope
+  const { error } = await client
+    .from(INTEGRATIONS_TABLE)
+    .upsert(
+      {
+        user_id: userId,
+        config: toStore,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    )
+  if (error) throw new Error(`Failed to save integrations config: ${error.message}`)
 }
 
 export async function updateIntegrationsConfig(partial: Partial<IntegrationsConfig>, scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {

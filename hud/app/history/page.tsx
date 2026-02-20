@@ -4,10 +4,10 @@
 import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { MessageSquare, Trash2, Clock, ChevronRight, Plus, PanelLeftOpen, PanelLeftClose } from "lucide-react"
-import { loadConversations, saveConversations, setActiveId, createConversation, type Conversation } from "@/lib/conversations"
-import { AnimatedOrb } from "@/components/animated-orb"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { ChatSidebar } from "@/components/chat-sidebar"
+import { loadConversations, saveConversations, setActiveId, createConversation, type Conversation } from "@/lib/chat/conversations"
+import { AnimatedOrb } from "@/components/orb/animated-orb"
+import { ThemeToggle } from "@/components/theme/theme-toggle"
+import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { Button } from "@/components/ui/button"
 
 function formatDate(iso: string): string {

@@ -3,7 +3,7 @@
 import { Copy, Pencil, Play, Trash2 } from "lucide-react"
 import type { RefObject } from "react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import type { MissionActionMenuState } from "../types"
 
 interface MissionActionMenuProps {

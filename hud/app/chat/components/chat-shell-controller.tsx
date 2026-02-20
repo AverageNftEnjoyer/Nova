@@ -5,26 +5,20 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import { useRouter } from "next/navigation"
 import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
 import { MessageList } from "./message-list"
-import { Composer } from "@/components/composer"
-import { useNovaState } from "@/lib/useNovaState"
-import { ChatSidebar } from "@/components/chat-sidebar"
-import { cn } from "@/lib/utils"
-import { loadUserSettings } from "@/lib/userSettings"
-import { getActiveUserId } from "@/lib/active-user"
-import { DiscordIcon } from "@/components/discord-icon"
-import { BraveIcon } from "@/components/brave-icon"
-import { OpenAIIcon } from "@/components/openai-icon"
-import { ClaudeIcon } from "@/components/claude-icon"
-import { XAIIcon } from "@/components/xai-icon"
-import { GeminiIcon } from "@/components/gemini-icon"
-import { GmailIcon } from "@/components/gmail-icon"
-import { TelegramIcon } from "@/components/telegram-icon"
+import { Composer } from "@/components/chat/composer"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { ChatSidebar } from "@/components/chat/chat-sidebar"
+import { cn } from "@/lib/shared/utils"
+import { loadUserSettings } from "@/lib/settings/userSettings"
+import { getActiveUserId } from "@/lib/auth/active-user"
+import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
+import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 
 // Hooks
-import { useConversations } from "@/lib/useConversations"
-import { useIntegrationsStatus } from "@/lib/useIntegrationsStatus"
-import { useMissions, formatDailyTime } from "@/lib/useMissions"
-import { useChatBackground } from "@/lib/useChatBackground"
+import { useConversations } from "@/lib/chat/hooks/useConversations"
+import { useIntegrationsStatus } from "@/lib/integrations/hooks/useIntegrationsStatus"
+import { useMissions, formatDailyTime } from "@/lib/missions/hooks/useMissions"
+import { useChatBackground } from "@/lib/chat/hooks/useChatBackground"
 
 const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
 
@@ -49,6 +43,7 @@ export function ChatShellController() {
   // Nova state
   const {
     state: novaState,
+    thinkingStatus,
     connected: agentConnected,
     agentMessages,
     streamingAssistantId,
@@ -115,8 +110,13 @@ export function ChatShellController() {
   const [localThinking, setLocalThinking] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
-  const [thinkingStalled, setThinkingStalled] = useState(false)
-  const isThinking = !thinkingStalled && (novaState === "thinking" || localThinking)
+  const isThinking = novaState === "thinking" || localThinking
+
+  const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
+    if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
+    const { data } = await supabaseBrowser.auth.getSession()
+    return String(data.session?.access_token || "").trim()
+  }, [])
 
   // Mute state sync
   useEffect(() => {
@@ -156,29 +156,12 @@ export function ChatShellController() {
     const last = agentMessages[agentMessages.length - 1]
     if (last?.role === "user") {
       setLocalThinking(true)
-      setThinkingStalled(false)
       return
     }
     if (last?.role === "assistant" && hasRenderableAssistantContent(last.content)) {
       setLocalThinking(false)
-      setThinkingStalled(false)
     }
   }, [agentMessages])
-
-  useEffect(() => {
-    if (!(novaState === "thinking" || localThinking)) return
-    const timer = window.setTimeout(() => {
-      setLocalThinking(false)
-      setThinkingStalled(true)
-    }, 35000)
-    return () => window.clearTimeout(timer)
-  }, [novaState, localThinking])
-
-  useEffect(() => {
-    if (novaState !== "thinking") {
-      setThinkingStalled(false)
-    }
-  }, [novaState])
 
   // Home -> Chat handoff
   useEffect(() => {
@@ -236,20 +219,24 @@ export function ChatShellController() {
         setLocalThinking(false)
         return
       }
-      sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
-        conversationId: activeConvo.id,
-        sender: "hud-user",
-        messageId: pendingLocalMessageId || pendingMessageId,
-        userId: activeUserId,
-        assistantName: settings.personalization.assistantName,
-        communicationStyle: settings.personalization.communicationStyle,
-        tone: settings.personalization.tone,
-      })
+      void (async () => {
+        const supabaseAccessToken = await getSupabaseAccessToken()
+        sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
+          conversationId: activeConvo.id,
+          sender: "hud-user",
+          messageId: pendingLocalMessageId || pendingMessageId,
+          userId: activeUserId,
+          supabaseAccessToken: supabaseAccessToken || undefined,
+          assistantName: settings.personalization.assistantName,
+          communicationStyle: settings.personalization.communicationStyle,
+          tone: settings.personalization.tone,
+        })
+      })()
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
       pendingBootSendHandledRef.current = true
     }
-  }, [activeConvo, agentConnected, sendToAgent, addUserMessage, handleSelectConvo])
+  }, [activeConvo, agentConnected, sendToAgent, addUserMessage, handleSelectConvo, getSupabaseAccessToken])
 
   // Spotlight effect
   useEffect(() => {
@@ -313,7 +300,7 @@ export function ChatShellController() {
       const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
       const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
       setLocalThinking(true)
-      setThinkingStalled(false)
+
 
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
@@ -321,17 +308,19 @@ export function ChatShellController() {
         setLocalThinking(false)
         return
       }
+      const supabaseAccessToken = await getSupabaseAccessToken()
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: activeConvo.id,
         sender: "hud-user",
         messageId: localMessageId,
         userId: activeUserId,
+        supabaseAccessToken: supabaseAccessToken || undefined,
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
       })
     },
-    [activeConvo, agentConnected, sendToAgent, addUserMessage],
+    [activeConvo, agentConnected, sendToAgent, addUserMessage, getSupabaseAccessToken],
   )
 
   // Convert ChatMessage[] to Message[] for MessageList
@@ -401,6 +390,7 @@ export function ChatShellController() {
                 messages={displayMessages}
                 isStreaming={isThinking}
                 streamingAssistantId={streamingAssistantId}
+                thinkingStatus={thinkingStatus}
                 error={null}
                 onRetry={() => {}}
                 isLoaded={isLoaded}
@@ -583,3 +573,4 @@ export function ChatShellController() {
     </div>
   )
 }
+

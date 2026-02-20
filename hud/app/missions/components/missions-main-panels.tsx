@@ -5,7 +5,7 @@ import { LayoutGrid, List, MoreVertical, Pin, Search, Sparkles, Trash2, WandSpar
 
 import { FluidSelect } from "@/components/ui/fluid-select"
 import type { IntegrationsSettings } from "@/lib/integrations/client-store"
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import {
   AI_PROVIDER_LABELS,
   MISSION_FILTER_STATUS_OPTIONS,
@@ -103,14 +103,9 @@ export function MissionsMainPanels({
         <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto space-y-2 pr-1">
           {QUICK_TEMPLATE_OPTIONS.map((template) => (
             <div key={template.id} className={cn("rounded-lg border p-2.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className={cn("text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{template.label}</h3>
-                  <p className={cn("mt-0.5 line-clamp-2 text-[11px] leading-snug", isLight ? "text-s-60" : "text-slate-400")}>{template.description}</p>
-                </div>
-                <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em]", isLight ? "border border-[#d5dce8] bg-white text-s-70" : "border border-white/12 bg-black/20 text-slate-300")}>
-                  {formatIntegrationLabel(template.integration)}
-                </span>
+              <div>
+                <h3 className={cn("text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{template.label}</h3>
+                <p className={cn("mt-0.5 line-clamp-2 text-[11px] leading-snug", isLight ? "text-s-60" : "text-slate-400")}>{template.description}</p>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 {template.tags.map((tag) => (
@@ -121,7 +116,7 @@ export function MissionsMainPanels({
               </div>
               <button
                 onClick={() => onApplyTemplate(template.id)}
-                className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-all duration-150 text-[11px] home-spotlight-card home-border-glow home-spotlight-card--hover"
+                className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-all duration-150 text-[11px]"
               >
                 Use Template
               </button>
@@ -151,7 +146,7 @@ export function MissionsMainPanels({
               onGenerateMissionDraft()
             }}
             disabled={novaGeneratingMission}
-            className="mt-2.5 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-colors text-xs disabled:opacity-60 home-spotlight-card home-border-glow home-spotlight-card--hover"
+            className="mt-2.5 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-colors text-xs disabled:opacity-60 home-spotlight-card home-border-glow"
           >
             {novaGeneratingMission ? "Generating Draft..." : "Generate Mission Draft"}
           </button>
@@ -171,7 +166,7 @@ export function MissionsMainPanels({
           <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>{filteredSchedules.length} missions</p>
         </div>
         <div className="mt-3 grid grid-cols-[minmax(0,1fr)_190px_auto] gap-2">
-          <div className={cn("flex items-center gap-2 rounded-lg border px-2.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
+          <div className={cn("flex items-center gap-2 rounded-lg border px-2.5 home-spotlight-card home-border-glow", subPanelClass)}>
             <Search className={cn("w-3.5 h-3.5 shrink-0", isLight ? "text-s-50" : "text-slate-500")} />
             <input
               value={searchQuery}
@@ -185,13 +180,13 @@ export function MissionsMainPanels({
             onChange={onStatusFilterChange}
             options={MISSION_FILTER_STATUS_OPTIONS}
             isLight={isLight}
-            className={cn(subPanelClass, "home-spotlight-card home-border-glow home-spotlight-card--hover")}
+            className={cn(subPanelClass, "home-spotlight-card home-border-glow")}
           />
           <div className={cn("h-9 rounded-lg border px-1 flex items-center gap-1", subPanelClass)}>
             <button
               onClick={() => onMissionBoardViewChange("grid")}
               className={cn(
-                "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors home-spotlight-card home-border-glow",
                 missionBoardView === "grid"
                   ? "bg-accent-20 text-accent border border-accent-30"
                   : isLight
@@ -205,7 +200,7 @@ export function MissionsMainPanels({
             <button
               onClick={() => onMissionBoardViewChange("list")}
               className={cn(
-                "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors home-spotlight-card home-border-glow",
                 missionBoardView === "list"
                   ? "bg-accent-20 text-accent border border-accent-30"
                   : isLight
@@ -340,7 +335,7 @@ export function MissionsMainPanels({
                         }}
                         className={cn(
                           "h-8 w-8 rounded-md inline-flex items-center justify-center transition-all duration-150",
-                          "home-spotlight-card home-border-glow home-spotlight-card--hover",
+                          "home-spotlight-card home-border-glow",
                           isLight ? "text-s-50" : "text-slate-500",
                         )}
                         aria-label="Mission actions"
@@ -393,7 +388,7 @@ export function MissionsMainPanels({
                           onClick={() => onToggleMissionEnabled(mission)}
                           disabled={busy}
                           className={cn(
-                            "h-7 px-2 rounded-md border text-xs transition-colors disabled:opacity-50 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                            "h-7 px-2 rounded-md border text-xs transition-colors disabled:opacity-50 home-spotlight-card home-border-glow",
                             mission.enabled ? "border-rose-300/40 bg-rose-500/15 text-rose-200" : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200",
                           )}
                         >
@@ -402,7 +397,7 @@ export function MissionsMainPanels({
                         <button
                           onClick={() => onRequestDeleteMission(mission)}
                           disabled={busy}
-                          className="h-7 w-7 rounded-md border border-rose-300/40 bg-rose-500/15 text-rose-200 transition-colors disabled:opacity-50 inline-flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover"
+                          className="h-7 w-7 rounded-md border border-rose-300/40 bg-rose-500/15 text-rose-200 transition-colors disabled:opacity-50 inline-flex items-center justify-center home-spotlight-card home-border-glow"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

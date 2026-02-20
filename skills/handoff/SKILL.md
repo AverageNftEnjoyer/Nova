@@ -1,6 +1,7 @@
-﻿---
+---
 name: handoff
 description: Structured handoff workflow that packages status, checks, risks, and ordered next steps for seamless continuation.
+user-invokable: false
 metadata:
   read_when:
     - Wrapping up work for another agent or future session.

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import { FluidSelect } from "@/components/ui/fluid-select"
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import { MERIDIEM_OPTIONS } from "../constants"
 import {
   clampToValid12Hour,

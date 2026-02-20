@@ -1,0 +1,127 @@
+:root {
+  --accent-primary: #8b5cf6;
+  --accent-secondary: #a78bfa;
+  --accent-rgb: 139, 92, 246;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  --s: 0, 0, 0;
+  --page-bg: #ffffff;
+  --sidebar-page-bg: #f3f3f6;
+  --composer-shadow:
+    rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 4px 16px;
+  --code-bg: rgba(0, 0, 0, 0.06);
+  --code-block-bg: rgba(0, 0, 0, 0.04);
+  --code-block-border: rgba(0, 0, 0, 0.08);
+  --code-block-shadow: rgba(0, 0, 0, 0.08) 0px 2px 8px;
+  --mb-white: hsl(0, 0%, 100%);
+  --mb-glow-rgb: 132, 0, 255;
+  --mb-border-rgb: 132, 0, 255;
+  --mb-purple-primary: rgba(var(--mb-glow-rgb), 1);
+  --mb-purple-glow: rgba(var(--mb-glow-rgb), 0.2);
+  --mb-purple-border: rgba(var(--mb-border-rgb), 0.8);
+  --mb-border-color: rgba(var(--mb-border-rgb), 0.32);
+  --mb-background-dark: #060010;
+  --mb-bg-dark: #060010;
+  --spotlight-rgb: 17, 24, 39;
+  --spotlight-core-alpha: 0.18;
+  --spotlight-mid-alpha: 0.1;
+  --spotlight-soft-alpha: 0.04;
+  --spotlight-blend-mode: multiply;
+  --spotlight-hover-alpha: 0.12;
+  --spotlight-border-alpha: 0.2;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+
+  --s: 255, 255, 255;
+  --page-bg: #0a0a0f;
+  --sidebar-page-bg: #0d0d14;
+  --composer-shadow:
+    rgba(139, 92, 246, 0.05) 0px 0px 0px 1px, rgba(0, 0, 0, 0.3) 0px 4px 16px;
+  --code-bg: rgba(255, 255, 255, 0.1);
+  --code-block-bg: rgba(255, 255, 255, 0.05);
+  --code-block-border: rgba(255, 255, 255, 0.05);
+  --code-block-shadow: rgba(0, 0, 0, 0.3) 0px 2px 8px;
+  --mb-white: hsl(0, 0%, 100%);
+  --mb-glow-rgb: 132, 0, 255;
+  --mb-border-rgb: 132, 0, 255;
+  --mb-purple-primary: rgba(var(--mb-glow-rgb), 1);
+  --mb-purple-glow: rgba(var(--mb-glow-rgb), 0.2);
+  --mb-purple-border: rgba(var(--mb-border-rgb), 0.8);
+  --mb-border-color: rgba(var(--mb-border-rgb), 0.32);
+  --mb-background-dark: #060010;
+  --mb-bg-dark: #060010;
+  --spotlight-rgb: 255, 255, 255;
+  --spotlight-core-alpha: 0.28;
+  --spotlight-mid-alpha: 0.15;
+  --spotlight-soft-alpha: 0.05;
+  --spotlight-blend-mode: screen;
+  --spotlight-hover-alpha: 0.1;
+  --spotlight-border-alpha: 0.25;
+}
+

@@ -155,51 +155,35 @@ function buildFallbackFromContext(
 ): string | null {
   const includeSources = options?.includeSources !== false
   const detailLevel = options?.detailLevel || "standard"
-  const maxSections = detailLevel === "concise" ? 2 : detailLevel === "detailed" ? 4 : 3
-  const maxFactsPerSection = detailLevel === "concise" ? 1 : detailLevel === "detailed" ? 3 : 2
+  const maxFacts = detailLevel === "concise" ? 3 : detailLevel === "detailed" ? 8 : 5
 
   const evidence = collectEvidenceRows(contextData)
   if (evidence.length === 0) return null
 
-  const bySection = new Map<string, Array<{ text: string; url?: string }>>()
-  for (const row of evidence) {
-    const current = bySection.get(row.section) || []
-    current.push({ text: row.text, url: row.url })
-    bySection.set(row.section, current)
-  }
-
-  const lines: string[] = []
+  const facts: string[] = []
   const sourceCandidates: string[] = []
-
-  let addedSections = 0
-  for (const [section, entries] of bySection.entries()) {
-    if (addedSections >= maxSections) break
-    const facts: string[] = []
-    for (const entry of entries) {
-      if (entry.url) sourceCandidates.push(entry.url)
-      const extracted = extractFactSentences(entry.text, maxFactsPerSection)
-      for (const fact of extracted) {
-        const normalized = normalizeSnippetText(fact, 220)
-        if (!normalized) continue
-        if (!facts.some((item) => item.toLowerCase() === normalized.toLowerCase())) {
-          facts.push(normalized)
-        }
-        if (facts.length >= maxFactsPerSection) break
+  for (const row of evidence) {
+    if (row.url) sourceCandidates.push(row.url)
+    const extracted = extractFactSentences(row.text, detailLevel === "concise" ? 1 : 2)
+    for (const fact of extracted) {
+      const normalized = normalizeSnippetText(fact, 220)
+      if (!normalized) continue
+      if (!facts.some((item) => item.toLowerCase() === normalized.toLowerCase())) {
+        facts.push(normalized)
       }
-      if (facts.length >= maxFactsPerSection) break
+      if (facts.length >= maxFacts) break
     }
-
-    if (facts.length === 0) continue
-    if (lines.length > 0) lines.push("")
-    lines.push(`**${section}**`)
-    lines.push("")
-    for (const fact of facts) {
-      lines.push(`- ${fact}`)
-    }
-    addedSections += 1
+    if (facts.length >= maxFacts) break
   }
 
-  if (lines.length === 0) return null
+  if (facts.length === 0) return null
+
+  const intro = detailLevel === "concise"
+    ? "Quick update:"
+    : "Here is the latest update:"
+  const body = facts.join(" ").trim()
+  const lines = [`${intro} ${body}`.trim()]
+
   if (includeSources) {
     const contextUrls = collectSourceUrlsFromContextData(contextData)
     const urls = uniqueSourceUrls([...sourceCandidates, ...contextUrls], 3)
@@ -246,10 +230,6 @@ export function evaluateMissionOutputQuality(
     score -= 24
     reasons.push("low_word_count")
   }
-  if (bulletCount === 0 && sectionCount < 1) {
-    score -= 10
-    reasons.push("weak_structure")
-  }
   if (uniqueWordRatio < 0.48) {
     score -= 14
     reasons.push("low_lexical_diversity")
@@ -269,13 +249,6 @@ export function evaluateMissionOutputQuality(
   if (includeSources && collectSourceUrlsFromContextData(contextData).length > 0 && !hasSourceSection) {
     score -= 12
     reasons.push("missing_sources")
-  }
-  if (expectedSectionCount >= 2 && matchedSectionCount === 0) {
-    score -= 16
-    reasons.push("missing_expected_sections")
-  } else if (expectedSectionCount >= 2 && matchedSectionCount < expectedSectionCount / 2) {
-    score -= 8
-    reasons.push("partial_section_coverage")
   }
 
   score = clamp(score, 0, 100)

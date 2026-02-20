@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation"
 import { type FluidSelectOption } from "@/components/ui/fluid-select"
 import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/integrations/catalog"
 import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
-import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/userSettings"
+import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
 
 import {
   AI_PROVIDER_LABELS,
@@ -226,7 +226,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         fetchHeaders: "",
         fetchSelector: "a[href]",
         fetchRefreshMinutes: "15",
-        fetchIncludeSources: true,
+        fetchIncludeSources: false,
       }
     }
     if (type === "transform") {
@@ -934,6 +934,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     headerActionsRef,
     builderBodyRef,
     builderFooterRef,
+    loading,
   })
 
   const updateLocalSchedule = useCallback((id: string, patch: Partial<NotificationSchedule>) => {

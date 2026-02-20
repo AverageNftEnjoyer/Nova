@@ -14,8 +14,8 @@ import {
   setActiveId,
   type ChatMessage,
   type Conversation,
-} from "@/lib/conversations"
-import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+} from "@/lib/chat/conversations"
+import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 
 const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
 

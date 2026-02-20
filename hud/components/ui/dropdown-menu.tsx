@@ -4,7 +4,7 @@ import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 
 function DropdownMenu({
   ...props
@@ -133,7 +133,7 @@ function DropdownMenuContent({
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
-          "fx-spotlight-shell z-50 min-w-[8rem] overflow-hidden rounded-xl p-1.5 backdrop-blur-xl",
+          "fx-spotlight-shell z-50 min-w-32 overflow-hidden rounded-xl p-1.5 backdrop-blur-xl",
           "max-h-(--radix-dropdown-menu-content-available-height) origin-(--radix-dropdown-menu-content-transform-origin)",
           "border border-white/8 bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
           "dark:border-white/8 dark:bg-[#0c1019]/95 dark:shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
@@ -184,9 +184,9 @@ function DropdownMenuItem({
       data-variant={variant}
       className={cn(
         "fx-dropdown-item fx-spotlight-card fx-border-glow relative flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-hidden select-none transition-all duration-150",
-        "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
-        "data-[variant=destructive]:text-red-400 data-[variant=destructive]:data-[highlighted]:bg-red-500/10 data-[variant=destructive]:data-[highlighted]:text-red-400",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8",
+        "text-s-60 data-highlighted:bg-white/6 data-highlighted:text-s-90",
+        "data-[variant=destructive]:text-red-400 data-[variant=destructive]:data-highlighted:bg-red-500/10 data-[variant=destructive]:data-highlighted:text-red-400",
+        "data-disabled:pointer-events-none data-disabled:opacity-50 data-inset:pl-8",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg]:opacity-70",
         className
       )}
@@ -206,8 +206,8 @@ function DropdownMenuCheckboxItem({
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
         "fx-dropdown-item fx-spotlight-card fx-border-glow relative flex cursor-pointer items-center gap-3 rounded-lg py-2.5 pr-3 pl-9 text-sm outline-hidden select-none transition-all duration-150",
-        "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "text-s-60 data-highlighted:bg-white/6 data-highlighted:text-s-90",
+        "data-disabled:pointer-events-none data-disabled:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
@@ -245,8 +245,8 @@ function DropdownMenuRadioItem({
       data-slot="dropdown-menu-radio-item"
       className={cn(
         "fx-dropdown-item fx-spotlight-card fx-border-glow relative flex cursor-pointer items-center gap-3 rounded-lg py-2.5 pr-3 pl-9 text-sm outline-hidden select-none transition-all duration-150",
-        "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
-        "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "text-s-60 data-highlighted:bg-white/6 data-highlighted:text-s-90",
+        "data-disabled:pointer-events-none data-disabled:opacity-50",
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
@@ -274,7 +274,7 @@ function DropdownMenuLabel({
       data-slot="dropdown-menu-label"
       data-inset={inset}
       className={cn(
-        "px-3 py-2 text-xs font-medium uppercase tracking-wider text-s-40 data-[inset]:pl-8",
+        "px-3 py-2 text-xs font-medium uppercase tracking-wider text-s-40 data-inset:pl-8",
         className
       )}
       {...props}
@@ -289,7 +289,7 @@ function DropdownMenuSeparator({
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("my-1.5 h-px bg-white/[0.06]", className)}
+      className={cn("my-1.5 h-px bg-white/6", className)}
       {...props}
     />
   )
@@ -331,9 +331,9 @@ function DropdownMenuSubTrigger({
       data-inset={inset}
       className={cn(
         "fx-dropdown-item fx-spotlight-card fx-border-glow flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-hidden select-none transition-all duration-150",
-        "text-s-60 data-[highlighted]:bg-white/[0.06] data-[highlighted]:text-s-90",
-        "data-[state=open]:bg-white/[0.04] data-[state=open]:text-s-80",
-        "data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg]:opacity-70",
+        "text-s-60 data-highlighted:bg-white/6 data-highlighted:text-s-90",
+        "data-[state=open]:bg-white/4 data-[state=open]:text-s-80",
+        "data-inset:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg]:opacity-70",
         className
       )}
       {...props}
@@ -352,7 +352,7 @@ function DropdownMenuSubContent({
     <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-xl p-1.5 backdrop-blur-xl",
+        "z-50 min-w-32 overflow-hidden rounded-xl p-1.5 backdrop-blur-xl",
         "origin-(--radix-dropdown-menu-content-transform-origin)",
         "border border-white/8 bg-[#0c1019]/95 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.5)]",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",

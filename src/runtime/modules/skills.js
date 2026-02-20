@@ -71,7 +71,9 @@ function parseFrontmatter(content) {
 }
 
 function extractFrontmatterArray(frontmatter, key) {
-  const pattern = new RegExp(`["']?${key}["']?\\s*:\\s*\\[([^\\]]*)\\]`, "i");
+  const escapedKey = String(key || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Require a non-word-ish boundary before the key so `bins` does not match inside `anyBins`.
+  const pattern = new RegExp(`(?:^|[^A-Za-z0-9_-])["']?${escapedKey}["']?\\s*:\\s*\\[([^\\]]*)\\]`, "i");
   const match = String(frontmatter || "").match(pattern);
   if (!match?.[1]) return [];
   return Array.from(

@@ -1,6 +1,7 @@
 ---
 name: healthcheck
 description: Host hardening and operational health workflow for security posture checks and safe remediation planning.
+user-invokable: false
 metadata: { "read_when": ["User asks for security audit, hardening, host exposure check, or system posture review."] }
 ---
 

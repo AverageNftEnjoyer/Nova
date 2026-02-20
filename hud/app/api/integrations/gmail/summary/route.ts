@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { listRecentGmailMessages } from "@/lib/integrations/gmail"
 import { completeWithConfiguredLlm } from "@/lib/missions/runtime"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -16,6 +17,8 @@ function parseMaxResults(value: unknown): number {
 async function handleSummary(req: Request, input: { maxResults?: unknown; accountId?: unknown }) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.integrationModelProbe)
+  if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
     const maxResults = parseMaxResults(input.maxResults)

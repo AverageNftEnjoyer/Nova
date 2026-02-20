@@ -39,11 +39,12 @@ import { sessionRuntime, toolRuntime, wakeWordRuntime } from "./config.js";
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "./persona-context.js";
 import { isMemoryUpdateRequest, extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate, extractAutoMemoryFacts } from "./memory.js";
 import { buildRuntimeSkillsPrompt } from "./skills.js";
-import { shouldBuildWorkflowFromPrompt, shouldDraftOnlyWorkflow, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "./intent-router.js";
+import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldDraftOnlyWorkflow, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "./intent-router.js";
 import { speak, playThinking, stopSpeaking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "./voice.js";
 import {
   broadcast,
   broadcastState,
+  broadcastThinkingStatus,
   broadcastMessage,
   createAssistantStreamId,
   broadcastAssistantStreamStart,
@@ -70,6 +71,38 @@ import { normalizeAssistantReply, normalizeAssistantSpeechText } from "./reply-n
 import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "./link-understanding.js";
 import { appendBudgetedPromptSection, computeHistoryTokenBudget } from "./prompt-budget.js";
 import { detectSuspiciousPatterns, wrapWebContent } from "./external-content.js";
+
+function isWeatherRequestText(text) {
+  return /\b(weather|forecast|temperature|rain|snow|precipitation)\b/i.test(String(text || ""));
+}
+
+async function tryWeatherFastPathReply({ text, runtimeTools, availableTools, canRunWebSearch }) {
+  if (!isWeatherRequestText(text) || !canRunWebSearch || typeof runtimeTools?.executeToolUse !== "function") return "";
+  try {
+    const result = await runtimeTools.executeToolUse(
+      { id: `tool_weather_fast_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
+      availableTools,
+    );
+    const content = String(result?.content || "").trim();
+    if (!content) return "";
+    if (!/^web_search error/i.test(content)) {
+      // Only short-circuit on high-quality weather summaries.
+      // Otherwise continue through normal tool+LLM flow for a human response.
+      const readable = buildWeatherWebSummary(text, content);
+      return readable || "";
+    }
+    if (/missing brave api key/i.test(content)) {
+      return "Live weather lookup is unavailable because Brave Search is not connected. Add Brave in Integrations and retry.";
+    }
+    const detail = content.replace(/^web_search error:\s*/i, "").trim();
+    return detail
+      ? `I couldn't complete a live weather lookup: ${detail}`
+      : "I couldn't complete a live weather lookup right now.";
+  } catch (err) {
+    const msg = describeUnknownError(err);
+    return `I couldn't complete a live weather lookup right now: ${msg}`;
+  }
+}
 
 function applyMemoryFactsToWorkspace(personaWorkspaceDir, facts) {
   if (!Array.isArray(facts) || facts.length === 0) return 0;
@@ -101,6 +134,128 @@ function hashShadowPayload(value) {
   return createHash("sha256").update(String(value || "")).digest("hex").slice(0, 24);
 }
 
+const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
+  .trim()
+  .replace(/\/+$/, "");
+const WORKFLOW_BUILD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WORKFLOW_BUILD_TIMEOUT_MS || "45000", 10);
+const MISSION_CONFIRM_TTL_MS = Number.parseInt(process.env.NOVA_MISSION_CONFIRM_TTL_MS || "600000", 10);
+const missionConfirmBySession = new Map();
+
+function cleanupMissionConfirmStore() {
+  const now = Date.now();
+  for (const [key, value] of missionConfirmBySession.entries()) {
+    if (!value || now - Number(value.ts || 0) > MISSION_CONFIRM_TTL_MS) {
+      missionConfirmBySession.delete(key);
+    }
+  }
+}
+
+function getPendingMissionConfirm(sessionKey) {
+  const key = String(sessionKey || "").trim();
+  if (!key) return null;
+  cleanupMissionConfirmStore();
+  const value = missionConfirmBySession.get(key);
+  if (!value || !String(value.prompt || "").trim()) return null;
+  return value;
+}
+
+function setPendingMissionConfirm(sessionKey, prompt) {
+  const key = String(sessionKey || "").trim();
+  const normalizedPrompt = String(prompt || "").trim();
+  if (!key || !normalizedPrompt) return;
+  missionConfirmBySession.set(key, { prompt: normalizedPrompt, ts: Date.now() });
+}
+
+function clearPendingMissionConfirm(sessionKey) {
+  const key = String(sessionKey || "").trim();
+  if (!key) return;
+  missionConfirmBySession.delete(key);
+}
+
+function stripAssistantInvocation(text) {
+  return String(text || "")
+    .replace(/^\s*(hey|hi|yo)\s+nova[\s,:-]*/i, "")
+    .replace(/^\s*nova[\s,:-]*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function missionChannelHint(text) {
+  const n = String(text || "").toLowerCase();
+  if (/\btelegram\b/.test(n)) return "Telegram";
+  if (/\bdiscord\b/.test(n)) return "Discord";
+  if (/\bnovachat\b|\bchat\b/.test(n)) return "NovaChat";
+  if (/\bemail\b/.test(n)) return "Email";
+  if (/\bwebhook\b/.test(n)) return "Webhook";
+  return "";
+}
+
+function missionTimeHint(text) {
+  const m = String(text || "").match(/\b(?:at|around|by)\s+([01]?\d(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)?)\b/i);
+  return m?.[1] ? String(m[1]).replace(/\s+/g, " ").trim() : "";
+}
+
+function buildMissionConfirmReply(text) {
+  const channel = missionChannelHint(text);
+  const atTime = missionTimeHint(text);
+  const details = [
+    atTime ? ` at ${atTime}` : "",
+    channel ? ` to ${channel}` : "",
+  ].join("");
+  return [
+    `I can turn that into a mission${details}.`,
+    `Do you want me to create it now? Reply "yes" or "no".`,
+  ].join(" ");
+}
+
+function isMissionConfirmYes(text) {
+  const n = String(text || "").trim().toLowerCase();
+  if (!n) return false;
+  if (/^(no|nah|nope|cancel|stop|nevermind|never mind)\b/.test(n)) return false;
+  return /^(yes|yeah|yep|sure|ok|okay|do it|go ahead|create it|create mission|please do|affirmative)\b/.test(n);
+}
+
+function isMissionConfirmNo(text) {
+  const n = String(text || "").trim().toLowerCase();
+  return /^(no|nah|nope|cancel|stop|nevermind|never mind)\b/.test(n);
+}
+
+function stripMissionConfirmPrefix(text) {
+  return String(text || "")
+    .replace(/^\s*(yes|yeah|yep|sure|ok|okay|do it|go ahead|create it|create mission|please do|affirmative)[\s,:-]*/i, "")
+    .trim();
+}
+
+async function sendDirectAssistantReply(userText, replyText, ctx, thinkingStatus = "Confirming mission") {
+  const { source, sender, sessionId, useVoice, ttsVoice } = ctx;
+  const normalizedReply = normalizeAssistantReply(replyText);
+  if (normalizedReply.skip) {
+    broadcastThinkingStatus("");
+    broadcastState("idle");
+    return "";
+  }
+
+  broadcastState("thinking");
+  broadcastThinkingStatus(thinkingStatus);
+  broadcastMessage("user", userText, source);
+  if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "user", userText, { source, sender: sender || null });
+
+  const streamId = createAssistantStreamId();
+  broadcastAssistantStreamStart(streamId, source);
+  broadcastAssistantStreamDelta(streamId, normalizedReply.text, source);
+  broadcastAssistantStreamDone(streamId, source);
+  if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", normalizedReply.text, { source, sender: "nova" });
+
+  if (useVoice) {
+    await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
+    broadcastThinkingStatus("");
+  } else {
+    broadcastThinkingStatus("");
+    broadcastState("idle");
+  }
+  return normalizedReply.text;
+}
+
 // ===== Memory update sub-handler =====
 async function handleMemoryUpdate(text, ctx) {
   const { source, sender, sessionId, useVoice, ttsVoice, userContextId } = ctx;
@@ -117,6 +272,7 @@ async function handleMemoryUpdate(text, ctx) {
   }
 
   broadcastState("thinking");
+  broadcastThinkingStatus("Updating memory");
   broadcastMessage("user", text, source);
   if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "user", text, { source, sender: sender || null });
 
@@ -252,10 +408,11 @@ Output ONLY valid JSON, nothing else.`;
 
 // ===== Workflow builder sub-handler =====
 async function handleWorkflowBuild(text, ctx, options = {}) {
-  const { source, useVoice, ttsVoice } = ctx;
+  const { source, useVoice, ttsVoice, supabaseAccessToken } = ctx;
   const engine = String(options.engine || "src").trim().toLowerCase() || "src";
   stopSpeaking();
   broadcastState("thinking");
+  broadcastThinkingStatus("Building workflow");
   broadcastMessage("user", text, source);
   try {
     const deploy = !shouldDraftOnlyWorkflow(text);
@@ -267,11 +424,18 @@ async function handleWorkflowBuild(text, ctx, options = {}) {
       engine,
       deploy,
     });
-    const res = await fetch("http://localhost:3000/api/missions/build", {
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), Math.max(5000, WORKFLOW_BUILD_TIMEOUT_MS));
+    const headers = { "Content-Type": "application/json" };
+    if (String(supabaseAccessToken || "").trim()) {
+      headers.Authorization = `Bearer ${String(supabaseAccessToken).trim()}`;
+    }
+    const res = await fetch(`${HUD_API_BASE_URL}/api/missions/build`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
+      signal: abortController.signal,
       body: JSON.stringify({ prompt: text, deploy, engine }),
-    });
+    }).finally(() => clearTimeout(timeoutId));
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
 
@@ -283,8 +447,8 @@ async function handleWorkflowBuild(text, ctx, options = {}) {
     const scheduleTimezone = data?.workflow?.summary?.schedule?.timezone || "America/New_York";
 
     const reply = data?.deployed
-      ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}.`
-      : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}.`;
+      ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}. Open the Missions page to review or edit it.`
+      : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}. Open the Missions page to review or edit it.`;
     const normalizedReply = normalizeAssistantReply(reply);
 
     appendRawStream({
@@ -355,6 +519,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
     error: "",
   };
   broadcastState("thinking");
+  broadcastThinkingStatus("Analyzing request");
   broadcastMessage("user", text, source);
   if (useVoice) playThinking();
 
@@ -417,6 +582,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
   };
 
   if (canRunWebSearch && shouldPreloadWebSearch(text)) {
+    broadcastThinkingStatus("Searching web");
     try {
       const preloadResult = await runtimeTools.executeToolUse(
         { id: `tool_preload_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
@@ -449,6 +615,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
   }
 
   if (canRunWebFetch) {
+    broadcastThinkingStatus("Reviewing links");
     try {
       const linkResult = await runLinkUnderstanding({
         text,
@@ -485,6 +652,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
   }
 
   if (runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
+    broadcastThinkingStatus("Recalling memory");
     try {
       runtimeTools.memoryManager.warmSession();
       const recalled = await runtimeTools.memoryManager.search(text, 3);
@@ -510,6 +678,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
   }
 
   const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
+  broadcastThinkingStatus("Planning response");
   console.log(`[Prompt] Tokens - persona: ${tokenBreakdown.persona}, user: ${tokenInfo.userTokens}`);
 
   const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
@@ -544,7 +713,19 @@ async function executeChatRequest(text, ctx, llmCtx) {
     let completionTokens = 0;
     let modelUsed = selectedChatModel;
 
-    if (activeChatRuntime.provider === "claude") {
+    const weatherFastReply = await tryWeatherFastPathReply({
+      text,
+      runtimeTools,
+      availableTools,
+      canRunWebSearch,
+    });
+
+    if (weatherFastReply) {
+      broadcastThinkingStatus("Summarizing weather");
+      reply = weatherFastReply;
+      observedToolCalls.push("web_search");
+    } else if (activeChatRuntime.provider === "claude") {
+      broadcastThinkingStatus("Drafting response");
       const claudeMessages = [...historyMessages, { role: "user", content: text }];
       const claudeCompletion = await claudeMessagesStream({
         apiKey: activeChatRuntime.apiKey,
@@ -566,9 +747,12 @@ async function executeChatRequest(text, ctx, llmCtx) {
     } else if (canRunToolLoop) {
       const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
       const loopMessages = [...messages];
+      const toolOutputsForRecovery = [];
+      let forcedToolFallbackReply = "";
       let usedFallback = false;
 
       for (let step = 0; step < Math.max(1, TOOL_LOOP_MAX_STEPS); step += 1) {
+        broadcastThinkingStatus("Reasoning");
         let completion = null;
         try {
           completion = await withTimeout(
@@ -608,11 +792,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
         completionTokens += Number(usage.completion_tokens || 0);
 
         const choice = completion?.choices?.[0]?.message || {};
-        const assistantText = typeof choice.content === "string"
-          ? choice.content
-          : Array.isArray(choice.content)
-            ? choice.content.map((p) => (p?.type === "text" ? String(p.text || "") : "")).join("")
-            : "";
+        const assistantText = extractOpenAIChatText(completion);
         const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
 
         if (toolCalls.length === 0) {
@@ -625,6 +805,10 @@ async function executeChatRequest(text, ctx, llmCtx) {
         // Bug Fix 2: tool errors are caught, logged, and surfaced instead of swallowed
         for (const toolCall of toolCalls) {
           const toolName = String(toolCall?.function?.name || toolCall?.id || "").trim();
+          const normalizedToolName = toolName.toLowerCase();
+          if (normalizedToolName === "web_search") broadcastThinkingStatus("Searching web");
+          else if (normalizedToolName === "web_fetch") broadcastThinkingStatus("Reviewing sources");
+          else broadcastThinkingStatus("Running tools");
           if (toolName) observedToolCalls.push(toolName);
           const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
           let toolResult;
@@ -646,6 +830,21 @@ async function executeChatRequest(text, ctx, llmCtx) {
             content: (() => {
               const content = String(toolResult?.content || "");
               const normalizedName = String(toolName || "").toLowerCase();
+              if (content.trim()) {
+                toolOutputsForRecovery.push({ name: normalizedName, content });
+                if (normalizedName === "web_search" && /^web_search error:/i.test(content)) {
+                  if (/missing brave api key/i.test(content)) {
+                    forcedToolFallbackReply =
+                      "Live web search is unavailable because the Brave API key is missing. Add Brave in Integrations and retry.";
+                  } else if (/rate limited/i.test(content)) {
+                    forcedToolFallbackReply =
+                      "Live web search is currently rate-limited. Please retry in a moment.";
+                  } else {
+                    forcedToolFallbackReply =
+                      `Live web search failed: ${content.replace(/^web_search error:\s*/i, "").trim()}`;
+                  }
+                }
+              }
               if (normalizedName !== "web_search" && normalizedName !== "web_fetch") {
                 return content;
               }
@@ -659,10 +858,95 @@ async function executeChatRequest(text, ctx, llmCtx) {
             })(),
           });
         }
+
+        if (forcedToolFallbackReply) {
+          reply = forcedToolFallbackReply;
+          break;
+        }
+      }
+
+      if (!reply || !reply.trim()) {
+        broadcastThinkingStatus("Recovering final answer");
+        // Some OpenAI-compatible providers can end tool loops without a terminal text message.
+        // Try one no-tools recovery completion first, then fall back to the latest tool output.
+        try {
+          const recovery = await withTimeout(
+            activeOpenAiCompatibleClient.chat.completions.create({
+              model: modelUsed,
+              messages: [
+                ...loopMessages,
+                {
+                  role: "user",
+                  content: "Provide the final answer to the user using the tool results above. Keep it concise and actionable.",
+                },
+              ],
+              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+            }),
+            OPENAI_REQUEST_TIMEOUT_MS,
+            `Tool loop recovery model ${modelUsed}`,
+          );
+          reply = extractOpenAIChatText(recovery).trim();
+        } catch (recoveryErr) {
+          console.warn(`[ToolLoop] recovery completion failed: ${describeUnknownError(recoveryErr)}`);
+        }
+      }
+
+      if (!reply || !reply.trim()) {
+        const latestUsefulTool = [...toolOutputsForRecovery]
+          .reverse()
+          .find((entry) => {
+            const content = String(entry?.content || "").trim();
+            if (!content) return false;
+            if (entry.name === "web_search" && /^web_search error/i.test(content)) return false;
+            if (entry.name === "web_fetch" && /^web_fetch error/i.test(content)) return false;
+            return true;
+          });
+
+        if (latestUsefulTool) {
+          if (latestUsefulTool.name === "web_search") {
+            if (isWeatherRequestText(text)) {
+              const weatherReadable = buildWeatherWebSummary(text, latestUsefulTool.content);
+              reply = weatherReadable
+                || "I checked live weather sources, but couldn't extract a reliable forecast summary yet. Please retry with city and state (for example: Pittsburgh, PA).";
+            } else {
+              const readable = buildWebSearchReadableReply(text, latestUsefulTool.content);
+              reply = readable || `Live web results:\n\n${latestUsefulTool.content.slice(0, 2200)}`;
+            }
+          } else if (latestUsefulTool.name === "web_fetch") {
+            reply = `I fetched the page content but the model did not finalize the answer. Here is the extracted content:\n\n${latestUsefulTool.content.slice(0, 2200)}`;
+          } else {
+            reply = `I ran tools but the model returned no final text. Tool output:\n\n${latestUsefulTool.content.slice(0, 2200)}`;
+          }
+        } else {
+          const latestToolError = [...toolOutputsForRecovery]
+            .reverse()
+            .find((entry) => {
+              const content = String(entry?.content || "").trim().toLowerCase();
+              return content.startsWith("web_search error") || content.startsWith("web_fetch error");
+            });
+          if (latestToolError) {
+            if (latestToolError.name === "web_search") {
+              const detail = String(latestToolError.content || "")
+                .replace(/^web_search error:\s*/i, "")
+                .trim();
+              reply = detail
+                ? `I couldn't complete a live web lookup: ${detail}`
+                : "I couldn't complete a live web lookup right now.";
+            } else {
+              const detail = String(latestToolError.content || "")
+                .replace(/^web_fetch error:\s*/i, "")
+                .trim();
+              reply = detail
+                ? `I couldn't fetch the web source: ${detail}`
+                : "I couldn't fetch the web source right now.";
+            }
+          }
+        }
       }
 
       if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response after tool loop.`);
     } else {
+      broadcastThinkingStatus("Drafting response");
       let streamed = null;
       let sawPrimaryDelta = false;
       try {
@@ -705,6 +989,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
 
     // Refusal recovery: if model claimed no web access, do a search and append results
     if (replyClaimsNoLiveAccess(reply) && canRunWebSearch) {
+      broadcastThinkingStatus("Verifying live web access");
       try {
         const fallbackResult = await runtimeTools.executeToolUse(
           { id: `tool_refusal_recover_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
@@ -712,7 +997,8 @@ async function executeChatRequest(text, ctx, llmCtx) {
         );
         const fallbackContent = String(fallbackResult?.content || "").trim();
         if (fallbackContent && !/^web_search error/i.test(fallbackContent)) {
-          const readable = buildWebSearchReadableReply(text, fallbackContent);
+          const weatherReadable = isWeatherRequestText(text) ? buildWeatherWebSummary(text, fallbackContent) : "";
+          const readable = weatherReadable || buildWebSearchReadableReply(text, fallbackContent);
           const correction = readable
             ? `I do have live web access in this runtime.\n\n${readable}`
             : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;
@@ -727,6 +1013,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
     }
 
     const normalizedReply = normalizeAssistantReply(reply);
+    broadcastThinkingStatus("Finalizing response");
     if (normalizedReply.skip) {
       reply = "";
     } else {
@@ -786,6 +1073,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
 
     if (useVoice && reply) await speak(normalizeAssistantSpeechText(reply) || reply, ttsVoice);
   } catch (err) {
+    broadcastThinkingStatus("Handling error");
     const details = toErrorDetails(err);
     const msg = details.message || "Unknown model error.";
     appendRawStream({ event: "request_error", source, sessionKey, provider: activeChatRuntime.provider, model: selectedChatModel, status: details.status, code: details.code, type: details.type, requestId: details.requestId, message: msg });
@@ -802,6 +1090,7 @@ async function executeChatRequest(text, ctx, llmCtx) {
     runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
     runSummary.promptHash = preparedPromptHash;
   } finally {
+    broadcastThinkingStatus("");
     runSummary.latencyMs = Date.now() - startedAt;
     broadcastAssistantStreamDone(assistantStreamId, source);
     broadcastState("idle");
@@ -856,12 +1145,56 @@ export async function handleInput(text, opts = {}) {
     source, sender, sessionContext, sessionKey, userContextId,
     useVoice, ttsVoice, runtimeTone, runtimeCommunicationStyle,
     runtimeAssistantName, runtimeCustomInstructions,
+    supabaseAccessToken: String(opts.supabaseAccessToken || "").trim(),
     sessionId: sessionContext.sessionEntry?.sessionId,
   };
 
   // Memory update — short-circuit before any LLM call
   if (isMemoryUpdateRequest(text)) {
     await handleMemoryUpdate(text, ctx);
+    return;
+  }
+
+  // Mission confirmation/build routing before LLM/provider selection.
+  const pendingMission = getPendingMissionConfirm(sessionKey);
+  if (pendingMission) {
+    if (isMissionConfirmNo(text)) {
+      clearPendingMissionConfirm(sessionKey);
+      await sendDirectAssistantReply(
+        text,
+        "No problem. I will not create a mission. If you want one later, say: create a mission for ...",
+        ctx,
+      );
+      return;
+    }
+
+    if (isMissionConfirmYes(text)) {
+      const details = stripMissionConfirmPrefix(text);
+      const mergedPrompt = details ? `${pendingMission.prompt}. ${details}` : pendingMission.prompt;
+      clearPendingMissionConfirm(sessionKey);
+      await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
+      return;
+    }
+
+    const detailLikeFollowUp = /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|novachat|daily|every|morning|night|tomorrow)\b/i.test(text);
+    if (detailLikeFollowUp) {
+      const mergedPrompt = `${pendingMission.prompt}. ${stripAssistantInvocation(text)}`.replace(/\s+/g, " ").trim();
+      setPendingMissionConfirm(sessionKey, mergedPrompt);
+      await sendDirectAssistantReply(text, buildMissionConfirmReply(mergedPrompt), ctx);
+      return;
+    }
+  }
+
+  if (shouldBuildWorkflowFromPrompt(text)) {
+    clearPendingMissionConfirm(sessionKey);
+    await handleWorkflowBuild(text, ctx, { engine: "src" });
+    return;
+  }
+
+  if (shouldConfirmWorkflowFromPrompt(text)) {
+    const candidatePrompt = stripAssistantInvocation(text) || text;
+    setPendingMissionConfirm(sessionKey, candidatePrompt);
+    await sendDirectAssistantReply(text, buildMissionConfirmReply(candidatePrompt), ctx);
     return;
   }
 
@@ -915,11 +1248,6 @@ export async function handleInput(text, opts = {}) {
 
   if (n.includes("spotify") || n.includes("play music") || n.includes("play some") || n.includes("put on ")) {
     await handleSpotify(text, ctx, llmCtx);
-    return;
-  }
-
-  if (shouldBuildWorkflowFromPrompt(text)) {
-    await handleWorkflowBuild(text, ctx, { engine: "src" });
     return;
   }
 

@@ -1,13 +1,6 @@
 import { AlertTriangle, CheckCircle2, Clock3, Globe, ShieldQuestion } from "lucide-react"
 
-import { TelegramIcon } from "@/components/telegram-icon"
-import { DiscordIcon } from "@/components/discord-icon"
-import { BraveIcon } from "@/components/brave-icon"
-import { OpenAIIcon } from "@/components/openai-icon"
-import { ClaudeIcon } from "@/components/claude-icon"
-import { XAIIcon } from "@/components/xai-icon"
-import { GeminiIcon } from "@/components/gemini-icon"
-import { GmailIcon } from "@/components/gmail-icon"
+import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 
 import type { ActivityEvent } from "../types"
 
@@ -65,3 +58,4 @@ export function ActivityFeedPanel({ events, isLight }: ActivityFeedPanelProps) {
     </section>
   )
 }
+

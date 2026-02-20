@@ -116,6 +116,7 @@ export async function GET(req: Request) {
     await exchangeCodeForGmailTokens(code, {
       userId: parsedState.userId,
       allowServiceRole: true,
+      serviceRoleReason: "gmail-oauth-callback",
     })
     if (popupFlow) {
       return popupCloseResponse({ status: "success", message: "Gmail connected.", returnTo })

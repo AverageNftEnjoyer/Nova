@@ -1,6 +1,6 @@
 import { useEffect } from "react"
-import { loadUserSettings, type ThemeBackgroundType } from "@/lib/userSettings"
-import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
+import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import {
   getCachedBackgroundVideoObjectUrl,
   isBackgroundAssetImage,

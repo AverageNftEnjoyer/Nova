@@ -11,6 +11,7 @@ interface UseMissionsSpotlightInput {
   headerActionsRef: RefObject<HTMLDivElement | null>
   builderBodyRef: RefObject<HTMLDivElement | null>
   builderFooterRef: RefObject<HTMLDivElement | null>
+  loading?: boolean
 }
 
 export function useMissionsSpotlight({
@@ -21,9 +22,11 @@ export function useMissionsSpotlight({
   headerActionsRef,
   builderBodyRef,
   builderFooterRef,
+  loading,
 }: UseMissionsSpotlightInput) {
   useEffect(() => {
     if (!spotlightEnabled) return
+    if (loading) return
 
     const setupSectionSpotlight = (section: HTMLElement, options?: { enableGlow?: boolean; showSpotlightCore?: boolean }) => {
       const enableGlow = options?.enableGlow ?? true
@@ -169,5 +172,5 @@ export function useMissionsSpotlight({
     if (builderOpen && builderBodyRef.current) cleanups.push(setupSectionSpotlight(builderBodyRef.current, { enableGlow: false }))
     if (builderOpen && builderFooterRef.current) cleanups.push(setupSectionSpotlight(builderFooterRef.current, { showSpotlightCore: false }))
     return () => cleanups.forEach((cleanup) => cleanup())
-  }, [builderBodyRef, builderFooterRef, builderOpen, createSectionRef, headerActionsRef, listSectionRef, spotlightEnabled])
+  }, [builderBodyRef, builderFooterRef, builderOpen, createSectionRef, headerActionsRef, listSectionRef, spotlightEnabled, loading])
 }

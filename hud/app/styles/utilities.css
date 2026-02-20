@@ -1,0 +1,224 @@
+.text-s-90 {
+  color: rgba(var(--s), 0.9);
+}
+.text-s-85 {
+  color: rgba(var(--s), 0.85);
+}
+.text-s-80 {
+  color: rgba(var(--s), 0.8);
+}
+.text-s-70 {
+  color: rgba(var(--s), 0.7);
+}
+.text-s-60 {
+  color: rgba(var(--s), 0.6);
+}
+.text-s-50 {
+  color: rgba(var(--s), 0.5);
+}
+.text-s-40 {
+  color: rgba(var(--s), 0.4);
+}
+.text-s-30 {
+  color: rgba(var(--s), 0.3);
+}
+.text-s-25 {
+  color: rgba(var(--s), 0.25);
+}
+.text-s-20 {
+  color: rgba(var(--s), 0.2);
+}
+.text-s-15 {
+  color: rgba(var(--s), 0.15);
+}
+.text-s-10 {
+  color: rgba(var(--s), 0.1);
+}
+
+.bg-s-2 {
+  background-color: rgba(var(--s), 0.02);
+}
+.bg-s-3 {
+  background-color: rgba(var(--s), 0.03);
+}
+.bg-s-5 {
+  background-color: rgba(var(--s), 0.05);
+}
+.bg-s-10 {
+  background-color: rgba(var(--s), 0.1);
+}
+.bg-s-15 {
+  background-color: rgba(var(--s), 0.15);
+}
+
+.hover\:bg-s-5:hover {
+  background-color: rgba(var(--s), 0.05);
+}
+.hover\:bg-s-10:hover {
+  background-color: rgba(var(--s), 0.1);
+}
+.hover\:bg-s-15:hover {
+  background-color: rgba(var(--s), 0.15);
+}
+.hover\:bg-s-30:hover {
+  background-color: rgba(var(--s), 0.3);
+}
+
+.border-s-5 {
+  border-color: rgba(var(--s), 0.05);
+}
+.border-s-10 {
+  border-color: rgba(var(--s), 0.1);
+}
+
+.focus-within\:border-s-10:focus-within {
+  border-color: rgba(var(--s), 0.1);
+}
+
+.placeholder\:text-s-20::placeholder {
+  color: rgba(var(--s), 0.2);
+}
+.placeholder\:text-s-30::placeholder {
+  color: rgba(var(--s), 0.3);
+}
+
+.bg-page {
+  background-color: var(--page-bg);
+}
+.bg-sidebar-page {
+  background-color: var(--sidebar-page-bg);
+}
+
+.text-accent {
+  color: var(--accent-primary);
+}
+.text-accent-secondary {
+  color: var(--accent-secondary);
+}
+.bg-accent {
+  background-color: var(--accent-primary);
+}
+.bg-accent-10 {
+  background-color: rgba(var(--accent-rgb), 0.1);
+}
+.bg-accent-15 {
+  background-color: rgba(var(--accent-rgb), 0.15);
+}
+.bg-accent-20 {
+  background-color: rgba(var(--accent-rgb), 0.2);
+}
+.border-accent {
+  border-color: var(--accent-primary);
+}
+.border-accent-30 {
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+.shadow-accent {
+  box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.3);
+}
+.hover\:bg-accent-20:hover {
+  background-color: rgba(var(--accent-rgb), 0.2);
+}
+.hover\:text-accent:hover {
+  color: var(--accent-primary);
+}
+.hover\:border-accent-30:hover {
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+.ring-accent {
+  --tw-ring-color: var(--accent-primary);
+}
+.focus\:border-accent-50:focus {
+  border-color: rgba(var(--accent-rgb), 0.5);
+}
+
+.gradient-text-animated {
+  background: linear-gradient(
+    45deg,
+    rgba(59, 130, 246, 1) 0%,
+    rgba(139, 92, 246, 1) 25%,
+    rgba(6, 182, 212, 1) 50%,
+    rgba(245, 158, 11, 1) 75%,
+    rgba(59, 130, 246, 1) 100%
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-shift 2s ease infinite;
+}
+
+.analysis-word-gradient {
+  background: linear-gradient(
+    45deg,
+    rgba(59, 130, 246, 1) 0%,
+    rgba(139, 92, 246, 1) 25%,
+    rgba(6, 182, 212, 1) 50%,
+    rgba(245, 158, 11, 1) 75%,
+    rgba(59, 130, 246, 1) 100%
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-shift 2s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes blur-reveal {
+  0% {
+    filter: blur(8px);
+    opacity: 0;
+  }
+  100% {
+    filter: blur(0px);
+    opacity: 1;
+  }
+}
+
+.streaming-word {
+  display: inline;
+  animation: blur-reveal 0.4s ease-out forwards;
+}
+
+@keyframes slide-up-bounce {
+  0% {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-4px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.user-message-enter {
+  animation: slide-up-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (min-width: 768px) {
+  .compact-msg-user-bound {
+    margin-right: clamp(2in, 16vw, 20rem);
+    max-width: min(80%, calc(100% - clamp(4in, 32vw, 40rem)));
+  }
+
+  .compact-msg-assistant-bound {
+    margin-left: clamp(2in, 16vw, 20rem);
+    max-width: min(80%, calc(100% - clamp(4in, 32vw, 40rem)));
+  }
+}
+

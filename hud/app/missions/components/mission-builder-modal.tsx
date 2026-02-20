@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Clock3, GitBranch, GripVertical, Sparkles, X
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { NovaSwitch } from "@/components/ui/nova-switch"
 import type { IntegrationsSettings } from "@/lib/integrations/client-store"
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import {
   AI_DETAIL_LEVEL_OPTIONS,
   AI_PROVIDER_LABELS,

@@ -1,13 +1,6 @@
 import { Globe, ShieldQuestion, Sparkles, Waypoints } from "lucide-react"
 
-import { TelegramIcon } from "@/components/telegram-icon"
-import { DiscordIcon } from "@/components/discord-icon"
-import { BraveIcon } from "@/components/brave-icon"
-import { OpenAIIcon } from "@/components/openai-icon"
-import { ClaudeIcon } from "@/components/claude-icon"
-import { XAIIcon } from "@/components/xai-icon"
-import { GeminiIcon } from "@/components/gemini-icon"
-import { GmailIcon } from "@/components/gmail-icon"
+import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 
 import type { IntegrationMetricRow } from "../types"
 
@@ -94,3 +87,4 @@ export function IntegrationBreakdownTable({ rows, isLight }: IntegrationBreakdow
     </section>
   )
 }
+

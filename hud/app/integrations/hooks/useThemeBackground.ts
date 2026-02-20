@@ -1,4 +1,4 @@
-import { loadUserSettings, type ThemeBackgroundType } from "@/lib/userSettings"
+import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
 import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 
 /**

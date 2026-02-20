@@ -214,6 +214,7 @@ async function runScheduleTickInternal() {
           ? {
               userId: schedule.userId,
               allowServiceRole: true,
+              serviceRoleReason: "scheduler",
             }
           : undefined,
       })

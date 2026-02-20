@@ -1,0 +1,369 @@
+.home-spotlight-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.home-spotlight-shell > :not(.home-global-spotlight) {
+  position: relative;
+  z-index: 1;
+}
+
+.home-global-spotlight {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+  mix-blend-mode: var(--spotlight-blend-mode);
+  background: radial-gradient(
+    circle,
+    rgba(var(--spotlight-rgb), var(--spotlight-core-alpha)) 0%,
+    rgba(var(--spotlight-rgb), var(--spotlight-mid-alpha)) 30%,
+    rgba(var(--spotlight-rgb), var(--spotlight-soft-alpha)) 58%,
+    transparent 75%
+  );
+  transition: opacity 170ms ease;
+}
+
+.home-spotlight-card {
+  position: relative;
+  overflow: hidden;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 88px;
+}
+
+.home-spotlight-card--hover:hover {
+  box-shadow:
+    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03));
+  border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha));
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.module-hover-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  -ms-overflow-style: none;
+  scrollbar-gutter: stable both-edges;
+}
+
+.module-hover-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.module-hover-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+.module-hover-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.module-hover-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.26) rgba(255, 255, 255, 0.08);
+}
+
+.module-hover-scroll:hover::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+}
+
+.module-hover-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.26);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.module-hover-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.module-scroll-visible {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.module-scroll-visible::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.module-scroll-visible::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+.module-scroll-visible::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.module-scroll-strong {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.12);
+}
+
+.module-scroll-strong::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.module-scroll-strong::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.module-scroll-strong::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.module-scroll-strong::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.mission-builder-popup-no-glow .home-spotlight-card--hover:hover {
+  box-shadow: none !important;
+  border-color: inherit !important;
+}
+
+.mission-builder-popup-no-glow .home-spotlight-card.home-border-glow::after {
+  opacity: 0 !important;
+}
+
+.mission-builder-popup-no-glow .mission-builder-hover-gleam.home-spotlight-card--hover:hover {
+  box-shadow:
+    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03)) !important;
+  border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha)) !important;
+}
+
+.mission-builder-popup-no-glow .mission-builder-hover-gleam.home-border-glow::after {
+  opacity: 1 !important;
+}
+
+/* Default dynamic spotlight variant for interactive cards (use with .home-spotlight-card + .home-border-glow). */
+.home-spotlight-dynamic {
+  box-shadow:
+    0 8px 24px rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.08)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.12));
+  transition:
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.home-spotlight-card.home-border-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.35)) 30%,
+    transparent 62%
+  );
+  border-radius: inherit;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sidebar-spotlight-card {
+  box-shadow:
+    0 6px 22px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.11)),
+    0 0 14px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.16));
+  transition:
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.sidebar-selected-flat {
+  box-shadow: none !important;
+  transform: none !important;
+  --glow-intensity: 0 !important;
+  --glow-radius: 0px !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+}
+
+.sidebar-selected-flat.home-border-glow::after {
+  content: none !important;
+}
+
+.mission-spotlight-card {
+  --glow-radius: 64px;
+}
+
+.mission-spotlight-card.home-spotlight-card--hover:hover {
+  box-shadow:
+    0 5px 14px rgba(255, 255, 255, 0.06),
+    0 0 8px rgba(255, 255, 255, 0.09);
+}
+
+.fx-spotlight-shell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.fx-spotlight-shell > :not(.fx-spotlight-overlay) {
+  position: relative;
+  z-index: 1;
+}
+
+.fx-spotlight-overlay {
+  position: absolute;
+  left: var(--fx-overlay-x, 50%);
+  top: var(--fx-overlay-y, 50%);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: var(--fx-overlay-opacity, 0);
+  z-index: 0;
+  mix-blend-mode: var(--spotlight-blend-mode);
+  background: radial-gradient(
+    circle,
+    rgba(var(--spotlight-rgb), var(--spotlight-core-alpha)) 0%,
+    rgba(var(--spotlight-rgb), var(--spotlight-mid-alpha)) 30%,
+    rgba(var(--spotlight-rgb), var(--spotlight-soft-alpha)) 58%,
+    transparent 76%
+  );
+  transition: opacity 170ms ease;
+}
+
+.fx-spotlight-overlay--sm {
+  width: 58px;
+  height: 58px;
+}
+
+.fx-spotlight-card {
+  position: relative;
+  overflow: hidden;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-intensity: 0;
+  --glow-radius: 88px;
+}
+
+.fx-spotlight-card--hover:hover {
+  box-shadow:
+    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
+    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.02));
+}
+
+.fx-spotlight-dynamic {
+  box-shadow:
+    0 8px 24px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.08)),
+    0 0 14px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.12));
+  transition:
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.fx-spotlight-card.fx-border-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  background: radial-gradient(
+    var(--glow-radius) circle at var(--glow-x) var(--glow-y),
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.8)) 0%,
+    rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.35)) 30%,
+    transparent 62%
+  );
+  border-radius: inherit;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.fx-dropdown-item[data-highlighted] {
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.dark .fx-dropdown-item[data-highlighted] {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+:root .fx-dropdown-item[data-highlighted] {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.fx-star-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--fx-star-color, rgba(255, 255, 255, 1));
+  box-shadow: 0 0 10px var(--fx-star-glow, rgba(255, 255, 255, 0.65));
+  pointer-events: none;
+  z-index: 2;
+  animation-name: fx-star-float;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+@keyframes fx-star-float {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.5);
+  }
+  20% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--star-x, 8px), var(--star-y, -20px)) scale(0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-global-spotlight,
+  .home-spotlight-card,
+  .fx-spotlight-overlay,
+  .fx-spotlight-card,
+  .fx-star-particle {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

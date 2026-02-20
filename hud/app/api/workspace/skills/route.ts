@@ -64,6 +64,7 @@ type SkillSummary = {
   name: string
   description: string
   readWhen: string[]
+  userInvokable: boolean
   updatedAt: string
   chars: number
 }
@@ -97,6 +98,7 @@ function toTitleCaseSlug(slug: string): string {
 }
 
 function resolveSkillsDir(workspaceRoot: string, userId: string): string {
+  void userId
   return path.join(path.resolve(workspaceRoot), "skills")
 }
 
@@ -506,16 +508,24 @@ async function listSkillSummaries(skillsDir: string): Promise<SkillSummary[]> {
     if (!content) continue
     const fileStat = await stat(skillPath).catch(() => null)
     const metadata = extractSkillMetadataFromFrontmatter(content)
+    const frontmatter = parseFrontmatter(content)
+    const userInvokableRaw = String(frontmatter?.map["user-invokable"] || "").trim().toLowerCase()
+    const userInvokable = userInvokableRaw !== "false"
     summaries.push({
       name,
       description: metadata.description,
       readWhen: metadata.readWhen,
+      userInvokable,
       updatedAt: fileStat ? new Date(fileStat.mtimeMs).toISOString() : "",
       chars: content.length,
     })
   }
 
   return summaries.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function filterInvokableSkills(skills: SkillSummary[]): SkillSummary[] {
+  return skills.filter((skill) => skill.userInvokable !== false)
 }
 
 export async function GET(req: Request) {
@@ -552,7 +562,7 @@ export async function GET(req: Request) {
           markInitialized: true,
         })
       : []
-    const skills = await listSkillSummaries(skillsDir)
+    const skills = filterInvokableSkills(await listSkillSummaries(skillsDir))
     return NextResponse.json({ ok: true, skills, seeded })
   } catch (error) {
     return NextResponse.json(
@@ -581,7 +591,7 @@ export async function POST(req: Request) {
         respectDisabled: false,
         markInitialized: true,
       })
-      const skills = await listSkillSummaries(resolveSkillsDir(workspaceRoot, verified.user.id))
+      const skills = filterInvokableSkills(await listSkillSummaries(resolveSkillsDir(workspaceRoot, verified.user.id)))
       return NextResponse.json({ ok: true, installed, skills })
     }
 
@@ -699,7 +709,7 @@ export async function DELETE(req: Request) {
       }
     }
 
-    const skills = await listSkillSummaries(resolveSkillsDir(workspaceRoot, verified.user.id))
+    const skills = filterInvokableSkills(await listSkillSummaries(resolveSkillsDir(workspaceRoot, verified.user.id)))
     return NextResponse.json({ ok: true, deleted: name, skills })
   } catch (error) {
     return NextResponse.json(

@@ -17,6 +17,7 @@ export type TopicCategory =
   | "crypto"
   | "weather"
   | "news"
+  | "motivation"
   | "quotes"
   | "tech"
   | "entertainment"
@@ -48,6 +49,60 @@ interface TopicPattern {
   buildQuery: (match: string, prompt: string) => string
   siteHints: string[]
   aiSectionTitle: string
+}
+
+function normalizeMissionIntent(prompt: string): string {
+  const raw = cleanText(prompt)
+  const stripped = raw
+    .replace(/^\s*(hey|hi|yo)\s+nova[\s,:-]*/i, "")
+    .replace(/^\s*nova[\s,:-]*/i, "")
+    .replace(/\b(create|build|make|generate|setup|set up)\b\s+(?:me\s+)?(?:a\s+)?(mission|workflow|automation)\b/gi, " ")
+    .replace(/\b(send|deliver|post|notify)\s+me\b/gi, " ")
+    .replace(/\b(remind me to|set a reminder to)\b/gi, " ")
+    .replace(/\b(every day|daily|every morning|every night|weekly)\b/gi, " ")
+    .replace(/\b(at|around|by)\s+[01]?\d(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)?\b/gi, " ")
+    .replace(/\b(EST|EDT|ET|CST|CDT|CT|MST|MDT|MT|PST|PDT|PT|UTC|GMT)\b/gi, " ")
+    .replace(/\b(to|on)\s+(telegram|discord|novachat|chat|email|webhook)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return stripped || raw
+}
+
+function normalizePromptForDetection(prompt: string): string {
+  return normalizeMissionIntent(prompt)
+    .replace(/\bmotviational\b/gi, "motivational")
+    .replace(/\binspiriational\b/gi, "inspirational")
+    .replace(/\btop story from the day before\b/gi, "top news story yesterday")
+    .replace(/\bday before\b/gi, "yesterday")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function buildGeneralSearchQuery(prompt: string): string {
+  const intent = normalizePromptForDetection(prompt)
+  const n = intent.toLowerCase()
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+
+  if (/\b(motivational?|inspirational?)\b/.test(n) && /\b(speech|message|talk|affirmation|encouragement)\b/.test(n)) {
+    return `motivational speech of the day ${today}`
+  }
+  if (/\b(motivational?|inspirational?)\b/.test(n) && /\b(quote|quotes)\b/.test(n)) {
+    return `"quote of the day" ${today} motivational inspirational`
+  }
+
+  const stopwords = new Set([
+    "a", "an", "the", "to", "for", "and", "or", "in", "on", "at", "of", "with",
+    "me", "my", "please", "today", "tomorrow", "tonight", "every", "day",
+    "from", "before", "along", "story",
+  ])
+  const keywords = intent
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stopwords.has(token))
+    .slice(0, 10)
+    .join(" ")
+  return cleanText(keywords || intent).slice(0, 180)
 }
 
 const TOPIC_PATTERNS: TopicPattern[] = [
@@ -173,6 +228,24 @@ const TOPIC_PATTERNS: TopicPattern[] = [
   },
   // Motivational Quotes
   {
+    category: "motivation",
+    patterns: [
+      /\b(motivational?|motivation|motviational?|inspirational?|inspiration|hype(?:\s*up)?)\s*(speech|message|talk|affirmation|encouragement|pep talk)\b/i,
+      /\b(daily|morning)\s*(motivation|affirmation|encouragement)\b/i,
+      /\b(motivation|motivational?|inspirational?)\b/i,
+    ],
+    extractLabel: () => "Motivational Brief",
+    buildQuery: (_, prompt) => {
+      const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      const intent = normalizeMissionIntent(prompt)
+      if (/\bspeech\b/i.test(intent)) return `motivational speech of the day ${today}`
+      return `daily motivational message ${today}`
+    },
+    siteHints: ["inc.com", "success.com", "brainyquote.com", "passiton.com"],
+    aiSectionTitle: "Motivational Brief",
+  },
+  // Motivational Quotes
+  {
     category: "quotes",
     patterns: [
       /\b(motivational?|inspirational?|daily)\s*(quote|quotes|saying|wisdom)\b/i,
@@ -226,11 +299,19 @@ const TOPIC_PATTERNS: TopicPattern[] = [
     category: "news",
     patterns: [
       /\b(news|headlines?|current events?|world news|top stories)\b/i,
+      /\b(top|main|biggest)\s*(story|headline)\b/i,
+      /\b(yesterday|day before|last night)\b.*\b(story|headline|news)\b/i,
     ],
     extractLabel: () => "News Headlines",
-    buildQuery: () => {
+    buildQuery: (_, prompt) => {
       const today = new Date()
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
       const dateStr = today.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      const yesterdayStr = yesterday.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      if (/\b(yesterday|day before|last night)\b/i.test(prompt)) {
+        return `top news story ${yesterdayStr} world and US`
+      }
       return `top news headlines ${dateStr} breaking news`
     },
     siteHints: ["apnews.com", "reuters.com", "bbc.com/news"],
@@ -246,7 +327,7 @@ const TOPIC_PATTERNS: TopicPattern[] = [
  * Detect all distinct topics in a mission prompt.
  */
 export function detectTopicsInPrompt(prompt: string): TopicDetectionResult {
-  const normalized = cleanText(prompt).toLowerCase()
+  const normalized = normalizePromptForDetection(prompt).toLowerCase()
   const detectedTopics: DetectedTopic[] = []
   const usedCategories = new Set<string>()
 
@@ -278,7 +359,7 @@ export function detectTopicsInPrompt(prompt: string): TopicDetectionResult {
     detectedTopics.push({
       category: "general",
       label: "Web Search",
-      searchQuery: cleanText(prompt).slice(0, 180),
+      searchQuery: buildGeneralSearchQuery(prompt),
       keywords: [],
       siteHints: [],
       aiSectionTitle: "Summary",
@@ -288,74 +369,72 @@ export function detectTopicsInPrompt(prompt: string): TopicDetectionResult {
   return {
     topics: detectedTopics,
     isSingleTopic: detectedTopics.length === 1,
-    aiPrompt: buildMultiTopicAiPrompt(detectedTopics),
+    aiPrompt: buildMultiTopicAiPrompt(detectedTopics, prompt),
   }
 }
 
 /**
  * Build an AI prompt that handles multiple topic sections.
  */
-export function buildMultiTopicAiPrompt(topics: DetectedTopic[]): string {
+export function buildMultiTopicAiPrompt(topics: DetectedTopic[], userPrompt = ""): string {
+  const normalizedIntent = normalizePromptForDetection(userPrompt).slice(0, 220)
   if (topics.length === 0) {
     return "Summarize the fetched data in clear bullet points."
   }
 
   if (topics.length === 1) {
     const topic = topics[0]
-    return buildSingleTopicAiPrompt(topic)
+    return buildSingleTopicAiPrompt(topic, normalizedIntent)
   }
 
-  // Multi-topic prompt with strict formatting
-  const sectionInstructions = topics.map((topic, idx) => {
-    return `${idx + 1}. **${topic.aiSectionTitle}**\n   ${getTopicSummaryInstruction(topic)}`
-  }).join("\n\n")
+  const hasMotivation = topics.some((topic) => topic.category === "motivation")
+  const hasNews = topics.some((topic) => topic.category === "news")
+  if (hasMotivation && hasNews) {
+    return [
+      normalizedIntent ? `User request: ${normalizedIntent}` : "",
+      "Create one combined message with two parts:",
+      "1) A custom motivational speech written by Nova (4-6 short sentences, original wording, energetic but not cringe).",
+      "2) The top news story from yesterday from fetched sources (headline + 2 sentence summary + one-line why it matters).",
+      "If news evidence is weak, say that briefly and still provide the motivational speech.",
+      "Do not include raw URLs in the body text.",
+    ].filter(Boolean).join("\n")
+  }
 
+  const sectionInstructions = topics.map((topic) => `- ${topic.aiSectionTitle}: ${getTopicSummaryInstruction(topic, normalizedIntent)}`).join("\n")
   return [
-    "Create a structured daily briefing report. Format EXACTLY as follows:",
-    "",
-    "---",
-    "",
+    normalizedIntent ? `User request: ${normalizedIntent}` : "",
+    "Use fetched data to produce a concise multi-part update.",
+    "Cover each requested area:",
     sectionInstructions,
-    "",
-    "---",
-    "",
-    "STRICT FORMATTING RULES:",
-    "- Start each section with the header on its own line: **Section Name**",
-    "- Add a blank line after each header",
-    "- Use bullet points (- ) for content within each section",
-    "- Keep each section to 2-4 bullets maximum",
-    "- Separate sections with a blank line",
-    "- If data for a section is missing, write: **Section Name**\\n- No data available",
-    "- For NBA Scores, if sources show previews/schedules but no completed finals, write exactly: No NBA games were played last night.",
-    "- For quote sections, include exactly one quote line with attribution in this form: \"Quote\" - Author.",
-    "- Do NOT include raw URLs in the body text",
-    "- Do NOT copy navigation text, ads, or page junk",
+    "Output shape: short section headers with 2-3 bullets per section.",
+    "Do not fabricate facts. If a section has weak data, state uncertainty briefly.",
+    "Do not include raw URLs in body text.",
   ].join("\n")
 }
 
 /**
  * Build AI prompt for a single topic.
  */
-function buildSingleTopicAiPrompt(topic: DetectedTopic): string {
-  const instruction = getTopicSummaryInstruction(topic)
+function buildSingleTopicAiPrompt(topic: DetectedTopic, userIntent = ""): string {
+  const instruction = getTopicSummaryInstruction(topic, userIntent)
+  const requestLine = userIntent
+    ? `User request: ${userIntent}`
+    : `User request: deliver a concise ${topic.aiSectionTitle.toLowerCase()} update.`
   return [
-    `**${topic.aiSectionTitle}**`,
-    "",
+    `Focus area: ${topic.aiSectionTitle}`,
+    requestLine,
     instruction,
-    "",
-    "FORMATTING RULES:",
-    "- Use bullet points (- ) for each item",
-    "- Be concise and clear",
-    "- If data is incomplete, say so briefly",
-    "- Do not fabricate information",
-    "- Do not include raw URLs in the text",
+    "Output shape: 3-5 short bullets unless topic instruction says otherwise.",
+    "Quality rules: do not fabricate facts, and state uncertainty briefly if evidence is thin.",
+    "Do not include raw URLs in the body text.",
   ].join("\n")
 }
 
 /**
  * Get topic-specific summarization instructions.
  */
-function getTopicSummaryInstruction(topic: DetectedTopic): string {
+function getTopicSummaryInstruction(topic: DetectedTopic, userIntent = ""): string {
+  const intentLine = userIntent ? `Address this request directly: "${userIntent}".` : "Address the user request directly."
   switch (topic.category) {
     case "sports":
       return "List final scores in format: Team A [score] - [score] Team B. Include 2-3 notable performances if mentioned. If no completed games/final scores are available, write exactly: No NBA games were played last night."
@@ -367,6 +446,8 @@ function getTopicSummaryInstruction(topic: DetectedTopic): string {
       return "Report: Current temp, High/Low, Conditions (sunny/cloudy/rain), and any alerts."
     case "quotes":
       return "Extract ONE clean motivational quote. Format EXACTLY as:\n   \"[Quote text]\" - [Author Name]\n   \n   Do NOT include multiple quotes. Do NOT include website text, navigation, or article descriptions. Just the single best quote with its author."
+    case "motivation":
+      return `${intentLine} Produce one short motivational speech (3-5 sentences) that feels natural to read aloud. Use fetched themes for grounding; avoid fabricated claims or fake citations.`
     case "tech":
       return "List 2-3 top tech headlines as bullets. Each bullet: one sentence summary of the story."
     case "entertainment":
@@ -374,7 +455,7 @@ function getTopicSummaryInstruction(topic: DetectedTopic): string {
     case "news":
       return "List 3-4 top headlines as bullets. Each bullet: headline + one sentence context."
     default:
-      return "Summarize key facts as 2-4 concise bullet points."
+      return `${intentLine} Summarize concrete facts as 2-4 concise bullet points and keep language practical.`
   }
 }
 

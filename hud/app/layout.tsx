@@ -1,12 +1,12 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { ThemeProvider } from "@/lib/theme-context"
-import { AccentProvider } from "@/lib/accent-context"
-import { AuthGate } from "@/components/auth-gate"
-import { AuthFetchBridge } from "@/components/auth-fetch-bridge"
-import { LoginBackgroundLayer } from "@/components/login-background-layer"
-import { AppBackgroundLayer } from "@/components/app-background-layer"
+import { ThemeProvider } from "@/lib/context/theme-context"
+import { AccentProvider } from "@/lib/context/accent-context"
+import { AuthGate } from "@/components/auth/auth-gate"
+import { AuthFetchBridge } from "@/components/auth/auth-fetch-bridge"
+import { LoginBackgroundLayer } from "@/components/background/login-background-layer"
+import { AppBackgroundLayer } from "@/components/background/app-background-layer"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })

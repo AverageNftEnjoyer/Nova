@@ -4,7 +4,7 @@ import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import type { IntegrationsSettings } from "@/lib/integrations/client-store"
 import { parseMissionWorkflow } from "@/lib/missions/workflow/parsing"
 import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
-import { loadUserSettings, type ThemeBackgroundType } from "@/lib/userSettings"
+import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
 import { AI_MODEL_OPTIONS, STEP_TYPE_OPTIONS } from "./constants"
 import type { AiIntegrationType, NotificationSchedule, WorkflowStep, WorkflowStepType } from "./types"
 
@@ -178,7 +178,7 @@ export function normalizeFetchIncludeSources(value: unknown): boolean {
   const normalized = String(value || "").trim().toLowerCase()
   if (normalized === "false" || normalized === "0" || normalized === "off" || normalized === "no") return false
   if (normalized === "true" || normalized === "1" || normalized === "on" || normalized === "yes") return true
-  return true
+  return false
 }
 
 export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowStepsInput): WorkflowStep[] {

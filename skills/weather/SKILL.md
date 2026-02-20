@@ -1,6 +1,7 @@
 ---
 name: weather
 description: Weather and forecast workflow for quick current-condition answers and short planning guidance.
+user-invokable: false
 metadata: { "read_when": ["User asks for weather, temperature, rain, forecast, or travel weather checks."], "openclaw": { "requires": { "bins": ["curl"] } } }
 ---
 

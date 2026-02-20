@@ -32,7 +32,7 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
     tags: ["briefing", "daily", "news"],
     steps: [
       { type: "trigger", title: "Daily trigger at 08:00", triggerMode: "daily" },
-      { type: "fetch", title: "Fetch top headlines", fetchSource: "web", fetchQuery: "top US and world headlines today site:reuters.com OR site:apnews.com", fetchIncludeSources: true },
+      { type: "fetch", title: "Fetch top headlines", fetchSource: "web", fetchQuery: "top US and world headlines today site:reuters.com OR site:apnews.com", fetchIncludeSources: false },
       { type: "ai", title: "Summarize morning brief", aiPrompt: "Create a concise morning brief with 4-6 bullets. Prioritize high-impact updates and include one short watchout section." },
       { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "immediate" },
     ],
@@ -49,7 +49,7 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
     tags: ["markets", "finance", "daily"],
     steps: [
       { type: "trigger", title: "Daily trigger at 07:30", triggerMode: "daily" },
-      { type: "fetch", title: "Fetch market signals", fetchSource: "web", fetchQuery: "S&P 500 futures Nasdaq futures Dow futures premarket movers site:reuters.com OR site:bloomberg.com", fetchIncludeSources: true },
+      { type: "fetch", title: "Fetch market signals", fetchSource: "web", fetchQuery: "S&P 500 futures Nasdaq futures Dow futures premarket movers site:reuters.com OR site:bloomberg.com", fetchIncludeSources: false },
       { type: "ai", title: "Summarize market snapshot", aiPrompt: "Provide a short market snapshot with sections: Index Futures, Key Drivers, and Risk Watch. Keep it under 150 words." },
       { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "immediate" },
     ],
@@ -66,7 +66,7 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
     tags: ["sports", "scores", "daily"],
     steps: [
       { type: "trigger", title: "Daily trigger at 08:00", triggerMode: "daily" },
-      { type: "fetch", title: "Fetch sports results", fetchSource: "web", fetchQuery: "NBA NFL MLB scores last night final site:espn.com OR site:nba.com OR site:nfl.com OR site:mlb.com", fetchIncludeSources: true },
+      { type: "fetch", title: "Fetch sports results", fetchSource: "web", fetchQuery: "NBA NFL MLB scores last night final site:espn.com OR site:nba.com OR site:nfl.com OR site:mlb.com", fetchIncludeSources: false },
       { type: "ai", title: "Summarize sports recap", aiPrompt: "List key final scores and one standout storyline. Use concise bullet points." },
       { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "immediate" },
     ],
@@ -83,7 +83,7 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
     tags: ["crypto", "markets", "alerts"],
     steps: [
       { type: "trigger", title: "Daily trigger at 09:00", triggerMode: "daily" },
-      { type: "fetch", title: "Fetch crypto market update", fetchSource: "web", fetchQuery: "Bitcoin Ethereum crypto market update today site:coindesk.com OR site:cointelegraph.com", fetchIncludeSources: true },
+      { type: "fetch", title: "Fetch crypto market update", fetchSource: "web", fetchQuery: "Bitcoin Ethereum crypto market update today site:coindesk.com OR site:cointelegraph.com", fetchIncludeSources: false },
       { type: "ai", title: "Summarize crypto watch", aiPrompt: "Summarize current crypto momentum in under 120 words. Include BTC/ETH direction and one risk note." },
       { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "immediate" },
     ],
@@ -100,7 +100,7 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
     tags: ["tech", "ai", "news", "daily"],
     steps: [
       { type: "trigger", title: "Daily trigger at 12:00", triggerMode: "daily" },
-      { type: "fetch", title: "Fetch tech + AI announcements", fetchSource: "web", fetchQuery: "technology AI product announcements today site:techcrunch.com OR site:theverge.com OR site:wired.com", fetchIncludeSources: true },
+      { type: "fetch", title: "Fetch tech + AI announcements", fetchSource: "web", fetchQuery: "technology AI product announcements today site:techcrunch.com OR site:theverge.com OR site:wired.com", fetchIncludeSources: false },
       { type: "ai", title: "Summarize tech digest", aiPrompt: "Highlight 3-4 significant stories with one-line why-it-matters for each. Use concise bullet points." },
       { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "immediate" },
     ],

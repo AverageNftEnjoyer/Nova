@@ -4,14 +4,14 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Settings } from "lucide-react"
 
-import { useTheme } from "@/lib/theme-context"
-import { cn } from "@/lib/utils"
-import { SettingsModal } from "@/components/settings-modal"
-import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
-import { useNovaState } from "@/lib/useNovaState"
-import { getNovaPresence } from "@/lib/nova-presence"
-import { usePageActive } from "@/lib/use-page-active"
-import { NOVA_VERSION } from "@/lib/version"
+import { useTheme } from "@/lib/context/theme-context"
+import { cn } from "@/lib/shared/utils"
+import { SettingsModal } from "@/components/settings/settings-modal"
+import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { getNovaPresence } from "@/lib/chat/nova-presence"
+import { usePageActive } from "@/lib/hooks/use-page-active"
+import { NOVA_VERSION } from "@/lib/meta/version"
 import { DeleteMissionDialog } from "./components/delete-mission-dialog"
 import { MissionActionMenu } from "./components/mission-action-menu"
 import { MissionBuilderModal } from "./components/mission-builder-modal"
@@ -178,7 +178,7 @@ export default function MissionsPage() {
                     <div
                       key={tile.label}
                       className={cn(
-                        "h-9 rounded-md border px-2 py-1.5 flex items-center justify-between",
+                        "h-9 rounded-md border px-2 py-1.5 flex items-center justify-between home-spotlight-card home-border-glow",
                         subPanelClass,
                       )}
                     >

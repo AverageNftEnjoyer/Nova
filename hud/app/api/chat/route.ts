@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -20,6 +21,8 @@ function toAiSdkModelId(provider: string, model: string): string {
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.chat)
+  if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   ensureNotificationSchedulerStarted()
 

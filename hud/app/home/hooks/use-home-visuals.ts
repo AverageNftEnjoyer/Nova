@@ -9,8 +9,8 @@ import {
   type OrbColor,
   type ResponseTone,
   USER_SETTINGS_UPDATED_EVENT,
-} from "@/lib/userSettings"
-import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
+} from "@/lib/settings/userSettings"
+import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { GREETINGS_BY_TONE, pickGreetingForTone } from "../constants"
 
 interface UseHomeVisualsInput {
@@ -188,7 +188,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
   const missionHover = isLight
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
-    : "hover:bg-[#141923] hover:border-[#2b3240]"
+    : ""
   const orbPalette = ORB_COLORS[orbColor]
 
   return {

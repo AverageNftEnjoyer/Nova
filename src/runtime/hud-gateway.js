@@ -26,14 +26,104 @@ let _handleInput = null;
 export function registerHandleInput(fn) { _handleInput = fn; }
 
 let wss = null;
+const wsUserRateWindow = new Map();
+
+const WS_MAX_PAYLOAD_BYTES = Math.max(
+  8 * 1024,
+  Math.min(
+    1024 * 1024,
+    Number.parseInt(process.env.NOVA_WS_MAX_PAYLOAD_BYTES || String(256 * 1024), 10) || 256 * 1024,
+  ),
+);
+const WS_CONN_RATE_WINDOW_MS = Math.max(
+  1_000,
+  Math.min(
+    120_000,
+    Number.parseInt(process.env.NOVA_WS_MESSAGE_RATE_LIMIT_WINDOW_MS || "10000", 10) || 10_000,
+  ),
+);
+const WS_CONN_RATE_MAX = Math.max(
+  1,
+  Math.min(
+    500,
+    Number.parseInt(process.env.NOVA_WS_MESSAGE_RATE_LIMIT_MAX || "35", 10) || 35,
+  ),
+);
+const WS_USER_RATE_WINDOW_MS = Math.max(
+  1_000,
+  Math.min(
+    120_000,
+    Number.parseInt(process.env.NOVA_WS_USER_MESSAGE_RATE_LIMIT_WINDOW_MS || "10000", 10) || 10_000,
+  ),
+);
+const WS_USER_RATE_MAX = Math.max(
+  1,
+  Math.min(
+    500,
+    Number.parseInt(process.env.NOVA_WS_USER_MESSAGE_RATE_LIMIT_MAX || "20", 10) || 20,
+  ),
+);
+const WS_USER_RATE_GC_MS = Math.max(
+  10_000,
+  Math.min(
+    600_000,
+    Number.parseInt(process.env.NOVA_WS_USER_RATE_LIMIT_GC_MS || "60000", 10) || 60_000,
+  ),
+);
+
+let lastWsUserRateGcAt = 0;
+
+function checkWindowRateLimit(state, nowMs, max, windowMs) {
+  if (nowMs >= state.resetAt) {
+    state.count = 0;
+    state.resetAt = nowMs + windowMs;
+  }
+  const nextCount = state.count + 1;
+  if (nextCount > max) {
+    return {
+      allowed: false,
+      retryAfterMs: Math.max(0, state.resetAt - nowMs),
+    };
+  }
+  state.count = nextCount;
+  return {
+    allowed: true,
+    retryAfterMs: 0,
+  };
+}
+
+function maybeGcWsUserRateStore(nowMs) {
+  if (nowMs - lastWsUserRateGcAt < WS_USER_RATE_GC_MS) return;
+  lastWsUserRateGcAt = nowMs;
+  for (const [key, state] of wsUserRateWindow.entries()) {
+    if (!state || state.resetAt <= nowMs) wsUserRateWindow.delete(key);
+  }
+}
+
+function checkWsUserRateLimit(userId) {
+  const scope = sessionRuntime.normalizeUserContextId(userId || "");
+  if (!scope) return { allowed: true, retryAfterMs: 0 };
+  const nowMs = Date.now();
+  maybeGcWsUserRateStore(nowMs);
+  const key = `hud:${scope}`;
+  const existing = wsUserRateWindow.get(key) || { count: 0, resetAt: nowMs + WS_USER_RATE_WINDOW_MS };
+  const result = checkWindowRateLimit(existing, nowMs, WS_USER_RATE_MAX, WS_USER_RATE_WINDOW_MS);
+  wsUserRateWindow.set(key, existing);
+  return result;
+}
 
 export function broadcast(payload) {
+  if (!wss || !wss.clients) return;
   const msg = JSON.stringify(payload);
   wss.clients.forEach((c) => { if (c.readyState === 1) c.send(msg); });
 }
 
 export function broadcastState(state) {
   broadcast({ type: "state", state, ts: Date.now() });
+}
+
+export function broadcastThinkingStatus(status = "") {
+  broadcast({ type: "thinking_status", status: String(status || ""), ts: Date.now() });
 }
 
 export function broadcastMessage(role, content, source = "hud") {
@@ -58,7 +148,7 @@ export function broadcastAssistantStreamDone(id, source = "hud", sender = undefi
 
 export function startGateway() {
   try {
-    wss = new WebSocketServer({ port: 8765 });
+    wss = new WebSocketServer({ port: 8765, maxPayload: WS_MAX_PAYLOAD_BYTES });
   } catch (err) {
     const details = describeUnknownError(err);
     console.error(`[Gateway] Failed to start HUD WebSocket server on port 8765: ${details}`);
@@ -67,6 +157,11 @@ export function startGateway() {
   }
 
   wss.on("connection", (ws) => {
+    const connectionRateState = {
+      count: 0,
+      resetAt: Date.now() + WS_CONN_RATE_WINDOW_MS,
+    };
+
     void getSystemMetrics()
       .then((metrics) => {
         if (!metrics || ws.readyState !== 1) return;
@@ -76,6 +171,25 @@ export function startGateway() {
 
     ws.on("message", async (raw) => {
       try {
+        const connRate = checkWindowRateLimit(
+          connectionRateState,
+          Date.now(),
+          WS_CONN_RATE_MAX,
+          WS_CONN_RATE_WINDOW_MS,
+        );
+        if (!connRate.allowed) {
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({
+              type: "rate_limited",
+              scope: "connection",
+              retryAfterMs: connRate.retryAfterMs,
+              message: "Too many websocket messages. Please slow down.",
+              ts: Date.now(),
+            }));
+          }
+          return;
+        }
+
         const data = JSON.parse(raw.toString());
 
         if (data.type === "interrupt") {
@@ -117,6 +231,20 @@ export function startGateway() {
         }
 
         if (data.type === "hud_message" && data.content) {
+          const userRate = checkWsUserRateLimit(typeof data.userId === "string" ? data.userId : "");
+          if (!userRate.allowed) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: "rate_limited",
+                scope: "user",
+                retryAfterMs: userRate.retryAfterMs,
+                message: "Too many messages from this user. Please slow down.",
+                ts: Date.now(),
+              }));
+            }
+            return;
+          }
+
           if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
             setCurrentVoice(data.ttsVoice);
             console.log("[Voice] Preference updated to:", getCurrentVoice());
@@ -152,6 +280,10 @@ export function startGateway() {
                     ? data.clientMessageId
                     : "",
               userContextId: incomingUserId || undefined,
+              supabaseAccessToken:
+                typeof data.supabaseAccessToken === "string"
+                  ? data.supabaseAccessToken
+                  : "",
               assistantName: typeof data.assistantName === "string" ? data.assistantName : "",
               communicationStyle: typeof data.communicationStyle === "string" ? data.communicationStyle : "",
               tone: typeof data.tone === "string" ? data.tone : "",

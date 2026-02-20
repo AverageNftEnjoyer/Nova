@@ -5,27 +5,20 @@ import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { Blocks, Save, Settings, User } from "lucide-react"
 
-import { useTheme } from "@/lib/theme-context"
-import { cn } from "@/lib/utils"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/userSettings"
+import { useTheme } from "@/lib/context/theme-context"
+import { cn } from "@/lib/shared/utils"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
 import { FluidSelect } from "@/components/ui/fluid-select"
-import { SettingsModal } from "@/components/settings-modal"
-import { useNovaState } from "@/lib/useNovaState"
-import { getNovaPresence } from "@/lib/nova-presence"
-import { usePageActive } from "@/lib/use-page-active"
-import { TelegramIcon } from "@/components/telegram-icon"
-import { DiscordIcon } from "@/components/discord-icon"
-import { BraveIcon } from "@/components/brave-icon"
-import { OpenAIIcon } from "@/components/openai-icon"
-import { ClaudeIcon } from "@/components/claude-icon"
-import { XAIIcon } from "@/components/xai-icon"
-import { NOVA_VERSION } from "@/lib/version"
-import { GeminiIcon } from "@/components/gemini-icon"
-import { GmailIcon } from "@/components/gmail-icon"
-import { NovaOrbIndicator } from "@/components/nova-orb-indicator"
-import { readShellUiCache, writeShellUiCache } from "@/lib/shell-ui-cache"
-import { formatCompactModelLabelFromIntegrations } from "@/lib/model-label"
+import { SettingsModal } from "@/components/settings/settings-modal"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { getNovaPresence } from "@/lib/chat/nova-presence"
+import { usePageActive } from "@/lib/hooks/use-page-active"
+import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { NOVA_VERSION } from "@/lib/meta/version"
+import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
+import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/model-label"
 
 // Constants
 import {
@@ -1601,3 +1594,4 @@ export default function IntegrationsPage() {
     </div>
   )
 }
+

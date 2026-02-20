@@ -22,7 +22,7 @@ export function normalizeWorkflowStep(raw: WorkflowStep, index: number): Workflo
     title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : stepType,
   }
   if (stepType === "fetch") {
-    normalized.fetchIncludeSources = resolveIncludeSources(raw.fetchIncludeSources, true)
+    normalized.fetchIncludeSources = resolveIncludeSources(raw.fetchIncludeSources, false)
   }
   if (stepType === "ai") {
     normalized.aiDetailLevel = resolveAiDetailLevel(raw.aiDetailLevel, "standard")
@@ -91,7 +91,7 @@ export function hasHeader(headers: Record<string, string>, name: string): boolea
 /**
  * Resolve boolean include sources flag from various input types.
  */
-export function resolveIncludeSources(value: unknown, fallback = true): boolean {
+export function resolveIncludeSources(value: unknown, fallback = false): boolean {
   if (typeof value === "boolean") return value
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase()

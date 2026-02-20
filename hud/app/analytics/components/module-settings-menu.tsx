@@ -1,6 +1,6 @@
-﻿import { RefreshCcw, Settings } from "lucide-react"
+import { RefreshCcw, Settings } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import { ANALYTICS_MODULES } from "../constants"
 import type { AnalyticsModuleKey } from "../types"
 

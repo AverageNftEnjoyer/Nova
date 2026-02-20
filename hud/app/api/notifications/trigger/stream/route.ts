@@ -3,6 +3,7 @@ import { executeMissionWorkflow } from "@/lib/missions/runtime"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -17,6 +18,15 @@ export async function GET(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) {
     return unauthorized ?? new Response("Unauthorized", { status: 401 })
+  }
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionTriggerStream)
+  if (!limit.allowed) {
+    return new Response("Too many requests.", {
+      status: 429,
+      headers: createRateLimitHeaders(limit, {
+        "Content-Type": "text/plain; charset=utf-8",
+      }),
+    })
   }
   const userId = verified.user.id
   const url = new URL(req.url)

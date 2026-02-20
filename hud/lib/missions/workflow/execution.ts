@@ -52,6 +52,11 @@ const MISSION_AI_SKILL_GUIDANCE_MAX_CHARS = (() => {
   return Number.isFinite(parsed) && parsed >= 400 ? parsed : 2600
 })()
 
+const MISSION_OUTPUT_INCLUDE_HEADER = (() => {
+  const raw = String(process.env.NOVA_MISSION_OUTPUT_INCLUDE_HEADER || "").trim().toLowerCase()
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
+})()
+
 /**
  * Execute a mission workflow.
  */
@@ -64,7 +69,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
   )
   const parsed = parseMissionWorkflow(input.schedule.message)
   const steps = (parsed.summary?.workflowSteps || []).map((s, i) => normalizeWorkflowStep(s, i))
-  const integrationCatalog = await loadIntegrationCatalog()
+  const integrationCatalog = await loadIntegrationCatalog(input.scope)
   const apiEndpointById = new Map(
     integrationCatalog
       .filter((item) => item.kind === "api" && item.connected && item.endpoint)
@@ -161,7 +166,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     if (type === "fetch") {
       const startedAt = await startStepTrace(step)
       let source = String(step.fetchSource || "api").toLowerCase()
-      const includeSourcesForStep = resolveIncludeSources(step.fetchIncludeSources, true)
+      const includeSourcesForStep = resolveIncludeSources(step.fetchIncludeSources, false)
       context.presentation = {
         ...(context.presentation && typeof context.presentation === "object"
           ? (context.presentation as Record<string, unknown>)
@@ -479,7 +484,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       }
       const includeSources = resolveIncludeSources(
         getByPath(context, "presentation.includeSources"),
-        true,
+        false,
       )
       const detailLevel = resolveAiDetailLevel(
         step.aiDetailLevel,
@@ -607,7 +612,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       } catch (error) {
         const includeSources = resolveIncludeSources(
           getByPath(context, "presentation.includeSources"),
-          true,
+          false,
         )
         const detailLevel = resolveAiDetailLevel(
           getByPath(context, "presentation.detailLevel"),
@@ -655,7 +660,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const baseTextRaw = rawTemplate
         ? interpolateTemplate(rawTemplate, context)
         : String(context.ai || parsed.description || input.schedule.message)
-      const includeSources = resolveIncludeSources(getByPath(context, "presentation.includeSources"), true)
+      const includeSources = resolveIncludeSources(getByPath(context, "presentation.includeSources"), false)
       const detailLevel = resolveAiDetailLevel(getByPath(context, "presentation.detailLevel"), "standard")
       const fetchResults = context.fetchResults as FetchResultItem[] | undefined
       const formattingContextData = hasMultipleFetchResults(context as Record<string, unknown>) && fetchResults
@@ -681,16 +686,20 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const loops = frequency === "multiple" ? repeatCount : 1
 
       for (let i = 0; i < loops; i += 1) {
-        const missionTitle = input.schedule.label || "Mission Report"
-        const reportDate = now.toLocaleDateString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          timeZone: input.schedule.timezone || "America/New_York",
-        })
-        const textWithTitle = `**${missionTitle}**\nDate: ${reportDate}\n\n${guardedText}`
-        const text = loops > 1 ? `${textWithTitle}\n\n(${i + 1}/${loops})` : textWithTitle
+        const textBase = MISSION_OUTPUT_INCLUDE_HEADER
+          ? (() => {
+              const missionTitle = input.schedule.label || "Mission Report"
+              const reportDate = now.toLocaleDateString("en-US", {
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+                timeZone: input.schedule.timezone || "America/New_York",
+              })
+              return `**${missionTitle}**\nDate: ${reportDate}\n\n${guardedText}`
+            })()
+          : guardedText
+        const text = loops > 1 ? `${textBase}\n\n(${i + 1}/${loops})` : textBase
         const result = await dispatchOutput(channel, text, resolvedRecipients, input.schedule, input.scope)
         outputs = outputs.concat(result)
       }
@@ -717,7 +726,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
   if (!steps.some((s) => String(s.type || "") === "output") && !skipped) {
     const startedAt = new Date().toISOString()
     const fallbackTextRaw = String(context.ai || parsed.description || input.schedule.message)
-    const includeSources = resolveIncludeSources(getByPath(context, "presentation.includeSources"), true)
+    const includeSources = resolveIncludeSources(getByPath(context, "presentation.includeSources"), false)
     const detailLevel = resolveAiDetailLevel(getByPath(context, "presentation.detailLevel"), "standard")
     const fetchResults = context.fetchResults as FetchResultItem[] | undefined
     const formattingContextData = hasMultipleFetchResults(context as Record<string, unknown>) && fetchResults
@@ -726,15 +735,19 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     const fallbackText = humanizeMissionOutputText(fallbackTextRaw, formattingContextData, { includeSources, detailLevel })
     const fallbackQualityGuard = applyMissionOutputQualityGuardrails(fallbackText, formattingContextData, { includeSources, detailLevel })
     const guardedFallbackText = fallbackQualityGuard.text
-    const fallbackDate = now.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      timeZone: input.schedule.timezone || "America/New_York",
-    })
-    const fallbackMissionTitle = input.schedule.label || "Mission Report"
-    const fallbackTextWithDate = `**${fallbackMissionTitle}**\nDate: ${fallbackDate}\n\n${guardedFallbackText}`
+    const fallbackTextWithDate = MISSION_OUTPUT_INCLUDE_HEADER
+      ? (() => {
+          const fallbackDate = now.toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            timeZone: input.schedule.timezone || "America/New_York",
+          })
+          const fallbackMissionTitle = input.schedule.label || "Mission Report"
+          return `**${fallbackMissionTitle}**\nDate: ${fallbackDate}\n\n${guardedFallbackText}`
+        })()
+      : guardedFallbackText
     const result = await dispatchOutput(
       input.schedule.integration || "telegram",
       fallbackTextWithDate,

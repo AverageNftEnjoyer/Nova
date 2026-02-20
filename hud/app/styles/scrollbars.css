@@ -1,0 +1,50 @@
+:root {
+  --scrollbar-track: rgba(0, 0, 0, 0.05);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+}
+
+.dark {
+  --scrollbar-track: rgba(255, 255, 255, 0.05);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}

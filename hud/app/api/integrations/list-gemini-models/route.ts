@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { GEMINI_MODEL_OPTIONS } from "@/app/integrations/constants/gemini-models"
 
@@ -29,6 +30,8 @@ const STANDARD_GEMINI_MODEL_MAP = new Map(
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.integrationModelProbe)
+  if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
     const body = (await req.json().catch(() => ({}))) as { apiKey?: string; baseUrl?: string }

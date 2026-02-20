@@ -1,0 +1,42 @@
+.thinking-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.thinking-text {
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  font-weight: 600;
+  background: linear-gradient(90deg, #9aa4b2 0%, #ffffff 50%, #9aa4b2 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: think-shimmer 1.2s linear infinite, think-pulse 1.6s ease-in-out infinite;
+}
+
+.thinking-word-slot {
+  display: inline-flex;
+  align-items: center;
+  min-width: 10ch;
+  min-height: 16px;
+}
+
+.thinking-word {
+  white-space: nowrap;
+}
+
+@keyframes think-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes think-pulse {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
+}

@@ -3,9 +3,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useTheme } from "@/lib/theme-context"
-import { loadUserSettings, normalizeResponseTone } from "@/lib/userSettings"
-import { useNovaState } from "@/lib/useNovaState"
+import { useTheme } from "@/lib/context/theme-context"
+import { loadUserSettings, normalizeResponseTone } from "@/lib/settings/userSettings"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { pickGreetingForTone } from "../constants"
 import { useHomeConversations } from "./use-home-conversations"
 import { useHomeIntegrations } from "./use-home-integrations"

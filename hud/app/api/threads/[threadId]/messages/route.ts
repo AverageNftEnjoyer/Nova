@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -18,6 +19,8 @@ export async function PUT(
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
   if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.threadMessagesWrite)
+  if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   const { threadId } = await context.params
   const body = (await req.json().catch(() => ({}))) as { messages?: IncomingMessage[] }

@@ -5,6 +5,7 @@ import { executeMissionWorkflow } from "@/lib/missions/runtime"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { buildSchedule, loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
@@ -13,6 +14,8 @@ export const dynamic = "force-dynamic"
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionTrigger)
+  if (!limit.allowed) return rateLimitExceededResponse(limit)
   const userId = verified.user.id
 
   ensureNotificationSchedulerStarted()

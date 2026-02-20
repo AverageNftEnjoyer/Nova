@@ -59,45 +59,76 @@ export function formatNotificationText(text: string): string {
 }
 
 /**
- * Generate a short mission title (2-5 words) from a longer description.
+ * Generate a short mission title (3 words) from a longer description.
  */
 export function generateShortTitle(description: string): string {
   const text = cleanText(description).toLowerCase()
   if (!text) return "Mission Report"
 
+  const normalized = text
+    .replace(/\bwake[\s-]+up\b/g, "wakeup")
+    .replace(/\bstudent loans?\b/g, "student loan")
+    .replace(/\bhey\s+nova\b/g, " ")
+    .replace(/\bnova\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const STOPWORDS = new Set([
+    "a", "an", "the", "and", "or", "of", "for", "to", "in", "on", "at", "with", "by",
+    "i", "me", "my", "you", "your", "we", "our",
+    "hey", "please", "need", "want", "build", "create", "make", "set", "setup", "mission",
+    "send", "sends", "that", "this", "every", "daily", "morning", "night", "pm", "am", "est", "edt", "pst", "pdt",
+    "telegram", "discord", "novachat", "chat", "workflow", "task", "report",
+  ])
+
   // Common topic keywords to extract
   const topics: Array<{ pattern: RegExp; title: string }> = [
     { pattern: /\b(ai|artificial intelligence)\b.*\b(news|update|summary|report)/i, title: "AI Daily Report" },
-    { pattern: /\b(ai|artificial intelligence)\b/i, title: "AI Update" },
-    { pattern: /\bnba\b.*\b(score|recap|game)/i, title: "NBA Scores" },
-    { pattern: /\bnfl\b.*\b(score|recap|game)/i, title: "NFL Scores" },
-    { pattern: /\bmlb\b.*\b(score|recap|game)/i, title: "MLB Scores" },
-    { pattern: /\b(crypto|bitcoin|ethereum)\b.*\b(price|alert|monitor)/i, title: "Crypto Monitor" },
-    { pattern: /\b(stock|market)\b.*\b(price|alert|monitor|update)/i, title: "Market Watch" },
-    { pattern: /\bweather\b/i, title: "Weather Update" },
-    { pattern: /\bnews\b.*\b(summary|digest|update)/i, title: "News Digest" },
-    { pattern: /\btech\b.*\b(news|update)/i, title: "Tech News" },
-    { pattern: /\b(morning|daily)\b.*\b(brief|summary|report)/i, title: "Daily Brief" },
+    { pattern: /\b(ai|artificial intelligence)\b/i, title: "AI Task Update" },
+    { pattern: /\bnba\b.*\b(score|recap|game)/i, title: "NBA Score Recap" },
+    { pattern: /\bnfl\b.*\b(score|recap|game)/i, title: "NFL Score Recap" },
+    { pattern: /\bmlb\b.*\b(score|recap|game)/i, title: "MLB Score Recap" },
+    { pattern: /\b(crypto|bitcoin|ethereum)\b.*\b(price|alert|monitor)/i, title: "Crypto Price Monitor" },
+    { pattern: /\b(stock|market)\b.*\b(price|alert|monitor|update)/i, title: "Market Price Update" },
+    { pattern: /\bweather\b/i, title: "Daily Weather Update" },
+    { pattern: /\bnews\b.*\b(summary|digest|update)/i, title: "Daily News Digest" },
+    { pattern: /\btech\b.*\b(news|update)/i, title: "Daily Tech News" },
+    { pattern: /\b(morning|daily)\b.*\b(brief|summary|report)/i, title: "Daily Briefing Report" },
+    { pattern: /\bremind(?:er)?\b.*\b(student|loan)\b/i, title: "Student Loan Reminder" },
+    { pattern: /\b(motivational|inspirational)\b.*\b(quote)\b/i, title: "Daily Quote Reminder" },
+    { pattern: /\b(motivational|inspirational)\b.*\b(speech)\b/i, title: "Wakeup Speech Reminder" },
+    { pattern: /\b(wakeup|wake up)\b.*\b(speech|quote|reminder)\b/i, title: "Wakeup Speech Reminder" },
   ]
 
   for (const { pattern, title } of topics) {
-    if (pattern.test(text)) return title
+    if (pattern.test(normalized)) return title
   }
 
-  // Fallback: Extract first few meaningful words
-  const words = text
-    .replace(/\b(give|get|send|me|a|an|the|and|or|of|for|with|my|daily|latest|please|i want|i need)\b/gi, " ")
+  // Fallback: Extract first few meaningful words and keep title to exactly 3 words.
+  const words = normalized
+    .replace(/[^a-z0-9\s]/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
-    .filter((w) => w.length > 2)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    .map((w) => (w.endsWith("s") && w.length > 4 ? w.slice(0, -1) : w))
+    .filter((w, idx, arr) => arr.indexOf(w) === idx)
     .slice(0, 3)
 
-  if (words.length === 0) return "Mission Report"
+  const seeded = [...words]
+  const fallbacks = ["Mission", "Task", "Update"]
+  while (seeded.length < 3) {
+    const next = fallbacks[seeded.length] || "Update"
+    seeded.push(next.toLowerCase())
+  }
 
-  // Capitalize each word
-  const title = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
-  return title.length > 30 ? title.slice(0, 30).trim() : title
+  const title = seeded
+    .slice(0, 3)
+    .map((w) => (w.toLowerCase() === "ai" ? "AI" : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ")
+
+  return title.length > 35 ? title.slice(0, 35).trim() : title
 }
 
 /**

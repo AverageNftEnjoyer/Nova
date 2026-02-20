@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { CheckCircle2, Clock3, Loader2, X, XCircle } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import type { MissionRunProgress } from "../types"
 
 interface RunProgressPanelProps {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import {
   loadPendingMessages,
@@ -15,6 +16,8 @@ export async function GET(req: Request) {
   if (unauthorized || !verified) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.novachatPendingPoll)
+  if (!limit.allowed) return rateLimitExceededResponse(limit, "Polling too quickly. Slow down and retry.")
 
   try {
     const messages = await loadPendingMessages(verified.user.id)

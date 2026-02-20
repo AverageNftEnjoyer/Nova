@@ -1,20 +1,12 @@
 "use client"
 
-import { PanelLeftOpen, PanelLeftClose, Blocks, Pin, Settings, BarChart3 } from "lucide-react"
-import { AnimatedOrb } from "@/components/animated-orb"
-import TextType from "@/components/TextType"
-import { ChatSidebar } from "@/components/chat-sidebar"
-import { Button } from "@/components/ui/button"
-import { TelegramIcon } from "@/components/telegram-icon"
-import { DiscordIcon } from "@/components/discord-icon"
-import { BraveIcon } from "@/components/brave-icon"
-import { OpenAIIcon } from "@/components/openai-icon"
-import { ClaudeIcon } from "@/components/claude-icon"
-import { XAIIcon } from "@/components/xai-icon"
-import { GeminiIcon } from "@/components/gemini-icon"
-import { GmailIcon } from "@/components/gmail-icon"
-import { Composer } from "@/components/composer"
-import { cn } from "@/lib/utils"
+import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
+import { AnimatedOrb } from "@/components/orb/animated-orb"
+import TextType from "@/components/effects/TextType"
+import { ChatSidebar } from "@/components/chat/chat-sidebar"
+import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { Composer } from "@/components/chat/composer"
+import { cn } from "@/lib/shared/utils"
 import { formatDailyTime } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 
@@ -23,7 +15,6 @@ export function HomeMainScreen() {
     isLight,
     conversations,
     sidebarOpen,
-    toggleSidebar,
     handleSelectConvo,
     handleNewChat,
     handleDeleteConvo,
@@ -95,31 +86,6 @@ export function HomeMainScreen() {
           marginLeft: "0",
         }}
       >
-        <div className="pointer-events-none absolute top-0 left-0 right-0 z-20 flex items-center px-4 py-3">
-          <div className="pointer-events-auto flex items-center gap-2">
-            <div className="group relative">
-              <Button
-                onClick={toggleSidebar}
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "chat-sidebar-card home-spotlight-card home-border-glow home-spotlight-card--hover h-9 w-9 rounded-full transition-all duration-150 hover:[--glow-intensity:1]",
-                  isLight
-                    ? "border border-[#d9e0ea] bg-[#f4f7fd] text-s-70"
-                    : "border border-white/10 bg-white/4 text-slate-300 hover:bg-[#141923] hover:border-[#2b3240]",
-                )}
-                aria-label={sidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
-              >
-                {sidebarOpen ? (
-                  <PanelLeftClose className="w-4 h-4 transition-transform duration-200 ease-out group-hover:rotate-12" />
-                ) : (
-                  <PanelLeftOpen className="w-4 h-4 transition-transform duration-200 ease-out group-hover:rotate-12" />
-                )}
-              </Button>
-            </div>
-          </div>
-          <div className="flex-1" />
-        </div>
 
         <div className="relative z-10 h-full w-full px-6 pt-4 pb-6">
           <div className="grid h-full grid-cols-[minmax(0,1fr)_360px] gap-6">
@@ -393,3 +359,4 @@ export function HomeMainScreen() {
     </div>
   )
 }
+

@@ -1,7 +1,8 @@
 ---
 name: session-logs
 description: Session history analysis workflow for recovering prior context and decisions from transcript logs.
-metadata: { "read_when": ["User asks what happened in earlier chats, prior sessions, or previous decisions."], "openclaw": { "requires": { "bins": ["jq", "rg"] } } }
+user-invokable: false
+metadata: { "read_when": ["User asks what happened in earlier chats, prior sessions, or previous decisions."], "openclaw": { "requires": { "anyBins": ["jq", "rg"] } } }
 ---
 
 # Session Logs Skill
@@ -15,7 +16,8 @@ metadata: { "read_when": ["User asks what happened in earlier chats, prior sessi
 - Determine what period or topic must be recovered from logs.
 
 ### 2. Execute
-- Locate session transcript files and extract relevant user/assistant text with `jq`.
+- Locate session transcript files and extract relevant user/assistant text with `jq` when available.
+- If `jq` is unavailable, use `rg`-based filtering directly on transcript JSONL lines.
 - Filter by keywords or dates with `rg` for fast narrowing.
 - Summarize only relevant turns, decisions, and unresolved actions.
 

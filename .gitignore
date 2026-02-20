@@ -51,6 +51,7 @@ Desktop.ini
 
 # archive
 archive/
+tasks/
 
 # project-specific local artifacts
 nul

@@ -1,13 +1,13 @@
 "use client"
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/shared/utils"
 import type { Message } from "./chat-types"
-import { MarkdownRenderer } from "@/components/markdown-renderer"
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
 import Image from "next/image"
-import { useTheme } from "@/lib/theme-context"
-import { NovaOrbIndicator, type OrbPalette } from "@/components/nova-orb-indicator"
+import { useTheme } from "@/lib/context/theme-context"
+import { NovaOrbIndicator, type OrbPalette } from "@/components/chat/nova-orb-indicator"
 import { User } from "lucide-react"
-import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/userSettings"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 interface MessageBubbleProps {

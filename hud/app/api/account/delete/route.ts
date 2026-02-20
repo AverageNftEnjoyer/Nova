@@ -4,6 +4,7 @@ import { readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { createClient } from "@supabase/supabase-js"
 import { createSupabaseAdminClient, requireSupabaseApiUser } from "@/lib/supabase/server"
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env"
+import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
 
@@ -90,6 +91,8 @@ export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
   if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.accountDelete)
+  if (!limit.allowed) return rateLimitExceededResponse(limit, "Too many delete-account attempts. Try again later.")
 
   const body = (await req.json().catch(() => ({}))) as { password?: string }
   const password = String(body.password || "").trim()
@@ -107,16 +110,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid password confirmation." }, { status: 401 })
   }
 
-  const admin = createSupabaseAdminClient()
   const userId = verified.user.id
   const workspaceRoot = path.resolve(process.cwd(), "..")
+  const userClient = verified.client
 
-  await admin.from("tool_runs").delete().eq("user_id", userId)
-  await admin.from("thread_summaries").delete().eq("user_id", userId)
-  await admin.from("messages").delete().eq("user_id", userId)
-  await admin.from("memories").delete().eq("user_id", userId)
-  await admin.from("threads").delete().eq("user_id", userId)
+  const { error: toolRunsDeleteError } = await userClient.from("tool_runs").delete().eq("user_id", userId)
+  if (toolRunsDeleteError) {
+    return NextResponse.json({ ok: false, error: toolRunsDeleteError.message || "Failed to delete tool runs." }, { status: 500 })
+  }
+  const { error: threadSummariesDeleteError } = await userClient.from("thread_summaries").delete().eq("user_id", userId)
+  if (threadSummariesDeleteError) {
+    return NextResponse.json({ ok: false, error: threadSummariesDeleteError.message || "Failed to delete thread summaries." }, { status: 500 })
+  }
+  const { error: messagesDeleteError } = await userClient.from("messages").delete().eq("user_id", userId)
+  if (messagesDeleteError) {
+    return NextResponse.json({ ok: false, error: messagesDeleteError.message || "Failed to delete messages." }, { status: 500 })
+  }
+  const { error: memoriesDeleteError } = await userClient.from("memories").delete().eq("user_id", userId)
+  if (memoriesDeleteError) {
+    return NextResponse.json({ ok: false, error: memoriesDeleteError.message || "Failed to delete memories." }, { status: 500 })
+  }
+  const { error: threadsDeleteError } = await userClient.from("threads").delete().eq("user_id", userId)
+  if (threadsDeleteError) {
+    return NextResponse.json({ ok: false, error: threadsDeleteError.message || "Failed to delete threads." }, { status: 500 })
+  }
 
+  const admin = createSupabaseAdminClient()
   const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
   if (deleteError) {
     return NextResponse.json({ ok: false, error: deleteError.message || "Failed to delete account." }, { status: 500 })

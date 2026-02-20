@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { NovaBootup } from "@/components/Nova-Bootup"
-import { loadUserSettings } from "@/lib/userSettings"
+import { NovaBootup } from "@/components/boot/Nova-Bootup"
+import { loadUserSettings } from "@/lib/settings/userSettings"
 
 export default function BootRightPage() {
   const router = useRouter()
