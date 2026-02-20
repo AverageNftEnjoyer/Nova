@@ -18,6 +18,38 @@ export interface BraveIntegrationSettings {
   apiKeyMasked?: string
 }
 
+export type CoinbaseConnectionMode = "api_key_pair" | "oauth"
+export type CoinbaseSyncStatus = "never" | "success" | "error"
+export type CoinbaseSyncErrorCode =
+  | "none"
+  | "expired_token"
+  | "permission_denied"
+  | "rate_limited"
+  | "coinbase_outage"
+  | "network"
+  | "unknown"
+export type CoinbaseReportCadence = "daily" | "weekly"
+
+export interface CoinbaseIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  apiSecret: string
+  connectionMode: CoinbaseConnectionMode
+  requiredScopes: string[]
+  lastSyncAt: string
+  lastSyncStatus: CoinbaseSyncStatus
+  lastSyncErrorCode: CoinbaseSyncErrorCode
+  lastSyncErrorMessage: string
+  lastFreshnessMs: number
+  reportTimezone: string
+  reportCurrency: string
+  reportCadence: CoinbaseReportCadence
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+  apiSecretConfigured?: boolean
+  apiSecretMasked?: string
+}
+
 export interface OpenAIIntegrationSettings {
   connected: boolean
   apiKey: string
@@ -81,6 +113,7 @@ export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
   brave: BraveIntegrationSettings
+  coinbase: CoinbaseIntegrationSettings
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
@@ -110,6 +143,25 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKey: "",
     apiKeyConfigured: false,
     apiKeyMasked: "",
+  },
+  coinbase: {
+    connected: false,
+    apiKey: "",
+    apiSecret: "",
+    connectionMode: "api_key_pair",
+    requiredScopes: ["portfolio:view", "accounts:read", "transactions:read"],
+    lastSyncAt: "",
+    lastSyncStatus: "never",
+    lastSyncErrorCode: "none",
+    lastSyncErrorMessage: "",
+    lastFreshnessMs: 0,
+    reportTimezone: "America/New_York",
+    reportCurrency: "USD",
+    reportCadence: "daily",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+    apiSecretConfigured: false,
+    apiSecretMasked: "",
   },
   openai: {
     connected: false,
@@ -190,6 +242,45 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...(parsed.brave || {}),
         apiKey: "",
       },
+      coinbase: {
+        ...DEFAULT_SETTINGS.coinbase,
+        ...(parsed.coinbase || {}),
+        apiKey: "",
+        apiSecret: "",
+        connectionMode: parsed.coinbase?.connectionMode === "oauth" ? "oauth" : "api_key_pair",
+        requiredScopes: Array.isArray(parsed.coinbase?.requiredScopes)
+          ? parsed.coinbase.requiredScopes.map((scope) => String(scope).trim()).filter(Boolean)
+          : DEFAULT_SETTINGS.coinbase.requiredScopes,
+        lastSyncAt: typeof parsed.coinbase?.lastSyncAt === "string" ? parsed.coinbase.lastSyncAt : "",
+        lastSyncStatus:
+          parsed.coinbase?.lastSyncStatus === "success" || parsed.coinbase?.lastSyncStatus === "error"
+            ? parsed.coinbase.lastSyncStatus
+            : "never",
+        lastSyncErrorCode:
+          parsed.coinbase?.lastSyncErrorCode === "expired_token" ||
+          parsed.coinbase?.lastSyncErrorCode === "permission_denied" ||
+          parsed.coinbase?.lastSyncErrorCode === "rate_limited" ||
+          parsed.coinbase?.lastSyncErrorCode === "coinbase_outage" ||
+          parsed.coinbase?.lastSyncErrorCode === "network" ||
+          parsed.coinbase?.lastSyncErrorCode === "unknown"
+            ? parsed.coinbase.lastSyncErrorCode
+            : "none",
+        lastSyncErrorMessage:
+          typeof parsed.coinbase?.lastSyncErrorMessage === "string" ? parsed.coinbase.lastSyncErrorMessage : "",
+        lastFreshnessMs: typeof parsed.coinbase?.lastFreshnessMs === "number" ? parsed.coinbase.lastFreshnessMs : 0,
+        reportTimezone:
+          typeof parsed.coinbase?.reportTimezone === "string" && parsed.coinbase.reportTimezone.trim().length > 0
+            ? parsed.coinbase.reportTimezone.trim()
+            : DEFAULT_SETTINGS.coinbase.reportTimezone,
+        reportCurrency:
+          typeof parsed.coinbase?.reportCurrency === "string" && parsed.coinbase.reportCurrency.trim().length > 0
+            ? parsed.coinbase.reportCurrency.trim().toUpperCase()
+            : DEFAULT_SETTINGS.coinbase.reportCurrency,
+        reportCadence:
+          parsed.coinbase?.reportCadence === "weekly" || parsed.coinbase?.reportCadence === "daily"
+            ? parsed.coinbase.reportCadence
+            : DEFAULT_SETTINGS.coinbase.reportCadence,
+      },
       openai: {
         ...DEFAULT_SETTINGS.openai,
         ...(parsed.openai || {}),
@@ -257,6 +348,11 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     brave: {
       ...settings.brave,
       apiKey: "",
+    },
+    coinbase: {
+      ...settings.coinbase,
+      apiKey: "",
+      apiSecret: "",
     },
     openai: {
       ...settings.openai,
@@ -327,6 +423,20 @@ export function updateBraveIntegrationSettings(partial: Partial<BraveIntegration
     ...current,
     brave: {
       ...current.brave,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateCoinbaseIntegrationSettings(partial: Partial<CoinbaseIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    coinbase: {
+      ...current.coinbase,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

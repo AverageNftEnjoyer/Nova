@@ -16,7 +16,7 @@ import {
 import { extractAutoMemoryFacts } from "../../src/memory/runtime-compat.js";
 import { createSessionRuntime } from "../../src/session/runtime-compat.js";
 import { createToolRuntime } from "../../src/tools/runtime-compat.js";
-import { createWakeWordRuntime } from "../../src/runtime/wake-runtime-compat.js";
+import { createWakeWordRuntime } from "../../src/runtime/audio/wake-runtime-compat.js";
 
 const results = [];
 const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();

@@ -14,5 +14,5 @@
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "openclaw-reference", "hud", "agent", "supabase"]
+  "exclude": ["node_modules", "novaos-reference", "hud", "agent", "supabase"]
 }

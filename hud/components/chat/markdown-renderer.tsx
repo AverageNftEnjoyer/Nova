@@ -15,7 +15,6 @@ interface AnalysisWordSpanProps {
 }
 
 function AnalysisWordSpan({ word }: AnalysisWordSpanProps) {
-  const [blurAmount, setBlurAmount] = useState(16)
   const [opacity, setOpacity] = useState(0)
   const [animationComplete, setAnimationComplete] = useState(false)
   const animationRef = useRef<number | null>(null)
@@ -26,24 +25,23 @@ function AnalysisWordSpan({ word }: AnalysisWordSpanProps) {
     mountedRef.current = true
 
     const startTime = performance.now()
-    const duration = 600
+    const duration = 130
 
-    const animateBlur = (currentTime: number) => {
+    const animateReveal = (currentTime: number) => {
       const elapsed = currentTime - startTime
       const progress = Math.min(elapsed / duration, 1)
       const easeOut = 1 - Math.pow(1 - progress, 3)
 
-      setBlurAmount(16 * (1 - easeOut))
       setOpacity(easeOut)
 
       if (progress < 1) {
-        animationRef.current = requestAnimationFrame(animateBlur)
+        animationRef.current = requestAnimationFrame(animateReveal)
       } else {
         setAnimationComplete(true)
       }
     }
 
-    animationRef.current = requestAnimationFrame(animateBlur)
+    animationRef.current = requestAnimationFrame(animateReveal)
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current)
     }
@@ -53,7 +51,6 @@ function AnalysisWordSpan({ word }: AnalysisWordSpanProps) {
     <span
       className="inline text-current"
       style={{
-        filter: animationComplete ? "none" : `blur(${blurAmount}px)`,
         opacity: animationComplete ? 1 : opacity,
       }}
     >

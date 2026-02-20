@@ -6,6 +6,7 @@ import {
   updateIntegrationsConfig,
   type IntegrationsConfig,
   type BraveIntegrationConfig,
+  type CoinbaseIntegrationConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
   type GrokIntegrationConfig,
@@ -118,6 +119,76 @@ function normalizeBraveInput(raw: unknown, current: BraveIntegrationConfig): Bra
   return {
     connected: (typeof brave.connected === "boolean" ? brave.connected : current.connected) && nextApiKey.trim().length > 0,
     apiKey: nextApiKey,
+  }
+}
+
+function normalizeCoinbaseInput(raw: unknown, current: CoinbaseIntegrationConfig): CoinbaseIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const coinbase = raw as Partial<CoinbaseIntegrationConfig>
+  const nextApiKey =
+    typeof coinbase.apiKey === "string"
+      ? (coinbase.apiKey.trim().length > 0 ? coinbase.apiKey.trim() : current.apiKey)
+      : current.apiKey
+  const nextApiSecret =
+    typeof coinbase.apiSecret === "string"
+      ? (coinbase.apiSecret.trim().length > 0 ? coinbase.apiSecret.trim() : current.apiSecret)
+      : current.apiSecret
+  const nextConnectionMode =
+    coinbase.connectionMode === "oauth" || coinbase.connectionMode === "api_key_pair"
+      ? coinbase.connectionMode
+      : current.connectionMode
+  const nextRequiredScopes = Array.isArray(coinbase.requiredScopes)
+    ? coinbase.requiredScopes.map((scope) => String(scope).trim().toLowerCase()).filter(Boolean)
+    : typeof (coinbase as { requiredScopes?: string }).requiredScopes === "string"
+      ? String((coinbase as { requiredScopes?: string }).requiredScopes || "")
+          .split(/[,\s]+/)
+          .map((scope) => scope.trim().toLowerCase())
+          .filter(Boolean)
+      : current.requiredScopes
+  const nextSyncStatus =
+    coinbase.lastSyncStatus === "success" || coinbase.lastSyncStatus === "error" ? coinbase.lastSyncStatus : current.lastSyncStatus
+  const nextSyncErrorCode =
+    coinbase.lastSyncErrorCode === "expired_token" ||
+    coinbase.lastSyncErrorCode === "permission_denied" ||
+    coinbase.lastSyncErrorCode === "rate_limited" ||
+    coinbase.lastSyncErrorCode === "coinbase_outage" ||
+    coinbase.lastSyncErrorCode === "network" ||
+    coinbase.lastSyncErrorCode === "unknown" ||
+    coinbase.lastSyncErrorCode === "none"
+      ? coinbase.lastSyncErrorCode
+      : current.lastSyncErrorCode
+
+  return {
+    ...current,
+    connected:
+      (typeof coinbase.connected === "boolean" ? coinbase.connected : current.connected) &&
+      nextApiKey.trim().length > 0 &&
+      nextApiSecret.trim().length > 0,
+    apiKey: nextApiKey,
+    apiSecret: nextApiSecret,
+    connectionMode: nextConnectionMode,
+    requiredScopes: nextRequiredScopes.length > 0 ? nextRequiredScopes : current.requiredScopes,
+    lastSyncAt: typeof coinbase.lastSyncAt === "string" ? coinbase.lastSyncAt.trim() : current.lastSyncAt,
+    lastSyncStatus: nextSyncStatus,
+    lastSyncErrorCode: nextSyncErrorCode,
+    lastSyncErrorMessage:
+      typeof coinbase.lastSyncErrorMessage === "string" ? coinbase.lastSyncErrorMessage.trim() : current.lastSyncErrorMessage,
+    lastFreshnessMs:
+      typeof coinbase.lastFreshnessMs === "number" && Number.isFinite(coinbase.lastFreshnessMs)
+        ? Math.max(0, Math.floor(coinbase.lastFreshnessMs))
+        : current.lastFreshnessMs,
+    reportTimezone:
+      typeof coinbase.reportTimezone === "string" && coinbase.reportTimezone.trim().length > 0
+        ? coinbase.reportTimezone.trim()
+        : current.reportTimezone,
+    reportCurrency:
+      typeof coinbase.reportCurrency === "string" && coinbase.reportCurrency.trim().length > 0
+        ? coinbase.reportCurrency.trim().toUpperCase()
+        : current.reportCurrency,
+    reportCadence:
+      coinbase.reportCadence === "weekly" || coinbase.reportCadence === "daily"
+        ? coinbase.reportCadence
+        : current.reportCadence,
   }
 }
 
@@ -246,6 +317,15 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.brave.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.brave.apiKey),
     },
+    coinbase: {
+      ...config.coinbase,
+      apiKey: "",
+      apiSecret: "",
+      apiKeyConfigured: config.coinbase.apiKey.trim().length > 0,
+      apiKeyMasked: maskSecret(config.coinbase.apiKey),
+      apiSecretConfigured: config.coinbase.apiSecret.trim().length > 0,
+      apiSecretMasked: maskSecret(config.coinbase.apiSecret),
+    },
     claude: {
       ...config.claude,
       apiKey: "",
@@ -313,6 +393,7 @@ export async function PATCH(req: Request) {
       telegram?: Partial<TelegramIntegrationConfig> & { chatIds?: string[] | string }
       discord?: Partial<DiscordIntegrationConfig> & { webhookUrls?: string[] | string }
       brave?: Partial<BraveIntegrationConfig>
+      coinbase?: Partial<CoinbaseIntegrationConfig>
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
@@ -324,6 +405,7 @@ export async function PATCH(req: Request) {
     const telegram = normalizeTelegramInput(body.telegram, current.telegram)
     const discord = normalizeDiscordInput(body.discord, current.discord)
     const brave = normalizeBraveInput(body.brave, current.brave)
+    const coinbase = normalizeCoinbaseInput(body.coinbase, current.coinbase)
     const openai = normalizeOpenAIInput(body.openai, current.openai)
     const claude = normalizeClaudeInput(body.claude, current.claude)
     const grok = normalizeGrokInput(body.grok, current.grok)
@@ -334,6 +416,7 @@ export async function PATCH(req: Request) {
       telegram,
       discord,
       brave,
+      coinbase,
       openai,
       claude,
       grok,

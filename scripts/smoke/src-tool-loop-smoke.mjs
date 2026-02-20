@@ -29,7 +29,7 @@ const registryModule = await import(pathToFileURL(path.join(process.cwd(), "dist
 const executorModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "tools", "executor.js")).href);
 const protocolModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "tools", "protocol.js")).href);
 const linkUnderstandingModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src", "runtime", "modules", "link-understanding.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src", "runtime", "modules", "chat", "link-understanding.js")).href,
 );
 
 const { createToolRegistry } = registryModule;

@@ -61,3 +61,6 @@ agent/mic.wav
 agent/mic_*.wav
 agent/speech_*.mp3
 agent/assets/*.mp4
+
+# local agent instructions
+/AGENTS.md

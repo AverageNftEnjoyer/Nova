@@ -6,4 +6,8 @@ export interface Message {
   imageData?: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  nlpCleanText?: string
+  nlpConfidence?: number
+  nlpCorrectionCount?: number
+  nlpBypass?: boolean
 }

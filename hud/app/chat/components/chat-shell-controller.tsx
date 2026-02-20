@@ -12,7 +12,7 @@ import { cn } from "@/lib/shared/utils"
 import { loadUserSettings } from "@/lib/settings/userSettings"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
-import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 
 // Hooks
 import { useConversations } from "@/lib/chat/hooks/useConversations"
@@ -30,6 +30,10 @@ export interface Message {
   imageData?: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  nlpCleanText?: string
+  nlpConfidence?: number
+  nlpCorrectionCount?: number
+  nlpBypass?: boolean
 }
 
 function hasRenderableAssistantContent(content: string | undefined): boolean {
@@ -84,6 +88,8 @@ export function ChatShellController() {
     discordConnected,
     braveConnected,
     braveConfigured,
+    coinbaseConnected,
+    coinbaseConfigured,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -93,6 +99,7 @@ export function ChatShellController() {
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
+    handleToggleCoinbaseIntegration,
     handleToggleOpenAIIntegration,
     handleToggleClaudeIntegration,
     handleToggleGrokIntegration,
@@ -110,7 +117,11 @@ export function ChatShellController() {
   const [localThinking, setLocalThinking] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
-  const isThinking = novaState === "thinking" || localThinking
+  const activeConversationStreaming = useMemo(() => {
+    if (!activeConvo || !streamingAssistantId) return false
+    return activeConvo.messages.some((message) => message.role === "assistant" && message.id === streamingAssistantId)
+  }, [activeConvo, streamingAssistantId])
+  const isThinking = localThinking || activeConversationStreaming
 
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
@@ -153,15 +164,28 @@ export function ChatShellController() {
   }, [novaState])
 
   useEffect(() => {
-    const last = agentMessages[agentMessages.length - 1]
-    if (last?.role === "user") {
-      setLocalThinking(true)
+    const activeConvoId = String(activeConvo?.id || "").trim()
+    if (!activeConvoId) {
+      setLocalThinking(false)
       return
     }
-    if (last?.role === "assistant" && hasRenderableAssistantContent(last.content)) {
-      setLocalThinking(false)
+
+    for (let i = agentMessages.length - 1; i >= 0; i -= 1) {
+      const item = agentMessages[i]
+      const itemConversationId = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
+      if (!itemConversationId || itemConversationId !== activeConvoId) continue
+      if (item.role === "user") {
+        setLocalThinking(true)
+        return
+      }
+      if (item.role === "assistant" && hasRenderableAssistantContent(item.content)) {
+        setLocalThinking(false)
+        return
+      }
     }
-  }, [agentMessages])
+
+    setLocalThinking(false)
+  }, [activeConvo?.id, agentMessages])
 
   // Home -> Chat handoff
   useEffect(() => {
@@ -293,7 +317,7 @@ export function ChatShellController() {
 
   // Send message
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, options?: { nlpBypass?: boolean }) => {
       if (!content.trim() || !agentConnected || !activeConvo) return
 
       const updatedConvo = addUserMessage(content)
@@ -313,6 +337,7 @@ export function ChatShellController() {
         conversationId: activeConvo.id,
         sender: "hud-user",
         messageId: localMessageId,
+        ...(options?.nlpBypass ? { nlpBypass: true } : {}),
         userId: activeUserId,
         supabaseAccessToken: supabaseAccessToken || undefined,
         assistantName: settings.personalization.assistantName,
@@ -321,6 +346,15 @@ export function ChatShellController() {
       })
     },
     [activeConvo, agentConnected, sendToAgent, addUserMessage, getSupabaseAccessToken],
+  )
+
+  const handleUseSuggestedWording = useCallback(
+    async (message: Message) => {
+      const suggested = String(message.nlpCleanText || "").trim()
+      if (!suggested) return
+      await sendMessage(suggested, { nlpBypass: true })
+    },
+    [sendMessage],
   )
 
   // Convert ChatMessage[] to Message[] for MessageList
@@ -333,6 +367,10 @@ export function ChatShellController() {
       createdAt: new Date(m.createdAt),
       source: m.source,
       sender: m.sender,
+      nlpCleanText: m.nlpCleanText,
+      nlpConfidence: m.nlpConfidence,
+      nlpCorrectionCount: m.nlpCorrectionCount,
+      nlpBypass: m.nlpBypass,
     }))
   }, [activeConvo])
 
@@ -396,6 +434,7 @@ export function ChatShellController() {
                 isLoaded={isLoaded}
                 zoom={100}
                 orbPalette={orbPalette}
+                onUseSuggestedWording={handleUseSuggestedWording}
               />
               <Composer
                 onSend={sendMessage}
@@ -559,7 +598,14 @@ export function ChatShellController() {
                     >
                       <BraveIcon className="w-4 h-4" />
                     </button>
-                    {Array.from({ length: 16 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleCoinbaseIntegration}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(coinbaseConnected))}
+                      title={coinbaseConnected ? "Coinbase connected" : coinbaseConfigured ? "Coinbase disconnected" : "Coinbase keys required"}
+                    >
+                      <CoinbaseIcon className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: 15 }).map((_, index) => (
                       <div key={index} className={cn("h-9 rounded-sm border home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20")} />
                     ))}
                   </div>

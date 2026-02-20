@@ -65,6 +65,17 @@ function isOutputChannel(value: string): value is OutputChannel {
   return OUTPUT_CHANNEL_VALUES.includes(value as OutputChannel)
 }
 
+function getCachedMissionSchedules(): NotificationSchedule[] {
+  const cached = readShellUiCache().missionSchedules
+  return Array.isArray(cached) ? (cached as NotificationSchedule[]) : []
+}
+
+function buildBaselineById(schedules: NotificationSchedule[]): Record<string, NotificationSchedule> {
+  const baseline: Record<string, NotificationSchedule> = {}
+  for (const item of schedules) baseline[item.id] = item
+  return baseline
+}
+
 export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const router = useRouter()
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
@@ -72,9 +83,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)
 
-  const [schedules, setSchedules] = useState<NotificationSchedule[]>([])
-  const [baselineById, setBaselineById] = useState<Record<string, NotificationSchedule>>({})
-  const [loading, setLoading] = useState(true)
+  const [schedules, setSchedules] = useState<NotificationSchedule[]>(() => getCachedMissionSchedules())
+  const [baselineById, setBaselineById] = useState<Record<string, NotificationSchedule>>(() => buildBaselineById(getCachedMissionSchedules()))
+  const [loading, setLoading] = useState(() => getCachedMissionSchedules().length === 0)
   const [status, setStatus] = useState<MissionStatusMessage>(null)
   const [busyById, setBusyById] = useState<Record<string, boolean>>({})
   const [deployingMission, setDeployingMission] = useState(false)
@@ -576,7 +587,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           return {
             ...base,
             title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
-            fetchSource: step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "rss" || step.fetchSource === "database"
+            fetchSource: step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "coinbase" || step.fetchSource === "rss" || step.fetchSource === "database"
               ? step.fetchSource
               : base.fetchSource,
             fetchMethod: (String(step.fetchMethod || "").toUpperCase() === "POST" ? "POST" : "GET") as "GET" | "POST",
@@ -792,7 +803,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   }, [])
 
   const refreshSchedules = useCallback(async () => {
-    setLoading(true)
+    if (schedules.length === 0) setLoading(true)
     try {
       const response = await fetchSchedulesApi()
       if (response.status === 401) {
@@ -802,17 +813,19 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       const data = response.data
       const next = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
       setSchedules(next)
-      const baseline: Record<string, NotificationSchedule> = {}
-      for (const item of next) baseline[item.id] = item
-      setBaselineById(baseline)
+      setBaselineById(buildBaselineById(next))
+      writeShellUiCache({ missionSchedules: next })
     } catch {
       setStatus({ type: "error", message: "Failed to load missions." })
-      setSchedules([])
-      setBaselineById({})
+      if (schedules.length === 0) {
+        const cached = getCachedMissionSchedules()
+        setSchedules(cached)
+        setBaselineById(buildBaselineById(cached))
+      }
     } finally {
       setLoading(false)
     }
-  }, [router])
+  }, [router, schedules.length])
 
   useEffect(() => {
     const refreshIntegrationSettings = () => {
@@ -911,6 +924,10 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   useEffect(() => {
     void refreshSchedules()
   }, [refreshSchedules])
+
+  useEffect(() => {
+    writeShellUiCache({ missionSchedules: schedules })
+  }, [schedules])
 
   useEffect(() => {
     const refresh = () => {

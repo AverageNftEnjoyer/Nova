@@ -17,6 +17,21 @@ export type WorkflowStepType = "trigger" | "fetch" | "ai" | "transform" | "condi
 
 export type AiDetailLevel = "concise" | "standard" | "detailed"
 
+export type CoinbaseMissionPrimitive =
+  | "daily_portfolio_summary"
+  | "price_alert_digest"
+  | "weekly_pnl_summary"
+
+export interface CoinbaseMissionParams {
+  primitive?: CoinbaseMissionPrimitive
+  assets?: string[]
+  thresholdPct?: number
+  cadence?: "daily" | "weekly" | string
+  timezone?: string
+  deliveryChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+  quoteCurrency?: string
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Workflow Step Definition
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,7 +49,7 @@ export interface WorkflowStep {
   triggerTimezone?: string
   triggerDays?: string[]
   triggerIntervalMinutes?: string
-  fetchSource?: "api" | "web" | "calendar" | "crypto" | "rss" | "database" | string
+  fetchSource?: "api" | "web" | "calendar" | "crypto" | "coinbase" | "rss" | "database" | string
   fetchMethod?: "GET" | "POST" | string
   fetchApiIntegrationId?: string
   fetchUrl?: string
@@ -76,6 +91,7 @@ export interface WorkflowSummary {
   missionActive?: boolean
   tags?: string[]
   apiCalls?: string[]
+  coinbase?: CoinbaseMissionParams
   workflowSteps?: WorkflowStep[]
 }
 
@@ -108,6 +124,9 @@ export interface ExecuteMissionWorkflowInput {
   source: "scheduler" | "trigger"
   now?: Date
   enforceOutputTime?: boolean
+  missionRunId?: string
+  runKey?: string
+  attempt?: number
   scope?: IntegrationsStoreScope
   skillSnapshot?: {
     version: string

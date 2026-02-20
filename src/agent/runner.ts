@@ -16,6 +16,7 @@ import type { Skill } from "../skills/types.js";
 import { executeToolUse, toAnthropicToolResultBlock } from "../tools/executor.js";
 import { toAnthropicToolDefinitions } from "../tools/protocol.js";
 import type { AnthropicToolUseBlock, Tool } from "../tools/types.js";
+import { preprocess, logCorrections } from "../nlp/preprocess.js";
 
 export interface AgentRunResult {
   response: string;
@@ -180,6 +181,15 @@ export async function runAgentTurn(
       memoryManager.warmSession();
     }
 
+    // ── NLP preprocessing ──────────────────────────────────────────────────
+    // raw_text: persisted to transcript and shown in UI.
+    // clean_text: used for memory recall, LLM call, tool routing.
+    const nlpResult = await preprocess(inboundMessage.text);
+    logCorrections(nlpResult, resolved.sessionKey);
+    const rawUserText = nlpResult.raw_text;
+    const cleanUserText = nlpResult.clean_text;
+    // ──────────────────────────────────────────────────────────────────────
+
     const personaWorkspaceDir = resolvePersonaWorkspaceDir({
       workspaceRoot: config.agent.workspace,
       userContextRoot: config.session.userContextRoot,
@@ -187,12 +197,26 @@ export async function runAgentTurn(
     });
 
     const memoryUpdate = await applyMemoryWriteThrough({
-      input: inboundMessage.text,
+      input: cleanUserText,
       personaWorkspaceDir,
       memoryManager: memoryManager && config.memory.enabled ? memoryManager : null,
     });
+    const nlpCorrectionsMeta = nlpResult.corrections
+      .map((c) => ({
+        reason: c.reason,
+        confidence: c.confidence,
+        offsets: c.offsets,
+      }))
+      .filter((c) => c.reason);
+    const nlpTurnMeta = {
+      nlpCleanText: cleanUserText !== rawUserText ? cleanUserText : undefined,
+      nlpConfidence: nlpResult.confidence,
+      nlpCorrectionCount: nlpCorrectionsMeta.length,
+      nlpCorrections: nlpCorrectionsMeta.length > 0 ? nlpCorrectionsMeta : undefined,
+    };
+
     if (memoryUpdate.handled) {
-      sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "user", inboundMessage.text);
+      sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "user", rawUserText, undefined, nlpTurnMeta);
       sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "assistant", memoryUpdate.response);
       return {
         response: memoryUpdate.response,
@@ -229,7 +253,7 @@ export async function runAgentTurn(
       const recallMaxTokens = envPositiveInt("NOVA_MEMORY_RECALL_MAX_TOKENS", 480, 80);
       const recallContext = await buildMemoryRecallContext({
         memoryManager,
-        query: inboundMessage.text,
+        query: cleanUserText,   // use clean text for better recall matching
         topK: recallTopK,
         maxChars: recallMaxChars,
         maxTokens: recallMaxTokens,
@@ -240,7 +264,8 @@ export async function runAgentTurn(
     const client = new Anthropic({ apiKey: config.agent.apiKey });
 
     let messages: Anthropic.MessageParam[] = transcriptToAnthropicMessages(limitedHistory);
-    messages.push({ role: "user", content: inboundMessage.text });
+    // Send clean_text to the LLM; raw_text is stored in the transcript below
+    messages.push({ role: "user", content: cleanUserText });
 
     const toolCalls: string[] = [];
     let totalInputTokens = 0;
@@ -316,7 +341,8 @@ export async function runAgentTurn(
 
     const finalText = extractTextFromResponse(response) || "I could not produce a text response.";
 
-    sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "user", inboundMessage.text);
+    // Persist raw_text so the transcript reflects what the user actually typed
+    sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "user", rawUserText, undefined, nlpTurnMeta);
     sessionStore.appendTurnBySessionId(
       sessionEntry.sessionId,
       "assistant",

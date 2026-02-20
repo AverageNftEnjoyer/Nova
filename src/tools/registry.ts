@@ -1,4 +1,5 @@
 import type { ToolsConfig } from "../config/types.js";
+import { createCoinbaseTools } from "./coinbase-tools.js";
 import type { MemoryIndexManager } from "../memory/manager.js";
 import { createExecTool } from "./exec.js";
 import { createFileTools } from "./file-tools.js";
@@ -43,6 +44,20 @@ export function createToolRegistry(
 
   if (params.memoryManager && (enabled.has("memory_search") || enabled.has("memory_get"))) {
     for (const tool of createMemoryTools(params.memoryManager)) {
+      if (enabled.has(tool.name)) {
+        registry.push(tool);
+      }
+    }
+  }
+
+  if (
+    enabled.has("coinbase_capabilities") ||
+    enabled.has("coinbase_spot_price") ||
+    enabled.has("coinbase_portfolio_snapshot") ||
+    enabled.has("coinbase_recent_transactions") ||
+    enabled.has("coinbase_portfolio_report")
+  ) {
+    for (const tool of createCoinbaseTools({ workspaceDir: params.workspaceDir })) {
       if (enabled.has(tool.name)) {
         registry.push(tool);
       }

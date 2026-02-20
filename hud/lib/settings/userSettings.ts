@@ -5,6 +5,7 @@ export type AccessTier = string
 
 export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
 export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
+export type SpotlightColor = OrbColor
 export type BackgroundType = "default" | "none" // legacy
 export type DarkBackgroundType = "floatingLines" | "none" | "customVideo"
 export type LightBackgroundType = "none"
@@ -35,12 +36,14 @@ export interface NotificationSettings {
   sound: boolean
   telegramAlerts: boolean
   systemUpdates: boolean
+  nlpEditHintsEnabled: boolean
 }
 
 export interface AppSettings {
   theme: "dark" | "light" | "system"
   accentColor: AccentColor
   orbColor: OrbColor
+  spotlightColor: SpotlightColor
   background: BackgroundType // legacy fallback for older installs
   darkModeBackground: DarkBackgroundType
   lightModeBackground: LightBackgroundType
@@ -83,6 +86,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     theme: "dark",
     accentColor: "violet",
     orbColor: "violet",
+    spotlightColor: "violet",
     background: "default",
     darkModeBackground: "floatingLines",
     lightModeBackground: "none",
@@ -108,6 +112,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     sound: true,
     telegramAlerts: true,
     systemUpdates: true,
+    nlpEditHintsEnabled: true,
   },
   personalization: {
     assistantName: "Nova",

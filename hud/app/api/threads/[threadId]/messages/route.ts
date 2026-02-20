@@ -10,6 +10,10 @@ type IncomingMessage = {
   createdAt: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  nlpCleanText?: string
+  nlpConfidence?: number
+  nlpCorrectionCount?: number
+  nlpBypass?: boolean
 }
 
 export async function PUT(
@@ -56,6 +60,10 @@ export async function PUT(
       metadata: {
         source: m.source || null,
         sender: m.sender || null,
+        nlpCleanText: typeof m.nlpCleanText === "string" ? m.nlpCleanText : null,
+        nlpConfidence: Number.isFinite(Number(m.nlpConfidence)) ? Number(m.nlpConfidence) : null,
+        nlpCorrectionCount: Number.isFinite(Number(m.nlpCorrectionCount)) ? Number(m.nlpCorrectionCount) : null,
+        nlpBypass: m.nlpBypass === true ? true : null,
       },
       created_at: String(m.createdAt || new Date().toISOString()),
     }))

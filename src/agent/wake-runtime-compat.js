@@ -1,1 +1,1 @@
-export { createWakeWordRuntime } from "../runtime/wake-runtime-compat.js";
+export { createWakeWordRuntime } from "../runtime/audio/wake-runtime-compat.js";

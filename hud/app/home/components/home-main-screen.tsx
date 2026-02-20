@@ -4,7 +4,7 @@ import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
 import { AnimatedOrb } from "@/components/orb/animated-orb"
 import TextType from "@/components/effects/TextType"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
-import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
 import { cn } from "@/lib/shared/utils"
 import { formatDailyTime } from "../helpers"
@@ -45,6 +45,7 @@ export function HomeMainScreen() {
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
+    handleToggleCoinbaseIntegration,
     handleToggleOpenAIIntegration,
     handleToggleClaudeIntegration,
     handleToggleGrokIntegration,
@@ -55,6 +56,7 @@ export function HomeMainScreen() {
     telegramConnected,
     discordConnected,
     braveConnected,
+    coinbaseConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -338,7 +340,18 @@ export function HomeMainScreen() {
                     >
                       <BraveIcon className="w-4 h-4" />
                     </button>
-                    {Array.from({ length: 16 }).map((_, index) => (
+                    <button
+                      onClick={handleToggleCoinbaseIntegration}
+                      className={cn(
+                        "h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(coinbaseConnected),
+                      )}
+                      aria-label={coinbaseConnected ? "Disable Coinbase integration" : "Enable Coinbase integration"}
+                      title={coinbaseConnected ? "Coinbase connected (click to disable)" : "Coinbase disconnected (click to enable)"}
+                    >
+                      <CoinbaseIcon className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: 15 }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(

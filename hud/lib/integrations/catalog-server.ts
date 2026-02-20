@@ -61,6 +61,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "coinbase",
+      label: "Coinbase",
+      kind: "api",
+      connected: config.coinbase.connected && config.coinbase.apiKey.trim().length > 0 && config.coinbase.apiSecret.trim().length > 0,
+      source: "core",
+      capabilities: ["fetch"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "openai",
       label: "OpenAI",
       kind: "llm",

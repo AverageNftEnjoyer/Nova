@@ -6,7 +6,7 @@ import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
 import Image from "next/image"
 import { useTheme } from "@/lib/context/theme-context"
 import { NovaOrbIndicator, type OrbPalette } from "@/components/chat/nova-orb-indicator"
-import { User } from "lucide-react"
+import { Check, RotateCcw, Sparkles, User } from "lucide-react"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -16,6 +16,7 @@ interface MessageBubbleProps {
   compactMode?: boolean
   orbPalette: OrbPalette
   orbAnimated?: boolean
+  onUseSuggestedWording?: (message: Message) => void | Promise<void>
 }
 
 // Format time for display
@@ -23,11 +24,22 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
-export function MessageBubble({ message, isStreaming = false, compactMode = false, orbPalette, orbAnimated = false }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isStreaming = false,
+  compactMode = false,
+  orbPalette,
+  orbAnimated = false,
+  onUseSuggestedWording,
+}: MessageBubbleProps) {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const isUser = message.role === "user"
   const [avatar, setAvatar] = useState<string | null>(null)
+  const [showNlpEditHints, setShowNlpEditHints] = useState(() => loadUserSettings().notifications.nlpEditHintsEnabled)
+  const [nlpHintOpen, setNlpHintOpen] = useState(false)
+  const [nlpSuggestedUsed, setNlpSuggestedUsed] = useState(false)
+  const [nlpSuggestedSending, setNlpSuggestedSending] = useState(false)
   const [displayedContent, setDisplayedContent] = useState(message.content || "")
   const revealFrameRef = useRef<number | null>(null)
   const revealTargetRef = useRef(message.content || "")
@@ -37,10 +49,22 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
 
   useEffect(() => {
     const syncAvatar = () => setAvatar(loadUserSettings().profile.avatar ?? null)
+    const syncNlpEditHints = () => setShowNlpEditHints(loadUserSettings().notifications.nlpEditHintsEnabled)
     syncAvatar()
+    syncNlpEditHints()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
-    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncNlpEditHints as EventListener)
+    return () => {
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncNlpEditHints as EventListener)
+    }
   }, [])
+
+  useEffect(() => {
+    setNlpHintOpen(false)
+    setNlpSuggestedUsed(false)
+    setNlpSuggestedSending(false)
+  }, [message.id])
 
   useEffect(() => {
     displayedContentRef.current = displayedContent
@@ -111,7 +135,15 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
   }, [message.content, isStreaming, isUser, message.id])
 
   const assistantContent = useMemo(() => (isUser ? (message.content || "") : displayedContent), [displayedContent, isUser, message.content])
-  const assistantIsLoading = !assistantContent.trim() && isStreaming
+  const hasNlpRewrite = isUser
+    && showNlpEditHints
+    && !message.nlpBypass
+    && typeof message.nlpCleanText === "string"
+    && message.nlpCleanText.trim().length > 0
+    && message.nlpCleanText.trim() !== (message.content || "").trim()
+  const nlpConfidence = typeof message.nlpConfidence === "number" ? message.nlpConfidence : 1
+  const nlpCorrectionCount = typeof message.nlpCorrectionCount === "number" ? message.nlpCorrectionCount : 0
+  const shouldShowNlpHint = hasNlpRewrite && (nlpConfidence < 0.8 || nlpCorrectionCount >= 2)
 
   if (!isUser) {
     return (
@@ -133,33 +165,15 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
           >
             <div
               className={cn(
-                assistantIsLoading
-                  ? compactMode
-                    ? "px-4 py-2"
-                    : "px-4 py-3"
-                  : compactMode
-                    ? "px-4 py-2"
-                    : "px-4 py-3"
+                compactMode
+                  ? "px-4 py-2"
+                  : "px-4 py-3"
               )}
               style={{
                 transition: "max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
               }}
             >
-              {assistantIsLoading ? (
-                <div className="flex items-center gap-1 py-1">
-                  <span className="h-1.75 w-1.75 rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]" />
-                  <span
-                    className="h-1.75 w-1.75 rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
-                    style={{ animationDelay: "160ms" }}
-                  />
-                  <span
-                    className="h-1.75 w-1.75 rounded-full bg-current opacity-70 animate-[typing-dot-wave_1.35s_ease-in-out_infinite]"
-                    style={{ animationDelay: "320ms" }}
-                  />
-                </div>
-              ) : (
-                <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7 text-sm" />
-              )}
+              <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7 text-sm" />
             </div>
           </div>
           <span className={cn("text-xs text-s-20", compactMode ? "mt-0.5" : "mt-1")}>{formatTime(message.createdAt)}</span>
@@ -207,6 +221,78 @@ export function MessageBubble({ message, isStreaming = false, compactMode = fals
             </div>
           </div>
         </div>
+
+        {shouldShowNlpHint && (
+          <div className={cn("mt-1.5 w-full min-w-0", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
+            <button
+              type="button"
+              onClick={() => setNlpHintOpen((prev) => !prev)}
+              className={cn(
+                "home-spotlight-card home-border-glow inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                isLight
+                  ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70 hover:bg-[#eef3fb]"
+                  : "border-white/12 bg-black/25 backdrop-blur-md text-slate-300 hover:bg-white/8",
+              )}
+              aria-expanded={nlpHintOpen}
+              aria-label="Toggle edited input details"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Edited
+            </button>
+            {nlpHintOpen && (
+              <div
+                className={cn(
+                  "home-spotlight-card home-border-glow mt-2 rounded-lg border p-3 text-left",
+                  isLight
+                    ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80"
+                    : "border-white/15 bg-black/35 backdrop-blur-xl text-slate-200",
+                )}
+              >
+                <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>Interpreted as</p>
+                <p className="mt-1 text-xs whitespace-pre-wrap break-words">{message.nlpCleanText}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={nlpSuggestedUsed || nlpSuggestedSending}
+                    onClick={async () => {
+                      if (nlpSuggestedUsed || nlpSuggestedSending) return
+                      setNlpSuggestedSending(true)
+                      try {
+                        await onUseSuggestedWording?.(message)
+                        setNlpSuggestedUsed(true)
+                        setNlpHintOpen(false)
+                      } finally {
+                        setNlpSuggestedSending(false)
+                      }
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-70",
+                      isLight
+                        ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]"
+                        : "border-white/15 bg-black/30 text-slate-200 hover:bg-white/10",
+                    )}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    {nlpSuggestedUsed ? "Suggested sent" : nlpSuggestedSending ? "Sending..." : "Use suggested"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNlpHintOpen(false)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                      isLight
+                        ? "border-[#d5dce8] bg-white text-s-60 hover:bg-[#eef3fb]"
+                        : "border-white/15 bg-black/30 text-slate-300 hover:bg-white/10",
+                    )}
+                  >
+                    <Check className="h-3 w-3" />
+                    Keep interpreted
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Timestamp */}
         <span className={cn("text-xs text-s-20", compactMode ? "mt-0.5" : "mt-1")}>{formatTime(message.createdAt)}</span>

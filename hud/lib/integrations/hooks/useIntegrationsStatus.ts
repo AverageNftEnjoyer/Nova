@@ -8,6 +8,7 @@ import {
   updateTelegramIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateBraveIntegrationSettings,
+  updateCoinbaseIntegrationSettings,
   updateOpenAIIntegrationSettings,
   updateClaudeIntegrationSettings,
   updateGeminiIntegrationSettings,
@@ -20,12 +21,14 @@ export interface IntegrationsStatus {
   telegramConnected: boolean
   discordConnected: boolean
   braveConnected: boolean
+  coinbaseConnected: boolean
   openaiConnected: boolean
   claudeConnected: boolean
   grokConnected: boolean
   geminiConnected: boolean
   gmailConnected: boolean
   braveConfigured: boolean
+  coinbaseConfigured: boolean
   openaiConfigured: boolean
   claudeConfigured: boolean
   grokConfigured: boolean
@@ -36,10 +39,11 @@ export interface IntegrationsStatus {
 
 export interface UseIntegrationsStatusReturn extends IntegrationsStatus {
   integrationGuardNotice: string | null
-  integrationGuardTarget: "brave" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
+  integrationGuardTarget: "brave" | "coinbase" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
   handleToggleTelegramIntegration: () => void
   handleToggleDiscordIntegration: () => void
   handleToggleBraveIntegration: () => void
+  handleToggleCoinbaseIntegration: () => void
   handleToggleOpenAIIntegration: () => void
   handleToggleClaudeIntegration: () => void
   handleToggleGrokIntegration: () => void
@@ -69,12 +73,14 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   const [telegramConnected, setTelegramConnected] = useState(Boolean(initialIntegrations.telegram.connected))
   const [discordConnected, setDiscordConnected] = useState(Boolean(initialIntegrations.discord.connected))
   const [braveConnected, setBraveConnected] = useState(Boolean(initialIntegrations.brave.connected))
+  const [coinbaseConnected, setCoinbaseConnected] = useState(Boolean(initialIntegrations.coinbase?.connected))
   const [openaiConnected, setOpenaiConnected] = useState(Boolean(initialIntegrations.openai.connected))
   const [claudeConnected, setClaudeConnected] = useState(Boolean(initialIntegrations.claude.connected))
   const [grokConnected, setGrokConnected] = useState(Boolean(initialIntegrations.grok.connected))
   const [geminiConnected, setGeminiConnected] = useState(Boolean(initialIntegrations.gemini.connected))
   const [gmailConnected, setGmailConnected] = useState(Boolean(initialIntegrations.gmail?.connected))
   const [braveConfigured, setBraveConfigured] = useState(Boolean(initialIntegrations.brave.apiKeyConfigured))
+  const [coinbaseConfigured, setCoinbaseConfigured] = useState(Boolean(initialIntegrations.coinbase?.apiKeyConfigured && initialIntegrations.coinbase?.apiSecretConfigured))
   const [openaiConfigured, setOpenaiConfigured] = useState(Boolean(initialIntegrations.openai.apiKeyConfigured))
   const [claudeConfigured, setClaudeConfigured] = useState(Boolean(initialIntegrations.claude.apiKeyConfigured))
   const [grokConfigured, setGrokConfigured] = useState(Boolean(initialIntegrations.grok.apiKeyConfigured))
@@ -82,7 +88,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   const [gmailTokenConfigured, setGmailTokenConfigured] = useState(Boolean(initialIntegrations.gmail?.tokenConfigured))
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>(initialIntegrations.activeLlmProvider)
   const [integrationGuardNotice, setIntegrationGuardNotice] = useState<string | null>(null)
-  const [integrationGuardTarget, setIntegrationGuardTarget] = useState<"brave" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null>(null)
+  const [integrationGuardTarget, setIntegrationGuardTarget] = useState<"brave" | "coinbase" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null>(null)
   const [activeLlmModel, setActiveLlmModel] = useState(
     resolveActiveModelFromProvider(initialIntegrations.activeLlmProvider, {
       openai: initialIntegrations.openai.defaultModel,
@@ -116,11 +122,13 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         const discord = Boolean(data?.config?.discord?.connected)
         const openai = Boolean(data?.config?.openai?.connected)
         const brave = Boolean(data?.config?.brave?.connected)
+        const coinbase = Boolean(data?.config?.coinbase?.connected)
         const claude = Boolean(data?.config?.claude?.connected)
         const grok = Boolean(data?.config?.grok?.connected)
         const gemini = Boolean(data?.config?.gemini?.connected)
         const openaiReady = Boolean(data?.config?.openai?.apiKeyConfigured)
         const braveReady = Boolean(data?.config?.brave?.apiKeyConfigured)
+        const coinbaseReady = Boolean(data?.config?.coinbase?.apiKeyConfigured && data?.config?.coinbase?.apiSecretConfigured)
         const claudeReady = Boolean(data?.config?.claude?.apiKeyConfigured)
         const grokReady = Boolean(data?.config?.grok?.apiKeyConfigured)
         const geminiReady = Boolean(data?.config?.gemini?.apiKeyConfigured)
@@ -137,11 +145,13 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         setDiscordConnected(discord)
         setOpenaiConnected(openai)
         setBraveConnected(brave)
+        setCoinbaseConnected(coinbase)
         setClaudeConnected(claude)
         setGrokConnected(grok)
         setGeminiConnected(gemini)
         setOpenaiConfigured(openaiReady)
         setBraveConfigured(braveReady)
+        setCoinbaseConfigured(coinbaseReady)
         setClaudeConfigured(claudeReady)
         setGrokConfigured(grokReady)
         setGeminiConfigured(geminiReady)
@@ -180,12 +190,14 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
           setTelegramConnected(Boolean(data?.config?.telegram?.connected))
           setDiscordConnected(Boolean(data?.config?.discord?.connected))
           setBraveConnected(Boolean(data?.config?.brave?.connected))
+          setCoinbaseConnected(Boolean(data?.config?.coinbase?.connected))
           setOpenaiConnected(Boolean(data?.config?.openai?.connected))
           setClaudeConnected(Boolean(data?.config?.claude?.connected))
           setGrokConnected(Boolean(data?.config?.grok?.connected))
           setGeminiConnected(Boolean(data?.config?.gemini?.connected))
           setOpenaiConfigured(Boolean(data?.config?.openai?.apiKeyConfigured))
           setBraveConfigured(Boolean(data?.config?.brave?.apiKeyConfigured))
+          setCoinbaseConfigured(Boolean(data?.config?.coinbase?.apiKeyConfigured && data?.config?.coinbase?.apiSecretConfigured))
           setClaudeConfigured(Boolean(data?.config?.claude?.apiKeyConfigured))
           setGrokConfigured(Boolean(data?.config?.grok?.apiKeyConfigured))
           setGeminiConfigured(Boolean(data?.config?.gemini?.apiKeyConfigured))
@@ -242,6 +254,22 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
       body: JSON.stringify({ brave: { connected: next } }),
     }).catch(() => {})
   }, [braveConfigured, braveConnected])
+
+  const handleToggleCoinbaseIntegration = useCallback(() => {
+    if (!coinbaseConnected && !coinbaseConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("coinbase")
+      return
+    }
+    const next = !coinbaseConnected
+    setCoinbaseConnected(next)
+    updateCoinbaseIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ coinbase: { connected: next } }),
+    }).catch(() => {})
+  }, [coinbaseConfigured, coinbaseConnected])
 
   const handleToggleOpenAIIntegration = useCallback(() => {
     if (!openaiConnected && !openaiConfigured) {
@@ -327,12 +355,14 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
     telegramConnected,
     discordConnected,
     braveConnected,
+    coinbaseConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
     geminiConnected,
     gmailConnected,
     braveConfigured,
+    coinbaseConfigured,
     openaiConfigured,
     claudeConfigured,
     grokConfigured,
@@ -344,6 +374,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
+    handleToggleCoinbaseIntegration,
     handleToggleOpenAIIntegration,
     handleToggleClaudeIntegration,
     handleToggleGrokIntegration,

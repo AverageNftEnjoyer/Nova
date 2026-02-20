@@ -10,6 +10,10 @@ export function BraveIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/brave.svg" alt="Brave" width={16} height={16} className={className} unoptimized />
 }
 
+export function CoinbaseIcon({ className = "w-4 h-4" }: BraveIconProps) {
+  return <Image src="/images/coinbase.svg" alt="Coinbase" width={16} height={16} className={className} unoptimized />
+}
+
 export function ClaudeIcon(props: ComponentProps<typeof Claude.Color>) {
   return <Claude.Color {...props} />
 }

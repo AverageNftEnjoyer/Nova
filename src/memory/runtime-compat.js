@@ -1,7 +1,7 @@
 // ===== Memory System =====
 // Handles memory fact extraction, validation, and MEMORY.md management.
 
-import { MEMORY_FACT_MAX_CHARS } from "../runtime/constants.js";
+import { MEMORY_FACT_MAX_CHARS } from "../runtime/core/constants.js";
 
 const AUTO_MEMORY_ENABLED = String(process.env.NOVA_AUTO_MEMORY_ENABLED || "1").trim() !== "0";
 const AUTO_MEMORY_MAX_FACTS = Math.max(

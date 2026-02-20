@@ -38,10 +38,10 @@ function runNodeScript(relativePath) {
 }
 
 const replyNormalizerModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/reply-normalizer.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/reply-normalizer.js")).href,
 );
 const promptBudgetModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/prompt-budget.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt-budget.js")).href,
 );
 
 const { normalizeAssistantReply, normalizeAssistantSpeechText } = replyNormalizerModule;

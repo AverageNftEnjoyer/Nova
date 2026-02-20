@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
-import { Blocks, Save, Settings, User } from "lucide-react"
+import { Blocks, Eye, EyeOff, Save, Settings, User } from "lucide-react"
 
 import { useTheme } from "@/lib/context/theme-context"
 import { cn } from "@/lib/shared/utils"
@@ -14,7 +14,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -61,6 +61,62 @@ import {
   type IntegrationSetupKey,
 } from "./components"
 
+const COINBASE_TIMEZONE_OPTIONS = [
+  { value: "America/New_York", label: "America/New_York" },
+  { value: "America/Chicago", label: "America/Chicago" },
+  { value: "America/Denver", label: "America/Denver" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles" },
+  { value: "UTC", label: "UTC" },
+]
+
+const COINBASE_CURRENCY_OPTIONS = [
+  { value: "USD", label: "USD" },
+  { value: "EUR", label: "EUR" },
+  { value: "GBP", label: "GBP" },
+  { value: "CAD", label: "CAD" },
+  { value: "JPY", label: "JPY" },
+]
+
+const COINBASE_CADENCE_OPTIONS = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+]
+
+const COINBASE_ERROR_COPY: Record<string, string> = {
+  expired_token: "Coinbase token expired. Reconnect Coinbase credentials.",
+  permission_denied: "Coinbase permission denied. Check key permissions/scopes.",
+  rate_limited: "Coinbase rate limit reached. Retry after a short cooldown.",
+  coinbase_outage: "Coinbase service outage detected. Retry when upstream recovers.",
+  network: "Network error while calling Coinbase. Verify connectivity and retry.",
+  unknown: "Coinbase sync failed with an unknown error. Retry and review logs.",
+  none: "",
+}
+
+function formatIsoTimestamp(iso: string): string {
+  if (!iso) return "Never"
+  const ms = Date.parse(iso)
+  if (!Number.isFinite(ms)) return "Never"
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(ms))
+}
+
+function formatFreshnessMs(value: number): string {
+  const ms = Math.max(0, Math.floor(Number(value || 0)))
+  if (ms <= 0) return "Unknown"
+  const totalSeconds = Math.floor(ms / 1000)
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes}m`
+  const totalHours = Math.floor(totalMinutes / 60)
+  if (totalHours < 24) return `${totalHours}h`
+  const totalDays = Math.floor(totalHours / 24)
+  return `${totalDays}d`
+}
+
 export default function IntegrationsPage() {
   const router = useRouter()
   const [orbHovered, setOrbHovered] = useState(false)
@@ -79,6 +135,14 @@ export default function IntegrationsPage() {
   const [braveApiKey, setBraveApiKey] = useState("")
   const [braveApiKeyConfigured, setBraveApiKeyConfigured] = useState(false)
   const [braveApiKeyMasked, setBraveApiKeyMasked] = useState("")
+  const [coinbaseApiKey, setCoinbaseApiKey] = useState("")
+  const [coinbaseApiSecret, setCoinbaseApiSecret] = useState("")
+  const [coinbaseApiKeyConfigured, setCoinbaseApiKeyConfigured] = useState(false)
+  const [coinbaseApiSecretConfigured, setCoinbaseApiSecretConfigured] = useState(false)
+  const [coinbaseApiKeyMasked, setCoinbaseApiKeyMasked] = useState("")
+  const [coinbaseApiSecretMasked, setCoinbaseApiSecretMasked] = useState("")
+  const [showCoinbaseApiKey, setShowCoinbaseApiKey] = useState(false)
+  const [showCoinbaseApiSecret, setShowCoinbaseApiSecret] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [profile, setProfile] = useState<UserProfile>({
@@ -96,6 +160,7 @@ export default function IntegrationsPage() {
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
   const braveSetupSectionRef = useRef<HTMLElement | null>(null)
+  const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -131,6 +196,12 @@ export default function IntegrationsPage() {
     setBraveApiKey(local.brave.apiKey)
     setBraveApiKeyConfigured(Boolean(local.brave.apiKeyConfigured))
     setBraveApiKeyMasked(local.brave.apiKeyMasked || "")
+    setCoinbaseApiKey(local.coinbase.apiKey)
+    setCoinbaseApiSecret(local.coinbase.apiSecret)
+    setCoinbaseApiKeyConfigured(Boolean(local.coinbase.apiKeyConfigured))
+    setCoinbaseApiSecretConfigured(Boolean(local.coinbase.apiSecretConfigured))
+    setCoinbaseApiKeyMasked(local.coinbase.apiKeyMasked || "")
+    setCoinbaseApiSecretMasked(local.coinbase.apiSecretMasked || "")
     hydrateOpenAISetup(local)
     hydrateClaudeSetup(local)
     hydrateGrokSetup(local)
@@ -182,6 +253,12 @@ export default function IntegrationsPage() {
           setBraveApiKey(fallback.brave.apiKey)
           setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
           setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
+          setCoinbaseApiKey(fallback.coinbase.apiKey)
+          setCoinbaseApiSecret(fallback.coinbase.apiSecret)
+          setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
+          setCoinbaseApiSecretConfigured(Boolean(fallback.coinbase.apiSecretConfigured))
+          setCoinbaseApiKeyMasked(fallback.coinbase.apiKeyMasked || "")
+          setCoinbaseApiSecretMasked(fallback.coinbase.apiSecretMasked || "")
           hydrateOpenAISetup(fallback)
           hydrateClaudeSetup(fallback)
           hydrateGrokSetup(fallback)
@@ -215,6 +292,44 @@ export default function IntegrationsPage() {
             apiKey: config.brave?.apiKey || "",
             apiKeyConfigured: Boolean(config.brave?.apiKeyConfigured),
             apiKeyMasked: typeof config.brave?.apiKeyMasked === "string" ? config.brave.apiKeyMasked : "",
+          },
+          coinbase: {
+            connected: Boolean(config.coinbase?.connected),
+            apiKey: config.coinbase?.apiKey || "",
+            apiSecret: config.coinbase?.apiSecret || "",
+            connectionMode: config.coinbase?.connectionMode === "oauth" ? "oauth" : "api_key_pair",
+            requiredScopes: Array.isArray(config.coinbase?.requiredScopes)
+              ? config.coinbase.requiredScopes.map((scope: unknown) => String(scope).trim()).filter(Boolean)
+              : ["portfolio:view", "accounts:read", "transactions:read"],
+            lastSyncAt: typeof config.coinbase?.lastSyncAt === "string" ? config.coinbase.lastSyncAt : "",
+            lastSyncStatus:
+              config.coinbase?.lastSyncStatus === "success" || config.coinbase?.lastSyncStatus === "error"
+                ? config.coinbase.lastSyncStatus
+                : "never",
+            lastSyncErrorCode:
+              config.coinbase?.lastSyncErrorCode === "expired_token" ||
+              config.coinbase?.lastSyncErrorCode === "permission_denied" ||
+              config.coinbase?.lastSyncErrorCode === "rate_limited" ||
+              config.coinbase?.lastSyncErrorCode === "coinbase_outage" ||
+              config.coinbase?.lastSyncErrorCode === "network" ||
+              config.coinbase?.lastSyncErrorCode === "unknown"
+                ? config.coinbase.lastSyncErrorCode
+                : "none",
+            lastSyncErrorMessage: typeof config.coinbase?.lastSyncErrorMessage === "string" ? config.coinbase.lastSyncErrorMessage : "",
+            lastFreshnessMs: typeof config.coinbase?.lastFreshnessMs === "number" ? config.coinbase.lastFreshnessMs : 0,
+            reportTimezone:
+              typeof config.coinbase?.reportTimezone === "string" && config.coinbase.reportTimezone.trim().length > 0
+                ? config.coinbase.reportTimezone
+                : "America/New_York",
+            reportCurrency:
+              typeof config.coinbase?.reportCurrency === "string" && config.coinbase.reportCurrency.trim().length > 0
+                ? config.coinbase.reportCurrency.toUpperCase()
+                : "USD",
+            reportCadence: config.coinbase?.reportCadence === "weekly" ? "weekly" : "daily",
+            apiKeyConfigured: Boolean(config.coinbase?.apiKeyConfigured),
+            apiKeyMasked: typeof config.coinbase?.apiKeyMasked === "string" ? config.coinbase.apiKeyMasked : "",
+            apiSecretConfigured: Boolean(config.coinbase?.apiSecretConfigured),
+            apiSecretMasked: typeof config.coinbase?.apiSecretMasked === "string" ? config.coinbase.apiSecretMasked : "",
           },
           openai: {
             connected: Boolean(config.openai?.connected),
@@ -284,6 +399,12 @@ export default function IntegrationsPage() {
         setBraveApiKey(normalized.brave.apiKey)
         setBraveApiKeyConfigured(Boolean(normalized.brave.apiKeyConfigured))
         setBraveApiKeyMasked(normalized.brave.apiKeyMasked || "")
+        setCoinbaseApiKey(normalized.coinbase.apiKey)
+        setCoinbaseApiSecret(normalized.coinbase.apiSecret)
+        setCoinbaseApiKeyConfigured(Boolean(normalized.coinbase.apiKeyConfigured))
+        setCoinbaseApiSecretConfigured(Boolean(normalized.coinbase.apiSecretConfigured))
+        setCoinbaseApiKeyMasked(normalized.coinbase.apiKeyMasked || "")
+        setCoinbaseApiSecretMasked(normalized.coinbase.apiSecretMasked || "")
         hydrateOpenAISetup(normalized)
         hydrateClaudeSetup(normalized)
         hydrateGrokSetup(normalized)
@@ -304,6 +425,12 @@ export default function IntegrationsPage() {
         setBraveApiKey(fallback.brave.apiKey)
         setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
         setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
+        setCoinbaseApiKey(fallback.coinbase.apiKey)
+        setCoinbaseApiSecret(fallback.coinbase.apiSecret)
+        setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
+        setCoinbaseApiSecretConfigured(Boolean(fallback.coinbase.apiSecretConfigured))
+        setCoinbaseApiKeyMasked(fallback.coinbase.apiKeyMasked || "")
+        setCoinbaseApiSecretMasked(fallback.coinbase.apiSecretMasked || "")
         hydrateOpenAISetup(fallback)
         hydrateClaudeSetup(fallback)
         hydrateGrokSetup(fallback)
@@ -347,6 +474,7 @@ export default function IntegrationsPage() {
       { ref: telegramSetupSectionRef },
       { ref: discordSetupSectionRef },
       { ref: braveSetupSectionRef },
+      { ref: coinbaseSetupSectionRef },
       { ref: openaiSetupSectionRef },
       { ref: claudeSetupSectionRef },
       { ref: grokSetupSectionRef },
@@ -382,6 +510,30 @@ export default function IntegrationsPage() {
   const integrationTextClass = (connected: boolean) =>
     !integrationsHydrated ? "text-slate-400" : connected ? "text-emerald-400" : "text-rose-400"
   const braveNeedsKeyWarning = !(settings.brave.connected && (settings.brave.apiKeyConfigured || braveApiKeyConfigured))
+  const coinbaseNeedsKeyWarning = !(settings.coinbase.connected && (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) && (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured))
+  const coinbaseHasKeys = Boolean(
+    (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) &&
+    (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured),
+  )
+  const coinbaseSyncLabel =
+    settings.coinbase.lastSyncStatus === "success"
+      ? "Sync Healthy"
+      : settings.coinbase.lastSyncStatus === "error"
+        ? "Sync Error"
+        : "Not Synced"
+  const coinbaseSyncBadgeClass =
+    settings.coinbase.lastSyncStatus === "success"
+      ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
+      : settings.coinbase.lastSyncStatus === "error"
+        ? "border-rose-300/40 bg-rose-500/15 text-rose-200"
+        : "border-amber-300/40 bg-amber-500/15 text-amber-200"
+  const coinbaseLastSyncText = formatIsoTimestamp(settings.coinbase.lastSyncAt)
+  const coinbaseFreshnessText = formatFreshnessMs(settings.coinbase.lastFreshnessMs)
+  const coinbaseErrorText =
+    settings.coinbase.lastSyncErrorMessage.trim() || COINBASE_ERROR_COPY[settings.coinbase.lastSyncErrorCode] || ""
+  const coinbaseScopeSummary = settings.coinbase.requiredScopes.length > 0
+    ? settings.coinbase.requiredScopes.join(", ")
+    : "No scope summary configured."
   const connectivityItems = [
     { key: "telegram" as const, connected: settings.telegram.connected, icon: <TelegramIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Telegram setup" },
     { key: "discord" as const, connected: settings.discord.connected, icon: <DiscordIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Discord setup" },
@@ -391,6 +543,7 @@ export default function IntegrationsPage() {
     { key: "gemini" as const, connected: settings.gemini.connected, icon: <GeminiIcon size={16} />, ariaLabel: "Open Gemini setup" },
     { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
     { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
+    { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
   ]
   const providerDefinitions = useMemo(() => ({
     openai: {
@@ -723,6 +876,156 @@ export default function IntegrationsPage() {
     }
   }, [braveApiKeyConfigured, settings])
 
+  const applyCoinbaseServerConfig = useCallback((incoming: unknown) => {
+    if (!incoming || typeof incoming !== "object") return
+    const coinbase = incoming as Partial<IntegrationsSettings["coinbase"]>
+    const hasKeyMasked = typeof coinbase.apiKeyMasked === "string"
+    const keyMasked = hasKeyMasked ? String(coinbase.apiKeyMasked) : ""
+    const keyConfigured = typeof coinbase.apiKeyConfigured === "boolean" ? coinbase.apiKeyConfigured : undefined
+    const hasSecretMasked = typeof coinbase.apiSecretMasked === "string"
+    const secretMasked = hasSecretMasked ? String(coinbase.apiSecretMasked) : ""
+    const secretConfigured = typeof coinbase.apiSecretConfigured === "boolean" ? coinbase.apiSecretConfigured : undefined
+    if (hasKeyMasked) setCoinbaseApiKeyMasked(keyMasked)
+    if (hasSecretMasked) setCoinbaseApiSecretMasked(secretMasked)
+    if (typeof keyConfigured === "boolean") setCoinbaseApiKeyConfigured(keyConfigured)
+    if (typeof secretConfigured === "boolean") setCoinbaseApiSecretConfigured(secretConfigured)
+
+    setSettings((prev) => {
+      const updated: IntegrationsSettings = {
+        ...prev,
+        coinbase: {
+          ...prev.coinbase,
+          connected: typeof coinbase.connected === "boolean" ? coinbase.connected : prev.coinbase.connected,
+          connectionMode:
+            coinbase.connectionMode === "oauth" || coinbase.connectionMode === "api_key_pair"
+              ? coinbase.connectionMode
+              : prev.coinbase.connectionMode,
+          requiredScopes: Array.isArray(coinbase.requiredScopes)
+            ? coinbase.requiredScopes.map((scope) => String(scope).trim()).filter(Boolean)
+            : prev.coinbase.requiredScopes,
+          lastSyncAt: typeof coinbase.lastSyncAt === "string" ? coinbase.lastSyncAt : prev.coinbase.lastSyncAt,
+          lastSyncStatus:
+            coinbase.lastSyncStatus === "success" || coinbase.lastSyncStatus === "error"
+              ? coinbase.lastSyncStatus
+              : prev.coinbase.lastSyncStatus,
+          lastSyncErrorCode:
+            coinbase.lastSyncErrorCode === "expired_token" ||
+            coinbase.lastSyncErrorCode === "permission_denied" ||
+            coinbase.lastSyncErrorCode === "rate_limited" ||
+            coinbase.lastSyncErrorCode === "coinbase_outage" ||
+            coinbase.lastSyncErrorCode === "network" ||
+            coinbase.lastSyncErrorCode === "unknown"
+              ? coinbase.lastSyncErrorCode
+              : coinbase.lastSyncErrorCode === "none"
+                ? "none"
+                : prev.coinbase.lastSyncErrorCode,
+          lastSyncErrorMessage:
+            typeof coinbase.lastSyncErrorMessage === "string" ? coinbase.lastSyncErrorMessage : prev.coinbase.lastSyncErrorMessage,
+          lastFreshnessMs:
+            typeof coinbase.lastFreshnessMs === "number" ? coinbase.lastFreshnessMs : prev.coinbase.lastFreshnessMs,
+          reportTimezone:
+            typeof coinbase.reportTimezone === "string" && coinbase.reportTimezone.trim().length > 0
+              ? coinbase.reportTimezone.trim()
+              : prev.coinbase.reportTimezone,
+          reportCurrency:
+            typeof coinbase.reportCurrency === "string" && coinbase.reportCurrency.trim().length > 0
+              ? coinbase.reportCurrency.trim().toUpperCase()
+              : prev.coinbase.reportCurrency,
+          reportCadence: coinbase.reportCadence === "weekly" ? "weekly" : coinbase.reportCadence === "daily" ? "daily" : prev.coinbase.reportCadence,
+          apiKeyConfigured: typeof keyConfigured === "boolean" ? keyConfigured : prev.coinbase.apiKeyConfigured,
+          apiKeyMasked: hasKeyMasked ? keyMasked : prev.coinbase.apiKeyMasked,
+          apiSecretConfigured: typeof secretConfigured === "boolean" ? secretConfigured : prev.coinbase.apiSecretConfigured,
+          apiSecretMasked: hasSecretMasked ? secretMasked : prev.coinbase.apiSecretMasked,
+        },
+      }
+      saveIntegrationsSettings(updated)
+      return updated
+    })
+  }, [])
+
+  const probeCoinbaseConnection = useCallback(async (successMessage = "Coinbase probe passed.") => {
+    if (isSavingTarget !== null) return
+    setSaveStatus(null)
+    setIsSavingTarget("coinbase")
+    try {
+      const res = await fetch("/api/integrations/test-coinbase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok || !payload?.ok) {
+        applyCoinbaseServerConfig(payload?.config?.coinbase)
+        throw new Error(
+          typeof payload?.error === "string" && payload.error.trim().length > 0
+            ? payload.error
+            : "Coinbase probe failed.",
+        )
+      }
+      applyCoinbaseServerConfig(payload?.config?.coinbase)
+      setSaveStatus({
+        type: "success",
+        message: successMessage,
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Coinbase probe failed.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [applyCoinbaseServerConfig, isSavingTarget])
+
+  const toggleCoinbase = useCallback(async () => {
+    const canEnableFromSavedKeys = Boolean(
+      (coinbaseApiKeyConfigured || settings.coinbase.apiKeyConfigured) &&
+      (coinbaseApiSecretConfigured || settings.coinbase.apiSecretConfigured),
+    )
+    if (!settings.coinbase.connected && !canEnableFromSavedKeys) {
+      setSaveStatus({
+        type: "error",
+        message: "Save Coinbase API key + secret first, then enable Coinbase.",
+      })
+      return
+    }
+
+    const next = {
+      ...settings,
+      coinbase: {
+        ...settings.coinbase,
+        connected: !settings.coinbase.connected,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("coinbase")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coinbase: { connected: next.coinbase.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update Coinbase status")
+      const payload = await res.json().catch(() => ({}))
+      const connected = Boolean(payload?.config?.coinbase?.connected)
+      applyCoinbaseServerConfig(payload?.config?.coinbase)
+      setSaveStatus({
+        type: "success",
+        message: `Coinbase ${connected ? "connected" : "disconnected"}.`,
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update Coinbase status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [applyCoinbaseServerConfig, coinbaseApiKeyConfigured, coinbaseApiSecretConfigured, settings])
+
   const saveActiveProvider = useCallback(async (provider: LlmProvider) => {
     if (provider === "openai" && !settings.openai.connected) {
       setSaveStatus({ type: "error", message: "OpenAI is inactive. Save a valid key + model first." })
@@ -1023,6 +1326,83 @@ export default function IntegrationsPage() {
       setIsSavingTarget(null)
     }
   }, [braveApiKey, braveApiKeyConfigured, settings])
+
+  const saveCoinbaseConfig = useCallback(async () => {
+    const trimmedApiKey = coinbaseApiKey.trim()
+    const trimmedApiSecret = coinbaseApiSecret.trim()
+    const shouldEnable =
+      settings.coinbase.connected ||
+      ((trimmedApiKey.length > 0 || coinbaseApiKeyConfigured) && (trimmedApiSecret.length > 0 || coinbaseApiSecretConfigured))
+    const payloadCoinbase: Partial<IntegrationsSettings["coinbase"]> = {
+      connectionMode: "api_key_pair",
+      requiredScopes: settings.coinbase.requiredScopes,
+      reportTimezone: settings.coinbase.reportTimezone,
+      reportCurrency: settings.coinbase.reportCurrency,
+      reportCadence: settings.coinbase.reportCadence,
+    }
+    if (trimmedApiKey) payloadCoinbase.apiKey = trimmedApiKey
+    if (trimmedApiSecret) payloadCoinbase.apiSecret = trimmedApiSecret
+
+    const next = {
+      ...settings,
+      coinbase: {
+        ...settings.coinbase,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("coinbase")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coinbase: {
+            ...payloadCoinbase,
+            connected: shouldEnable,
+          },
+        }),
+      })
+      const savedData = await saveRes.json().catch(() => ({}))
+      if (!saveRes.ok) {
+        const message =
+          typeof savedData?.error === "string" && savedData.error.trim().length > 0
+            ? savedData.error.trim()
+            : "Failed to save Coinbase configuration."
+        throw new Error(message)
+      }
+      setCoinbaseApiKey("")
+      setCoinbaseApiSecret("")
+      applyCoinbaseServerConfig(savedData?.config?.coinbase)
+      setSaveStatus({
+        type: "success",
+        message: "Coinbase saved. Use Reconnect to run a live sync probe.",
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save Coinbase configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [applyCoinbaseServerConfig, coinbaseApiKey, coinbaseApiKeyConfigured, coinbaseApiSecret, coinbaseApiSecretConfigured, settings])
+
+  const updateCoinbaseDefaults = useCallback((partial: Partial<IntegrationsSettings["coinbase"]>) => {
+    setSettings((prev) => {
+      const updated: IntegrationsSettings = {
+        ...prev,
+        coinbase: {
+          ...prev.coinbase,
+          ...partial,
+        },
+      }
+      saveIntegrationsSettings(updated)
+      return updated
+    })
+  }, [])
+
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
@@ -1456,6 +1836,283 @@ export default function IntegrationsPage() {
             </section>
             )}
 
+            {activeSetup === "coinbase" && (
+            <section ref={coinbaseSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Coinbase API
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save per-user Coinbase credentials for crypto prices, portfolio reports, and automations.
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className={cn("rounded-full border px-2 py-0.5", settings.coinbase.connected ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200" : "border-rose-300/40 bg-rose-500/15 text-rose-200")}>
+                      {settings.coinbase.connected ? "Connected" : "Disconnected"}
+                    </span>
+                    <span className={cn("rounded-full border px-2 py-0.5", coinbaseSyncBadgeClass)}>
+                      {coinbaseSyncLabel}
+                    </span>
+                    <span className={cn("rounded-full border px-2 py-0.5", isLight ? "border-[#d5dce8] text-s-60 bg-white" : "border-white/10 text-slate-300 bg-black/20")}>
+                      Mode: {settings.coinbase.connectionMode === "oauth" ? "OAuth" : "API Key Pair"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => void probeCoinbaseConnection("Coinbase reconnected and probe passed.")}
+                    disabled={isSavingTarget !== null || !coinbaseHasKeys}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      isLight
+                        ? "border-[#d5dce8] bg-white text-s-80 hover:bg-[#f4f7fd]"
+                        : "border-white/15 bg-white/5 text-slate-200 hover:bg-white/10",
+                    )}
+                  >
+                    {isSavingTarget === "coinbase" ? "Running..." : "Reconnect"}
+                  </button>
+                  <button
+                    onClick={toggleCoinbase}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.coinbase.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.coinbase.connected ? "Disconnect" : "Connect"}
+                  </button>
+                  <button
+                    onClick={saveCoinbaseConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "coinbase" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Sync Health</p>
+                    <span className={cn("text-[11px] rounded-full border px-2 py-0.5", coinbaseSyncBadgeClass)}>
+                      {coinbaseSyncLabel}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-3">
+                    <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                      <p className={cn("uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Last Sync</p>
+                      <p className={cn("mt-1 font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseLastSyncText}</p>
+                    </div>
+                    <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                      <p className={cn("uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Freshness</p>
+                      <p className={cn("mt-1 font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseFreshnessText}</p>
+                    </div>
+                    <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                      <p className={cn("uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Scopes</p>
+                      <p className={cn("mt-1 font-medium truncate", isLight ? "text-s-80" : "text-slate-200")} title={coinbaseScopeSummary}>
+                        {settings.coinbase.requiredScopes.length || 0}
+                      </p>
+                    </div>
+                  </div>
+                  {settings.coinbase.lastSyncStatus === "error" && coinbaseErrorText && (
+                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", isLight ? "border-rose-200 bg-rose-50 text-rose-700" : "border-rose-300/30 bg-rose-500/10 text-rose-200")}>
+                      {coinbaseErrorText}
+                    </p>
+                  )}
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Report Defaults</p>
+                    <span className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>Saved with Coinbase config</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div className="space-y-1">
+                      <p className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Timezone</p>
+                      <FluidSelect
+                        value={settings.coinbase.reportTimezone}
+                        onChange={(value) => updateCoinbaseDefaults({ reportTimezone: String(value || "UTC") })}
+                        options={COINBASE_TIMEZONE_OPTIONS}
+                        isLight={isLight}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Currency</p>
+                      <FluidSelect
+                        value={settings.coinbase.reportCurrency}
+                        onChange={(value) => updateCoinbaseDefaults({ reportCurrency: String(value || "USD").toUpperCase() })}
+                        options={COINBASE_CURRENCY_OPTIONS}
+                        isLight={isLight}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Cadence</p>
+                      <FluidSelect
+                        value={settings.coinbase.reportCadence}
+                        onChange={(value) => updateCoinbaseDefaults({ reportCadence: String(value) === "weekly" ? "weekly" : "daily" })}
+                        options={COINBASE_CADENCE_OPTIONS}
+                        isLight={isLight}
+                      />
+                    </div>
+                  </div>
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+                    Required scopes: <span className="font-mono">{coinbaseScopeSummary}</span>
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key (Client Key ID)</p>
+                  {coinbaseApiKeyConfigured && coinbaseApiKeyMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Key on server: <span className="font-mono">{coinbaseApiKeyMasked}</span>
+                    </p>
+                  )}
+                  <div className="relative">
+                    <input
+                      type={showCoinbaseApiKey ? "text" : "password"}
+                      value={coinbaseApiKey}
+                      onChange={(e) => setCoinbaseApiKey(e.target.value)}
+                      placeholder={coinbaseApiKeyConfigured ? "Enter new key to replace current key" : "organizations/{org_id}/apiKeys/{key_id}"}
+                      name="coinbase_api_key_input"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                        )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCoinbaseApiKey((v) => !v)}
+                      className={cn(
+                        "absolute right-2 top-1/2 z-10 -translate-y-1/2 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showCoinbaseApiKey ? "Hide API key" : "Show API key"}
+                      title={showCoinbaseApiKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showCoinbaseApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+                    Paste the API Key value from Coinbase (usually <span className="font-mono">organizations/.../apiKeys/...</span>). Do not paste the nickname.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Secret (Private Key)</p>
+                  {coinbaseApiSecretConfigured && coinbaseApiSecretMasked && (
+                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      Secret on server: <span className="font-mono">{coinbaseApiSecretMasked}</span>
+                    </p>
+                  )}
+                  <div className="relative">
+                    <input
+                      type={showCoinbaseApiSecret ? "text" : "password"}
+                      value={coinbaseApiSecret}
+                      onChange={(e) => setCoinbaseApiSecret(e.target.value)}
+                      placeholder={coinbaseApiSecretConfigured ? "Enter new secret to replace current secret" : "-----BEGIN EC PRIVATE KEY----- ..."}
+                      name="coinbase_api_secret_input"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                        )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCoinbaseApiSecret((v) => !v)}
+                      className={cn(
+                        "absolute right-2 top-1/2 z-10 -translate-y-1/2 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150",
+                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
+                      )}
+                      aria-label={showCoinbaseApiSecret ? "Hide API secret" : "Show API secret"}
+                      title={showCoinbaseApiSecret ? "Hide API secret" : "Show API secret"}
+                    >
+                      {showCoinbaseApiSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+                    Paste the private key exactly as downloaded from Coinbase. Keep line breaks if present. If Coinbase also shows an extra passphrase/secret string, Nova does not use that field in this panel.
+                  </p>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                    {coinbaseNeedsKeyWarning && (
+                      <p className={cn("text-[11px]", isLight ? "text-amber-700" : "text-amber-300")}>
+                        Keys missing
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Coinbase API Credentials</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. In Coinbase Developer Platform, create a new API key (Advanced Trade / Coinbase App).</li>
+                        <li>2. In Advanced Settings, choose <span className="font-mono">ECDSA</span> for SDK compatibility; direct API supports ECDSA and Ed25519.</li>
+                        <li>3. For Nova v1, set permissions to read-only (Portfolio View). Leave Trade/Transfer off unless you explicitly need execution flows.</li>
+                        <li>4. If you enable IP allowlist, include the real client/server IPs (and IPv6 if your network uses it), or calls will fail.</li>
+                        <li>5. Copy the API key value and private key immediately, then store them securely.</li>
+                        <li>6. If you see three values in Coinbase, use only key ID + private key here; ignore extra passphrase/secret-string fields for now.</li>
+                      </ol>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Paste Coinbase API Key into <span className="font-mono">API Key (Client Key ID)</span>.</li>
+                        <li>2. Paste Coinbase private key into <span className="font-mono">API Secret (Private Key)</span> and click <span className="font-mono">Save</span>.</li>
+                        <li>3. Confirm both values show masked on server, then click <span className="font-mono">Connect</span>.</li>
+                        <li>4. Nova only needs this key + secret pair here. OAuth client ID/secret are not required in this Coinbase panel.</li>
+                        <li>5. Do not paste nickname labels or extra passphrase/secret-string values into these fields.</li>
+                        <li>6. Click <span className="font-mono">Reconnect</span> to run the live probe and update sync/freshness status.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            )}
+
             {activeProviderDefinition && (
               <LlmSetupPanel
                 sectionRef={activeProviderDefinition.sectionRef}
@@ -1563,6 +2220,7 @@ export default function IntegrationsPage() {
                 { name: "Gemini", active: settings.gemini.connected },
                 { name: "Gmail", active: settings.gmail.connected },
                 { name: "Brave", active: settings.brave.connected },
+                { name: "Coinbase", active: settings.coinbase.connected },
               ].map((item) => (
                 <div
                   key={item.name}

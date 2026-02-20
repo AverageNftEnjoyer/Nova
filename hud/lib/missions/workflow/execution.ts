@@ -19,6 +19,7 @@ import { humanizeMissionOutputText } from "../output/formatters"
 import { applyMissionOutputQualityGuardrails } from "../output/quality"
 import { dispatchOutput } from "../output/dispatch"
 import { completeWithConfiguredLlm } from "../llm/providers"
+import { fetchCoinbaseMissionData, parseCoinbaseFetchQuery } from "../coinbase/fetch"
 import {
   buildWebEvidenceContext,
   buildForcedWebSummaryPrompt,
@@ -62,6 +63,7 @@ const MISSION_OUTPUT_INCLUDE_HEADER = (() => {
  */
 export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput): Promise<ExecuteMissionWorkflowResult> {
   const now = input.now ?? new Date()
+  const missionRunId = String(input.missionRunId || "").trim() || crypto.randomUUID()
   const skillSnapshot = input.skillSnapshot
   const stableSkillGuidance = truncateForModel(
     String(skillSnapshot?.guidance || "").trim(),
@@ -79,6 +81,9 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
   const context: Record<string, unknown> = {
     mission: {
       id: input.schedule.id,
+      runId: missionRunId,
+      runKey: String(input.runKey || "").trim() || undefined,
+      attempt: Number.isFinite(Number(input.attempt || 0)) ? Math.max(1, Number(input.attempt || 1)) : 1,
       label: input.schedule.label,
       integration: input.schedule.integration,
       time: input.schedule.time,
@@ -166,6 +171,63 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     if (type === "fetch") {
       const startedAt = await startStepTrace(step)
       let source = String(step.fetchSource || "api").toLowerCase()
+      if (source === "coinbase") {
+        const summaryCoinbase =
+          context.summary && typeof context.summary === "object"
+            ? ((context.summary as Record<string, unknown>).coinbase as Record<string, unknown> | undefined)
+            : undefined
+        const queryInput = parseCoinbaseFetchQuery(String(step.fetchQuery || ""))
+        const coinbaseData = await fetchCoinbaseMissionData(
+          {
+            primitive:
+              typeof queryInput.primitive === "string"
+                ? queryInput.primitive
+                : (summaryCoinbase?.primitive as "daily_portfolio_summary" | "price_alert_digest" | "weekly_pnl_summary" | undefined),
+            assets:
+              Array.isArray(queryInput.assets) && queryInput.assets.length > 0
+                ? queryInput.assets
+                : Array.isArray(summaryCoinbase?.assets)
+                  ? summaryCoinbase.assets.map((item) => String(item))
+                  : [],
+            quoteCurrency:
+              typeof queryInput.quoteCurrency === "string" && queryInput.quoteCurrency.trim()
+                ? queryInput.quoteCurrency
+                : String(summaryCoinbase?.quoteCurrency || "USD"),
+            thresholdPct:
+              Number.isFinite(Number(queryInput.thresholdPct))
+                ? Number(queryInput.thresholdPct)
+                : Number.isFinite(Number(summaryCoinbase?.thresholdPct))
+                  ? Number(summaryCoinbase?.thresholdPct)
+                  : undefined,
+            cadence:
+              typeof queryInput.cadence === "string" && queryInput.cadence.trim()
+                ? queryInput.cadence
+                : String(summaryCoinbase?.cadence || ""),
+          },
+          input.scope,
+        )
+        const fetchData = {
+          source,
+          mode: "coinbase-spot",
+          stepTitle: step.title || "Fetch Coinbase data",
+          status: coinbaseData.ok ? 200 : 502,
+          ok: coinbaseData.ok,
+          payload: coinbaseData,
+          error: coinbaseData.ok ? undefined : coinbaseData.error || "Coinbase fetch failed.",
+        }
+        context.data = fetchData
+        const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+        fetchResults.push({ stepTitle: step.title || "Fetch Coinbase data", data: fetchData })
+        await completeStepTrace(
+          step,
+          coinbaseData.ok ? "completed" : "failed",
+          coinbaseData.ok
+            ? `Fetched Coinbase spot data for ${coinbaseData.assets.join(", ")} (${coinbaseData.quoteCurrency}).`
+            : (coinbaseData.error || "Coinbase fetch failed."),
+          startedAt,
+        )
+        continue
+      }
       const includeSourcesForStep = resolveIncludeSources(step.fetchIncludeSources, false)
       context.presentation = {
         ...(context.presentation && typeof context.presentation === "object"
@@ -460,6 +522,12 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
             input.schedule.chatIds,
             input.schedule,
             input.scope,
+            {
+              missionRunId,
+              runKey: String(input.runKey || "").trim() || undefined,
+              attempt: Number.isFinite(Number(input.attempt || 0)) ? Math.max(1, Number(input.attempt || 1)) : 1,
+              source: input.source,
+            },
           )
           outputs = outputs.concat(notifyResults)
           await completeStepTrace(step, "completed", `Condition failed and notify fallback was sent for '${field}'.`, startedAt)
@@ -700,7 +768,19 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
             })()
           : guardedText
         const text = loops > 1 ? `${textBase}\n\n(${i + 1}/${loops})` : textBase
-        const result = await dispatchOutput(channel, text, resolvedRecipients, input.schedule, input.scope)
+        const result = await dispatchOutput(
+          channel,
+          text,
+          resolvedRecipients,
+          input.schedule,
+          input.scope,
+          {
+            missionRunId,
+            runKey: String(input.runKey || "").trim() || undefined,
+            attempt: Number.isFinite(Number(input.attempt || 0)) ? Math.max(1, Number(input.attempt || 1)) : 1,
+            source: input.source,
+          },
+        )
         outputs = outputs.concat(result)
       }
       const stepResults = outputs.slice(-loops)
@@ -754,6 +834,12 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       input.schedule.chatIds,
       input.schedule,
       input.scope,
+      {
+        missionRunId,
+        runKey: String(input.runKey || "").trim() || undefined,
+        attempt: Number.isFinite(Number(input.attempt || 0)) ? Math.max(1, Number(input.attempt || 1)) : 1,
+        source: input.source,
+      },
     )
     outputs = outputs.concat(result)
     const fallbackOk = result.some((item) => item.ok)

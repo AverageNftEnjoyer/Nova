@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node nova.js",
-    "dev": "NOVA_HUD_MODE=dev node nova.js",
+    "dev": "node nova.js --dev",
     "install:all": "npm install --prefix hud",
     "build:agent-core": "npx tsc -p tsconfig.json",
     "smoke": "node scripts/smoke/runtime-smoke.mjs",
@@ -27,10 +27,16 @@
     "smoke:src-prompt": "node scripts/smoke/src-prompt-budget-smoke.mjs",
     "smoke:src-eval": "node scripts/smoke/src-eval-regression-smoke.mjs",
     "smoke:src-release-readiness": "node scripts/smoke/src-release-readiness-smoke.mjs",
+    "smoke:src-coinbase-storage": "npm run build:agent-core && node scripts/smoke/src-coinbase-storage-smoke.mjs",
+    "smoke:src-coinbase-chat": "npm run build:agent-core && node scripts/smoke/src-coinbase-chat-fast-path-smoke.mjs",
     "smoke:src-release": "npm run build:agent-core && npm run smoke:src-eval && npm run smoke:src-prompt && npm run smoke:src-missions && npm run smoke:src-scheduler && npm run smoke:src-transport && npm run smoke:src-tools && npm run smoke:src-security && npm run smoke:src-memory && npm run smoke:src-routing && npm run smoke:src-plugin-isolation && npm run smoke:src-security-regression && npm run smoke:src-release-readiness && npm run build --prefix hud",
     "smoke:src-shell": "node scripts/smoke/src-shell-parity-smoke.mjs",
     "smoke:src-relocation": "node scripts/smoke/src-runtime-relocation-smoke.mjs",
-    "verify:phase15": "node scripts/verify-phase15.mjs"
+    "verify:phase15": "node scripts/smoke/verify-phase15.mjs",
+    "test:nlp": "npm run build:agent-core && node tests/nlp-preprocess.test.mjs",
+    "test:nlp:gold": "npm run build:agent-core && node tests/nlp-gold-eval.mjs",
+    "migrate:coinbase-store": "npm run build:agent-core && node scripts/coinbase/migrate-store.mjs",
+    "rollback:coinbase-store": "node scripts/coinbase/rollback-store.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -39,9 +45,11 @@
     "@anthropic-ai/sdk": "^0.77.0",
     "@mozilla/readability": "^0.6.0",
     "better-sqlite3": "^12.6.2",
+    "dictionary-en": "^4.0.0",
     "dotenv": "^17.2.3",
     "fish-audio": "^0.0.3",
     "jsdom": "^28.1.0",
+    "nspell": "^2.1.5",
     "openai": "^6.17.0",
     "systeminformation": "^5.30.7",
     "turndown": "^7.2.2",

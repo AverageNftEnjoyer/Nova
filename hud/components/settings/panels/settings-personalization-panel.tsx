@@ -1,0 +1,128 @@
+"use client"
+
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/shared/utils"
+import {
+  SettingInput,
+  SettingTextarea,
+  SettingSelect,
+  getSettingsCardClass,
+  playClickSound,
+} from "@/components/settings/settings-primitives"
+import type { UserSettings } from "@/lib/settings/userSettings"
+
+interface Props {
+  isLight: boolean
+  settings: UserSettings
+  updatePersonalization: (key: string, value: string | string[]) => void
+  onNavigateToSkills: () => void
+}
+
+export function SettingsPersonalizationPanel({ isLight, settings, updatePersonalization, onNavigateToSkills }: Props) {
+  return (
+    <div className="space-y-5">
+      <div className="p-4 rounded-xl bg-accent-10 border border-accent-30 transition-colors duration-150 hover:bg-accent-15 mb-4">
+        <p className="text-sm text-accent-secondary">
+          Help Nova understand you better by filling in these details.
+          This information helps personalize your experience.
+        </p>
+      </div>
+
+      <SettingInput
+        label="Assistant Name"
+        description="What do you want to call your assistant?"
+        value={settings.personalization.assistantName}
+        onChange={(v) => updatePersonalization("assistantName", v)}
+        placeholder="e.g., Nova, Atlas..."
+        isLight={isLight}
+      />
+
+      <SettingInput
+        label="Nickname"
+        description="What should Nova call you?"
+        value={settings.personalization.nickname}
+        onChange={(v) => updatePersonalization("nickname", v)}
+        placeholder="e.g., Boss, Chief, Captain..."
+        isLight={isLight}
+      />
+
+      <SettingInput
+        label="Occupation"
+        description="Your profession or role"
+        value={settings.personalization.occupation}
+        onChange={(v) => updatePersonalization("occupation", v)}
+        placeholder="e.g., Software Developer, Designer..."
+        isLight={isLight}
+      />
+
+      <SettingInput
+        label="Preferred Language"
+        description="Your preferred language for responses"
+        value={settings.personalization.preferredLanguage}
+        onChange={(v) => updatePersonalization("preferredLanguage", v)}
+        isLight={isLight}
+      />
+
+      <SettingSelect
+        label="Communication Style"
+        description="How formal should Nova be?"
+        isLight={isLight}
+        value={settings.personalization.communicationStyle}
+        options={[
+          { value: "formal", label: "Formal" },
+          { value: "professional", label: "Professional" },
+          { value: "friendly", label: "Friendly" },
+          { value: "casual", label: "Casual" },
+        ]}
+        onChange={(v) => updatePersonalization("communicationStyle", v)}
+      />
+
+      <SettingSelect
+        label="Response Tone"
+        description="Nova's conversational tone"
+        isLight={isLight}
+        value={settings.personalization.tone}
+        options={[
+          { value: "neutral", label: "Neutral" },
+          { value: "enthusiastic", label: "Enthusiastic" },
+          { value: "calm", label: "Calm" },
+          { value: "direct", label: "Direct" },
+          { value: "relaxed", label: "Relaxed" },
+        ]}
+        onChange={(v) => updatePersonalization("tone", v)}
+      />
+
+      <SettingTextarea
+        label="Your Characteristics"
+        description="Describe yourself - personality traits, preferences, quirks"
+        value={settings.personalization.characteristics}
+        onChange={(v) => updatePersonalization("characteristics", v)}
+        placeholder="e.g., I'm detail-oriented, prefer concise answers, work late nights..."
+        rows={3}
+        isLight={isLight}
+      />
+
+      <div className={cn(getSettingsCardClass(isLight), "p-4")}>
+        <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>Skill-Based Behavior</p>
+        <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>
+          Behavior customization now lives in Skills. Create and edit
+          <code className="mx-1">SKILL.md</code>
+          templates in the Skills section.
+        </p>
+        <Button
+          onClick={() => { playClickSound(); onNavigateToSkills() }}
+          variant="outline"
+          size="sm"
+          className={cn(
+            "fx-spotlight-card fx-border-glow",
+            isLight
+              ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
+              : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
+          )}
+        >
+          Open Skills
+        </Button>
+      </div>
+    </div>
+  )
+}

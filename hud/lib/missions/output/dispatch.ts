@@ -20,6 +20,12 @@ export async function dispatchOutput(
   targets: string[] | undefined,
   schedule: NotificationSchedule,
   scope?: IntegrationsStoreScope,
+  metadata?: {
+    missionRunId?: string
+    runKey?: string
+    attempt?: number
+    source?: "scheduler" | "trigger"
+  },
 ): Promise<OutputResult[]> {
   if (channel === "discord" || channel === "telegram") {
     const formattedText = formatNotificationText(text)
@@ -48,6 +54,13 @@ export async function dispatchOutput(
         content: text,
         missionId: schedule.id,
         missionLabel: schedule.label,
+        metadata: {
+          missionRunId: metadata?.missionRunId,
+          runKey: metadata?.runKey,
+          attempt: metadata?.attempt,
+          source: metadata?.source,
+          outputChannel: "novachat",
+        },
       })
       return [{ ok: true }]
     } catch (error) {

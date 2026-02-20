@@ -17,6 +17,13 @@ export interface PendingNovaChatMessage {
   content: string
   missionId?: string
   missionLabel?: string
+  metadata?: {
+    missionRunId?: string
+    runKey?: string
+    attempt?: number
+    source?: "scheduler" | "trigger"
+    outputChannel?: string
+  }
   createdAt: string
   consumed: boolean
 }
@@ -168,6 +175,31 @@ async function migrateLegacyPendingIfNeeded(): Promise<void> {
         content: String(msg.content),
         missionId: msg.missionId ? String(msg.missionId) : undefined,
         missionLabel: msg.missionLabel ? String(msg.missionLabel) : undefined,
+        metadata:
+          msg.metadata && typeof msg.metadata === "object"
+            ? {
+                missionRunId:
+                  typeof (msg.metadata as { missionRunId?: unknown }).missionRunId === "string"
+                    ? String((msg.metadata as { missionRunId?: unknown }).missionRunId)
+                    : undefined,
+                runKey:
+                  typeof (msg.metadata as { runKey?: unknown }).runKey === "string"
+                    ? String((msg.metadata as { runKey?: unknown }).runKey)
+                    : undefined,
+                attempt: Number.isFinite(Number((msg.metadata as { attempt?: unknown }).attempt || 0))
+                  ? Math.max(1, Number((msg.metadata as { attempt?: unknown }).attempt || 1))
+                  : undefined,
+                source:
+                  (msg.metadata as { source?: unknown }).source === "scheduler" ||
+                  (msg.metadata as { source?: unknown }).source === "trigger"
+                    ? (msg.metadata as { source: "scheduler" | "trigger" }).source
+                    : undefined,
+                outputChannel:
+                  typeof (msg.metadata as { outputChannel?: unknown }).outputChannel === "string"
+                    ? String((msg.metadata as { outputChannel?: unknown }).outputChannel)
+                    : undefined,
+              }
+            : undefined,
         createdAt: String(msg.createdAt),
         consumed: Boolean(msg.consumed),
       }
@@ -235,6 +267,13 @@ export async function addPendingMessage(input: {
   content: string
   missionId?: string
   missionLabel?: string
+  metadata?: {
+    missionRunId?: string
+    runKey?: string
+    attempt?: number
+    source?: "scheduler" | "trigger"
+    outputChannel?: string
+  }
 }): Promise<PendingNovaChatMessage> {
   await migrateLegacyPendingIfNeeded()
   const scopedUserId = sanitizeUserContextId(input.userId)
@@ -248,6 +287,7 @@ export async function addPendingMessage(input: {
     content: input.content,
     missionId: input.missionId,
     missionLabel: input.missionLabel,
+    metadata: input.metadata,
     createdAt: new Date().toISOString(),
     consumed: false,
   }

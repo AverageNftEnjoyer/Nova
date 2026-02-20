@@ -31,13 +31,18 @@ function fileExists(relativePath) {
 }
 
 const packageJson = JSON.parse(read("package.json"));
-const versionSource = read("hud/lib/version.ts");
+const versionSourceCandidates = [
+  "hud/lib/meta/version.ts",
+  "hud/lib/version.ts",
+];
+const versionSourcePath = versionSourceCandidates.find((candidate) => fileExists(candidate)) || "";
+const versionSource = versionSourcePath ? read(versionSourcePath) : "";
 const envExample = read(".env.example");
 const launcherBat = read("Nova.bat");
 const launcherVbs = read("Nova.vbs");
 const releaseNotesCandidates = [
-  "tasks/openclaw-phase20-release-notes.md",
-  "tasks/openclaw-phase10-release-notes.md",
+  "tasks/novaos-phase20-release-notes.md",
+  "tasks/novaos-phase10-release-notes.md",
 ];
 const releaseNotesPath = releaseNotesCandidates.find((candidate) => fileExists(candidate)) || "";
 const releaseNotes = releaseNotesPath ? read(releaseNotesPath) : "";
@@ -73,10 +78,11 @@ await run("P20-C2 verify script points to a real file", async () => {
 });
 
 await run("P20-C3 version and release docs are updated for final rollout", async () => {
+  assert.equal(Boolean(versionSourcePath), true, "missing HUD version source file");
   assert.equal(versionSource.includes("export const NOVA_VERSION = "), true);
   assert.equal(versionSource.includes("Version History:"), true);
   assert.equal(Boolean(releaseNotesPath), true, "missing release notes artifact under tasks/");
-  assert.equal(releaseNotes.includes("# OpenClaw Phase"), true);
+  assert.equal(releaseNotes.includes("# NovaOS Phase"), true);
   assert.equal(releaseNotes.includes("## Rollout Checklist"), true);
   assert.equal(releaseNotes.includes("## Rollback Plan"), true);
 });

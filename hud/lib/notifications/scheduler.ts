@@ -6,6 +6,7 @@ import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { getLocalParts } from "@/lib/missions/workflow/scheduling"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { getRunKeyHistory } from "@/lib/notifications/run-log"
+import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 
 type SchedulerState = {
   timer: NodeJS.Timeout | null
@@ -204,9 +205,13 @@ async function runScheduleTickInternal() {
     }
     const startedAtMs = Date.now()
     try {
+      const missionRunId = crypto.randomUUID()
       execution = await executeMissionWorkflow({
         schedule,
         source: "scheduler",
+        missionRunId,
+        runKey,
+        attempt,
         now,
         enforceOutputTime: true,
         skillSnapshot,
@@ -235,6 +240,27 @@ async function runScheduleTickInternal() {
         attempt,
         durationMs,
       })
+      if (logResult.status === "error") {
+        try {
+          await appendNotificationDeadLetter({
+            scheduleId: schedule.id,
+            userId: schedule.userId,
+            label: schedule.label,
+            source: "scheduler",
+            runKey,
+            attempt,
+            reason: logResult.errorMessage || "Scheduler mission execution failed.",
+            outputOkCount: execution?.outputs?.filter((item) => item.ok).length || 0,
+            outputFailCount: execution?.outputs?.filter((item) => !item.ok).length || 0,
+            metadata: {
+              mode: gate.mode,
+              dayStamp: gate.dayStamp,
+            },
+          })
+        } catch {
+          // Dead-letter logging should never block scheduler updates.
+        }
+      }
       const updated = applyScheduleRunOutcome(schedule, {
         status: logResult.status,
         now,

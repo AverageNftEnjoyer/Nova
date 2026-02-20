@@ -9,6 +9,7 @@ import {
   type IntegrationsSettings,
   type LlmProvider,
   updateBraveIntegrationSettings,
+  updateCoinbaseIntegrationSettings,
   updateClaudeIntegrationSettings,
   updateDiscordIntegrationSettings,
   updateGeminiIntegrationSettings,
@@ -17,6 +18,7 @@ import {
   updateOpenAIIntegrationSettings,
   updateTelegramIntegrationSettings,
 } from "@/lib/integrations/client-store"
+import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { compareMissionPriority, parseMissionWorkflowMeta } from "../helpers"
 import type { MissionSummary, NotificationSchedule } from "./types"
 
@@ -31,7 +33,7 @@ interface IntegrationConfigShape {
   gemini?: { defaultModel?: unknown }
 }
 
-type IntegrationGuardTarget = "brave" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
+type IntegrationGuardTarget = "brave" | "coinbase" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
 
 function modelForProvider(provider: LlmProvider, config: IntegrationConfigShape): string {
   if (provider === "claude") return String(config?.claude?.defaultModel || "claude-sonnet-4-20250514")
@@ -47,17 +49,22 @@ function providerFromValue(value: unknown): LlmProvider {
 export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const router = useRouter()
 
-  const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
+  const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>(() => {
+    const cached = readShellUiCache().missionSchedules
+    return Array.isArray(cached) ? (cached as NotificationSchedule[]) : []
+  })
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
   const [braveConnected, setBraveConnected] = useState(false)
+  const [coinbaseConnected, setCoinbaseConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [braveConfigured, setBraveConfigured] = useState(false)
+  const [coinbaseConfigured, setCoinbaseConfigured] = useState(false)
   const [openaiConfigured, setOpenaiConfigured] = useState(false)
   const [claudeConfigured, setClaudeConfigured] = useState(false)
   const [grokConfigured, setGrokConfigured] = useState(false)
@@ -81,12 +88,14 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     setTelegramConnected(settings.telegram.connected)
     setDiscordConnected(settings.discord.connected)
     setBraveConnected(settings.brave.connected)
+    setCoinbaseConnected(Boolean(settings.coinbase?.connected))
     setOpenaiConnected(settings.openai.connected)
     setClaudeConnected(settings.claude.connected)
     setGrokConnected(settings.grok.connected)
     setGeminiConnected(settings.gemini.connected)
     setGmailConnected(settings.gmail.connected)
     setBraveConfigured(Boolean(settings.brave.apiKeyConfigured))
+    setCoinbaseConfigured(Boolean(settings.coinbase?.apiKeyConfigured && settings.coinbase?.apiSecretConfigured))
     setOpenaiConfigured(Boolean(settings.openai.apiKeyConfigured))
     setClaudeConfigured(Boolean(settings.claude.apiKeyConfigured))
     setGrokConfigured(Boolean(settings.grok.apiKeyConfigured))
@@ -116,8 +125,14 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       .then((data) => {
         const schedules = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
         setNotificationSchedules(schedules)
+        writeShellUiCache({ missionSchedules: schedules })
       })
       .catch(() => {
+        const cached = readShellUiCache().missionSchedules
+        if (Array.isArray(cached) && cached.length > 0) {
+          setNotificationSchedules(cached as NotificationSchedule[])
+          return
+        }
         setNotificationSchedules([])
       })
   }, [router])
@@ -143,12 +158,14 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         setTelegramConnected(Boolean(config?.telegram?.connected))
         setDiscordConnected(Boolean(config?.discord?.connected))
         setBraveConnected(Boolean(config?.brave?.connected))
+        setCoinbaseConnected(Boolean(config?.coinbase?.connected))
         setOpenaiConnected(Boolean(config?.openai?.connected))
         setClaudeConnected(Boolean(config?.claude?.connected))
         setGrokConnected(Boolean(config?.grok?.connected))
         setGeminiConnected(Boolean(config?.gemini?.connected))
         setGmailConnected(Boolean(config?.gmail?.connected))
         setBraveConfigured(Boolean(config?.brave?.apiKeyConfigured))
+        setCoinbaseConfigured(Boolean(config?.coinbase?.apiKeyConfigured && config?.coinbase?.apiSecretConfigured))
         setOpenaiConfigured(Boolean(config?.openai?.apiKeyConfigured))
         setClaudeConfigured(Boolean(config?.claude?.apiKeyConfigured))
         setGrokConfigured(Boolean(config?.grok?.apiKeyConfigured))
@@ -209,6 +226,22 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       body: JSON.stringify({ brave: { connected: next } }),
     }).catch(() => {})
   }, [braveConnected, braveConfigured])
+
+  const handleToggleCoinbaseIntegration = useCallback(() => {
+    if (!coinbaseConnected && !coinbaseConfigured) {
+      setIntegrationGuardNotice("Error: Integration not set up.")
+      setIntegrationGuardTarget("coinbase")
+      return
+    }
+    const next = !coinbaseConnected
+    setCoinbaseConnected(next)
+    updateCoinbaseIntegrationSettings({ connected: next })
+    void fetch("/api/integrations/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ coinbase: { connected: next } }),
+    }).catch(() => {})
+  }, [coinbaseConnected, coinbaseConfigured])
 
   const handleToggleOpenAIIntegration = useCallback(() => {
     if (!openaiConnected && !openaiConfigured) {
@@ -353,6 +386,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     telegramConnected,
     discordConnected,
     braveConnected,
+    coinbaseConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -361,6 +395,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
+    handleToggleCoinbaseIntegration,
     handleToggleOpenAIIntegration,
     handleToggleClaudeIntegration,
     handleToggleGrokIntegration,

@@ -34,8 +34,8 @@ await run("Phase 12 relocated runtime modules exist under src", async () => {
     "src/memory/runtime-compat.js",
     "src/session/runtime-compat.js",
     "src/tools/runtime-compat.js",
-    "src/runtime/wake-runtime-compat.js",
-    "src/runtime/config.js",
+    "src/runtime/audio/wake-runtime-compat.js",
+    "src/runtime/core/config.js",
   ];
   for (const file of files) {
     assert.equal(fs.existsSync(path.join(process.cwd(), file)), true, `${file} missing`);
@@ -62,9 +62,9 @@ await run("Runtime smoke scripts use src-owned runtime paths", async () => {
 await run("src runtime core import graph no longer references agent/modules or agent/runtime", async () => {
   const runtimeFiles = [
     "src/runtime/entrypoint.js",
-    "src/runtime/hud-gateway.js",
-    "src/runtime/voice-loop.js",
-    "src/runtime/config.js",
+    "src/runtime/infrastructure/hud-gateway.js",
+    "src/runtime/audio/voice-loop.js",
+    "src/runtime/core/config.js",
   ];
   for (const file of runtimeFiles) {
     const content = read(file);
@@ -104,7 +104,7 @@ await run("Relocated session runtime remains functional", async () => {
 
 await run("Relocated tools + wake runtime exports stay usable", async () => {
   const { createToolRuntime } = await import(toModuleUrl("src/tools/runtime-compat.js"));
-  const { createWakeWordRuntime } = await import(toModuleUrl("src/runtime/wake-runtime-compat.js"));
+  const { createWakeWordRuntime } = await import(toModuleUrl("src/runtime/audio/wake-runtime-compat.js"));
   assert.equal(typeof createToolRuntime, "function");
   assert.equal(typeof createWakeWordRuntime, "function");
   const wake = createWakeWordRuntime({ wakeWord: "nova", wakeWordVariants: ["nova", "nava"] });

@@ -11,6 +11,10 @@ type ApiMessage = {
   createdAt: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  nlpCleanText?: string
+  nlpConfidence?: number
+  nlpCorrectionCount?: number
+  nlpBypass?: boolean
 }
 
 type ApiConversation = {
@@ -73,6 +77,10 @@ export async function GET(req: Request) {
       createdAt: String(row.created_at),
       source: (row.metadata?.source as ApiMessage["source"]) || undefined,
       sender: (row.metadata?.sender as string | undefined) || undefined,
+      nlpCleanText: (row.metadata?.nlpCleanText as string | undefined) || undefined,
+      nlpConfidence: Number.isFinite(Number(row.metadata?.nlpConfidence)) ? Number(row.metadata?.nlpConfidence) : undefined,
+      nlpCorrectionCount: Number.isFinite(Number(row.metadata?.nlpCorrectionCount)) ? Number(row.metadata?.nlpCorrectionCount) : undefined,
+      nlpBypass: row.metadata?.nlpBypass === true ? true : undefined,
     }
     const list = grouped.get(row.thread_id) || []
     list.push(entry)

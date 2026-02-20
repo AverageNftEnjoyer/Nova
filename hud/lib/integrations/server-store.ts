@@ -20,6 +20,34 @@ export interface BraveIntegrationConfig {
   apiKey: string
 }
 
+export type CoinbaseConnectionMode = "api_key_pair" | "oauth"
+export type CoinbaseSyncStatus = "never" | "success" | "error"
+export type CoinbaseSyncErrorCode =
+  | "none"
+  | "expired_token"
+  | "permission_denied"
+  | "rate_limited"
+  | "coinbase_outage"
+  | "network"
+  | "unknown"
+export type CoinbaseReportCadence = "daily" | "weekly"
+
+export interface CoinbaseIntegrationConfig {
+  connected: boolean
+  apiKey: string
+  apiSecret: string
+  connectionMode: CoinbaseConnectionMode
+  requiredScopes: string[]
+  lastSyncAt: string
+  lastSyncStatus: CoinbaseSyncStatus
+  lastSyncErrorCode: CoinbaseSyncErrorCode
+  lastSyncErrorMessage: string
+  lastFreshnessMs: number
+  reportTimezone: string
+  reportCurrency: string
+  reportCadence: CoinbaseReportCadence
+}
+
 export interface OpenAIIntegrationConfig {
   connected: boolean
   apiKey: string
@@ -83,6 +111,7 @@ export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
   discord: DiscordIntegrationConfig
   brave: BraveIntegrationConfig
+  coinbase: CoinbaseIntegrationConfig
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
   grok: GrokIntegrationConfig
@@ -120,6 +149,21 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   brave: {
     connected: false,
     apiKey: "",
+  },
+  coinbase: {
+    connected: false,
+    apiKey: "",
+    apiSecret: "",
+    connectionMode: "api_key_pair",
+    requiredScopes: ["portfolio:view", "accounts:read", "transactions:read"],
+    lastSyncAt: "",
+    lastSyncStatus: "never",
+    lastSyncErrorCode: "none",
+    lastSyncErrorMessage: "",
+    lastFreshnessMs: 0,
+    reportTimezone: "America/New_York",
+    reportCurrency: "USD",
+    reportCadence: "daily",
   },
   openai: {
     connected: false,
@@ -296,6 +340,43 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       connected: raw?.brave?.connected ?? DEFAULT_CONFIG.brave.connected,
       apiKey: unwrapStoredSecret(raw?.brave?.apiKey),
     },
+    coinbase: {
+      connected: raw?.coinbase?.connected ?? DEFAULT_CONFIG.coinbase.connected,
+      apiKey: unwrapStoredSecret(raw?.coinbase?.apiKey),
+      apiSecret: unwrapStoredSecret(raw?.coinbase?.apiSecret),
+      connectionMode: raw?.coinbase?.connectionMode === "oauth" ? "oauth" : "api_key_pair",
+      requiredScopes: Array.isArray(raw?.coinbase?.requiredScopes)
+        ? raw!.coinbase!.requiredScopes.map((scope) => String(scope).trim().toLowerCase()).filter(Boolean)
+        : DEFAULT_CONFIG.coinbase.requiredScopes,
+      lastSyncAt: typeof raw?.coinbase?.lastSyncAt === "string" ? raw.coinbase.lastSyncAt : "",
+      lastSyncStatus:
+        raw?.coinbase?.lastSyncStatus === "success" || raw?.coinbase?.lastSyncStatus === "error"
+          ? raw.coinbase.lastSyncStatus
+          : "never",
+      lastSyncErrorCode:
+        raw?.coinbase?.lastSyncErrorCode === "expired_token" ||
+        raw?.coinbase?.lastSyncErrorCode === "permission_denied" ||
+        raw?.coinbase?.lastSyncErrorCode === "rate_limited" ||
+        raw?.coinbase?.lastSyncErrorCode === "coinbase_outage" ||
+        raw?.coinbase?.lastSyncErrorCode === "network" ||
+        raw?.coinbase?.lastSyncErrorCode === "unknown"
+          ? raw.coinbase.lastSyncErrorCode
+          : "none",
+      lastSyncErrorMessage: typeof raw?.coinbase?.lastSyncErrorMessage === "string" ? raw.coinbase.lastSyncErrorMessage : "",
+      lastFreshnessMs: typeof raw?.coinbase?.lastFreshnessMs === "number" ? raw.coinbase.lastFreshnessMs : 0,
+      reportTimezone:
+        typeof raw?.coinbase?.reportTimezone === "string" && raw.coinbase.reportTimezone.trim().length > 0
+          ? raw.coinbase.reportTimezone.trim()
+          : DEFAULT_CONFIG.coinbase.reportTimezone,
+      reportCurrency:
+        typeof raw?.coinbase?.reportCurrency === "string" && raw.coinbase.reportCurrency.trim().length > 0
+          ? raw.coinbase.reportCurrency.trim().toUpperCase()
+          : DEFAULT_CONFIG.coinbase.reportCurrency,
+      reportCadence:
+        raw?.coinbase?.reportCadence === "weekly" || raw?.coinbase?.reportCadence === "daily"
+          ? raw.coinbase.reportCadence
+          : DEFAULT_CONFIG.coinbase.reportCadence,
+    },
     openai: {
       connected: raw?.openai?.connected ?? DEFAULT_CONFIG.openai.connected,
       apiKey: unwrapStoredSecret(raw?.openai?.apiKey),
@@ -387,6 +468,11 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
       ...config.brave,
       apiKey: wrapStoredSecret(config.brave.apiKey),
     },
+    coinbase: {
+      ...config.coinbase,
+      apiKey: wrapStoredSecret(config.coinbase.apiKey),
+      apiSecret: wrapStoredSecret(config.coinbase.apiSecret),
+    },
     claude: {
       ...config.claude,
       apiKey: wrapStoredSecret(config.claude.apiKey),
@@ -439,6 +525,10 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
     brave: {
       ...current.brave,
       ...(partial.brave || {}),
+    },
+    coinbase: {
+      ...current.coinbase,
+      ...(partial.coinbase || {}),
     },
     claude: {
       ...current.claude,

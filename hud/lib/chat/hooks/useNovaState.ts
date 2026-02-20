@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user";
 
 export type NovaState =
   | "idle"
@@ -14,6 +15,11 @@ export interface AgentMessage {
   ts: number;
   source?: "voice" | "hud";
   sender?: string;
+  conversationId?: string;
+  nlpCleanText?: string;
+  nlpConfidence?: number;
+  nlpCorrectionCount?: number;
+  nlpBypass?: boolean;
 }
 
 export interface AgentUsage {
@@ -40,6 +46,14 @@ function normalizeInboundMessageText(content: string): string {
     .trim()
 }
 
+function normalizeConversationId(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function normalizeUserContextId(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
+}
+
 export function useNovaState() {
   const [state, setState] = useState<NovaState>("idle");
   const [thinkingStatus, setThinkingStatus] = useState("");
@@ -51,8 +65,48 @@ export function useNovaState() {
   const wsRef = useRef<WebSocket | null>(null);
   const recentEventRef = useRef<Map<string, number>>(new Map())
   const lastAssistantDeltaRef = useRef<Map<string, { content: string; ts: number }>>(new Map())
+  const pendingAssistantDeltasRef = useRef<Map<string, AgentMessage>>(new Map())
+  const deltaFlushRafRef = useRef<number | null>(null)
+  const activeUserIdRef = useRef<string>("")
 
   useEffect(() => {
+    const syncActiveUserId = () => {
+      activeUserIdRef.current = normalizeUserContextId(getActiveUserId())
+    }
+    syncActiveUserId()
+    window.addEventListener(ACTIVE_USER_CHANGED_EVENT, syncActiveUserId as EventListener)
+    const scopedEventTypes = new Set([
+      "state",
+      "thinking_status",
+      "message",
+      "assistant_stream_start",
+      "assistant_stream_delta",
+      "assistant_stream_done",
+      "usage",
+    ])
+
+    const isScopedEventForOtherUser = (payload: Record<string, unknown>): boolean => {
+      const eventType = typeof payload.type === "string" ? payload.type : ""
+      if (!scopedEventTypes.has(eventType)) return false
+      const eventUserId = normalizeUserContextId(payload.userContextId)
+      const activeUserId = activeUserIdRef.current
+      if (!activeUserId) return eventUserId.length > 0
+      return eventUserId !== activeUserId
+    }
+
+    const flushPendingAssistantDeltas = () => {
+      deltaFlushRafRef.current = null
+      const pending = [...pendingAssistantDeltasRef.current.values()]
+      if (pending.length === 0) return
+      pendingAssistantDeltasRef.current.clear()
+      setAgentMessages((prev) => [...prev, ...pending])
+    }
+
+    const scheduleDeltaFlush = () => {
+      if (deltaFlushRafRef.current !== null) return
+      deltaFlushRafRef.current = window.requestAnimationFrame(flushPendingAssistantDeltas)
+    }
+
     function markRecentEvent(key: string, ttlMs: number): boolean {
       const now = Date.now()
       for (const [existingKey, ts] of recentEventRef.current.entries()) {
@@ -77,6 +131,7 @@ export function useNovaState() {
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
+        if (isScopedEventForOtherUser(data)) return
 
         if (data.type === "state" && data.state) {
           setState(data.state);
@@ -94,6 +149,7 @@ export function useNovaState() {
         }
 
         if (data.type === "assistant_stream_start" && typeof data.id === "string") {
+          const conversationId = normalizeConversationId(data.conversationId)
           setStreamingAssistantId(data.id);
           lastAssistantDeltaRef.current.delete(data.id)
           const msg: AgentMessage = {
@@ -103,11 +159,17 @@ export function useNovaState() {
             ts: Number(data.ts || Date.now()),
             source: data.source || "voice",
             sender: data.sender,
+            ...(conversationId ? { conversationId } : {}),
           };
           setAgentMessages((prev) => [...prev, msg]);
         }
 
         if (data.type === "assistant_stream_done" && typeof data.id === "string") {
+          const pending = pendingAssistantDeltasRef.current.get(data.id)
+          if (pending) {
+            pendingAssistantDeltasRef.current.delete(data.id)
+            setAgentMessages((prev) => [...prev, pending])
+          }
           setStreamingAssistantId((prev) => (prev === data.id ? null : prev));
           lastAssistantDeltaRef.current.delete(data.id)
         }
@@ -136,16 +198,28 @@ export function useNovaState() {
             return
           }
 
-          const msg: AgentMessage = {
-            id: data.id,
-            role: "assistant",
-            content: normalizedContent,
-            ts: Number(data.ts || Date.now()),
-            source: data.source || "voice",
-            sender: data.sender,
-          };
-
-          setAgentMessages((prev) => [...prev, msg]);
+          const conversationId = normalizeConversationId(data.conversationId)
+          const ts = Number(data.ts || Date.now())
+          const pending = pendingAssistantDeltasRef.current.get(data.id)
+          if (pending) {
+            pendingAssistantDeltasRef.current.set(data.id, {
+              ...pending,
+              content: `${pending.content}${normalizedContent}`,
+              ts,
+              ...(conversationId ? { conversationId } : {}),
+            })
+          } else {
+            pendingAssistantDeltasRef.current.set(data.id, {
+              id: data.id,
+              role: "assistant",
+              content: normalizedContent,
+              ts,
+              source: data.source || "voice",
+              sender: data.sender,
+              ...(conversationId ? { conversationId } : {}),
+            })
+          }
+          scheduleDeltaFlush()
         }
 
         if (
@@ -163,7 +237,6 @@ export function useNovaState() {
             if (markRecentEvent(`hud_user_echo:${normalizedForDedupe}`, HUD_USER_ECHO_DEDUPE_MS)) {
               return
             }
-            return
           }
           if (data.role === "assistant" && !hasAssistantPayload(normalizedContent)) {
             return;
@@ -175,6 +248,14 @@ export function useNovaState() {
             return
           }
 
+          const conversationId = normalizeConversationId(data.conversationId)
+          const messageMeta = data.meta && typeof data.meta === "object" ? data.meta : {}
+          const nlpCleanText = typeof messageMeta.nlpCleanText === "string" ? messageMeta.nlpCleanText : undefined
+          const nlpConfidenceRaw = Number(messageMeta.nlpConfidence)
+          const nlpConfidence = Number.isFinite(nlpConfidenceRaw) ? nlpConfidenceRaw : undefined
+          const nlpCorrectionCountRaw = Number(messageMeta.nlpCorrectionCount)
+          const nlpCorrectionCount = Number.isFinite(nlpCorrectionCountRaw) ? nlpCorrectionCountRaw : undefined
+          const nlpBypass = messageMeta.nlpBypass === true
           const msg: AgentMessage = {
             id: `agent-${data.ts}-${Math.random().toString(36).slice(2, 7)}`,
             role: data.role,
@@ -182,6 +263,11 @@ export function useNovaState() {
             ts: data.ts,
             source: data.source || "voice",
             sender: data.sender,
+            ...(conversationId ? { conversationId } : {}),
+            ...(nlpCleanText ? { nlpCleanText } : {}),
+            ...(typeof nlpConfidence === "number" ? { nlpConfidence } : {}),
+            ...(typeof nlpCorrectionCount === "number" ? { nlpCorrectionCount } : {}),
+            ...(nlpBypass ? { nlpBypass: true } : {}),
           };
 
           setAgentMessages((prev) => [...prev, msg]);
@@ -201,7 +287,16 @@ export function useNovaState() {
       } catch {}
     };
 
-    return () => ws.close();
+    const pendingAssistantDeltas = pendingAssistantDeltasRef.current
+    return () => {
+      window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, syncActiveUserId as EventListener)
+      if (deltaFlushRafRef.current !== null) {
+        window.cancelAnimationFrame(deltaFlushRafRef.current)
+        deltaFlushRafRef.current = null
+      }
+      pendingAssistantDeltas.clear()
+      ws.close()
+    };
   }, []);
 
   const sendToAgent = useCallback((
@@ -213,6 +308,7 @@ export function useNovaState() {
       sender?: string
       sessionKey?: string
       messageId?: string
+      nlpBypass?: boolean
       userId?: string
       supabaseAccessToken?: string
       assistantName?: string
@@ -233,6 +329,7 @@ export function useNovaState() {
           ...(options?.sender ? { sender: options.sender } : {}),
           ...(options?.sessionKey ? { sessionKey: options.sessionKey } : {}),
           ...(options?.messageId ? { messageId: options.messageId } : {}),
+          ...(options?.nlpBypass ? { nlpBypass: true } : {}),
           ...(options?.userId ? { userId: options.userId } : {}),
           ...(options?.supabaseAccessToken ? { supabaseAccessToken: options.supabaseAccessToken } : {}),
           ...(options?.assistantName ? { assistantName: options.assistantName } : {}),
@@ -247,7 +344,7 @@ export function useNovaState() {
   const interrupt = useCallback(() => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "interrupt" }));
+      ws.send(JSON.stringify({ type: "interrupt", userId: getActiveUserId() }));
     }
   }, []);
 
@@ -269,6 +366,7 @@ export function useNovaState() {
         text,
         ttsVoice,
         voiceEnabled,
+        userId: getActiveUserId(),
         ...(assistantName ? { assistantName } : {}),
       }));
     }
@@ -278,6 +376,7 @@ export function useNovaState() {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       const payload: { type: string; ttsVoice: string; voiceEnabled?: boolean; assistantName?: string } = { type: "set_voice", ttsVoice };
+      (payload as { userId?: string }).userId = getActiveUserId();
       if (typeof voiceEnabled === "boolean") {
         payload.voiceEnabled = voiceEnabled;
       }
@@ -291,7 +390,7 @@ export function useNovaState() {
   const setMuted = useCallback((muted: boolean) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "set_mute", muted }));
+      ws.send(JSON.stringify({ type: "set_mute", muted, userId: getActiveUserId() }));
     }
   }, []);
 

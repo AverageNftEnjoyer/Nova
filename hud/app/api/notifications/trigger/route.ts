@@ -4,6 +4,7 @@ import { ensureNotificationSchedulerStarted } from "@/lib/notifications/schedule
 import { executeMissionWorkflow } from "@/lib/missions/runtime"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
+import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { buildSchedule, loadSchedules, saveSchedules } from "@/lib/notifications/store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
@@ -36,11 +37,15 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "schedule not found" }, { status: 404 })
       }
       const runKey = `manual-trigger:${target.id}:${Date.now()}`
+      const missionRunId = crypto.randomUUID()
       const skillSnapshot = await loadMissionSkillSnapshot({ userId })
       const startedAtMs = Date.now()
       const execution = await executeMissionWorkflow({
         schedule: target,
         source: "trigger",
+        missionRunId,
+        runKey,
+        attempt: 1,
         enforceOutputTime: false,
         skillSnapshot,
         scope: verified,
@@ -52,6 +57,7 @@ export async function POST(req: Request) {
         /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
       )
       let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
+      let deadLetterId = ""
       try {
         const logResult = await appendRunLogForExecution({
           schedule: target,
@@ -63,6 +69,20 @@ export async function POST(req: Request) {
           attempt: 1,
         })
         logStatus = logResult.status
+        if (logStatus === "error") {
+          deadLetterId = await appendNotificationDeadLetter({
+            scheduleId: target.id,
+            userId: target.userId,
+            label: target.label,
+            source: "trigger",
+            runKey,
+            attempt: 1,
+            reason: logResult.errorMessage || execution.reason || "Manual trigger execution failed.",
+            outputOkCount: execution.outputs.filter((item) => item.ok).length,
+            outputFailCount: execution.outputs.filter((item) => !item.ok).length,
+            metadata: { mode: "manual-trigger" },
+          })
+        }
       } catch {
         // Logging failures should not block trigger response.
       }
@@ -81,6 +101,7 @@ export async function POST(req: Request) {
           results: execution.outputs,
           stepTraces: execution.stepTraces,
           novachatQueued,
+          deadLetterId: deadLetterId || undefined,
           schedule: updatedSchedule,
         },
         { status: execution.ok || execution.skipped ? 200 : 502 },
@@ -106,9 +127,13 @@ export async function POST(req: Request) {
       chatIds: Array.isArray(body?.chatIds) ? body.chatIds.map((v: unknown) => String(v)) : [],
     })
     const skillSnapshot = await loadMissionSkillSnapshot({ userId })
+    const missionRunId = crypto.randomUUID()
     const execution = await executeMissionWorkflow({
       schedule: tempSchedule,
       source: "trigger",
+      missionRunId,
+      runKey: `manual-trigger:${tempSchedule.id}:${Date.now()}`,
+      attempt: 1,
       skillSnapshot,
       scope: verified,
     })

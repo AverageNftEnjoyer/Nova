@@ -4,7 +4,7 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import { startMetricsBroadcast } from "../compat/metrics.js";
-import { sessionRuntime, wakeWordRuntime } from "./config.js";
+import { sessionRuntime, wakeWordRuntime } from "./core/config.js";
 import {
   MIC_RECORD_SECONDS,
   MIC_RETRY_SECONDS,
@@ -14,7 +14,7 @@ import {
   VOICE_DUPLICATE_TEXT_COOLDOWN_MS,
   VOICE_DUPLICATE_COMMAND_COOLDOWN_MS,
   VOICE_AFTER_WAKE_SUPPRESS_MS,
-} from "./constants.js";
+} from "./core/constants.js";
 import {
   initVoiceBroadcast,
   getBusy,
@@ -35,10 +35,25 @@ import {
   broadcast,
   broadcastState,
   registerHandleInput,
-} from "./hud-gateway.js";
+} from "./infrastructure/hud-gateway.js";
 import { handleInput } from "../compat/chat-handler.js";
 import { logUpgradeIndexSummary, logAgentRuntimePreflight } from "../compat/persona-context.js";
-import { startVoiceLoop } from "./voice-loop.js";
+import { startVoiceLoop } from "./audio/voice-loop.js";
+import { createRequire } from "module";
+
+// Pre-warm the NLP spell checker so the first user message doesn't pay the load cost.
+(async () => {
+  try {
+    const require = createRequire(import.meta.url);
+    const nlp = require("../../../../dist/nlp/preprocess.js");
+    if (typeof nlp?.warmSpellChecker === "function") {
+      await nlp.warmSpellChecker();
+      console.log("[NLP] Spell checker warmed.");
+    }
+  } catch {
+    // Non-fatal: spell checker will warm on first use instead
+  }
+})();
 
 const __filename = fileURLToPath(import.meta.url);
 

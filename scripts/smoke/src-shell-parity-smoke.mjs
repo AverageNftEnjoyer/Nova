@@ -22,8 +22,8 @@ function read(relativePath) {
 }
 
 const srcEntrypointPath = "src/runtime/entrypoint.js";
-const srcHudGatewayPath = "src/runtime/hud-gateway.js";
-const srcVoiceLoopPath = "src/runtime/voice-loop.js";
+const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway.js";
+const srcVoiceLoopPath = "src/runtime/audio/voice-loop.js";
 const novaLauncherPath = "nova.js";
 
 await run("src runtime shell files exist", async () => {

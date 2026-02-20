@@ -1,7 +1,7 @@
 "use client"
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react"
+import { ACCENT_COLORS, loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT, type SpotlightColor } from "@/lib/settings/userSettings"
 
 type Theme = "dark" | "light"
 type ThemeSetting = "dark" | "light" | "system"
@@ -38,13 +38,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark")
   const [fontSizeSetting, setFontSizeSetting] = useState<FontSizeSetting>("medium")
 
+  const applySpotlightColor = useCallback((color: SpotlightColor) => {
+    if (typeof document === "undefined") return
+    const hex = ACCENT_COLORS[color].primary
+    const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    const rgb = match
+      ? `${parseInt(match[1], 16)}, ${parseInt(match[2], 16)}, ${parseInt(match[3], 16)}`
+      : "255, 255, 255"
+    document.documentElement.style.setProperty("--spotlight-rgb", rgb)
+  }, [])
+
   useEffect(() => {
     const app = loadUserSettings().app
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setThemeSettingState(app.theme)
     setTheme(resolveTheme(app.theme))
     setFontSizeSetting(app.fontSize)
-  }, [])
+    applySpotlightColor(app.spotlightColor)
+  }, [applySpotlightColor])
 
   const applyFontScale = (setting: FontSizeSetting) => {
     if (typeof window === "undefined") return
@@ -102,6 +113,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("resize", handleResize)
     }
   }, [fontSizeSetting])
+
+  useEffect(() => {
+    const syncSpotlightColor = () => {
+      const next = loadUserSettings().app.spotlightColor
+      applySpotlightColor(next)
+    }
+
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncSpotlightColor as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncSpotlightColor as EventListener)
+  }, [applySpotlightColor])
 
   // Update theme setting (called from settings modal)
   const setThemeSetting = (setting: ThemeSetting) => {

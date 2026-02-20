@@ -11,6 +11,11 @@ const DEFAULT_TOOL_CAPABILITIES: Record<string, string[]> = {
   web_fetch: ["network.fetch"],
   memory_search: ["memory.read"],
   memory_get: ["memory.read"],
+  coinbase_capabilities: ["network.crypto"],
+  coinbase_spot_price: ["network.crypto"],
+  coinbase_portfolio_snapshot: ["network.crypto", "finance.portfolio.read"],
+  coinbase_recent_transactions: ["network.crypto", "finance.transactions.read"],
+  coinbase_portfolio_report: ["network.crypto", "finance.portfolio.read", "finance.transactions.read"],
 };
 
 function parseCsvSet(values: string | undefined): Set<string> {

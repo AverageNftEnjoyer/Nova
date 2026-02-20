@@ -7,6 +7,17 @@ export interface ChatMessage {
   createdAt: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  nlpCleanText?: string
+  nlpConfidence?: number
+  nlpCorrectionCount?: number
+  nlpBypass?: boolean
+  missionId?: string
+  missionLabel?: string
+  missionRunId?: string
+  missionRunKey?: string
+  missionAttempt?: number
+  missionSource?: "scheduler" | "trigger"
+  missionOutputChannel?: string
 }
 
 export interface Conversation {

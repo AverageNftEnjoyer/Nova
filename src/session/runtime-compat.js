@@ -27,6 +27,16 @@ export function createSessionRuntime({
   let lastTranscriptPruneAt = 0;
   let legacySessionMigrationDone = false;
   const sessionUserContextCache = new Map();
+  const storeCacheByPath = new Map();
+  const transcriptCacheByKey = new Map();
+  const STORE_CACHE_TTL_MS = Math.max(
+    500,
+    Number.parseInt(process.env.NOVA_SESSION_STORE_CACHE_TTL_MS || "2000", 10) || 2000,
+  );
+  const TRANSCRIPT_CACHE_TTL_MS = Math.max(
+    250,
+    Number.parseInt(process.env.NOVA_TRANSCRIPT_CACHE_TTL_MS || "1200", 10) || 1200,
+  );
 
   function ensureSessionStorePaths() {
     try {
@@ -55,10 +65,27 @@ export function createSessionRuntime({
     } else if (!fs.existsSync(storePath)) {
       return {};
     }
+    const now = Date.now();
+    const cached = storeCacheByPath.get(storePath);
+    if (cached && now - Number(cached.at || 0) < STORE_CACHE_TTL_MS && cached.store && typeof cached.store === "object") {
+      try {
+        const stat = fs.statSync(storePath);
+        if (Number(stat.mtimeMs || 0) === Number(cached.mtimeMs || 0)) {
+          return cached.store;
+        }
+      } catch {
+        return cached.store;
+      }
+    }
     try {
       const raw = fs.readFileSync(storePath, "utf8");
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        let mtimeMs = 0;
+        try {
+          mtimeMs = Number(fs.statSync(storePath).mtimeMs || 0);
+        } catch {}
+        storeCacheByPath.set(storePath, { at: now, store: parsed, mtimeMs });
         return parsed;
       }
     } catch {}
@@ -69,6 +96,11 @@ export function createSessionRuntime({
     if (!storePath) return;
     ensureStoreFile(storePath);
     fs.writeFileSync(storePath, JSON.stringify(store, null, 2), "utf8");
+    let mtimeMs = 0;
+    try {
+      mtimeMs = Number(fs.statSync(storePath).mtimeMs || 0);
+    } catch {}
+    storeCacheByPath.set(storePath, { at: Date.now(), store, mtimeMs });
   }
 
   function getScopedSessionStorePath(userContextId) {
@@ -283,15 +315,42 @@ export function createSessionRuntime({
     }
   }
 
+  function buildTranscriptCacheKey(sessionId, userContextId = "") {
+    return `${String(sessionId || "").trim()}|${normalizeUserContextId(userContextId)}`;
+  }
+
+  function getCachedTranscript(sessionId, userContextId = "") {
+    const key = buildTranscriptCacheKey(sessionId, userContextId);
+    if (!key.startsWith("|") && transcriptCacheByKey.has(key)) {
+      const entry = transcriptCacheByKey.get(key);
+      if (entry && Date.now() - Number(entry.at || 0) < TRANSCRIPT_CACHE_TTL_MS && Array.isArray(entry.turns)) {
+        return entry.turns;
+      }
+      transcriptCacheByKey.delete(key);
+    }
+    return null;
+  }
+
+  function setCachedTranscript(sessionId, userContextId = "", turns = []) {
+    const key = buildTranscriptCacheKey(sessionId, userContextId);
+    if (!key.startsWith("|")) {
+      transcriptCacheByKey.set(key, { at: Date.now(), turns: Array.isArray(turns) ? turns : [] });
+    }
+  }
+
   function loadTranscript(sessionId, userContextId = "") {
     if (!transcriptsEnabled) return [];
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId) return [];
 
+    const requestedContextId = normalizeUserContextId(userContextId);
+    const cachedTurns = getCachedTranscript(normalizedSessionId, requestedContextId);
+    if (cachedTurns) return cachedTurns;
+
     const legacyPath = getLegacyTranscriptPath(normalizedSessionId);
     const legacyTurns = readTranscriptFile(legacyPath);
 
-    const scopedUserContextId = normalizeUserContextId(userContextId) || resolveUserContextIdForSessionId(normalizedSessionId);
+    const scopedUserContextId = requestedContextId || resolveUserContextIdForSessionId(normalizedSessionId);
     if (scopedUserContextId) {
       const scopedPath = getScopedTranscriptPath(normalizedSessionId, scopedUserContextId);
       if (scopedPath) {
@@ -305,12 +364,17 @@ export function createSessionRuntime({
             seen.add(key);
             merged.push(turn);
           }
+          setCachedTranscript(normalizedSessionId, scopedUserContextId, merged);
           return merged;
         }
-        if (scopedTurns.length > 0) return scopedTurns;
+        if (scopedTurns.length > 0) {
+          setCachedTranscript(normalizedSessionId, scopedUserContextId, scopedTurns);
+          return scopedTurns;
+        }
       }
     }
 
+    setCachedTranscript(normalizedSessionId, requestedContextId, legacyTurns);
     return legacyTurns;
   }
 
@@ -333,6 +397,17 @@ export function createSessionRuntime({
     };
     fs.appendFileSync(transcriptPath, `${JSON.stringify(payload)}\n`, "utf8");
     trimTranscriptFile(transcriptPath);
+    const cachedTurns = getCachedTranscript(normalizedSessionId, scopedUserContextId || "");
+    if (Array.isArray(cachedTurns)) {
+      const nextTurns = [...cachedTurns, payload];
+      const maxLines = Number.isFinite(maxTranscriptLines) && maxTranscriptLines > 0 ? maxTranscriptLines : 0;
+      const bounded = maxLines > 0 && nextTurns.length > maxLines
+        ? nextTurns.slice(-maxLines)
+        : nextTurns;
+      setCachedTranscript(normalizedSessionId, scopedUserContextId || "", bounded);
+    } else {
+      setCachedTranscript(normalizedSessionId, scopedUserContextId || "", [payload]);
+    }
   }
 
   function trimTranscriptFile(transcriptPath) {
@@ -363,6 +438,7 @@ export function createSessionRuntime({
         : 0;
     if (retentionDays <= 0) return;
     const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
+    transcriptCacheByKey.clear();
     const pruneDir = (dirPath) => {
       try {
         const entries = fs.readdirSync(dirPath, { withFileTypes: true });

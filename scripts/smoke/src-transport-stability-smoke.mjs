@@ -27,12 +27,12 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const srcHudGatewayPath = "src/runtime/hud-gateway.js";
-const srcVoiceLoopPath = "src/runtime/voice-loop.js";
+const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway.js";
+const srcVoiceLoopPath = "src/runtime/audio/voice-loop.js";
 const srcEntrypointPath = "src/runtime/entrypoint.js";
-const srcChatHandlerPath = "src/runtime/modules/chat-handler.js";
-const srcConfigPath = "src/runtime/config.js";
-const srcVoiceModulePath = "src/runtime/modules/voice.js";
+const srcChatHandlerPath = "src/runtime/modules/chat/chat-handler.js";
+const srcConfigPath = "src/runtime/core/config.js";
+const srcVoiceModulePath = "src/runtime/modules/audio/voice.js";
 const rootLauncherPath = "nova.js";
 
 const srcHudGateway = read(srcHudGatewayPath);
@@ -42,9 +42,9 @@ const srcChatHandler = read(srcChatHandlerPath);
 const srcConfig = read(srcConfigPath);
 const srcVoiceModule = read(srcVoiceModulePath);
 const rootLauncher = read(rootLauncherPath);
-const inboundDedupeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/inbound-dedupe.js")).href);
-const replyNormalizerModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/reply-normalizer.js")).href);
-const wakeRuntimeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/wake-runtime-compat.js")).href);
+const inboundDedupeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/inbound-dedupe.js")).href);
+const replyNormalizerModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/reply-normalizer.js")).href);
+const wakeRuntimeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/audio/wake-runtime-compat.js")).href);
 const { shouldSkipDuplicateInbound } = inboundDedupeModule;
 const { normalizeAssistantReply, normalizeAssistantSpeechText } = replyNormalizerModule;
 const { createWakeWordRuntime } = wakeRuntimeModule;
@@ -58,20 +58,16 @@ await run("P14-C1 src runtime shell entrypoint wiring exists", async () => {
 });
 
 await run("P14-C2 HUD protocol compatibility (state + stream event contracts)", async () => {
-  assert.equal(srcHudGateway.includes('broadcast({ type: "state", state, ts: Date.now() });'), true);
-  assert.equal(
-    srcHudGateway.includes('broadcast({ type: "assistant_stream_start", id, source, sender, ts: Date.now() });'),
-    true,
-  );
-  assert.equal(
-    srcHudGateway.includes('broadcast({ type: "assistant_stream_delta", id, content, source, sender, ts: Date.now() });'),
-    true,
-  );
-  assert.equal(
-    srcHudGateway.includes('broadcast({ type: "assistant_stream_done", id, source, sender, ts: Date.now() });'),
-    true,
-  );
-  assert.equal(srcHudGateway.includes('broadcast({ type: "message", role, content, source, ts: Date.now() });'), true);
+  assert.equal(srcHudGateway.includes('type: "state"'), true);
+  assert.equal(srcHudGateway.includes('export function broadcastState(state, userContextId = "")'), true);
+  assert.equal(srcHudGateway.includes("resolveEventUserContextId"), true);
+  assert.equal(srcHudGateway.includes('type: "assistant_stream_start"'), true);
+  assert.equal(srcHudGateway.includes('type: "assistant_stream_delta"'), true);
+  assert.equal(srcHudGateway.includes('type: "assistant_stream_done"'), true);
+  assert.equal(srcHudGateway.includes('type: "message"'), true);
+  assert.equal(srcHudGateway.includes("wsByUserContext"), true);
+  assert.equal(srcHudGateway.includes("normalizeConversationId"), true);
+  assert.equal(srcHudGateway.includes("conversationId: normalizedConversationId"), true);
 });
 
 await run("P14-C3 Voice-loop reliability guard rails remain", async () => {
@@ -103,9 +99,9 @@ await run("P14-C4 Assistant stream framing remains unchanged", async () => {
 await run("Manual memory updates emit assistant stream events", async () => {
   assert.equal(srcChatHandler.includes("async function handleMemoryUpdate(text, ctx)"), true);
   assert.equal(srcChatHandler.includes("function sendAssistantReply(reply)"), true);
-  assert.equal(srcChatHandler.includes("broadcastAssistantStreamStart(assistantStreamId, source);"), true);
-  assert.equal(srcChatHandler.includes("broadcastAssistantStreamDelta(assistantStreamId, reply, source);"), true);
-  assert.equal(srcChatHandler.includes("broadcastAssistantStreamDone(assistantStreamId, source);"), true);
+  assert.equal(srcChatHandler.includes("broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);"), true);
+  assert.equal(srcChatHandler.includes("broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source, undefined, conversationId, userContextId);"), true);
+  assert.equal(srcChatHandler.includes("broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);"), true);
 });
 
 await run("Runtime launch/import graph is src-owned", async () => {

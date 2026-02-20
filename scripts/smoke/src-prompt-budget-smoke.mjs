@@ -27,12 +27,12 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const constantsSource = read("src/runtime/constants.js");
-const chatHandlerSource = read("src/runtime/modules/chat-handler.js");
+const constantsSource = read("src/runtime/core/constants.js");
+const chatHandlerSource = read("src/runtime/modules/chat/chat-handler.js");
 const missionExecutionSource = read("hud/lib/missions/workflow/execution.ts");
-const promptBudgetSource = read("src/runtime/modules/prompt-budget.js");
+const promptBudgetSource = read("src/runtime/modules/chat/prompt-budget.js");
 const promptBudgetModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/prompt-budget.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt-budget.js")).href,
 );
 
 const {

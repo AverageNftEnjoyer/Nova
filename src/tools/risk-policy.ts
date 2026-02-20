@@ -8,6 +8,11 @@ const SAFE_TOOL_NAMES = new Set([
   "web_fetch",
   "memory_search",
   "memory_get",
+  "coinbase_capabilities",
+  "coinbase_spot_price",
+  "coinbase_portfolio_snapshot",
+  "coinbase_recent_transactions",
+  "coinbase_portfolio_report",
 ]);
 
 const ELEVATED_TOOL_NAMES = new Set([

@@ -5,6 +5,7 @@ export type IntegrationSetupKey =
   | "telegram"
   | "discord"
   | "brave"
+  | "coinbase"
   | "openai"
   | "claude"
   | "grok"

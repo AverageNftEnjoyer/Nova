@@ -223,6 +223,104 @@ function shouldSkipFetchForTopic(topic: DetectedTopic, prompt: string): boolean 
   return /\b(from you|your own|custom|write me|hype up|personal speech)\b/.test(normalized)
 }
 
+function promptLooksLikeCoinbaseTask(prompt: string): boolean {
+  const text = String(prompt || "").toLowerCase()
+  return /\bcoinbase\b/.test(text) || (/\b(crypto|bitcoin|ethereum|solana|portfolio|pnl|price alert)\b/.test(text) && /\b(digest|mission|workflow|schedule|daily|weekly)\b/.test(text))
+}
+
+function extractCoinbaseAssets(prompt: string): string[] {
+  const text = String(prompt || "").toUpperCase()
+  const known = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "USDT", "USDC", "EURC"]
+  const out: string[] = []
+  for (const token of known) {
+    if (new RegExp(`\\b${token}\\b`, "i").test(text)) out.push(token)
+  }
+  return out.length > 0 ? out.slice(0, 8) : ["BTC", "ETH", "SOL"]
+}
+
+function inferCoinbasePrimitive(prompt: string): "daily_portfolio_summary" | "price_alert_digest" | "weekly_pnl_summary" {
+  const text = String(prompt || "").toLowerCase()
+  if (/\bweekly\b/.test(text) && /\bpnl|profit|loss\b/.test(text)) return "weekly_pnl_summary"
+  if (/\balert|threshold|move|mover\b/.test(text)) return "price_alert_digest"
+  return "daily_portfolio_summary"
+}
+
+function buildCoinbaseWorkflow(input: {
+  prompt: string
+  time: string
+  timezone: string
+  channel: string
+}): { label: string; integration: string; summary: WorkflowSummary } {
+  const primitive = inferCoinbasePrimitive(input.prompt)
+  const assets = extractCoinbaseAssets(input.prompt)
+  const scheduleMode = primitive === "weekly_pnl_summary" ? "weekly" : "daily"
+  const scheduleDays = primitive === "weekly_pnl_summary" ? ["sun"] : ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+  const queryParts = [
+    `primitive=${primitive}`,
+    `assets=${assets.join(",")}`,
+    "quote=USD",
+  ]
+  if (primitive === "price_alert_digest") queryParts.push("thresholdPct=2.5")
+  const steps: WorkflowStep[] = [
+    normalizeWorkflowStep({
+      type: "trigger",
+      title: scheduleMode === "weekly" ? "Weekly trigger" : "Daily trigger",
+      triggerMode: scheduleMode,
+      triggerTime: input.time,
+      triggerTimezone: input.timezone,
+      triggerDays: scheduleDays,
+    }, 0),
+    normalizeWorkflowStep({
+      type: "fetch",
+      title: "Fetch Coinbase market data",
+      fetchSource: "coinbase",
+      fetchMethod: "GET",
+      fetchQuery: queryParts.join("&"),
+      fetchIncludeSources: false,
+    }, 1),
+    normalizeWorkflowStep({
+      type: "ai",
+      title: "Summarize Coinbase report",
+      aiPrompt: "Summarize Coinbase market data clearly. Use only provided values. If required PnL inputs are missing, state that explicitly.",
+      aiDetailLevel: "standard",
+    }, 2),
+    normalizeWorkflowStep({
+      type: "output",
+      title: "Send notification",
+      outputChannel: input.channel,
+      outputTiming: "scheduled",
+      outputTime: input.time,
+      outputFrequency: "once",
+      outputRepeatCount: "1",
+    }, 3),
+  ]
+  return {
+    label: generateShortTitle(input.prompt || "Coinbase Mission"),
+    integration: input.channel,
+    summary: {
+      description: cleanText(input.prompt),
+      priority: "medium",
+      schedule: {
+        mode: scheduleMode,
+        days: scheduleDays,
+        time: input.time,
+        timezone: input.timezone,
+      },
+      missionActive: true,
+      tags: ["coinbase", "crypto", scheduleMode],
+      apiCalls: ["FETCH:coinbase", `OUTPUT:${input.channel}`],
+      coinbase: {
+        primitive,
+        assets,
+        cadence: scheduleMode,
+        quoteCurrency: "USD",
+        deliveryChannel: input.channel,
+      } as WorkflowSummary["coinbase"],
+      workflowSteps: steps,
+    },
+  }
+}
+
 /**
  * Check if prompt looks like a web lookup task.
  */
@@ -530,6 +628,24 @@ export async function buildWorkflowFromPrompt(
     }
   }
 
+  // Deterministic path for Coinbase missions
+  if (promptLooksLikeCoinbaseTask(prompt)) {
+    const workflow = buildCoinbaseWorkflow({
+      prompt,
+      time: defaultSchedule.time,
+      timezone: defaultSchedule.timezone,
+      channel: requestedOutput,
+    })
+    return {
+      workflow,
+      provider:
+        defaultLlm === "claude" || defaultLlm === "grok" || defaultLlm === "gemini" || defaultLlm === "openai"
+          ? defaultLlm
+          : "openai",
+      model: "deterministic-coinbase-template",
+    }
+  }
+
   // Deterministic path for web lookup prompts
   if (promptLooksLikeWebLookupTask(prompt)) {
     const schedule = { ...defaultSchedule }
@@ -736,6 +852,9 @@ export async function buildWorkflowFromPrompt(
   let fetchTopicCursor = 0
   steps = steps.map((step, index) => {
     if (step.type !== "fetch") return step
+    if (String(step.fetchSource || "").toLowerCase() === "coinbase") {
+      return normalizeWorkflowStep(step, index)
+    }
     const topic = detectedTopics[Math.min(fetchTopicCursor, Math.max(0, detectedTopics.length - 1))]
     fetchTopicCursor += 1
     const topicQuery = topic

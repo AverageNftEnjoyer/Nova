@@ -64,7 +64,7 @@ export interface WorkflowStep {
   triggerTimezone?: string
   triggerDays?: string[]
   triggerIntervalMinutes?: string
-  fetchSource?: "api" | "web" | "calendar" | "crypto" | "rss" | "database"
+  fetchSource?: "api" | "web" | "calendar" | "crypto" | "coinbase" | "rss" | "database"
   fetchMethod?: "GET" | "POST"
   fetchApiIntegrationId?: string
   fetchUrl?: string
@@ -101,6 +101,15 @@ export interface GeneratedMissionSummary {
   }
   missionActive?: boolean
   tags?: string[]
+  coinbase?: {
+    primitive?: "daily_portfolio_summary" | "price_alert_digest" | "weekly_pnl_summary"
+    assets?: string[]
+    thresholdPct?: number
+    cadence?: "daily" | "weekly" | string
+    timezone?: string
+    deliveryChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+    quoteCurrency?: string
+  }
   workflowSteps?: Array<Partial<WorkflowStep>>
 }
 
@@ -109,7 +118,7 @@ export interface QuickTemplateStep {
   title: string
   // Fetch step properties
   fetchQuery?: string
-  fetchSource?: "api" | "web" | "calendar" | "crypto" | "rss" | "database"
+  fetchSource?: "api" | "web" | "calendar" | "crypto" | "coinbase" | "rss" | "database"
   fetchUrl?: string
   fetchIncludeSources?: boolean
   // AI step properties

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { buildPersonaPrompt as buildLegacyPersonaPrompt } from "../../src/runtime/modules/bootstrap.js";
+import { buildPersonaPrompt as buildLegacyPersonaPrompt } from "../../src/runtime/modules/context/bootstrap.js";
 
 const results = [];
 

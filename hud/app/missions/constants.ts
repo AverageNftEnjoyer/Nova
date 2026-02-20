@@ -89,6 +89,57 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
     ],
   },
   {
+    id: "coinbase-daily-portfolio",
+    label: "Coinbase Daily Portfolio",
+    description: "Daily Coinbase spot-price digest for your tracked assets.",
+    integration: "preferred",
+    priority: "medium",
+    title: "Coinbase Daily Portfolio",
+    message: "Fetch Coinbase spot prices for my tracked assets and deliver a concise daily summary.",
+    time: "09:00",
+    tags: ["coinbase", "crypto", "portfolio", "daily"],
+    steps: [
+      { type: "trigger", title: "Daily trigger at 09:00", triggerMode: "daily" },
+      { type: "fetch", title: "Fetch Coinbase portfolio prices", fetchSource: "coinbase", fetchQuery: "primitive=daily_portfolio_summary&assets=BTC,ETH,SOL&quote=USD", fetchIncludeSources: false },
+      { type: "ai", title: "Summarize Coinbase portfolio", aiPrompt: "Summarize the Coinbase spot-price snapshot. Include top movers and one risk note. Do not fabricate unavailable holdings data." },
+      { type: "output", title: "Send notification", outputChannel: "novachat", outputTiming: "immediate" },
+    ],
+  },
+  {
+    id: "coinbase-price-alert-digest",
+    label: "Coinbase Price Alert Digest",
+    description: "Scheduled Coinbase alert-style digest using live spot prices.",
+    integration: "preferred",
+    priority: "medium",
+    title: "Coinbase Price Alert Digest",
+    message: "Fetch Coinbase spot prices for selected assets and generate a concise alert digest.",
+    time: "10:00",
+    tags: ["coinbase", "crypto", "alerts"],
+    steps: [
+      { type: "trigger", title: "Daily trigger at 10:00", triggerMode: "daily" },
+      { type: "fetch", title: "Fetch Coinbase alert prices", fetchSource: "coinbase", fetchQuery: "primitive=price_alert_digest&assets=BTC,ETH,SOL,ADA&quote=USD&thresholdPct=2.5", fetchIncludeSources: false },
+      { type: "ai", title: "Build price alert digest", aiPrompt: "Produce a short alert digest from Coinbase spot prices. Mention threshold context if available. Avoid fabricated percentages." },
+      { type: "output", title: "Send notification", outputChannel: "novachat", outputTiming: "immediate" },
+    ],
+  },
+  {
+    id: "coinbase-weekly-pnl",
+    label: "Coinbase Weekly PnL Snapshot",
+    description: "Weekly Coinbase snapshot with explicit no-fabrication fallback for unavailable PnL inputs.",
+    integration: "preferred",
+    priority: "low",
+    title: "Coinbase Weekly PnL Snapshot",
+    message: "Fetch Coinbase market snapshot for my tracked assets and produce a weekly PnL-oriented summary.",
+    time: "18:00",
+    tags: ["coinbase", "crypto", "weekly", "pnl"],
+    steps: [
+      { type: "trigger", title: "Weekly trigger", triggerMode: "weekly" },
+      { type: "fetch", title: "Fetch Coinbase weekly snapshot", fetchSource: "coinbase", fetchQuery: "primitive=weekly_pnl_summary&assets=BTC,ETH,SOL&quote=USD", fetchIncludeSources: false },
+      { type: "ai", title: "Summarize weekly PnL context", aiPrompt: "Generate a weekly PnL-oriented summary using only available Coinbase data. If PnL inputs are missing, state that clearly and provide spot-price context only." },
+      { type: "output", title: "Send notification", outputChannel: "novachat", outputTiming: "immediate" },
+    ],
+  },
+  {
     id: "tech-news-digest",
     label: "Tech News Digest",
     description: "Top product and AI announcements delivered to your preferred notification channel.",
@@ -118,6 +169,7 @@ export const STEP_TYPE_OPTIONS: Array<{ type: WorkflowStepType; label: string }>
 
 export const STEP_FETCH_SOURCE_OPTIONS: FluidSelectOption[] = [
   { value: "web", label: "Brave Web Search" },
+  { value: "coinbase", label: "Coinbase Market Data" },
 ]
 
 export const STEP_FETCH_METHOD_OPTIONS: FluidSelectOption[] = [

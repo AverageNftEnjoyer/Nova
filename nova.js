@@ -10,7 +10,9 @@ const children = [];
 let hudBaseUrl = "http://localhost:3000";
 let shuttingDown = false;
 const HUD_DIR = path.join(__dirname, "hud");
-const HUD_MODE = String(process.env.NOVA_HUD_MODE || "start").trim().toLowerCase() === "dev" ? "dev" : "start";
+const HUD_MODE_ENV = String(process.env.NOVA_HUD_MODE || "").trim().toLowerCase();
+const HUD_MODE_ARG = process.argv.some((arg) => String(arg || "").trim().toLowerCase() === "--dev");
+const HUD_MODE = HUD_MODE_ENV === "dev" || HUD_MODE_ARG ? "dev" : "start";
 
 function launch(label, command, args, cwd) {
   const child = spawn(command, args, {

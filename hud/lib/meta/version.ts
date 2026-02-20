@@ -9,6 +9,23 @@
  *
  * Version History:
  *
+ * - V.19 Alpha: scalable request scheduling and queue orchestration
+ *     - Added centralized HUD request scheduler with bounded queueing and explicit concurrency controls (global, per-user, per-conversation).
+ *     - Added queued-request supersession by conversation so stale queued turns are canceled when newer turns arrive.
+ *     - Added workload lanes (`fast`, `default`, `tool`, `background`) with weighted fair dispatch to protect interactive responsiveness.
+ *     - Added scheduler metrics to system-metrics responses for live observability (queue depth, lane backlog, counters).
+ *     - Updated gateway busy handling to track true in-flight HUD work safely under concurrent scheduling.
+ *
+ * - V.18 Alpha: runtime latency optimization pass (without capability loss)
+ *     - Added safe fast-lane classification for trivial turns so optional heavy context layers are skipped when unnecessary.
+ *     - Gated tool-loop orchestration by per-turn intent, preserving tools for tool-needed prompts while reducing overhead on simple chat.
+ *     - Switched tool runtime initialization to lazy-on-demand so non-tool turns avoid upfront runtime setup cost.
+ *     - Added memory-recall guardrails (intent gating + timeout) to prevent memory embedding work from delaying lightweight requests.
+ *     - Parallelized optional enrichment tasks (web preload, link preload, memory recall) with bounded latency budgets.
+ *     - Added session/transcript in-process caches with file-change invalidation to reduce sync disk churn while preserving session semantics.
+ *     - Added persona/skills prompt caching and one-time legacy pruning to avoid repeated per-turn filesystem scans.
+ *     - Coalesced HUD assistant stream deltas per animation frame to reduce render-state churn during streaming responses.
+ *
  * - V.17 Alpha: mission generation + output engine generalization
  *     - Reworked mission topic detection to better parse mixed-intent prompts (including typo-tolerant motivational/news requests).
  *     - Improved fetch-query derivation from cleaned user intent instead of raw conversational scaffolding.
@@ -29,12 +46,12 @@
  *     - Added long-thread memory benchmark coverage to ensure critical facts survive noisy context.
  *     - Added security regression net smoke suite (`smoke:src-security-regression`) for durable guardrail verification.
  *     - Expanded `smoke:src-release` to include security, memory, routing arbitration, and plugin isolation gates.
- *     - Added phase-20 release notes artifact: `tasks/openclaw-phase20-release-notes.md`.
+ *     - Added phase-20 release notes artifact: `tasks/novaos-phase20-release-notes.md`.
  *
  * - V.14 Alpha: 10-phase hardening and release-readiness completion
  *     - Completed Phase 10 hardening with a production release gate (`smoke:src-release`) that runs build + eval + mission + scheduler + transport + tools + HUD build.
  *     - Added release-readiness smoke checks (`smoke:src-release-readiness`) covering script wiring, launcher stability, env documentation coverage, and release-note/version integrity.
- *     - Added final release notes artifact: `tasks/openclaw-phase10-release-notes.md` with rollout checklist and rollback plan.
+ *     - Added final release notes artifact: `tasks/novaos-phase10-release-notes.md` with rollout checklist and rollback plan.
  *
  * - V.13 Alpha: `src/` runtime cutover + stability patch set
  *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/entrypoint.js` (replacing legacy `agent/` launch flow).
@@ -113,4 +130,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.17 Alpha"
+export const NOVA_VERSION = "V.19 Alpha"

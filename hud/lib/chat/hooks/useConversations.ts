@@ -23,6 +23,20 @@ function parseIsoTimestamp(value: string | undefined): number {
 
 const USER_ECHO_DEDUP_MS = 15_000
 
+type IncomingAgentMessage = {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  ts: number
+  source?: string
+  sender?: string
+  conversationId?: string
+  nlpCleanText?: string
+  nlpConfidence?: number
+  nlpCorrectionCount?: number
+  nlpBypass?: boolean
+}
+
 function mergeConversationsPreferLocal(
   local: Conversation[],
   remote: Conversation[],
@@ -59,16 +73,117 @@ function mergeConversationsPreferLocal(
   )
 }
 
+function mergeIncomingAgentMessages(
+  existingMessages: ChatMessage[],
+  incomingMessages: IncomingAgentMessage[],
+): ChatMessage[] {
+  const dedupedExisting: ChatMessage[] = []
+  for (const existing of existingMessages) {
+    if (existing.role !== "assistant") {
+      dedupedExisting.push(existing)
+      continue
+    }
+    const prevIdx = dedupedExisting.findIndex((m) => m.role === "assistant" && m.id === existing.id)
+    if (prevIdx === -1) {
+      dedupedExisting.push(existing)
+      continue
+    }
+    dedupedExisting[prevIdx] = {
+      ...dedupedExisting[prevIdx],
+      content: `${dedupedExisting[prevIdx].content}${existing.content}`,
+      createdAt: existing.createdAt,
+      source: existing.source || dedupedExisting[prevIdx].source,
+      sender: existing.sender || dedupedExisting[prevIdx].sender,
+    }
+  }
+
+  const mergedMessages = dedupedExisting
+  for (const am of incomingMessages) {
+    const normalizedSource: ChatMessage["source"] =
+      am.source === "hud" || am.source === "agent" || am.source === "voice"
+        ? am.source
+        : "agent"
+    const incoming: ChatMessage = {
+      id: am.id,
+      role: am.role,
+      content: am.content,
+      createdAt: new Date(am.ts).toISOString(),
+      source: normalizedSource,
+      sender: am.sender,
+      ...(typeof am.nlpCleanText === "string" ? { nlpCleanText: am.nlpCleanText } : {}),
+      ...(typeof am.nlpConfidence === "number" ? { nlpConfidence: am.nlpConfidence } : {}),
+      ...(typeof am.nlpCorrectionCount === "number" ? { nlpCorrectionCount: am.nlpCorrectionCount } : {}),
+      ...(am.nlpBypass ? { nlpBypass: true } : {}),
+    }
+
+    if (incoming.role === "assistant") {
+      const existingIdx = mergedMessages.findIndex((m) => m.role === "assistant" && m.id === incoming.id)
+      if (existingIdx !== -1) {
+        const existing = mergedMessages[existingIdx]
+        mergedMessages[existingIdx] = {
+          ...existing,
+          content: `${existing.content}${incoming.content}`,
+          createdAt: incoming.createdAt,
+          source: incoming.source || existing.source,
+          sender: incoming.sender || existing.sender,
+        }
+        continue
+      }
+
+      const lastIdx = mergedMessages.length - 1
+      const last = mergedMessages[lastIdx]
+      if (last?.role === "assistant" && last.id === incoming.id) {
+        mergedMessages[lastIdx] = {
+          ...last,
+          content: `${last.content}${incoming.content}`,
+          createdAt: incoming.createdAt,
+          ...(incoming.source ? { source: incoming.source } : {}),
+          ...(incoming.sender ? { sender: incoming.sender } : {}),
+        }
+        continue
+      }
+
+      mergedMessages.push(incoming)
+      continue
+    }
+
+    const incomingTrimmed = incoming.content.trim()
+    if (incomingTrimmed && incoming.source === "hud") {
+      let lastUserIdx = -1
+      for (let i = mergedMessages.length - 1; i >= 0; i -= 1) {
+        if (mergedMessages[i]?.role === "user") {
+          lastUserIdx = i
+          break
+        }
+      }
+      const lastUser = lastUserIdx >= 0 ? mergedMessages[lastUserIdx] : null
+      if (lastUser && lastUser.content.trim() === incomingTrimmed) {
+        const incomingTs = parseIsoTimestamp(incoming.createdAt)
+        const lastUserTs = parseIsoTimestamp(lastUser.createdAt)
+        if (Math.abs(incomingTs - lastUserTs) <= USER_ECHO_DEDUP_MS) {
+          // Keep one visible user bubble but hydrate it with NLP metadata from
+          // the HUD echo event.
+          mergedMessages[lastUserIdx] = {
+            ...lastUser,
+            ...(typeof incoming.nlpCleanText === "string" ? { nlpCleanText: incoming.nlpCleanText } : {}),
+            ...(typeof incoming.nlpConfidence === "number" ? { nlpConfidence: incoming.nlpConfidence } : {}),
+            ...(typeof incoming.nlpCorrectionCount === "number" ? { nlpCorrectionCount: incoming.nlpCorrectionCount } : {}),
+            ...(incoming.nlpBypass ? { nlpBypass: true } : {}),
+          }
+          continue
+        }
+      }
+    }
+
+    mergedMessages.push(incoming)
+  }
+
+  return mergedMessages
+}
+
 export interface UseConversationsOptions {
   agentConnected: boolean
-  agentMessages: Array<{
-    id: string
-    role: "user" | "assistant"
-    content: string
-    ts: number
-    source?: string
-    sender?: string
-  }>
+  agentMessages: IncomingAgentMessage[]
   clearAgentMessages: () => void
 }
 
@@ -101,7 +216,7 @@ export function useConversations({
   const [isLoaded, setIsLoaded] = useState(false)
 
   const mergedCountRef = useRef(0)
-  const syncTimerRef = useRef<number | null>(null)
+  const syncTimersRef = useRef<Map<string, number>>(new Map())
   const pendingMessagesInFlightRef = useRef(false)
 
   // Server API functions
@@ -147,6 +262,18 @@ export function useConversations({
     })
   }, [])
 
+  const scheduleServerSync = useCallback((convo: Conversation) => {
+    const existing = syncTimersRef.current.get(convo.id)
+    if (typeof existing === "number") {
+      window.clearTimeout(existing)
+    }
+    const timer = window.setTimeout(() => {
+      syncTimersRef.current.delete(convo.id)
+      void syncServerMessages(convo).catch(() => {})
+    }, 280)
+    syncTimersRef.current.set(convo.id, timer)
+  }, [syncServerMessages])
+
   // Persist conversations
   const persist = useCallback(
     (convos: Conversation[], active: Conversation | null) => {
@@ -156,19 +283,14 @@ export function useConversations({
       if (active) {
         setActiveConvo(active)
         setActiveId(active.id)
-        if (syncTimerRef.current !== null) {
-          window.clearTimeout(syncTimerRef.current)
-        }
-        syncTimerRef.current = window.setTimeout(() => {
-          void syncServerMessages(active).catch(() => {})
-        }, 280)
+        scheduleServerSync(active)
       }
       if (!active) {
         setActiveConvo(null)
         setActiveId(null)
       }
     },
-    [syncServerMessages],
+    [scheduleServerSync],
   )
 
   // Initial load from cache
@@ -272,6 +394,13 @@ export function useConversations({
           content: string
           missionId?: string
           missionLabel?: string
+          metadata?: {
+            missionRunId?: string
+            runKey?: string
+            attempt?: number
+            source?: "scheduler" | "trigger"
+            outputChannel?: string
+          }
           createdAt: string
         }>
       }
@@ -292,6 +421,16 @@ export function useConversations({
           createdAt: msg.createdAt || new Date().toISOString(),
           source: "agent",
           sender: msg.missionLabel || "Nova Mission",
+          missionId: msg.missionId,
+          missionLabel: msg.missionLabel,
+          missionRunId: msg.metadata?.missionRunId,
+          missionRunKey: msg.metadata?.runKey,
+          missionAttempt:
+            Number.isFinite(Number(msg.metadata?.attempt || 0)) && Number(msg.metadata?.attempt || 0) > 0
+              ? Number(msg.metadata?.attempt || 0)
+              : undefined,
+          missionSource: msg.metadata?.source,
+          missionOutputChannel: msg.metadata?.outputChannel,
         }
 
         const convoWithMessage: Conversation = {
@@ -368,116 +507,71 @@ export function useConversations({
     }
   }, [isLoaded, processPendingNovaChatMessages, router, shouldOpenPendingNovaChat])
 
-  // Merge agent messages into active conversation
+  // Merge agent messages into their origin conversation.
   useEffect(() => {
-    if (!activeConvo || agentMessages.length <= mergedCountRef.current) return
+    if (agentMessages.length <= mergedCountRef.current) return
 
     const newOnes = agentMessages.slice(mergedCountRef.current)
     mergedCountRef.current = agentMessages.length
+    if (newOnes.length === 0 || conversations.length === 0) return
 
-    const nextMessages = [...activeConvo.messages]
-    const dedupedExisting: ChatMessage[] = []
-    for (const existing of nextMessages) {
-      if (existing.role !== "assistant") {
-        dedupedExisting.push(existing)
-        continue
-      }
-      const prevIdx = dedupedExisting.findIndex((m) => m.role === "assistant" && m.id === existing.id)
-      if (prevIdx === -1) {
-        dedupedExisting.push(existing)
-        continue
-      }
-      dedupedExisting[prevIdx] = {
-        ...dedupedExisting[prevIdx],
-        content: `${dedupedExisting[prevIdx].content}${existing.content}`,
-        createdAt: existing.createdAt,
-        source: existing.source || dedupedExisting[prevIdx].source,
-        sender: existing.sender || dedupedExisting[prevIdx].sender,
+    const incomingByConversation = new Map<string, IncomingAgentMessage[]>()
+    for (const item of newOnes) {
+      const explicitConversationId =
+        typeof item.conversationId === "string" ? item.conversationId.trim() : ""
+      const targetConversationId = explicitConversationId || String(activeConvo?.id || "").trim()
+      if (!targetConversationId) continue
+      const bucket = incomingByConversation.get(targetConversationId)
+      if (bucket) {
+        bucket.push(item)
+      } else {
+        incomingByConversation.set(targetConversationId, [item])
       }
     }
+    if (incomingByConversation.size === 0) return
 
-    const mergedMessages = dedupedExisting
-    for (const am of newOnes) {
-      const normalizedSource: ChatMessage["source"] =
-        am.source === "hud" || am.source === "agent" || am.source === "voice"
-          ? am.source
-          : "agent"
-      const incoming: ChatMessage = {
-        id: am.id,
-        role: am.role,
-        content: am.content,
-        createdAt: new Date(am.ts).toISOString(),
-        source: normalizedSource,
-        sender: am.sender,
-      }
+    const existingById = new Map(conversations.map((convo) => [convo.id, convo]))
+    const changedById = new Map<string, Conversation>()
+    const convos = conversations.map((convo) => {
+      const incoming = incomingByConversation.get(convo.id)
+      if (!incoming || incoming.length === 0) return convo
 
-      if (incoming.role === "assistant") {
-        const existingIdx = mergedMessages.findIndex((m) => m.role === "assistant" && m.id === incoming.id)
-        if (existingIdx !== -1) {
-          const existing = mergedMessages[existingIdx]
-          mergedMessages[existingIdx] = {
-            ...existing,
-            content: `${existing.content}${incoming.content}`,
-            createdAt: incoming.createdAt,
-            source: incoming.source || existing.source,
-            sender: incoming.sender || existing.sender,
-          }
-          continue
-        }
-
-        const last = mergedMessages[mergedMessages.length - 1]
-        if (last?.role === "assistant" && last.id === incoming.id) {
-          last.content = `${last.content}${incoming.content}`
-          last.createdAt = incoming.createdAt
-          if (incoming.source) last.source = incoming.source
-          if (incoming.sender) last.sender = incoming.sender
-          continue
-        }
-
-        mergedMessages.push(incoming)
-        continue
-      }
-
-      const incomingTrimmed = incoming.content.trim()
-      if (incomingTrimmed && incoming.source === "hud") {
-        const lastUser = [...mergedMessages].reverse().find((m) => m.role === "user")
-        if (lastUser && lastUser.content.trim() === incomingTrimmed) {
-          const incomingTs = parseIsoTimestamp(incoming.createdAt)
-          const lastUserTs = parseIsoTimestamp(lastUser.createdAt)
-          if (Math.abs(incomingTs - lastUserTs) <= USER_ECHO_DEDUP_MS) {
-            continue
-          }
-        }
-      }
-
-      mergedMessages.push(incoming)
-    }
-
+      const mergedMessages = mergeIncomingAgentMessages(convo.messages, incoming)
       const updated: Conversation = {
-        ...activeConvo,
+        ...convo,
         messages: mergedMessages,
         updatedAt: new Date().toISOString(),
         title: resolveConversationTitle({
           messages: mergedMessages,
-          currentTitle: activeConvo.title,
+          currentTitle: convo.title,
           conversations,
-          conversationId: activeConvo.id,
+          conversationId: convo.id,
         }),
       }
+      changedById.set(updated.id, updated)
+      return updated
+    })
+    if (changedById.size === 0) return
 
-      const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
-      persist(convos, updated)
-      if (updated.title !== activeConvo.title) {
+    const nextActive = activeConvo ? convos.find((c) => c.id === activeConvo.id) ?? activeConvo : null
+    persist(convos, nextActive)
+
+    for (const updated of changedById.values()) {
+      scheduleServerSync(updated)
+      const previous = existingById.get(updated.id)
+      if (previous && updated.title !== previous.title) {
         void patchServerConversation(updated.id, { title: updated.title }).catch(() => {})
       }
-  }, [agentMessages, activeConvo, conversations, patchServerConversation, persist])
+    }
+  }, [agentMessages, activeConvo, conversations, patchServerConversation, persist, scheduleServerSync])
 
   // Cleanup sync timer
   useEffect(() => {
     return () => {
-      if (syncTimerRef.current !== null) {
-        window.clearTimeout(syncTimerRef.current)
+      for (const timer of syncTimersRef.current.values()) {
+        window.clearTimeout(timer)
       }
+      syncTimersRef.current.clear()
     }
   }, [])
 
@@ -488,9 +582,6 @@ export function useConversations({
 
   const handleSelectConvo = useCallback(
     async (id: string) => {
-      clearAgentMessages()
-      mergedCountRef.current = 0
-
       let found = conversations.find((c) => c.id === id)
       if (!found) {
         const remote = await fetchConversationsFromServer().catch(() => [])
@@ -507,7 +598,7 @@ export function useConversations({
         setActiveId(found.id)
       }
     },
-    [conversations, clearAgentMessages, fetchConversationsFromServer],
+    [conversations, fetchConversationsFromServer],
   )
 
   const handleDeleteConvo = useCallback(

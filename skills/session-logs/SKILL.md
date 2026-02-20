@@ -2,7 +2,7 @@
 name: session-logs
 description: Session history analysis workflow for recovering prior context and decisions from transcript logs.
 user-invokable: false
-metadata: { "read_when": ["User asks what happened in earlier chats, prior sessions, or previous decisions."], "openclaw": { "requires": { "anyBins": ["jq", "rg"] } } }
+metadata: { "read_when": ["User asks what happened in earlier chats, prior sessions, or previous decisions."], "novaos": { "requires": { "anyBins": ["jq", "rg"] } } }
 ---
 
 # Session Logs Skill

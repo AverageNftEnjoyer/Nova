@@ -20,6 +20,7 @@ interface MessageListProps {
   isLoaded: boolean
   zoom?: number
   orbPalette: OrbPalette
+  onUseSuggestedWording?: (message: Message) => void | Promise<void>
 }
 
 export function MessageList({
@@ -32,6 +33,7 @@ export function MessageList({
   isLoaded,
   zoom = 100,
   orbPalette,
+  onUseSuggestedWording,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -135,7 +137,11 @@ export function MessageList({
     }
     return ""
   })()
-  const showTypingIndicator = isStreaming && (messages.length === 0 || lastMessage?.role === "user")
+  const showTypingIndicator = isStreaming && (
+    messages.length === 0
+    || lastMessage?.role === "user"
+    || (lastMessage?.role === "assistant" && !String(lastMessage?.content || "").trim())
+  )
   const shouldAnimateOrb = isStreaming
 
   if (!isLoaded) {
@@ -176,6 +182,8 @@ export function MessageList({
 
       {messages.map((message) => {
             const isAssistantStreaming = message.role === "assistant" && streamingAssistantId === message.id
+            const isEmptyAssistantPlaceholder = message.role === "assistant" && !String(message.content || "").trim()
+            if (isEmptyAssistantPlaceholder) return null
             return (
           <MessageBubble
             key={message.id}
@@ -184,6 +192,7 @@ export function MessageList({
             compactMode={compactMode}
             orbPalette={orbPalette}
             orbAnimated={shouldAnimateOrb && isAssistantStreaming}
+            onUseSuggestedWording={onUseSuggestedWording}
           />
             )
           })}
