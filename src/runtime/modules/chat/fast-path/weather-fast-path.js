@@ -1,6 +1,13 @@
-import { buildWeatherWebSummary } from "./intent-router.js";
+import { buildWeatherWebSummary } from "../routing/intent-router.js";
 export function isWeatherRequestText(text) {
   return /\b(weather|forecast|temperature|rain|snow|precipitation)\b/i.test(String(text || ""));
+}
+
+function isHypotheticalWeatherPrompt(text) {
+  const normalized = String(text || "").toLowerCase();
+  if (!normalized) return false;
+  if (!/\bweather\b/.test(normalized)) return false;
+  return /\b(pretend|hypothetical|example|simulate|suppose)\b/.test(normalized);
 }
 
 const WEATHER_CACHE_TTL_MS = Number.parseInt(process.env.NOVA_WEATHER_CACHE_TTL_MS || "120000", 10);
@@ -117,9 +124,19 @@ function normalizeWeatherLocation(locationRaw) {
     .replace(/^[`"'\u2019]+|[`"'\u2019]+$/g, "");
 }
 
+function inferCapitalizedLocationBeforeWeather(text) {
+  const raw = stripWeatherAssistantPrefix(text);
+  if (!raw) return "";
+  const match = raw.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\s+weather\b/);
+  if (!match?.[1]) return "";
+  return normalizeWeatherLocation(match[1]);
+}
+
 function inferWeatherLocation(text) {
   const raw = stripWeatherAssistantPrefix(text);
   if (!raw) return "";
+  const capitalized = inferCapitalizedLocationBeforeWeather(raw);
+  if (capitalized) return capitalized;
   const patterns = [
     /\b(?:weather|forecast|temperature|rain|snow|wind|humidity)\s+(?:(?:in|for|at)\s+)?([A-Za-z0-9][A-Za-z0-9\s,.'-]{1,80})/i,
     /\b(?:in|for|at)\s+([A-Za-z0-9][A-Za-z0-9\s,.'-]{1,80})\s+(?:weather|forecast)\b/i,
@@ -205,21 +222,6 @@ function setCachedWeatherReply(key, reply) {
   }
 }
 
-function formatWeatherFreshness(isoTime, timezone) {
-  const parsed = Date.parse(String(isoTime || ""));
-  if (!Number.isFinite(parsed)) return "Freshness: live response.";
-  try {
-    const label = new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: String(timezone || "UTC"),
-      timeZoneName: "short",
-    }).format(new Date(parsed));
-    return `Freshness: updated ${label}.`;
-  } catch {
-    return "Freshness: live response.";
-  }
-}
 
 function asRoundedNumber(value) {
   const n = Number(value);
@@ -773,8 +775,6 @@ function buildSingleDayForecastReply({ locationLabel, payload, dayOffset, prefer
       feels !== null ? `Feels like ${feels}${tempUnit}.` : "",
       humidity !== null ? `Humidity ${humidity}%.` : "",
       wind !== null ? `Wind ${wind} ${windUnit}.` : "",
-      formatWeatherFreshness(currentTime, timezone),
-      "Confidence: high (Open-Meteo live conditions).",
     ].filter(Boolean);
     return parts.join(" ");
   }
@@ -807,8 +807,6 @@ function buildSingleDayForecastReply({ locationLabel, payload, dayOffset, prefer
     `${locationLabel} on ${weekday}: ${condition}${high !== null && low !== null ? `, high ${high}${tempUnit}, low ${low}${tempUnit}` : ""}.`,
     Number.isFinite(Number(rainChance)) ? `Rain chance up to ${Number(rainChance)}%.` : "",
     Number.isFinite(Number(wind)) ? `Wind up to ${Number(wind)} ${windUnit}.` : "",
-    formatWeatherFreshness(currentTime, timezone),
-    "Confidence: high (Open-Meteo forecast).",
   ].filter(Boolean);
   return parts.join(" ");
 }
@@ -845,8 +843,6 @@ function buildWeeklyForecastReply({ locationLabel, payload }) {
   return [
     `${locationLabel} next 7 days:`,
     ...lines,
-    formatWeatherFreshness(currentTime, timezone),
-    "Confidence: high (Open-Meteo forecast).",
   ].join("\n");
 }
 
@@ -859,6 +855,7 @@ export async function tryWeatherFastPathReply({
   bypassConfirmation = false,
 }) {
   if (!isWeatherRequestText(text)) return { reply: "", source: "" };
+  if (isHypotheticalWeatherPrompt(text)) return { reply: "", source: "" };
   const location = String(forcedLocation || "").trim() || inferWeatherLocation(text);
   if (!location) {
     return {
@@ -926,7 +923,7 @@ export async function tryWeatherFastPathReply({
   if (openMeteoUnavailable && currentOnly && !weekly && dayOffset === 0) {
     const wttrLine = await fetchWttrQuickStatus(location);
     if (wttrLine) {
-      const wttrReply = `${wttrLine}. Freshness: updated moments ago. Confidence: medium (wttr quick status).`;
+      const wttrReply = `${wttrLine}.`;
       setCachedWeatherReply(cacheKey, wttrReply);
       return { reply: wttrReply, source: "wttr" };
     }
@@ -948,7 +945,7 @@ export async function tryWeatherFastPathReply({
         if (!content || /^web_search error/i.test(content)) continue;
         const readable = buildWeatherWebSummary(searchQuery, content);
         if (!readable || !isWeatherWebFallbackReliable(location, readable)) continue;
-        const safeReply = `${readable}\nFreshness: source timestamp may vary by result.\nConfidence: medium (web weather snippets).`;
+        const safeReply = readable;
         setCachedWeatherReply(cacheKey, safeReply);
         return { reply: safeReply, source: "web_search", toolCall: "web_search" };
       } catch {

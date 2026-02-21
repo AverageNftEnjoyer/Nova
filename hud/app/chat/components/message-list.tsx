@@ -41,8 +41,6 @@ export function MessageList({
   const rafRef = useRef<number | null>(null)
   const lastScrollRef = useRef<number>(0)
   const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
-  const hasAnimated = isLoaded && messages.length === 0
-
   const scrollToBottom = () => {
     if (!containerRef.current) return
     const container = containerRef.current
@@ -171,10 +169,10 @@ export function MessageList({
     >
       {messages.length === 0 && !error && !isStreaming && (
         <div className="flex flex-col items-center justify-center h-full text-center text-s-40">
-          <p className={`text-lg font-medium text-s-60 ${hasAnimated ? "text-blur-intro" : ""}`}>
+          <p className="text-lg font-medium text-s-60">
             Hi, my name is Nova
           </p>
-          <p className={`text-sm mt-1 text-s-30 ${hasAnimated ? "text-blur-intro-delay" : ""}`}>
+          <p className="text-sm mt-1 text-s-30">
             What can I help you with today?
           </p>
         </div>

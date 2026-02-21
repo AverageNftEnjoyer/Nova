@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { isCryptoRequestText, tryCryptoFastPathReply } from "../../src/runtime/modules/chat/crypto-fast-path.js";
+import { isCryptoRequestText, tryCryptoFastPathReply } from "../../src/runtime/modules/chat/fast-path/crypto-fast-path.js";
 
 const availableTools = [
   { name: "coinbase_capabilities" },
@@ -62,7 +62,24 @@ const runtimeTools = {
 };
 
 assert.equal(isCryptoRequestText("nova price btc"), true, "crypto intent should detect ticker price");
+assert.equal(isCryptoRequestText("how much is avax"), true, "crypto intent should detect known symbol with price intent");
+assert.equal(isCryptoRequestText("price bitcoin"), true, "crypto intent should detect alias with price intent");
 assert.equal(isCryptoRequestText("what is the weather in pittsburgh"), false, "weather should not trigger crypto intent");
+assert.equal(
+  isCryptoRequestText("Rate your confidence (0-100) on your summary accuracy and explain briefly."),
+  false,
+  "generic confidence/rating language must not trigger crypto intent",
+);
+assert.equal(
+  isCryptoRequestText("Can you rate this plan from 1 to 10?"),
+  false,
+  "generic scoring language must not trigger crypto intent",
+);
+assert.equal(
+  isCryptoRequestText("What retry rate should websocket reconnect use?"),
+  false,
+  "engineering 'rate' wording must not trigger crypto intent",
+);
 
 const priceReply = await tryCryptoFastPathReply({
   text: "nova what's the price of btc",
@@ -72,8 +89,8 @@ const priceReply = await tryCryptoFastPathReply({
   conversationId: "c1",
 });
 assert.match(String(priceReply.reply || ""), /BTC-USD now:/i, "price reply should include canonical pair");
-assert.match(String(priceReply.reply || ""), /Freshness:/i, "price reply should include freshness");
-assert.match(String(priceReply.reply || ""), /Source: Coinbase spot price\./i, "price reply should include source");
+assert.doesNotMatch(String(priceReply.reply || ""), /Freshness:/i, "price reply must not include freshness metadata");
+assert.doesNotMatch(String(priceReply.reply || ""), /Source:/i, "price reply must not include source metadata");
 
 const ambiguousReply = await tryCryptoFastPathReply({
   text: "coinbase price btx",

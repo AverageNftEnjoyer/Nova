@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { SessionConfig } from "../config/types.js";
 import {
   buildSessionKey,
+  fallbackUserContextIdFromSessionKey,
   normalizeUserContextId,
   parseSessionKeyUserContext,
   resolveUserContextId,
@@ -50,7 +51,12 @@ export function resolveSession(params: {
 
   const sessionKey = buildSessionKey(params.config, params.agentName, params.inboundMessage);
   const resolvedUserContextId =
-    resolveUserContextId(params.inboundMessage) || parseSessionKeyUserContext(sessionKey);
+    resolveUserContextId(params.inboundMessage) ||
+    parseSessionKeyUserContext(sessionKey) ||
+    fallbackUserContextIdFromSessionKey(
+      sessionKey,
+      String(params.inboundMessage.source || params.inboundMessage.channel || ""),
+    );
 
   const existing = params.store.getEntry(sessionKey, resolvedUserContextId);
   const origin = {

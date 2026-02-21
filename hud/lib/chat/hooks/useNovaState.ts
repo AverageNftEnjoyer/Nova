@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user";
+import { normalizeHandoffOperationToken } from "@/lib/chat/handoff";
 
 export type NovaState =
   | "idle"
@@ -36,14 +37,123 @@ function hasAssistantPayload(content: string): boolean {
   return content.replace(/[\u200B-\u200D\uFEFF]/g, "").length > 0;
 }
 
+/**
+ * Mirrors the backend's repairBrokenReadability + normalizeWhitespace so that
+ * streamed assistant text has the same quality as non-streamed replies.
+ */
+// Units that commonly follow a digit with no space (e.g. "47°F", "100%", "3x").
+const DIGIT_LETTER_SKIP_RE = /^(?:°[A-Za-z]|[%x×]|(?:st|nd|rd|th|px|em|rem|ms|fps|GB|MB|KB|TB|GHz|MHz|mph|kph|kmh|mpg|rpm|mm|ml|cm|km|mi|mg|lb|lbs|oz|kg|ft|hr|hrs|min|sec|am|pm|AM|PM|dB|kW|in|k|m|g|L)(?![a-zA-Z]))/
+
+// Protect URLs, markdown links, and inline code spans from boundary insertion.
+const PROTECTED_SPAN_RE = /`[^`]+`|\[[^\]]*\]\([^)]*\)|https?:\/\/\S+/g
+
+const SOURCE_META_LINE_RE = /^[ \t]*(?:Confidence|Source|Freshness)\s*:.*$/gm
+const SOURCE_META_INLINE_RE = /\s*(?:Confidence|Source|Freshness)\s*:[^.\n]*\.?/g
+
+function repairAssistantReadability(value: string): string {
+  let text = String(value || "")
+  if (!text || /```/.test(text)) return text
+
+  text = text.replace(SOURCE_META_LINE_RE, "").replace(SOURCE_META_INLINE_RE, "")
+
+  // Stash protected spans so the boundary regexes cannot touch them.
+  const stash: string[] = []
+  text = text.replace(PROTECTED_SPAN_RE, (m) => {
+    stash.push(m)
+    return `\x00#${stash.length - 1}#\x00`
+  })
+
+  // Insert missing space at camelCase boundary (lowercase→uppercase).
+  text = text.replace(/([a-z])([A-Z])/g, "$1 $2")
+
+  // Insert space between letter→digit when not already spaced.
+  text = text.replace(/([A-Za-z])(\d)/g, "$1 $2")
+
+  // Insert space between digit→letter, but skip common unit suffixes.
+  text = text.replace(/(\d)([A-Za-z°%×])/g, (match, d: string, l: string, offset: number) => {
+    if (DIGIT_LETTER_SKIP_RE.test(text.slice(offset + 1))) return match
+    return `${d} ${l}`
+  })
+
+  // Restore stashed spans.
+  text = text.replace(/\x00#(\d+)#\x00/g, (_, idx) => stash[Number(idx)])
+
+  // Ensure bullet items that lost their line break get one restored.
+  text = text.replace(/([^\n])(\n?)(- )/g, (m, before, nl, dash) => {
+    if (nl) return m
+    return `${before}\n${dash}`
+  })
+
+  // Long single-line list-like text → break into lines.
+  const longSingleLine = text.length > 220 && !/\n/.test(text)
+  const listShape = /\b\d+\s+[A-Z]/.test(text) || /(?:\s- )/.test(text)
+  if (longSingleLine && listShape) {
+    text = text
+      .replace(/\s- /g, "\n- ")
+      .replace(/(^|[.!?]\s+)(\d+)\s+/g, (_, p1, p2) => `${p1}\n${p2} `)
+      .replace(/\s{2,}/g, " ")
+  }
+
+  // Collapse excessive blank lines and trailing whitespace on lines.
+  text = text
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+
+  return text
+}
+
 const HUD_USER_ECHO_DEDUPE_MS = 15_000
 const EVENT_DEDUPE_MS = 2_500
+const ASSISTANT_MESSAGE_MERGE_WINDOW_MS = 10_000
+const HUD_MESSAGE_ACK_TTL_MS = 10 * 60 * 1000
 
 function normalizeInboundMessageText(content: string): string {
   return String(content || "")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .replace(/\s+/g, " ")
     .trim()
+}
+
+function shouldPreferIncomingAssistantVersion(base: string, incoming: string): boolean {
+  const left = normalizeInboundMessageText(base).toLowerCase()
+  const right = normalizeInboundMessageText(incoming).toLowerCase()
+  if (!left || !right) return false
+  if (left === right) return true
+
+  const leftCompact = left.replace(/[^a-z0-9]+/g, "")
+  const rightCompact = right.replace(/[^a-z0-9]+/g, "")
+  if (!leftCompact || !rightCompact) return false
+  if (rightCompact.includes(leftCompact)) return true
+  if (leftCompact.includes(rightCompact)) return false
+
+  const leftWords = new Set(left.split(/\s+/g).filter(Boolean))
+  const rightWords = new Set(right.split(/\s+/g).filter(Boolean))
+  if (leftWords.size < 8 || rightWords.size < 8) return false
+  let overlap = 0
+  for (const word of leftWords) {
+    if (rightWords.has(word)) overlap += 1
+  }
+  const smaller = Math.min(leftWords.size, rightWords.size)
+  const overlapRatio = smaller > 0 ? overlap / smaller : 0
+  const lenRatio = Math.min(leftCompact.length, rightCompact.length) / Math.max(leftCompact.length, rightCompact.length)
+  return overlapRatio >= 0.82 && lenRatio >= 0.62
+}
+
+function mergeAssistantStreamContent(base: string, incoming: string): string {
+  const left = String(base || "")
+  const right = String(incoming || "")
+  if (!right) return left
+  if (!left) return right
+  if (shouldPreferIncomingAssistantVersion(left, right)) {
+    return right.length >= left.length ? right : left
+  }
+  if (right.length >= left.length && right.startsWith(left)) return right
+  if (left.length >= right.length && left.startsWith(right)) return left
+  if (left.endsWith(right)) return left
+  if (right.endsWith(left)) return right
+  return `${left}${right}`
 }
 
 function normalizeConversationId(value: unknown): string {
@@ -62,12 +172,30 @@ export function useNovaState() {
   const [streamingAssistantId, setStreamingAssistantId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [latestUsage, setLatestUsage] = useState<AgentUsage | null>(null);
+  const [hudMessageAckVersion, setHudMessageAckVersion] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const recentEventRef = useRef<Map<string, number>>(new Map())
+  const hudMessageAckRef = useRef<Map<string, number>>(new Map())
   const lastAssistantDeltaRef = useRef<Map<string, { content: string; ts: number }>>(new Map())
   const pendingAssistantDeltasRef = useRef<Map<string, AgentMessage>>(new Map())
   const deltaFlushRafRef = useRef<number | null>(null)
   const activeUserIdRef = useRef<string>("")
+
+  const pruneHudMessageAckMap = useCallback((nowMs = Date.now()) => {
+    const ackMap = hudMessageAckRef.current
+    for (const [token, ts] of ackMap.entries()) {
+      if (nowMs - Number(ts || 0) > HUD_MESSAGE_ACK_TTL_MS) {
+        ackMap.delete(token)
+      }
+    }
+  }, [])
+
+  const hasHudMessageAck = useCallback((opToken: string): boolean => {
+    const normalizedToken = normalizeHandoffOperationToken(opToken)
+    if (!normalizedToken) return false
+    pruneHudMessageAckMap(Date.now())
+    return hudMessageAckRef.current.has(normalizedToken)
+  }, [pruneHudMessageAckMap])
 
   useEffect(() => {
     const syncActiveUserId = () => {
@@ -82,6 +210,7 @@ export function useNovaState() {
       "assistant_stream_start",
       "assistant_stream_delta",
       "assistant_stream_done",
+      "hud_message_ack",
       "usage",
     ])
 
@@ -89,6 +218,7 @@ export function useNovaState() {
       const eventType = typeof payload.type === "string" ? payload.type : ""
       if (!scopedEventTypes.has(eventType)) return false
       const eventUserId = normalizeUserContextId(payload.userContextId)
+      if (!eventUserId) return false
       const activeUserId = activeUserIdRef.current
       if (!activeUserId) return eventUserId.length > 0
       return eventUserId !== activeUserId
@@ -99,7 +229,26 @@ export function useNovaState() {
       const pending = [...pendingAssistantDeltasRef.current.values()]
       if (pending.length === 0) return
       pendingAssistantDeltasRef.current.clear()
-      setAgentMessages((prev) => [...prev, ...pending])
+      setAgentMessages((prev) => {
+        const next = [...prev]
+        for (const deltaMsg of pending) {
+          const idx = next.findIndex((entry) => entry.role === "assistant" && entry.id === deltaMsg.id)
+          if (idx === -1) {
+            next.push(deltaMsg)
+            continue
+          }
+          const existing = next[idx]
+          next[idx] = {
+            ...existing,
+            content: mergeAssistantStreamContent(existing.content, deltaMsg.content),
+            ts: Math.max(Number(existing.ts || 0), Number(deltaMsg.ts || 0)),
+            source: deltaMsg.source || existing.source,
+            sender: deltaMsg.sender || existing.sender,
+            ...(deltaMsg.conversationId ? { conversationId: deltaMsg.conversationId } : {}),
+          }
+        }
+        return next
+      })
     }
 
     const scheduleDeltaFlush = () => {
@@ -126,12 +275,26 @@ export function useNovaState() {
     wsRef.current = ws;
 
     ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
+    ws.onclose = () => {
+      setConnected(false);
+      setState("idle");
+      setThinkingStatus("");
+      setStreamingAssistantId(null);
+    };
 
     ws.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
         if (isScopedEventForOtherUser(data)) return
+
+        if (data.type === "hud_message_ack") {
+          const opToken = normalizeHandoffOperationToken(data.opToken)
+          if (!opToken) return
+          pruneHudMessageAckMap(Date.now())
+          hudMessageAckRef.current.set(opToken, Date.now())
+          setHudMessageAckVersion((prev) => prev + 1)
+          return
+        }
 
         if (data.type === "state" && data.state) {
           setState(data.state);
@@ -166,12 +329,43 @@ export function useNovaState() {
 
         if (data.type === "assistant_stream_done" && typeof data.id === "string") {
           const pending = pendingAssistantDeltasRef.current.get(data.id)
-          if (pending) {
-            pendingAssistantDeltasRef.current.delete(data.id)
-            setAgentMessages((prev) => [...prev, pending])
-          }
-          setStreamingAssistantId((prev) => (prev === data.id ? null : prev));
-          lastAssistantDeltaRef.current.delete(data.id)
+          if (pending) pendingAssistantDeltasRef.current.delete(data.id)
+
+          const streamId = data.id
+          setAgentMessages((prev) => {
+            const withPending = pending
+              ? prev.map((entry) => {
+                  if (entry.role !== "assistant" || entry.id !== streamId) return entry
+                  return {
+                    ...entry,
+                    content: mergeAssistantStreamContent(entry.content, pending.content),
+                    ts: Math.max(Number(entry.ts || 0), Number(pending.ts || 0)),
+                    ...(pending.conversationId ? { conversationId: pending.conversationId } : {}),
+                  }
+                })
+              : prev
+            let fullContent = ""
+            let firstIdx = -1
+            const removeSet = new Set<number>()
+            for (let i = 0; i < withPending.length; i++) {
+              if (withPending[i].role === "assistant" && withPending[i].id === streamId) {
+                fullContent = mergeAssistantStreamContent(fullContent, withPending[i].content)
+                if (firstIdx === -1) firstIdx = i
+                else removeSet.add(i)
+              }
+            }
+            if (firstIdx === -1) return withPending
+            const repaired = repairAssistantReadability(fullContent)
+            const next: AgentMessage[] = []
+            for (let i = 0; i < withPending.length; i++) {
+              if (removeSet.has(i)) continue
+              next.push(i === firstIdx ? { ...withPending[i], content: repaired } : withPending[i])
+            }
+            return next
+          })
+
+          setStreamingAssistantId((prev) => (prev === streamId ? null : prev));
+          lastAssistantDeltaRef.current.delete(streamId)
         }
 
         if (
@@ -184,27 +378,27 @@ export function useNovaState() {
             return;
           }
           const dedupeContent = normalizeInboundMessageText(normalizedContent)
-          const now = Date.now()
+          const deltaTs = Number(data.ts || Date.now())
           const previousDelta = lastAssistantDeltaRef.current.get(data.id)
           if (
             previousDelta &&
             previousDelta.content === dedupeContent &&
-            now - previousDelta.ts <= EVENT_DEDUPE_MS
+            previousDelta.ts === deltaTs
           ) {
             return
           }
-          lastAssistantDeltaRef.current.set(data.id, { content: dedupeContent, ts: now })
-          if (markRecentEvent(`assistant_delta:${data.id}:${dedupeContent}`, EVENT_DEDUPE_MS)) {
+          lastAssistantDeltaRef.current.set(data.id, { content: dedupeContent, ts: deltaTs })
+          if (markRecentEvent(`assistant_delta:${data.id}:${deltaTs}:${dedupeContent}`, EVENT_DEDUPE_MS)) {
             return
           }
 
           const conversationId = normalizeConversationId(data.conversationId)
-          const ts = Number(data.ts || Date.now())
+          const ts = deltaTs
           const pending = pendingAssistantDeltasRef.current.get(data.id)
           if (pending) {
             pendingAssistantDeltasRef.current.set(data.id, {
               ...pending,
-              content: `${pending.content}${normalizedContent}`,
+              content: mergeAssistantStreamContent(pending.content, normalizedContent),
               ts,
               ...(conversationId ? { conversationId } : {}),
             })
@@ -230,6 +424,8 @@ export function useNovaState() {
           const normalizedContent = data.content.replace(/\r\n/g, "\n");
           const normalizedForDedupe = normalizeInboundMessageText(normalizedContent)
           if (!normalizedForDedupe) return
+          const conversationId = normalizeConversationId(data.conversationId)
+          const messageTs = Number(data.ts || Date.now())
           if (
             data.role === "user" &&
             (data.source === "hud" || data.sender === "hud-user")
@@ -243,12 +439,11 @@ export function useNovaState() {
           }
           if (
             data.role === "assistant" &&
-            markRecentEvent(`assistant_msg:${normalizedForDedupe}`, EVENT_DEDUPE_MS)
+            markRecentEvent(`assistant_msg:${conversationId}:${messageTs}:${normalizedForDedupe}`, EVENT_DEDUPE_MS)
           ) {
             return
           }
 
-          const conversationId = normalizeConversationId(data.conversationId)
           const messageMeta = data.meta && typeof data.meta === "object" ? data.meta : {}
           const nlpCleanText = typeof messageMeta.nlpCleanText === "string" ? messageMeta.nlpCleanText : undefined
           const nlpConfidenceRaw = Number(messageMeta.nlpConfidence)
@@ -256,12 +451,13 @@ export function useNovaState() {
           const nlpCorrectionCountRaw = Number(messageMeta.nlpCorrectionCount)
           const nlpCorrectionCount = Number.isFinite(nlpCorrectionCountRaw) ? nlpCorrectionCountRaw : undefined
           const nlpBypass = messageMeta.nlpBypass === true
+          const finalContent = data.role === "assistant" ? repairAssistantReadability(normalizedContent) : normalizedContent
           const msg: AgentMessage = {
             id: `agent-${data.ts}-${Math.random().toString(36).slice(2, 7)}`,
             role: data.role,
-            content: normalizedContent,
-            ts: data.ts,
-            source: data.source || "voice",
+            content: finalContent,
+            ts: messageTs,
+            source: data.source === "hud" ? "hud" : "voice",
             sender: data.sender,
             ...(conversationId ? { conversationId } : {}),
             ...(nlpCleanText ? { nlpCleanText } : {}),
@@ -269,8 +465,43 @@ export function useNovaState() {
             ...(typeof nlpCorrectionCount === "number" ? { nlpCorrectionCount } : {}),
             ...(nlpBypass ? { nlpBypass: true } : {}),
           };
-
-          setAgentMessages((prev) => [...prev, msg]);
+          setAgentMessages((prev) => {
+            if (msg.role !== "assistant") return [...prev, msg]
+            for (let i = prev.length - 1; i >= 0; i -= 1) {
+              const existing = prev[i]
+              if (existing.role !== "assistant") continue
+              const existingConversationId = normalizeConversationId(existing.conversationId)
+              if (conversationId || existingConversationId) {
+                if (!conversationId || !existingConversationId || conversationId !== existingConversationId) continue
+              }
+              const existingTs = Number(existing.ts || 0)
+              const closeInTime = Math.abs(messageTs - existingTs) <= ASSISTANT_MESSAGE_MERGE_WINDOW_MS
+              if (!closeInTime) continue
+              const sameText = normalizeInboundMessageText(existing.content) === normalizedForDedupe
+              const semanticallySame =
+                shouldPreferIncomingAssistantVersion(existing.content, finalContent)
+                || shouldPreferIncomingAssistantVersion(finalContent, existing.content)
+              if (!sameText && !semanticallySame) continue
+              const mergedContent = repairAssistantReadability(
+                mergeAssistantStreamContent(existing.content, finalContent),
+              )
+              const next = [...prev]
+              next[i] = {
+                ...existing,
+                content: mergedContent,
+                ts: Math.max(existingTs, messageTs),
+                source: msg.source || existing.source,
+                sender: msg.sender || existing.sender,
+                ...(conversationId ? { conversationId } : {}),
+                ...(nlpCleanText ? { nlpCleanText } : {}),
+                ...(typeof nlpConfidence === "number" ? { nlpConfidence } : {}),
+                ...(typeof nlpCorrectionCount === "number" ? { nlpCorrectionCount } : {}),
+                ...(nlpBypass ? { nlpBypass: true } : {}),
+              }
+              return next
+            }
+            return [...prev, msg]
+          });
         }
 
         if (data.type === "usage" && typeof data.model === "string" && (data.provider === "openai" || data.provider === "claude" || data.provider === "grok" || data.provider === "gemini")) {
@@ -295,6 +526,7 @@ export function useNovaState() {
         deltaFlushRafRef.current = null
       }
       pendingAssistantDeltas.clear()
+      hudMessageAckRef.current.clear()
       ws.close()
     };
   }, []);
@@ -308,6 +540,7 @@ export function useNovaState() {
       sender?: string
       sessionKey?: string
       messageId?: string
+      opToken?: string
       nlpBypass?: boolean
       userId?: string
       supabaseAccessToken?: string
@@ -329,6 +562,7 @@ export function useNovaState() {
           ...(options?.sender ? { sender: options.sender } : {}),
           ...(options?.sessionKey ? { sessionKey: options.sessionKey } : {}),
           ...(options?.messageId ? { messageId: options.messageId } : {}),
+          ...(options?.opToken ? { opToken: options.opToken } : {}),
           ...(options?.nlpBypass ? { nlpBypass: true } : {}),
           ...(options?.userId ? { userId: options.userId } : {}),
           ...(options?.supabaseAccessToken ? { supabaseAccessToken: options.supabaseAccessToken } : {}),
@@ -400,6 +634,8 @@ export function useNovaState() {
     connected,
     agentMessages,
     streamingAssistantId,
+    hudMessageAckVersion,
+    hasHudMessageAck,
     latestUsage,
     sendToAgent,
     interrupt,

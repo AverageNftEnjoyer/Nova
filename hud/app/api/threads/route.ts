@@ -11,6 +11,8 @@ type ApiMessage = {
   createdAt: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  sessionConversationId?: string
+  sessionKey?: string
   nlpCleanText?: string
   nlpConfidence?: number
   nlpCorrectionCount?: number
@@ -69,18 +71,34 @@ export async function GET(req: Request) {
   }
 
   const grouped = new Map<string, ApiMessage[]>()
+  const seenMessageIdsByThread = new Map<string, Set<string>>()
   for (const row of messages) {
+    const metadata = row.metadata && typeof row.metadata === "object"
+      ? (row.metadata as Record<string, unknown>)
+      : {}
+    const metadataMessageId = typeof metadata.clientMessageId === "string"
+      ? metadata.clientMessageId.trim()
+      : ""
+    const threadSeenIds = seenMessageIdsByThread.get(row.thread_id) || new Set<string>()
+    const normalizedRowId = String(row.id)
+    const stableMessageId = metadataMessageId && !threadSeenIds.has(metadataMessageId)
+      ? metadataMessageId
+      : normalizedRowId
+    threadSeenIds.add(stableMessageId)
+    seenMessageIdsByThread.set(row.thread_id, threadSeenIds)
     const entry: ApiMessage = {
-      id: String(row.id),
+      id: stableMessageId,
       role: row.role === "assistant" ? "assistant" : "user",
       content: String(row.content || ""),
       createdAt: String(row.created_at),
-      source: (row.metadata?.source as ApiMessage["source"]) || undefined,
-      sender: (row.metadata?.sender as string | undefined) || undefined,
-      nlpCleanText: (row.metadata?.nlpCleanText as string | undefined) || undefined,
-      nlpConfidence: Number.isFinite(Number(row.metadata?.nlpConfidence)) ? Number(row.metadata?.nlpConfidence) : undefined,
-      nlpCorrectionCount: Number.isFinite(Number(row.metadata?.nlpCorrectionCount)) ? Number(row.metadata?.nlpCorrectionCount) : undefined,
-      nlpBypass: row.metadata?.nlpBypass === true ? true : undefined,
+      source: (metadata.source as ApiMessage["source"]) || undefined,
+      sender: (metadata.sender as string | undefined) || undefined,
+      sessionConversationId: (metadata.sessionConversationId as string | undefined) || undefined,
+      sessionKey: (metadata.sessionKey as string | undefined) || undefined,
+      nlpCleanText: (metadata.nlpCleanText as string | undefined) || undefined,
+      nlpConfidence: Number.isFinite(Number(metadata.nlpConfidence)) ? Number(metadata.nlpConfidence) : undefined,
+      nlpCorrectionCount: Number.isFinite(Number(metadata.nlpCorrectionCount)) ? Number(metadata.nlpCorrectionCount) : undefined,
+      nlpBypass: metadata.nlpBypass === true ? true : undefined,
     }
     const list = grouped.get(row.thread_id) || []
     list.push(entry)

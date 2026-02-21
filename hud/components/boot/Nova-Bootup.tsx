@@ -5,6 +5,7 @@ import DecryptedText from "@/components/effects/DecryptedText"
 import GradientText from "@/components/effects/GradientText"
 import { AnimatedOrb } from "@/components/orb/animated-orb"
 import { BootRotatingGlobe } from "@/components/boot/boot-rotating-globe"
+import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { loadBootMusicBlob } from "@/lib/media/bootMusicStorage"
 import { playBootMusic } from "@/lib/media/bootMusicPlayer"
 import { loadUserSettings, ORB_COLORS, ACCENT_COLORS, type OrbColor, type AccentColor } from "@/lib/settings/userSettings"
@@ -176,8 +177,9 @@ const ARC_SEGMENTS = makeArcSegments()
 const TICK_MARKS = makeTickMarks(48, 85)
 const HEX_FLOATERS = makeHexFloaters(25)
 const DATA_TRACES = makeDataTraces(18)
-const BOOT_MUSIC_RETRY_MS = 1200
-const BOOT_MUSIC_MAX_ATTEMPTS = 8
+const BOOT_MUSIC_RETRY_MS = 400
+const BOOT_MUSIC_QUICK_RETRY_MS = 120
+const BOOT_MUSIC_MAX_ATTEMPTS = 12
 
 function arcPath(cx: number, cy: number, r: number, startAngle: number, span: number) {
   const s = (startAngle * Math.PI) / 180
@@ -215,7 +217,6 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     let attempts = 0
     let retryTimer: number | null = null
     let blobUrl: string | null = null
-    let blobChecked = false
     const settings = loadUserSettings()
     const nextOrbColor = settings.app.orbColor in ORB_COLORS ? (settings.app.orbColor as OrbColor) : "violet"
     const nextAccentColor = settings.app.accentColor in ACCENT_COLORS ? (settings.app.accentColor as AccentColor) : "violet"
@@ -223,47 +224,43 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     setBootOrbColor(nextOrbColor)
     setBootAccentColor(nextAccentColor)
     setBootAssistantName(nextAssistantName)
-    if (!settings.app.bootMusicEnabled) {
-      return () => {}
-    }
-    const hasConfiguredBootMusic = Boolean(settings.app.bootMusicDataUrl || settings.app.bootMusicAssetId)
-    if (!hasConfiguredBootMusic) {
-      return () => {}
-    }
 
     const tryPlayBootMusic = async () => {
       if (cancelled || started) return
 
+      const liveSettings = loadUserSettings()
+      if (!liveSettings.app.bootMusicEnabled) return
+      const hasConfiguredBootMusic = Boolean(liveSettings.app.bootMusicDataUrl || liveSettings.app.bootMusicAssetId)
+      if (!hasConfiguredBootMusic) return
       attempts += 1
+      const maxSeconds = liveSettings.app.extendedBootMusicEnabled ? null : 30
       let didStart = false
-      const maxSeconds = settings.app.extendedBootMusicEnabled ? null : 30
 
-      if (settings.app.bootMusicDataUrl) {
-        didStart = await playBootMusic(settings.app.bootMusicDataUrl, { maxSeconds, volume: 0.5 })
+      if (liveSettings.app.bootMusicDataUrl) {
+        didStart = await playBootMusic(liveSettings.app.bootMusicDataUrl, { maxSeconds, volume: 0.5 })
       }
 
-      if (!didStart && !blobChecked) {
-        blobChecked = true
+      if (!didStart && !blobUrl) {
         try {
-          const blob = await loadBootMusicBlob(settings.app.bootMusicAssetId || undefined)
+          const blob = await loadBootMusicBlob(liveSettings.app.bootMusicAssetId || undefined)
           if (cancelled) return
-          if (blob) {
-            blobUrl = URL.createObjectURL(blob)
-          }
+          if (blob) blobUrl = URL.createObjectURL(blob)
         } catch {
         }
       }
 
       if (!didStart && blobUrl) {
         didStart = await playBootMusic(blobUrl, { maxSeconds, volume: 0.5, objectUrl: blobUrl })
+        if (!didStart) blobUrl = null
       }
 
-      if (didStart) {
-        started = true
-      }
+      if (didStart) started = true
     }
 
     void tryPlayBootMusic()
+    const quickRetry = window.setTimeout(() => {
+      if (!started && !cancelled) void tryPlayBootMusic()
+    }, BOOT_MUSIC_QUICK_RETRY_MS)
     retryTimer = window.setInterval(() => {
       if (started || attempts >= BOOT_MUSIC_MAX_ATTEMPTS) {
         if (retryTimer !== null) {
@@ -275,24 +272,17 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
       void tryPlayBootMusic()
     }, BOOT_MUSIC_RETRY_MS)
 
-    const unlockAndRetry = () => {
+    const onUserChanged = () => {
       if (started || cancelled) return
       void tryPlayBootMusic()
     }
-
-    const unlockEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart", "mousedown", "focus"]
-    for (const eventName of unlockEvents) {
-      window.addEventListener(eventName, unlockAndRetry, { passive: true })
-    }
+    window.addEventListener(ACTIVE_USER_CHANGED_EVENT, onUserChanged as EventListener)
 
     return () => {
       cancelled = true
-      if (retryTimer !== null) {
-        window.clearInterval(retryTimer)
-      }
-      for (const eventName of unlockEvents) {
-        window.removeEventListener(eventName, unlockAndRetry)
-      }
+      window.clearTimeout(quickRetry)
+      if (retryTimer !== null) window.clearInterval(retryTimer)
+      window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, onUserChanged as EventListener)
     }
   }, [])
 

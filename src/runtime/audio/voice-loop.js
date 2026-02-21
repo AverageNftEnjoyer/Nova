@@ -69,7 +69,7 @@ export async function startVoiceLoop(deps) {
         typeof wakeWordRuntime?.getPrimaryWakeWord === "function"
           ? wakeWordRuntime.getPrimaryWakeWord()
           : "nova";
-      let text = await transcribe(micCapturePath, wakeWordHint);
+      let text = await transcribe(micCapturePath, wakeWordHint, "local-mic");
       try { fs.unlinkSync(micCapturePath); } catch {}
 
       if (!text || !text.trim()) {
@@ -79,7 +79,7 @@ export async function startVoiceLoop(deps) {
           try { fs.unlinkSync(retryPath); } catch {}
           continue;
         }
-        text = await transcribe(retryPath, wakeWordHint);
+        text = await transcribe(retryPath, wakeWordHint, "local-mic");
         try { fs.unlinkSync(retryPath); } catch {}
       }
 

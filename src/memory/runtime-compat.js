@@ -148,6 +148,22 @@ function isWeakPreferenceValue(value) {
   return !normalized || ["this", "that", "it", "things", "stuff"].includes(normalized);
 }
 
+function extractPreferredNameFromText(text) {
+  const source = String(text || "");
+  if (!source) return "";
+  const patterns = [
+    /\b(?:you can\s+)?call me(?:\s+by)?\s+([a-z][a-z0-9' -]{1,40}?)(?=(?:\s+(?:and|but|so|then|because|while|if|when)\b|[,.!?;:]|$))/i,
+    /\brefer to me as\s+([a-z][a-z0-9' -]{1,40}?)(?=(?:\s+(?:and|but|so|then|because|while|if|when)\b|[,.!?;:]|$))/i,
+    /(?:^|\b)(?:my name is|i am called|i go by)\s+([a-z][a-z0-9' -]{1,40}?)(?=(?:\s+(?:and|but|so|then|because|while|if|when)\b|[,.!?;:]|$))/i,
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    const candidate = sanitizeValue(match?.[1] || "");
+    if (candidate) return candidate;
+  }
+  return "";
+}
+
 function pushCandidate(out, fact, key) {
   const normalizedFact = normalizeFactText(fact);
   if (!normalizedFact) return;
@@ -167,20 +183,9 @@ export function extractAutoMemoryFacts(input) {
   const text = raw.replace(/\s+/g, " ");
   const out = [];
 
-  const callMe = text.match(/(?:^|\b)call me\s+([a-z][a-z0-9' -]{1,40})$/i);
-  if (callMe) {
-    const preferredName = sanitizeValue(callMe[1]);
-    if (preferredName) {
-      pushCandidate(out, `My preferred name is ${preferredName}`, "preferred-name");
-    }
-  }
-
-  const myName = text.match(/^(?:my name is|i am called|i go by)\s+([a-z][a-z0-9' -]{1,40})$/i);
-  if (myName) {
-    const preferredName = sanitizeValue(myName[1]);
-    if (preferredName) {
-      pushCandidate(out, `My preferred name is ${preferredName}`, "preferred-name");
-    }
+  const preferredName = extractPreferredNameFromText(text);
+  if (preferredName) {
+    pushCandidate(out, `My preferred name is ${preferredName}`, "preferred-name");
   }
 
   const timezone = text.match(/^(?:my|our)\s+(?:timezone|time zone)\s+(?:is|=)\s+([a-z0-9_/:+\- ]{2,80})$/i);

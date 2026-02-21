@@ -5,11 +5,14 @@ import { requireSupabaseApiUser } from "@/lib/supabase/server"
 export const runtime = "nodejs"
 
 type IncomingMessage = {
+  id?: string
   role: "user" | "assistant"
   content: string
   createdAt: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  sessionConversationId?: string
+  sessionKey?: string
   nlpCleanText?: string
   nlpConfidence?: number
   nlpCorrectionCount?: number
@@ -58,8 +61,17 @@ export async function PUT(
       role: m.role === "assistant" ? "assistant" : "user",
       content: String(m.content || ""),
       metadata: {
+        clientMessageId:
+          typeof m.id === "string" && m.id.trim()
+            ? m.id.trim()
+            : null,
         source: m.source || null,
         sender: m.sender || null,
+        sessionConversationId:
+          typeof m.sessionConversationId === "string" && m.sessionConversationId.trim()
+            ? m.sessionConversationId.trim()
+            : null,
+        sessionKey: typeof m.sessionKey === "string" && m.sessionKey.trim() ? m.sessionKey.trim() : null,
         nlpCleanText: typeof m.nlpCleanText === "string" ? m.nlpCleanText : null,
         nlpConfidence: Number.isFinite(Number(m.nlpConfidence)) ? Number(m.nlpConfidence) : null,
         nlpCorrectionCount: Number.isFinite(Number(m.nlpCorrectionCount)) ? Number(m.nlpCorrectionCount) : null,

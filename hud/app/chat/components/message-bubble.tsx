@@ -46,6 +46,7 @@ export function MessageBubble({
   const displayedContentRef = useRef(message.content || "")
   const revealLastAtRef = useRef<number>(0)
   const revealCarryRef = useRef<number>(0)
+  const lastRevealMessageIdRef = useRef<string>(message.id)
 
   useEffect(() => {
     const syncAvatar = () => setAvatar(loadUserSettings().profile.avatar ?? null)
@@ -71,9 +72,10 @@ export function MessageBubble({
   }, [displayedContent])
 
   useEffect(() => {
-    revealTargetRef.current = message.content || ""
+    const raw = message.content || ""
     if (isUser) {
-      setDisplayedContent(revealTargetRef.current)
+      revealTargetRef.current = raw
+      setDisplayedContent(raw)
       if (revealFrameRef.current !== null) {
         cancelAnimationFrame(revealFrameRef.current)
         revealFrameRef.current = null
@@ -81,6 +83,13 @@ export function MessageBubble({
       revealLastAtRef.current = 0
       revealCarryRef.current = 0
       return
+    }
+    if (lastRevealMessageIdRef.current !== message.id) {
+      lastRevealMessageIdRef.current = message.id
+      revealTargetRef.current = raw
+      setDisplayedContent(raw.length > 0 ? raw : "")
+    } else if (raw.length > revealTargetRef.current.length) {
+      revealTargetRef.current = raw
     }
 
     const tick = () => {
@@ -115,7 +124,7 @@ export function MessageBubble({
       if (revealFrameRef.current === null) {
         revealFrameRef.current = requestAnimationFrame(tick)
       }
-    } else if (!isStreaming) {
+    } else if (!isStreaming && target.length >= current.length) {
       setDisplayedContent(target)
       if (revealFrameRef.current !== null) {
         cancelAnimationFrame(revealFrameRef.current)
@@ -147,7 +156,7 @@ export function MessageBubble({
 
   if (!isUser) {
     return (
-      <div className="flex w-full min-w-0 items-start gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="flex w-full min-w-0 items-start gap-2">
         <NovaOrbIndicator palette={orbPalette} size={28} animated={orbAnimated} className="mt-1.5 shrink-0" />
         <div className={cn("flex min-w-0 flex-col items-start", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
           <div
@@ -160,7 +169,6 @@ export function MessageBubble({
             style={{
               boxShadow: "none",
               willChange: isStreaming ? "height" : "auto",
-              transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           >
             <div
@@ -169,9 +177,6 @@ export function MessageBubble({
                   ? "px-4 py-2"
                   : "px-4 py-3"
               )}
-              style={{
-                transition: "max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
-              }}
             >
               <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7 text-sm" />
             </div>
@@ -196,14 +201,10 @@ export function MessageBubble({
           style={{
             boxShadow: "none",
             willChange: isStreaming ? "height" : "auto",
-            transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
           }}
         >
           <div
             className={cn(isUser ? (compactMode ? "px-4 py-2" : "px-4 py-3") : compactMode ? "py-1" : "py-1.5")}
-            style={{
-              transition: "max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease",
-            }}
           >
             <div className="flex flex-col gap-2">
               {message.imageData && (
@@ -217,7 +218,7 @@ export function MessageBubble({
                   />
                 </div>
               )}
-              <p className="text-sm whitespace-pre-wrap wrap-break-word">{message.content}</p>
+              <p className="text-sm whitespace-pre-wrap wrap-break-word wrap-anywhere">{message.content}</p>
             </div>
           </div>
         </div>

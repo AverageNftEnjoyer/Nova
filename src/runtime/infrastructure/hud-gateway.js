@@ -31,6 +31,7 @@ const wsUserRateWindow = new Map();
 const wsByUserContext = new Map();
 const wsContextBySocket = new WeakMap();
 const conversationOwnerById = new Map();
+const hudOpTokenStateByKey = new Map();
 const hudRequestScheduler = createRequestScheduler();
 let hudWorkInFlight = 0;
 
@@ -83,6 +84,15 @@ const CONVERSATION_OWNER_TTL_MS = Math.max(
     Number.parseInt(process.env.NOVA_CONVERSATION_OWNER_TTL_MS || String(6 * 60 * 60 * 1000), 10) || 6 * 60 * 60 * 1000,
   ),
 );
+const HUD_OP_TOKEN_TTL_MS = Math.max(
+  60_000,
+  Math.min(
+    60 * 60 * 1000,
+    Number.parseInt(process.env.NOVA_HUD_OP_TOKEN_TTL_MS || String(10 * 60 * 1000), 10) || 10 * 60 * 1000,
+  ),
+);
+
+let lastHudOpTokenGcAt = 0;
 
 let lastWsUserRateGcAt = 0;
 let lastConversationOwnerGcAt = 0;
@@ -209,6 +219,91 @@ function checkWsUserRateLimit(userId) {
   const result = checkWindowRateLimit(existing, nowMs, WS_USER_RATE_MAX, WS_USER_RATE_WINDOW_MS);
   wsUserRateWindow.set(key, existing);
   return result;
+}
+
+function normalizeHudOpToken(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) return "";
+  if (normalized.length > 160) return "";
+  return normalized;
+}
+
+function buildHudOpTokenKey(userContextId, opToken) {
+  const normalizedUserContextId = normalizeUserContextId(userContextId);
+  const normalizedOpToken = normalizeHudOpToken(opToken);
+  if (!normalizedUserContextId || !normalizedOpToken) return "";
+  return `${normalizedUserContextId}:${normalizedOpToken}`;
+}
+
+function gcHudOpTokenStore(nowMs = Date.now()) {
+  if (nowMs - lastHudOpTokenGcAt < 30_000) return;
+  lastHudOpTokenGcAt = nowMs;
+  for (const [key, entry] of hudOpTokenStateByKey.entries()) {
+    if (!entry || nowMs - Number(entry.updatedAt || 0) > HUD_OP_TOKEN_TTL_MS) {
+      hudOpTokenStateByKey.delete(key);
+    }
+  }
+}
+
+function reserveHudOpToken(userContextId, opToken, conversationId = "") {
+  const key = buildHudOpTokenKey(userContextId, opToken);
+  if (!key) return { status: "disabled", key: "", conversationId: "" };
+
+  const normalizedConversationId = normalizeConversationId(conversationId);
+  const nowMs = Date.now();
+  gcHudOpTokenStore(nowMs);
+
+  const existing = hudOpTokenStateByKey.get(key);
+  if (existing && nowMs - Number(existing.updatedAt || 0) <= HUD_OP_TOKEN_TTL_MS) {
+    return {
+      status: existing.status === "accepted" ? "duplicate_accepted" : "duplicate_pending",
+      key,
+      conversationId: String(existing.conversationId || normalizedConversationId || ""),
+    };
+  }
+
+  hudOpTokenStateByKey.set(key, {
+    status: "pending",
+    updatedAt: nowMs,
+    conversationId: normalizedConversationId,
+  });
+  return { status: "reserved", key, conversationId: normalizedConversationId };
+}
+
+function markHudOpTokenAccepted(key, conversationId = "") {
+  if (!key) return;
+  const existing = hudOpTokenStateByKey.get(key);
+  if (!existing) return;
+  existing.status = "accepted";
+  existing.updatedAt = Date.now();
+  const normalizedConversationId = normalizeConversationId(conversationId);
+  if (normalizedConversationId) existing.conversationId = normalizedConversationId;
+  hudOpTokenStateByKey.set(key, existing);
+}
+
+function releaseHudOpTokenReservation(key) {
+  if (!key) return;
+  hudOpTokenStateByKey.delete(key);
+}
+
+function sendHudMessageAck(ws, {
+  opToken = "",
+  conversationId = "",
+  userContextId = "",
+  duplicate = false,
+} = {}) {
+  const normalizedOpToken = normalizeHudOpToken(opToken);
+  if (!normalizedOpToken || !ws || ws.readyState !== 1) return;
+  const normalizedConversationId = normalizeConversationId(conversationId);
+  const normalizedUserContextId = normalizeUserContextId(userContextId);
+  ws.send(JSON.stringify({
+    type: "hud_message_ack",
+    opToken: normalizedOpToken,
+    ...(normalizedConversationId ? { conversationId: normalizedConversationId } : {}),
+    ...(normalizedUserContextId ? { userContextId: normalizedUserContextId } : {}),
+    duplicate: duplicate === true,
+    ts: Date.now(),
+  }));
 }
 
 export function broadcast(payload, opts = {}) {
@@ -537,6 +632,28 @@ export function startGateway() {
             return;
           }
 
+          const opToken = normalizeHudOpToken(typeof data.opToken === "string" ? data.opToken : "");
+          let reservedOpTokenKey = "";
+          let opTokenAccepted = false;
+          if (opToken) {
+            const reservation = reserveHudOpToken(incomingUserId, opToken, conversationId);
+            if (reservation.status === "duplicate_accepted") {
+              sendHudMessageAck(ws, {
+                opToken,
+                conversationId: reservation.conversationId || conversationId,
+                userContextId: incomingUserId,
+                duplicate: true,
+              });
+              return;
+            }
+            if (reservation.status === "duplicate_pending") {
+              return;
+            }
+            if (reservation.status === "reserved") {
+              reservedOpTokenKey = reservation.key;
+            }
+          }
+
           try {
             const lane = classifyHudRequestLane(data.content);
             await hudRequestScheduler.enqueue({
@@ -545,6 +662,16 @@ export function startGateway() {
               conversationId: conversationId || "",
               supersedeKey: conversationId || "",
               run: async () => {
+                if (opToken && reservedOpTokenKey && !opTokenAccepted) {
+                  markHudOpTokenAccepted(reservedOpTokenKey, conversationId);
+                  opTokenAccepted = true;
+                  sendHudMessageAck(ws, {
+                    opToken,
+                    conversationId,
+                    userContextId: incomingUserId,
+                    duplicate: false,
+                  });
+                }
                 markHudWorkStart();
                 try {
                   await _handleInput(data.content, {
@@ -584,6 +711,9 @@ export function startGateway() {
               },
             });
           } catch (err) {
+            if (reservedOpTokenKey && !opTokenAccepted) {
+              releaseHudOpTokenReservation(reservedOpTokenKey);
+            }
             const details = toErrorDetails(err);
             const code = String(err?.code || details.code || "").trim().toLowerCase();
             const retryAfterMs = Number(err?.retryAfterMs || 0);
@@ -596,6 +726,7 @@ export function startGateway() {
                 0,
                 incomingUserId,
               );
+              broadcastState("idle", incomingUserId);
               return;
             }
             if (code === "queue_full" || code === "queue_stale") {
@@ -608,6 +739,7 @@ export function startGateway() {
                 retryAfterMs,
                 incomingUserId,
               );
+              broadcastState("idle", incomingUserId);
               return;
             }
             console.error(

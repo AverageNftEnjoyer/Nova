@@ -40,7 +40,6 @@ export interface ResolveChatRuntimeOptions {
 export interface RuntimePaths {
   workspaceRoot: string;
   integrationsConfigPath: string;
-  encryptionKeyPath: string;
   userContextRoot: string;
   hudRoot: string;
 }
@@ -120,7 +119,6 @@ export function resolveRuntimePaths(workspaceRoot = process.cwd()): RuntimePaths
   return {
     workspaceRoot: root,
     integrationsConfigPath,
-    encryptionKeyPath: path.join(root, "hud", "data", ".nova_encryption_key"),
     userContextRoot: path.join(root, ".agent", "user-context"),
     hudRoot,
   };
@@ -138,51 +136,10 @@ function deriveEncryptionKeyMaterial(rawValue: unknown): Buffer | null {
   return createHash("sha256").update(raw).digest();
 }
 
-function readEnvValueFromFile(envPath: string, key: string): string {
-  try {
-    if (!fs.existsSync(envPath)) return "";
-    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const idx = trimmed.indexOf("=");
-      if (idx <= 0) continue;
-      const candidateKey = trimmed.slice(0, idx).trim();
-      if (candidateKey !== key) continue;
-      let value = trimmed.slice(idx + 1).trim();
-      if (
-        (value.startsWith("\"") && value.endsWith("\"")) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      return value.trim();
-    }
-  } catch {
-    // ignore
-  }
-  return "";
-}
-
 export function getEncryptionKeyMaterials(paths = resolveRuntimePaths()): Buffer[] {
   const candidates: string[] = [];
   const envKey = toNonEmptyString(process.env.NOVA_ENCRYPTION_KEY);
   if (envKey) candidates.push(envKey);
-
-  const hudLocalEnvKey = readEnvValueFromFile(path.join(paths.hudRoot, ".env.local"), "NOVA_ENCRYPTION_KEY");
-  if (hudLocalEnvKey) candidates.push(hudLocalEnvKey);
-
-  const rootEnvKey = readEnvValueFromFile(path.join(paths.hudRoot, "..", "..", ".env"), "NOVA_ENCRYPTION_KEY");
-  if (rootEnvKey) candidates.push(rootEnvKey);
-
-  try {
-    if (fs.existsSync(paths.encryptionKeyPath)) {
-      const fileRaw = fs.readFileSync(paths.encryptionKeyPath, "utf8").trim();
-      if (fileRaw) candidates.push(fileRaw);
-    }
-  } catch {
-    // ignore
-  }
 
   const materials: Buffer[] = [];
   const seen = new Set<string>();
@@ -264,46 +221,13 @@ function normalizeUserContextId(value: unknown): string {
 }
 
 function resolveIntegrationsConfigPath(userContextId: string, paths: RuntimePaths): string {
-  const normalized = normalizeUserContextId(userContextId);
-  if (!normalized) return paths.integrationsConfigPath;
+  const normalized = normalizeUserContextId(userContextId) || "anonymous";
   return path.join(paths.userContextRoot, normalized, USER_CONTEXT_INTEGRATIONS_FILE);
-}
-
-function readFirstEnvCandidate(keys: string[], hudRoot: string): string {
-  for (const key of keys) {
-    const fromProcess = toNonEmptyString(process.env[key]);
-    if (fromProcess) return fromProcess;
-  }
-
-  const envPaths = [
-    path.join(hudRoot, ".env.local"),
-    path.join(hudRoot, "..", ".env"),
-  ];
-  for (const envPath of envPaths) {
-    for (const key of keys) {
-      const fromFile = readEnvValueFromFile(envPath, key);
-      if (fromFile) return fromFile;
-    }
-  }
-  return "";
 }
 
 function resolveProviderApiKey(provider: ProviderName, integrationApiKey: unknown, paths: RuntimePaths): string {
   const fromIntegration = unwrapStoredSecret(integrationApiKey, paths);
-  if (provider === "openai") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_OPENAI_API_KEY", "OPENAI_API_KEY"], paths.hudRoot);
-    return toNonEmptyString(fromEnv || fromIntegration);
-  }
-  if (provider === "claude") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"], paths.hudRoot);
-    return toNonEmptyString(fromEnv || fromIntegration);
-  }
-  if (provider === "grok") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_GROK_API_KEY", "XAI_API_KEY", "GROK_API_KEY"], paths.hudRoot);
-    return toNonEmptyString(fromEnv || fromIntegration);
-  }
-  const fromEnv = readFirstEnvCandidate(["NOVA_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"], paths.hudRoot);
-  return toNonEmptyString(fromEnv || fromIntegration);
+  return toNonEmptyString(fromIntegration);
 }
 
 function resolveProviderConnectedState(connectedFlag: unknown, apiKey: string): boolean {
@@ -447,10 +371,8 @@ export function loadIntegrationsRuntime(options?: {
   workspaceRoot?: string;
 }): IntegrationsRuntime {
   const paths = resolveRuntimePaths(options?.workspaceRoot);
-  const configPath = resolveIntegrationsConfigPath(String(options?.userContextId || ""), paths);
-  if (options?.userContextId && configPath !== paths.integrationsConfigPath && !fs.existsSync(configPath)) {
-    return loadIntegrationsRuntime({ workspaceRoot: paths.workspaceRoot });
-  }
+  const resolvedUserContextId = normalizeUserContextId(options?.userContextId || "") || "anonymous";
+  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, paths);
 
   try {
     const raw = fs.readFileSync(configPath, "utf8");
@@ -495,29 +417,27 @@ export function loadIntegrationsRuntime(options?: {
       },
     };
   } catch {
-    const openaiApiKey = resolveProviderApiKey("openai", "", paths);
-    const claudeApiKey = resolveProviderApiKey("claude", "", paths);
-    const grokApiKey = resolveProviderApiKey("grok", "", paths);
-    const geminiApiKey = resolveProviderApiKey("gemini", "", paths);
     return {
       sourcePath: configPath,
       activeProvider: "openai",
-      openai: { connected: Boolean(openaiApiKey), apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: Boolean(claudeApiKey), apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: Boolean(grokApiKey), apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: Boolean(geminiApiKey), apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
+      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
     };
   }
 }
 
-export function loadOpenAiIntegrationRuntime(options?: { workspaceRoot?: string }): {
+export function loadOpenAiIntegrationRuntime(options?: { userContextId?: string; workspaceRoot?: string }): {
   apiKey: string;
   baseURL: string;
   model: string;
 } {
   const paths = resolveRuntimePaths(options?.workspaceRoot);
+  const resolvedUserContextId = normalizeUserContextId(options?.userContextId || "") || "anonymous";
+  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, paths);
   try {
-    const raw = fs.readFileSync(paths.integrationsConfigPath, "utf8");
+    const raw = fs.readFileSync(configPath, "utf8");
     const parsed = toRecord(JSON.parse(raw));
     const integration = toRecord(parsed.openai);
     const apiKey = resolveProviderApiKey("openai", integration.apiKey, paths);
@@ -526,7 +446,7 @@ export function loadOpenAiIntegrationRuntime(options?: { workspaceRoot?: string 
     return { apiKey, baseURL, model };
   } catch {
     return {
-      apiKey: resolveProviderApiKey("openai", "", paths),
+      apiKey: "",
       baseURL: DEFAULT_OPENAI_BASE_URL,
       model: DEFAULT_CHAT_MODEL,
     };

@@ -134,7 +134,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       const codeMatch = remaining.match(/^`([^`]+)`/)
       if (codeMatch) {
         elements.push(
-          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300" style={{ backgroundColor: "var(--code-bg)" }}>
+          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300 wrap-anywhere" style={{ backgroundColor: "var(--code-bg)" }}>
             {codeMatch[1]}
           </code>,
         )
@@ -193,7 +193,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       const codeMatch = remaining.match(/^`([^`]+)`/)
       if (codeMatch) {
         elements.push(
-          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300" style={{ backgroundColor: "var(--code-bg)" }}>
+          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300 wrap-anywhere" style={{ backgroundColor: "var(--code-bg)" }}>
             {codeMatch[1]}
           </code>,
         )
@@ -284,7 +284,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
     return (
       <pre
         key={partIndex}
-        className="my-2 p-3 text-s-80 rounded-lg overflow-x-auto text-sm font-mono"
+        className="my-2 max-w-full p-3 text-s-80 rounded-lg overflow-x-auto text-sm font-mono"
         style={{
           backgroundColor: "var(--code-block-bg)",
           border: "1px solid var(--code-block-border)",
@@ -317,7 +317,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
   }
 
   return (
-    <div className={cn("text-sm whitespace-pre-wrap wrap-break-word wrap-anywhere", className)}>
+    <div className={cn("min-w-0 max-w-full text-sm whitespace-pre-wrap wrap-break-word wrap-anywhere", className)}>
       {renderContent(staticContent, false)}
       {renderContent(animatingContent, true)}
     </div>

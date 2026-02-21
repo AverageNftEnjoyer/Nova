@@ -74,6 +74,8 @@ export function SettingInput({
   value,
   onChange,
   placeholder,
+  maxLength,
+  errorText,
   isLight = false,
 }: {
   label: string
@@ -81,6 +83,8 @@ export function SettingInput({
   value: string
   onChange: (v: string) => void
   placeholder?: string
+  maxLength?: number
+  errorText?: string
   isLight?: boolean
 }) {
   return (
@@ -92,8 +96,12 @@ export function SettingInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        maxLength={maxLength}
         className={getSettingsFieldClass(isLight)}
       />
+      {errorText ? (
+        <p className={cn("mt-2 text-[11px]", isLight ? "text-rose-600" : "text-rose-300")}>{errorText}</p>
+      ) : null}
     </div>
   )
 }

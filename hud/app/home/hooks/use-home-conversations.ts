@@ -16,8 +16,7 @@ import {
   type Conversation,
 } from "@/lib/chat/conversations"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
-
-const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
+import { generateHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
 
 interface AgentMessage {
   id: string
@@ -192,7 +191,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     }
   }, [agentMessages, conversations, persistConversations, clearAgentMessages, router])
 
-  const handleSend = useCallback(async (finalText: string) => {
+  const handleSend = useCallback((finalText: string) => {
     const text = finalText.trim()
     if (!text || !connected) return
 
@@ -208,36 +207,33 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
       currentTitle: DEFAULT_CONVERSATION_TITLE,
       conversations,
     })
-    const convo = await createServerConversation(
-      seededTitle,
-    ).catch(() => null)
-    if (!convo) return
-
-    const seededConvo: Conversation = {
-      ...convo,
+    // Optimistic local conversation so we can navigate immediately
+    const optimisticConvo: Conversation = {
+      ...createConversation(),
       messages: [provisionalUserMessage],
       title: seededTitle,
       updatedAt: new Date().toISOString(),
     }
-    await syncServerMessages(seededConvo).catch(() => {})
 
-    const next = [seededConvo, ...conversations.filter((existing) => existing.id !== seededConvo.id)]
+    const next = [optimisticConvo, ...conversations.filter((existing) => existing.id !== optimisticConvo.id)]
     persistConversations(next)
-    setActiveId(seededConvo.id)
+    setActiveId(optimisticConvo.id)
     try {
       sessionStorage.setItem(
         PENDING_CHAT_SESSION_KEY,
         JSON.stringify({
-          convoId: seededConvo.id,
+          convoId: optimisticConvo.id,
           content: finalText,
           messageId: provisionalUserMessage.id,
+          opToken: generateHandoffOperationToken(),
           messageCreatedAt: provisionalUserMessage.createdAt,
           createdAt: Date.now(),
         }),
       )
     } catch {}
     router.push("/chat")
-  }, [connected, conversations, createServerConversation, persistConversations, router, syncServerMessages])
+    // Server create/sync runs on the chat page so it can replace the optimistic convo in state
+  }, [connected, conversations, persistConversations, router])
 
   const handleSelectConvo = useCallback(async (id: string) => {
     const local = conversations.find((entry) => entry.id === id)

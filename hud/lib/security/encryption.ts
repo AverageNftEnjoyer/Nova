@@ -1,52 +1,11 @@
 import "server-only"
 
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import path from "node:path"
-
-const DEV_FALLBACK_KEY = randomBytes(32)
-let cachedLocalKey: Buffer | null = null
-
-function getLocalKeyPath(): string {
-  return path.join(process.cwd(), "data", ".nova_encryption_key")
-}
-
-function loadOrCreateLocalKey(): Buffer {
-  if (cachedLocalKey) return cachedLocalKey
-
-  const keyPath = getLocalKeyPath()
-  try {
-    if (existsSync(keyPath)) {
-      const raw = readFileSync(keyPath, "utf8").trim()
-      const decoded = Buffer.from(raw, "base64")
-      if (decoded.length === 32) {
-        cachedLocalKey = decoded
-        return decoded
-      }
-    }
-  } catch {
-    // fall through to regenerate
-  }
-
-  try {
-    mkdirSync(path.dirname(keyPath), { recursive: true })
-    const generated = randomBytes(32)
-    writeFileSync(keyPath, generated.toString("base64"), { encoding: "utf8" })
-    cachedLocalKey = generated
-    return generated
-  } catch {
-    return DEV_FALLBACK_KEY
-  }
-}
 
 function getKeyMaterial(): Buffer {
   const raw = String(process.env.NOVA_ENCRYPTION_KEY || "").trim()
   if (!raw) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("NOVA_ENCRYPTION_KEY is required in production.")
-    }
-    // Dev fallback: persist a local key file so encrypted secrets survive app restarts.
-    return loadOrCreateLocalKey()
+    throw new Error("NOVA_ENCRYPTION_KEY is required.")
   }
 
   try {

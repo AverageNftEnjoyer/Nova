@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { setActiveUserId } from "@/lib/auth/active-user"
 import {
+  isBlockedAssistantName,
   loadUserSettings,
+  MAX_ASSISTANT_NAME_LENGTH,
   saveUserSettings,
   resetSettings,
   type UserSettings,
@@ -318,7 +320,14 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
 
   const updatePersonalization = useCallback((key: string, value: string | string[]) => {
     if (!settings) return
-    const newSettings = { ...settings, personalization: { ...settings.personalization, [key]: value } }
+    const nextValue =
+      key === "assistantName" && typeof value === "string"
+        ? (() => {
+            const candidate = value.trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
+            return isBlockedAssistantName(candidate) ? "Nova" : candidate
+          })()
+        : value
+    const newSettings = { ...settings, personalization: { ...settings.personalization, [key]: nextValue } }
     autoSave(newSettings, { syncWorkspace: true })
     if (key === "communicationStyle" || key === "tone") {
       queueWorkspaceContextSync(newSettings, { immediate: true })

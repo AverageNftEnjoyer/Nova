@@ -5,7 +5,6 @@
 import fs from "fs";
 import path from "path";
 import {
-  INTEGRATIONS_CONFIG_PATH,
   ROOT_WORKSPACE_DIR,
   USER_CONTEXT_ROOT,
   BOOTSTRAP_BASELINE_DIR,
@@ -83,13 +82,15 @@ export function logUpgradeIndexSummary() {
 }
 
 // ===== Preflight diagnostics =====
-function readIntegrationsConfigSnapshot() {
-  if (!fs.existsSync(INTEGRATIONS_CONFIG_PATH)) return { exists: false, parsed: null, parseError: null };
+function readIntegrationsConfigSnapshot(userContextId = "") {
+  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
+  const filePath = path.join(USER_CONTEXT_ROOT, normalized, "integrations-config.json");
+  if (!fs.existsSync(filePath)) return { exists: false, parsed: null, parseError: null, filePath };
   try {
-    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
-    return { exists: true, parsed: JSON.parse(raw), parseError: null };
+    const raw = fs.readFileSync(filePath, "utf8");
+    return { exists: true, parsed: JSON.parse(raw), parseError: null, filePath };
   } catch (err) {
-    return { exists: true, parsed: null, parseError: describeUnknownError(err) };
+    return { exists: true, parsed: null, parseError: describeUnknownError(err), filePath };
   }
 }
 
@@ -126,42 +127,38 @@ function providerDisplayName(provider) {
 }
 
 export function logAgentRuntimePreflight() {
-  const snapshot = readIntegrationsConfigSnapshot();
   const scopedContextIds = listScopedIntegrationContextIds();
-  if (!snapshot.exists && scopedContextIds.length === 0) {
-    console.warn(`[Preflight] Missing integrations config at ${INTEGRATIONS_CONFIG_PATH}`);
+  if (scopedContextIds.length === 0) {
+    console.warn(`[Preflight] Missing user-scoped integrations config files under ${USER_CONTEXT_ROOT}.`);
     return;
   }
-  if (snapshot.parseError) console.error(`[Preflight] Invalid integrations config JSON: ${snapshot.parseError}`);
-
-  const miskeys = extractIntegrationMiskeys(snapshot.parsed);
-  for (const hint of miskeys) console.warn(`[Preflight] ${hint}`);
-
-  const runtime = loadIntegrationsRuntime();
-  const active = resolveConfiguredChatRuntime(runtime, { strictActiveProvider: !ENABLE_PROVIDER_FALLBACK });
 
   let hasScopedReadyProvider = false;
   let hasScopedOpenAiKey = false;
+  let scopedActiveExample = null;
   for (const contextId of scopedContextIds) {
+    const snapshot = readIntegrationsConfigSnapshot(contextId);
+    if (snapshot.parseError) {
+      console.error(`[Preflight] Invalid scoped integrations config JSON (${contextId}): ${snapshot.parseError}`);
+    }
+    const miskeys = extractIntegrationMiskeys(snapshot.parsed);
+    for (const hint of miskeys) console.warn(`[Preflight] (${contextId}) ${hint}`);
+
     const scopedRuntime = loadIntegrationsRuntime({ userContextId: contextId });
     const scopedActive = resolveConfiguredChatRuntime(scopedRuntime, { strictActiveProvider: !ENABLE_PROVIDER_FALLBACK });
+    if (!scopedActiveExample) scopedActiveExample = scopedActive;
     if (scopedActive.connected && String(scopedActive.apiKey || "").trim()) hasScopedReadyProvider = true;
     if (String(scopedRuntime?.openai?.apiKey || "").trim()) hasScopedOpenAiKey = true;
     if (hasScopedReadyProvider && hasScopedOpenAiKey) break;
   }
 
-  const globalActiveReady = active.connected && String(active.apiKey || "").trim().length > 0;
-  if (!globalActiveReady && !hasScopedReadyProvider) {
-    console.warn(`[Preflight] Active provider is ${providerDisplayName(active.provider)} but no API key is configured. Chat requests will fail until configured.`);
-  } else if (!globalActiveReady && hasScopedReadyProvider) {
-    console.log("[Preflight] Global integrations are missing an active provider key, but user-scoped runtime keys were found.");
+  const activeProviderLabel = providerDisplayName(String(scopedActiveExample?.provider || "openai"));
+  if (!hasScopedReadyProvider) {
+    console.warn(`[Preflight] Active provider is ${activeProviderLabel} but no scoped API key is configured. Chat requests will fail until configured.`);
   }
 
-  const globalOpenAiKey = String(runtime.openai.apiKey || "").trim();
-  if (!globalOpenAiKey && !hasScopedOpenAiKey) {
-    console.warn("[Preflight] OpenAI key missing. Voice transcription (STT) may fail.");
-  } else if (!globalOpenAiKey && hasScopedOpenAiKey) {
-    console.log("[Preflight] OpenAI key found in user-scoped runtime; global STT fallback key is not configured.");
+  if (!hasScopedOpenAiKey) {
+    console.warn("[Preflight] OpenAI key missing in scoped integrations. Voice transcription (STT) may fail.");
   }
 }
 
@@ -195,27 +192,34 @@ export function trimHistoryMessagesByTokenBudget(messages, maxTokens) {
 // Avoids disk reads on every chat request; TTL 60s + fs.watch invalidation.
 const INTEGRATIONS_CACHE_TTL_MS = 60_000;
 const _integrationsCache = new Map();
-let _fileWatcherActive = false;
+const _integrationWatcherKeys = new Set();
 
-function ensureIntegrationsFileWatcher() {
-  if (_fileWatcherActive) return;
+function resolveScopedIntegrationsConfigPath(userContextId = "") {
+  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
+  return path.join(USER_CONTEXT_ROOT, normalized, "integrations-config.json");
+}
+
+function ensureIntegrationsFileWatcher(userContextId = "") {
+  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
+  if (_integrationWatcherKeys.has(normalized)) return;
+  const scopedPath = resolveScopedIntegrationsConfigPath(normalized);
   try {
-    fs.watch(INTEGRATIONS_CONFIG_PATH, { persistent: false }, () => {
-      _integrationsCache.clear();
+    fs.watch(scopedPath, { persistent: false }, () => {
+      _integrationsCache.delete(normalized);
     });
-    _fileWatcherActive = true;
+    _integrationWatcherKeys.add(normalized);
   } catch {
     // File may not exist yet; cache will still TTL-expire correctly.
   }
 }
 
 export function cachedLoadIntegrationsRuntime(opts = {}) {
-  ensureIntegrationsFileWatcher();
-  const cacheKey = String(opts.userContextId || "");
+  const cacheKey = sessionRuntime.normalizeUserContextId(opts.userContextId || "") || "anonymous";
+  ensureIntegrationsFileWatcher(cacheKey);
   const now = Date.now();
   const entry = _integrationsCache.get(cacheKey);
   if (entry && now - entry.cachedAt < INTEGRATIONS_CACHE_TTL_MS) return entry.runtime;
-  const runtime = loadIntegrationsRuntime(opts);
+  const runtime = loadIntegrationsRuntime({ ...opts, userContextId: cacheKey });
   _integrationsCache.set(cacheKey, { runtime, cachedAt: now });
   return runtime;
 }

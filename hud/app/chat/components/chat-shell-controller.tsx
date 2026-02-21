@@ -13,6 +13,7 @@ import { loadUserSettings } from "@/lib/settings/userSettings"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
 
 // Hooks
 import { useConversations } from "@/lib/chat/hooks/useConversations"
@@ -20,7 +21,7 @@ import { useIntegrationsStatus } from "@/lib/integrations/hooks/useIntegrationsS
 import { useMissions, formatDailyTime } from "@/lib/missions/hooks/useMissions"
 import { useChatBackground } from "@/lib/chat/hooks/useChatBackground"
 
-const PENDING_CHAT_SESSION_KEY = "nova_pending_chat_message"
+const PENDING_BOOT_ACK_TIMEOUT_MS = 8_000
 
 export interface Message {
   id: string
@@ -51,6 +52,8 @@ export function ChatShellController() {
     connected: agentConnected,
     agentMessages,
     streamingAssistantId,
+    hudMessageAckVersion,
+    hasHudMessageAck,
     sendToAgent,
     clearAgentMessages,
     setMuted,
@@ -75,6 +78,9 @@ export function ChatShellController() {
     handleArchiveConvo,
     handlePinConvo,
     addUserMessage,
+    ensureServerConversationForOptimistic,
+    resolveConversationIdForAgent,
+    resolveSessionConversationIdForAgent,
   } = useConversations({
     agentConnected,
     agentMessages,
@@ -112,6 +118,8 @@ export function ChatShellController() {
 
   // Local state
   const pendingBootSendHandledRef = useRef(false)
+  const pendingBootSendOpTokenRef = useRef("")
+  const pendingBootSendDispatchedAtRef = useRef(0)
   const sidebarPanelsRef = useRef<HTMLElement | null>(null)
 
   const [localThinking, setLocalThinking] = useState(false)
@@ -121,13 +129,24 @@ export function ChatShellController() {
     if (!activeConvo || !streamingAssistantId) return false
     return activeConvo.messages.some((message) => message.role === "assistant" && message.id === streamingAssistantId)
   }, [activeConvo, streamingAssistantId])
-  const isThinking = localThinking || activeConversationStreaming
+  const isBackendThinking = novaState === "thinking"
+  const isThinking = isBackendThinking || localThinking || activeConversationStreaming
 
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
     const { data } = await supabaseBrowser.auth.getSession()
     return String(data.session?.access_token || "").trim()
   }, [])
+
+  const buildHudSessionKey = useCallback(
+    (userId: string, conversationId: string): string => {
+      const normalizedUserId = String(userId || "").trim()
+      const sessionConversationId = resolveSessionConversationIdForAgent(conversationId)
+      if (!normalizedUserId || !sessionConversationId) return ""
+      return `agent:nova:hud:user:${normalizedUserId}:dm:${sessionConversationId}`
+    },
+    [resolveSessionConversationIdForAgent],
+  )
 
   // Mute state sync
   useEffect(() => {
@@ -169,6 +188,10 @@ export function ChatShellController() {
       setLocalThinking(false)
       return
     }
+    if (novaState === "thinking") {
+      setLocalThinking(true)
+      return
+    }
 
     for (let i = agentMessages.length - 1; i >= 0; i -= 1) {
       const item = agentMessages[i]
@@ -185,7 +208,7 @@ export function ChatShellController() {
     }
 
     setLocalThinking(false)
-  }, [activeConvo?.id, agentMessages])
+  }, [activeConvo?.id, agentMessages, novaState])
 
   // Home -> Chat handoff
   useEffect(() => {
@@ -204,11 +227,30 @@ export function ChatShellController() {
         convoId?: string
         content?: string
         messageId?: string
+        opToken?: string
         messageCreatedAt?: string
       }
+      const pendingOpToken = normalizeHandoffOperationToken(parsed.opToken)
+      if (pendingOpToken && hasHudMessageAck(pendingOpToken)) {
+        pendingBootSendHandledRef.current = true
+        pendingBootSendOpTokenRef.current = ""
+        pendingBootSendDispatchedAtRef.current = 0
+        sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
+        return
+      }
+      if (pendingOpToken && pendingBootSendOpTokenRef.current === pendingOpToken) {
+        const elapsedSinceDispatch = Date.now() - Number(pendingBootSendDispatchedAtRef.current || 0)
+        if (elapsedSinceDispatch < PENDING_BOOT_ACK_TIMEOUT_MS) return
+        pendingBootSendOpTokenRef.current = ""
+        pendingBootSendDispatchedAtRef.current = 0
+      }
+
       const pendingConvoId = typeof parsed.convoId === "string" ? parsed.convoId.trim() : ""
-      if (pendingConvoId && pendingConvoId !== activeConvo.id) {
-        void handleSelectConvo(pendingConvoId)
+      const resolvedPendingConvoId = pendingConvoId
+        ? resolveConversationIdForAgent(pendingConvoId) || pendingConvoId
+        : ""
+      if (resolvedPendingConvoId && resolvedPendingConvoId !== activeConvo.id) {
+        void handleSelectConvo(resolvedPendingConvoId)
         return
       }
 
@@ -216,51 +258,61 @@ export function ChatShellController() {
       if (!pendingContent) return
 
       const pendingMessageId = typeof parsed.messageId === "string" ? parsed.messageId.trim() : ""
-      const userAlreadyPresent = activeConvo.messages.some(
-        (m) =>
-          m.role === "user" &&
-          (
-            (pendingMessageId.length > 0 && m.id === pendingMessageId) ||
-            m.content.trim() === pendingContent
-          )
-      )
-      let pendingLocalMessageId = ""
-      if (!userAlreadyPresent) {
-        const updatedConvo = addUserMessage(pendingContent)
-        const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
-        pendingLocalMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
-      } else if (pendingMessageId) {
-        pendingLocalMessageId = pendingMessageId
-      }
 
-      pendingBootSendHandledRef.current = true
-      sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
-
-      setLocalThinking(true)
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
       if (!activeUserId) {
         setLocalThinking(false)
         return
       }
+
+      if (pendingOpToken) {
+        pendingBootSendOpTokenRef.current = pendingOpToken
+        pendingBootSendDispatchedAtRef.current = Date.now()
+      } else {
+        pendingBootSendHandledRef.current = true
+        pendingBootSendOpTokenRef.current = ""
+        pendingBootSendDispatchedAtRef.current = 0
+        sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
+      }
+
+      setLocalThinking(true)
       void (async () => {
         const supabaseAccessToken = await getSupabaseAccessToken()
+        const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
         sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
-          conversationId: activeConvo.id,
+          conversationId: resolveConversationIdForAgent(activeConvo.id),
           sender: "hud-user",
-          messageId: pendingLocalMessageId || pendingMessageId,
+          ...(sessionKey ? { sessionKey } : {}),
+          ...(pendingMessageId ? { messageId: pendingMessageId } : {}),
+          ...(pendingOpToken ? { opToken: pendingOpToken } : {}),
           userId: activeUserId,
           supabaseAccessToken: supabaseAccessToken || undefined,
           assistantName: settings.personalization.assistantName,
           communicationStyle: settings.personalization.communicationStyle,
           tone: settings.personalization.tone,
         })
+        // Create/sync optimistic convo on server in background so list stays in sync
+        void ensureServerConversationForOptimistic(activeConvo)
       })()
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
       pendingBootSendHandledRef.current = true
+      pendingBootSendOpTokenRef.current = ""
+      pendingBootSendDispatchedAtRef.current = 0
     }
-  }, [activeConvo, agentConnected, sendToAgent, addUserMessage, handleSelectConvo, getSupabaseAccessToken])
+  }, [
+    activeConvo,
+    agentConnected,
+    hudMessageAckVersion,
+    hasHudMessageAck,
+    sendToAgent,
+    handleSelectConvo,
+    getSupabaseAccessToken,
+    ensureServerConversationForOptimistic,
+    resolveConversationIdForAgent,
+    buildHudSessionKey,
+  ])
 
   // Spotlight effect
   useEffect(() => {
@@ -333,9 +385,11 @@ export function ChatShellController() {
         return
       }
       const supabaseAccessToken = await getSupabaseAccessToken()
+      const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
-        conversationId: activeConvo.id,
+        conversationId: resolveConversationIdForAgent(activeConvo.id),
         sender: "hud-user",
+        ...(sessionKey ? { sessionKey } : {}),
         messageId: localMessageId,
         ...(options?.nlpBypass ? { nlpBypass: true } : {}),
         userId: activeUserId,
@@ -345,7 +399,7 @@ export function ChatShellController() {
         tone: settings.personalization.tone,
       })
     },
-    [activeConvo, agentConnected, sendToAgent, addUserMessage, getSupabaseAccessToken],
+    [activeConvo, agentConnected, sendToAgent, addUserMessage, getSupabaseAccessToken, resolveConversationIdForAgent, buildHudSessionKey],
   )
 
   const handleUseSuggestedWording = useCallback(

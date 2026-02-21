@@ -1,7 +1,9 @@
 "use client"
 
+import { useCallback, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/shared/utils"
+import { isBlockedAssistantName, MAX_ASSISTANT_NAME_LENGTH } from "@/lib/settings/userSettings"
 import {
   SettingInput,
   SettingTextarea,
@@ -19,6 +21,20 @@ interface Props {
 }
 
 export function SettingsPersonalizationPanel({ isLight, settings, updatePersonalization, onNavigateToSkills }: Props) {
+  const [assistantNameValidation, setAssistantNameValidation] = useState("")
+
+  const handleAssistantNameChange = useCallback((value: string) => {
+    const candidate = String(value || "").trim()
+    if (isBlockedAssistantName(candidate)) {
+      setAssistantNameValidation("That name is not allowed. Please choose a different assistant name.")
+    } else if (candidate.length > MAX_ASSISTANT_NAME_LENGTH) {
+      setAssistantNameValidation(`Assistant name must be ${MAX_ASSISTANT_NAME_LENGTH} characters or fewer.`)
+    } else {
+      setAssistantNameValidation("")
+    }
+    updatePersonalization("assistantName", value)
+  }, [updatePersonalization])
+
   return (
     <div className="space-y-5">
       <div className="p-4 rounded-xl bg-accent-10 border border-accent-30 transition-colors duration-150 hover:bg-accent-15 mb-4">
@@ -32,8 +48,9 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
         label="Assistant Name"
         description="What do you want to call your assistant?"
         value={settings.personalization.assistantName}
-        onChange={(v) => updatePersonalization("assistantName", v)}
+        onChange={handleAssistantNameChange}
         placeholder="e.g., Nova, Atlas..."
+        errorText={assistantNameValidation || undefined}
         isLight={isLight}
       />
 

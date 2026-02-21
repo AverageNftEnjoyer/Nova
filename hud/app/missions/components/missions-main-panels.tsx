@@ -116,7 +116,7 @@ export function MissionsMainPanels({
               </div>
               <button
                 onClick={() => onApplyTemplate(template.id)}
-                className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-all duration-150 text-[11px]"
+                className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-all duration-150 text-[11px] home-spotlight-card home-border-glow"
               >
                 Use Template
               </button>

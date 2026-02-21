@@ -53,6 +53,8 @@ Desktop.ini
 archive/
 tasks/
 
+# temporary local tests
+tests/
 # project-specific local artifacts
 nul
 *.exe

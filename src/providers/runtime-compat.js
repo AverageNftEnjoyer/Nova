@@ -4,7 +4,6 @@ import { createDecipheriv, createHash } from "crypto";
 import OpenAI from "openai";
 import {
   INTEGRATIONS_CONFIG_PATH,
-  ENCRYPTION_KEY_PATH,
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_CLAUDE_BASE_URL,
   DEFAULT_GROK_BASE_URL,
@@ -66,57 +65,12 @@ function deriveEncryptionKeyMaterial(rawValue) {
   return createHash("sha256").update(raw).digest();
 }
 
-function readEnvValueFromFile(envPath, key) {
-  try {
-    if (!fs.existsSync(envPath)) return "";
-    const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const idx = trimmed.indexOf("=");
-      if (idx <= 0) continue;
-      const candidateKey = trimmed.slice(0, idx).trim();
-      if (candidateKey !== key) continue;
-      let value = trimmed.slice(idx + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      return value.trim();
-    }
-  } catch {}
-  return "";
-}
-
 export function getEncryptionKeyMaterials() {
   const candidates = [];
   const envKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
   if (envKey) {
     candidates.push(envKey);
   }
-
-  try {
-    const hudRoot = path.dirname(INTEGRATIONS_CONFIG_PATH);
-    const hudLocalEnvKey = readEnvValueFromFile(path.join(hudRoot, ".env.local"), "NOVA_ENCRYPTION_KEY");
-    if (hudLocalEnvKey) {
-      candidates.push(hudLocalEnvKey);
-    }
-    const rootEnvKey = readEnvValueFromFile(path.join(hudRoot, "..", "..", ".env"), "NOVA_ENCRYPTION_KEY");
-    if (rootEnvKey) {
-      candidates.push(rootEnvKey);
-    }
-  } catch {}
-
-  try {
-    if (fs.existsSync(ENCRYPTION_KEY_PATH)) {
-      const fileRaw = fs.readFileSync(ENCRYPTION_KEY_PATH, "utf8").trim();
-      if (fileRaw) {
-        candidates.push(fileRaw);
-      }
-    }
-  } catch {}
 
   const materials = [];
   const seen = new Set();
@@ -208,8 +162,7 @@ function normalizeUserContextId(value) {
 }
 
 function resolveIntegrationsConfigPath(userContextId) {
-  const normalized = normalizeUserContextId(userContextId);
-  if (!normalized) return INTEGRATIONS_CONFIG_PATH;
+  const normalized = normalizeUserContextId(userContextId) || "anonymous";
   return path.join(
     USER_CONTEXT_INTEGRATIONS_ROOT,
     normalized,
@@ -217,94 +170,8 @@ function resolveIntegrationsConfigPath(userContextId) {
   );
 }
 
-function loadLatestScopedOpenAiRuntimeFallback() {
-  try {
-    if (!fs.existsSync(USER_CONTEXT_INTEGRATIONS_ROOT)) return null;
-    const candidates = fs
-      .readdirSync(USER_CONTEXT_INTEGRATIONS_ROOT, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => {
-        const scopedPath = path.join(
-          USER_CONTEXT_INTEGRATIONS_ROOT,
-          entry.name,
-          USER_CONTEXT_INTEGRATIONS_FILE,
-        );
-        if (!fs.existsSync(scopedPath)) return null;
-        let mtimeMs = 0;
-        try {
-          mtimeMs = fs.statSync(scopedPath).mtimeMs;
-        } catch {}
-        return { scopedPath, mtimeMs };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-    for (const candidate of candidates) {
-      try {
-        const raw = fs.readFileSync(candidate.scopedPath, "utf8");
-        const parsed = JSON.parse(raw);
-        const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-        const apiKey = resolveProviderApiKey("openai", integration.apiKey);
-        if (!apiKey) continue;
-        const baseURL = toOpenAiLikeBase(
-          typeof integration.baseUrl === "string" ? integration.baseUrl : "",
-          DEFAULT_OPENAI_BASE_URL,
-        );
-        const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
-          ? integration.defaultModel.trim()
-          : DEFAULT_CHAT_MODEL;
-        return {
-          apiKey,
-          baseURL,
-          model,
-          sourcePath: candidate.scopedPath,
-        };
-      } catch {}
-    }
-  } catch {}
-  return null;
-}
-
-function readFirstEnvCandidate(keys) {
-  if (!Array.isArray(keys) || keys.length === 0) return "";
-
-  for (const key of keys) {
-    const fromProcess = String(process.env[key] || "").trim();
-    if (fromProcess) return fromProcess;
-  }
-
-  const hudRoot = path.dirname(INTEGRATIONS_CONFIG_PATH);
-  const envPaths = [
-    path.join(hudRoot, ".env.local"),
-    path.join(hudRoot, "..", ".env"),
-  ];
-  for (const envPath of envPaths) {
-    for (const key of keys) {
-      const fromFile = readEnvValueFromFile(envPath, key);
-      if (fromFile) return fromFile;
-    }
-  }
-  return "";
-}
-
 function resolveProviderApiKey(provider, integrationApiKey) {
   const fromIntegration = unwrapStoredSecret(integrationApiKey);
-  if (provider === "openai") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_OPENAI_API_KEY", "OPENAI_API_KEY"]);
-    return String(fromEnv || fromIntegration || "").trim();
-  }
-  if (provider === "claude") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]);
-    return String(fromEnv || fromIntegration || "").trim();
-  }
-  if (provider === "grok") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_GROK_API_KEY", "XAI_API_KEY", "GROK_API_KEY"]);
-    return String(fromEnv || fromIntegration || "").trim();
-  }
-  if (provider === "gemini") {
-    const fromEnv = readFirstEnvCandidate(["NOVA_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]);
-    return String(fromEnv || fromIntegration || "").trim();
-  }
   return String(fromIntegration || "").trim();
 }
 
@@ -313,10 +180,8 @@ function resolveProviderConnectedState(connectedFlag, apiKey) {
 }
 
 export function loadIntegrationsRuntime(options = {}) {
-  const configPath = resolveIntegrationsConfigPath(options.userContextId);
-  if (options.userContextId && configPath !== INTEGRATIONS_CONFIG_PATH && !fs.existsSync(configPath)) {
-    return loadIntegrationsRuntime({});
-  }
+  const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
+  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
   try {
     const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
@@ -376,24 +241,22 @@ export function loadIntegrationsRuntime(options = {}) {
       }
     };
   } catch {
-    const openaiApiKey = resolveProviderApiKey("openai", "");
-    const claudeApiKey = resolveProviderApiKey("claude", "");
-    const grokApiKey = resolveProviderApiKey("grok", "");
-    const geminiApiKey = resolveProviderApiKey("gemini", "");
     return {
       sourcePath: configPath,
       activeProvider: "openai",
-      openai: { connected: Boolean(openaiApiKey), apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: Boolean(claudeApiKey), apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: Boolean(grokApiKey), apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: Boolean(geminiApiKey), apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
+      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
     };
   }
 }
 
-export function loadOpenAIIntegrationRuntime() {
+export function loadOpenAIIntegrationRuntime(options = {}) {
+  const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
+  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
   try {
-    const raw = fs.readFileSync(INTEGRATIONS_CONFIG_PATH, "utf8");
+    const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
     const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
     const apiKey = resolveProviderApiKey("openai", integration.apiKey);
@@ -404,19 +267,14 @@ export function loadOpenAIIntegrationRuntime() {
     const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
       ? integration.defaultModel.trim()
       : DEFAULT_CHAT_MODEL;
-
-    if (apiKey) return { apiKey, baseURL, model };
-    const scopedFallback = loadLatestScopedOpenAiRuntimeFallback();
-    if (scopedFallback) return scopedFallback;
-    return { apiKey, baseURL, model };
+    return { apiKey, baseURL, model, sourcePath: configPath };
   } catch {
-    const fallback = {
-      apiKey: resolveProviderApiKey("openai", ""),
+    return {
+      apiKey: "",
       baseURL: DEFAULT_OPENAI_BASE_URL,
       model: DEFAULT_CHAT_MODEL,
+      sourcePath: configPath,
     };
-    if (fallback.apiKey) return fallback;
-    return loadLatestScopedOpenAiRuntimeFallback() || fallback;
   }
 }
 

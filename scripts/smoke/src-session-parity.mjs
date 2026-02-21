@@ -219,12 +219,12 @@ await run("Idle reset parity (legacy vs src)", async () => {
 
   const oldTimestamp = Date.now() - 4 * 60 * 60 * 1000;
 
-  const legacyStorePath = path.join(harness.legacyRoot, "sessions.json");
+  const legacyStorePath = path.join(harness.legacyRoot, "user-context", "service-bot", "sessions.json");
   const legacyStore = JSON.parse(fs.readFileSync(legacyStorePath, "utf8"));
   legacyStore[legacyFirst.sessionKey].updatedAt = oldTimestamp;
   fs.writeFileSync(legacyStorePath, JSON.stringify(legacyStore, null, 2), "utf8");
 
-  const srcStorePath = path.join(harness.srcRoot, "sessions.json");
+  const srcStorePath = path.join(harness.srcRoot, "user-context", "service-bot", "sessions.json");
   const srcStoreData = JSON.parse(fs.readFileSync(srcStorePath, "utf8"));
   srcStoreData[srcFirst.sessionKey].updatedAt = oldTimestamp;
   fs.writeFileSync(srcStorePath, JSON.stringify(srcStoreData, null, 2), "utf8");

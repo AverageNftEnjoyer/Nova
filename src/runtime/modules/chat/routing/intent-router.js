@@ -343,7 +343,6 @@ export function buildWebSearchReadableReply(query, rawResults) {
   const out = [`Here is a quick live-web recap for: "${String(query || "").trim()}".`, ""];
   for (const item of items) {
     out.push(`- ${item.title}: ${item.snippet}`);
-    if (item.url) out.push(`  Source: ${item.url}`);
   }
   return out.join("\n");
 }

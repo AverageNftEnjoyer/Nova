@@ -14,6 +14,24 @@ function normalizeUserContextId(value) {
   return trimmed.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 96);
 }
 
+function stableHashToken(value) {
+  const input = String(value || "");
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function deriveFallbackUserContextId(sessionKey, sourceHint = "") {
+  const normalizedSource = normalizeToken(sourceHint || "").replace(/[^a-z0-9_-]/g, "-");
+  const seed = String(sessionKey || "").trim() || normalizedSource || "session";
+  const hash = stableHashToken(seed);
+  const candidate = normalizeUserContextId(`${normalizedSource || "session"}-${hash}`);
+  return candidate || `session-${hash}`;
+}
+
 export function createSessionRuntime({
   sessionStorePath,
   transcriptDir,
@@ -41,9 +59,7 @@ export function createSessionRuntime({
   function ensureSessionStorePaths() {
     try {
       fs.mkdirSync(path.dirname(sessionStorePath), { recursive: true });
-      fs.mkdirSync(transcriptDir, { recursive: true });
       fs.mkdirSync(userContextRoot, { recursive: true });
-      ensureStoreFile(sessionStorePath);
     } catch {
       // Ignore path bootstrap failures and let call sites handle downstream errors.
     }
@@ -110,28 +126,21 @@ export function createSessionRuntime({
   }
 
   function loadSessionStoreForContext(userContextId, sessionKey = "") {
-    const normalized = normalizeUserContextId(userContextId) || parseSessionKeyUserContext(sessionKey);
-    if (!normalized) {
-      return {
-        userContextId: "",
-        storePath: sessionStorePath,
-        store: loadStoreFromPath(sessionStorePath),
-      };
-    }
-
+    const normalized =
+      normalizeUserContextId(userContextId) ||
+      parseSessionKeyUserContext(sessionKey) ||
+      deriveFallbackUserContextId(sessionKey);
     const scopedPath = getScopedSessionStorePath(normalized);
     const scopedStore = loadStoreFromPath(scopedPath);
     if (sessionKey && !scopedStore[sessionKey]) {
-      const legacyStore = loadStoreFromPath(sessionStorePath);
+      const legacyStore = loadStoreFromPath(sessionStorePath, { createIfMissing: false });
       const legacyEntry = legacyStore[sessionKey];
       if (legacyEntry && typeof legacyEntry === "object") {
         scopedStore[sessionKey] = {
           ...legacyEntry,
           userContextId: normalized,
         };
-        delete legacyStore[sessionKey];
         saveStoreToPath(scopedPath, scopedStore);
-        saveStoreToPath(sessionStorePath, legacyStore);
       }
     }
     return {
@@ -171,13 +180,11 @@ export function createSessionRuntime({
           ...entry,
           userContextId: contextId,
         };
+        mutated = true;
       }
-      delete legacyStore[key];
-      mutated = true;
     }
 
     if (!mutated) return;
-    saveStoreToPath(sessionStorePath, legacyStore);
     for (const [scopedPath, scopedStore] of scopedStores.entries()) {
       saveStoreToPath(scopedPath, scopedStore);
     }
@@ -214,7 +221,13 @@ export function createSessionRuntime({
       const voiceSender = normalizeUserContextId(sender || "local-mic");
       return voiceSender || "local-mic";
     }
-    if (source !== "hud") return "";
+    if (source !== "hud") {
+      const senderFallback = normalizeUserContextId(sender);
+      if (senderFallback) return senderFallback;
+      const hinted = parseSessionKeyUserContext(String(opts.sessionKeyHint || ""));
+      if (hinted) return hinted;
+      return deriveFallbackUserContextId(String(opts.sessionKeyHint || ""), source);
+    }
 
     const senderFallback = normalizeUserContextId(sender);
     if (senderFallback && senderFallback !== "hud-user") return senderFallback;
@@ -247,6 +260,13 @@ export function createSessionRuntime({
       const tail = normalizedKey.slice(voiceIndex + voiceMarker.length);
       const candidate = normalizeUserContextId(tail.split(":")[0] || "");
       if (candidate) return candidate;
+    }
+    const dmMarker = ":dm:";
+    const dmIndex = normalizedKey.lastIndexOf(dmMarker);
+    if (dmIndex >= 0) {
+      const tail = normalizedKey.slice(dmIndex + dmMarker.length);
+      const candidate = normalizeUserContextId(tail.split(":")[0] || "");
+      if (candidate && candidate !== "anonymous" && candidate !== "unknown") return candidate;
     }
     return "";
   }
@@ -406,7 +426,10 @@ export function createSessionRuntime({
         : nextTurns;
       setCachedTranscript(normalizedSessionId, scopedUserContextId || "", bounded);
     } else {
-      setCachedTranscript(normalizedSessionId, scopedUserContextId || "", [payload]);
+      // Cache miss at append-time should not collapse history to a single payload.
+      // Rehydrate from disk so the next turn still sees full conversation context.
+      const hydratedTurns = readTranscriptFile(transcriptPath);
+      setCachedTranscript(normalizedSessionId, scopedUserContextId || "", hydratedTurns);
     }
   }
 
@@ -503,7 +526,10 @@ export function createSessionRuntime({
     pruneOldTranscriptsIfNeeded();
     migrateLegacySessionStoreIfNeeded();
     const sessionKey = buildSessionKeyFromInput(opts);
-    const resolvedUserContextId = resolveUserContextId(opts) || parseSessionKeyUserContext(sessionKey);
+    const resolvedUserContextId =
+      resolveUserContextId(opts) ||
+      parseSessionKeyUserContext(sessionKey) ||
+      deriveFallbackUserContextId(sessionKey, opts.source || "");
     const storeInfo = loadSessionStoreForContext(resolvedUserContextId, sessionKey);
     const store = storeInfo.store;
     const now = Date.now();

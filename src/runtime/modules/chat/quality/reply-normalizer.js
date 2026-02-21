@@ -1,16 +1,11 @@
 const SILENT_REPLY_TOKEN = "__SILENT__";
-
-function stripControlChars(value) {
-  return String(value || "")
-    .replace(/\u0000/g, "")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, "");
-}
+import { repairBrokenReadability, sanitizeTransportArtifacts, stripSourceMetadata } from "./response-quality-guard.js";
 
 function normalizeWhitespace(value) {
   return String(value || "")
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/\bif[’']re\b/gi, "if you're")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -57,7 +52,7 @@ function sanitizeForSpeech(value) {
 }
 
 export function normalizeAssistantReply(rawText) {
-  const cleanedInput = stripControlChars(rawText);
+  const cleanedInput = sanitizeTransportArtifacts(rawText, { preserveNewlines: true });
   const text = normalizeWhitespace(stripRedundantAssistantPrefix(cleanedInput));
 
   if (!text) {
@@ -68,7 +63,7 @@ export function normalizeAssistantReply(rawText) {
     return { skip: true, text: "" };
   }
 
-  const cleaned = normalizeWhitespace(collapseDuplicateLines(text));
+  const cleaned = normalizeWhitespace(stripSourceMetadata(repairBrokenReadability(collapseDuplicateLines(text))));
   if (!cleaned) {
     return { skip: true, text: "" };
   }

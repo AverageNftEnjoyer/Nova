@@ -8,7 +8,6 @@ const __dirname = path.dirname(__filename);
 export const ROOT_DIR = path.join(__dirname, "..");
 export const ROOT_WORKSPACE_DIR = path.join(__dirname, "..", "..", "..");
 export const INTEGRATIONS_CONFIG_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", "integrations-config.json");
-export const ENCRYPTION_KEY_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", ".nova_encryption_key");
 
 // ===== API Base URLs =====
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";

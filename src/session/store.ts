@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { SessionConfig } from "../config/types.js";
-import { normalizeUserContextId, parseSessionKeyUserContext } from "./key.js";
+import {
+  fallbackUserContextIdFromSessionKey,
+  normalizeUserContextId,
+  parseSessionKeyUserContext,
+} from "./key.js";
 import type { SessionEntry, TranscriptTurn } from "./types.js";
 
 export class SessionStore {
@@ -116,7 +120,9 @@ export class SessionStore {
     if (!normalizedKey) return null;
 
     const normalizedContext =
-      normalizeUserContextId(userContextId) || parseSessionKeyUserContext(normalizedKey);
+      normalizeUserContextId(userContextId) ||
+      parseSessionKeyUserContext(normalizedKey) ||
+      fallbackUserContextIdFromSessionKey(normalizedKey);
 
     if (normalizedContext) {
       const scopedPath = this.getScopedSessionStorePath(normalizedContext);
@@ -128,7 +134,7 @@ export class SessionStore {
       }
     }
 
-    const legacyStore = this.loadStoreFromPath(this.storePath);
+    const legacyStore = this.loadStoreFromPath(this.storePath, { createIfMissing: false });
     const legacyEntry = legacyStore[normalizedKey] ?? null;
     if (legacyEntry) {
       const resolved =
@@ -167,7 +173,8 @@ export class SessionStore {
 
     const normalizedContext =
       normalizeUserContextId(userContextId || entry.userContextId || "") ||
-      parseSessionKeyUserContext(normalizedKey);
+      parseSessionKeyUserContext(normalizedKey) ||
+      fallbackUserContextIdFromSessionKey(normalizedKey);
 
     const storeInfo = this.loadSessionStoreForContext(normalizedContext, normalizedKey);
     const normalizedEntry: SessionEntry = normalizedContext
@@ -187,7 +194,9 @@ export class SessionStore {
     if (!normalizedKey) return;
 
     const normalizedContext =
-      normalizeUserContextId(userContextId) || parseSessionKeyUserContext(normalizedKey);
+      normalizeUserContextId(userContextId) ||
+      parseSessionKeyUserContext(normalizedKey) ||
+      fallbackUserContextIdFromSessionKey(normalizedKey);
 
     if (normalizedContext) {
       const scopedPath = this.getScopedSessionStorePath(normalizedContext);
@@ -196,10 +205,6 @@ export class SessionStore {
       this.saveStoreToPath(scopedPath, scopedStore);
       return;
     }
-
-    const legacyStore = this.loadStoreFromPath(this.storePath);
-    delete legacyStore[normalizedKey];
-    this.saveStoreToPath(this.storePath, legacyStore);
   }
 
   public getTranscriptPath(sessionId: string, userContextId = ""): string {
@@ -214,12 +219,7 @@ export class SessionStore {
 
   public ensurePaths(): void {
     fs.mkdirSync(path.dirname(this.storePath), { recursive: true });
-    fs.mkdirSync(this.transcriptDir, { recursive: true });
     fs.mkdirSync(this.userContextRoot, { recursive: true });
-
-    if (!fs.existsSync(this.storePath)) {
-      fs.writeFileSync(this.storePath, "{}", "utf8");
-    }
   }
 
   public migrateLegacySessionStoreIfNeeded(): void {
@@ -256,14 +256,12 @@ export class SessionStore {
           ...entry,
           userContextId: contextId,
         };
+        mutated = true;
       }
-      delete legacyStore[key];
-      mutated = true;
     }
 
     if (!mutated) return;
 
-    this.saveStoreToPath(this.storePath, legacyStore);
     for (const [scopedPath, scopedStore] of scopedStores.entries()) {
       this.saveStoreToPath(scopedPath, scopedStore);
     }
@@ -420,28 +418,21 @@ export class SessionStore {
     storePath: string;
     store: Record<string, SessionEntry>;
   } {
-    const normalized = normalizeUserContextId(userContextId) || parseSessionKeyUserContext(sessionKey);
-    if (!normalized) {
-      return {
-        userContextId: "",
-        storePath: this.storePath,
-        store: this.loadStoreFromPath(this.storePath),
-      };
-    }
-
+    const normalized =
+      normalizeUserContextId(userContextId) ||
+      parseSessionKeyUserContext(sessionKey) ||
+      fallbackUserContextIdFromSessionKey(sessionKey);
     const scopedPath = this.getScopedSessionStorePath(normalized);
     const scopedStore = this.loadStoreFromPath(scopedPath);
     if (sessionKey && !scopedStore[sessionKey]) {
-      const legacyStore = this.loadStoreFromPath(this.storePath);
+      const legacyStore = this.loadStoreFromPath(this.storePath, { createIfMissing: false });
       const legacyEntry = legacyStore[sessionKey];
       if (legacyEntry && typeof legacyEntry === "object") {
         scopedStore[sessionKey] = {
           ...legacyEntry,
           userContextId: normalized,
         };
-        delete legacyStore[sessionKey];
         this.saveStoreToPath(scopedPath, scopedStore);
-        this.saveStoreToPath(this.storePath, legacyStore);
       }
     }
 

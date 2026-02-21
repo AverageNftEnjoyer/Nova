@@ -83,8 +83,11 @@ export function recordMic(outFile, seconds = 3) {
 }
 
 // ===== STT (Bug Fix 1: configurable model via NOVA_STT_MODEL env var) =====
-export async function transcribe(micFile, wakeWordHint = "nova") {
-  const runtime = loadOpenAIIntegrationRuntime();
+export async function transcribe(micFile, wakeWordHint = "nova", userContextId = "local-mic") {
+  const runtime = loadOpenAIIntegrationRuntime({ userContextId });
+  if (!runtime?.apiKey) {
+    throw new Error(`Voice STT blocked: missing scoped OpenAI key for userContextId=${String(userContextId || "anonymous")}`);
+  }
   const openai = getOpenAIClient(runtime);
   const normalizedWake = String(wakeWordHint || "nova")
     .replace(/[^a-z0-9\s-]/gi, " ")

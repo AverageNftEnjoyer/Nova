@@ -2,8 +2,6 @@
 // handleInput dispatcher split into focused sub-handlers.
 // Bug Fix 2: Tool loop errors are now caught, logged, and surfaced to HUD.
 
-import fs from "fs";
-import path from "path";
 import { createRequire } from "module";
 
 // NLP preprocessing (compiled TS → dist/nlp/preprocess.js)
@@ -14,7 +12,7 @@ function getPreprocess() {
   try {
     const require = createRequire(import.meta.url);
     // Resolve relative to the project root dist output
-    const mod = require("../../../../dist/nlp/preprocess.js");
+    const mod = require("../../../../../dist/nlp/preprocess.js");
     _preprocess = mod.preprocess ?? mod.default?.preprocess ?? null;
   } catch {
     // Build not available yet — fall back to identity
@@ -22,8 +20,6 @@ function getPreprocess() {
   }
   return _preprocess;
 }
-import { createHash } from "crypto";
-import { exec } from "child_process";
 import {
   DEFAULT_CHAT_MODEL,
   DEFAULT_CLAUDE_MODEL,
@@ -35,7 +31,6 @@ import {
   TOOL_LOOP_ENABLED,
   TOOL_LOOP_MAX_STEPS,
   CLAUDE_CHAT_MAX_TOKENS,
-  SPOTIFY_INTENT_MAX_TOKENS,
   OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
   MEMORY_LOOP_ENABLED,
   SESSION_MAX_TURNS,
@@ -46,19 +41,19 @@ import {
   PROMPT_MIN_HISTORY_TOKENS,
   PROMPT_CONTEXT_SECTION_MAX_TOKENS,
   PROMPT_BUDGET_DEBUG,
-  COMMAND_ACKS,
   AGENT_PROMPT_MODE,
   ROOT_WORKSPACE_DIR,
   ROUTING_PREFERENCE,
   ROUTING_ALLOW_ACTIVE_OVERRIDE,
   ROUTING_PREFERRED_PROVIDERS,
-} from "../../core/constants.js";
-import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../infrastructure/config.js";
-import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../context/persona-context.js";
-import { isMemoryUpdateRequest, extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate, extractAutoMemoryFacts } from "../context/memory.js";
-import { buildRuntimeSkillsPrompt } from "../context/skills.js";
-import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldDraftOnlyWorkflow, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "./intent-router.js";
-import { speak, playThinking, stopSpeaking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../audio/voice.js";
+} from "../../../core/constants.js";
+import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../infrastructure/config.js";
+import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../context/persona-context.js";
+import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../context/user-preferences.js";
+import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../context/memory.js";
+import { buildRuntimeSkillsPrompt } from "../../context/skills.js";
+import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../routing/intent-router.js";
+import { speak, playThinking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../../audio/voice.js";
 import {
   broadcast,
   broadcastState,
@@ -68,7 +63,7 @@ import {
   broadcastAssistantStreamStart,
   broadcastAssistantStreamDelta,
   broadcastAssistantStreamDone,
-} from "../infrastructure/hud-gateway.js";
+} from "../../infrastructure/hud-gateway.js";
 import {
   claudeMessagesCreate,
   claudeMessagesStream,
@@ -80,15 +75,44 @@ import {
   streamOpenAiChatCompletion,
   toErrorDetails,
   withTimeout,
-} from "../llm/providers.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../core/context-prompt.js";
-import { buildAgentSystemPrompt, PromptMode } from "../context/system-prompt.js";
-import { buildPersonaPrompt } from "../context/bootstrap.js";
-import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
-import { normalizeAssistantReply, normalizeAssistantSpeechText } from "./reply-normalizer.js";
-import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "./link-understanding.js";
-import { appendBudgetedPromptSection, computeHistoryTokenBudget } from "./prompt-budget.js";
-import { detectSuspiciousPatterns, wrapWebContent } from "../context/external-content.js";
+} from "../../llm/providers.js";
+import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../core/context-prompt.js";
+import { buildAgentSystemPrompt, PromptMode } from "../../context/system-prompt.js";
+import { buildPersonaPrompt } from "../../context/bootstrap.js";
+import { shouldSkipDuplicateInbound } from "../routing/inbound-dedupe.js";
+import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../quality/reply-normalizer.js";
+import { normalizeInboundUserText } from "../quality/response-quality-guard.js";
+import { appendDevConversationLog } from "../telemetry/dev-conversation-log.js";
+import { parseOutputConstraints, validateOutputConstraints } from "../quality/output-constraints.js";
+import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../analysis/link-understanding.js";
+import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../prompt/prompt-budget.js";
+import {
+  buildLatencyTurnPolicy,
+  resolveToolExecutionPolicy,
+} from "../telemetry/latency-policy.js";
+import { createChatLatencyTelemetry } from "../telemetry/latency-telemetry.js";
+import { detectSuspiciousPatterns, wrapWebContent } from "../../context/external-content.js";
+import {
+  applyMemoryFactsToWorkspace,
+  buildMissionConfirmReply,
+  clearPendingMissionConfirm,
+  getPendingMissionConfirm,
+  hashShadowPayload,
+  isMissionConfirmNo,
+  isMissionConfirmYes,
+  resolveConversationId,
+  setPendingMissionConfirm,
+  stripAssistantInvocation,
+  stripMissionConfirmPrefix,
+  summarizeToolResultPreview,
+} from "./chat-utils.js";
+import {
+  sendDirectAssistantReply,
+  handleMemoryUpdate,
+  handleShutdown,
+  handleSpotify,
+  handleWorkflowBuild,
+} from "./chat-special-handlers.js";
 import {
   isWeatherRequestText,
   tryWeatherFastPathReply,
@@ -97,467 +121,16 @@ import {
   clearPendingWeatherConfirm,
   isWeatherConfirmYes,
   isWeatherConfirmNo,
-} from "./weather-fast-path.js";
+} from "../fast-path/weather-fast-path.js";
 import {
   isCryptoRequestText,
   tryCryptoFastPathReply,
-} from "./crypto-fast-path.js";
+} from "../fast-path/crypto-fast-path.js";
 
-function applyMemoryFactsToWorkspace(personaWorkspaceDir, facts) {
-  if (!Array.isArray(facts) || facts.length === 0) return 0;
-  const memoryFilePath = path.join(personaWorkspaceDir, "MEMORY.md");
-  const existingContent = fs.existsSync(memoryFilePath)
-    ? fs.readFileSync(memoryFilePath, "utf8")
-    : ensureMemoryTemplate();
-
-  let nextContent = existingContent;
-  let applied = 0;
-  for (const fact of facts) {
-    const memoryFact = String(fact?.fact || "").trim();
-    const memoryKey = String(fact?.key || "").trim();
-    if (!memoryFact) continue;
-    const updated = upsertMemoryFactInMarkdown(nextContent, memoryFact, memoryKey || undefined);
-    if (updated !== nextContent) {
-      nextContent = updated;
-      applied += 1;
-    }
-  }
-
-  if (nextContent !== existingContent) {
-    fs.writeFileSync(memoryFilePath, nextContent, "utf8");
-  }
-  return applied;
-}
-
-function hashShadowPayload(value) {
-  return createHash("sha256").update(String(value || "")).digest("hex").slice(0, 24);
-}
-
-const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
-  .trim()
-  .replace(/\/+$/, "");
-const WORKFLOW_BUILD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WORKFLOW_BUILD_TIMEOUT_MS || "45000", 10);
-const MISSION_CONFIRM_TTL_MS = Number.parseInt(process.env.NOVA_MISSION_CONFIRM_TTL_MS || "600000", 10);
 const MEMORY_RECALL_TIMEOUT_MS = Number.parseInt(process.env.NOVA_MEMORY_RECALL_TIMEOUT_MS || "450", 10);
 const WEB_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WEB_PRELOAD_TIMEOUT_MS || "900", 10);
 const LINK_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_LINK_PRELOAD_TIMEOUT_MS || "900", 10);
-const missionConfirmBySession = new Map();
 
-function cleanupMissionConfirmStore() {
-  const now = Date.now();
-  for (const [key, value] of missionConfirmBySession.entries()) {
-    if (!value || now - Number(value.ts || 0) > MISSION_CONFIRM_TTL_MS) {
-      missionConfirmBySession.delete(key);
-    }
-  }
-}
-
-function getPendingMissionConfirm(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return null;
-  cleanupMissionConfirmStore();
-  const value = missionConfirmBySession.get(key);
-  if (!value || !String(value.prompt || "").trim()) return null;
-  return value;
-}
-
-function setPendingMissionConfirm(sessionKey, prompt) {
-  const key = String(sessionKey || "").trim();
-  const normalizedPrompt = String(prompt || "").trim();
-  if (!key || !normalizedPrompt) return;
-  missionConfirmBySession.set(key, { prompt: normalizedPrompt, ts: Date.now() });
-}
-
-function clearPendingMissionConfirm(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return;
-  missionConfirmBySession.delete(key);
-}
-
-function parseConversationIdFromSessionKey(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return "";
-  const marker = ":dm:";
-  const markerIndex = key.lastIndexOf(marker);
-  if (markerIndex < 0) return "";
-  const candidate = key.slice(markerIndex + marker.length).trim();
-  if (!candidate || candidate.includes(":")) return "";
-  return candidate;
-}
-
-function resolveConversationId(opts, sessionKey, source) {
-  const explicit = String(opts?.conversationId || opts?.threadId || "").trim();
-  if (explicit) return explicit;
-  if (String(source || "").trim().toLowerCase() !== "hud") return "";
-  return parseConversationIdFromSessionKey(sessionKey);
-}
-
-function stripAssistantInvocation(text) {
-  return String(text || "")
-    .replace(/^\s*(hey|hi|yo)\s+nova[\s,:-]*/i, "")
-    .replace(/^\s*nova[\s,:-]*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeForFastLane(text) {
-  return stripAssistantInvocation(text)
-    .toLowerCase()
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isSimpleFastLaneTurn(text) {
-  const normalized = normalizeForFastLane(text);
-  if (!normalized) return false;
-  if (normalized.length > 42) return false;
-  if (/\b(weather|forecast|temperature|rain|snow|mission|workflow|automation|schedule|spotify|shutdown|search|news|crypto|coinbase|bitcoin|ethereum|price|portfolio|transaction|trades)\b/.test(normalized)) {
-    return false;
-  }
-  if (/\b(remind|create|build|deploy|send|email|discord|telegram)\b/.test(normalized)) {
-    return false;
-  }
-  return /^(hey|hi|hello|yo|sup|ping|test|ok|okay|thanks|thank you|good morning|good afternoon|good evening|how are you|you there)$/.test(normalized);
-}
-
-function shouldUseToolLoopForTurn(text, opts = {}) {
-  const normalized = normalizeForFastLane(text);
-  if (!normalized) return false;
-  if (opts.fastLaneSimpleChat === true) return false;
-  if (isWeatherRequestText(text)) return false;
-  if (isCryptoRequestText(text)) return false;
-
-  const canRunWebSearch = opts.canRunWebSearch === true;
-  const canRunWebFetch = opts.canRunWebFetch === true;
-  if (canRunWebFetch && /https?:\/\/\S+/i.test(String(text || ""))) return true;
-  if (canRunWebSearch && shouldPreloadWebSearch(text)) return true;
-
-  if (/\b(search|lookup|look up|browse|web|latest|news|price|scores?)\b/.test(normalized)) return true;
-  if (/\b(run|execute|terminal|shell|command|script|npm|node|python|git|build|test|lint|debug)\b/.test(normalized)) return true;
-  if (/\b(file|folder|directory|read|write|edit|patch|code|refactor|repository|repo)\b/.test(normalized)) return true;
-  if (/\b(tool|tool call|web fetch|web search|memory search|memory get)\b/.test(normalized)) return true;
-  return false;
-}
-
-function shouldAttemptMemoryRecallTurn(text) {
-  const normalized = normalizeForFastLane(text);
-  if (!normalized) return false;
-  if (normalized.length < 18) return false;
-  if (isSimpleFastLaneTurn(text)) return false;
-  if (isWeatherRequestText(text)) return false;
-  if (isCryptoRequestText(text)) return false;
-  const tokenCount = normalized.split(/\s+/g).filter(Boolean).length;
-  if (tokenCount >= 6) return true;
-  return /\b(remember|earlier|before|preference|profile|context|resume|continue|project|my)\b/.test(normalized);
-}
-
-function missionChannelHint(text) {
-  const n = String(text || "").toLowerCase();
-  if (/\btelegram\b/.test(n)) return "Telegram";
-  if (/\bdiscord\b/.test(n)) return "Discord";
-  if (/\bnovachat\b|\bchat\b/.test(n)) return "NovaChat";
-  if (/\bemail\b/.test(n)) return "Email";
-  if (/\bwebhook\b/.test(n)) return "Webhook";
-  return "";
-}
-
-function missionTimeHint(text) {
-  const m = String(text || "").match(/\b(?:at|around|by)\s+([01]?\d(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)?)\b/i);
-  return m?.[1] ? String(m[1]).replace(/\s+/g, " ").trim() : "";
-}
-
-function buildMissionConfirmReply(text) {
-  const channel = missionChannelHint(text);
-  const atTime = missionTimeHint(text);
-  const details = [
-    atTime ? ` at ${atTime}` : "",
-    channel ? ` to ${channel}` : "",
-  ].join("");
-  return [
-    `I can turn that into a mission${details}.`,
-    `Do you want me to create it now? Reply "yes" or "no".`,
-  ].join(" ");
-}
-
-function isMissionConfirmYes(text) {
-  const n = String(text || "").trim().toLowerCase();
-  if (!n) return false;
-  if (/^(no|nah|nope|cancel|stop|nevermind|never mind)\b/.test(n)) return false;
-  return /^(yes|yeah|yep|sure|ok|okay|do it|go ahead|create it|create mission|please do|affirmative)\b/.test(n);
-}
-
-function isMissionConfirmNo(text) {
-  const n = String(text || "").trim().toLowerCase();
-  return /^(no|nah|nope|cancel|stop|nevermind|never mind)\b/.test(n);
-}
-
-function stripMissionConfirmPrefix(text) {
-  return String(text || "")
-    .replace(/^\s*(yes|yeah|yep|sure|ok|okay|do it|go ahead|create it|create mission|please do|affirmative)[\s,:-]*/i, "")
-    .trim();
-}
-
-async function sendDirectAssistantReply(userText, replyText, ctx, thinkingStatus = "Confirming mission") {
-  const { source, sender, sessionId, useVoice, ttsVoice, conversationId, userContextId } = ctx;
-  const normalizedReply = normalizeAssistantReply(replyText);
-  if (normalizedReply.skip) {
-    broadcastThinkingStatus("", userContextId);
-    broadcastState("idle", userContextId);
-    return "";
-  }
-
-  broadcastState("thinking", userContextId);
-  broadcastThinkingStatus(thinkingStatus, userContextId);
-  broadcastMessage("user", userText, source, conversationId, userContextId);
-  if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "user", userText, { source, sender: sender || null });
-
-  const streamId = createAssistantStreamId();
-  broadcastAssistantStreamStart(streamId, source, undefined, conversationId, userContextId);
-  broadcastAssistantStreamDelta(streamId, normalizedReply.text, source, undefined, conversationId, userContextId);
-  broadcastAssistantStreamDone(streamId, source, undefined, conversationId, userContextId);
-  if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", normalizedReply.text, { source, sender: "nova" });
-
-  if (useVoice) {
-    await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
-    broadcastThinkingStatus("", userContextId);
-  } else {
-    broadcastThinkingStatus("", userContextId);
-    broadcastState("idle", userContextId);
-  }
-  return normalizedReply.text;
-}
-
-// ===== Memory update sub-handler =====
-async function handleMemoryUpdate(text, ctx) {
-  const { source, sender, sessionId, useVoice, ttsVoice, userContextId, conversationId } = ctx;
-  const fact = extractMemoryUpdateFact(text);
-  const assistantStreamId = createAssistantStreamId();
-
-  function sendAssistantReply(reply) {
-    const normalized = normalizeAssistantReply(reply);
-    if (normalized.skip) return "";
-    broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);
-    broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source, undefined, conversationId, userContextId);
-    broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
-    return normalized.text;
-  }
-
-  broadcastState("thinking", userContextId);
-  broadcastThinkingStatus("Updating memory", userContextId);
-  broadcastMessage("user", text, source, conversationId, userContextId);
-  if (sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "user", text, { source, sender: sender || null });
-
-  if (!fact) {
-    const reply = "Tell me exactly what to remember after 'update your memory'.";
-    const finalReply = sendAssistantReply(reply);
-    if (finalReply && sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", finalReply, { source, sender: "nova" });
-    if (finalReply && useVoice) {
-      await speak(normalizeAssistantSpeechText(finalReply) || finalReply, ttsVoice);
-    } else broadcastState("idle", userContextId);
-    return;
-  }
-
-  try {
-    const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
-    const memoryFilePath = path.join(personaWorkspaceDir, "MEMORY.md");
-    const existingContent = fs.existsSync(memoryFilePath) ? fs.readFileSync(memoryFilePath, "utf8") : ensureMemoryTemplate();
-    const memoryMeta = buildMemoryFactMetadata(fact);
-    const updatedContent = upsertMemoryFactInMarkdown(existingContent, memoryMeta.fact, memoryMeta.key);
-    fs.writeFileSync(memoryFilePath, updatedContent, "utf8");
-    const confirmation = memoryMeta.hasStructuredField
-      ? `Memory updated. I will remember this as current: ${memoryMeta.fact}`
-      : `Memory updated. I saved: ${memoryMeta.fact}`;
-    const finalConfirmation = sendAssistantReply(confirmation);
-    if (finalConfirmation && sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", finalConfirmation, { source, sender: "nova" });
-    appendRawStream({
-      event: "memory_manual_upsert",
-      source,
-      sessionKey: ctx.sessionKey || "",
-      userContextId: userContextId || undefined,
-      key: memoryMeta.key || null,
-    });
-    console.log(`[Memory] Manual memory update applied for ${userContextId || "anonymous"} key=${memoryMeta.key || "general"}.`);
-    if (finalConfirmation && useVoice) {
-      await speak(normalizeAssistantSpeechText(finalConfirmation) || finalConfirmation, ttsVoice);
-    } else broadcastState("idle", userContextId);
-  } catch (err) {
-    const failure = `I couldn't update MEMORY.md: ${describeUnknownError(err)}`;
-    const finalFailure = sendAssistantReply(failure);
-    if (finalFailure && sessionId) sessionRuntime.appendTranscriptTurn(sessionId, "assistant", finalFailure, { source, sender: "nova" });
-    if (finalFailure && useVoice) {
-      await speak(normalizeAssistantSpeechText(finalFailure) || finalFailure, ttsVoice);
-    } else broadcastState("idle", userContextId);
-  }
-}
-
-// ===== Shutdown sub-handler =====
-async function handleShutdown(ctx) {
-  const { ttsVoice } = ctx;
-  stopSpeaking();
-  await speak("Shutting down now. If you need me again, just restart the system.", ttsVoice);
-  process.exit(0);
-}
-
-// ===== Spotify sub-handler =====
-async function handleSpotify(text, ctx, llmCtx) {
-  const { source, useVoice, ttsVoice, conversationId, userContextId } = ctx;
-  const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel } = llmCtx;
-  stopSpeaking();
-
-  const spotifySystemPrompt = `You parse Spotify commands. Given user input, respond with ONLY a JSON object:
-{
-  "action": "open" | "play" | "pause" | "next" | "previous",
-  "query": "search query if playing something, otherwise empty string",
-  "type": "track" | "artist" | "playlist" | "album" | "genre",
-  "response": "short friendly acknowledgment to say to the user"
-}
-Examples:
-- "open spotify" → { "action": "open", "query": "", "type": "track", "response": "Opening Spotify." }
-- "play some jazz" → { "action": "play", "query": "jazz", "type": "genre", "response": "Putting on some jazz for you." }
-- "next song" → { "action": "next", "query": "", "type": "track", "response": "Skipping to the next track." }
-- "pause the music" → { "action": "pause", "query": "", "type": "track", "response": "Pausing the music." }
-Output ONLY valid JSON, nothing else.`;
-
-  let spotifyRaw = "";
-  if (activeChatRuntime.provider === "claude") {
-    const r = await claudeMessagesCreate({
-      apiKey: activeChatRuntime.apiKey,
-      baseURL: activeChatRuntime.baseURL,
-      model: selectedChatModel,
-      system: spotifySystemPrompt,
-      userText: text,
-      maxTokens: SPOTIFY_INTENT_MAX_TOKENS,
-    });
-    spotifyRaw = r.text;
-  } else {
-    const parse = await withTimeout(
-      activeOpenAiCompatibleClient.chat.completions.create({
-        model: selectedChatModel,
-        messages: [{ role: "system", content: spotifySystemPrompt }, { role: "user", content: text }],
-      }),
-      OPENAI_REQUEST_TIMEOUT_MS,
-      "OpenAI Spotify parse",
-    );
-    spotifyRaw = extractOpenAIChatText(parse);
-  }
-
-  try {
-    const intent = JSON.parse(spotifyRaw);
-    const normalized = normalizeAssistantReply(intent.response);
-    if (!normalized.skip) {
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice);
-      else broadcastMessage("assistant", normalized.text, source, conversationId, userContextId);
-    }
-
-    if (intent.action === "open") {
-      exec("start spotify:");
-    } else if (intent.action === "pause") {
-      exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
-    } else if (intent.action === "next") {
-      exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB0)"');
-    } else if (intent.action === "previous") {
-      exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB1)"');
-    } else if (intent.action === "play" && intent.query) {
-      const encoded = encodeURIComponent(intent.query);
-      exec(`start "spotify" "spotify:search:${encoded}" && timeout /t 2 >nul && powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"`);
-    } else {
-      exec("start spotify:");
-    }
-  } catch (e) {
-    console.error("[Spotify] Parse error:", e.message);
-    const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
-    const normalizedAck = normalizeAssistantReply(ack);
-    if (!normalizedAck.skip) {
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedAck.text) || normalizedAck.text, ttsVoice);
-      else broadcastMessage("assistant", normalizedAck.text, source, conversationId, userContextId);
-    }
-    exec("start spotify:");
-  }
-
-  broadcastState("idle", userContextId);
-}
-
-// ===== Workflow builder sub-handler =====
-async function handleWorkflowBuild(text, ctx, options = {}) {
-  const { source, useVoice, ttsVoice, supabaseAccessToken, conversationId, userContextId } = ctx;
-  const engine = String(options.engine || "src").trim().toLowerCase() || "src";
-  stopSpeaking();
-  broadcastState("thinking", userContextId);
-  broadcastThinkingStatus("Building workflow", userContextId);
-  broadcastMessage("user", text, source, conversationId, userContextId);
-  try {
-    const deploy = !shouldDraftOnlyWorkflow(text);
-    appendRawStream({
-      event: "workflow_build_start",
-      source,
-      sessionKey: ctx.sessionKey || "",
-      userContextId: ctx.userContextId || undefined,
-      engine,
-      deploy,
-    });
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), Math.max(5000, WORKFLOW_BUILD_TIMEOUT_MS));
-    const headers = { "Content-Type": "application/json" };
-    if (String(supabaseAccessToken || "").trim()) {
-      headers.Authorization = `Bearer ${String(supabaseAccessToken).trim()}`;
-    }
-    const res = await fetch(`${HUD_API_BASE_URL}/api/missions/build`, {
-      method: "POST",
-      headers,
-      signal: abortController.signal,
-      body: JSON.stringify({ prompt: text, deploy, engine }),
-    }).finally(() => clearTimeout(timeoutId));
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
-
-    const label = data?.workflow?.label || "Generated Workflow";
-    const provider = data?.provider || "LLM";
-    const model = data?.model || "default model";
-    const stepCount = Array.isArray(data?.workflow?.summary?.workflowSteps) ? data.workflow.summary.workflowSteps.length : 0;
-    const scheduleTime = data?.workflow?.summary?.schedule?.time || "09:00";
-    const scheduleTimezone = data?.workflow?.summary?.schedule?.timezone || "America/New_York";
-
-    const reply = data?.deployed
-      ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}. Open the Missions page to review or edit it.`
-      : `Built a workflow draft "${label}" with ${stepCount} steps. It's ready for review and not deployed yet. Generated using ${provider} ${model}. Open the Missions page to review or edit it.`;
-    const normalizedReply = normalizeAssistantReply(reply);
-
-    appendRawStream({
-      event: "workflow_build_done",
-      source,
-      sessionKey: ctx.sessionKey || "",
-      userContextId: ctx.userContextId || undefined,
-      engine,
-      deployed: Boolean(data?.deployed),
-      provider,
-      model,
-      stepCount,
-    });
-    if (!normalizedReply.skip) {
-      broadcastMessage("assistant", normalizedReply.text, source, conversationId, userContextId);
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Workflow build failed.";
-    appendRawStream({
-      event: "workflow_build_error",
-      source,
-      sessionKey: ctx.sessionKey || "",
-      userContextId: ctx.userContextId || undefined,
-      engine,
-      message: msg,
-    });
-    const reply = `I couldn't build that workflow yet: ${msg}`;
-    const normalizedReply = normalizeAssistantReply(reply);
-    if (!normalizedReply.skip) {
-      broadcastMessage("assistant", normalizedReply.text, source, conversationId, userContextId);
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
-    }
-  } finally {
-    broadcastState("idle", userContextId);
-  }
-}
 
 // ===== Core chat request =====
 async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
@@ -566,16 +139,42 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     raw_text: displayText } = ctx;
   // displayText: original user text for UI/transcript; text: clean_text for LLM/tools
   const uiText = displayText || text;
-  const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch, canRunWebFetch } = llmCtx;
+  const {
+    activeChatRuntime,
+    activeOpenAiCompatibleClient,
+    selectedChatModel,
+    runtimeTools,
+    availableTools,
+    canRunToolLoop,
+    canRunWebSearch,
+    canRunWebFetch,
+    turnPolicy,
+    executionPolicy,
+    latencyTelemetry: inboundLatencyTelemetry,
+  } = llmCtx;
   const fastLaneSimpleChat = requestHints.fastLaneSimpleChat === true;
+  const shouldPreloadWebSearchForTurn = executionPolicy?.shouldPreloadWebSearch === true;
+  const shouldPreloadWebFetchForTurn = executionPolicy?.shouldPreloadWebFetch === true;
+  const shouldAttemptMemoryRecallForTurn = executionPolicy?.shouldAttemptMemoryRecall === true;
+  const outputConstraints = parseOutputConstraints(text);
+  const hasStrictOutputRequirements = outputConstraints.enabled === true && Boolean(outputConstraints.instructions);
   const startedAt = Date.now();
+  const latencyTelemetry = inboundLatencyTelemetry || createChatLatencyTelemetry(startedAt);
   const observedToolCalls = [];
+  const toolExecutions = [];
+  const retries = [];
   let usedMemoryRecall = false;
   let usedWebSearchPreload = false;
   let usedLinkUnderstanding = false;
+  let responseRoute = "llm";
+  let memoryAutoCaptured = 0;
   let preparedPromptHash = "";
   let emittedAssistantDelta = false;
+  let preferredNamePinned = false;
+  let preferenceProfileUpdated = 0;
+  let outputConstraintCorrectionPasses = 0;
   const runSummary = {
+    route: "chat",
     ok: false,
     source,
     sessionKey,
@@ -588,12 +187,35 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     totalTokens: 0,
     latencyMs: 0,
     toolCalls: [],
+    toolExecutions: [],
+    retries: [],
+    requestHints: {
+      fastLaneSimpleChat,
+      strictOutputConstraints: hasStrictOutputRequirements,
+      preferredNamePinned: false,
+      latencyPolicy: turnPolicy?.fastLaneSimpleChat === true ? "fast_lane" : "default",
+    },
+    canRunToolLoop,
+    canRunWebSearch,
+    canRunWebFetch,
+    responseRoute,
+    memoryAutoCaptured: 0,
+    preferenceProfileUpdated: 0,
     memoryRecallUsed: false,
     webSearchPreloadUsed: false,
     linkUnderstandingUsed: false,
+    correctionPassCount: 0,
+    latencyStages: {},
+    latencyHotPath: "",
     promptHash: "",
     error: "",
   };
+  if (turnPolicy && typeof turnPolicy === "object") {
+    runSummary.requestHints.weatherIntent = turnPolicy.weatherIntent === true;
+    runSummary.requestHints.cryptoIntent = turnPolicy.cryptoIntent === true;
+    runSummary.requestHints.toolLoopCandidate = turnPolicy.toolLoopCandidate === true;
+    runSummary.requestHints.memoryRecallCandidate = turnPolicy.memoryRecallCandidate === true;
+  }
   broadcastState("thinking", userContextId);
   broadcastThinkingStatus("Analyzing request", userContextId);
   const nlpCorrectionCount = Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : 0;
@@ -605,7 +227,26 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   });
   if (useVoice) playThinking();
 
+  const promptAssemblyStartedAt = Date.now();
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+  const preferenceCapture = captureUserPreferencesFromMessage({
+    userContextId,
+    workspaceDir: personaWorkspaceDir,
+    userInputText: uiText,
+    nlpConfidence: Number.isFinite(Number(ctx?.nlpConfidence)) ? Number(ctx.nlpConfidence) : 1,
+    source,
+    sessionKey,
+  });
+  preferenceProfileUpdated = Array.isArray(preferenceCapture?.updatedKeys) ? preferenceCapture.updatedKeys.length : 0;
+  const preferencePrompt = buildUserPreferencePromptSection(preferenceCapture?.preferences || {});
+  preferredNamePinned = Boolean(preferenceCapture?.preferences?.preferredName);
+  runSummary.requestHints.preferredNamePinned = preferredNamePinned;
+  if (preferenceProfileUpdated > 0) {
+    console.log(
+      `[Preference] Updated ${preferenceProfileUpdated} field(s) for ${userContextId || "anonymous"} at ${String(preferenceCapture?.filePath || "unknown")}.`,
+    );
+  }
+
   const runtimeSkillsPrompt = fastLaneSimpleChat ? "" : buildRuntimeSkillsPrompt(personaWorkspaceDir, text);
   const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
     buildAgentSystemPrompt,
@@ -636,10 +277,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         capabilities: ["voice", "websocket"],
         repoRoot: process.env.ROOT_WORKSPACE_DIR || "",
       },
-      workspaceNotes: [
-        "This is a first-pass prompt framework integration for Nova.",
-        "Future skill/memory metadata plumbing can extend this prompt builder.",
-      ],
+      workspaceNotes: [],
     },
   });
 
@@ -654,17 +292,41 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   ].filter(Boolean).join("\n");
   if (personaOverlay) systemPrompt += `\n\n${personaOverlay}`;
 
-  const promptBudgetOptions = {
-    userMessage: text,
+  const promptBudgetProfile = resolveDynamicPromptBudget({
     maxPromptTokens: MAX_PROMPT_TOKENS,
     responseReserveTokens: PROMPT_RESPONSE_RESERVE_TOKENS,
     historyTargetTokens: PROMPT_HISTORY_TARGET_TOKENS,
     sectionMaxTokens: PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+    fastLaneSimpleChat,
+    strictOutputConstraints: hasStrictOutputRequirements,
+  });
+  runSummary.requestHints.latencyPolicy = promptBudgetProfile.profile;
+
+  const promptBudgetOptions = {
+    userMessage: text,
+    maxPromptTokens: promptBudgetProfile.maxPromptTokens,
+    responseReserveTokens: promptBudgetProfile.responseReserveTokens,
+    historyTargetTokens: promptBudgetProfile.historyTargetTokens,
+    sectionMaxTokens: promptBudgetProfile.sectionMaxTokens,
     debug: PROMPT_BUDGET_DEBUG,
   };
 
+  if (preferencePrompt) {
+    const appended = appendBudgetedPromptSection({
+      ...promptBudgetOptions,
+      prompt: systemPrompt,
+      sectionTitle: "User Preference Memory",
+      sectionBody: preferencePrompt,
+    });
+    if (appended.included) {
+      systemPrompt = appended.prompt;
+    } else {
+      systemPrompt = `${systemPrompt}\n\n## User Preference Memory\n${preferencePrompt}`;
+    }
+  }
+
   const enrichmentTasks = [];
-  if (!fastLaneSimpleChat && canRunWebSearch && shouldPreloadWebSearch(text)) {
+  if (shouldPreloadWebSearchForTurn && shouldPreloadWebSearch(text)) {
     enrichmentTasks.push(
       withTimeout(
         (async () => {
@@ -691,7 +353,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     );
   }
 
-  if (!fastLaneSimpleChat && canRunWebFetch) {
+  if (shouldPreloadWebFetchForTurn) {
     enrichmentTasks.push(
       withTimeout(
         (async () => {
@@ -721,7 +383,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     );
   }
 
-  if (!fastLaneSimpleChat && runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED && shouldAttemptMemoryRecallTurn(text)) {
+  if (shouldAttemptMemoryRecallForTurn && runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
     enrichmentTasks.push(
       (async () => {
         runtimeTools.memoryManager.warmSession();
@@ -743,6 +405,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   }
 
   if (enrichmentTasks.length > 0) {
+    const enrichmentStartedAt = Date.now();
     broadcastThinkingStatus("Gathering context", userContextId);
     const enrichmentResults = await Promise.allSettled(enrichmentTasks);
     for (const taskResult of enrichmentResults) {
@@ -766,6 +429,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         if (appended.included) {
           systemPrompt = appended.prompt;
           usedWebSearchPreload = true;
+          latencyTelemetry.incrementCounter("web_search_preload_hits");
         }
         continue;
       }
@@ -780,6 +444,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           systemPrompt = appended.prompt;
           usedLinkUnderstanding = true;
           observedToolCalls.push("web_fetch");
+          latencyTelemetry.incrementCounter("web_fetch_preload_hits");
         }
         continue;
       }
@@ -793,8 +458,24 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         if (appended.included) {
           systemPrompt = appended.prompt;
           usedMemoryRecall = true;
+          latencyTelemetry.incrementCounter("memory_recall_hits");
         }
       }
+    }
+    latencyTelemetry.addStage("context_enrichment", Date.now() - enrichmentStartedAt);
+  }
+
+  if (hasStrictOutputRequirements) {
+    const appended = appendBudgetedPromptSection({
+      ...promptBudgetOptions,
+      prompt: systemPrompt,
+      sectionTitle: "Strict Output Requirements",
+      sectionBody: outputConstraints.instructions,
+    });
+    if (appended.included) {
+      systemPrompt = appended.prompt;
+    } else {
+      systemPrompt = `${systemPrompt}\n\n## Strict Output Requirements\n${outputConstraints.instructions}`;
     }
   }
 
@@ -805,13 +486,13 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
   const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
   const computedHistoryTokenBudget = computeHistoryTokenBudget({
-    maxPromptTokens: MAX_PROMPT_TOKENS,
-    responseReserveTokens: PROMPT_RESPONSE_RESERVE_TOKENS,
+    maxPromptTokens: promptBudgetProfile.maxPromptTokens,
+    responseReserveTokens: promptBudgetProfile.responseReserveTokens,
     userMessage: text,
     systemPrompt,
     maxHistoryTokens: SESSION_MAX_HISTORY_TOKENS,
     minHistoryTokens: PROMPT_MIN_HISTORY_TOKENS,
-    targetHistoryTokens: PROMPT_HISTORY_TARGET_TOKENS,
+    targetHistoryTokens: promptBudgetProfile.historyTargetTokens,
   });
   const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, computedHistoryTokenBudget);
   const historyMessages = historyBudget.messages;
@@ -825,6 +506,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     { role: "user", content: text },
   ];
   preparedPromptHash = hashShadowPayload(JSON.stringify(messages));
+  latencyTelemetry.addStage("prompt_assembly", Date.now() - promptAssemblyStartedAt);
   const assistantStreamId = createAssistantStreamId();
   broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);
 
@@ -833,6 +515,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     let promptTokens = 0;
     let completionTokens = 0;
     let modelUsed = selectedChatModel;
+    const fastPathStartedAt = Date.now();
 
     const weatherFastResult = await tryWeatherFastPathReply({
       text,
@@ -849,8 +532,11 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           userContextId,
           conversationId,
         });
+    latencyTelemetry.addStage("fast_path", Date.now() - fastPathStartedAt);
+    let llmStartedAt = 0;
 
     if (String(weatherFastResult?.reply || "").trim()) {
+      responseRoute = "weather_fast_path";
       const suggestedLocation = String(weatherFastResult?.suggestedLocation || "").trim();
       if (weatherFastResult?.needsConfirmation && suggestedLocation) {
         setPendingWeatherConfirm(sessionKey, text, suggestedLocation);
@@ -862,31 +548,50 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       reply = String(weatherFastResult.reply || "").trim();
       if (weatherFastResult?.toolCall) observedToolCalls.push(String(weatherFastResult.toolCall));
     } else if (String(cryptoFastResult?.reply || "").trim()) {
+      responseRoute = "crypto_fast_path";
       clearPendingWeatherConfirm(sessionKey);
       broadcastThinkingStatus("Checking Coinbase", userContextId);
       reply = String(cryptoFastResult.reply || "").trim();
       if (cryptoFastResult?.toolCall) observedToolCalls.push(String(cryptoFastResult.toolCall));
     } else if (activeChatRuntime.provider === "claude") {
+      llmStartedAt = Date.now();
+      responseRoute = "claude_direct";
       broadcastThinkingStatus("Drafting response", userContextId);
       const claudeMessages = [...historyMessages, { role: "user", content: text }];
-      const claudeCompletion = await claudeMessagesStream({
-        apiKey: activeChatRuntime.apiKey,
-        baseURL: activeChatRuntime.baseURL,
-        model: selectedChatModel,
-        system: systemPrompt,
-        messages: claudeMessages,
-        userText: text,
-        maxTokens: CLAUDE_CHAT_MAX_TOKENS,
-        timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-        onDelta: (delta) => {
-          emittedAssistantDelta = true;
-          broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
-        },
-      });
+      const claudeCompletion = hasStrictOutputRequirements
+        ? await withTimeout(
+            claudeMessagesCreate({
+              apiKey: activeChatRuntime.apiKey,
+              baseURL: activeChatRuntime.baseURL,
+              model: selectedChatModel,
+              system: systemPrompt,
+              messages: claudeMessages,
+              userText: text,
+              maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+            }),
+            OPENAI_REQUEST_TIMEOUT_MS,
+            `Claude model ${selectedChatModel}`,
+          )
+        : await claudeMessagesStream({
+            apiKey: activeChatRuntime.apiKey,
+            baseURL: activeChatRuntime.baseURL,
+            model: selectedChatModel,
+            system: systemPrompt,
+            messages: claudeMessages,
+            userText: text,
+            maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+            timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            onDelta: (delta) => {
+              emittedAssistantDelta = true;
+              broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
+            },
+          });
       reply = claudeCompletion.text;
       promptTokens = claudeCompletion.usage.promptTokens;
       completionTokens = claudeCompletion.usage.completionTokens;
     } else if (canRunToolLoop) {
+      llmStartedAt = Date.now();
+      responseRoute = "tool_loop";
       const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
       const loopMessages = [...messages];
       const toolOutputsForRecovery = [];
@@ -912,6 +617,12 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           if (!usedFallback && OPENAI_FALLBACK_MODEL) {
             usedFallback = true;
             modelUsed = OPENAI_FALLBACK_MODEL;
+            retries.push({
+              stage: "tool_loop_completion",
+              fromModel: selectedChatModel,
+              toModel: modelUsed,
+              reason: "primary_failed",
+            });
             console.warn(`[ToolLoop] Primary model failed; retrying with fallback model ${modelUsed}.`);
             completion = await withTimeout(
               activeOpenAiCompatibleClient.chat.completions.create({
@@ -962,8 +673,15 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             };
           }
           let toolResult;
+          const toolStartedAt = Date.now();
           try {
             toolResult = await runtimeTools.executeToolUse(toolUse, availableTools);
+            toolExecutions.push({
+              name: normalizedToolName || "unknown",
+              status: "ok",
+              durationMs: Date.now() - toolStartedAt,
+              resultPreview: summarizeToolResultPreview(toolResult?.content || ""),
+            });
           } catch (toolErr) {
             const errMsg = describeUnknownError(toolErr);
             console.error(`[ToolLoop] Tool "${toolCall.function?.name ?? toolCall.id}" failed: ${errMsg}`);
@@ -975,6 +693,13 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
               conversationId,
               userContextId,
             );
+            toolExecutions.push({
+              name: normalizedToolName || "unknown",
+              status: "error",
+              durationMs: Date.now() - toolStartedAt,
+              error: errMsg,
+              resultPreview: "",
+            });
             toolResult = { content: `Tool execution failed: ${errMsg}` };
           }
           loopMessages.push({
@@ -1099,55 +824,118 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 
       if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response after tool loop.`);
     } else {
+      llmStartedAt = Date.now();
       broadcastThinkingStatus("Drafting response", userContextId);
-      let streamed = null;
-      let sawPrimaryDelta = false;
-      try {
-        streamed = await streamOpenAiChatCompletion({
-          client: activeOpenAiCompatibleClient,
-          model: modelUsed,
-          messages,
-          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          onDelta: (delta) => {
-            sawPrimaryDelta = true;
-            emittedAssistantDelta = true;
-            broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
-          },
-        });
-      } catch (primaryError) {
-        if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) throw primaryError;
-        const fallbackModel = OPENAI_FALLBACK_MODEL;
-        const primaryDetails = toErrorDetails(primaryError);
-        console.warn(
-          `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
-          ` status=${primaryDetails.status ?? "n/a"} message=${primaryDetails.message}. Retrying with fallback ${fallbackModel}.`,
-        );
-        streamed = await streamOpenAiChatCompletion({
-          client: activeOpenAiCompatibleClient,
-          model: fallbackModel,
-          messages,
-          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          onDelta: (delta) => {
-            emittedAssistantDelta = true;
-            broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
-          },
-        });
-        modelUsed = fallbackModel;
+      if (hasStrictOutputRequirements) {
+        responseRoute = "openai_direct_constraints";
+        let completion = null;
+        try {
+          completion = await withTimeout(
+            activeOpenAiCompatibleClient.chat.completions.create({
+              model: modelUsed,
+              messages,
+              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+            }),
+            OPENAI_REQUEST_TIMEOUT_MS,
+            `OpenAI model ${modelUsed}`,
+          );
+        } catch (primaryError) {
+          if (!OPENAI_FALLBACK_MODEL) throw primaryError;
+          const fallbackModel = OPENAI_FALLBACK_MODEL;
+          retries.push({
+            stage: "direct_completion",
+            fromModel: modelUsed,
+            toModel: fallbackModel,
+            reason: "primary_failed",
+          });
+          const primaryDetails = toErrorDetails(primaryError);
+          console.warn(
+            `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
+            ` status=${primaryDetails.status ?? "n/a"} message=${primaryDetails.message}. Retrying with fallback ${fallbackModel}.`,
+          );
+          completion = await withTimeout(
+            activeOpenAiCompatibleClient.chat.completions.create({
+              model: fallbackModel,
+              messages,
+              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+            }),
+            OPENAI_REQUEST_TIMEOUT_MS,
+            `OpenAI fallback model ${fallbackModel}`,
+          );
+          modelUsed = fallbackModel;
+        }
+        const usage = completion?.usage || {};
+        promptTokens = Number(usage.prompt_tokens || 0);
+        completionTokens = Number(usage.completion_tokens || 0);
+        reply = extractOpenAIChatText(completion).trim();
+      } else {
+        responseRoute = "openai_stream";
+        let streamed = null;
+        let sawPrimaryDelta = false;
+        try {
+          streamed = await streamOpenAiChatCompletion({
+            client: activeOpenAiCompatibleClient,
+            model: modelUsed,
+            messages,
+            timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            onDelta: (delta) => {
+              sawPrimaryDelta = true;
+              emittedAssistantDelta = true;
+              broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
+            },
+          });
+        } catch (primaryError) {
+          if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) throw primaryError;
+          const fallbackModel = OPENAI_FALLBACK_MODEL;
+          retries.push({
+            stage: "stream_completion",
+            fromModel: modelUsed,
+            toModel: fallbackModel,
+            reason: "primary_failed",
+          });
+          const primaryDetails = toErrorDetails(primaryError);
+          console.warn(
+            `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}` +
+            ` status=${primaryDetails.status ?? "n/a"} message=${primaryDetails.message}. Retrying with fallback ${fallbackModel}.`,
+          );
+          streamed = await streamOpenAiChatCompletion({
+            client: activeOpenAiCompatibleClient,
+            model: fallbackModel,
+            messages,
+            timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            onDelta: (delta) => {
+              emittedAssistantDelta = true;
+              broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
+            },
+          });
+          modelUsed = fallbackModel;
+        }
+        reply = streamed.reply;
+        promptTokens = streamed.promptTokens || 0;
+        completionTokens = streamed.completionTokens || 0;
       }
-      reply = streamed.reply;
       if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response.`);
-      promptTokens = streamed.promptTokens || 0;
-      completionTokens = streamed.completionTokens || 0;
+    }
+    if (llmStartedAt > 0) {
+      latencyTelemetry.addStage("llm_generation", Date.now() - llmStartedAt);
     }
 
     // Refusal recovery: if model claimed no web access, do a search and append results
     if (replyClaimsNoLiveAccess(reply) && canRunWebSearch) {
+      const refusalRecoveryStartedAt = Date.now();
       broadcastThinkingStatus("Verifying live web access", userContextId);
       try {
+        const refusalRecoverStartedAt = Date.now();
         const fallbackResult = await runtimeTools.executeToolUse(
           { id: `tool_refusal_recover_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
           availableTools,
         );
+        toolExecutions.push({
+          name: "web_search",
+          status: "ok",
+          durationMs: Date.now() - refusalRecoverStartedAt,
+          resultPreview: summarizeToolResultPreview(fallbackResult?.content || ""),
+        });
         const fallbackContent = String(fallbackResult?.content || "").trim();
         if (fallbackContent && !/^web_search error/i.test(fallbackContent)) {
           const weatherReadable = isWeatherRequestText(text) ? buildWeatherWebSummary(text, fallbackContent) : "";
@@ -1156,12 +944,105 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             ? `I do have live web access in this runtime.\n\n${readable}`
             : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;
           reply = reply ? `${reply}\n\n${correction}` : correction;
-          emittedAssistantDelta = true;
-          broadcastAssistantStreamDelta(assistantStreamId, correction, source, undefined, conversationId, userContextId);
+          if (!hasStrictOutputRequirements) {
+            emittedAssistantDelta = true;
+            broadcastAssistantStreamDelta(assistantStreamId, correction, source, undefined, conversationId, userContextId);
+          }
           observedToolCalls.push("web_search");
         }
       } catch (err) {
+        toolExecutions.push({
+          name: "web_search",
+          status: "error",
+          durationMs: 0,
+          error: describeUnknownError(err),
+          resultPreview: "",
+        });
         console.warn(`[ToolLoop] refusal recovery search failed: ${describeUnknownError(err)}`);
+      } finally {
+        latencyTelemetry.addStage("refusal_recovery", Date.now() - refusalRecoveryStartedAt);
+      }
+    }
+
+    if (hasStrictOutputRequirements) {
+      const initialConstraintCheck = validateOutputConstraints(reply, outputConstraints);
+      if (!initialConstraintCheck.ok) {
+        const correctionStartedAt = Date.now();
+        broadcastThinkingStatus("Applying response format", userContextId);
+        retries.push({
+          stage: "output_constraint_correction",
+          fromModel: modelUsed,
+          toModel: modelUsed,
+          reason: initialConstraintCheck.reason,
+        });
+
+        const correctionInstruction = [
+          "Rewrite your previous answer to the same user request.",
+          `Violation: ${initialConstraintCheck.reason}.`,
+          "Strict requirements:",
+          outputConstraints.instructions,
+          "Return only the corrected answer.",
+        ].join("\n");
+
+        let correctedReply = "";
+        try {
+          if (activeChatRuntime.provider === "claude") {
+            const correctionMessages = [
+              ...historyMessages,
+              { role: "user", content: text },
+              { role: "assistant", content: reply },
+              { role: "user", content: correctionInstruction },
+            ];
+            const claudeCorrection = await withTimeout(
+              claudeMessagesCreate({
+                apiKey: activeChatRuntime.apiKey,
+                baseURL: activeChatRuntime.baseURL,
+                model: selectedChatModel,
+                system: systemPrompt,
+                messages: correctionMessages,
+                userText: correctionInstruction,
+                maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+              }),
+              OPENAI_REQUEST_TIMEOUT_MS,
+              `Claude correction ${selectedChatModel}`,
+            );
+            correctedReply = String(claudeCorrection?.text || "").trim();
+            promptTokens += Number(claudeCorrection?.usage?.promptTokens || 0);
+            completionTokens += Number(claudeCorrection?.usage?.completionTokens || 0);
+          } else {
+            const correctionCompletion = await withTimeout(
+              activeOpenAiCompatibleClient.chat.completions.create({
+                model: modelUsed,
+                messages: [
+                  ...messages,
+                  { role: "assistant", content: reply },
+                  { role: "user", content: correctionInstruction },
+                ],
+                max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+              }),
+              OPENAI_REQUEST_TIMEOUT_MS,
+              `OpenAI correction ${modelUsed}`,
+            );
+            correctedReply = extractOpenAIChatText(correctionCompletion).trim();
+            const correctionUsage = correctionCompletion?.usage || {};
+            promptTokens += Number(correctionUsage.prompt_tokens || 0);
+            completionTokens += Number(correctionUsage.completion_tokens || 0);
+          }
+        } catch (correctionErr) {
+          console.warn(`[OutputConstraints] correction pass failed: ${describeUnknownError(correctionErr)}`);
+        } finally {
+          outputConstraintCorrectionPasses += 1;
+          latencyTelemetry.incrementCounter("output_constraint_correction_passes");
+          latencyTelemetry.addStage("output_constraint_correction", Date.now() - correctionStartedAt);
+        }
+
+        if (correctedReply) {
+          reply = correctedReply;
+          const correctedCheck = validateOutputConstraints(reply, outputConstraints);
+          if (correctedCheck.ok) {
+            responseRoute = `${responseRoute}_constraint_corrected`;
+          }
+        }
       }
     }
 
@@ -1208,25 +1089,30 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           }))
           .filter((c) => c.reason)
       : [];
+    const transcriptStartedAt = Date.now();
     sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "user", uiText, {
       source,
       sender: ctx.sender,
       provider: activeChatRuntime.provider,
       model: modelForUsage,
       sessionKey,
+      conversationId: conversationId || undefined,
       nlpCleanText: text !== uiText ? text : undefined,
       nlpConfidence: Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : undefined,
       nlpCorrectionCount: nlpCorrections.length,
       nlpCorrections: nlpCorrections.length > 0 ? nlpCorrections : undefined,
     });
     if (reply) {
-      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, promptTokens, completionTokens, totalTokens });
+      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, conversationId: conversationId || undefined, promptTokens, completionTokens, totalTokens });
     }
     sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens });
+    latencyTelemetry.addStage("transcript_persistence", Date.now() - transcriptStartedAt);
 
+    const memoryCaptureStartedAt = Date.now();
     try {
       const autoFacts = extractAutoMemoryFacts(text);
       const autoCaptured = applyMemoryFactsToWorkspace(personaWorkspaceDir, autoFacts);
+      memoryAutoCaptured = autoCaptured;
       if (autoCaptured > 0) {
         appendRawStream({
           event: "memory_auto_upsert",
@@ -1241,6 +1127,8 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       }
     } catch (memoryErr) {
       console.warn(`[Memory] Auto-upsert failed: ${describeUnknownError(memoryErr)}`);
+    } finally {
+      latencyTelemetry.addStage("memory_autocapture", Date.now() - memoryCaptureStartedAt);
     }
 
     runSummary.ok = true;
@@ -1251,12 +1139,24 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.completionTokens = completionTokens;
     runSummary.totalTokens = totalTokens;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
+    runSummary.toolExecutions = toolExecutions;
+    runSummary.retries = retries;
+    runSummary.responseRoute = responseRoute;
+    runSummary.memoryAutoCaptured = memoryAutoCaptured;
+    runSummary.preferenceProfileUpdated = preferenceProfileUpdated;
+    runSummary.nlpConfidence = Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : null;
+    runSummary.nlpCorrectionCount = Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : 0;
     runSummary.memoryRecallUsed = usedMemoryRecall;
     runSummary.webSearchPreloadUsed = usedWebSearchPreload;
     runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
+    runSummary.correctionPassCount = outputConstraintCorrectionPasses;
     runSummary.promptHash = preparedPromptHash;
 
-    if (useVoice && reply) await speak(normalizeAssistantSpeechText(reply) || reply, ttsVoice);
+    if (useVoice && reply) {
+      const voiceStartedAt = Date.now();
+      await speak(normalizeAssistantSpeechText(reply) || reply, ttsVoice);
+      latencyTelemetry.addStage("voice_output", Date.now() - voiceStartedAt);
+    }
   } catch (err) {
     broadcastThinkingStatus("Handling error", userContextId);
     const details = toErrorDetails(err);
@@ -1273,13 +1173,29 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     );
     runSummary.error = msg;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
+    runSummary.toolExecutions = toolExecutions;
+    runSummary.retries = retries;
+    runSummary.responseRoute = responseRoute;
+    runSummary.memoryAutoCaptured = memoryAutoCaptured;
+    runSummary.preferenceProfileUpdated = preferenceProfileUpdated;
+    runSummary.nlpConfidence = Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : null;
+    runSummary.nlpCorrectionCount = Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : 0;
     runSummary.memoryRecallUsed = usedMemoryRecall;
     runSummary.webSearchPreloadUsed = usedWebSearchPreload;
     runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
+    runSummary.correctionPassCount = outputConstraintCorrectionPasses;
     runSummary.promptHash = preparedPromptHash;
   } finally {
     broadcastThinkingStatus("", userContextId);
-    runSummary.latencyMs = Date.now() - startedAt;
+    const latencySnapshot = latencyTelemetry.snapshot();
+    runSummary.latencyMs = Number.isFinite(Number(latencySnapshot.totalMs)) && Number(latencySnapshot.totalMs) > 0
+      ? Number(latencySnapshot.totalMs)
+      : Date.now() - startedAt;
+    runSummary.latencyStages = latencySnapshot.stageMs || {};
+    runSummary.latencyHotPath = String(latencySnapshot.hotPath || latencySnapshot.hotStage || "");
+    runSummary.correctionPassCount = Number.isFinite(Number(latencySnapshot.counters?.output_constraint_correction_passes))
+      ? Number(latencySnapshot.counters.output_constraint_correction_passes)
+      : runSummary.correctionPassCount;
     broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
     broadcastState("idle", userContextId);
   }
@@ -1288,15 +1204,21 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 }
 
 // ===== Main dispatcher =====
-export async function handleInput(text, opts = {}) {
-  const sessionContext = sessionRuntime.resolveSessionContext(opts);
-  const sessionKey = sessionContext.sessionKey;
+async function handleInputCore(text, opts = {}) {
+  const latencyTelemetry = createChatLatencyTelemetry();
+  text = normalizeInboundUserText(text);
+  if (!text) return;
+  const source = opts.source || "hud";
   const userContextId = sessionRuntime.resolveUserContextId(opts);
+  if (source === "hud" && !userContextId) throw new Error("Missing user context id for HUD request.");
+  const sessionContext = sessionRuntime.resolveSessionContext({
+    ...opts,
+    userContextId: userContextId || opts.userContextId,
+  });
+  const sessionKey = sessionContext.sessionKey;
   const useVoice = opts.voice !== false;
   const ttsVoice = opts.ttsVoice || "default";
-  const source = opts.source || "hud";
   const conversationId = resolveConversationId(opts, sessionKey, source);
-  if (source === "hud" && !userContextId) throw new Error("Missing user context id for HUD request.");
 
   const sender = String(opts.sender || "").trim();
   const runtimeTone = normalizeRuntimeTone(opts.tone);
@@ -1321,7 +1243,30 @@ export async function handleInput(text, opts = {}) {
       userContextId: userContextId || undefined,
       chars: String(text || "").length,
     });
-    return;
+    return {
+      route: "duplicate_skipped",
+      ok: true,
+      reply: "",
+      error: "",
+      provider: "",
+      model: "",
+      toolCalls: [],
+      toolExecutions: [],
+      retries: [],
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      estimatedCostUsd: null,
+      memoryRecallUsed: false,
+      memoryAutoCaptured: 0,
+      webSearchPreloadUsed: false,
+      linkUnderstandingUsed: false,
+      requestHints: {},
+      canRunToolLoop: false,
+      canRunWebSearch: false,
+      canRunWebFetch: false,
+      latencyMs: 0,
+    };
   }
 
   appendRawStream({ event: "request_start", source, sessionKey, userContextId: userContextId || undefined, chars: String(text || "").length });
@@ -1334,6 +1279,7 @@ export async function handleInput(text, opts = {}) {
   let nlpCorrections = [];
   let nlpConfidence = 1.0;
   const nlpBypass = opts?.nlpBypass === true;
+  const nlpPreprocessStartedAt = Date.now();
   if (!nlpBypass) {
     try {
       const preprocessFn = getPreprocess();
@@ -1354,6 +1300,7 @@ export async function handleInput(text, opts = {}) {
       nlpConfidence = 1.0;
     }
   }
+  latencyTelemetry.addStage("nlp_preprocess", Date.now() - nlpPreprocessStartedAt);
   // Use clean_text for all downstream routing and LLM calls.
   // raw_text is preserved for UI messages and transcript writes.
   text = clean_text;
@@ -1379,21 +1326,24 @@ export async function handleInput(text, opts = {}) {
 
   // Memory update — short-circuit before any LLM call
   if (isMemoryUpdateRequest(text)) {
-    await handleMemoryUpdate(text, ctx);
-    return;
+    return await handleMemoryUpdate(text, ctx);
   }
 
   const pendingWeather = getPendingWeatherConfirm(sessionKey);
   if (pendingWeather) {
     if (isWeatherConfirmNo(text)) {
       clearPendingWeatherConfirm(sessionKey);
-      await sendDirectAssistantReply(
+      const reply = await sendDirectAssistantReply(
         text,
         "Okay. I will not run that location. Share the correct city and I will fetch weather immediately.",
         ctx,
         "Waiting for location",
       );
-      return;
+      return {
+        route: "weather_confirm_declined",
+        ok: true,
+        reply,
+      };
     }
 
     if (isWeatherConfirmYes(text)) {
@@ -1414,17 +1364,20 @@ export async function handleInput(text, opts = {}) {
       });
       const confirmedReply = String(confirmedWeatherResult?.reply || "").trim()
         || `I could not fetch weather for ${pendingWeather.suggestedLocation} yet. Please retry.`;
-      await sendDirectAssistantReply(text, confirmedReply, ctx, "Fetching weather");
-      return;
+      const reply = await sendDirectAssistantReply(text, confirmedReply, ctx, "Fetching weather");
+      return {
+        route: "weather_confirm_accepted",
+        ok: true,
+        reply,
+        toolCalls: confirmedWeatherResult?.toolCall ? [String(confirmedWeatherResult.toolCall)] : [],
+        canRunToolLoop,
+        canRunWebSearch,
+      };
     }
 
-    await sendDirectAssistantReply(
-      text,
-      `Please reply "yes" or "no" to confirm weather for ${pendingWeather.suggestedLocation}.`,
-      ctx,
-      "Confirming location",
-    );
-    return;
+    // If the user moved on or asked a fresh weather question, do not trap the
+    // session in a yes/no loop. Clear stale confirmation and continue routing.
+    clearPendingWeatherConfirm(sessionKey);
   }
 
   // Mission confirmation/build routing before LLM/provider selection.
@@ -1432,74 +1385,85 @@ export async function handleInput(text, opts = {}) {
   if (pendingMission) {
     if (isMissionConfirmNo(text)) {
       clearPendingMissionConfirm(sessionKey);
-      await sendDirectAssistantReply(
+      const reply = await sendDirectAssistantReply(
         text,
         "No problem. I will not create a mission. If you want one later, say: create a mission for ...",
         ctx,
       );
-      return;
+      return {
+        route: "mission_confirm_declined",
+        ok: true,
+        reply,
+      };
     }
 
     if (isMissionConfirmYes(text)) {
       const details = stripMissionConfirmPrefix(text);
       const mergedPrompt = details ? `${pendingMission.prompt}. ${details}` : pendingMission.prompt;
       clearPendingMissionConfirm(sessionKey);
-      await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
-      return;
+      return await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
     }
 
     const detailLikeFollowUp = /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|novachat|daily|every|morning|night|tomorrow)\b/i.test(text);
     if (detailLikeFollowUp) {
       const mergedPrompt = `${pendingMission.prompt}. ${stripAssistantInvocation(text)}`.replace(/\s+/g, " ").trim();
       setPendingMissionConfirm(sessionKey, mergedPrompt);
-      await sendDirectAssistantReply(text, buildMissionConfirmReply(mergedPrompt), ctx);
-      return;
+      const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(mergedPrompt), ctx);
+      return {
+        route: "mission_confirm_refine",
+        ok: true,
+        reply,
+      };
     }
   }
 
   if (shouldBuildWorkflowFromPrompt(text)) {
     clearPendingMissionConfirm(sessionKey);
-    await handleWorkflowBuild(text, ctx, { engine: "src" });
-    return;
+    return await handleWorkflowBuild(text, ctx, { engine: "src" });
   }
 
   if (shouldConfirmWorkflowFromPrompt(text)) {
     const candidatePrompt = stripAssistantInvocation(text) || text;
     setPendingMissionConfirm(sessionKey, candidatePrompt);
-    await sendDirectAssistantReply(text, buildMissionConfirmReply(candidatePrompt), ctx);
-    return;
+    const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(candidatePrompt), ctx);
+    return {
+      route: "mission_confirm_prompt",
+      ok: true,
+      reply,
+    };
   }
 
+  const turnPolicy = buildLatencyTurnPolicy(text, {
+    weatherIntent: isWeatherRequestText(text),
+    cryptoIntent: isCryptoRequestText(text),
+    canRunWebSearchHint: true,
+    canRunWebFetchHint: true,
+  });
   const requestHints = {
-    fastLaneSimpleChat: isSimpleFastLaneTurn(text),
+    fastLaneSimpleChat: turnPolicy.fastLaneSimpleChat === true,
   };
-
-  const likelyNeedsToolRuntime =
-    isWeatherRequestText(text) ||
-    isCryptoRequestText(text) ||
-    shouldUseToolLoopForTurn(text, {
-      fastLaneSimpleChat: requestHints.fastLaneSimpleChat,
-      canRunWebSearch: true,
-      canRunWebFetch: true,
-    });
 
   let runtimeTools = null;
   let availableTools = [];
-  if (likelyNeedsToolRuntime) {
+  if (turnPolicy.likelyNeedsToolRuntime) {
+    const runtimeToolInitStartedAt = Date.now();
     runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
     availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
+    latencyTelemetry.addStage("runtime_tool_init", Date.now() - runtimeToolInitStartedAt);
   }
 
-  const canExecuteTools = TOOL_LOOP_ENABLED && availableTools.length > 0 && typeof runtimeTools?.executeToolUse === "function";
-  const canRunWebSearch = canExecuteTools && availableTools.some((t) => String(t?.name || "") === "web_search");
-  const canRunWebFetch = canExecuteTools && availableTools.some((t) => String(t?.name || "") === "web_fetch");
-  const canRunToolLoop = canExecuteTools && shouldUseToolLoopForTurn(text, {
-    fastLaneSimpleChat: requestHints.fastLaneSimpleChat,
-    canRunWebSearch,
-    canRunWebFetch,
+  const executionPolicy = resolveToolExecutionPolicy(turnPolicy, {
+    text,
+    availableTools,
+    toolLoopEnabled: TOOL_LOOP_ENABLED,
+    executeToolUse: runtimeTools?.executeToolUse,
   });
+  const canRunWebSearch = executionPolicy.canRunWebSearch;
+  const canRunWebFetch = executionPolicy.canRunWebFetch;
+  const canRunToolLoop = executionPolicy.canRunToolLoop;
 
   // Resolve provider (Bug Fix 4: uses cached loader) + routing arbitration
+  const providerResolutionStartedAt = Date.now();
   const integrationsRuntime = cachedLoadIntegrationsRuntime({ userContextId });
   const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, {
     strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
@@ -1508,6 +1472,7 @@ export async function handleInput(text, opts = {}) {
     allowActiveProviderOverride: ENABLE_PROVIDER_FALLBACK && ROUTING_ALLOW_ACTIVE_OVERRIDE,
     preferredProviders: ROUTING_PREFERRED_PROVIDERS,
   });
+  latencyTelemetry.addStage("provider_resolution", Date.now() - providerResolutionStartedAt);
 
   if (!activeChatRuntime.apiKey) {
     const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : activeChatRuntime.provider === "gemini" ? "Gemini" : "OpenAI";
@@ -1533,18 +1498,124 @@ export async function handleInput(text, opts = {}) {
     ` candidates=${Array.isArray(activeChatRuntime.rankedCandidates) ? activeChatRuntime.rankedCandidates.join(">") : activeChatRuntime.provider}`,
   );
 
-  const llmCtx = { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel, runtimeTools, availableTools, canRunToolLoop, canRunWebSearch, canRunWebFetch };
+  const llmCtx = {
+    activeChatRuntime,
+    activeOpenAiCompatibleClient,
+    selectedChatModel,
+    runtimeTools,
+    availableTools,
+    canRunToolLoop,
+    canRunWebSearch,
+    canRunWebFetch,
+    turnPolicy,
+    executionPolicy,
+    latencyTelemetry,
+  };
 
   // Route to sub-handler
   if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
     await handleShutdown(ctx);
-    return;
+    return {
+      route: "shutdown",
+      ok: true,
+      reply: "Shutting down now. If you need me again, just restart the system.",
+    };
   }
 
   if (n.includes("spotify") || n.includes("play music") || n.includes("play some") || n.includes("put on ")) {
-    await handleSpotify(text, ctx, llmCtx);
-    return;
+    return await handleSpotify(text, ctx, llmCtx);
   }
 
-  await executeChatRequest(text, ctx, llmCtx, requestHints);
+  return await executeChatRequest(text, ctx, llmCtx, requestHints);
 }
+
+export async function handleInput(text, opts = {}) {
+  const startedAt = Date.now();
+  const userInputText = String(text || "");
+  const source = String(opts?.source || "hud");
+  const sender = String(opts?.sender || "");
+  let sessionKey = "";
+  let userContextId = "";
+  let conversationId = "";
+  let nlpBypass = opts?.nlpBypass === true;
+  let result = null;
+  let caughtError = null;
+
+  try {
+    userContextId = String(sessionRuntime.resolveUserContextId(opts) || "");
+    sessionKey = String(opts?.sessionKeyHint || "");
+    conversationId = resolveConversationId(opts, sessionKey, source);
+  } catch {
+    // Best effort logging; allow main handler to throw normally.
+  }
+
+  try {
+    result = await handleInputCore(text, opts);
+    return result;
+  } catch (err) {
+    caughtError = err;
+    throw err;
+  } finally {
+    const summary = result && typeof result === "object"
+      ? result
+      : {
+          route: "unclassified",
+          ok: caughtError ? false : true,
+          reply: typeof result === "string" ? result : "",
+          error: caughtError ? describeUnknownError(caughtError) : "",
+        };
+
+    appendDevConversationLog({
+      source,
+      sender,
+      userContextId,
+      conversationId,
+      sessionKey,
+      route: String(summary.route || "unclassified"),
+      userInputText,
+      cleanedInputText: normalizeInboundUserText(userInputText),
+      assistantReplyText: String(summary.reply || ""),
+      provider: String(summary.provider || ""),
+      model: String(summary.model || ""),
+      requestHints: summary.requestHints && typeof summary.requestHints === "object" ? summary.requestHints : {},
+      canRunToolLoop: summary.canRunToolLoop === true,
+      canRunWebSearch: summary.canRunWebSearch === true,
+      canRunWebFetch: summary.canRunWebFetch === true,
+      toolCalls: Array.isArray(summary.toolCalls) ? summary.toolCalls : [],
+      toolExecutions: Array.isArray(summary.toolExecutions) ? summary.toolExecutions : [],
+      retries: Array.isArray(summary.retries) ? summary.retries : [],
+      memoryRecallUsed: summary.memoryRecallUsed === true,
+      memoryAutoCaptured: Number.isFinite(Number(summary.memoryAutoCaptured))
+        ? Number(summary.memoryAutoCaptured)
+        : 0,
+      webSearchPreloadUsed: summary.webSearchPreloadUsed === true,
+      linkUnderstandingUsed: summary.linkUnderstandingUsed === true,
+      promptTokens: Number.isFinite(Number(summary.promptTokens)) ? Number(summary.promptTokens) : 0,
+      completionTokens: Number.isFinite(Number(summary.completionTokens)) ? Number(summary.completionTokens) : 0,
+      totalTokens: Number.isFinite(Number(summary.totalTokens)) ? Number(summary.totalTokens) : 0,
+      estimatedCostUsd: Number.isFinite(Number(summary.estimatedCostUsd))
+        ? Number(summary.estimatedCostUsd)
+        : null,
+      latencyMs: Number.isFinite(Number(summary.latencyMs)) && Number(summary.latencyMs) > 0
+        ? Number(summary.latencyMs)
+        : Date.now() - startedAt,
+      latencyStages: summary.latencyStages && typeof summary.latencyStages === "object"
+        ? summary.latencyStages
+        : {},
+      latencyHotPath: String(summary.latencyHotPath || ""),
+      correctionPassCount: Number.isFinite(Number(summary.correctionPassCount))
+        ? Number(summary.correctionPassCount)
+        : 0,
+      ok: summary.ok !== false && !caughtError,
+      error: String(summary.error || (caughtError ? describeUnknownError(caughtError) : "")),
+      nlpBypass,
+      nlpConfidence: Number.isFinite(Number(summary.nlpConfidence))
+        ? Number(summary.nlpConfidence)
+        : null,
+      nlpCorrectionCount: Number.isFinite(Number(summary.nlpCorrectionCount))
+        ? Number(summary.nlpCorrectionCount)
+        : 0,
+    });
+  }
+}
+

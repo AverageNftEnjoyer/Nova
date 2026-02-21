@@ -21,7 +21,148 @@ function parseIsoTimestamp(value: string | undefined): number {
   return Number.isFinite(ts) ? ts : 0
 }
 
+function normalizeMessageComparableText(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function normalizeMessageComparableCompact(value: string): string {
+  return normalizeMessageComparableText(value).replace(/[^a-z0-9]+/g, "")
+}
+
+function areLikelySameMessage(local: ChatMessage, server: ChatMessage): boolean {
+  if (!local || !server) return false
+  if (local.role !== server.role) return false
+  const localText = normalizeMessageComparableText(local.content)
+  const serverText = normalizeMessageComparableText(server.content)
+  if (!localText || !serverText) return false
+  if (localText === serverText) return true
+  const localCompact = normalizeMessageComparableCompact(local.content)
+  const serverCompact = normalizeMessageComparableCompact(server.content)
+  if (!localCompact || !serverCompact) return false
+  if (localCompact === serverCompact) return true
+  if (localCompact.includes(serverCompact) || serverCompact.includes(localCompact)) {
+    const smaller = Math.min(localCompact.length, serverCompact.length)
+    const larger = Math.max(localCompact.length, serverCompact.length)
+    return smaller / Math.max(1, larger) >= 0.72
+  }
+  return false
+}
+
+function stabilizeServerMessageIds(localMessages: ChatMessage[], serverMessages: ChatMessage[]): ChatMessage[] {
+  if (!Array.isArray(localMessages) || !Array.isArray(serverMessages)) return serverMessages
+  if (localMessages.length === 0 || serverMessages.length === 0) return serverMessages
+
+  const usedLocalIndexes = new Set<number>()
+  const usedOutputIds = new Set<string>()
+  const localIndexById = new Map<string, number>()
+  for (let i = 0; i < localMessages.length; i += 1) {
+    const localId = String(localMessages[i]?.id || "").trim()
+    if (localId && !localIndexById.has(localId)) localIndexById.set(localId, i)
+  }
+
+  const claimLocalIndex = (index: number): ChatMessage | null => {
+    if (index < 0 || index >= localMessages.length) return null
+    if (usedLocalIndexes.has(index)) return null
+    usedLocalIndexes.add(index)
+    return localMessages[index]
+  }
+
+  const pickMatchingLocal = (serverMessage: ChatMessage, serverIndex: number): ChatMessage | null => {
+    const serverId = String(serverMessage?.id || "").trim()
+    if (serverId) {
+      const exact = localIndexById.get(serverId)
+      if (typeof exact === "number") {
+        const claimed = claimLocalIndex(exact)
+        if (claimed) return claimed
+      }
+    }
+
+    const sameIndex = claimLocalIndex(serverIndex)
+    if (sameIndex && areLikelySameMessage(sameIndex, serverMessage)) return sameIndex
+    if (sameIndex && !areLikelySameMessage(sameIndex, serverMessage)) {
+      usedLocalIndexes.delete(serverIndex)
+    }
+
+    const windowStart = Math.max(0, serverIndex - 2)
+    const windowEnd = Math.min(localMessages.length - 1, serverIndex + 2)
+    for (let i = windowStart; i <= windowEnd; i += 1) {
+      if (usedLocalIndexes.has(i)) continue
+      if (!areLikelySameMessage(localMessages[i], serverMessage)) continue
+      const claimed = claimLocalIndex(i)
+      if (claimed) return claimed
+    }
+
+    for (let i = 0; i < localMessages.length; i += 1) {
+      if (usedLocalIndexes.has(i)) continue
+      if (!areLikelySameMessage(localMessages[i], serverMessage)) continue
+      const claimed = claimLocalIndex(i)
+      if (claimed) return claimed
+    }
+
+    return null
+  }
+
+  return serverMessages.map((serverMessage, serverIndex) => {
+    const matchedLocal = pickMatchingLocal(serverMessage, serverIndex)
+    const candidateId = String(matchedLocal?.id || serverMessage.id || "").trim()
+    if (!candidateId || usedOutputIds.has(candidateId)) {
+      const fallbackId = String(serverMessage.id || "").trim()
+      if (fallbackId) usedOutputIds.add(fallbackId)
+      return { ...serverMessage, id: fallbackId || candidateId || `msg-${serverIndex}` }
+    }
+    usedOutputIds.add(candidateId)
+    return { ...serverMessage, id: candidateId }
+  })
+}
+
 const USER_ECHO_DEDUP_MS = 15_000
+const ASSISTANT_ECHO_DEDUP_MS = 8_000
+/** Local optimistic ids from home are generateId() format. */
+const OPTIMISTIC_ID_REGEX = /^\d+-[a-z0-9]+$/
+
+function normalizeMessageSignature(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220)
+}
+
+function firstUserMessageSignature(convo: Conversation): string {
+  const firstUser = convo.messages.find((m) => m.role === "user" && String(m.content || "").trim().length > 0)
+  return normalizeMessageSignature(String(firstUser?.content || ""))
+}
+
+function normalizeTitleSignature(value: string): string {
+  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim()
+}
+
+function isLikelyOptimisticDuplicate(localConvo: Conversation, remoteConvo: Conversation): boolean {
+  if (!OPTIMISTIC_ID_REGEX.test(localConvo.id) || OPTIMISTIC_ID_REGEX.test(remoteConvo.id)) return false
+
+  const localUserSig = firstUserMessageSignature(localConvo)
+  const remoteUserSig = firstUserMessageSignature(remoteConvo)
+  if (localUserSig || remoteUserSig) {
+    if (!(localUserSig && remoteUserSig)) return false
+    if (localUserSig === remoteUserSig) return true
+    const localContainsRemote = localUserSig.length > 18 && localUserSig.startsWith(remoteUserSig)
+    const remoteContainsLocal = remoteUserSig.length > 18 && remoteUserSig.startsWith(localUserSig)
+    return localContainsRemote || remoteContainsLocal
+  }
+
+  const localTitle = normalizeTitleSignature(localConvo.title)
+  const remoteTitle = normalizeTitleSignature(remoteConvo.title)
+  if (!localTitle || !remoteTitle || localTitle !== remoteTitle) return false
+
+  const localUpdated = parseIsoTimestamp(localConvo.updatedAt)
+  const remoteUpdated = parseIsoTimestamp(remoteConvo.updatedAt)
+  return Math.abs(localUpdated - remoteUpdated) <= 3 * 60 * 1000
+}
 
 type IncomingAgentMessage = {
   id: string
@@ -40,20 +181,35 @@ type IncomingAgentMessage = {
 function mergeConversationsPreferLocal(
   local: Conversation[],
   remote: Conversation[],
+  optimisticIdToServerId: Map<string, string> = new Map<string, string>(),
 ): Conversation[] {
   if (local.length === 0) return remote
   if (remote.length === 0) return local
 
   const localById = new Map(local.map((entry) => [entry.id, entry]))
+  const mappedLocalByServerId = new Map<string, Conversation>()
+  for (const localConvo of local) {
+    const mappedServerId = optimisticIdToServerId.get(localConvo.id)
+    if (!mappedServerId) continue
+    if (localById.has(mappedServerId)) continue
+    if (!mappedLocalByServerId.has(mappedServerId)) {
+      mappedLocalByServerId.set(mappedServerId, localConvo)
+    }
+  }
   const merged = remote.map((serverConvo) => {
-    const localConvo = localById.get(serverConvo.id)
+    const localConvo = localById.get(serverConvo.id) || mappedLocalByServerId.get(serverConvo.id)
     if (!localConvo) return serverConvo
 
     const localUpdated = parseIsoTimestamp(localConvo.updatedAt)
     const serverUpdated = parseIsoTimestamp(serverConvo.updatedAt)
     const localLooksNewer =
       localConvo.messages.length > serverConvo.messages.length || localUpdated > serverUpdated
-    if (!localLooksNewer) return serverConvo
+    if (!localLooksNewer) {
+      return {
+        ...serverConvo,
+        messages: stabilizeServerMessageIds(localConvo.messages, serverConvo.messages),
+      }
+    }
 
     return {
       ...serverConvo,
@@ -67,7 +223,16 @@ function mergeConversationsPreferLocal(
   })
 
   const remoteIds = new Set(remote.map((entry) => entry.id))
-  const localOnly = local.filter((entry) => !remoteIds.has(entry.id))
+  const localOnly = local.filter((entry) => {
+    if (remoteIds.has(entry.id)) return false
+    const mappedServerId = optimisticIdToServerId.get(entry.id)
+    if (mappedServerId && remoteIds.has(mappedServerId)) return false
+    if (!OPTIMISTIC_ID_REGEX.test(entry.id)) return true
+    for (const remoteEntry of remote) {
+      if (isLikelyOptimisticDuplicate(entry, remoteEntry)) return false
+    }
+    return true
+  })
   return [...merged, ...localOnly].sort(
     (a, b) => parseIsoTimestamp(b.updatedAt) - parseIsoTimestamp(a.updatedAt),
   )
@@ -77,6 +242,53 @@ function mergeIncomingAgentMessages(
   existingMessages: ChatMessage[],
   incomingMessages: IncomingAgentMessage[],
 ): ChatMessage[] {
+  const normalizeComparableText = (value: string): string =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+
+  const shouldPreferIncomingAssistantVersion = (base: string, incoming: string): boolean => {
+    const left = normalizeComparableText(base)
+    const right = normalizeComparableText(incoming)
+    if (!left || !right) return false
+    if (left === right) return true
+
+    const leftCompact = left.replace(/[^a-z0-9]+/g, "")
+    const rightCompact = right.replace(/[^a-z0-9]+/g, "")
+    if (!leftCompact || !rightCompact) return false
+    if (rightCompact.includes(leftCompact)) return true
+    if (leftCompact.includes(rightCompact)) return false
+
+    const leftWords = new Set(left.split(/\s+/g).filter(Boolean))
+    const rightWords = new Set(right.split(/\s+/g).filter(Boolean))
+    if (leftWords.size < 8 || rightWords.size < 8) return false
+    let overlap = 0
+    for (const word of leftWords) {
+      if (rightWords.has(word)) overlap += 1
+    }
+    const smaller = Math.min(leftWords.size, rightWords.size)
+    const overlapRatio = smaller > 0 ? overlap / smaller : 0
+    const lenRatio = Math.min(leftCompact.length, rightCompact.length) / Math.max(leftCompact.length, rightCompact.length)
+    return overlapRatio >= 0.82 && lenRatio >= 0.62
+  }
+
+  const mergeAssistantContent = (base: string, incoming: string): string => {
+    const left = String(base || "")
+    const right = String(incoming || "")
+    if (!right) return left
+    if (!left) return right
+    if (shouldPreferIncomingAssistantVersion(left, right)) {
+      return right.length >= left.length ? right : left
+    }
+    if (right.length >= left.length && right.startsWith(left)) return right
+    if (left.length >= right.length && left.startsWith(right)) return left
+    if (left.endsWith(right)) return left
+    if (right.endsWith(left)) return right
+    return `${left}${right}`
+  }
+
   const dedupedExisting: ChatMessage[] = []
   for (const existing of existingMessages) {
     if (existing.role !== "assistant") {
@@ -90,7 +302,7 @@ function mergeIncomingAgentMessages(
     }
     dedupedExisting[prevIdx] = {
       ...dedupedExisting[prevIdx],
-      content: `${dedupedExisting[prevIdx].content}${existing.content}`,
+      content: mergeAssistantContent(dedupedExisting[prevIdx].content, existing.content),
       createdAt: existing.createdAt,
       source: existing.source || dedupedExisting[prevIdx].source,
       sender: existing.sender || dedupedExisting[prevIdx].sender,
@@ -122,7 +334,7 @@ function mergeIncomingAgentMessages(
         const existing = mergedMessages[existingIdx]
         mergedMessages[existingIdx] = {
           ...existing,
-          content: `${existing.content}${incoming.content}`,
+          content: mergeAssistantContent(existing.content, incoming.content),
           createdAt: incoming.createdAt,
           source: incoming.source || existing.source,
           sender: incoming.sender || existing.sender,
@@ -135,12 +347,34 @@ function mergeIncomingAgentMessages(
       if (last?.role === "assistant" && last.id === incoming.id) {
         mergedMessages[lastIdx] = {
           ...last,
-          content: `${last.content}${incoming.content}`,
+          content: mergeAssistantContent(last.content, incoming.content),
           createdAt: incoming.createdAt,
           ...(incoming.source ? { source: incoming.source } : {}),
           ...(incoming.sender ? { sender: incoming.sender } : {}),
         }
         continue
+      }
+
+      // Backend can emit a final assistant "message" event right after stream completion.
+      // If it matches the just-rendered assistant bubble, merge it instead of appending a duplicate.
+      if (last?.role === "assistant") {
+        const incomingTs = parseIsoTimestamp(incoming.createdAt)
+        const lastTs = parseIsoTimestamp(last.createdAt)
+        const closeInTime = Math.abs(incomingTs - lastTs) <= ASSISTANT_ECHO_DEDUP_MS
+        const sameText = normalizeComparableText(last.content) === normalizeComparableText(incoming.content)
+        const semanticallySame =
+          shouldPreferIncomingAssistantVersion(last.content, incoming.content)
+          || shouldPreferIncomingAssistantVersion(incoming.content, last.content)
+        if (closeInTime && (sameText || semanticallySame)) {
+          mergedMessages[lastIdx] = {
+            ...last,
+            content: mergeAssistantContent(last.content, incoming.content),
+            createdAt: incomingTs >= lastTs ? incoming.createdAt : last.createdAt,
+            source: incoming.source || last.source,
+            sender: incoming.sender || last.sender,
+          }
+          continue
+        }
       }
 
       mergedMessages.push(incoming)
@@ -200,6 +434,9 @@ export interface UseConversationsReturn {
   handleArchiveConvo: (id: string, archived: boolean) => void
   handlePinConvo: (id: string, pinned: boolean) => void
   addUserMessage: (content: string) => Conversation | null
+  ensureServerConversationForOptimistic: (convo: Conversation) => Promise<void>
+  resolveConversationIdForAgent: (conversationId: string) => string
+  resolveSessionConversationIdForAgent: (conversationId: string) => string
 }
 
 export function useConversations({
@@ -218,6 +455,16 @@ export function useConversations({
   const mergedCountRef = useRef(0)
   const syncTimersRef = useRef<Map<string, number>>(new Map())
   const pendingMessagesInFlightRef = useRef(false)
+  const processedAgentMessageKeysRef = useRef<Set<string>>(new Set())
+  /** When we replace an optimistic convo with server convo, agent replies may still use the old id; route them to the server convo */
+  const optimisticIdToServerIdRef = useRef<Map<string, string>>(new Map())
+  /** Keep runtime session continuity when optimistic chat ids are replaced with server ids. */
+  const sessionConversationIdByConversationIdRef = useRef<Map<string, string>>(new Map())
+  const optimisticEnsureInFlightRef = useRef<Set<string>>(new Set())
+  const latestConversationsRef = useRef<Conversation[]>([])
+  const latestActiveConvoIdRef = useRef<string>("")
+  latestConversationsRef.current = conversations
+  latestActiveConvoIdRef.current = String(activeConvo?.id || "").trim()
 
   // Server API functions
   const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
@@ -227,11 +474,11 @@ export function useConversations({
     return Array.isArray(data.conversations) ? data.conversations : []
   }, [])
 
-  const createServerConversation = useCallback(async (): Promise<Conversation> => {
+  const createServerConversation = useCallback(async (title?: string): Promise<Conversation> => {
     const res = await fetch("/api/threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: DEFAULT_CONVERSATION_TITLE }),
+      body: JSON.stringify({ title: (title && String(title).trim()) || DEFAULT_CONVERSATION_TITLE }),
     })
     const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
     if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
@@ -254,22 +501,107 @@ export function useConversations({
     if (!res.ok) throw new Error("Failed to delete conversation.")
   }, [])
 
-  const syncServerMessages = useCallback(async (convo: Conversation) => {
-    await fetch(`/api/threads/${encodeURIComponent(convo.id)}/messages`, {
+  const syncServerMessages = useCallback(async (convo: Conversation): Promise<boolean> => {
+    const mappedId = optimisticIdToServerIdRef.current.get(convo.id)
+    const targetId = mappedId || convo.id
+    if (OPTIMISTIC_ID_REGEX.test(targetId)) return false
+
+    const res = await fetch(`/api/threads/${encodeURIComponent(targetId)}/messages`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: convo.messages }),
     })
+    return res.ok
   }, [])
+
+  const resolveConversationIdForAgent = useCallback((conversationId: string): string => {
+    const normalized = String(conversationId || "").trim()
+    if (!normalized) return ""
+    return optimisticIdToServerIdRef.current.get(normalized) || normalized
+  }, [])
+
+  const resolveSessionConversationIdForAgent = useCallback((conversationId: string): string => {
+    const normalized = String(conversationId || "").trim()
+    if (!normalized) return ""
+    return sessionConversationIdByConversationIdRef.current.get(normalized) || normalized
+  }, [])
+
+  const reconcileOptimisticConversationMappings = useCallback(
+    (localConvos: Conversation[], remoteConvos: Conversation[]) => {
+      if (!Array.isArray(localConvos) || !Array.isArray(remoteConvos)) return
+      if (localConvos.length === 0 || remoteConvos.length === 0) return
+
+      const optimisticMap = optimisticIdToServerIdRef.current
+      const sessionMap = sessionConversationIdByConversationIdRef.current
+
+      for (const localConvo of localConvos) {
+        const localId = String(localConvo?.id || "").trim()
+        if (!OPTIMISTIC_ID_REGEX.test(localId)) continue
+
+        const existingServerId = optimisticMap.get(localId)
+        if (existingServerId) {
+          const canonicalSessionId = sessionMap.get(localId) || localId
+          sessionMap.set(localId, canonicalSessionId)
+          sessionMap.set(existingServerId, canonicalSessionId)
+          continue
+        }
+
+        const matchedServerConvo = remoteConvos.find((remoteConvo) =>
+          isLikelyOptimisticDuplicate(localConvo, remoteConvo),
+        )
+        if (!matchedServerConvo) continue
+
+        optimisticMap.set(localId, matchedServerConvo.id)
+        const canonicalSessionId = sessionMap.get(localId) || localId
+        sessionMap.set(localId, canonicalSessionId)
+        sessionMap.set(matchedServerConvo.id, canonicalSessionId)
+      }
+    },
+    [],
+  )
+
+  const resolveConversationSelectionId = useCallback(
+    (conversationId: string, availableConversations: Conversation[] = conversations): string => {
+      const normalized = String(conversationId || "").trim()
+      if (!normalized) return ""
+
+      const availableIds = new Set(availableConversations.map((entry) => String(entry.id || "").trim()))
+      if (availableIds.has(normalized)) return normalized
+
+      const mappedServerId = optimisticIdToServerIdRef.current.get(normalized)
+      if (mappedServerId && availableIds.has(mappedServerId)) return mappedServerId
+
+      for (const [optimisticId, serverId] of optimisticIdToServerIdRef.current.entries()) {
+        if (serverId === normalized && availableIds.has(optimisticId)) return optimisticId
+      }
+
+      return mappedServerId || normalized
+    },
+    [conversations],
+  )
 
   const scheduleServerSync = useCallback((convo: Conversation) => {
     const existing = syncTimersRef.current.get(convo.id)
     if (typeof existing === "number") {
       window.clearTimeout(existing)
     }
+    const scheduledConvoId = convo.id
     const timer = window.setTimeout(() => {
-      syncTimersRef.current.delete(convo.id)
-      void syncServerMessages(convo).catch(() => {})
+      syncTimersRef.current.delete(scheduledConvoId)
+      const mappedId = optimisticIdToServerIdRef.current.get(scheduledConvoId)
+      const latestConversations = latestConversationsRef.current
+      const latestMapped = mappedId
+        ? latestConversations.find((entry) => entry.id === mappedId)
+        : null
+      const latestByOriginal = latestConversations.find((entry) => entry.id === scheduledConvoId)
+      const latestToSync = latestMapped || latestByOriginal || convo
+
+      if (mappedId && OPTIMISTIC_ID_REGEX.test(scheduledConvoId) && !latestMapped && !latestByOriginal) {
+        // Optimistic thread has already been replaced; avoid syncing stale snapshots.
+        return
+      }
+
+      void syncServerMessages(latestToSync).catch(() => {})
     }, 280)
     syncTimersRef.current.set(convo.id, timer)
   }, [syncServerMessages])
@@ -326,12 +658,12 @@ export function useConversations({
       try {
         const convos = await fetchConversationsFromServer()
         if (cancelled) return
-        const mergedConvos = mergeConversationsPreferLocal(
-          readShellUiCache().conversations ?? loadConversations(),
-          convos,
-        )
+        const localSnapshot = readShellUiCache().conversations ?? loadConversations()
+        reconcileOptimisticConversationMappings(localSnapshot, convos)
+        const mergedConvos = mergeConversationsPreferLocal(localSnapshot, convos, optimisticIdToServerIdRef.current)
         const activeId = getActiveId()
-        const found = mergedConvos.find((c) => c.id === activeId)
+        const selectedActiveId = resolveConversationSelectionId(activeId || "", mergedConvos)
+        const found = mergedConvos.find((c) => c.id === selectedActiveId)
         if (shouldOpenPendingNovaChat) {
           setConversations(mergedConvos)
           saveConversations(mergedConvos)
@@ -346,6 +678,9 @@ export function useConversations({
           saveConversations(mergedConvos)
           writeShellUiCache({ conversations: mergedConvos })
           setActiveConvo(found)
+          if (selectedActiveId && activeId !== selectedActiveId) {
+            setActiveId(selectedActiveId)
+          }
           setIsLoaded(true)
           return
         }
@@ -368,8 +703,18 @@ export function useConversations({
         setIsLoaded(true)
       } catch {
         if (cancelled) return
-        setConversations([])
-        setActiveConvo(null)
+        // Keep existing state (e.g. optimistic convo from home) so the user's message doesn't disappear
+        const fallback = readShellUiCache().conversations ?? loadConversations()
+        if (fallback.length > 0) {
+          const activeId = getActiveId()
+          const found = fallback.find((c) => c.id === activeId) ?? fallback[0]
+          setConversations(fallback)
+          setActiveConvo(found)
+          setActiveId(found.id)
+        } else {
+          setConversations([])
+          setActiveConvo(null)
+        }
         setIsLoaded(true)
       }
     })()
@@ -377,7 +722,7 @@ export function useConversations({
     return () => {
       cancelled = true
     }
-  }, [createServerConversation, fetchConversationsFromServer, shouldOpenPendingNovaChat])
+  }, [createServerConversation, fetchConversationsFromServer, reconcileOptimisticConversationMappings, resolveConversationSelectionId, shouldOpenPendingNovaChat])
 
   // Process pending NovaChat messages
   const processPendingNovaChatMessages = useCallback(async (): Promise<number> => {
@@ -509,17 +854,88 @@ export function useConversations({
 
   // Merge agent messages into their origin conversation.
   useEffect(() => {
-    if (agentMessages.length <= mergedCountRef.current) return
+    if (agentMessages.length === 0) {
+      mergedCountRef.current = 0
+      processedAgentMessageKeysRef.current.clear()
+      return
+    }
 
-    const newOnes = agentMessages.slice(mergedCountRef.current)
+    const processedKeys = processedAgentMessageKeysRef.current
+
+    const makeMergeKey = (item: IncomingAgentMessage): string => {
+      const normalizedConversationId = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
+      const content = String(item.content || "")
+      const head = content.slice(0, 32)
+      const tail = content.slice(-32)
+      return [
+        item.id,
+        item.role,
+        normalizedConversationId,
+        String(item.ts || 0),
+        String(content.length),
+        head,
+        tail,
+      ].join("|")
+    }
+
+    const newOnes: IncomingAgentMessage[] = []
+    for (const item of agentMessages) {
+      const key = makeMergeKey(item)
+      if (processedKeys.has(key)) continue
+      processedKeys.add(key)
+      newOnes.push(item)
+    }
+
+    if (processedKeys.size > 8000) {
+      const compacted = new Set<string>()
+      const recent = agentMessages.slice(-400)
+      for (const item of recent) compacted.add(makeMergeKey(item))
+      processedAgentMessageKeysRef.current = compacted
+    }
+
     mergedCountRef.current = agentMessages.length
     if (newOnes.length === 0 || conversations.length === 0) return
 
     const incomingByConversation = new Map<string, IncomingAgentMessage[]>()
+    const conversationIds = new Set(conversations.map((c) => c.id))
+    const activeConversationId = String(activeConvo?.id || "").trim()
+    const resolveIncomingConversationId = (rawConversationId: string): string => {
+      const normalized = String(rawConversationId || "").trim()
+      if (!normalized) {
+        if (activeConversationId && conversationIds.has(activeConversationId)) return activeConversationId
+        return ""
+      }
+
+      const equivalentIds: string[] = [normalized]
+      const mappedServerId = optimisticIdToServerIdRef.current.get(normalized)
+      if (mappedServerId && !equivalentIds.includes(mappedServerId)) equivalentIds.push(mappedServerId)
+      for (const [optimisticId, serverId] of optimisticIdToServerIdRef.current.entries()) {
+        if (serverId !== normalized) continue
+        if (!equivalentIds.includes(optimisticId)) equivalentIds.push(optimisticId)
+      }
+
+      if (
+        activeConversationId &&
+        equivalentIds.includes(activeConversationId) &&
+        conversationIds.has(activeConversationId)
+      ) {
+        return activeConversationId
+      }
+
+      for (const candidate of equivalentIds) {
+        if (!conversationIds.has(candidate)) continue
+        if (OPTIMISTIC_ID_REGEX.test(candidate)) return candidate
+      }
+      for (const candidate of equivalentIds) {
+        if (conversationIds.has(candidate)) return candidate
+      }
+      if (activeConversationId && conversationIds.has(activeConversationId)) return activeConversationId
+      return ""
+    }
     for (const item of newOnes) {
       const explicitConversationId =
         typeof item.conversationId === "string" ? item.conversationId.trim() : ""
-      const targetConversationId = explicitConversationId || String(activeConvo?.id || "").trim()
+      const targetConversationId = resolveIncomingConversationId(explicitConversationId || activeConversationId)
       if (!targetConversationId) continue
       const bucket = incomingByConversation.get(targetConversationId)
       if (bucket) {
@@ -567,11 +983,12 @@ export function useConversations({
 
   // Cleanup sync timer
   useEffect(() => {
+    const syncTimers = syncTimersRef.current
     return () => {
-      for (const timer of syncTimersRef.current.values()) {
+      for (const timer of syncTimers.values()) {
         window.clearTimeout(timer)
       }
-      syncTimersRef.current.clear()
+      syncTimers.clear()
     }
   }, [])
 
@@ -582,15 +999,18 @@ export function useConversations({
 
   const handleSelectConvo = useCallback(
     async (id: string) => {
-      let found = conversations.find((c) => c.id === id)
+      const selectedLocalId = resolveConversationSelectionId(id, conversations)
+      let found = conversations.find((c) => c.id === selectedLocalId)
       if (!found) {
         const remote = await fetchConversationsFromServer().catch(() => [])
         if (remote.length > 0) {
-          const merged = mergeConversationsPreferLocal(conversations, remote)
+          reconcileOptimisticConversationMappings(conversations, remote)
+          const merged = mergeConversationsPreferLocal(conversations, remote, optimisticIdToServerIdRef.current)
           setConversations(merged)
           saveConversations(merged)
           writeShellUiCache({ conversations: merged })
-          found = merged.find((c) => c.id === id)
+          const selectedRemoteId = resolveConversationSelectionId(id, merged)
+          found = merged.find((c) => c.id === selectedRemoteId)
         }
       }
       if (found) {
@@ -598,7 +1018,7 @@ export function useConversations({
         setActiveId(found.id)
       }
     },
-    [conversations, fetchConversationsFromServer],
+    [conversations, fetchConversationsFromServer, reconcileOptimisticConversationMappings, resolveConversationSelectionId],
   )
 
   const handleDeleteConvo = useCallback(
@@ -609,6 +1029,7 @@ export function useConversations({
       if (activeConvo?.id === id) {
         clearAgentMessages()
         mergedCountRef.current = 0
+        processedAgentMessageKeysRef.current.clear()
 
         if (remaining.length > 0) {
           persist(remaining, remaining[0])
@@ -625,6 +1046,8 @@ export function useConversations({
       } else {
         persist(remaining, activeConvo)
       }
+      optimisticIdToServerIdRef.current.delete(id)
+      sessionConversationIdByConversationIdRef.current.delete(id)
     },
     [conversations, activeConvo, clearAgentMessages, createServerConversation, deleteServerConversation, persist],
   )
@@ -673,7 +1096,13 @@ export function useConversations({
   )
 
   const addUserMessage = useCallback(
-    (content: string): Conversation | null => {
+    (
+      content: string,
+      options?: {
+        sessionConversationId?: string
+        sessionKey?: string
+      },
+    ): Conversation | null => {
       if (!content.trim() || !activeConvo) return null
 
       const userMsg: ChatMessage = {
@@ -682,6 +1111,8 @@ export function useConversations({
         content: content.trim(),
         createdAt: new Date().toISOString(),
         source: "agent",
+        ...(options?.sessionConversationId ? { sessionConversationId: options.sessionConversationId } : {}),
+        ...(options?.sessionKey ? { sessionKey: options.sessionKey } : {}),
       }
 
       const updated: Conversation = {
@@ -699,13 +1130,106 @@ export function useConversations({
       const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
       persist(convos, updated)
       if (updated.title !== activeConvo.title) {
-        void patchServerConversation(updated.id, { title: updated.title }).catch(() => {})
+        const mappedId = optimisticIdToServerIdRef.current.get(updated.id)
+        const targetId = mappedId || updated.id
+        if (!OPTIMISTIC_ID_REGEX.test(targetId)) {
+          void patchServerConversation(targetId, { title: updated.title }).catch(() => {})
+        }
       }
 
       return updated
     },
     [activeConvo, conversations, patchServerConversation, persist],
   )
+
+  const ensureServerConversationForOptimistic = useCallback(
+    async (convo: Conversation): Promise<void> => {
+      if (!OPTIMISTIC_ID_REGEX.test(convo.id)) return
+      if (optimisticIdToServerIdRef.current.has(convo.id)) return
+      if (optimisticEnsureInFlightRef.current.has(convo.id)) return
+      optimisticEnsureInFlightRef.current.add(convo.id)
+      try {
+        const serverConvo = await createServerConversation(convo.title)
+        optimisticIdToServerIdRef.current.set(convo.id, serverConvo.id)
+        const canonicalSessionConversationId = resolveSessionConversationIdForAgent(convo.id) || convo.id
+        sessionConversationIdByConversationIdRef.current.set(convo.id, canonicalSessionConversationId)
+        sessionConversationIdByConversationIdRef.current.set(serverConvo.id, canonicalSessionConversationId)
+        const latest = latestConversationsRef.current.find((c) => c.id === convo.id)
+        const messagesToSync = latest?.messages ?? convo.messages
+        const withMessages: Conversation = {
+          ...serverConvo,
+          messages: messagesToSync,
+          title: convo.title,
+          updatedAt: (latest ?? convo).updatedAt,
+          pinned: convo.pinned ?? serverConvo.pinned,
+          archived: convo.archived ?? serverConvo.archived,
+        }
+        const beforeSyncConversations = latestConversationsRef.current
+        const existingServerConvo = beforeSyncConversations.find((c) => c.id === serverConvo.id)
+        const seededServerConvo: Conversation = {
+          ...(existingServerConvo ?? serverConvo),
+          ...withMessages,
+          messages:
+            (existingServerConvo?.messages?.length || 0) > withMessages.messages.length
+              ? (existingServerConvo?.messages ?? withMessages.messages)
+              : withMessages.messages,
+          updatedAt:
+            parseIsoTimestamp(existingServerConvo?.updatedAt) > parseIsoTimestamp(withMessages.updatedAt)
+              ? (existingServerConvo?.updatedAt ?? withMessages.updatedAt)
+              : withMessages.updatedAt,
+        }
+        const preSyncNext = beforeSyncConversations
+          .map((c) => (c.id === convo.id || c.id === serverConvo.id ? seededServerConvo : c))
+          .filter((c, index, arr) => arr.findIndex((entry) => entry.id === c.id) === index)
+        const latestActiveId = latestActiveConvoIdRef.current
+        const preSyncActive = !latestActiveId
+          ? null
+          : (latestActiveId === convo.id || latestActiveId === serverConvo.id)
+            ? seededServerConvo
+            : preSyncNext.find((entry) => entry.id === latestActiveId) ?? null
+        persist(preSyncNext, preSyncActive)
+        const synced = await syncServerMessages(seededServerConvo)
+        if (!synced) return
+        // Re-read latest so we don't overwrite streamed content that arrived while we were awaiting
+        const current = latestConversationsRef.current
+        const latestNow = current.find((c) => c.id === serverConvo.id) ?? current.find((c) => c.id === convo.id)
+        const candidateMessages = latestNow?.messages ?? seededServerConvo.messages
+        const existingInCurrent = latestNow?.messages ?? []
+        const totalLen = (m: ChatMessage[]) => m.reduce((sum, msg) => sum + (msg.content?.length ?? 0), 0)
+        const useExisting = totalLen(existingInCurrent) > totalLen(candidateMessages)
+        const messagesToUse = useExisting ? existingInCurrent : candidateMessages
+        const serverConvoWithLatestMessages: Conversation = {
+          ...seededServerConvo,
+          messages: messagesToUse,
+          updatedAt: latestNow?.updatedAt ?? seededServerConvo.updatedAt,
+        }
+        const next = current
+          .map((c) => (c.id === convo.id || c.id === serverConvo.id ? serverConvoWithLatestMessages : c))
+          .filter((c, index, arr) => arr.findIndex((entry) => entry.id === c.id) === index)
+        const refreshedActiveId = latestActiveConvoIdRef.current
+        const nextActive = !refreshedActiveId
+          ? null
+          : (refreshedActiveId === convo.id || refreshedActiveId === serverConvo.id)
+            ? serverConvoWithLatestMessages
+            : next.find((entry) => entry.id === refreshedActiveId) ?? null
+        persist(next, nextActive)
+        // Sync full (possibly streamed) messages to server
+        void syncServerMessages(serverConvoWithLatestMessages).catch(() => {})
+      } catch {
+        // Keep optimistic convo on failure
+      } finally {
+        optimisticEnsureInFlightRef.current.delete(convo.id)
+      }
+    },
+    [createServerConversation, persist, syncServerMessages, resolveSessionConversationIdForAgent],
+  )
+
+  // Old local conversations can survive cache reloads; ensure they get a real server thread id.
+  useEffect(() => {
+    if (!activeConvo) return
+    if (!OPTIMISTIC_ID_REGEX.test(activeConvo.id)) return
+    void ensureServerConversationForOptimistic(activeConvo)
+  }, [activeConvo, ensureServerConversationForOptimistic])
 
   const sendMessage = useCallback(
     async (
@@ -714,18 +1238,26 @@ export function useConversations({
     ) => {
       if (!content.trim() || !agentConnected || !activeConvo) return
 
-      const updatedConvo = addUserMessage(content)
-      const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
-      const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
-
       const { loadUserSettings } = await import("@/lib/settings/userSettings")
       const { getActiveUserId } = await import("@/lib/auth/active-user")
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
+      const sessionConversationId = resolveSessionConversationIdForAgent(activeConvo.id)
+      const sessionKey = sessionConversationId
+        && activeUserId
+        ? `agent:nova:hud:user:${activeUserId}:dm:${sessionConversationId}`
+        : ""
+      const updatedConvo = addUserMessage(content, {
+        ...(sessionConversationId ? { sessionConversationId } : {}),
+        ...(sessionKey ? { sessionKey } : {}),
+      })
+      const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
+      const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
       if (!activeUserId) return
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
-        conversationId: activeConvo.id,
+        conversationId: resolveConversationIdForAgent(activeConvo.id),
         sender: "hud-user",
+        ...(sessionKey ? { sessionKey } : {}),
         messageId: localMessageId,
         userId: activeUserId,
         assistantName: settings.personalization.assistantName,
@@ -733,7 +1265,7 @@ export function useConversations({
         tone: settings.personalization.tone,
       })
     },
-    [activeConvo, agentConnected, addUserMessage],
+    [activeConvo, agentConnected, addUserMessage, resolveConversationIdForAgent, resolveSessionConversationIdForAgent],
   )
 
   return {
@@ -749,5 +1281,8 @@ export function useConversations({
     handleArchiveConvo,
     handlePinConvo,
     addUserMessage,
+    ensureServerConversationForOptimistic,
+    resolveConversationIdForAgent,
+    resolveSessionConversationIdForAgent,
   }
 }

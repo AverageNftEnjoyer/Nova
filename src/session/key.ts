@@ -7,6 +7,16 @@ function normalizeToken(value: string): string {
   return trimmed.replace(/[^a-z0-9:_-]/g, "-");
 }
 
+function stableHashToken(value: string): string {
+  const input = String(value || "");
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function normalizeUserContextId(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return "";
@@ -37,7 +47,23 @@ export function parseSessionKeyUserContext(sessionKey: string): string {
     if (candidate) return candidate;
   }
 
+  const dmMarker = ":dm:";
+  const dmIndex = normalizedKey.lastIndexOf(dmMarker);
+  if (dmIndex >= 0) {
+    const tail = normalizedKey.slice(dmIndex + dmMarker.length);
+    const candidate = normalizeUserContextId(tail.split(":")[0] || "");
+    if (candidate && candidate !== "anonymous" && candidate !== "unknown") return candidate;
+  }
+
   return "";
+}
+
+export function fallbackUserContextIdFromSessionKey(sessionKey: string, sourceHint = ""): string {
+  const normalizedSource = normalizeToken(sourceHint || "").replace(/[^a-z0-9_-]/g, "-");
+  const seed = String(sessionKey || "").trim() || normalizedSource || "session";
+  const hash = stableHashToken(seed);
+  const candidate = normalizeUserContextId(`${normalizedSource || "session"}-${hash}`);
+  return candidate || `session-${hash}`;
 }
 
 export function resolveUserContextId(msg: InboundMessage): string {
@@ -56,7 +82,13 @@ export function resolveUserContextId(msg: InboundMessage): string {
     const voiceSender = normalizeUserContextId(senderCompat || "local-mic");
     return voiceSender || "local-mic";
   }
-  if (source !== "hud") return "";
+  if (source !== "hud") {
+    const senderFallback = normalizeUserContextId(senderCompat);
+    if (senderFallback) return senderFallback;
+    const hinted = parseSessionKeyUserContext(String(msg.sessionKeyHint || ""));
+    if (hinted) return hinted;
+    return fallbackUserContextIdFromSessionKey(String(msg.sessionKeyHint || ""), source);
+  }
 
   const senderFallback = normalizeUserContextId(senderCompat);
   if (senderFallback && senderFallback !== "hud-user") return senderFallback;

@@ -1,7 +1,15 @@
-import { countApproxTokens } from "../../core/context-prompt.js";
+import { countApproxTokens } from "../../../core/context-prompt.js";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function parsePositiveInt(rawValue, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number.parseInt(String(rawValue ?? ""), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (min <= 0 && parsed === 0) return 0;
+  if (parsed <= 0) return fallback;
+  return clamp(parsed, min, max);
 }
 
 function normalizeText(value) {
@@ -46,6 +54,55 @@ export function computeInputPromptBudget(maxPromptTokens, responseReserveTokens)
   const maxPrompt = Number.isFinite(maxPromptTokens) ? Math.max(1, Math.floor(maxPromptTokens)) : 1;
   const reserve = Number.isFinite(responseReserveTokens) ? Math.max(0, Math.floor(responseReserveTokens)) : 0;
   return Math.max(480, maxPrompt - reserve);
+}
+
+export function resolveDynamicPromptBudget({
+  maxPromptTokens,
+  responseReserveTokens,
+  historyTargetTokens,
+  sectionMaxTokens,
+  fastLaneSimpleChat = false,
+  strictOutputConstraints = false,
+}) {
+  const resolved = {
+    maxPromptTokens: parsePositiveInt(maxPromptTokens, 6000, 512, 64000),
+    responseReserveTokens: parsePositiveInt(responseReserveTokens, 1400, 128, 12000),
+    historyTargetTokens: parsePositiveInt(historyTargetTokens, 1400, 0, 24000),
+    sectionMaxTokens: parsePositiveInt(sectionMaxTokens, 1000, 48, 12000),
+    profile: "default",
+  };
+
+  if (strictOutputConstraints === true) {
+    resolved.profile = "constraints";
+    return resolved;
+  }
+
+  if (fastLaneSimpleChat === true) {
+    const fastLaneHistoryTarget = parsePositiveInt(
+      process.env.NOVA_FAST_LANE_HISTORY_TARGET_TOKENS,
+      320,
+      64,
+      1600,
+    );
+    const fastLaneSectionMax = parsePositiveInt(
+      process.env.NOVA_FAST_LANE_SECTION_MAX_TOKENS,
+      240,
+      48,
+      1600,
+    );
+    const fastLaneResponseReserve = parsePositiveInt(
+      process.env.NOVA_FAST_LANE_RESPONSE_RESERVE_TOKENS,
+      900,
+      128,
+      4000,
+    );
+    resolved.historyTargetTokens = Math.min(resolved.historyTargetTokens, fastLaneHistoryTarget);
+    resolved.sectionMaxTokens = Math.min(resolved.sectionMaxTokens, fastLaneSectionMax);
+    resolved.responseReserveTokens = Math.min(resolved.responseReserveTokens, fastLaneResponseReserve);
+    resolved.profile = "fast_lane";
+  }
+
+  return resolved;
 }
 
 export function appendBudgetedPromptSection({

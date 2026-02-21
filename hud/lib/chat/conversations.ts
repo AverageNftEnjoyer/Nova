@@ -7,6 +7,8 @@ export interface ChatMessage {
   createdAt: string
   source?: "hud" | "agent" | "voice"
   sender?: string
+  sessionConversationId?: string
+  sessionKey?: string
   nlpCleanText?: string
   nlpConfidence?: number
   nlpCorrectionCount?: number

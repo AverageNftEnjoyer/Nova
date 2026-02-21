@@ -28,11 +28,11 @@ function read(relativePath) {
 }
 
 const constantsSource = read("src/runtime/core/constants.js");
-const chatHandlerSource = read("src/runtime/modules/chat/chat-handler.js");
+const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler.js");
 const missionExecutionSource = read("hud/lib/missions/workflow/execution.ts");
-const promptBudgetSource = read("src/runtime/modules/chat/prompt-budget.js");
+const promptBudgetSource = read("src/runtime/modules/chat/prompt/prompt-budget.js");
 const promptBudgetModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt-budget.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt/prompt-budget.js")).href,
 );
 
 const {
@@ -82,8 +82,9 @@ await run("P18-C2 prompt budget helpers compact and bound sections", async () =>
 
 await run("P18-C3 chat handler uses budgeted context injection and dynamic history budget", async () => {
   const requiredTokens = [
-    'import { appendBudgetedPromptSection, computeHistoryTokenBudget } from "./prompt-budget.js";',
+    'import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../prompt/prompt-budget.js";',
     "const promptBudgetOptions = {",
+    "const promptBudgetProfile = resolveDynamicPromptBudget({",
     "const appended = appendBudgetedPromptSection({",
     "const computedHistoryTokenBudget = computeHistoryTokenBudget({",
     "history_budget=${computedHistoryTokenBudget}",

@@ -9,6 +9,20 @@
  *
  * Version History:
  *
+ * - V.21 Alpha: Nova conversation intelligence and reliability upgrade
+ *     - Upgraded Nova's multi-turn continuity so context, preference handling, and response intent stay stable across longer conversations.
+ *     - Strengthened fast-path routing architecture to reduce false activations and improve first-pass answer accuracy.
+ *     - Added production-grade conversation quality benchmarking (30-turn scripted eval) with score deltas for memory, safety, routing, readability, and latency.
+ *     - Hardened handoff/state orchestration so message flow remains deterministic under real-time HUD interaction and rapid turn sequences.
+ *
+ * - V.20 Alpha: NLP spelling/autocorrect quality + override UX polish
+ *     - Added gold-corpus NLP evaluation coverage and guardrail script wiring for regression tracking.
+ *     - Improved preprocessing reliability across typo-heavy prompts with safer expectation matching and protected-span handling.
+ *     - Added user-facing NLP edit hint UX for risky rewrites, including settings toggle and frosted-glass popup styling.
+ *     - Added one-click resend protection for NLP suggestion actions to prevent rapid duplicate queue spam.
+ *     - Updated NLP override button order/labels for clearer intent ("Use suggested" left, "Keep interpreted" right).
+ *     - Removed initial streamed-text blur effect for cleaner, more polished response rendering.
+ *
  * - V.19 Alpha: scalable request scheduling and queue orchestration
  *     - Added centralized HUD request scheduler with bounded queueing and explicit concurrency controls (global, per-user, per-conversation).
  *     - Added queued-request supersession by conversation so stale queued turns are canceled when newer turns arrive.
@@ -130,4 +144,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.19 Alpha"
+export const NOVA_VERSION = "V.21 Alpha"

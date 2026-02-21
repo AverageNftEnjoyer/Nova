@@ -37,7 +37,21 @@ export function isCryptoRequestText(text) {
   if (!normalized) return false;
   if (CRYPTO_MARKER_REGEX.test(normalized)) return true;
   if (!PRICE_INTENT_REGEX.test(normalized)) return false;
-  return /\b[a-z]{2,6}\b/i.test(normalized);
+  return hasDirectCryptoSymbolMention(normalized);
+}
+
+function hasDirectCryptoSymbolMention(text) {
+  const tokens = String(text || "")
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    const upper = token.toUpperCase();
+    if (KNOWN_SYMBOLS.includes(upper)) return true;
+    if (SYMBOL_ALIASES[lower]) return true;
+  }
+  return false;
 }
 
 function levenshteinDistance(aRaw, bRaw) {
@@ -193,18 +207,6 @@ function parseToolPayload(raw) {
   return { ok: false, errorCode: "NON_JSON_TOOL_RESPONSE", safeMessage: "I couldn't verify Coinbase data right now.", guidance: "Retry in a moment." };
 }
 
-function formatFreshnessMs(value) {
-  const ms = Math.max(0, Math.floor(Number(value || 0)));
-  if (ms <= 0) return "unknown";
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
-
 function formatTimestamp(ms) {
   const parsed = Number(ms);
   if (!Number.isFinite(parsed) || parsed <= 0) return "unknown time";
@@ -271,8 +273,6 @@ function buildStatusReply(payload) {
     `Coinbase status: ${String(caps.status || "unknown")}.`,
     `Capabilities: market=${String(caps.marketData || "unknown")}, portfolio=${String(caps.portfolio || "unknown")}, transactions=${String(caps.transactions || "unknown")}.`,
     `Checked: ${formatTimestamp(payload.checkedAtMs)}.`,
-    "Source: Coinbase capability probe.",
-    "Confidence: high (Coinbase runtime capabilities).",
   ].join("\n");
 }
 
@@ -282,9 +282,6 @@ function buildPriceReply(payload) {
   const pair = String(data.symbolPair || "").trim() || "unknown pair";
   return [
     `${pair} now: ${formatUsdAmount(data.price)}.`,
-    `Freshness: updated ${formatTimestamp(data.fetchedAtMs)} (${formatFreshnessMs(data.freshnessMs)}).`,
-    "Source: Coinbase spot price.",
-    `Confidence: ${String(payload.confidence || "high")} (Coinbase API).`,
   ].join("\n");
 }
 
@@ -301,9 +298,6 @@ function buildPortfolioReply(payload) {
   return [
     `Coinbase portfolio snapshot (${nonZero.length} active assets).`,
     top.length > 0 ? top.join("\n") : "- No non-zero balances found.",
-    `Freshness: updated ${formatTimestamp(data.fetchedAtMs)} (${formatFreshnessMs(data.freshnessMs)}).`,
-    "Source: Coinbase portfolio snapshot.",
-    "Confidence: high (Coinbase API).",
   ].join("\n");
 }
 
@@ -322,8 +316,6 @@ function buildTransactionsReply(payload) {
   return [
     `Recent Coinbase transactions (${events.length}).`,
     lines.length > 0 ? lines.join("\n") : "- No recent transactions returned.",
-    "Source: Coinbase transaction history.",
-    "Confidence: high (Coinbase API).",
   ].join("\n");
 }
 
@@ -336,9 +328,6 @@ function buildReportReply(payload) {
     "Coinbase crypto report:",
     `- Active assets: ${Number(summary.nonZeroAssetCount || 0)}`,
     `- Recent transactions included: ${Number(summary.transactionCount || 0)}`,
-    `- Freshness: updated ${formatTimestamp(portfolio.fetchedAtMs)} (${formatFreshnessMs(portfolio.freshnessMs)})`,
-    "Source: Coinbase portfolio + transactions.",
-    "Confidence: high (Coinbase API).",
   ].join("\n");
 }
 

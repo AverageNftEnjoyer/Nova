@@ -75,6 +75,20 @@ export interface UserSettings {
 
 const STORAGE_KEY_PREFIX = "nova_user_settings"
 export const USER_SETTINGS_UPDATED_EVENT = "nova:user-settings-updated"
+export const MAX_ASSISTANT_NAME_LENGTH = 8
+const BLOCKED_ASSISTANT_NAME_PATTERNS: RegExp[] = [
+  /^fuck(?:er|ing|ed|s)?$/i,
+  /^shit(?:ty|s)?$/i,
+  /^bitch(?:es|y)?$/i,
+  /^asshole$/i,
+  /^bastard(?:s)?$/i,
+  /^dick(?:head|s)?$/i,
+  /^cunt(?:s)?$/i,
+  /^fag(?:got|gots)?$/i,
+  /^slut(?:s)?$/i,
+  /^whore(?:s)?$/i,
+  /^n[i1]gg(?:a|er|az?|ers?|as?)$/i,
+]
 
 const DEFAULT_SETTINGS: UserSettings = {
   profile: {
@@ -165,6 +179,7 @@ export function loadUserSettings(): UserSettings {
       ...merged,
       personalization: {
         ...merged.personalization,
+        assistantName: clampAssistantName(merged.personalization.assistantName),
         tone: normalizeResponseTone(merged.personalization.tone),
       },
     }
@@ -180,6 +195,10 @@ export function saveUserSettings(settings: UserSettings): void {
 
   const updated = {
     ...settings,
+    personalization: {
+      ...settings.personalization,
+      assistantName: clampAssistantName(settings.personalization.assistantName),
+    },
     updatedAt: new Date().toISOString(),
   }
 
@@ -223,12 +242,40 @@ export function updateNotifications(notifications: Partial<NotificationSettings>
 
 export function updatePersonalization(personalization: Partial<Personalization>): UserSettings {
   const current = loadUserSettings()
+  const nextPersonalization = { ...personalization }
+  if (typeof nextPersonalization.assistantName === "string") {
+    nextPersonalization.assistantName = clampAssistantName(nextPersonalization.assistantName)
+  }
   const updated = {
     ...current,
-    personalization: { ...current.personalization, ...personalization },
+    personalization: { ...current.personalization, ...nextPersonalization },
   }
   saveUserSettings(updated)
   return updated
+}
+
+function clampAssistantName(value: unknown): string {
+  const trimmed = String(value || "").trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
+  if (isBlockedAssistantName(trimmed)) return "Nova"
+  return trimmed
+}
+
+export function isBlockedAssistantName(value: unknown): boolean {
+  const trimmed = String(value || "").trim()
+  if (!trimmed) return false
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+  if (!normalized) return false
+  const tokens = normalized.split(/\s+/g).filter(Boolean)
+  for (const token of tokens) {
+    if (BLOCKED_ASSISTANT_NAME_PATTERNS.some((pattern) => pattern.test(token))) {
+      return true
+    }
+  }
+  const condensed = normalized.replace(/\s+/g, "")
+  return BLOCKED_ASSISTANT_NAME_PATTERNS.some((pattern) => pattern.test(condensed))
 }
 
 export function resetSettings(): UserSettings {

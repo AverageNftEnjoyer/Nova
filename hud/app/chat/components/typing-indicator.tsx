@@ -9,18 +9,61 @@ interface TypingIndicatorProps {
   latestUserMessage?: string
 }
 
-const DEFAULT_THINKING_STATES = ["Thinking", "Reasoning", "Drafting response", "Finalizing response"] as const
-const WEATHER_THINKING_STATES = ["Checking weather", "Searching forecast", "Reviewing conditions", "Preparing recap"] as const
-const WEB_THINKING_STATES = ["Searching web", "Reviewing sources", "Verifying details", "Preparing answer"] as const
-const CODE_THINKING_STATES = ["Reading code", "Tracing issue", "Testing approach", "Preparing fix"] as const
+const DEFAULT_THINKING_POOL = [
+  "Drafting response",
+  "Composing reply",
+  "Putting thoughts together",
+  "Forming a response",
+  "Working on a reply",
+  "Thinking it through",
+  "Piecing it together",
+  "Considering",
+  "Gathering my thoughts",
+  "Crafting",
+  "Preparing",
+  "Working through this",
+  "Building a response",
+  "Getting this together",
+  "Shaping a reply",
+  "Sorting through ideas",
+  "Almost there",
+  "Refining my thoughts",
+  "Connecting the dots",
+  "Processing your request",
+  "Figuring this out",
+  "Cooking up a reply",
+  "Organizing my thoughts",
+  "Running through options",
+  "Polishing the reply",
+  "Polishing the reply",
+  "Sketching a response",
+  "Rizzing",
+  "One sec bro",
+] as const
 
-function selectThinkingStatesFromMessage(message: string): readonly string[] {
-  const text = String(message || "").toLowerCase()
-  if (/\b(weather|forecast|temperature|rain|snow|wind|humidity)\b/.test(text)) return WEATHER_THINKING_STATES
-  if (/\b(latest|news|current|price|score|search|look up|lookup|find)\b/.test(text)) return WEB_THINKING_STATES
-  if (/\b(code|bug|error|debug|fix|refactor|typescript|javascript|python|function|stack)\b/.test(text)) return CODE_THINKING_STATES
-  return DEFAULT_THINKING_STATES
+function pickRandomSubset(pool: readonly string[], count: number): string[] {
+  const shuffled = [...pool].sort(() => Math.random() - 0.5)
+  return shuffled.slice(0, count)
 }
+
+const WEATHER_THINKING_STATES = ["Checking weather", "Searching forecast", "Reviewing conditions", "Pulling up the forecast", "Reading conditions"] as const
+const WEB_THINKING_STATES = ["Searching the web", "Reviewing sources", "Verifying details", "Looking this up", "Scanning results"] as const
+const CODE_THINKING_STATES = ["Reading code", "Tracing the issue", "Testing an approach", "Analyzing the code", "Working through the logic"] as const
+
+function selectThinkingStatesFromMessage(message: string): string[] {
+  const text = String(message || "").toLowerCase()
+  if (/\b(weather|forecast|temperature|rain|snow|wind|humidity)\b/.test(text)) return pickRandomSubset(WEATHER_THINKING_STATES, 4)
+  if (/\b(latest|news|current|price|score|search|look up|lookup|find)\b/.test(text)) return pickRandomSubset(WEB_THINKING_STATES, 4)
+  if (/\b(code|bug|error|debug|fix|refactor|typescript|javascript|python|function|stack)\b/.test(text)) return pickRandomSubset(CODE_THINKING_STATES, 4)
+  return pickRandomSubset(DEFAULT_THINKING_POOL, 4)
+}
+
+const GENERIC_BACKEND_STATUSES = new Set([
+  "drafting response",
+  "finalizing response",
+  "thinking",
+  "reasoning",
+])
 
 export function TypingIndicator({
   orbPalette,
@@ -28,28 +71,29 @@ export function TypingIndicator({
   latestUserMessage = "",
 }: TypingIndicatorProps) {
   const [stateIndex, setStateIndex] = useState(0)
-  const normalizedThinkingStatus = String(thinkingStatus || "").trim().replace(/\s+/g, " ")
+  const rawStatus = String(thinkingStatus || "").trim().replace(/\s+/g, " ")
+  const isGenericBackendStatus = !rawStatus || GENERIC_BACKEND_STATUSES.has(rawStatus.toLowerCase())
   const thinkingStates = useMemo(
     () => selectThinkingStatesFromMessage(latestUserMessage),
     [latestUserMessage],
   )
 
   useEffect(() => {
-    if (normalizedThinkingStatus) return
+    if (!isGenericBackendStatus) return
     const timer = window.setInterval(() => {
       setStateIndex((prev) => (prev + 1) % thinkingStates.length)
-    }, 2200)
+    }, 4400)
     return () => window.clearInterval(timer)
-  }, [normalizedThinkingStatus, thinkingStates])
+  }, [isGenericBackendStatus, thinkingStates])
 
   const activeState = useMemo(() => {
-    if (normalizedThinkingStatus) return normalizedThinkingStatus
+    if (!isGenericBackendStatus) return rawStatus
     const safeIndex = stateIndex % Math.max(1, thinkingStates.length)
     return thinkingStates[safeIndex] ?? "Thinking"
-  }, [normalizedThinkingStatus, stateIndex, thinkingStates])
+  }, [isGenericBackendStatus, rawStatus, stateIndex, thinkingStates])
 
   return (
-    <div className="flex w-full justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="flex w-full justify-start">
       <div className="w-full max-w-3xl py-1.5" role="status" aria-label="Assistant is typing" aria-live="polite" aria-atomic="true">
         <div className="inline-flex items-center gap-2.5">
           <NovaOrbIndicator palette={orbPalette} size={28} animated />
