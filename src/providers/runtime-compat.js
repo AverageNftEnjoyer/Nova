@@ -65,12 +65,45 @@ function deriveEncryptionKeyMaterial(rawValue) {
   return createHash("sha256").update(raw).digest();
 }
 
-export function getEncryptionKeyMaterials() {
+function parseDotenvForKey(filePath, key) {
+  try {
+    if (!fs.existsSync(filePath)) return "";
+    const raw = fs.readFileSync(filePath, "utf8");
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = String(line || "").trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const normalized = trimmed.startsWith("export ") ? trimmed.slice("export ".length).trim() : trimmed;
+      if (!normalized.startsWith(`${key}=`)) continue;
+      const value = normalized.slice(key.length + 1).trim();
+      if (!value) return "";
+      if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+        return value.slice(1, -1).trim();
+      }
+      return value;
+    }
+  } catch {}
+  return "";
+}
+
+function resolveEncryptionKeyCandidates() {
   const candidates = [];
   const envKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
-  if (envKey) {
-    candidates.push(envKey);
+  if (envKey) candidates.push(envKey);
+  const root = process.cwd();
+  const dotenvPaths = [
+    path.join(root, ".env"),
+    path.join(root, ".env.local"),
+    path.join(root, "hud", ".env.local"),
+  ];
+  for (const dotenvPath of dotenvPaths) {
+    const key = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY");
+    if (key) candidates.push(key);
   }
+  return candidates;
+}
+
+export function getEncryptionKeyMaterials() {
+  const candidates = resolveEncryptionKeyCandidates();
 
   const materials = [];
   const seen = new Set();
@@ -140,12 +173,30 @@ export function toClaudeBase(baseURL) {
 }
 
 // ===== Timeout Helper =====
-export function withTimeout(promise, ms, label = "request") {
+export function withTimeout(promiseOrFactory, ms, label = "request", opts = {}) {
   let timer = null;
+  let finished = false;
+  const timeoutMs = Math.max(1, Number.parseInt(String(ms || 0), 10) || 1);
+  const timeoutMessage = `${label} timed out after ${timeoutMs}ms`;
+  const controller = new AbortController();
+  const onTimeout = typeof opts?.onTimeout === "function" ? opts.onTimeout : null;
+  const promise = typeof promiseOrFactory === "function"
+    ? promiseOrFactory({ signal: controller.signal })
+    : promiseOrFactory;
+
   const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer = setTimeout(() => {
+      if (finished) return;
+      controller.abort(new Error(timeoutMessage));
+      try {
+        if (onTimeout) onTimeout();
+      } catch {}
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
   });
+
   return Promise.race([promise, timeoutPromise]).finally(() => {
+    finished = true;
     if (timer) clearTimeout(timer);
   });
 }
@@ -172,7 +223,13 @@ function resolveIntegrationsConfigPath(userContextId) {
 
 function resolveProviderApiKey(provider, integrationApiKey) {
   const fromIntegration = unwrapStoredSecret(integrationApiKey);
-  return String(fromIntegration || "").trim();
+  if (String(fromIntegration || "").trim()) return String(fromIntegration || "").trim();
+  if (provider === "claude") return String(process.env.ANTHROPIC_API_KEY || "").trim();
+  if (provider === "grok") return String(process.env.XAI_API_KEY || "").trim();
+  if (provider === "gemini") {
+    return String(process.env.GEMINI_API_KEY || "").trim() || String(process.env.GOOGLE_API_KEY || "").trim();
+  }
+  return String(process.env.OPENAI_API_KEY || "").trim();
 }
 
 function resolveProviderConnectedState(connectedFlag, apiKey) {
@@ -241,13 +298,18 @@ export function loadIntegrationsRuntime(options = {}) {
       }
     };
   } catch {
+    const activeProvider = parseActiveProvider(String(process.env.NOVA_ACTIVE_LLM_PROVIDER || "").trim() || "openai");
+    const openaiApiKey = resolveProviderApiKey("openai", "");
+    const claudeApiKey = resolveProviderApiKey("claude", "");
+    const grokApiKey = resolveProviderApiKey("grok", "");
+    const geminiApiKey = resolveProviderApiKey("gemini", "");
     return {
       sourcePath: configPath,
-      activeProvider: "openai",
-      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
+      activeProvider,
+      openai: { connected: openaiApiKey.length > 0, apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: claudeApiKey.length > 0, apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: grokApiKey.length > 0, apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: geminiApiKey.length > 0, apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
     };
   }
 }
@@ -269,8 +331,9 @@ export function loadOpenAIIntegrationRuntime(options = {}) {
       : DEFAULT_CHAT_MODEL;
     return { apiKey, baseURL, model, sourcePath: configPath };
   } catch {
+    const apiKey = resolveProviderApiKey("openai", "");
     return {
-      apiKey: "",
+      apiKey,
       baseURL: DEFAULT_OPENAI_BASE_URL,
       model: DEFAULT_CHAT_MODEL,
       sourcePath: configPath,
@@ -310,6 +373,14 @@ function parseRoutingPreference(value) {
   const candidate = String(value || "").trim().toLowerCase();
   if (candidate === "cost" || candidate === "latency" || candidate === "quality") return candidate;
   return "balanced";
+}
+
+function parseActiveProvider(value) {
+  const candidate = String(value || "").trim().toLowerCase();
+  if (candidate === "claude" || candidate === "grok" || candidate === "gemini" || candidate === "openai") {
+    return candidate;
+  }
+  return "openai";
 }
 
 function normalizePreferredProviders(value) {
@@ -470,63 +541,128 @@ export function getOpenAIClient(runtime) {
 
 // ===== OpenAI Helpers =====
 export function extractOpenAIChatText(completion) {
-  const raw = completion?.choices?.[0]?.message?.content;
-  if (typeof raw === "string") return raw.trim();
-  if (Array.isArray(raw)) {
-    return raw
-      .map((part) => (part && typeof part === "object" && part.type === "text" ? String(part.text || "") : ""))
-      .join("\n")
-      .trim();
+  const choice = completion?.choices?.[0] || {};
+  const directCandidates = [
+    choice?.message?.content,
+    choice?.message?.refusal,
+    choice?.message?.audio?.transcript,
+    choice?.message?.output_text,
+    choice?.text,
+    completion?.output_text,
+    completion?.text,
+  ];
+  for (const candidate of directCandidates) {
+    const extracted = collectOpenAiText(candidate).trim();
+    if (extracted) return extracted;
   }
+  const fromMessage = collectOpenAiText(choice?.message).trim();
+  if (fromMessage) return fromMessage;
   return "";
 }
 
 export function extractOpenAIStreamDelta(chunk) {
-  const delta = chunk?.choices?.[0]?.delta?.content;
-  if (typeof delta === "string") return delta;
-  if (Array.isArray(delta)) {
-    return delta
-      .map((part) => (part && typeof part === "object" && typeof part.text === "string" ? part.text : ""))
-      .join("");
+  const choice = chunk?.choices?.[0] || {};
+  const deltaCandidates = [
+    choice?.delta?.content,
+    choice?.delta?.refusal,
+    choice?.delta?.text,
+    choice?.message?.content,
+    choice?.message?.refusal,
+  ];
+  for (const candidate of deltaCandidates) {
+    const extracted = collectOpenAiText(candidate);
+    if (extracted) return extracted;
+  }
+  return collectOpenAiText(choice?.delta);
+}
+
+function collectOpenAiText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map((part) => collectOpenAiText(part)).join("");
+  }
+  if (typeof value !== "object") return "";
+  const obj = value;
+  if (typeof obj.text === "string") return obj.text;
+  if (obj.text && typeof obj.text === "object" && typeof obj.text.value === "string") return obj.text.value;
+  if (typeof obj.output_text === "string") return obj.output_text;
+  if (typeof obj.content === "string") return obj.content;
+  if (Array.isArray(obj.content)) {
+    const nested = obj.content.map((part) => collectOpenAiText(part)).join("");
+    if (nested) return nested;
+  }
+  if (typeof obj.value === "string") return obj.value;
+  if (Array.isArray(obj.parts)) {
+    const nested = obj.parts.map((part) => collectOpenAiText(part)).join("");
+    if (nested) return nested;
+  }
+  if (Array.isArray(obj.messages)) {
+    const nested = obj.messages.map((part) => collectOpenAiText(part)).join("");
+    if (nested) return nested;
   }
   return "";
 }
 
-export async function streamOpenAiChatCompletion({ client, model, messages, timeoutMs, onDelta }) {
+export async function streamOpenAiChatCompletion({
+  client,
+  model,
+  messages,
+  timeoutMs,
+  onDelta,
+  maxCompletionTokens = 0,
+  requestOverrides = {},
+}) {
   let timer = null;
   const controller = new AbortController();
   timer = setTimeout(() => controller.abort(new Error(`OpenAI model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
 
   let stream = null;
   try {
-    stream = await client.chat.completions.create(
-      {
-        model,
-        messages,
-        stream: true,
-        stream_options: { include_usage: true }
-      },
-      { signal: controller.signal }
-    );
+    const overrides = requestOverrides && typeof requestOverrides === "object" ? requestOverrides : {};
+    const request = {
+      ...overrides,
+      model,
+      messages,
+      stream: true,
+      stream_options: { include_usage: true },
+      ...(Number.isFinite(Number(maxCompletionTokens)) && Number(maxCompletionTokens) > 0
+        ? { max_completion_tokens: Math.max(1, Math.floor(Number(maxCompletionTokens))) }
+        : {}),
+    };
+    stream = await client.chat.completions.create(request, { signal: controller.signal });
   } catch (err) {
-    stream = await client.chat.completions.create(
-      {
-        model,
-        messages,
-        stream: true
-      },
-      { signal: controller.signal }
-    );
+    const overrides = requestOverrides && typeof requestOverrides === "object" ? requestOverrides : {};
+    const fallbackRequest = {
+      ...overrides,
+      model,
+      messages,
+      stream: true,
+      ...(Number.isFinite(Number(maxCompletionTokens)) && Number(maxCompletionTokens) > 0
+        ? { max_completion_tokens: Math.max(1, Math.floor(Number(maxCompletionTokens))) }
+        : {}),
+    };
+    stream = await client.chat.completions.create(fallbackRequest, { signal: controller.signal });
   }
 
   let reply = "";
   let promptTokens = 0;
   let completionTokens = 0;
   let sawDelta = false;
+  let finishReason = "";
 
   try {
     for await (const chunk of stream) {
-      const delta = extractOpenAIStreamDelta(chunk);
+      const chunkFinishReason = String(chunk?.choices?.[0]?.finish_reason || "").trim();
+      if (chunkFinishReason) finishReason = chunkFinishReason;
+      let delta = extractOpenAIStreamDelta(chunk);
+      if (!delta && !sawDelta) {
+        const fallbackText = extractOpenAIChatText({
+          choices: [{ message: chunk?.choices?.[0]?.message || {} }],
+        });
+        if (fallbackText) delta = fallbackText;
+      }
       if (delta.length > 0) {
         sawDelta = true;
         reply += delta;
@@ -543,7 +679,7 @@ export async function streamOpenAiChatCompletion({ client, model, messages, time
     if (timer) clearTimeout(timer);
   }
 
-  return { reply, promptTokens, completionTokens, sawDelta };
+  return { reply, promptTokens, completionTokens, sawDelta, finishReason };
 }
 
 // ===== Claude API =====

@@ -31,7 +31,8 @@ const FAST_LANE_ALLOWED_PHRASES = new Set([
 const FAST_LANE_BLOCKED_KEYWORDS = /\b(weather|forecast|temperature|rain|snow|mission|workflow|automation|schedule|spotify|shutdown|search|news|crypto|coinbase|bitcoin|ethereum|price|portfolio|transaction|trades)\b/;
 const FAST_LANE_BLOCKED_ACTIONS = /\b(remind|create|build|deploy|send|email|discord|telegram)\b/;
 const TOOL_LOOP_WEB_INTENT = /\b(search|lookup|look up|browse|web|latest|news|price|scores?)\b/;
-const TOOL_LOOP_COMMAND_INTENT = /\b(run|execute|terminal|shell|command|script|npm|node|python|git|build|test|lint|debug)\b/;
+const TOOL_LOOP_NEGATED_WEB_INTENT = /\b(do\s+not|don't|dont|without|no)\s+(browse|search|lookup|look up|web|internet)\b/;
+const TOOL_LOOP_COMMAND_INTENT = /\b(run|execute|terminal|shell|command|script|npm|node|python|git|build)\b/;
 const TOOL_LOOP_REPO_INTENT = /\b(file|folder|directory|read|write|edit|patch|code|refactor|repository|repo)\b/;
 const TOOL_LOOP_TOOL_INTENT = /\b(tool|tool call|web fetch|web search|memory search|memory get)\b/;
 const MEMORY_RECALL_INTENT = /\b(remember|earlier|before|preference|profile|context|resume|continue|project|my)\b/;
@@ -63,6 +64,7 @@ export function shouldUseToolLoopForTurn(text, opts = {}) {
   if (opts.fastLaneSimpleChat === true) return false;
   if (opts.weatherIntent === true) return false;
   if (opts.cryptoIntent === true) return false;
+  if (TOOL_LOOP_NEGATED_WEB_INTENT.test(normalized)) return false;
 
   const canRunWebSearch = opts.canRunWebSearch === true;
   const canRunWebFetch = opts.canRunWebFetch === true;

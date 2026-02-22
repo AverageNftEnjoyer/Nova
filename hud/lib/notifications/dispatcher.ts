@@ -2,9 +2,10 @@ import "server-only"
 
 import { type IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { sendDiscordMessage } from "@/lib/notifications/discord"
+import { sendEmailMessage } from "@/lib/notifications/email"
 import { sendTelegramMessage } from "@/lib/notifications/telegram"
 
-export type NotificationIntegration = "telegram" | "discord"
+export type NotificationIntegration = "telegram" | "discord" | "email"
 
 export interface DispatchNotificationInput {
   integration: NotificationIntegration
@@ -34,6 +35,14 @@ export async function dispatchNotification(
       chatIds: input.targets,
       parseMode: input.parseMode,
       disableNotification: input.disableNotification,
+    }, input.scope)
+  }
+
+  if (input.integration === "email") {
+    return sendEmailMessage({
+      text: input.text,
+      recipients: input.targets,
+      subject: input.label ? `Nova Mission: ${input.label}` : "Nova Mission Report",
     }, input.scope)
   }
 

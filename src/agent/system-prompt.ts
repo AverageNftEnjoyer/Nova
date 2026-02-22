@@ -1,6 +1,6 @@
 import type { BootstrapFile } from "./bootstrap.js";
 import { formatToolSummaries } from "./tool-summaries.js";
-import type { Tool } from "../tools/types.js";
+import type { Tool } from "../tools/core/types.js";
 import type { Skill } from "../skills/types.js";
 import { formatSkillsForPrompt } from "../skills/formatter.js";
 

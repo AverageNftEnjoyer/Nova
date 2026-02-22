@@ -17,16 +17,67 @@ import {
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/server-store"
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
+import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+type CoinbaseCredentialMode = "pem_private_key" | "secret_string" | "unknown"
 
 function maskSecret(value: string): string {
   const trimmed = value.trim()
   if (!trimmed) return ""
   if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}****`
   return `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`
+}
+
+function looksLikeEncryptedEnvelope(value: string): boolean {
+  const parts = value.trim().split(".")
+  if (parts.length !== 3) return false
+  return parts.every((part) => /^[A-Za-z0-9+/=_-]+$/.test(part))
+}
+
+function detectCoinbaseCredentialMode(secret: string): CoinbaseCredentialMode {
+  const trimmed = secret.trim()
+  if (!trimmed) return "unknown"
+  if (/-----BEGIN (?:EC )?PRIVATE KEY-----/.test(trimmed)) return "pem_private_key"
+  if (/^[A-Za-z0-9+/=]+$/.test(trimmed) && !trimmed.includes("\n") && trimmed.length >= 40) return "secret_string"
+  return "unknown"
+}
+
+function isLikelyCoinbaseApiKey(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  if (/^organizations\/[^/\s]+\/apiKeys\/[^/\s]+$/i.test(trimmed)) return true
+  if (/^[0-9a-fA-F-]{36,}$/.test(trimmed)) return true
+  return false
+}
+
+function validateCoinbaseApiKeyPair(config: CoinbaseIntegrationConfig): { ok: true; credentialMode: CoinbaseCredentialMode } | { ok: false; message: string } {
+  const apiKey = config.apiKey.trim()
+  const apiSecret = config.apiSecret.trim()
+  if (!apiKey || !apiSecret) {
+    return { ok: false, message: "Coinbase API key pair requires both API Key ID and API Secret private key." }
+  }
+  if (!isLikelyCoinbaseApiKey(apiKey)) {
+    return { ok: false, message: "Coinbase API Key ID format is invalid. Expected organizations/.../apiKeys/... or a key id/uuid value." }
+  }
+  if (looksLikeEncryptedEnvelope(apiSecret)) {
+    return { ok: false, message: "Coinbase API Secret appears encrypted/ciphertext. Paste the raw Coinbase private key value instead." }
+  }
+  const credentialMode = detectCoinbaseCredentialMode(apiSecret)
+  if (credentialMode === "unknown") {
+    return {
+      ok: false,
+      message:
+        "Coinbase API Secret format is invalid. Provide the full PEM private key (-----BEGIN ... PRIVATE KEY-----) or the Coinbase secret string.",
+    }
+  }
+  if (credentialMode === "pem_private_key" && !/-----END (?:EC )?PRIVATE KEY-----/.test(apiSecret)) {
+    return { ok: false, message: "Coinbase PEM private key is incomplete. Missing END PRIVATE KEY footer." }
+  }
+  return { ok: true, credentialMode }
 }
 
 function toClientAgents(config: IntegrationsConfig) {
@@ -157,6 +208,7 @@ function normalizeCoinbaseInput(raw: unknown, current: CoinbaseIntegrationConfig
     coinbase.lastSyncErrorCode === "none"
       ? coinbase.lastSyncErrorCode
       : current.lastSyncErrorCode
+  const explicitDisconnect = typeof coinbase.connected === "boolean" && coinbase.connected === false
 
   return {
     ...current,
@@ -164,8 +216,8 @@ function normalizeCoinbaseInput(raw: unknown, current: CoinbaseIntegrationConfig
       (typeof coinbase.connected === "boolean" ? coinbase.connected : current.connected) &&
       nextApiKey.trim().length > 0 &&
       nextApiSecret.trim().length > 0,
-    apiKey: nextApiKey,
-    apiSecret: nextApiSecret,
+    apiKey: explicitDisconnect ? "" : nextApiKey,
+    apiSecret: explicitDisconnect ? "" : nextApiSecret,
     connectionMode: nextConnectionMode,
     requiredScopes: nextRequiredScopes.length > 0 ? nextRequiredScopes : current.requiredScopes,
     lastSyncAt: typeof coinbase.lastSyncAt === "string" ? coinbase.lastSyncAt.trim() : current.lastSyncAt,
@@ -402,10 +454,22 @@ export async function PATCH(req: Request) {
       activeLlmProvider?: LlmProvider
     }
     const current = await loadIntegrationsConfig(verified)
+    const wasCoinbaseConnected = Boolean(current.coinbase.connected)
     const telegram = normalizeTelegramInput(body.telegram, current.telegram)
     const discord = normalizeDiscordInput(body.discord, current.discord)
     const brave = normalizeBraveInput(body.brave, current.brave)
     const coinbase = normalizeCoinbaseInput(body.coinbase, current.coinbase)
+    const shouldValidateCoinbaseApiPair =
+      coinbase.connectionMode === "api_key_pair" &&
+      (coinbase.connected || typeof body.coinbase?.apiKey === "string" || typeof body.coinbase?.apiSecret === "string")
+    let coinbaseCredentialMode: CoinbaseCredentialMode = detectCoinbaseCredentialMode(coinbase.apiSecret)
+    if (shouldValidateCoinbaseApiPair) {
+      const validation = validateCoinbaseApiKeyPair(coinbase)
+      if (!validation.ok) {
+        return NextResponse.json({ error: validation.message }, { status: 400 })
+      }
+      coinbaseCredentialMode = validation.credentialMode
+    }
     const openai = normalizeOpenAIInput(body.openai, current.openai)
     const claude = normalizeClaudeInput(body.claude, current.claude)
     const grok = normalizeGrokInput(body.grok, current.grok)
@@ -425,12 +489,36 @@ export async function PATCH(req: Request) {
       activeLlmProvider,
       agents: body.agents ?? current.agents,
     }, verified)
+    if (wasCoinbaseConnected && !next.coinbase.connected) {
+      const userContextId = String(verified.user.id || "").trim().toLowerCase()
+      if (userContextId) {
+        const store = await createCoinbaseStore(userContextId)
+        try {
+          const purged = store.purgeUserData(userContextId)
+          store.appendAuditLog({
+            userContextId,
+            eventType: "coinbase.disconnect.secure_delete",
+            status: "ok",
+            details: purged,
+          })
+        } finally {
+          store.close()
+        }
+      }
+    }
     try {
       await syncAgentRuntimeIntegrationsSnapshot(path.resolve(process.cwd(), ".."), verified.user.id, next)
     } catch (error) {
       console.warn("[integrations/config][PATCH] Failed to sync agent runtime snapshot:", error)
     }
-    return NextResponse.json({ config: toClientConfig(next) })
+    return NextResponse.json({
+      config: toClientConfig(next),
+      diagnostics: {
+        coinbase: {
+          credentialMode: coinbaseCredentialMode,
+        },
+      },
+    })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update integrations config" },

@@ -509,11 +509,23 @@ function formatRuntimeSkillsPrompt(skills, requestText = "") {
     } catch {}
     return raw;
   };
+  const resolveSkillLocation = (skill) => {
+    const raw = String(skill?.location || "").trim();
+    if (raw && fs.existsSync(raw)) return raw;
+    const starterName = String(skill?.name || "").trim();
+    if (starterName && STARTER_SKILL_NAMES.has(starterName)) {
+      const canonical = path.join(ROOT_WORKSPACE_DIR, "skills", starterName, "SKILL.md");
+      if (fs.existsSync(canonical)) return canonical;
+    }
+    return "";
+  };
   const buildSkillEntry = (skill, includeReadWhen = true) => {
+    const resolvedLocation = resolveSkillLocation(skill);
+    if (!resolvedLocation) return "";
     const readWhen = Array.isArray(skill.readWhen) && skill.readWhen.length > 0 && includeReadWhen
       ? `<read_when>${escapeXml(compactText(skill.readWhen.join(" | "), SKILL_PROMPT_MAX_HINT_CHARS))}</read_when>`
       : "";
-    return `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(compactText(skill.description, 120))}</description>${readWhen}<location>${escapeXml(promptLocation(skill.location))}</location></skill>`;
+    return `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(compactText(skill.description, 120))}</description>${readWhen}<location>${escapeXml(promptLocation(resolvedLocation))}</location></skill>`;
   };
 
   const prefix = [
@@ -527,16 +539,20 @@ function formatRuntimeSkillsPrompt(skills, requestText = "") {
   let consumed = prefix.length + suffix.length + 2;
   for (const skill of selectedSkills) {
     let entry = buildSkillEntry(skill, true);
+    if (!entry) continue;
     if (consumed + entry.length > promptMaxChars && parts.length > 0) {
       entry = buildSkillEntry(skill, false);
     }
+    if (!entry) continue;
     if (consumed + entry.length > promptMaxChars) break;
     parts.push(entry);
     consumed += entry.length;
   }
 
   if (parts.length === 0) {
-    parts.push(buildSkillEntry(selectedSkills[0], false));
+    const fallbackEntry = buildSkillEntry(selectedSkills[0], false);
+    if (!fallbackEntry) return "";
+    parts.push(fallbackEntry);
   }
 
   return `${prefix}${parts.join("")}\n${suffix}`;
@@ -719,6 +735,9 @@ function pruneLegacyStarterSkills(personaWorkspaceDir) {
 }
 
 export function buildRuntimeSkillsPrompt(personaWorkspaceDir, requestText = "") {
+  try {
+    ensureStarterSkillsForUser(personaWorkspaceDir);
+  } catch {}
   migrateLegacyUserSkillsToGlobal(personaWorkspaceDir);
   pruneLegacyStarterSkills(personaWorkspaceDir);
   const dirs = [path.join(ROOT_WORKSPACE_DIR, "skills")];

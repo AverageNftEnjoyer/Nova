@@ -15,6 +15,7 @@ export class SessionStore {
   private readonly transcriptsEnabled: boolean;
   private readonly maxTranscriptLines: number;
   private readonly transcriptRetentionDays: number;
+  private readonly allowCrossContextLookup: boolean;
 
   private lastTranscriptPruneAt = 0;
   private legacySessionMigrationDone = false;
@@ -26,6 +27,7 @@ export class SessionStore {
       transcriptsEnabled?: boolean;
       maxTranscriptLines?: number;
       transcriptRetentionDays?: number;
+      allowCrossContextLookup?: boolean;
     };
 
     this.storePath = path.resolve(config.storePath);
@@ -40,6 +42,10 @@ export class SessionStore {
     this.transcriptRetentionDays = Number.isFinite(extended.transcriptRetentionDays)
       ? Math.trunc(Number(extended.transcriptRetentionDays))
       : 30;
+    this.allowCrossContextLookup =
+      typeof extended.allowCrossContextLookup === "boolean"
+        ? extended.allowCrossContextLookup
+        : String(process.env.NOVA_SESSION_ALLOW_CROSS_CONTEXT_LOOKUP || "").trim() === "1";
 
     this.ensurePaths();
   }
@@ -144,23 +150,25 @@ export class SessionStore {
       return legacyEntry;
     }
 
-    try {
-      const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
-      for (const contextEntry of contextDirs) {
-        if (!contextEntry.isDirectory()) continue;
-        const scopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
-        const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
-        const entry = scopedStore[normalizedKey];
-        if (!entry) continue;
-        const resolved =
-          normalizeUserContextId(entry.userContextId || "") ||
-          normalizeUserContextId(contextEntry.name) ||
-          parseSessionKeyUserContext(entry.sessionKey || normalizedKey);
-        if (resolved && entry.sessionId) this.sessionUserContextCache.set(String(entry.sessionId), resolved);
-        return entry;
+    if (this.allowCrossContextLookup) {
+      try {
+        const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
+        for (const contextEntry of contextDirs) {
+          if (!contextEntry.isDirectory()) continue;
+          const scopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
+          const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
+          const entry = scopedStore[normalizedKey];
+          if (!entry) continue;
+          const resolved =
+            normalizeUserContextId(entry.userContextId || "") ||
+            normalizeUserContextId(contextEntry.name) ||
+            parseSessionKeyUserContext(entry.sessionKey || normalizedKey);
+          if (resolved && entry.sessionId) this.sessionUserContextCache.set(String(entry.sessionId), resolved);
+          return entry;
+        }
+      } catch {
+        // Ignore scan failures and report no entry.
       }
-    } catch {
-      // Ignore scan failures and report no entry.
     }
 
     return null;

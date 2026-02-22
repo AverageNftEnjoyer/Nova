@@ -1,4 +1,4 @@
-import type { Tool } from "../tools/types.js";
+import type { Tool } from "../tools/core/types.js";
 
 export function formatToolSummaries(tools: Tool[]): string {
   if (tools.length === 0) {

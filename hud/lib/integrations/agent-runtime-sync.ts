@@ -50,6 +50,37 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
 
   const payload = {
     activeLlmProvider: config.activeLlmProvider,
+    coinbase: {
+      connected: Boolean(config.coinbase.connected),
+      apiKey: wrapSecret(config.coinbase.apiKey),
+      apiSecret: wrapSecret(config.coinbase.apiSecret),
+      connectionMode: config.coinbase.connectionMode === "oauth" ? "oauth" : "api_key_pair",
+      requiredScopes: Array.isArray(config.coinbase.requiredScopes)
+        ? config.coinbase.requiredScopes.map((scope) => String(scope).trim().toLowerCase()).filter(Boolean)
+        : [],
+      lastSyncAt: String(config.coinbase.lastSyncAt || "").trim(),
+      lastSyncStatus:
+        config.coinbase.lastSyncStatus === "success" || config.coinbase.lastSyncStatus === "error"
+          ? config.coinbase.lastSyncStatus
+          : "never",
+      lastSyncErrorCode:
+        config.coinbase.lastSyncErrorCode === "expired_token" ||
+        config.coinbase.lastSyncErrorCode === "permission_denied" ||
+        config.coinbase.lastSyncErrorCode === "rate_limited" ||
+        config.coinbase.lastSyncErrorCode === "coinbase_outage" ||
+        config.coinbase.lastSyncErrorCode === "network" ||
+        config.coinbase.lastSyncErrorCode === "unknown"
+          ? config.coinbase.lastSyncErrorCode
+          : "none",
+      lastSyncErrorMessage: String(config.coinbase.lastSyncErrorMessage || "").trim(),
+      lastFreshnessMs:
+        typeof config.coinbase.lastFreshnessMs === "number" && Number.isFinite(config.coinbase.lastFreshnessMs)
+          ? Math.max(0, Math.floor(config.coinbase.lastFreshnessMs))
+          : 0,
+      reportTimezone: String(config.coinbase.reportTimezone || "").trim(),
+      reportCurrency: String(config.coinbase.reportCurrency || "").trim().toUpperCase(),
+      reportCadence: config.coinbase.reportCadence === "weekly" ? "weekly" : "daily",
+    },
     openai: {
       connected: Boolean(config.openai.connected),
       apiKey: wrapSecret(config.openai.apiKey),
@@ -81,4 +112,3 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
   await writeFile(filePath, JSON.stringify(payload, null, 2), "utf8")
   return filePath
 }
-

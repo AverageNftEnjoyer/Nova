@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createSessionRuntime } from "../../session/runtime-compat.js";
-import { createToolRuntime } from "../../tools/runtime-compat.js";
+import { createToolRuntime } from "../../tools/runtime/runtime-compat.js";
 import { createWakeWordRuntime } from "../audio/wake-runtime-compat.js";
 import { describeUnknownError } from "../../providers/runtime-compat.js";
 import {

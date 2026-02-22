@@ -17,6 +17,13 @@ type ApiMessage = {
   nlpConfidence?: number
   nlpCorrectionCount?: number
   nlpBypass?: boolean
+  missionId?: string
+  missionLabel?: string
+  missionRunId?: string
+  missionRunKey?: string
+  missionAttempt?: number
+  missionSource?: "scheduler" | "trigger"
+  missionOutputChannel?: string
 }
 
 type ApiConversation = {
@@ -99,6 +106,16 @@ export async function GET(req: Request) {
       nlpConfidence: Number.isFinite(Number(metadata.nlpConfidence)) ? Number(metadata.nlpConfidence) : undefined,
       nlpCorrectionCount: Number.isFinite(Number(metadata.nlpCorrectionCount)) ? Number(metadata.nlpCorrectionCount) : undefined,
       nlpBypass: metadata.nlpBypass === true ? true : undefined,
+      missionId: (metadata.missionId as string | undefined) || undefined,
+      missionLabel: (metadata.missionLabel as string | undefined) || undefined,
+      missionRunId: (metadata.missionRunId as string | undefined) || undefined,
+      missionRunKey: (metadata.missionRunKey as string | undefined) || undefined,
+      missionAttempt: Number.isFinite(Number(metadata.missionAttempt)) ? Number(metadata.missionAttempt) : undefined,
+      missionSource:
+        metadata.missionSource === "scheduler" || metadata.missionSource === "trigger"
+          ? (metadata.missionSource as "scheduler" | "trigger")
+          : undefined,
+      missionOutputChannel: (metadata.missionOutputChannel as string | undefined) || undefined,
     }
     const list = grouped.get(row.thread_id) || []
     list.push(entry)

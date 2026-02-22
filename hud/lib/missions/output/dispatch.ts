@@ -27,18 +27,25 @@ export async function dispatchOutput(
     source?: "scheduler" | "trigger"
   },
 ): Promise<OutputResult[]> {
-  if (channel === "discord" || channel === "telegram") {
+  if (channel === "discord" || channel === "telegram" || channel === "email") {
     const formattedText = formatNotificationText(text)
-    return dispatchNotification({
-      integration: channel as NotificationIntegration,
-      text: formattedText,
-      targets,
-      parseMode: channel === "telegram" ? "HTML" : undefined,
-      source: "workflow",
-      scheduleId: schedule.id,
-      label: schedule.label,
-      scope,
-    })
+    try {
+      return await dispatchNotification({
+        integration: channel as NotificationIntegration,
+        text: formattedText,
+        targets,
+        parseMode: channel === "telegram" ? "HTML" : undefined,
+        source: "workflow",
+        scheduleId: schedule.id,
+        label: schedule.label,
+        scope,
+      })
+    } catch (error) {
+      return [{
+        ok: false,
+        error: `channel_unavailable:${channel}:${error instanceof Error ? error.message : "unknown_error"}`,
+      }]
+    }
   }
 
   if (channel === "novachat") {

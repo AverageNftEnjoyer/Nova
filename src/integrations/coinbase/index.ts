@@ -26,11 +26,28 @@ export {
 
 export { MemoryTtlCache } from "./cache.js";
 export { CoinbaseRateLimitAdapter } from "./rate-limit.js";
-export { CoinbaseHttpClient } from "./client.js";
+export { CoinbaseHttpClient, computeCoinbaseRetryDelayMs, mapCoinbaseHttpError } from "./client.js";
+export { CoinbaseCircuitBreaker } from "./circuit-breaker.js";
 export { CoinbaseService, createStaticCredentialProvider } from "./service.js";
 export { FileBackedCoinbaseCredentialProvider } from "./credentials.js";
+export { createCoinbaseAutoAuthStrategy } from "./auth-strategy.js";
+export { renderCoinbasePortfolioReport, type CoinbaseRenderInput, type CoinbaseReportMode } from "./report-renderer.js";
+export {
+  recordCoinbaseMetric,
+  recordCoinbaseStructuredLog,
+  getCoinbaseMetricsSnapshot,
+  resetCoinbaseObservabilityForTests,
+} from "./observability.js";
+export {
+  resolveCoinbaseRolloutAccess,
+  evaluateCoinbaseRolloutHealth,
+  type CoinbaseRolloutStage,
+  type CoinbaseRolloutAccess,
+  type CoinbaseRolloutHealthSnapshot,
+} from "./rollout.js";
 export {
   CoinbaseDataStore,
+  coinbaseDbPathForUserContext,
   type CoinbaseSnapshotType,
   type CoinbaseAuditStatus,
   type CoinbaseIdempotencyStatus,
@@ -42,5 +59,9 @@ export {
   type CoinbaseIdempotencyClaimResult,
   type CoinbaseOAuthTokenInput,
   type CoinbaseOAuthTokenRecord,
+  type CoinbaseReportHistoryRow,
+  type CoinbaseSnapshotRow,
+  type CoinbaseRetentionSettings,
+  type CoinbasePrivacySettings,
 } from "./store.js";
 export { encryptTokenForStorage, decryptTokenFromStorage, type EncryptedTokenEnvelope } from "./crypto.js";

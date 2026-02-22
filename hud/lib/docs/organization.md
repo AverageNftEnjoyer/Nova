@@ -19,7 +19,6 @@ Keep `hud/lib` domain-organized. Avoid adding operational source files directly 
 - `shared/`: small cross-domain utilities.
 - `supabase/`: Supabase clients/env utilities.
 - `workspace/`: workspace-scoped sync/state modules.
-- `db/legacy/`: compatibility files pending cleanup.
 - `docs/`: internal structure/maintenance documentation.
 
 ## Placement rules

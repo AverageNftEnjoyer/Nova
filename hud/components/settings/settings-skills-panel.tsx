@@ -63,10 +63,8 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
   const [skillContent, setSkillContent] = useState("")
   const [newSkillName, setNewSkillName] = useState("")
   const [newSkillDescription, setNewSkillDescription] = useState("")
-  const [listLoading, setListLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [installing, setInstalling] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -77,7 +75,6 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
   const spotlightCardClass = "fx-spotlight-card fx-border-glow"
 
   const fetchSkillList = useCallback(async (preferredSkillName?: string) => {
-    setListLoading(true)
     setError(null)
     try {
       const res = await fetch("/api/workspace/skills", { cache: "no-store" })
@@ -105,8 +102,6 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
       })
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load skills.")
-    } finally {
-      setListLoading(false)
     }
   }, [])
 
@@ -189,35 +184,6 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
       setCreating(false)
     }
   }, [fetchSkillList, newSkillDescription, newSkillName])
-
-  const installStarterTemplates = useCallback(async () => {
-    setInstalling(true)
-    setError(null)
-    setValidationErrors([])
-    try {
-      const res = await fetch("/api/workspace/skills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "install-starters" }),
-      })
-      const data = (await res.json().catch(() => ({}))) as SkillMutationResponse
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to install starter templates.")
-      }
-      const installed = Array.isArray(data.installed) ? data.installed : []
-      if (installed.length > 0) {
-        setStatus(`Installed starter templates: ${installed.join(", ")}`)
-      } else {
-        setStatus("Starter templates already installed.")
-      }
-      const preferred = installed[0] || selectedSkillName
-      await fetchSkillList(preferred)
-    } catch (installError) {
-      setError(installError instanceof Error ? installError.message : "Failed to install starter templates.")
-    } finally {
-      setInstalling(false)
-    }
-  }, [fetchSkillList, selectedSkillName])
 
   const saveSkill = useCallback(async () => {
     if (!selectedSkillName) {
@@ -480,7 +446,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
               </Button>
               <Button
                 onClick={() => void createSkill()}
-                disabled={creating || installing}
+                disabled={creating}
                 variant="outline"
                 size="sm"
                 className={cn(

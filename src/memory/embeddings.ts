@@ -31,7 +31,7 @@ function deserializeEmbedding(raw: Buffer | string): number[] {
   return parsed.map((value) => Number(value) || 0);
 }
 
-class LocalEmbeddings implements EmbeddingProvider {
+export class LocalEmbeddings implements EmbeddingProvider {
   public async embed(text: string): Promise<number[]> {
     const hash = crypto.createHash("sha256").update(text).digest();
     const vector = Array.from({ length: 256 }, (_, i) => {

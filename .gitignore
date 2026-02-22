@@ -31,6 +31,7 @@ pnpm-debug.log*
 # build / cache artifacts
 .next/
 .turbo/
+.npm-cache/
 out/
 build/
 dist/

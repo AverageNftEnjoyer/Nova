@@ -1,4 +1,4 @@
-import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../../tools/net-guard.js";
+import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../../tools/web/net-guard.js";
 import { CoinbaseError } from "./errors.js";
 import type { CoinbaseAuthStrategy, CoinbaseCredentials } from "./types.js";
 
@@ -23,6 +23,78 @@ type InternalRequestOptions = {
 };
 
 const DEFAULT_BASE_URL = "https://api.coinbase.com";
+
+export function computeCoinbaseRetryDelayMs(attempt: number, retryAfterMs?: number): number {
+  const base = Math.min(5_000, 250 * 2 ** Math.max(0, attempt));
+  const jitter = Math.floor(Math.random() * 120);
+  const candidate = base + jitter;
+  if (Number.isFinite(retryAfterMs || NaN) && (retryAfterMs || 0) > 0) {
+    return Math.max(candidate, Number(retryAfterMs));
+  }
+  return candidate;
+}
+
+export function mapCoinbaseHttpError(input: {
+  status: number;
+  endpoint: string;
+  userContextId: string;
+  detail: string;
+  retryAfterHeader: string | null;
+}): CoinbaseError {
+  const trimmedDetail = String(input.detail || "").trim();
+  const messageSuffix = trimmedDetail ? ` ${trimmedDetail.slice(0, 600)}` : "";
+  const retryAfterMs = parseRetryAfterHeader(input.retryAfterHeader);
+
+  if (input.status === 401 || input.status === 403) {
+    return new CoinbaseError({
+      code: "AUTH_FAILED",
+      message: `Coinbase authentication failed (${input.status}).${messageSuffix}`,
+      statusCode: input.status,
+      retryable: false,
+      endpoint: input.endpoint,
+      userContextId: input.userContextId,
+    });
+  }
+  if (input.status === 404) {
+    return new CoinbaseError({
+      code: "NOT_FOUND",
+      message: `Coinbase endpoint not found (${input.status}).${messageSuffix}`,
+      statusCode: input.status,
+      retryable: false,
+      endpoint: input.endpoint,
+      userContextId: input.userContextId,
+    });
+  }
+  if (input.status === 429) {
+    return new CoinbaseError({
+      code: "RATE_LIMITED",
+      message: `Coinbase rate limit reached (${input.status}).${messageSuffix}`,
+      statusCode: input.status,
+      retryAfterMs: retryAfterMs || undefined,
+      retryable: true,
+      endpoint: input.endpoint,
+      userContextId: input.userContextId,
+    });
+  }
+  if (input.status >= 500) {
+    return new CoinbaseError({
+      code: "UPSTREAM_UNAVAILABLE",
+      message: `Coinbase upstream error (${input.status}).${messageSuffix}`,
+      statusCode: input.status,
+      retryable: true,
+      endpoint: input.endpoint,
+      userContextId: input.userContextId,
+    });
+  }
+  return new CoinbaseError({
+    code: "BAD_INPUT",
+    message: `Coinbase request failed (${input.status}).${messageSuffix}`,
+    statusCode: input.status,
+    retryable: false,
+    endpoint: input.endpoint,
+    userContextId: input.userContextId,
+  });
+}
 
 export class CoinbaseHttpClient {
   private readonly baseUrl: string;
@@ -177,9 +249,15 @@ export class CoinbaseHttpClient {
         }
 
         const detail = await readResponseTextWithLimit(response, this.maxErrorBytes).catch(() => "");
-        const mapped = this.mapHttpError(response.status, requestPath, userContextId, detail, response.headers.get("retry-after"));
+        const mapped = mapCoinbaseHttpError({
+          status: response.status,
+          endpoint: requestPath,
+          userContextId,
+          detail,
+          retryAfterHeader: response.headers.get("retry-after"),
+        });
         if (attempt < this.maxRetries && mapped.retryable) {
-          await sleep(this.computeRetryDelayMs(attempt, mapped.retryAfterMs));
+          await sleep(computeCoinbaseRetryDelayMs(attempt, mapped.retryAfterMs));
           attempt += 1;
           continue;
         }
@@ -187,7 +265,7 @@ export class CoinbaseHttpClient {
       } catch (error) {
         if (error instanceof CoinbaseError) {
           if (attempt < this.maxRetries && error.retryable) {
-            await sleep(this.computeRetryDelayMs(attempt, error.retryAfterMs));
+            await sleep(computeCoinbaseRetryDelayMs(attempt, error.retryAfterMs));
             attempt += 1;
             continue;
           }
@@ -205,7 +283,7 @@ export class CoinbaseHttpClient {
           cause: error,
         });
         if (attempt < this.maxRetries) {
-          await sleep(this.computeRetryDelayMs(attempt, undefined));
+          await sleep(computeCoinbaseRetryDelayMs(attempt, undefined));
           attempt += 1;
           continue;
         }
@@ -222,77 +300,6 @@ export class CoinbaseHttpClient {
     });
   }
 
-  private computeRetryDelayMs(attempt: number, retryAfterMs?: number): number {
-    const base = Math.min(5_000, 250 * 2 ** Math.max(0, attempt));
-    const jitter = Math.floor(Math.random() * 120);
-    const candidate = base + jitter;
-    if (Number.isFinite(retryAfterMs || NaN) && (retryAfterMs || 0) > 0) {
-      return Math.max(candidate, Number(retryAfterMs));
-    }
-    return candidate;
-  }
-
-  private mapHttpError(
-    status: number,
-    endpoint: string,
-    userContextId: string,
-    detail: string,
-    retryAfterHeader: string | null,
-  ): CoinbaseError {
-    const trimmedDetail = String(detail || "").trim();
-    const messageSuffix = trimmedDetail ? ` ${trimmedDetail.slice(0, 600)}` : "";
-    const retryAfterMs = parseRetryAfterHeader(retryAfterHeader);
-
-    if (status === 401 || status === 403) {
-      return new CoinbaseError({
-        code: "AUTH_FAILED",
-        message: `Coinbase authentication failed (${status}).${messageSuffix}`,
-        statusCode: status,
-        retryable: false,
-        endpoint,
-        userContextId,
-      });
-    }
-    if (status === 404) {
-      return new CoinbaseError({
-        code: "NOT_FOUND",
-        message: `Coinbase endpoint not found (${status}).${messageSuffix}`,
-        statusCode: status,
-        retryable: false,
-        endpoint,
-        userContextId,
-      });
-    }
-    if (status === 429) {
-      return new CoinbaseError({
-        code: "RATE_LIMITED",
-        message: `Coinbase rate limit reached (${status}).${messageSuffix}`,
-        statusCode: status,
-        retryAfterMs: retryAfterMs || undefined,
-        retryable: true,
-        endpoint,
-        userContextId,
-      });
-    }
-    if (status >= 500) {
-      return new CoinbaseError({
-        code: "UPSTREAM_UNAVAILABLE",
-        message: `Coinbase upstream error (${status}).${messageSuffix}`,
-        statusCode: status,
-        retryable: true,
-        endpoint,
-        userContextId,
-      });
-    }
-    return new CoinbaseError({
-      code: "BAD_INPUT",
-      message: `Coinbase request failed (${status}).${messageSuffix}`,
-      statusCode: status,
-      retryable: false,
-      endpoint,
-      userContextId,
-    });
-  }
 }
 
 function parseRetryAfterHeader(value: string | null): number | null {
@@ -312,4 +319,3 @@ function parseRetryAfterHeader(value: string | null): number | null {
 async function sleep(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms))));
 }
-

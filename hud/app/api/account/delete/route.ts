@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js"
 import { createSupabaseAdminClient, requireSupabaseApiUser } from "@/lib/supabase/server"
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
+import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 
 export const runtime = "nodejs"
 
@@ -113,6 +114,22 @@ export async function POST(req: Request) {
   const userId = verified.user.id
   const workspaceRoot = path.resolve(process.cwd(), "..")
   const userClient = verified.client
+  const userContextId = normalizeUserContextId(userId)
+
+  if (userContextId) {
+    const store = await createCoinbaseStore(userContextId)
+    try {
+      const purged = store.purgeUserData(userContextId)
+      store.appendAuditLog({
+        userContextId,
+        eventType: "coinbase.account_delete.secure_delete",
+        status: "ok",
+        details: purged,
+      })
+    } finally {
+      store.close()
+    }
+  }
 
   const { error: toolRunsDeleteError } = await userClient.from("tool_runs").delete().eq("user_id", userId)
   if (toolRunsDeleteError) {

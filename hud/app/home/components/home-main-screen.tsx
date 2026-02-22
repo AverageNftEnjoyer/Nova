@@ -1,6 +1,6 @@
 "use client"
 
-import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
+import { Blocks, Pin, Settings, BarChart3, Activity } from "lucide-react"
 import { AnimatedOrb } from "@/components/orb/animated-orb"
 import TextType from "@/components/effects/TextType"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
@@ -42,6 +42,7 @@ export function HomeMainScreen() {
     openMissions,
     openIntegrations,
     openAnalytics,
+    openDevLogs,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
@@ -228,6 +229,14 @@ export function HomeMainScreen() {
                       title="Open analytics"
                     >
                       <BarChart3 className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
+                    </button>
+                    <button
+                      onClick={openDevLogs}
+                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover`, subPanelClass)}
+                      aria-label="Open dev logs dashboard"
+                      title="Open dev logs dashboard"
+                    >
+                      <Activity className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
                     </button>
                     <button
                       onClick={openIntegrations}

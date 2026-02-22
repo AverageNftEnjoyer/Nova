@@ -83,7 +83,7 @@ function captureText(value) {
 function resolveLogPath(userContextId) {
   const scopedUserContextId = normalizeUserContextId(userContextId);
   if (!scopedUserContextId) {
-    return path.join(ROOT_WORKSPACE_DIR, ".agent", "logs", "conversation-dev-anonymous.jsonl");
+    return path.join(ROOT_WORKSPACE_DIR, "archive", "logs", "conversation-dev-anonymous.jsonl");
   }
   return path.join(USER_CONTEXT_ROOT, scopedUserContextId, "logs", DEV_CONVERSATION_LOG_FILENAME);
 }
@@ -125,6 +125,28 @@ function normalizeLatencyStages(value) {
   return Object.fromEntries(entries);
 }
 
+function normalizeMemoryDiagnostics(value) {
+  if (!value || typeof value !== "object") return null;
+  const mode = String(value.mode || "").trim().toLowerCase();
+  const fallbackReason = String(value.fallbackReason || "").trim().toLowerCase();
+  const out = {
+    hasSearch: value.hasSearch === true,
+    updatedAtMs: Number.isFinite(Number(value.updatedAtMs)) ? Number(value.updatedAtMs) : 0,
+    mode: mode || "hybrid",
+    staleSourcesBefore: Number.isFinite(Number(value.staleSourcesBefore)) ? Number(value.staleSourcesBefore) : 0,
+    staleSourcesAfter: Number.isFinite(Number(value.staleSourcesAfter)) ? Number(value.staleSourcesAfter) : 0,
+    staleReindexAttempted: value.staleReindexAttempted === true,
+    staleReindexCompleted: value.staleReindexCompleted === true,
+    staleReindexTimedOut: value.staleReindexTimedOut === true,
+    fallbackUsed: value.fallbackUsed === true,
+    indexFallbackUsed: value.indexFallbackUsed === true,
+    latencyMs: Number.isFinite(Number(value.latencyMs)) ? Number(value.latencyMs) : 0,
+    resultCount: Number.isFinite(Number(value.resultCount)) ? Number(value.resultCount) : 0,
+  };
+  if (fallbackReason) out.fallbackReason = fallbackReason;
+  return out;
+}
+
 function inferHotLatencyStage(latencyStages, latencyMs) {
   const entries = Object.entries(latencyStages || {});
   if (entries.length === 0) return { hotPath: "", hotPathRatio: 0 };
@@ -150,6 +172,8 @@ function inferQuality(payload) {
   const toolCalls = normalizeList(payload.toolCalls);
   const errorText = normalizeText(payload.error);
   const correctionPassCount = Number(payload.correctionPassCount || 0);
+  const fallbackStage = String(payload.fallbackStage || "").trim().toLowerCase();
+  const fallbackReason = String(payload.fallbackReason || "").trim().toLowerCase();
   const { hotPath, hotPathRatio } = inferHotLatencyStage(latencyStages, latencyMs);
   const runtimeToolInitMs = Number(latencyStages.runtime_tool_init || 0);
   const enrichmentMs = Number(latencyStages.context_enrichment || 0);
@@ -173,6 +197,7 @@ function inferQuality(payload) {
   if (totalTokens > 9000) tags.push("high_total_tokens");
   if (userInput.length < 4) tags.push("very_short_input");
   if (Number(payload.nlpCorrectionCount || 0) >= 2) tags.push("noisy_input");
+  if (fallbackStage) tags.push("degraded_fallback");
 
   let score = 100;
   if (tags.includes("runtime_error")) score -= 50;
@@ -185,11 +210,17 @@ function inferQuality(payload) {
   if (tags.includes("high_total_tokens")) score -= 4;
   if (tags.includes("brief_reply") && !tags.includes("tool_augmented")) score -= 4;
   if (tags.includes("uncertain_reply")) score -= 5;
+  if (tags.includes("degraded_fallback")) score -= 20;
   score = Math.max(0, Math.min(100, score));
 
   return {
     score,
     tags,
+    fallback: {
+      stage: fallbackStage,
+      reason: fallbackReason,
+      hadCandidateBeforeFallback: payload.hadCandidateBeforeFallback === true,
+    },
   };
 }
 
@@ -246,6 +277,7 @@ export function appendDevConversationLog(event = {}) {
       },
       memory: {
         recallUsed: event.memoryRecallUsed === true,
+        diagnostics: normalizeMemoryDiagnostics(event.memorySearchDiagnostics),
         autoCaptured: Number.isFinite(Number(event.memoryAutoCaptured))
           ? Number(event.memoryAutoCaptured)
           : 0,
@@ -269,6 +301,9 @@ export function appendDevConversationLog(event = {}) {
       status: {
         ok: event.ok !== false,
         error: String(event.error || "").trim(),
+        fallbackReason: String(event.fallbackReason || "").trim().toLowerCase(),
+        fallbackStage: String(event.fallbackStage || "").trim().toLowerCase(),
+        hadCandidateBeforeFallback: event.hadCandidateBeforeFallback === true,
       },
       nlp: {
         bypass: event.nlpBypass === true,
@@ -286,6 +321,9 @@ export function appendDevConversationLog(event = {}) {
       latencyMs: payload.timing.latencyMs,
       latencyStages: payload.timing.stages,
       correctionPassCount: payload.timing.correctionPassCount,
+      fallbackReason: payload.status.fallbackReason,
+      fallbackStage: payload.status.fallbackStage,
+      hadCandidateBeforeFallback: payload.status.hadCandidateBeforeFallback,
       promptTokens: payload.usage.promptTokens,
       completionTokens: payload.usage.completionTokens,
       totalTokens: payload.usage.totalTokens,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import path from "node:path"
+import { createHmac, createPrivateKey, createSign, randomUUID } from "node:crypto"
 
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
 import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/server-store"
@@ -50,6 +51,132 @@ function parseIsoTimestamp(value: unknown): number {
   return Number.isFinite(ms) ? ms : 0
 }
 
+function extractCoinbaseDetail(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return ""
+  const asRecord = payload as Record<string, unknown>
+  if (Array.isArray(asRecord.errors) && asRecord.errors.length > 0) {
+    const first = asRecord.errors[0] as { message?: unknown }
+    const message = String(first?.message || "").trim()
+    if (message) return message
+  }
+  if (typeof asRecord.error === "string" && asRecord.error.trim().length > 0) return asRecord.error.trim()
+  if (typeof asRecord.message === "string" && asRecord.message.trim().length > 0) return asRecord.message.trim()
+  return ""
+}
+
+function toBase64Url(input: Buffer | string): string {
+  const encoded = Buffer.isBuffer(input) ? input.toString("base64") : Buffer.from(input, "utf8").toString("base64")
+  return encoded.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
+}
+
+function normalizePrivateKeyPem(raw: string): string {
+  const key = String(raw || "").trim().replace(/\\n/g, "\n").trim()
+  if (!key) return ""
+  if (key.includes("BEGIN EC PRIVATE KEY") || key.includes("BEGIN PRIVATE KEY")) return key
+  return ""
+}
+
+function tryConvertSecretStringToPrivateKeyPem(raw: string): string {
+  const compact = String(raw || "").trim().replace(/\s+/g, "")
+  if (!compact || !/^[A-Za-z0-9+/=]+$/.test(compact)) return ""
+  let decoded: Buffer
+  try {
+    decoded = Buffer.from(compact, "base64")
+  } catch {
+    return ""
+  }
+  if (!decoded || decoded.length < 16) return ""
+  const attempts: Array<() => ReturnType<typeof createPrivateKey>> = [
+    () => createPrivateKey({ key: decoded, format: "der", type: "pkcs8" }),
+    () => createPrivateKey({ key: decoded, format: "der", type: "sec1" }),
+  ]
+  for (const build of attempts) {
+    try {
+      const keyObj = build()
+      return keyObj.export({ format: "pem", type: "pkcs8" }).toString()
+    } catch {
+      // keep trying
+    }
+  }
+  return ""
+}
+
+function decodeHmacSecret(raw: string): Buffer {
+  const compact = String(raw || "").trim().replace(/\s+/g, "")
+  if (!compact) return Buffer.alloc(0)
+  if (/^[A-Za-z0-9+/=]+$/.test(compact)) {
+    try {
+      const decoded = Buffer.from(compact, "base64")
+      if (decoded.length > 0) return decoded
+    } catch {
+      // fallback below
+    }
+  }
+  return Buffer.from(compact, "utf8")
+}
+
+function buildCoinbaseJwt(params: {
+  apiKey: string
+  privateKeyPem: string
+  method: string
+  pathWithQuery: string
+  host: string
+}): string {
+  const nowSec = Math.floor(Date.now() / 1000)
+  const header = {
+    alg: "ES256",
+    kid: params.apiKey,
+    typ: "JWT",
+    nonce: randomUUID().replace(/-/g, ""),
+  }
+  const payload = {
+    iss: "cdp",
+    sub: params.apiKey,
+    nbf: nowSec,
+    exp: nowSec + 120,
+    uri: `${params.method.toUpperCase()} ${params.host}${params.pathWithQuery}`,
+  }
+  const signingInput = `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`
+  const signature = createSign("SHA256").update(signingInput).end().sign(params.privateKeyPem)
+  return `${signingInput}.${toBase64Url(signature)}`
+}
+
+function buildCoinbasePrivateAuthHeaders(params: {
+  apiKey: string
+  apiSecret: string
+  method: string
+  pathWithQuery: string
+  host: string
+}): { headers: Record<string, string>; mode: "jwt_bearer" | "hmac_secret" } {
+  const normalizedPem = normalizePrivateKeyPem(params.apiSecret)
+  const derivedPem = normalizedPem || tryConvertSecretStringToPrivateKeyPem(params.apiSecret)
+  if (derivedPem) {
+    const token = buildCoinbaseJwt({
+      apiKey: params.apiKey,
+      privateKeyPem: derivedPem,
+      method: params.method,
+      pathWithQuery: params.pathWithQuery,
+      host: params.host,
+    })
+    return {
+      headers: { Authorization: `Bearer ${token}` },
+      mode: "jwt_bearer",
+    }
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000).toString()
+  const prehash = `${timestamp}${params.method.toUpperCase()}${params.pathWithQuery}`
+  const signature = createHmac("sha256", decodeHmacSecret(params.apiSecret)).update(prehash).digest("base64")
+  return {
+    headers: {
+      "CB-ACCESS-KEY": params.apiKey,
+      "CB-ACCESS-SIGN": signature,
+      "CB-ACCESS-TIMESTAMP": timestamp,
+    },
+    mode: "hmac_secret",
+  }
+}
+
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
@@ -97,16 +224,7 @@ export async function POST(req: Request) {
     })
     const payload = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const detail = (() => {
-        if (payload && typeof payload === "object" && "errors" in payload && Array.isArray((payload as { errors?: unknown[] }).errors)) {
-          const first = (payload as { errors?: Array<{ message?: string }> }).errors?.[0]
-          return String(first?.message || "").trim()
-        }
-        if (payload && typeof payload === "object" && "error" in payload) {
-          return String((payload as { error?: string }).error || "").trim()
-        }
-        return ""
-      })()
+      const detail = extractCoinbaseDetail(payload)
       const failure = classifyHttpFailure(res.status, detail)
       const next = await updateIntegrationsConfig(
         {
@@ -134,9 +252,64 @@ export async function POST(req: Request) {
       )
     }
 
+    const host = "api.coinbase.com"
+    const privatePath = "/api/v3/brokerage/accounts"
+    const privateAuth = buildCoinbasePrivateAuthHeaders({
+      apiKey: config.coinbase.apiKey,
+      apiSecret: config.coinbase.apiSecret,
+      method: "GET",
+      pathWithQuery: privatePath,
+      host,
+    })
+    const privateRes = await fetch(`https://${host}${privatePath}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        ...privateAuth.headers,
+      },
+    })
+    const privatePayload = await privateRes.json().catch(() => ({}))
+    if (!privateRes.ok) {
+      const detail = extractCoinbaseDetail(privatePayload)
+      const failure = classifyHttpFailure(privateRes.status, detail || "Coinbase private account probe failed.")
+      const next = await updateIntegrationsConfig(
+        {
+          coinbase: {
+            ...config.coinbase,
+            connected: true,
+            lastSyncAt: new Date().toISOString(),
+            lastSyncStatus: "error",
+            lastSyncErrorCode: failure.code,
+            lastSyncErrorMessage: `${failure.message} [auth=${privateAuth.mode}]`,
+            lastFreshnessMs: 0,
+          },
+        },
+        verified,
+      )
+      return NextResponse.json(
+        {
+          ok: false,
+          error: failure.message,
+          code: failure.code,
+          authMode: privateAuth.mode,
+          privateEndpoint: privatePath,
+          guidance:
+            "Use Coinbase Secret API key + matching private key, enable View scope, and ensure your current outbound public IP/IPv6 is allowlisted.",
+          config: {
+            coinbase: next.coinbase,
+          },
+        },
+        { status: failure.status },
+      )
+    }
+
     probeTimestamp = parseIsoTimestamp((payload as { data?: { iso?: string } }).data?.iso)
     const now = Date.now()
     const freshnessMs = probeTimestamp > 0 ? Math.max(0, now - probeTimestamp) : now - startedAt
+    const privateAccountsCount = Array.isArray((privatePayload as { accounts?: unknown[] })?.accounts)
+      ? (privatePayload as { accounts?: unknown[] }).accounts?.length || 0
+      : 0
     const next = await updateIntegrationsConfig(
       {
         coinbase: {
@@ -162,6 +335,9 @@ export async function POST(req: Request) {
       freshnessMs,
       checkedAt: new Date().toISOString(),
       sourceTime: probeTimestamp > 0 ? new Date(probeTimestamp).toISOString() : "",
+      authMode: privateAuth.mode,
+      privateEndpoint: privatePath,
+      privateAccountsCount,
       config: {
         coinbase: next.coinbase,
       },

@@ -1,0 +1,9 @@
+{
+  "thresholds": {
+    "minServeReliabilityPct": 95,
+    "maxP50Ms": 6000,
+    "maxP95Ms": 14000,
+    "maxP99Ms": 22000,
+    "minQualityScore": 90
+  }
+}

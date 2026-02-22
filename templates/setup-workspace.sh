@@ -40,15 +40,16 @@ log "Setting up workspace at: $WORKSPACE_DIR"
 
 make_dir "$WORKSPACE_DIR"
 make_dir "$WORKSPACE_DIR/memory"
-make_dir "$WORKSPACE_DIR/tasks"
+make_dir "$WORKSPACE_DIR/scripts"
+make_dir "$WORKSPACE_DIR/scripts/plans"
 make_dir "$WORKSPACE_DIR/skills"
 make_dir "$WORKSPACE_DIR/skills/research"
 make_dir "$WORKSPACE_DIR/skills/summarize"
 make_dir "$WORKSPACE_DIR/skills/daily-briefing"
 
-# Seed task tracking files
-copy_if_missing "$TEMPLATES_DIR/tasks/todo.md" "$WORKSPACE_DIR/tasks/todo.md"
-copy_if_missing "$TEMPLATES_DIR/tasks/lessons.md" "$WORKSPACE_DIR/tasks/lessons.md"
+# Seed planning files under scripts/
+copy_if_missing "$TEMPLATES_DIR/scripts/plans/todo.md" "$WORKSPACE_DIR/scripts/plans/todo.md"
+copy_if_missing "$TEMPLATES_DIR/scripts/plans/lessons.md" "$WORKSPACE_DIR/scripts/plans/lessons.md"
 
 # Bootstrap templates
 copy_if_missing "$TEMPLATES_DIR/SOUL.md" "$WORKSPACE_DIR/SOUL.md"

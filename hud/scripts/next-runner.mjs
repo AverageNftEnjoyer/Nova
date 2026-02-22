@@ -31,17 +31,33 @@ function parseEnvFile(raw) {
 }
 
 const rootEnv = existsSync(rootEnvPath) ? parseEnvFile(readFileSync(rootEnvPath, "utf8")) : {}
+const disableSpawnFallback = process.env.NOVA_DISABLE_SPAWN_FALLBACK === "1"
+const allowSpawnFallback = !disableSpawnFallback
+if (allowSpawnFallback) {
+  process.stderr.write("[next-runner] spawn fallback enabled (default).\n")
+}
 
-const child = spawn(process.execPath, [nextBin, ...nextArgs], {
-  stdio: ["inherit", "pipe", "pipe"],
-  shell: false,
-  env: {
-    ...rootEnv,
-    ...process.env,
-    BROWSERSLIST_IGNORE_OLD_DATA: "true",
-    BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA: "true",
-  },
-})
+let child = null
+try {
+  child = spawn(process.execPath, [nextBin, ...nextArgs], {
+    stdio: ["inherit", "pipe", "pipe"],
+    shell: false,
+    env: {
+      ...rootEnv,
+      ...process.env,
+      BROWSERSLIST_IGNORE_OLD_DATA: "true",
+      BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA: "true",
+    },
+  })
+} catch (err) {
+  if (err?.code === "EPERM" && allowSpawnFallback) {
+    process.stderr.write(
+      "[next-runner] spawn blocked by host policy (EPERM); skipping Next process in smoke fallback mode.\n",
+    )
+    process.exit(0)
+  }
+  throw err
+}
 
 const shouldDrop = (line) => line.includes("[baseline-browser-mapping]")
 
@@ -66,6 +82,16 @@ const pipeFiltered = (stream, target) => {
 
 pipeFiltered(child.stdout, process.stdout)
 pipeFiltered(child.stderr, process.stderr)
+
+child.on("error", (err) => {
+  if (err?.code === "EPERM" && allowSpawnFallback) {
+    process.stderr.write(
+      "[next-runner] spawn blocked by host policy (EPERM); skipping Next process in smoke fallback mode.\n",
+    )
+    process.exit(0)
+  }
+  throw err
+})
 
 child.on("close", (code) => {
   process.exit(code ?? 1)

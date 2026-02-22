@@ -1,9 +1,17 @@
 import path from "node:path";
-import { CoinbaseDataStore } from "../../dist/integrations/coinbase/index.js";
+import { coinbaseDbPathForUserContext, CoinbaseDataStore } from "../../dist/integrations/coinbase/index.js";
 
-const dbPath = path.resolve(
-  process.env.NOVA_COINBASE_DB_PATH || path.join(process.cwd(), ".agent", "coinbase", "coinbase.sqlite"),
-);
+const userContextId = String(process.env.NOVA_USER_CONTEXT_ID || "").trim().toLowerCase();
+const dbPath = process.env.NOVA_COINBASE_DB_PATH
+  ? path.resolve(process.env.NOVA_COINBASE_DB_PATH)
+  : userContextId
+    ? coinbaseDbPathForUserContext(userContextId, process.cwd())
+    : "";
+
+if (!dbPath) {
+  console.error("[coinbase:migrate] Missing target DB path. Set NOVA_COINBASE_DB_PATH or NOVA_USER_CONTEXT_ID.");
+  process.exit(1);
+}
 
 const store = new CoinbaseDataStore(dbPath);
 store.close();

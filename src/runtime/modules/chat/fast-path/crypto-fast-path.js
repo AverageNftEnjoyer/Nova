@@ -1,3 +1,10 @@
+import {
+  normalizeCoinbaseCommandText,
+  parseCoinbaseCommand,
+  resolveEnabledCoinbaseCommandCategories,
+} from "./coinbase-command-parser.js";
+import { resolveCoinbaseRolloutAccessForFastPath } from "./coinbase-rollout-policy.js";
+
 const CRYPTO_MARKER_REGEX =
   /\b(coinbase|crypto|bitcoin|ethereum|solana|cardano|dogecoin|ripple|litecoin|btc|eth|sol|xrp|ada|doge|ltc|usdt|usdc|eurc)\b/i;
 
@@ -6,6 +13,12 @@ const PORTFOLIO_INTENT_REGEX = /\b(portfolio|holdings?|balances?|account|net\s*w
 const TRANSACTION_INTENT_REGEX = /\b(transactions?|trades?|fills?|activity|history)\b/i;
 const REPORT_INTENT_REGEX = /\b(report|summary|pnl|profit|loss|weekly|daily)\b/i;
 const STATUS_INTENT_REGEX = /\b(status|connected|connection|capabilities?|scopes?)\b/i;
+const COMMAND_CUE_REGEX =
+  /\b(price|portfolio|holdings?|transactions?|activity|crypto\s+help|coinbase\s+status|weekly\s+report|weekly\s+pnl|transfer\s+funds|buy\s+[a-z0-9]{2,10})\b/i;
+const COINBASE_FOLLOW_UP_TTL_MS = 8 * 60 * 1000;
+const COINBASE_WHY_REGEX = /\b(why|what(?:'s| is)\s+wrong|what\s+happened)\b/i;
+const COINBASE_CONSENT_AFFIRM_REGEX =
+  /\b(you\s+have\s+consent|consent\s+(?:is\s+)?granted|i\s+(?:already\s+)?(?:gave|grant(?:ed)?|enabled)\s+consent|consent\s+is\s+on)\b/i;
 
 const SYMBOL_ALIASES = {
   bitcoin: "BTC",
@@ -24,17 +37,72 @@ const SYMBOL_ALIASES = {
 };
 
 const KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "USDT", "USDC", "EURC", "AVAX", "DOT", "MATIC", "LINK", "ATOM", "XLM", "ALGO", "TRX", "NEAR", "APT", "ARB", "OP", "FIL", "AAVE", "SUI", "SHIB"];
+const coinbaseFollowUpStateByConversation = new Map();
 
-function stripAssistantPrefix(text) {
-  return String(text || "")
-    .replace(/^\s*(?:hey|hi|yo)\s+n[o0]va\b[\s,:-]*/i, "")
-    .replace(/^\s*n[o0]va\b[\s,:-]*/i, "")
-    .trim();
+function getCoinbaseFollowUpKey(userContextId, conversationId) {
+  const user = String(userContextId || "").trim().toLowerCase();
+  const convo = String(conversationId || "").trim().toLowerCase() || "_default";
+  return `${user}::${convo}`;
+}
+
+function pruneCoinbaseFollowUpState() {
+  const now = Date.now();
+  for (const [key, entry] of coinbaseFollowUpStateByConversation.entries()) {
+    if (!entry || now - Number(entry.ts || 0) > COINBASE_FOLLOW_UP_TTL_MS) {
+      coinbaseFollowUpStateByConversation.delete(key);
+    }
+  }
+}
+
+function readCoinbaseFollowUpState(key) {
+  pruneCoinbaseFollowUpState();
+  return coinbaseFollowUpStateByConversation.get(key) || null;
+}
+
+function updateCoinbaseFollowUpState(key, payload) {
+  if (!key) return;
+  if (payload?.ok) {
+    coinbaseFollowUpStateByConversation.delete(key);
+    return;
+  }
+  const errorCode = String(payload?.errorCode || "").trim().toUpperCase();
+  if (!errorCode) return;
+  coinbaseFollowUpStateByConversation.set(key, {
+    ts: Date.now(),
+    errorCode,
+    guidance: String(payload?.guidance || "").trim(),
+    safeMessage: String(payload?.safeMessage || "").trim(),
+  });
+}
+
+function buildFollowUpReplyFromState(followUp) {
+  const code = String(followUp?.errorCode || "").trim().toUpperCase();
+  if (!code) return "";
+  if (code === "CONSENT_REQUIRED") {
+    return [
+      "I can only use the Coinbase consent flag saved in your privacy settings.",
+      "If you already enabled it, refresh/reconnect once and retry `recent transactions` or `weekly pnl`.",
+      "If not, enable transaction-history consent in Coinbase privacy controls first.",
+    ].join("\n");
+  }
+  if (code === "DISCONNECTED") {
+    return "Coinbase is disconnected for this runtime user context. Reconnect in Integrations, then retry.";
+  }
+  if (code === "AUTH_FAILED" || code === "AUTH_UNSUPPORTED") {
+    return "Coinbase private auth is failing for this runtime context (key/scopes/allowlist/private key). Re-save credentials and reconnect, then retry.";
+  }
+  if (code === "RATE_LIMITED") {
+    return "Coinbase is rate limiting requests right now. Wait briefly, then retry.";
+  }
+  return String(followUp?.safeMessage || "").trim() || "Coinbase is currently unavailable for this request.";
 }
 
 export function isCryptoRequestText(text) {
-  const normalized = stripAssistantPrefix(text);
+  const parsed = parseCoinbaseCommand(text);
+  if (parsed.isCrypto) return true;
+  const normalized = normalizeCoinbaseCommandText(text);
   if (!normalized) return false;
+  if (COMMAND_CUE_REGEX.test(normalized)) return true;
   if (CRYPTO_MARKER_REGEX.test(normalized)) return true;
   if (!PRICE_INTENT_REGEX.test(normalized)) return false;
   return hasDirectCryptoSymbolMention(normalized);
@@ -128,7 +196,7 @@ function resolveSymbolToken(tokenRaw) {
 }
 
 function extractPriceSymbol(text) {
-  const normalized = stripAssistantPrefix(text);
+  const normalized = normalizeCoinbaseCommandText(text);
   const pairMatch = normalized.match(/\b([a-z0-9]{2,10})\s*(?:\/|-)\s*([a-z0-9]{2,10})\b/i);
   if (pairMatch?.[1] && pairMatch?.[2]) {
     const base = resolveSymbolToken(pairMatch[1]);
@@ -186,7 +254,9 @@ function extractPriceSymbol(text) {
 }
 
 function inferCryptoIntent(text) {
-  const normalized = stripAssistantPrefix(text);
+  const parsed = parseCoinbaseCommand(text);
+  if (parsed.intent) return parsed.intent;
+  const normalized = normalizeCoinbaseCommandText(text);
   const lower = normalized.toLowerCase();
   if (STATUS_INTENT_REGEX.test(lower) && /\bcoinbase\b/.test(lower)) return "status";
   if (REPORT_INTENT_REGEX.test(lower) && (CRYPTO_MARKER_REGEX.test(lower) || PORTFOLIO_INTENT_REGEX.test(lower))) return "report";
@@ -216,6 +286,13 @@ function formatTimestamp(ms) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(parsed));
+}
+
+function formatFreshness(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value < 0) return "unknown";
+  const seconds = Math.round(value / 1000);
+  return `${seconds}s`;
 }
 
 function formatUsdAmount(value) {
@@ -273,6 +350,7 @@ function buildStatusReply(payload) {
     `Coinbase status: ${String(caps.status || "unknown")}.`,
     `Capabilities: market=${String(caps.marketData || "unknown")}, portfolio=${String(caps.portfolio || "unknown")}, transactions=${String(caps.transactions || "unknown")}.`,
     `Checked: ${formatTimestamp(payload.checkedAtMs)}.`,
+    "Commands: price <ticker>, portfolio, recent transactions, my crypto report, weekly pnl.",
   ].join("\n");
 }
 
@@ -282,6 +360,8 @@ function buildPriceReply(payload) {
   const pair = String(data.symbolPair || "").trim() || "unknown pair";
   return [
     `${pair} now: ${formatUsdAmount(data.price)}.`,
+    `Freshness: ${formatFreshness(data.freshnessMs)}.`,
+    `Source: ${String(payload.source || data.source || "coinbase")}.`,
   ].join("\n");
 }
 
@@ -298,6 +378,8 @@ function buildPortfolioReply(payload) {
   return [
     `Coinbase portfolio snapshot (${nonZero.length} active assets).`,
     top.length > 0 ? top.join("\n") : "- No non-zero balances found.",
+    `Freshness: ${formatFreshness(data.freshnessMs)}.`,
+    `Source: ${String(payload.source || data.source || "coinbase")}.`,
   ].join("\n");
 }
 
@@ -316,18 +398,24 @@ function buildTransactionsReply(payload) {
   return [
     `Recent Coinbase transactions (${events.length}).`,
     lines.length > 0 ? lines.join("\n") : "- No recent transactions returned.",
+    `Freshness: ${formatFreshness(payload.freshnessMs)}.`,
+    `Source: ${String(payload.source || "coinbase")}.`,
   ].join("\n");
 }
 
 function buildReportReply(payload) {
   if (!payload?.ok) return buildSafeFailureReply("report", payload);
   const report = payload.report || {};
+  const rendered = String(report.rendered || "").trim();
+  if (rendered) return rendered;
   const summary = report.summary || {};
   const portfolio = report.portfolio || {};
   return [
     "Coinbase crypto report:",
     `- Active assets: ${Number(summary.nonZeroAssetCount || 0)}`,
     `- Recent transactions included: ${Number(summary.transactionCount || 0)}`,
+    `- Freshness: ${formatFreshness(portfolio.freshnessMs)}`,
+    `- Source: ${String(payload.source || "coinbase")}`,
   ].join("\n");
 }
 
@@ -338,7 +426,6 @@ export async function tryCryptoFastPathReply({
   userContextId,
   conversationId,
 }) {
-  if (!isCryptoRequestText(text)) return { reply: "", source: "" };
   const normalizedUserContextId = String(userContextId || "").trim();
   if (!normalizedUserContextId) {
     return {
@@ -346,17 +433,60 @@ export async function tryCryptoFastPathReply({
       source: "validation",
     };
   }
+  const normalizedInput = normalizeCoinbaseCommandText(text);
+  const followUpKey = getCoinbaseFollowUpKey(normalizedUserContextId, conversationId);
+  const followUpState = readCoinbaseFollowUpState(followUpKey);
+  if (!isCryptoRequestText(text)) {
+    if (followUpState && (COINBASE_CONSENT_AFFIRM_REGEX.test(normalizedInput) || COINBASE_WHY_REGEX.test(normalizedInput))) {
+      return { reply: buildFollowUpReplyFromState(followUpState), source: "coinbase_followup" };
+    }
+    return { reply: "", source: "" };
+  }
 
   const intent = inferCryptoIntent(text);
+  if (/\b(buy|sell|trade|swap|transfer|withdraw|deposit)\b/i.test(normalizedInput)) {
+    return {
+      reply: "Coinbase trade/transfer execution is out of scope in Nova v1. I can help with read-only prices, portfolio, transactions, and reports.",
+      source: "policy",
+    };
+  }
+  if (/\bweekly\s+report\b/i.test(normalizedInput) && !/\b(pnl|portfolio|crypto)\b/i.test(normalizedInput)) {
+    return {
+      reply: "Do you want a weekly portfolio report or weekly PnL report?",
+      source: "clarify",
+    };
+  }
+  const category = intent === "report" ? "reports" : intent;
+  const rollout = resolveCoinbaseRolloutAccessForFastPath(normalizedUserContextId);
+  if (!rollout.enabled) {
+    return {
+      reply: `Coinbase is not enabled for this user cohort yet (stage=${rollout.stage}, reason=${rollout.reason}). Support: ${rollout.supportChannel}.`,
+      source: "policy",
+    };
+  }
+  const enabledCategories = resolveEnabledCoinbaseCommandCategories();
+  if (!enabledCategories.has(category)) {
+    return {
+      reply: `Coinbase ${category} commands are currently disabled by admin policy. Ask an admin to enable category "${category}" via NOVA_COINBASE_COMMAND_CATEGORIES.`,
+      source: "policy",
+    };
+  }
   if (intent === "status") {
     const payload = await executeCoinbaseTool(runtimeTools, availableTools, "coinbase_capabilities", {
       userContextId: normalizedUserContextId,
       conversationId: String(conversationId || "").trim(),
     });
+    updateCoinbaseFollowUpState(followUpKey, payload);
     return { reply: buildStatusReply(payload), source: "coinbase", toolCall: "coinbase_capabilities" };
   }
 
   if (intent === "price") {
+    if (/\b(price\s+usd|usd\s+price)\b/i.test(normalizedInput)) {
+      return {
+        reply: "USD is the quote currency, not the crypto asset target. Share the crypto ticker (for example BTC or ETH).",
+        source: "validation",
+      };
+    }
     const symbolResolution = extractPriceSymbol(text);
     if (symbolResolution.status === "ambiguous" && symbolResolution.suggestion) {
       return {
@@ -375,6 +505,7 @@ export async function tryCryptoFastPathReply({
       conversationId: String(conversationId || "").trim(),
       symbolPair: symbolResolution.symbolPair,
     });
+    updateCoinbaseFollowUpState(followUpKey, payload);
     return { reply: buildPriceReply(payload), source: "coinbase", toolCall: "coinbase_spot_price" };
   }
 
@@ -383,6 +514,7 @@ export async function tryCryptoFastPathReply({
       userContextId: normalizedUserContextId,
       conversationId: String(conversationId || "").trim(),
     });
+    updateCoinbaseFollowUpState(followUpKey, payload);
     return { reply: buildPortfolioReply(payload), source: "coinbase", toolCall: "coinbase_portfolio_snapshot" };
   }
 
@@ -392,6 +524,7 @@ export async function tryCryptoFastPathReply({
       conversationId: String(conversationId || "").trim(),
       limit: 6,
     });
+    updateCoinbaseFollowUpState(followUpKey, payload);
     return { reply: buildTransactionsReply(payload), source: "coinbase", toolCall: "coinbase_recent_transactions" };
   }
 
@@ -399,6 +532,8 @@ export async function tryCryptoFastPathReply({
     userContextId: normalizedUserContextId,
     conversationId: String(conversationId || "").trim(),
     transactionLimit: 8,
+    mode: /\b(detailed|full|expanded)\b/i.test(normalizedInput) ? "detailed" : "concise",
   });
+  updateCoinbaseFollowUpState(followUpKey, payload);
   return { reply: buildReportReply(payload), source: "coinbase", toolCall: "coinbase_portfolio_report" };
 }

@@ -81,11 +81,53 @@ export interface CoinbaseOAuthTokenRecord {
   revokedAtMs: number;
 }
 
+export interface CoinbaseReportHistoryRow {
+  reportRunId: string;
+  userContextId: string;
+  scheduleId: string;
+  missionRunId: string;
+  reportType: string;
+  deliveredChannel: string;
+  deliveredAtMs: number;
+  reportHash: string;
+  payload: unknown;
+  createdAtMs: number;
+}
+
+export interface CoinbaseSnapshotRow {
+  snapshotId: string;
+  userContextId: string;
+  snapshotType: CoinbaseSnapshotType;
+  symbolPair: string;
+  payload: unknown;
+  fetchedAtMs: number;
+  freshnessMs: number;
+  source: string;
+  createdAtMs: number;
+}
+
+export interface CoinbaseRetentionSettings {
+  userContextId: string;
+  reportRetentionDays: number;
+  snapshotRetentionDays: number;
+  transactionRetentionDays: number;
+  updatedAtMs: number;
+}
+
+export interface CoinbasePrivacySettings {
+  userContextId: string;
+  showBalances: boolean;
+  showTransactions: boolean;
+  requireTransactionConsent: boolean;
+  transactionHistoryConsentGranted: boolean;
+  updatedAtMs: number;
+}
+
 export class CoinbaseDataStore {
   private readonly dbPath: string;
   private readonly db: Database.Database;
 
-  public constructor(dbPath = defaultCoinbaseDbPath()) {
+  public constructor(dbPath: string) {
     this.dbPath = path.resolve(dbPath);
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     this.db = new Database(this.dbPath);
@@ -359,6 +401,304 @@ export class CoinbaseDataStore {
       WHERE user_context_id = ?
     `).run(Date.now(), Date.now(), userContextId);
   }
+
+  public listReportHistory(userContextIdInput: string, limit = 200): CoinbaseReportHistoryRow[] {
+    const userContextId = normalizeUserContextId(userContextIdInput);
+    if (!userContextId) return [];
+    const rowLimit = Math.max(1, Math.min(5_000, Math.floor(Number(limit || 0) || 200)));
+    const rows = this.db.prepare(`
+      SELECT report_run_id, user_context_id, schedule_id, mission_run_id, report_type, delivered_channel, delivered_at, report_hash, payload_json, created_at
+      FROM coinbase_report_history
+      WHERE user_context_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(userContextId, rowLimit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      reportRunId: String(row.report_run_id || ""),
+      userContextId: String(row.user_context_id || ""),
+      scheduleId: String(row.schedule_id || ""),
+      missionRunId: String(row.mission_run_id || ""),
+      reportType: String(row.report_type || ""),
+      deliveredChannel: String(row.delivered_channel || ""),
+      deliveredAtMs: Number(row.delivered_at || 0),
+      reportHash: String(row.report_hash || ""),
+      payload: safeJsonParse(String(row.payload_json || "{}")),
+      createdAtMs: Number(row.created_at || 0),
+    }));
+  }
+
+  public listSnapshots(
+    userContextIdInput: string,
+    snapshotType?: CoinbaseSnapshotType,
+    limit = 500,
+  ): CoinbaseSnapshotRow[] {
+    const userContextId = normalizeUserContextId(userContextIdInput);
+    if (!userContextId) return [];
+    const rowLimit = Math.max(1, Math.min(10_000, Math.floor(Number(limit || 0) || 500)));
+    const rows = (snapshotType
+      ? this.db.prepare(`
+          SELECT snapshot_id, user_context_id, snapshot_type, symbol_pair, payload_json, fetched_at, freshness_ms, source, created_at
+          FROM coinbase_snapshots
+          WHERE user_context_id = ? AND snapshot_type = ?
+          ORDER BY created_at DESC
+          LIMIT ?
+        `).all(userContextId, snapshotType, rowLimit)
+      : this.db.prepare(`
+          SELECT snapshot_id, user_context_id, snapshot_type, symbol_pair, payload_json, fetched_at, freshness_ms, source, created_at
+          FROM coinbase_snapshots
+          WHERE user_context_id = ?
+          ORDER BY created_at DESC
+          LIMIT ?
+        `).all(userContextId, rowLimit)) as Array<Record<string, unknown>>;
+
+    return rows.map((row) => ({
+      snapshotId: String(row.snapshot_id || ""),
+      userContextId: String(row.user_context_id || ""),
+      snapshotType: String(row.snapshot_type || "spot_price") as CoinbaseSnapshotType,
+      symbolPair: String(row.symbol_pair || ""),
+      payload: safeJsonParse(String(row.payload_json || "{}")),
+      fetchedAtMs: Number(row.fetched_at || 0),
+      freshnessMs: Number(row.freshness_ms || 0),
+      source: String(row.source || "coinbase"),
+      createdAtMs: Number(row.created_at || 0),
+    }));
+  }
+
+  public getRetentionSettings(userContextIdInput: string): CoinbaseRetentionSettings {
+    const userContextId = normalizeUserContextId(userContextIdInput);
+    const defaults: CoinbaseRetentionSettings = {
+      userContextId,
+      reportRetentionDays: 90,
+      snapshotRetentionDays: 30,
+      transactionRetentionDays: 30,
+      updatedAtMs: 0,
+    };
+    if (!userContextId) return defaults;
+    const row = this.db.prepare(`
+      SELECT user_context_id, report_retention_days, snapshot_retention_days, transaction_retention_days, updated_at
+      FROM coinbase_retention_settings
+      WHERE user_context_id = ?
+    `).get(userContextId) as Record<string, unknown> | undefined;
+    if (!row) return defaults;
+    return {
+      userContextId,
+      reportRetentionDays: clampDays(row.report_retention_days, defaults.reportRetentionDays),
+      snapshotRetentionDays: clampDays(row.snapshot_retention_days, defaults.snapshotRetentionDays),
+      transactionRetentionDays: clampDays(row.transaction_retention_days, defaults.transactionRetentionDays),
+      updatedAtMs: Number(row.updated_at || 0),
+    };
+  }
+
+  public setRetentionSettings(input: {
+    userContextId: string;
+    reportRetentionDays?: number;
+    snapshotRetentionDays?: number;
+    transactionRetentionDays?: number;
+  }): CoinbaseRetentionSettings {
+    const userContextId = normalizeUserContextId(input.userContextId);
+    const current = this.getRetentionSettings(userContextId);
+    const next: CoinbaseRetentionSettings = {
+      userContextId,
+      reportRetentionDays: clampDays(input.reportRetentionDays, current.reportRetentionDays),
+      snapshotRetentionDays: clampDays(input.snapshotRetentionDays, current.snapshotRetentionDays),
+      transactionRetentionDays: clampDays(input.transactionRetentionDays, current.transactionRetentionDays),
+      updatedAtMs: Date.now(),
+    };
+    if (!userContextId) return next;
+    this.db.prepare(`
+      INSERT INTO coinbase_retention_settings (
+        user_context_id, report_retention_days, snapshot_retention_days, transaction_retention_days, updated_at
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_context_id) DO UPDATE SET
+        report_retention_days=excluded.report_retention_days,
+        snapshot_retention_days=excluded.snapshot_retention_days,
+        transaction_retention_days=excluded.transaction_retention_days,
+        updated_at=excluded.updated_at
+    `).run(
+      userContextId,
+      next.reportRetentionDays,
+      next.snapshotRetentionDays,
+      next.transactionRetentionDays,
+      next.updatedAtMs,
+    );
+    return next;
+  }
+
+  public pruneForUser(userContextIdInput: string): { reportsDeleted: number; snapshotsDeleted: number } {
+    const settings = this.getRetentionSettings(userContextIdInput);
+    const userContextId = settings.userContextId;
+    if (!userContextId) return { reportsDeleted: 0, snapshotsDeleted: 0 };
+    const now = Date.now();
+    const reportCutoff = now - settings.reportRetentionDays * 24 * 60 * 60 * 1000;
+    const snapshotCutoff = now - settings.snapshotRetentionDays * 24 * 60 * 60 * 1000;
+    const txCutoff = now - settings.transactionRetentionDays * 24 * 60 * 60 * 1000;
+    const reportsDeleted = Number(
+      this.db.prepare(`
+        DELETE FROM coinbase_report_history
+        WHERE user_context_id = ? AND created_at < ?
+      `).run(userContextId, reportCutoff).changes || 0,
+    );
+    const snapshotsDeleted = Number(
+      this.db.prepare(`
+        DELETE FROM coinbase_snapshots
+        WHERE user_context_id = ?
+          AND (
+            created_at < ?
+            OR (snapshot_type = 'transactions' AND created_at < ?)
+          )
+      `).run(userContextId, snapshotCutoff, txCutoff).changes || 0,
+    );
+    return { reportsDeleted, snapshotsDeleted };
+  }
+
+  public getPrivacySettings(userContextIdInput: string): CoinbasePrivacySettings {
+    const userContextId = normalizeUserContextId(userContextIdInput);
+    const defaults: CoinbasePrivacySettings = {
+      userContextId,
+      showBalances: true,
+      showTransactions: true,
+      requireTransactionConsent: true,
+      transactionHistoryConsentGranted: false,
+      updatedAtMs: 0,
+    };
+    if (!userContextId) return defaults;
+    const row = this.db.prepare(`
+      SELECT user_context_id, show_balances, show_transactions, require_transaction_consent, transaction_history_consent_granted, updated_at
+      FROM coinbase_privacy_settings
+      WHERE user_context_id = ?
+    `).get(userContextId) as Record<string, unknown> | undefined;
+    if (!row) return defaults;
+    return {
+      userContextId,
+      showBalances: Number(row.show_balances || 0) === 1,
+      showTransactions: Number(row.show_transactions || 0) === 1,
+      requireTransactionConsent: Number(row.require_transaction_consent || 0) === 1,
+      transactionHistoryConsentGranted: Number(row.transaction_history_consent_granted || 0) === 1,
+      updatedAtMs: Number(row.updated_at || 0),
+    };
+  }
+
+  public setPrivacySettings(input: {
+    userContextId: string;
+    showBalances?: boolean;
+    showTransactions?: boolean;
+    requireTransactionConsent?: boolean;
+    transactionHistoryConsentGranted?: boolean;
+  }): CoinbasePrivacySettings {
+    const userContextId = normalizeUserContextId(input.userContextId);
+    const current = this.getPrivacySettings(userContextId);
+    const next: CoinbasePrivacySettings = {
+      userContextId,
+      showBalances: typeof input.showBalances === "boolean" ? input.showBalances : current.showBalances,
+      showTransactions: typeof input.showTransactions === "boolean" ? input.showTransactions : current.showTransactions,
+      requireTransactionConsent:
+        typeof input.requireTransactionConsent === "boolean"
+          ? input.requireTransactionConsent
+          : current.requireTransactionConsent,
+      transactionHistoryConsentGranted:
+        typeof input.transactionHistoryConsentGranted === "boolean"
+          ? input.transactionHistoryConsentGranted
+          : current.transactionHistoryConsentGranted,
+      updatedAtMs: Date.now(),
+    };
+    if (!userContextId) return next;
+    this.db.prepare(`
+      INSERT INTO coinbase_privacy_settings (
+        user_context_id, show_balances, show_transactions, require_transaction_consent, transaction_history_consent_granted, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_context_id) DO UPDATE SET
+        show_balances=excluded.show_balances,
+        show_transactions=excluded.show_transactions,
+        require_transaction_consent=excluded.require_transaction_consent,
+        transaction_history_consent_granted=excluded.transaction_history_consent_granted,
+        updated_at=excluded.updated_at
+    `).run(
+      userContextId,
+      next.showBalances ? 1 : 0,
+      next.showTransactions ? 1 : 0,
+      next.requireTransactionConsent ? 1 : 0,
+      next.transactionHistoryConsentGranted ? 1 : 0,
+      next.updatedAtMs,
+    );
+    return next;
+  }
+
+  public purgeUserData(userContextIdInput: string): {
+    snapshotsDeleted: number;
+    reportsDeleted: number;
+    oauthTokensDeleted: number;
+    idempotencyDeleted: number;
+    retentionDeleted: number;
+    privacyDeleted: number;
+  } {
+    const userContextId = normalizeUserContextId(userContextIdInput);
+    if (!userContextId) {
+      return {
+        snapshotsDeleted: 0,
+        reportsDeleted: 0,
+        oauthTokensDeleted: 0,
+        idempotencyDeleted: 0,
+        retentionDeleted: 0,
+        privacyDeleted: 0,
+      };
+    }
+    const snapshotsDeleted = Number(
+      this.db.prepare("DELETE FROM coinbase_snapshots WHERE user_context_id = ?").run(userContextId).changes || 0,
+    );
+    const reportsDeleted = Number(
+      this.db.prepare("DELETE FROM coinbase_report_history WHERE user_context_id = ?").run(userContextId).changes || 0,
+    );
+    const oauthTokensDeleted = Number(
+      this.db.prepare("DELETE FROM coinbase_oauth_tokens WHERE user_context_id = ?").run(userContextId).changes || 0,
+    );
+    const idempotencyDeleted = Number(
+      this.db.prepare("DELETE FROM coinbase_idempotency_keys WHERE user_context_id = ?").run(userContextId).changes || 0,
+    );
+    const retentionDeleted = Number(
+      this.db.prepare("DELETE FROM coinbase_retention_settings WHERE user_context_id = ?").run(userContextId).changes || 0,
+    );
+    const privacyDeleted = Number(
+      this.db.prepare("DELETE FROM coinbase_privacy_settings WHERE user_context_id = ?").run(userContextId).changes || 0,
+    );
+    this.upsertConnectionMetadata({
+      userContextId,
+      connected: false,
+      mode: "api_key_pair",
+      keyFingerprint: "",
+      lastErrorCode: "",
+      lastErrorMessage: "",
+    });
+    this.appendAuditLog({
+      userContextId,
+      eventType: "coinbase.secure_delete",
+      status: "ok",
+      details: {
+        snapshotsDeleted,
+        reportsDeleted,
+        oauthTokensDeleted,
+        idempotencyDeleted,
+        retentionDeleted,
+        privacyDeleted,
+      },
+    });
+    return {
+      snapshotsDeleted,
+      reportsDeleted,
+      oauthTokensDeleted,
+      idempotencyDeleted,
+      retentionDeleted,
+      privacyDeleted,
+    };
+  }
+}
+
+export function coinbaseDbPathForUserContext(userContextIdInput: string, workspaceRootInput?: string): string {
+  const userContextId = normalizeUserContextId(userContextIdInput);
+  if (!userContextId) {
+    throw new Error("Missing userContextId for Coinbase DB path.");
+  }
+  const workspaceRoot = path.resolve(workspaceRootInput || process.cwd());
+  return path.join(workspaceRoot, ".agent", "user-context", userContextId, "coinbase", "coinbase.sqlite");
 }
 
 function ensureCoinbaseSchema(db: Database.Database): void {
@@ -433,6 +773,23 @@ function ensureCoinbaseSchema(db: Database.Database): void {
       revoked_at INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS coinbase_retention_settings (
+      user_context_id TEXT PRIMARY KEY,
+      report_retention_days INTEGER NOT NULL DEFAULT 90,
+      snapshot_retention_days INTEGER NOT NULL DEFAULT 30,
+      transaction_retention_days INTEGER NOT NULL DEFAULT 30,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS coinbase_privacy_settings (
+      user_context_id TEXT PRIMARY KEY,
+      show_balances INTEGER NOT NULL DEFAULT 1,
+      show_transactions INTEGER NOT NULL DEFAULT 1,
+      require_transaction_consent INTEGER NOT NULL DEFAULT 1,
+      transaction_history_consent_granted INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
   `);
 }
 
@@ -449,6 +806,20 @@ function sanitizeString(value: unknown, maxLen: number): string {
   return out.length > maxLen ? out.slice(0, maxLen) : out;
 }
 
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function clampDays(value: unknown, fallback: number): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(3650, parsed));
+}
+
 function normalizeUserContextId(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -462,8 +833,3 @@ function normalizeUserContextId(value: unknown): string {
 function hashPayload(payloadJson: string): string {
   return createHash("sha256").update(payloadJson).digest("hex").slice(0, 32);
 }
-
-function defaultCoinbaseDbPath(): string {
-  return path.join(process.cwd(), ".agent", "coinbase", "coinbase.sqlite");
-}
-

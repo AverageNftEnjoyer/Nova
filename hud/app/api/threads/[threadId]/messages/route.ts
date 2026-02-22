@@ -17,6 +17,13 @@ type IncomingMessage = {
   nlpConfidence?: number
   nlpCorrectionCount?: number
   nlpBypass?: boolean
+  missionId?: string
+  missionLabel?: string
+  missionRunId?: string
+  missionRunKey?: string
+  missionAttempt?: number
+  missionSource?: "scheduler" | "trigger"
+  missionOutputChannel?: string
 }
 
 export async function PUT(
@@ -76,6 +83,16 @@ export async function PUT(
         nlpConfidence: Number.isFinite(Number(m.nlpConfidence)) ? Number(m.nlpConfidence) : null,
         nlpCorrectionCount: Number.isFinite(Number(m.nlpCorrectionCount)) ? Number(m.nlpCorrectionCount) : null,
         nlpBypass: m.nlpBypass === true ? true : null,
+        missionId: typeof m.missionId === "string" && m.missionId.trim() ? m.missionId.trim() : null,
+        missionLabel: typeof m.missionLabel === "string" && m.missionLabel.trim() ? m.missionLabel.trim() : null,
+        missionRunId: typeof m.missionRunId === "string" && m.missionRunId.trim() ? m.missionRunId.trim() : null,
+        missionRunKey: typeof m.missionRunKey === "string" && m.missionRunKey.trim() ? m.missionRunKey.trim() : null,
+        missionAttempt: Number.isFinite(Number(m.missionAttempt)) ? Number(m.missionAttempt) : null,
+        missionSource: m.missionSource === "scheduler" || m.missionSource === "trigger" ? m.missionSource : null,
+        missionOutputChannel:
+          typeof m.missionOutputChannel === "string" && m.missionOutputChannel.trim()
+            ? m.missionOutputChannel.trim()
+            : null,
       },
       created_at: String(m.createdAt || new Date().toISOString()),
     }))

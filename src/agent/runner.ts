@@ -13,9 +13,9 @@ import type { MemoryIndexManager } from "../memory/manager.js";
 import { applyMemoryWriteThrough } from "../memory/write-through.js";
 import { buildMemoryRecallContext, injectMemoryRecallSection } from "../memory/recall.js";
 import type { Skill } from "../skills/types.js";
-import { executeToolUse, toAnthropicToolResultBlock } from "../tools/executor.js";
-import { toAnthropicToolDefinitions } from "../tools/protocol.js";
-import type { AnthropicToolUseBlock, Tool } from "../tools/types.js";
+import { executeToolUse, toAnthropicToolResultBlock } from "../tools/core/executor.js";
+import { toAnthropicToolDefinitions } from "../tools/core/protocol.js";
+import type { AnthropicToolUseBlock, Tool } from "../tools/core/types.js";
 import { preprocess, logCorrections } from "../nlp/preprocess.js";
 
 export interface AgentRunResult {

@@ -198,7 +198,11 @@ export function createSessionRuntime({
     const sender = normalizeToken(opts.sender || "");
     const agent = "agent:nova";
     if (source === "hud") {
-      return `${agent}:${normalizeToken(sessionMainKey)}`;
+      const hudUserContextId = normalizeUserContextId(resolveUserContextId(opts) || "");
+      if (hudUserContextId) {
+        return `${agent}:hud:user:${hudUserContextId}:${normalizeToken(sessionMainKey)}`;
+      }
+      return `${agent}:hud:${normalizeToken(sessionMainKey)}`;
     }
     if (source === "voice") {
       return `${agent}:voice:dm:${sender || "local-mic"}`;

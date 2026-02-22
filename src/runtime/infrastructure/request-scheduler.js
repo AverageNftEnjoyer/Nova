@@ -19,6 +19,14 @@ function normalizeLane(value) {
   return "default";
 }
 
+function buildUserScopedKey(userId, value) {
+  const normalizedUserId = normalizeScope(userId);
+  const normalizedValue = normalizeScope(value);
+  if (!normalizedValue) return "";
+  if (!normalizedUserId) return normalizedValue;
+  return `${normalizedUserId}:${normalizedValue}`;
+}
+
 function createSchedulerError(code, message, retryAfterMs = 0) {
   const err = new Error(message);
   err.code = code;
@@ -48,11 +56,11 @@ export function createRequestScheduler(options = {}) {
     String(options.strictUserIsolation ?? process.env.NOVA_SCHEDULER_STRICT_USER_ISOLATION ?? "1").trim() !== "0";
   const configuredMaxInFlightGlobal = toInt(
     options.maxInFlightGlobal ?? process.env.NOVA_SCHEDULER_MAX_INFLIGHT_GLOBAL,
-    6,
+    12,
     1,
-    128,
+    512,
   );
-  const maxInFlightGlobal = strictUserIsolation ? Number.MAX_SAFE_INTEGER : configuredMaxInFlightGlobal;
+  const maxInFlightGlobal = configuredMaxInFlightGlobal;
   const maxInFlightPerUser = toInt(
     options.maxInFlightPerUser ?? process.env.NOVA_SCHEDULER_MAX_INFLIGHT_PER_USER,
     2,
@@ -120,7 +128,6 @@ export function createRequestScheduler(options = {}) {
   }
 
   function estimateRetryAfterMs() {
-    if (strictUserIsolation) return 450;
     if (inFlightGlobal >= maxInFlightGlobal) return 1200;
     return 600;
   }
@@ -140,22 +147,22 @@ export function createRequestScheduler(options = {}) {
 
   function canRunJob(job) {
     if (!job) return false;
-    if (!strictUserIsolation && inFlightGlobal >= maxInFlightGlobal) return false;
+    if (inFlightGlobal >= maxInFlightGlobal) return false;
     if (job.userId && getMapCount(inFlightByUser, job.userId) >= maxInFlightPerUser) return false;
-    if (job.conversationId && getMapCount(inFlightByConversation, job.conversationId) >= maxInFlightPerConversation) return false;
+    if (job.conversationScope && getMapCount(inFlightByConversation, job.conversationScope) >= maxInFlightPerConversation) return false;
     return true;
   }
 
   function markJobStart(job) {
     inFlightGlobal += 1;
     bumpMapCount(inFlightByUser, job.userId, 1);
-    bumpMapCount(inFlightByConversation, job.conversationId, 1);
+    bumpMapCount(inFlightByConversation, job.conversationScope, 1);
   }
 
   function markJobEnd(job) {
     inFlightGlobal = Math.max(0, inFlightGlobal - 1);
     bumpMapCount(inFlightByUser, job.userId, -1);
-    bumpMapCount(inFlightByConversation, job.conversationId, -1);
+    bumpMapCount(inFlightByConversation, job.conversationScope, -1);
   }
 
   function pruneStaleJobs(nowMs = Date.now()) {
@@ -274,7 +281,8 @@ export function createRequestScheduler(options = {}) {
       );
     }
     const conversationId = normalizeScope(params.conversationId);
-    const supersedeKey = normalizeScope(params.supersedeKey);
+    const conversationScope = buildUserScopedKey(userId, conversationId);
+    const supersedeKey = buildUserScopedKey(userId, params.supersedeKey);
 
     return new Promise((resolve, reject) => {
       removeQueuedBySupersedeKey(supersedeKey);
@@ -283,6 +291,7 @@ export function createRequestScheduler(options = {}) {
         lane,
         userId,
         conversationId,
+        conversationScope,
         supersedeKey,
         run,
         resolve,

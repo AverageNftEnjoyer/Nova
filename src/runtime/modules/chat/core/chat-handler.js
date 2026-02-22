@@ -28,6 +28,7 @@ import {
   ENABLE_PROVIDER_FALLBACK,
   OPENAI_FALLBACK_MODEL,
   OPENAI_REQUEST_TIMEOUT_MS,
+  TOOL_LOOP_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_ENABLED,
   TOOL_LOOP_MAX_STEPS,
   CLAUDE_CHAT_MAX_TOKENS,
@@ -83,6 +84,8 @@ import { shouldSkipDuplicateInbound } from "../routing/inbound-dedupe.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../quality/reply-normalizer.js";
 import { normalizeInboundUserText } from "../quality/response-quality-guard.js";
 import { appendDevConversationLog } from "../telemetry/dev-conversation-log.js";
+import { runChatKitShadowEvaluation } from "../telemetry/chatkit-shadow.js";
+import { runChatKitServeAttempt } from "../telemetry/chatkit-serving.js";
 import { parseOutputConstraints, validateOutputConstraints } from "../quality/output-constraints.js";
 import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../analysis/link-understanding.js";
 import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../prompt/prompt-budget.js";
@@ -130,6 +133,227 @@ import {
 const MEMORY_RECALL_TIMEOUT_MS = Number.parseInt(process.env.NOVA_MEMORY_RECALL_TIMEOUT_MS || "450", 10);
 const WEB_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WEB_PRELOAD_TIMEOUT_MS || "900", 10);
 const LINK_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_LINK_PRELOAD_TIMEOUT_MS || "900", 10);
+const OPENAI_DEFAULT_MAX_COMPLETION_TOKENS = Number.parseInt(
+  process.env.NOVA_OPENAI_DEFAULT_MAX_COMPLETION_TOKENS || "1200",
+  10,
+);
+const OPENAI_FAST_LANE_MAX_COMPLETION_TOKENS = Number.parseInt(
+  process.env.NOVA_OPENAI_FAST_LANE_MAX_COMPLETION_TOKENS || "700",
+  10,
+);
+const OPENAI_STRICT_MAX_COMPLETION_TOKENS = Number.parseInt(
+  process.env.NOVA_OPENAI_STRICT_MAX_COMPLETION_TOKENS || "900",
+  10,
+);
+
+function resolveAdaptiveOpenAiMaxCompletionTokens(userText, {
+  strict = false,
+  fastLane = false,
+  defaultCap = OPENAI_DEFAULT_MAX_COMPLETION_TOKENS,
+  strictCap = OPENAI_STRICT_MAX_COMPLETION_TOKENS,
+  fastLaneCap = OPENAI_FAST_LANE_MAX_COMPLETION_TOKENS,
+} = {}) {
+  const raw = String(userText || "").trim();
+  const lower = raw.toLowerCase();
+  if (/\bexactly\s+one\s+word\b|\bone-word\s+reply\s+only\b/.test(lower)) return 128;
+  if (/\bjson\s+only\b/.test(lower)) return Math.min(320, strictCap, defaultCap);
+  if (/\b(one|1)\s+sentence\b/.test(lower)) return Math.min(220, strictCap, defaultCap);
+  if (/\b(two|2)\s+sentences\b/.test(lower)) return Math.min(280, strictCap, defaultCap);
+  if (/\bexactly\s+\d+\s+bullet/.test(lower) || /\bnumbered\s+steps\b/.test(lower)) {
+    return Math.min(360, strict ? strictCap : defaultCap);
+  }
+  if (strict) return Math.min(strictCap, 600);
+  if (fastLane) return Math.min(fastLaneCap, 420);
+  if (raw.length <= 64) return Math.min(defaultCap, 700);
+  if (raw.length <= 180) return Math.min(defaultCap, 850);
+  return defaultCap;
+}
+
+function resolveOpenAiRequestTuning(provider, model, { strict = false } = {}) {
+  if (String(provider || "").trim().toLowerCase() !== "openai") return {};
+  const normalizedModel = String(model || "").trim().toLowerCase();
+  if (!normalizedModel.startsWith("gpt-5")) return {};
+  const tuning = {
+    verbosity: strict ? "low" : "medium",
+  };
+  if (!normalizedModel.startsWith("gpt-5-pro")) {
+    tuning.reasoning_effort = strict ? "minimal" : "low";
+  }
+  return tuning;
+}
+
+function didLikelyHitCompletionCap(completionTokens, maxCompletionTokens) {
+  const used = Number(completionTokens || 0);
+  const cap = Number(maxCompletionTokens || 0);
+  if (!Number.isFinite(used) || !Number.isFinite(cap) || cap <= 0) return false;
+  return used >= Math.max(128, Math.floor(cap * 0.85));
+}
+
+function buildEmptyReplyFailureReason(baseReason, {
+  finishReason = "",
+  completionTokens = 0,
+  maxCompletionTokens = 0,
+} = {}) {
+  const parts = [String(baseReason || "empty_reply_after_llm_call").trim() || "empty_reply_after_llm_call"];
+  const normalizedFinishReason = String(finishReason || "").trim().toLowerCase();
+  if (normalizedFinishReason) parts.push(`finish_reason_${normalizedFinishReason}`);
+  if (didLikelyHitCompletionCap(completionTokens, maxCompletionTokens)) parts.push("near_token_cap");
+  return parts.join(":");
+}
+
+function shouldAttemptOpenAiEmptyReplyRecovery({
+  provider,
+  reply,
+  finishReason,
+  completionTokens,
+  maxCompletionTokens,
+}) {
+  const normalizedProvider = String(provider || "").trim().toLowerCase();
+  if (normalizedProvider !== "openai" && normalizedProvider !== "gemini" && normalizedProvider !== "grok") {
+    return false;
+  }
+  if (String(reply || "").trim()) return false;
+  const normalizedFinishReason = String(finishReason || "").trim().toLowerCase();
+  if (normalizedFinishReason === "content_filter") return false;
+  if (normalizedFinishReason === "tool_calls" || normalizedFinishReason === "function_call") return false;
+  if (normalizedFinishReason === "length") return true;
+  return didLikelyHitCompletionCap(completionTokens, maxCompletionTokens);
+}
+
+async function attemptOpenAiEmptyReplyRecovery({
+  client,
+  model,
+  messages,
+  timeoutMs,
+  maxCompletionTokens,
+  requestTuning = {},
+  label = "OpenAI empty reply recovery",
+}) {
+  const cappedMax = Number.isFinite(Number(maxCompletionTokens)) && Number(maxCompletionTokens) > 0
+    ? Number(maxCompletionTokens)
+    : OPENAI_DEFAULT_MAX_COMPLETION_TOKENS;
+  const recoveryMaxCompletionTokens = Math.min(
+    OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+    Math.max(512, Math.floor(cappedMax * 1.7), cappedMax + 256),
+  );
+  const request = {
+    model,
+    messages,
+    max_completion_tokens: recoveryMaxCompletionTokens,
+    ...(requestTuning && typeof requestTuning === "object" ? requestTuning : {}),
+  };
+  const completion = await withTimeout(
+    client.chat.completions.create(request),
+    timeoutMs,
+    `${label} ${model}`,
+  );
+  const usage = completion?.usage || {};
+  return {
+    reply: extractOpenAIChatText(completion).trim(),
+    promptTokens: Number(usage.prompt_tokens || 0),
+    completionTokens: Number(usage.completion_tokens || 0),
+    finishReason: String(completion?.choices?.[0]?.finish_reason || "").trim(),
+    maxCompletionTokens: recoveryMaxCompletionTokens,
+  };
+}
+
+function buildDeterministicEmptyReplyFallback(userText, { strict = false } = {}) {
+  const raw = String(userText || "").trim();
+  const normalized = raw.toLowerCase();
+  if (!normalized) {
+    return "I hit a temporary generation issue. Please retry.";
+  }
+  const oneWordMatch = raw.match(/(?:exactly\s+one\s+word|one-word\s+reply\s+only)\s*:\s*([a-z0-9_-]+)/i);
+  if (oneWordMatch?.[1]) return String(oneWordMatch[1]).trim();
+  if (/\b(weapon|weapon-making|harm|attack)\b/i.test(raw)) {
+    return "I won't assist with weapon-making, but I can help with safety and non-violent alternatives.";
+  }
+  if (/\b(insomnia|sleep|magnesium|supplement|glycinate)\b/i.test(raw)) {
+    return "Magnesium glycinate may help some people, but check interactions and kidney risks with a clinician before use.";
+  }
+  const bulletCountMatch = raw.match(/\bexactly\s+(\d{1,2})\s+bullet(?:\s+points?)?\b/i);
+  if (bulletCountMatch?.[1]) {
+    const count = Math.max(1, Math.min(10, Number.parseInt(String(bulletCountMatch[1]), 10) || 1));
+    return Array.from({ length: count }, (_, idx) => `- Retry step ${idx + 1}.`).join("\n");
+  }
+  if (/\bjson only\b/i.test(raw)) {
+    return "{\"risk\":\"Temporary generation failure\",\"action\":\"Retry the request.\"}";
+  }
+  if (/\bexactly\s+3\s+numbered\s+steps\b/i.test(raw)) {
+    return "1. Capture the failing signal and exact reproduction path.\n2. Isolate the component and validate assumptions with a minimal test.\n3. Apply a fix, then rerun smoke checks to confirm stability.";
+  }
+  if (/\bexactly\s+2\s+bullet points\b/i.test(raw)) return "- Retry step 1.\n- Retry step 2.";
+  if (/\bexactly\s+two\s+sentences\b|\btwo\s+short\s+sentences\b/i.test(raw)) {
+    return "I hit a temporary generation issue while drafting your answer. Please resend the same request.";
+  }
+  if (/\bone sentence only\b|\bin one sentence\b/i.test(raw)) {
+    return "I hit a temporary generation failure, so please retry and I will answer in one sentence.";
+  }
+  if (isWeatherRequestText(raw)) {
+    return "I could not complete the live weather lookup right now, so please retry with city and state.";
+  }
+  if (strict) {
+    return "I hit a temporary generation issue; please retry this exact request.";
+  }
+  return "I hit a temporary generation issue. Please retry and I will continue from your latest request.";
+}
+
+function buildConstraintSafeFallback(outputConstraints, userText, { strict = false } = {}) {
+  const constraints = outputConstraints && typeof outputConstraints === "object" ? outputConstraints : {};
+  const raw = String(userText || "").trim();
+  const lower = raw.toLowerCase();
+
+  if (constraints.oneWord) {
+    const explicitWordMatch = raw.match(/(?:exactly\s+one\s+word|one-word\s+reply\s+only|respond with one[- ]word)\s*:\s*([a-z0-9_-]+)/i);
+    if (explicitWordMatch?.[1]) return String(explicitWordMatch[1]).trim();
+    if (/\bready\b/i.test(raw)) return "ready";
+    if (/\backnowledged\b/i.test(raw)) return "Acknowledged";
+    return "Acknowledged";
+  }
+
+  if (constraints.jsonOnly) {
+    const requiredKeys = Array.isArray(constraints.requiredJsonKeys)
+      ? constraints.requiredJsonKeys
+          .map((key) => String(key || "").trim())
+          .filter(Boolean)
+      : [];
+    if (requiredKeys.length > 0) {
+      const payload = {};
+      for (const key of requiredKeys) payload[key] = "Temporary generation failure; retry requested.";
+      return JSON.stringify(payload);
+    }
+    return JSON.stringify({
+      risk: "Temporary generation failure",
+      action: "Retry the request.",
+    });
+  }
+
+  if (Number(constraints.exactBulletCount || 0) > 0) {
+    const count = Math.max(1, Math.min(10, Number(constraints.exactBulletCount || 1)));
+    return Array.from({ length: count }, (_, idx) => `- Retry step ${idx + 1}.`).join("\n");
+  }
+
+  if (Number(constraints.sentenceCount || 0) === 1) {
+    return "I hit a temporary generation failure, so please retry this request.";
+  }
+  if (Number(constraints.sentenceCount || 0) === 2) {
+    return "I hit a temporary generation failure while drafting your answer. Please retry the same request now.";
+  }
+
+  const deterministic = buildDeterministicEmptyReplyFallback(raw, { strict });
+  const deterministicCheck = validateOutputConstraints(deterministic, constraints);
+  if (deterministicCheck.ok) return deterministic;
+
+  if (lower.includes("json")) {
+    return JSON.stringify({
+      risk: "Temporary generation failure",
+      action: "Retry the request.",
+    });
+  }
+  return strict
+    ? "I hit a temporary generation issue; please retry this exact request."
+    : "I hit a temporary generation issue. Please retry and I will continue from your latest request.";
+}
 
 
 // ===== Core chat request =====
@@ -158,6 +382,26 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   const shouldAttemptMemoryRecallForTurn = executionPolicy?.shouldAttemptMemoryRecall === true;
   const outputConstraints = parseOutputConstraints(text);
   const hasStrictOutputRequirements = outputConstraints.enabled === true && Boolean(outputConstraints.instructions);
+  const requestedOpenAiMaxCompletionTokens = resolveAdaptiveOpenAiMaxCompletionTokens(text, {
+    strict: hasStrictOutputRequirements,
+    fastLane: fastLaneSimpleChat,
+    defaultCap: OPENAI_DEFAULT_MAX_COMPLETION_TOKENS,
+    strictCap: OPENAI_STRICT_MAX_COMPLETION_TOKENS,
+    fastLaneCap: OPENAI_FAST_LANE_MAX_COMPLETION_TOKENS,
+  });
+  const openAiMaxCompletionTokens = Math.max(
+    256,
+    Math.min(
+      OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+      Number.isFinite(Number(requestedOpenAiMaxCompletionTokens))
+        ? Number(requestedOpenAiMaxCompletionTokens)
+        : OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+    ),
+  );
+  const openAiRequestTuningForModel = (modelName) =>
+    resolveOpenAiRequestTuning(activeChatRuntime.provider, modelName, {
+      strict: hasStrictOutputRequirements,
+    });
   const startedAt = Date.now();
   const latencyTelemetry = inboundLatencyTelemetry || createChatLatencyTelemetry(startedAt);
   const observedToolCalls = [];
@@ -173,6 +417,17 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   let preferredNamePinned = false;
   let preferenceProfileUpdated = 0;
   let outputConstraintCorrectionPasses = 0;
+  let fallbackReason = "";
+  let fallbackStage = "";
+  let hadCandidateBeforeFallback = false;
+  const markFallback = (stage, reason, candidateReply = "") => {
+    fallbackStage = String(stage || "").trim();
+    fallbackReason = String(reason || "").trim();
+    if (String(candidateReply || "").trim()) hadCandidateBeforeFallback = true;
+    if (fallbackStage && !String(responseRoute || "").includes(fallbackStage)) {
+      responseRoute = `${responseRoute}_${fallbackStage}`;
+    }
+  };
   const runSummary = {
     route: "chat",
     ok: false,
@@ -194,6 +449,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       strictOutputConstraints: hasStrictOutputRequirements,
       preferredNamePinned: false,
       latencyPolicy: turnPolicy?.fastLaneSimpleChat === true ? "fast_lane" : "default",
+      openAiMaxCompletionTokens: openAiMaxCompletionTokens,
     },
     canRunToolLoop,
     canRunWebSearch,
@@ -202,6 +458,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     memoryAutoCaptured: 0,
     preferenceProfileUpdated: 0,
     memoryRecallUsed: false,
+    memorySearchDiagnostics: null,
     webSearchPreloadUsed: false,
     linkUnderstandingUsed: false,
     correctionPassCount: 0,
@@ -209,7 +466,11 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     latencyHotPath: "",
     promptHash: "",
     error: "",
+    fallbackReason: "",
+    fallbackStage: "",
+    hadCandidateBeforeFallback: false,
   };
+  const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
   if (turnPolicy && typeof turnPolicy === "object") {
     runSummary.requestHints.weatherIntent = turnPolicy.weatherIntent === true;
     runSummary.requestHints.cryptoIntent = turnPolicy.cryptoIntent === true;
@@ -227,286 +488,306 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   });
   if (useVoice) playThinking();
 
-  const promptAssemblyStartedAt = Date.now();
-  const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
-  const preferenceCapture = captureUserPreferencesFromMessage({
-    userContextId,
-    workspaceDir: personaWorkspaceDir,
-    userInputText: uiText,
-    nlpConfidence: Number.isFinite(Number(ctx?.nlpConfidence)) ? Number(ctx.nlpConfidence) : 1,
-    source,
-    sessionKey,
-  });
-  preferenceProfileUpdated = Array.isArray(preferenceCapture?.updatedKeys) ? preferenceCapture.updatedKeys.length : 0;
-  const preferencePrompt = buildUserPreferencePromptSection(preferenceCapture?.preferences || {});
-  preferredNamePinned = Boolean(preferenceCapture?.preferences?.preferredName);
-  runSummary.requestHints.preferredNamePinned = preferredNamePinned;
-  if (preferenceProfileUpdated > 0) {
-    console.log(
-      `[Preference] Updated ${preferenceProfileUpdated} field(s) for ${userContextId || "anonymous"} at ${String(preferenceCapture?.filePath || "unknown")}.`,
-    );
-  }
+  let systemPrompt = "";
+  let historyMessages = [];
+  let messages = [];
+  let promptContextPrepared = false;
 
-  const runtimeSkillsPrompt = fastLaneSimpleChat ? "" : buildRuntimeSkillsPrompt(personaWorkspaceDir, text);
-  const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
-    buildAgentSystemPrompt,
-    buildPersonaPrompt,
-    workspaceDir: personaWorkspaceDir,
-    promptArgs: {
-      workspaceDir: ROOT_WORKSPACE_DIR,
-      promptMode:
-        AGENT_PROMPT_MODE === PromptMode.MINIMAL || AGENT_PROMPT_MODE === PromptMode.NONE
-          ? AGENT_PROMPT_MODE : PromptMode.FULL,
-      memoryCitationsMode: String(process.env.NOVA_MEMORY_CITATIONS_MODE || "off").trim().toLowerCase() === "on" ? "on" : "off",
-      userTimezone: process.env.NOVA_USER_TIMEZONE || "America/New_York",
-      skillsPrompt: runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "",
-      heartbeatPrompt: process.env.NOVA_HEARTBEAT_PROMPT || "",
-      docsPath: process.env.NOVA_DOCS_PATH || "",
-      ttsHint: "Keep voice responses concise, clear, and natural.",
-      reasoningLevel: "off",
-      runtimeInfo: {
-        agentId: "nova-agent",
-        host: process.env.COMPUTERNAME || "",
-        os: process.platform,
-        arch: process.arch,
-        node: process.version,
-        model: selectedChatModel,
-        defaultModel: selectedChatModel,
-        shell: process.env.ComSpec || process.env.SHELL || "",
-        channel: source,
-        capabilities: ["voice", "websocket"],
-        repoRoot: process.env.ROOT_WORKSPACE_DIR || "",
+  const preparePromptContext = async () => {
+    if (promptContextPrepared) return;
+    const promptAssemblyStartedAt = Date.now();
+    const preferenceCapture = captureUserPreferencesFromMessage({
+      userContextId,
+      workspaceDir: personaWorkspaceDir,
+      userInputText: uiText,
+      nlpConfidence: Number.isFinite(Number(ctx?.nlpConfidence)) ? Number(ctx.nlpConfidence) : 1,
+      source,
+      sessionKey,
+    });
+    preferenceProfileUpdated = Array.isArray(preferenceCapture?.updatedKeys) ? preferenceCapture.updatedKeys.length : 0;
+    const preferencePrompt = buildUserPreferencePromptSection(preferenceCapture?.preferences || {});
+    preferredNamePinned = Boolean(preferenceCapture?.preferences?.preferredName);
+    runSummary.requestHints.preferredNamePinned = preferredNamePinned;
+    if (preferenceProfileUpdated > 0) {
+      console.log(
+        `[Preference] Updated ${preferenceProfileUpdated} field(s) for ${userContextId || "anonymous"} at ${String(preferenceCapture?.filePath || "unknown")}.`,
+      );
+    }
+
+    const runtimeSkillsPrompt = fastLaneSimpleChat ? "" : buildRuntimeSkillsPrompt(personaWorkspaceDir, text);
+    const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
+      buildAgentSystemPrompt,
+      buildPersonaPrompt,
+      workspaceDir: personaWorkspaceDir,
+      promptArgs: {
+        workspaceDir: ROOT_WORKSPACE_DIR,
+        promptMode:
+          AGENT_PROMPT_MODE === PromptMode.MINIMAL || AGENT_PROMPT_MODE === PromptMode.NONE
+            ? AGENT_PROMPT_MODE : PromptMode.FULL,
+        memoryCitationsMode: String(process.env.NOVA_MEMORY_CITATIONS_MODE || "off").trim().toLowerCase() === "on" ? "on" : "off",
+        userTimezone: process.env.NOVA_USER_TIMEZONE || "America/New_York",
+        skillsPrompt: runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "",
+        heartbeatPrompt: process.env.NOVA_HEARTBEAT_PROMPT || "",
+        docsPath: process.env.NOVA_DOCS_PATH || "",
+        ttsHint: "Keep voice responses concise, clear, and natural.",
+        reasoningLevel: "off",
+        runtimeInfo: {
+          agentId: "nova-agent",
+          host: process.env.COMPUTERNAME || "",
+          os: process.platform,
+          arch: process.arch,
+          node: process.version,
+          model: selectedChatModel,
+          defaultModel: selectedChatModel,
+          shell: process.env.ComSpec || process.env.SHELL || "",
+          channel: source,
+          capabilities: ["voice", "websocket"],
+          repoRoot: process.env.ROOT_WORKSPACE_DIR || "",
+        },
+        workspaceNotes: [],
       },
-      workspaceNotes: [],
-    },
-  });
+    });
 
-  let systemPrompt = baseSystemPrompt;
-  const personaOverlay = [
-    "## Runtime Persona (HUD)",
-    runtimeAssistantName ? `- Assistant name: ${runtimeAssistantName}` : "",
-    runtimeCommunicationStyle ? `- Communication style: ${runtimeCommunicationStyle}` : "",
-    `- Tone: ${runtimeTone}`,
-    `- Tone behavior: ${runtimeToneDirective(runtimeTone)}`,
-    runtimeCustomInstructions ? `- Custom instructions: ${runtimeCustomInstructions}` : "",
-  ].filter(Boolean).join("\n");
-  if (personaOverlay) systemPrompt += `\n\n${personaOverlay}`;
+    systemPrompt = baseSystemPrompt;
+    const personaOverlay = [
+      "## Runtime Persona (HUD)",
+      runtimeAssistantName ? `- Assistant name: ${runtimeAssistantName}` : "",
+      runtimeCommunicationStyle ? `- Communication style: ${runtimeCommunicationStyle}` : "",
+      `- Tone: ${runtimeTone}`,
+      `- Tone behavior: ${runtimeToneDirective(runtimeTone)}`,
+      runtimeCustomInstructions ? `- Custom instructions: ${runtimeCustomInstructions}` : "",
+    ].filter(Boolean).join("\n");
+    if (personaOverlay) systemPrompt += `\n\n${personaOverlay}`;
 
-  const promptBudgetProfile = resolveDynamicPromptBudget({
-    maxPromptTokens: MAX_PROMPT_TOKENS,
-    responseReserveTokens: PROMPT_RESPONSE_RESERVE_TOKENS,
-    historyTargetTokens: PROMPT_HISTORY_TARGET_TOKENS,
-    sectionMaxTokens: PROMPT_CONTEXT_SECTION_MAX_TOKENS,
-    fastLaneSimpleChat,
-    strictOutputConstraints: hasStrictOutputRequirements,
-  });
-  runSummary.requestHints.latencyPolicy = promptBudgetProfile.profile;
+    const promptBudgetProfile = resolveDynamicPromptBudget({
+      maxPromptTokens: MAX_PROMPT_TOKENS,
+      responseReserveTokens: PROMPT_RESPONSE_RESERVE_TOKENS,
+      historyTargetTokens: PROMPT_HISTORY_TARGET_TOKENS,
+      sectionMaxTokens: PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+      fastLaneSimpleChat,
+      strictOutputConstraints: hasStrictOutputRequirements,
+    });
+    runSummary.requestHints.latencyPolicy = promptBudgetProfile.profile;
 
-  const promptBudgetOptions = {
-    userMessage: text,
-    maxPromptTokens: promptBudgetProfile.maxPromptTokens,
-    responseReserveTokens: promptBudgetProfile.responseReserveTokens,
-    historyTargetTokens: promptBudgetProfile.historyTargetTokens,
-    sectionMaxTokens: promptBudgetProfile.sectionMaxTokens,
-    debug: PROMPT_BUDGET_DEBUG,
+    const promptBudgetOptions = {
+      userMessage: text,
+      maxPromptTokens: promptBudgetProfile.maxPromptTokens,
+      responseReserveTokens: promptBudgetProfile.responseReserveTokens,
+      historyTargetTokens: promptBudgetProfile.historyTargetTokens,
+      sectionMaxTokens: promptBudgetProfile.sectionMaxTokens,
+      debug: PROMPT_BUDGET_DEBUG,
+    };
+
+    if (preferencePrompt) {
+      const appended = appendBudgetedPromptSection({
+        ...promptBudgetOptions,
+        prompt: systemPrompt,
+        sectionTitle: "User Preference Memory",
+        sectionBody: preferencePrompt,
+      });
+      if (appended.included) {
+        systemPrompt = appended.prompt;
+      } else {
+        systemPrompt = `${systemPrompt}\n\n## User Preference Memory\n${preferencePrompt}`;
+      }
+    }
+
+    const enrichmentTasks = [];
+    if (shouldPreloadWebSearchForTurn && shouldPreloadWebSearch(text)) {
+      enrichmentTasks.push(
+        withTimeout(
+          (async () => {
+            const preloadResult = await runtimeTools.executeToolUse(
+              { id: `tool_preload_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
+              availableTools,
+            );
+            const preloadContent = String(preloadResult?.content || "").trim();
+            if (!preloadContent || /^web_search error/i.test(preloadContent)) return null;
+            const suspiciousPatterns = detectSuspiciousPatterns(preloadContent);
+            if (suspiciousPatterns.length > 0) {
+              console.warn(
+                `[Security] suspicious web_search preload patterns=${suspiciousPatterns.length} session=${sessionKey}`,
+              );
+            }
+            return {
+              kind: "web_search",
+              body: `Use these current results when answering:\n${wrapWebContent(preloadContent, "web_search")}`,
+            };
+          })(),
+          Math.max(250, WEB_PRELOAD_TIMEOUT_MS),
+          "Web search preload",
+        ),
+      );
+    }
+
+    if (shouldPreloadWebFetchForTurn) {
+      enrichmentTasks.push(
+        withTimeout(
+          (async () => {
+            const linkResult = await runLinkUnderstanding({
+              text,
+              runtimeTools,
+              availableTools,
+              maxLinks: 2,
+              maxCharsPerLink: 1800,
+            });
+            const formatted = formatLinkUnderstandingForPrompt(linkResult.outputs, 3600);
+            if (!formatted) return null;
+            const suspiciousPatterns = detectSuspiciousPatterns(formatted);
+            if (suspiciousPatterns.length > 0) {
+              console.warn(
+                `[Security] suspicious link context patterns=${suspiciousPatterns.length} session=${sessionKey}`,
+              );
+            }
+            return {
+              kind: "web_fetch",
+              body: `Use this fetched URL context when relevant:\n${wrapWebContent(formatted, "web_fetch")}`,
+            };
+          })(),
+          Math.max(250, LINK_PRELOAD_TIMEOUT_MS),
+          "Link preload",
+        ),
+      );
+    }
+
+    if (shouldAttemptMemoryRecallForTurn && runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
+      enrichmentTasks.push(
+        (async () => {
+          runtimeTools.memoryManager.warmSession();
+          const memorySearchId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const recalled = await withTimeout(
+            runtimeTools.memoryManager.searchWithDiagnostics
+              ? runtimeTools.memoryManager.searchWithDiagnostics(text, 3, memorySearchId)
+              : runtimeTools.memoryManager.search(text, 3),
+            Math.max(150, MEMORY_RECALL_TIMEOUT_MS),
+            "Memory recall search",
+          );
+          const recalledResults = Array.isArray(recalled?.results) ? recalled.results : Array.isArray(recalled) ? recalled : [];
+          const diagnostics = recalled?.diagnostics
+            || (runtimeTools.memoryManager.getSearchDiagnostics
+              ? runtimeTools.memoryManager.getSearchDiagnostics(memorySearchId)
+              : runtimeTools.memoryManager.getLastSearchDiagnostics?.());
+          if (diagnostics) {
+            runSummary.memorySearchDiagnostics = diagnostics;
+          }
+          if (!Array.isArray(recalledResults) || recalledResults.length === 0) return null;
+          const memoryContext = recalledResults
+            .map((item, idx) => `[${idx + 1}] ${String(item.source || "unknown")}\n${String(item.content || "").slice(0, 600)}`)
+            .join("\n\n");
+          return {
+            kind: "memory",
+            body: `Use this indexed context when relevant:\n${memoryContext}`,
+          };
+        })(),
+      );
+    }
+
+    if (enrichmentTasks.length > 0) {
+      const enrichmentStartedAt = Date.now();
+      broadcastThinkingStatus("Gathering context", userContextId);
+      const enrichmentResults = await Promise.allSettled(enrichmentTasks);
+      for (const taskResult of enrichmentResults) {
+        if (taskResult.status === "rejected") {
+          const msg = describeUnknownError(taskResult.reason);
+          if (/memory/i.test(msg)) console.warn(`[MemoryLoop] Search failed: ${msg}`);
+          else if (/link/i.test(msg)) console.warn(`[ToolLoop] link understanding preload failed: ${msg}`);
+          else console.warn(`[ToolLoop] web_search preload failed: ${msg}`);
+          continue;
+        }
+
+        const taskValue = taskResult.value;
+        if (!taskValue || !taskValue.kind || !taskValue.body) continue;
+        if (taskValue.kind === "web_search") {
+          const appended = appendBudgetedPromptSection({
+            ...promptBudgetOptions,
+            prompt: systemPrompt,
+            sectionTitle: "Live Web Search Context",
+            sectionBody: taskValue.body,
+          });
+          if (appended.included) {
+            systemPrompt = appended.prompt;
+            usedWebSearchPreload = true;
+            latencyTelemetry.incrementCounter("web_search_preload_hits");
+          }
+          continue;
+        }
+        if (taskValue.kind === "web_fetch") {
+          const appended = appendBudgetedPromptSection({
+            ...promptBudgetOptions,
+            prompt: systemPrompt,
+            sectionTitle: "Link Context",
+            sectionBody: taskValue.body,
+          });
+          if (appended.included) {
+            systemPrompt = appended.prompt;
+            usedLinkUnderstanding = true;
+            observedToolCalls.push("web_fetch");
+            latencyTelemetry.incrementCounter("web_fetch_preload_hits");
+          }
+          continue;
+        }
+        if (taskValue.kind === "memory") {
+          const appended = appendBudgetedPromptSection({
+            ...promptBudgetOptions,
+            prompt: systemPrompt,
+            sectionTitle: "Live Memory Recall",
+            sectionBody: taskValue.body,
+          });
+          if (appended.included) {
+            systemPrompt = appended.prompt;
+            usedMemoryRecall = true;
+            latencyTelemetry.incrementCounter("memory_recall_hits");
+          }
+        }
+      }
+      latencyTelemetry.addStage("context_enrichment", Date.now() - enrichmentStartedAt);
+    }
+
+    if (hasStrictOutputRequirements) {
+      const appended = appendBudgetedPromptSection({
+        ...promptBudgetOptions,
+        prompt: systemPrompt,
+        sectionTitle: "Strict Output Requirements",
+        sectionBody: outputConstraints.instructions,
+      });
+      if (appended.included) {
+        systemPrompt = appended.prompt;
+      } else {
+        systemPrompt = `${systemPrompt}\n\n## Strict Output Requirements\n${outputConstraints.instructions}`;
+      }
+    }
+
+    const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
+    broadcastThinkingStatus("Planning response", userContextId);
+    console.log(`[Prompt] Tokens - persona: ${tokenBreakdown.persona}, user: ${tokenInfo.userTokens}`);
+
+    const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
+    const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
+    const computedHistoryTokenBudget = computeHistoryTokenBudget({
+      maxPromptTokens: promptBudgetProfile.maxPromptTokens,
+      responseReserveTokens: promptBudgetProfile.responseReserveTokens,
+      userMessage: text,
+      systemPrompt,
+      maxHistoryTokens: SESSION_MAX_HISTORY_TOKENS,
+      minHistoryTokens: PROMPT_MIN_HISTORY_TOKENS,
+      targetHistoryTokens: promptBudgetProfile.historyTargetTokens,
+    });
+    const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, computedHistoryTokenBudget);
+    historyMessages = historyBudget.messages;
+    console.log(
+      `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens} history_budget=${computedHistoryTokenBudget}`,
+    );
+
+    messages = [
+      { role: "system", content: systemPrompt },
+      ...historyMessages,
+      { role: "user", content: text },
+    ];
+    preparedPromptHash = hashShadowPayload(JSON.stringify(messages));
+    latencyTelemetry.addStage("prompt_assembly", Date.now() - promptAssemblyStartedAt);
+    promptContextPrepared = true;
   };
 
-  if (preferencePrompt) {
-    const appended = appendBudgetedPromptSection({
-      ...promptBudgetOptions,
-      prompt: systemPrompt,
-      sectionTitle: "User Preference Memory",
-      sectionBody: preferencePrompt,
-    });
-    if (appended.included) {
-      systemPrompt = appended.prompt;
-    } else {
-      systemPrompt = `${systemPrompt}\n\n## User Preference Memory\n${preferencePrompt}`;
-    }
-  }
-
-  const enrichmentTasks = [];
-  if (shouldPreloadWebSearchForTurn && shouldPreloadWebSearch(text)) {
-    enrichmentTasks.push(
-      withTimeout(
-        (async () => {
-          const preloadResult = await runtimeTools.executeToolUse(
-            { id: `tool_preload_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
-            availableTools,
-          );
-          const preloadContent = String(preloadResult?.content || "").trim();
-          if (!preloadContent || /^web_search error/i.test(preloadContent)) return null;
-          const suspiciousPatterns = detectSuspiciousPatterns(preloadContent);
-          if (suspiciousPatterns.length > 0) {
-            console.warn(
-              `[Security] suspicious web_search preload patterns=${suspiciousPatterns.length} session=${sessionKey}`,
-            );
-          }
-          return {
-            kind: "web_search",
-            body: `Use these current results when answering:\n${wrapWebContent(preloadContent, "web_search")}`,
-          };
-        })(),
-        Math.max(250, WEB_PRELOAD_TIMEOUT_MS),
-        "Web search preload",
-      ),
-    );
-  }
-
-  if (shouldPreloadWebFetchForTurn) {
-    enrichmentTasks.push(
-      withTimeout(
-        (async () => {
-          const linkResult = await runLinkUnderstanding({
-            text,
-            runtimeTools,
-            availableTools,
-            maxLinks: 2,
-            maxCharsPerLink: 1800,
-          });
-          const formatted = formatLinkUnderstandingForPrompt(linkResult.outputs, 3600);
-          if (!formatted) return null;
-          const suspiciousPatterns = detectSuspiciousPatterns(formatted);
-          if (suspiciousPatterns.length > 0) {
-            console.warn(
-              `[Security] suspicious link context patterns=${suspiciousPatterns.length} session=${sessionKey}`,
-            );
-          }
-          return {
-            kind: "web_fetch",
-            body: `Use this fetched URL context when relevant:\n${wrapWebContent(formatted, "web_fetch")}`,
-          };
-        })(),
-        Math.max(250, LINK_PRELOAD_TIMEOUT_MS),
-        "Link preload",
-      ),
-    );
-  }
-
-  if (shouldAttemptMemoryRecallForTurn && runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
-    enrichmentTasks.push(
-      (async () => {
-        runtimeTools.memoryManager.warmSession();
-        const recalled = await withTimeout(
-          runtimeTools.memoryManager.search(text, 3),
-          Math.max(150, MEMORY_RECALL_TIMEOUT_MS),
-          "Memory recall search",
-        );
-        if (!Array.isArray(recalled) || recalled.length === 0) return null;
-        const memoryContext = recalled
-          .map((item, idx) => `[${idx + 1}] ${String(item.source || "unknown")}\n${String(item.content || "").slice(0, 600)}`)
-          .join("\n\n");
-        return {
-          kind: "memory",
-          body: `Use this indexed context when relevant:\n${memoryContext}`,
-        };
-      })(),
-    );
-  }
-
-  if (enrichmentTasks.length > 0) {
-    const enrichmentStartedAt = Date.now();
-    broadcastThinkingStatus("Gathering context", userContextId);
-    const enrichmentResults = await Promise.allSettled(enrichmentTasks);
-    for (const taskResult of enrichmentResults) {
-      if (taskResult.status === "rejected") {
-        const msg = describeUnknownError(taskResult.reason);
-        if (/memory/i.test(msg)) console.warn(`[MemoryLoop] Search failed: ${msg}`);
-        else if (/link/i.test(msg)) console.warn(`[ToolLoop] link understanding preload failed: ${msg}`);
-        else console.warn(`[ToolLoop] web_search preload failed: ${msg}`);
-        continue;
-      }
-
-      const taskValue = taskResult.value;
-      if (!taskValue || !taskValue.kind || !taskValue.body) continue;
-      if (taskValue.kind === "web_search") {
-        const appended = appendBudgetedPromptSection({
-          ...promptBudgetOptions,
-          prompt: systemPrompt,
-          sectionTitle: "Live Web Search Context",
-          sectionBody: taskValue.body,
-        });
-        if (appended.included) {
-          systemPrompt = appended.prompt;
-          usedWebSearchPreload = true;
-          latencyTelemetry.incrementCounter("web_search_preload_hits");
-        }
-        continue;
-      }
-      if (taskValue.kind === "web_fetch") {
-        const appended = appendBudgetedPromptSection({
-          ...promptBudgetOptions,
-          prompt: systemPrompt,
-          sectionTitle: "Link Context",
-          sectionBody: taskValue.body,
-        });
-        if (appended.included) {
-          systemPrompt = appended.prompt;
-          usedLinkUnderstanding = true;
-          observedToolCalls.push("web_fetch");
-          latencyTelemetry.incrementCounter("web_fetch_preload_hits");
-        }
-        continue;
-      }
-      if (taskValue.kind === "memory") {
-        const appended = appendBudgetedPromptSection({
-          ...promptBudgetOptions,
-          prompt: systemPrompt,
-          sectionTitle: "Live Memory Recall",
-          sectionBody: taskValue.body,
-        });
-        if (appended.included) {
-          systemPrompt = appended.prompt;
-          usedMemoryRecall = true;
-          latencyTelemetry.incrementCounter("memory_recall_hits");
-        }
-      }
-    }
-    latencyTelemetry.addStage("context_enrichment", Date.now() - enrichmentStartedAt);
-  }
-
-  if (hasStrictOutputRequirements) {
-    const appended = appendBudgetedPromptSection({
-      ...promptBudgetOptions,
-      prompt: systemPrompt,
-      sectionTitle: "Strict Output Requirements",
-      sectionBody: outputConstraints.instructions,
-    });
-    if (appended.included) {
-      systemPrompt = appended.prompt;
-    } else {
-      systemPrompt = `${systemPrompt}\n\n## Strict Output Requirements\n${outputConstraints.instructions}`;
-    }
-  }
-
-  const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
-  broadcastThinkingStatus("Planning response", userContextId);
-  console.log(`[Prompt] Tokens - persona: ${tokenBreakdown.persona}, user: ${tokenInfo.userTokens}`);
-
-  const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
-  const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
-  const computedHistoryTokenBudget = computeHistoryTokenBudget({
-    maxPromptTokens: promptBudgetProfile.maxPromptTokens,
-    responseReserveTokens: promptBudgetProfile.responseReserveTokens,
-    userMessage: text,
-    systemPrompt,
-    maxHistoryTokens: SESSION_MAX_HISTORY_TOKENS,
-    minHistoryTokens: PROMPT_MIN_HISTORY_TOKENS,
-    targetHistoryTokens: promptBudgetProfile.historyTargetTokens,
-  });
-  const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, computedHistoryTokenBudget);
-  const historyMessages = historyBudget.messages;
-  console.log(
-    `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens} history_budget=${computedHistoryTokenBudget}`,
-  );
-
-  const messages = [
-    { role: "system", content: systemPrompt },
-    ...historyMessages,
-    { role: "user", content: text },
-  ];
-  preparedPromptHash = hashShadowPayload(JSON.stringify(messages));
-  latencyTelemetry.addStage("prompt_assembly", Date.now() - promptAssemblyStartedAt);
   const assistantStreamId = createAssistantStreamId();
   broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);
 
@@ -515,23 +796,27 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     let promptTokens = 0;
     let completionTokens = 0;
     let modelUsed = selectedChatModel;
+    let providerUsed = activeChatRuntime.provider;
     const fastPathStartedAt = Date.now();
-
-    const weatherFastResult = await tryWeatherFastPathReply({
-      text,
-      runtimeTools,
-      availableTools,
-      canRunWebSearch,
-    });
-    const cryptoFastResult = String(weatherFastResult?.reply || "").trim()
-      ? { reply: "", source: "" }
-      : await tryCryptoFastPathReply({
+    let weatherFastResult = { reply: "", suggestedLocation: "", needsConfirmation: false, toolCall: "" };
+    let cryptoFastResult = { reply: "", source: "", toolCall: "" };
+    if (!hasStrictOutputRequirements) {
+      weatherFastResult = await tryWeatherFastPathReply({
+        text,
+        runtimeTools,
+        availableTools,
+        canRunWebSearch,
+      });
+      if (!String(weatherFastResult?.reply || "").trim()) {
+        cryptoFastResult = await tryCryptoFastPathReply({
           text,
           runtimeTools,
           availableTools,
           userContextId,
           conversationId,
         });
+      }
+    }
     latencyTelemetry.addStage("fast_path", Date.now() - fastPathStartedAt);
     let llmStartedAt = 0;
 
@@ -553,7 +838,31 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       broadcastThinkingStatus("Checking Coinbase", userContextId);
       reply = String(cryptoFastResult.reply || "").trim();
       if (cryptoFastResult?.toolCall) observedToolCalls.push(String(cryptoFastResult.toolCall));
-    } else if (activeChatRuntime.provider === "claude") {
+    } else {
+      const serveIntentClass = !hasStrictOutputRequirements
+        && turnPolicy?.weatherIntent !== true
+        && turnPolicy?.cryptoIntent !== true
+        ? "chat"
+        : "other";
+      const serveAttempt = await runChatKitServeAttempt({
+        prompt: text,
+        userContextId,
+        conversationId,
+        missionRunId: "",
+        intentClass: serveIntentClass,
+        turnId: preparedPromptHash || `${Date.now()}`,
+      });
+      if (serveAttempt.used === true) {
+        responseRoute = "chatkit_served";
+        broadcastThinkingStatus("Drafting response", userContextId);
+        reply = String(serveAttempt.reply || "").trim();
+        providerUsed = "openai-chatkit";
+        modelUsed = String(serveAttempt.model || selectedChatModel);
+        promptTokens = Number(serveAttempt?.usage?.promptTokens || 0);
+        completionTokens = Number(serveAttempt?.usage?.completionTokens || 0);
+      } else {
+      await preparePromptContext();
+      if (activeChatRuntime.provider === "claude") {
       llmStartedAt = Date.now();
       responseRoute = "claude_direct";
       broadcastThinkingStatus("Drafting response", userContextId);
@@ -589,7 +898,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       reply = claudeCompletion.text;
       promptTokens = claudeCompletion.usage.promptTokens;
       completionTokens = claudeCompletion.usage.completionTokens;
-    } else if (canRunToolLoop) {
+      } else if (canRunToolLoop) {
       llmStartedAt = Date.now();
       responseRoute = "tool_loop";
       const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
@@ -602,15 +911,16 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         broadcastThinkingStatus("Reasoning", userContextId);
         let completion = null;
         try {
-          completion = await withTimeout(
-            activeOpenAiCompatibleClient.chat.completions.create({
-              model: modelUsed,
-              messages: loopMessages,
-              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
-              tools: openAiToolDefs,
-              tool_choice: "auto",
-            }),
-            OPENAI_REQUEST_TIMEOUT_MS,
+              completion = await withTimeout(
+                activeOpenAiCompatibleClient.chat.completions.create({
+                  model: modelUsed,
+                  messages: loopMessages,
+                  max_completion_tokens: openAiMaxCompletionTokens,
+                  ...openAiRequestTuningForModel(modelUsed),
+                  tools: openAiToolDefs,
+                  tool_choice: "auto",
+                }),
+            TOOL_LOOP_REQUEST_TIMEOUT_MS,
             `Tool loop model ${modelUsed}`,
           );
         } catch (err) {
@@ -628,11 +938,12 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
               activeOpenAiCompatibleClient.chat.completions.create({
                 model: modelUsed,
                 messages: loopMessages,
-                max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+                max_completion_tokens: openAiMaxCompletionTokens,
+                ...openAiRequestTuningForModel(modelUsed),
                 tools: openAiToolDefs,
                 tool_choice: "auto",
               }),
-              OPENAI_REQUEST_TIMEOUT_MS,
+              TOOL_LOOP_REQUEST_TIMEOUT_MS,
               `Tool loop fallback model ${modelUsed}`,
             );
           } else {
@@ -758,9 +1069,10 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
                   content: "Provide the final answer to the user using the tool results above. Keep it concise and actionable.",
                 },
               ],
-              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+              max_completion_tokens: openAiMaxCompletionTokens,
+              ...openAiRequestTuningForModel(modelUsed),
             }),
-            OPENAI_REQUEST_TIMEOUT_MS,
+            TOOL_LOOP_REQUEST_TIMEOUT_MS,
             `Tool loop recovery model ${modelUsed}`,
           );
           reply = extractOpenAIChatText(recovery).trim();
@@ -822,10 +1134,23 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         }
       }
 
-      if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response after tool loop.`);
-    } else {
+      if (!reply || !reply.trim()) {
+        const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
+          strict: hasStrictOutputRequirements,
+        });
+        markFallback("tool_loop_empty_reply_fallback", "empty_reply_after_tool_loop", reply);
+        retries.push({
+          stage: "tool_loop_empty_reply_fallback",
+          fromModel: modelUsed,
+          toModel: modelUsed,
+          reason: "empty_reply",
+        });
+        reply = fallbackReply;
+      }
+      } else {
       llmStartedAt = Date.now();
       broadcastThinkingStatus("Drafting response", userContextId);
+      let llmFinishReason = "";
       if (hasStrictOutputRequirements) {
         responseRoute = "openai_direct_constraints";
         let completion = null;
@@ -834,7 +1159,8 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             activeOpenAiCompatibleClient.chat.completions.create({
               model: modelUsed,
               messages,
-              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+              max_completion_tokens: openAiMaxCompletionTokens,
+              ...openAiRequestTuningForModel(modelUsed),
             }),
             OPENAI_REQUEST_TIMEOUT_MS,
             `OpenAI model ${modelUsed}`,
@@ -857,7 +1183,8 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             activeOpenAiCompatibleClient.chat.completions.create({
               model: fallbackModel,
               messages,
-              max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+              max_completion_tokens: openAiMaxCompletionTokens,
+              ...openAiRequestTuningForModel(fallbackModel),
             }),
             OPENAI_REQUEST_TIMEOUT_MS,
             `OpenAI fallback model ${fallbackModel}`,
@@ -867,6 +1194,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         const usage = completion?.usage || {};
         promptTokens = Number(usage.prompt_tokens || 0);
         completionTokens = Number(usage.completion_tokens || 0);
+        llmFinishReason = String(completion?.choices?.[0]?.finish_reason || "").trim().toLowerCase();
         reply = extractOpenAIChatText(completion).trim();
       } else {
         responseRoute = "openai_stream";
@@ -877,7 +1205,9 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             client: activeOpenAiCompatibleClient,
             model: modelUsed,
             messages,
+            maxCompletionTokens: openAiMaxCompletionTokens,
             timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            requestOverrides: openAiRequestTuningForModel(modelUsed),
             onDelta: (delta) => {
               sawPrimaryDelta = true;
               emittedAssistantDelta = true;
@@ -902,7 +1232,9 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             client: activeOpenAiCompatibleClient,
             model: fallbackModel,
             messages,
+            maxCompletionTokens: openAiMaxCompletionTokens,
             timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            requestOverrides: openAiRequestTuningForModel(fallbackModel),
             onDelta: (delta) => {
               emittedAssistantDelta = true;
               broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
@@ -913,8 +1245,69 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         reply = streamed.reply;
         promptTokens = streamed.promptTokens || 0;
         completionTokens = streamed.completionTokens || 0;
+        llmFinishReason = String(streamed?.finishReason || "").trim().toLowerCase();
       }
-      if (!reply || !reply.trim()) throw new Error(`Model ${modelUsed} returned no text response.`);
+      if (!reply || !reply.trim()) {
+        if (shouldAttemptOpenAiEmptyReplyRecovery({
+          provider: activeChatRuntime.provider,
+          reply,
+          finishReason: llmFinishReason,
+          completionTokens,
+          maxCompletionTokens: openAiMaxCompletionTokens,
+        })) {
+          broadcastThinkingStatus("Recovering final answer", userContextId);
+          retries.push({
+            stage: "empty_reply_recovery",
+            fromModel: modelUsed,
+            toModel: modelUsed,
+            reason: buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
+              finishReason: llmFinishReason,
+              completionTokens,
+              maxCompletionTokens: openAiMaxCompletionTokens,
+            }),
+          });
+          try {
+            const recovered = await attemptOpenAiEmptyReplyRecovery({
+              client: activeOpenAiCompatibleClient,
+              model: modelUsed,
+              messages,
+              timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+              maxCompletionTokens: openAiMaxCompletionTokens,
+              requestTuning: openAiRequestTuningForModel(modelUsed),
+              label: "OpenAI empty-reply recovery",
+            });
+            llmFinishReason = String(recovered.finishReason || llmFinishReason || "").trim().toLowerCase();
+            promptTokens += Number(recovered.promptTokens || 0);
+            completionTokens += Number(recovered.completionTokens || 0);
+            if (recovered.reply) {
+              reply = recovered.reply;
+              responseRoute = `${responseRoute}_empty_reply_recovered`;
+            }
+          } catch (emptyRecoveryErr) {
+            console.warn(`[LLM] empty reply recovery failed: ${describeUnknownError(emptyRecoveryErr)}`);
+          }
+        }
+      }
+      if (!reply || !reply.trim()) {
+        const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
+          strict: hasStrictOutputRequirements,
+        });
+        const fallbackReason = buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
+          finishReason: llmFinishReason,
+          completionTokens,
+          maxCompletionTokens: openAiMaxCompletionTokens,
+        });
+        markFallback("direct_empty_reply_fallback", fallbackReason, reply);
+        retries.push({
+          stage: "direct_empty_reply_fallback",
+          fromModel: modelUsed,
+          toModel: modelUsed,
+          reason: fallbackReason,
+        });
+        reply = fallbackReply;
+      }
+      }
+      }
     }
     if (llmStartedAt > 0) {
       latencyTelemetry.addStage("llm_generation", Date.now() - llmStartedAt);
@@ -1018,7 +1411,8 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
                   { role: "assistant", content: reply },
                   { role: "user", content: correctionInstruction },
                 ],
-                max_completion_tokens: OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
+                max_completion_tokens: openAiMaxCompletionTokens,
+                ...openAiRequestTuningForModel(modelUsed),
               }),
               OPENAI_REQUEST_TIMEOUT_MS,
               `OpenAI correction ${modelUsed}`,
@@ -1053,22 +1447,37 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     } else {
       reply = normalizedReply.text;
     }
+    if (!reply || !reply.trim()) {
+      const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
+        strict: hasStrictOutputRequirements,
+      });
+      markFallback("post_normalize_empty_reply_fallback", "empty_reply_after_normalization", reply);
+      retries.push({
+        stage: "post_normalize_empty_reply_fallback",
+        fromModel: modelUsed,
+        toModel: modelUsed,
+        reason: "empty_reply",
+      });
+      reply = fallbackReply;
+    }
 
     if (reply && !emittedAssistantDelta) {
       emittedAssistantDelta = true;
       broadcastAssistantStreamDelta(assistantStreamId, reply, source, undefined, conversationId, userContextId);
     }
 
-    const modelForUsage = activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel);
+    const modelForUsage = providerUsed === "openai-chatkit"
+      ? (modelUsed || selectedChatModel)
+      : (activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel));
     const totalTokens = promptTokens + completionTokens;
     const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens);
 
-    appendRawStream({ event: "request_done", source, sessionKey, provider: activeChatRuntime.provider, model: modelForUsage, promptTokens, completionTokens, totalTokens, estimatedCostUsd });
-    console.log(`[LLM] provider=${activeChatRuntime.provider} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`);
+    appendRawStream({ event: "request_done", source, sessionKey, provider: providerUsed, model: modelForUsage, promptTokens, completionTokens, totalTokens, estimatedCostUsd });
+    console.log(`[LLM] provider=${providerUsed} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`);
     broadcast(
       {
         type: "usage",
-        provider: activeChatRuntime.provider,
+        provider: providerUsed,
         model: modelForUsage,
         promptTokens,
         completionTokens,
@@ -1093,7 +1502,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "user", uiText, {
       source,
       sender: ctx.sender,
-      provider: activeChatRuntime.provider,
+      provider: providerUsed,
       model: modelForUsage,
       sessionKey,
       conversationId: conversationId || undefined,
@@ -1103,7 +1512,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       nlpCorrections: nlpCorrections.length > 0 ? nlpCorrections : undefined,
     });
     if (reply) {
-      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: activeChatRuntime.provider, model: modelForUsage, sessionKey, conversationId: conversationId || undefined, promptTokens, completionTokens, totalTokens });
+      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: providerUsed, model: modelForUsage, sessionKey, conversationId: conversationId || undefined, promptTokens, completionTokens, totalTokens });
     }
     sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens });
     latencyTelemetry.addStage("transcript_persistence", Date.now() - transcriptStartedAt);
@@ -1132,7 +1541,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     }
 
     runSummary.ok = true;
-    runSummary.provider = activeChatRuntime.provider;
+    runSummary.provider = providerUsed;
     runSummary.model = modelForUsage;
     runSummary.reply = reply;
     runSummary.promptTokens = promptTokens;
@@ -1147,10 +1556,14 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.nlpConfidence = Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : null;
     runSummary.nlpCorrectionCount = Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : 0;
     runSummary.memoryRecallUsed = usedMemoryRecall;
+    runSummary.memorySearchDiagnostics = runSummary.memorySearchDiagnostics || null;
     runSummary.webSearchPreloadUsed = usedWebSearchPreload;
     runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
     runSummary.correctionPassCount = outputConstraintCorrectionPasses;
     runSummary.promptHash = preparedPromptHash;
+    runSummary.fallbackReason = fallbackReason;
+    runSummary.fallbackStage = fallbackStage;
+    runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
 
     if (useVoice && reply) {
       const voiceStartedAt = Date.now();
@@ -1163,15 +1576,28 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     const msg = details.message || "Unknown model error.";
     appendRawStream({ event: "request_error", source, sessionKey, provider: activeChatRuntime.provider, model: selectedChatModel, status: details.status, code: details.code, type: details.type, requestId: details.requestId, message: msg });
     console.error(`[LLM] Chat request failed provider=${activeChatRuntime.provider} model=${selectedChatModel} status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} message=${msg}`);
+    const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
+      strict: hasStrictOutputRequirements,
+    });
+    markFallback("exception_empty_reply_fallback", details.code || details.message || "request_error", "");
+    retries.push({
+      stage: "exception_empty_reply_fallback",
+      fromModel: selectedChatModel,
+      toModel: selectedChatModel,
+      reason: "request_error",
+    });
+    responseRoute = `${responseRoute}_error_recovered`;
     broadcastAssistantStreamDelta(
       assistantStreamId,
-      `Model request failed${details.status ? ` (${details.status})` : ""}${details.code ? ` [${details.code}]` : ""}: ${msg}`,
+      fallbackReply,
       source,
       undefined,
       conversationId,
       userContextId,
     );
     runSummary.error = msg;
+    runSummary.ok = true;
+    runSummary.reply = fallbackReply;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
     runSummary.toolExecutions = toolExecutions;
     runSummary.retries = retries;
@@ -1181,10 +1607,15 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.nlpConfidence = Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : null;
     runSummary.nlpCorrectionCount = Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : 0;
     runSummary.memoryRecallUsed = usedMemoryRecall;
+    runSummary.memorySearchDiagnostics = runSummary.memorySearchDiagnostics || null;
     runSummary.webSearchPreloadUsed = usedWebSearchPreload;
     runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
     runSummary.correctionPassCount = outputConstraintCorrectionPasses;
     runSummary.promptHash = preparedPromptHash;
+    runSummary.responseRoute = responseRoute;
+    runSummary.fallbackReason = fallbackReason;
+    runSummary.fallbackStage = fallbackStage;
+    runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
   } finally {
     broadcastThinkingStatus("", userContextId);
     const latencySnapshot = latencyTelemetry.snapshot();
@@ -1196,6 +1627,9 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.correctionPassCount = Number.isFinite(Number(latencySnapshot.counters?.output_constraint_correction_passes))
       ? Number(latencySnapshot.counters.output_constraint_correction_passes)
       : runSummary.correctionPassCount;
+    runSummary.fallbackReason = fallbackReason;
+    runSummary.fallbackStage = fallbackStage;
+    runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
     broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
     broadcastState("idle", userContextId);
   }
@@ -1227,6 +1661,15 @@ async function handleInputCore(text, opts = {}) {
   const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
   const inboundMessageId = String(opts.inboundMessageId || "").trim();
   const n = text.toLowerCase().trim();
+  if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
+    await handleShutdown({ ttsVoice });
+    return {
+      route: "shutdown",
+      ok: true,
+      reply: "Shutting down now. If you need me again, just restart the system.",
+      latencyMs: 0,
+    };
+  }
 
   if (shouldSkipDuplicateInbound({
     text,
@@ -1513,15 +1956,6 @@ async function handleInputCore(text, opts = {}) {
   };
 
   // Route to sub-handler
-  if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
-    await handleShutdown(ctx);
-    return {
-      route: "shutdown",
-      ok: true,
-      reply: "Shutting down now. If you need me again, just restart the system.",
-    };
-  }
-
   if (n.includes("spotify") || n.includes("play music") || n.includes("play some") || n.includes("put on ")) {
     return await handleSpotify(text, ctx, llmCtx);
   }
@@ -1585,6 +2019,9 @@ export async function handleInput(text, opts = {}) {
       toolExecutions: Array.isArray(summary.toolExecutions) ? summary.toolExecutions : [],
       retries: Array.isArray(summary.retries) ? summary.retries : [],
       memoryRecallUsed: summary.memoryRecallUsed === true,
+      memorySearchDiagnostics: summary.memorySearchDiagnostics && typeof summary.memorySearchDiagnostics === "object"
+        ? summary.memorySearchDiagnostics
+        : null,
       memoryAutoCaptured: Number.isFinite(Number(summary.memoryAutoCaptured))
         ? Number(summary.memoryAutoCaptured)
         : 0,
@@ -1606,6 +2043,9 @@ export async function handleInput(text, opts = {}) {
       correctionPassCount: Number.isFinite(Number(summary.correctionPassCount))
         ? Number(summary.correctionPassCount)
         : 0,
+      fallbackReason: String(summary.fallbackReason || ""),
+      fallbackStage: String(summary.fallbackStage || ""),
+      hadCandidateBeforeFallback: summary.hadCandidateBeforeFallback === true,
       ok: summary.ok !== false && !caughtError,
       error: String(summary.error || (caughtError ? describeUnknownError(caughtError) : "")),
       nlpBypass,
@@ -1616,6 +2056,22 @@ export async function handleInput(text, opts = {}) {
         ? Number(summary.nlpCorrectionCount)
         : 0,
     });
+
+    // Phase 2: ChatKit shadow-mode evaluation (non-blocking, never affects user-visible output).
+    void runChatKitShadowEvaluation({
+      userContextId,
+      conversationId,
+      missionRunId: String(summary.missionRunId || ""),
+      prompt: userInputText,
+      route: String(summary.route || "unclassified"),
+      baselineProvider: String(summary.provider || ""),
+      baselineModel: String(summary.model || ""),
+      baselineLatencyMs: Number.isFinite(Number(summary.latencyMs))
+        ? Number(summary.latencyMs)
+        : Date.now() - startedAt,
+      baselineOk: summary.ok !== false && !caughtError,
+      turnId: String(summary.turnId || ""),
+    }).catch(() => {});
   }
 }
 

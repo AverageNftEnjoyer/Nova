@@ -251,7 +251,7 @@ const monitors = getMonitors();
 const primaryMonitor = monitors[0];
 
 // Start the AI runtime shell and HUD concurrently.
-launch("Agent", process.execPath, ["src/runtime/entrypoint.js"], __dirname);
+launch("Agent", process.execPath, ["src/runtime/core/entrypoint.js"], __dirname);
 
 const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
 const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR);

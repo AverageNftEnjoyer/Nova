@@ -112,7 +112,13 @@ export function buildSessionKey(config: SessionConfig, agentName: string, msg: I
   const senderRaw = msg.source ? String(msg.sender || "") : String(msg.sender || msg.senderId || "");
   const sender = normalizeToken(senderRaw);
 
-  if (source === "hud") return `${base}:${normalizeToken(config.mainKey || "main")}`;
+  if (source === "hud") {
+    const hudUserContextId = resolveUserContextId(msg);
+    if (hudUserContextId) {
+      return `${base}:hud:user:${hudUserContextId}:${normalizeToken(config.mainKey || "main")}`;
+    }
+    return `${base}:hud:${normalizeToken(config.mainKey || "main")}`;
+  }
   if (source === "voice") return `${base}:voice:dm:${sender || "local-mic"}`;
 
   return `${base}:${source}:dm:${sender || "anonymous"}`;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Nova HUD Version
  *
  * Update this constant whenever making significant changes.
@@ -8,6 +8,19 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ *
+ * - V.23 Alpha: Coinbase integration completion 
+ *     - Completed Coinbase phase gates across storage isolation, quality coverage, and rollout controls.
+ *     - Finalized deterministic smoke coverage for Coinbase-enabled flows with strict user scoping.
+ *     - Hardened production behavior for sync UX, telemetry diagnostics, and fallback quality safeguards.
+ *     - Cleared release blockers for degraded fallback responses and latency gate compliance.
+ *
+ * - V.22 Alpha: ChatKit integration completion (phases 1-5) with live gate evidence
+ *     - Added ChatKit foundation with deterministic config validation, feature flags, and user-scoped telemetry events.
+ *     - Implemented shadow-mode evaluation and controlled low-risk serving with hard fallback to existing runtime flow.
+ *     - Added structured multi-step workflow orchestration (`research -> summarize -> display`) bound to skill docs under `skills/`.
+ *     - Added release-gate chain and runbook artifacts with PASS evidence report at `archive/logs/chatkit-phase5-gate-report.json`.
+ *     - Validated full ChatKit smoke chain end-to-end with live gate mode enabled (`datasetMode: live`).
  *
  * - V.21 Alpha: Nova conversation intelligence and reliability upgrade
  *     - Upgraded Nova's multi-turn continuity so context, preference handling, and response intent stay stable across longer conversations.
@@ -68,7 +81,7 @@
  *     - Added final release notes artifact: `tasks/novaos-phase10-release-notes.md` with rollout checklist and rollback plan.
  *
  * - V.13 Alpha: `src/` runtime cutover + stability patch set
- *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/entrypoint.js` (replacing legacy `agent/` launch flow).
+ *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/core/entrypoint.js` (replacing legacy `agent/` launch flow).
  *     - Expanded `src/` runtime parity and smoke coverage for provider, session, transport, tools, memory, and shell wiring.
  *     - Removed stale `src/index.ts` one-off harness and cleaned upgrade module index references.
  *     - Fixed Home -> Chat first-send duplication by tightening pending message dedupe (message id + content checks).
@@ -144,4 +157,5 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.21 Alpha"
+export const NOVA_VERSION = "V.23 Alpha"
+

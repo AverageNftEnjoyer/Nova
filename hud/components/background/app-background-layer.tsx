@@ -27,7 +27,7 @@ const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
 const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
 const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
-const PERSISTENT_BACKGROUND_PATHS = ["/home", "/chat", "/missions", "/integrations", "/analytics", "/history"] as const
+const PERSISTENT_BACKGROUND_PATHS = ["/home", "/chat", "/missions", "/integrations", "/analytics", "/history", "/dev-logs"] as const
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()

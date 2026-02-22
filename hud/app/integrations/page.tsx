@@ -117,6 +117,35 @@ function formatFreshnessMs(value: number): string {
   return `${totalDays}d`
 }
 
+type CoinbasePersistedSnapshot = {
+  reportTimezone: string
+  reportCurrency: string
+  reportCadence: "daily" | "weekly"
+  requiredScopes: string[]
+}
+
+function normalizeScopes(scopes: string[]): string[] {
+  return scopes.map((scope) => String(scope || "").trim().toLowerCase()).filter(Boolean)
+}
+
+function makeCoinbaseSnapshot(coinbase: IntegrationsSettings["coinbase"]): CoinbasePersistedSnapshot {
+  return {
+    reportTimezone: String(coinbase.reportTimezone || "").trim(),
+    reportCurrency: String(coinbase.reportCurrency || "").trim().toUpperCase(),
+    reportCadence: coinbase.reportCadence === "weekly" ? "weekly" : "daily",
+    requiredScopes: normalizeScopes(Array.isArray(coinbase.requiredScopes) ? coinbase.requiredScopes : []),
+  }
+}
+
+function coinbaseSnapshotsEqual(a: CoinbasePersistedSnapshot, b: CoinbasePersistedSnapshot): boolean {
+  return (
+    a.reportTimezone === b.reportTimezone &&
+    a.reportCurrency === b.reportCurrency &&
+    a.reportCadence === b.reportCadence &&
+    a.requiredScopes.join(",") === b.requiredScopes.join(",")
+  )
+}
+
 export default function IntegrationsPage() {
   const router = useRouter()
   const [orbHovered, setOrbHovered] = useState(false)
@@ -141,6 +170,9 @@ export default function IntegrationsPage() {
   const [coinbaseApiSecretConfigured, setCoinbaseApiSecretConfigured] = useState(false)
   const [coinbaseApiKeyMasked, setCoinbaseApiKeyMasked] = useState("")
   const [coinbaseApiSecretMasked, setCoinbaseApiSecretMasked] = useState("")
+  const [coinbasePersistedSnapshot, setCoinbasePersistedSnapshot] = useState<CoinbasePersistedSnapshot>(() =>
+    makeCoinbaseSnapshot(loadIntegrationsSettings().coinbase),
+  )
   const [showCoinbaseApiKey, setShowCoinbaseApiKey] = useState(false)
   const [showCoinbaseApiSecret, setShowCoinbaseApiSecret] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
@@ -202,6 +234,7 @@ export default function IntegrationsPage() {
     setCoinbaseApiSecretConfigured(Boolean(local.coinbase.apiSecretConfigured))
     setCoinbaseApiKeyMasked(local.coinbase.apiKeyMasked || "")
     setCoinbaseApiSecretMasked(local.coinbase.apiSecretMasked || "")
+    setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(local.coinbase))
     hydrateOpenAISetup(local)
     hydrateClaudeSetup(local)
     hydrateGrokSetup(local)
@@ -259,6 +292,7 @@ export default function IntegrationsPage() {
           setCoinbaseApiSecretConfigured(Boolean(fallback.coinbase.apiSecretConfigured))
           setCoinbaseApiKeyMasked(fallback.coinbase.apiKeyMasked || "")
           setCoinbaseApiSecretMasked(fallback.coinbase.apiSecretMasked || "")
+          setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(fallback.coinbase))
           hydrateOpenAISetup(fallback)
           hydrateClaudeSetup(fallback)
           hydrateGrokSetup(fallback)
@@ -405,6 +439,7 @@ export default function IntegrationsPage() {
         setCoinbaseApiSecretConfigured(Boolean(normalized.coinbase.apiSecretConfigured))
         setCoinbaseApiKeyMasked(normalized.coinbase.apiKeyMasked || "")
         setCoinbaseApiSecretMasked(normalized.coinbase.apiSecretMasked || "")
+        setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(normalized.coinbase))
         hydrateOpenAISetup(normalized)
         hydrateClaudeSetup(normalized)
         hydrateGrokSetup(normalized)
@@ -431,6 +466,7 @@ export default function IntegrationsPage() {
         setCoinbaseApiSecretConfigured(Boolean(fallback.coinbase.apiSecretConfigured))
         setCoinbaseApiKeyMasked(fallback.coinbase.apiKeyMasked || "")
         setCoinbaseApiSecretMasked(fallback.coinbase.apiSecretMasked || "")
+        setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(fallback.coinbase))
         hydrateOpenAISetup(fallback)
         hydrateClaudeSetup(fallback)
         hydrateGrokSetup(fallback)
@@ -515,12 +551,27 @@ export default function IntegrationsPage() {
     (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) &&
     (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured),
   )
+  const coinbaseHasDraftCredentials = coinbaseApiKey.trim().length > 0 || coinbaseApiSecret.trim().length > 0
+  const coinbaseDefaultsDirty = !coinbaseSnapshotsEqual(
+    coinbasePersistedSnapshot,
+    makeCoinbaseSnapshot(settings.coinbase),
+  )
+  const coinbasePrimaryActionMode: "save" | "sync" =
+    !coinbaseHasKeys || coinbaseHasDraftCredentials || coinbaseDefaultsDirty ? "save" : "sync"
   const coinbaseSyncLabel =
     settings.coinbase.lastSyncStatus === "success"
       ? "Sync Healthy"
       : settings.coinbase.lastSyncStatus === "error"
         ? "Sync Error"
         : "Not Synced"
+  const coinbasePrimaryActionLabel =
+    isSavingTarget === "coinbase"
+      ? coinbasePrimaryActionMode === "save"
+        ? "Saving..."
+        : "Syncing..."
+      : coinbasePrimaryActionMode === "save"
+        ? "Save"
+        : "Sync"
   const coinbaseSyncBadgeClass =
     settings.coinbase.lastSyncStatus === "success"
       ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
@@ -938,6 +989,7 @@ export default function IntegrationsPage() {
           apiSecretMasked: hasSecretMasked ? secretMasked : prev.coinbase.apiSecretMasked,
         },
       }
+      setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(updated.coinbase))
       saveIntegrationsSettings(updated)
       return updated
     })
@@ -1377,7 +1429,7 @@ export default function IntegrationsPage() {
       applyCoinbaseServerConfig(savedData?.config?.coinbase)
       setSaveStatus({
         type: "success",
-        message: "Coinbase saved. Use Reconnect to run a live sync probe.",
+        message: "Coinbase saved. Use Sync to run a live sync probe.",
       })
     } catch (error) {
       setSaveStatus({
@@ -1402,6 +1454,14 @@ export default function IntegrationsPage() {
       return updated
     })
   }, [])
+
+  const handleCoinbasePrimaryAction = useCallback(async () => {
+    if (coinbasePrimaryActionMode === "save") {
+      await saveCoinbaseConfig()
+      return
+    }
+    await probeCoinbaseConnection("Coinbase sync probe passed.")
+  }, [coinbasePrimaryActionMode, probeCoinbaseConnection, saveCoinbaseConfig])
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
@@ -1860,18 +1920,6 @@ export default function IntegrationsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => void probeCoinbaseConnection("Coinbase reconnected and probe passed.")}
-                    disabled={isSavingTarget !== null || !coinbaseHasKeys}
-                    className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
-                      isLight
-                        ? "border-[#d5dce8] bg-white text-s-80 hover:bg-[#f4f7fd]"
-                        : "border-white/15 bg-white/5 text-slate-200 hover:bg-white/10",
-                    )}
-                  >
-                    {isSavingTarget === "coinbase" ? "Running..." : "Reconnect"}
-                  </button>
-                  <button
                     onClick={toggleCoinbase}
                     disabled={isSavingTarget !== null}
                     className={cn(
@@ -1884,14 +1932,19 @@ export default function IntegrationsPage() {
                     {settings.coinbase.connected ? "Disconnect" : "Connect"}
                   </button>
                   <button
-                    onClick={saveCoinbaseConfig}
-                    disabled={isSavingTarget !== null}
+                    onClick={() => void handleCoinbasePrimaryAction()}
+                    disabled={isSavingTarget !== null || (coinbasePrimaryActionMode === "sync" && !coinbaseHasKeys)}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      coinbasePrimaryActionMode === "save"
+                        ? "border-accent-30 bg-accent-10 text-accent hover:bg-accent-20"
+                        : isLight
+                          ? "border-[#d5dce8] bg-white text-s-80 hover:bg-[#f4f7fd]"
+                          : "border-white/15 bg-white/5 text-slate-200 hover:bg-white/10",
                     )}
                   >
-                    <Save className="w-3.5 h-3.5" />
-                    {isSavingTarget === "coinbase" ? "Saving..." : "Save"}
+                    {coinbasePrimaryActionMode === "save" && <Save className="w-3.5 h-3.5" />}
+                    {coinbasePrimaryActionLabel}
                   </button>
                 </div>
               </div>
@@ -1904,18 +1957,18 @@ export default function IntegrationsPage() {
                       {coinbaseSyncLabel}
                     </span>
                   </div>
-                  <div className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
-                      <p className={cn("uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Last Sync</p>
-                      <p className={cn("mt-1 font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseLastSyncText}</p>
+                      <p className={cn("text-[11px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Last Sync</p>
+                      <p className={cn("mt-1 text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseLastSyncText}</p>
                     </div>
                     <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
-                      <p className={cn("uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Freshness</p>
-                      <p className={cn("mt-1 font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseFreshnessText}</p>
+                      <p className={cn("text-[11px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Freshness</p>
+                      <p className={cn("mt-1 text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseFreshnessText}</p>
                     </div>
                     <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
-                      <p className={cn("uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Scopes</p>
-                      <p className={cn("mt-1 font-medium truncate", isLight ? "text-s-80" : "text-slate-200")} title={coinbaseScopeSummary}>
+                      <p className={cn("text-[11px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Scopes</p>
+                      <p className={cn("mt-1 text-sm font-medium truncate", isLight ? "text-s-80" : "text-slate-200")} title={coinbaseScopeSummary}>
                         {settings.coinbase.requiredScopes.length || 0}
                       </p>
                     </div>
@@ -1967,7 +2020,7 @@ export default function IntegrationsPage() {
                 </div>
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key (Client Key ID)</p>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Secret API Key</p>
                   {coinbaseApiKeyConfigured && coinbaseApiKeyMasked && (
                     <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
                       Key on server: <span className="font-mono">{coinbaseApiKeyMasked}</span>
@@ -2011,23 +2064,22 @@ export default function IntegrationsPage() {
                     </button>
                   </div>
                   <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
-                    Paste the API Key value from Coinbase (usually <span className="font-mono">organizations/.../apiKeys/...</span>). Do not paste the nickname.
+                    Paste the Coinbase secret API key value (usually <span className="font-mono">organizations/.../apiKeys/...</span>). Do not paste the nickname.
                   </p>
                 </div>
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Secret (Private Key)</p>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Secret</p>
                   {coinbaseApiSecretConfigured && coinbaseApiSecretMasked && (
                     <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
                       Secret on server: <span className="font-mono">{coinbaseApiSecretMasked}</span>
                     </p>
                   )}
                   <div className="relative">
-                    <input
-                      type={showCoinbaseApiSecret ? "text" : "password"}
+                    <textarea
                       value={coinbaseApiSecret}
                       onChange={(e) => setCoinbaseApiSecret(e.target.value)}
-                      placeholder={coinbaseApiSecretConfigured ? "Enter new secret to replace current secret" : "-----BEGIN EC PRIVATE KEY----- ..."}
+                      placeholder={coinbaseApiSecretConfigured ? "Enter new secret to replace current secret" : "-----BEGIN EC PRIVATE KEY-----\\n...\\n-----END EC PRIVATE KEY-----"}
                       name="coinbase_api_secret_input"
                       autoComplete="off"
                       data-lpignore="true"
@@ -2039,8 +2091,9 @@ export default function IntegrationsPage() {
                       data-gramm="false"
                       data-gramm_editor="false"
                       data-enable-grammarly="false"
+                      rows={showCoinbaseApiSecret ? 6 : 2}
                       className={cn(
-                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+                        "w-full min-h-[3.5rem] pr-10 pl-3 py-2 rounded-md border bg-transparent text-sm font-mono outline-none resize-y",
                         isLight
                           ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
                           : "border-white/10 text-slate-100 placeholder:text-slate-500",
@@ -2060,7 +2113,7 @@ export default function IntegrationsPage() {
                     </button>
                   </div>
                   <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
-                    Paste the private key exactly as downloaded from Coinbase. Keep line breaks if present. If Coinbase also shows an extra passphrase/secret string, Nova does not use that field in this panel.
+                    Paste the private key secret exactly as downloaded from Coinbase. Keep line breaks if present. If Coinbase also shows an extra passphrase/secret string, Nova does not use that field in this panel.
                   </p>
                 </div>
 
@@ -2082,12 +2135,26 @@ export default function IntegrationsPage() {
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Coinbase API Credentials</p>
                       <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
-                        <li>1. In Coinbase Developer Platform, create a new API key (Advanced Trade / Coinbase App).</li>
+                        <li>
+                          1. In{" "}
+                          <a
+                            href="https://portal.cdp.coinbase.com/access/api"
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className={cn(
+                              "underline underline-offset-2 transition-colors",
+                              isLight ? "text-s-80 hover:text-s-100" : "text-slate-200 hover:text-white",
+                            )}
+                          >
+                            Link
+                          </a>
+                          , create a new API key (Advanced Trade / Coinbase App).
+                        </li>
                         <li>2. In Advanced Settings, choose <span className="font-mono">ECDSA</span> for SDK compatibility; direct API supports ECDSA and Ed25519.</li>
                         <li>3. For Nova v1, set permissions to read-only (Portfolio View). Leave Trade/Transfer off unless you explicitly need execution flows.</li>
                         <li>4. If you enable IP allowlist, include the real client/server IPs (and IPv6 if your network uses it), or calls will fail.</li>
                         <li>5. Copy the API key value and private key immediately, then store them securely.</li>
-                        <li>6. If you see three values in Coinbase, use only key ID + private key here; ignore extra passphrase/secret-string fields for now.</li>
+                        <li>6. If you see three values in Coinbase, use only the secret API key + secret (private key) here; ignore extra passphrase/secret-string fields for now.</li>
                       </ol>
                     </div>
 
@@ -2099,12 +2166,12 @@ export default function IntegrationsPage() {
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
                       <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
-                        <li>1. Paste Coinbase API Key into <span className="font-mono">API Key (Client Key ID)</span>.</li>
-                        <li>2. Paste Coinbase private key into <span className="font-mono">API Secret (Private Key)</span> and click <span className="font-mono">Save</span>.</li>
+                        <li>1. Paste Coinbase value into <span className="font-mono">Secret API Key</span>.</li>
+                        <li>2. Paste Coinbase private key into <span className="font-mono">Secret</span> and click <span className="font-mono">Save</span>.</li>
                         <li>3. Confirm both values show masked on server, then click <span className="font-mono">Connect</span>.</li>
                         <li>4. Nova only needs this key + secret pair here. OAuth client ID/secret are not required in this Coinbase panel.</li>
                         <li>5. Do not paste nickname labels or extra passphrase/secret-string values into these fields.</li>
-                        <li>6. Click <span className="font-mono">Reconnect</span> to run the live probe and update sync/freshness status.</li>
+                        <li>6. Click <span className="font-mono">Sync</span> to run the live probe and update sync/freshness status.</li>
                       </ol>
                     </div>
                   </div>

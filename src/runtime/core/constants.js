@@ -89,6 +89,14 @@ export const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "mai
 
 // ===== Request Timeouts =====
 export const OPENAI_REQUEST_TIMEOUT_MS = 45000;
+const parsedToolLoopRequestTimeoutMs = Number.parseInt(
+  process.env.NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS || "14000",
+  10,
+);
+export const TOOL_LOOP_REQUEST_TIMEOUT_MS =
+  Number.isFinite(parsedToolLoopRequestTimeoutMs) && parsedToolLoopRequestTimeoutMs >= 3000
+    ? Math.min(parsedToolLoopRequestTimeoutMs, OPENAI_REQUEST_TIMEOUT_MS)
+    : Math.min(14000, OPENAI_REQUEST_TIMEOUT_MS);
 
 // ===== Voice/Mic Config =====
 export const MIC_RECORD_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RECORD_SECONDS || "4");
@@ -302,13 +310,14 @@ export const UPGRADE_MODULE_INDEX = [
   "src/memory/hybrid.ts",
   "src/memory/chunker.ts",
   "src/memory/embeddings.ts",
-  "src/tools/registry.ts",
-  "src/tools/executor.ts",
-  "src/tools/web-search.ts",
-  "src/tools/web-fetch.ts",
-  "src/tools/memory-tools.ts",
-  "src/tools/exec.ts",
-  "src/tools/file-tools.ts",
+  "src/tools/core/registry.ts",
+  "src/tools/core/executor.ts",
+  "src/tools/web/web-search.ts",
+  "src/tools/web/web-fetch.ts",
+  "src/tools/builtin/memory-tools.ts",
+  "src/tools/builtin/exec.ts",
+  "src/tools/builtin/file-tools.ts",
+  "src/tools/runtime/runtime-compat.js",
   "src/skills/discovery.ts",
   "src/skills/formatter.ts",
   "src/skills/snapshot.ts",

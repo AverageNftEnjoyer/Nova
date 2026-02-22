@@ -214,6 +214,10 @@ export function ChatShellController() {
   useEffect(() => {
     if (pendingBootSendHandledRef.current || !agentConnected || !activeConvo) return
 
+    const markPendingBootHandled = () => {
+      pendingBootSendHandledRef.current = Boolean(1)
+    }
+
     let raw: string | null = null
     try {
       raw = sessionStorage.getItem(PENDING_CHAT_SESSION_KEY)
@@ -232,7 +236,7 @@ export function ChatShellController() {
       }
       const pendingOpToken = normalizeHandoffOperationToken(parsed.opToken)
       if (pendingOpToken && hasHudMessageAck(pendingOpToken)) {
-        pendingBootSendHandledRef.current = true
+        markPendingBootHandled()
         pendingBootSendOpTokenRef.current = ""
         pendingBootSendDispatchedAtRef.current = 0
         sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
@@ -297,7 +301,7 @@ export function ChatShellController() {
       })()
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
-      pendingBootSendHandledRef.current = true
+      markPendingBootHandled()
       pendingBootSendOpTokenRef.current = ""
       pendingBootSendDispatchedAtRef.current = 0
     }

@@ -519,6 +519,7 @@ export function useNovaState() {
     };
 
     const pendingAssistantDeltas = pendingAssistantDeltasRef.current
+    const hudMessageAckMap = hudMessageAckRef.current
     return () => {
       window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, syncActiveUserId as EventListener)
       if (deltaFlushRafRef.current !== null) {
@@ -526,10 +527,10 @@ export function useNovaState() {
         deltaFlushRafRef.current = null
       }
       pendingAssistantDeltas.clear()
-      hudMessageAckRef.current.clear()
+      hudMessageAckMap.clear()
       ws.close()
     };
-  }, []);
+  }, [pruneHudMessageAckMap]);
 
   const sendToAgent = useCallback((
     text: string,

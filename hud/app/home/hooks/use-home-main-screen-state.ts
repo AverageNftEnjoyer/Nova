@@ -100,6 +100,7 @@ export function useHomeMainScreenState() {
   const openMissions = useCallback(() => router.push("/missions"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openAnalytics = useCallback(() => router.push("/analytics"), [router])
+  const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
 
   return {
     isLight,
@@ -134,6 +135,7 @@ export function useHomeMainScreenState() {
     openMissions,
     openIntegrations,
     openAnalytics,
+    openDevLogs,
     handleToggleTelegramIntegration: integrations.handleToggleTelegramIntegration,
     handleToggleDiscordIntegration: integrations.handleToggleDiscordIntegration,
     handleToggleBraveIntegration: integrations.handleToggleBraveIntegration,

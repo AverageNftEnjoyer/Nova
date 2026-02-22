@@ -91,6 +91,15 @@ const HUD_OP_TOKEN_TTL_MS = Math.max(
     Number.parseInt(process.env.NOVA_HUD_OP_TOKEN_TTL_MS || String(10 * 60 * 1000), 10) || 10 * 60 * 1000,
   ),
 );
+const SCOPED_ONLY_EVENT_TYPES = new Set([
+  "state",
+  "thinking_status",
+  "message",
+  "assistant_stream_start",
+  "assistant_stream_delta",
+  "assistant_stream_done",
+  "usage",
+]);
 
 let lastHudOpTokenGcAt = 0;
 
@@ -147,9 +156,24 @@ function trackConversationOwner(conversationId, userContextId) {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const normalizedUserContextId = normalizeUserContextId(userContextId);
   if (!normalizedConversationId || !normalizedUserContextId) return;
+  const nowMs = Date.now();
+  const existing = conversationOwnerById.get(normalizedConversationId);
+  if (existing && nowMs - Number(existing.updatedAt || 0) <= CONVERSATION_OWNER_TTL_MS) {
+    const existingUserContextId = normalizeUserContextId(existing.userContextId || "");
+    const alreadyConflicted = existing.conflicted === true;
+    if (alreadyConflicted || (existingUserContextId && existingUserContextId !== normalizedUserContextId)) {
+      conversationOwnerById.set(normalizedConversationId, {
+        userContextId: "",
+        updatedAt: nowMs,
+        conflicted: true,
+      });
+      return;
+    }
+  }
   conversationOwnerById.set(normalizedConversationId, {
     userContextId: normalizedUserContextId,
-    updatedAt: Date.now(),
+    updatedAt: nowMs,
+    conflicted: false,
   });
 }
 
@@ -163,13 +187,18 @@ function resolveConversationOwner(conversationId) {
     conversationOwnerById.delete(normalizedConversationId);
     return "";
   }
+  if (meta.conflicted === true) return "";
   return normalizeUserContextId(meta.userContextId);
 }
 
 function resolveEventUserContextId(userContextId, conversationId = "") {
   const explicit = normalizeUserContextId(userContextId);
-  if (explicit) return explicit;
-  return resolveConversationOwner(conversationId);
+  const normalizedConversationId = normalizeConversationId(conversationId);
+  if (explicit) {
+    if (normalizedConversationId) trackConversationOwner(normalizedConversationId, explicit);
+    return explicit;
+  }
+  return resolveConversationOwner(normalizedConversationId);
 }
 
 function markHudWorkStart() {
@@ -255,6 +284,15 @@ function reserveHudOpToken(userContextId, opToken, conversationId = "") {
 
   const existing = hudOpTokenStateByKey.get(key);
   if (existing && nowMs - Number(existing.updatedAt || 0) <= HUD_OP_TOKEN_TTL_MS) {
+    const existingConversationId = normalizeConversationId(existing.conversationId || "");
+    if (existingConversationId && normalizedConversationId && existingConversationId !== normalizedConversationId) {
+      hudOpTokenStateByKey.delete(key);
+      return {
+        status: "conflict",
+        key: "",
+        conversationId: existingConversationId,
+      };
+    }
     return {
       status: existing.status === "accepted" ? "duplicate_accepted" : "duplicate_pending",
       key,
@@ -308,10 +346,12 @@ function sendHudMessageAck(ws, {
 
 export function broadcast(payload, opts = {}) {
   if (!wss || !wss.clients) return;
+  const eventType = typeof payload?.type === "string" ? payload.type.trim().toLowerCase() : "";
   const targetUserContextId = resolveEventUserContextId(
     opts.userContextId ?? payload?.userContextId,
     opts.conversationId ?? payload?.conversationId,
   );
+  if (!targetUserContextId && SCOPED_ONLY_EVENT_TYPES.has(eventType)) return;
   const nextPayload = targetUserContextId && !payload?.userContextId
     ? { ...payload, userContextId: targetUserContextId }
     : payload;
@@ -616,7 +656,6 @@ export function startGateway() {
             typeof data.userId === "string" ? data.userId : "",
           );
           bindSocketToUserContext(ws, incomingUserId);
-          if (conversationId && incomingUserId) trackConversationOwner(conversationId, incomingUserId);
           console.log("[HUD ->]", data.content, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
           if (data.voice !== false) stopSpeaking();
 
@@ -631,12 +670,34 @@ export function startGateway() {
             broadcastState("idle", incomingUserId);
             return;
           }
+          if (!conversationId) {
+            sendHudStreamError(
+              "",
+              "Request blocked: missing conversation context. Open a chat thread and retry.",
+              ws,
+              0,
+              incomingUserId,
+            );
+            broadcastState("idle", incomingUserId);
+            return;
+          }
+          trackConversationOwner(conversationId, incomingUserId);
 
           const opToken = normalizeHudOpToken(typeof data.opToken === "string" ? data.opToken : "");
           let reservedOpTokenKey = "";
           let opTokenAccepted = false;
           if (opToken) {
             const reservation = reserveHudOpToken(incomingUserId, opToken, conversationId);
+            if (reservation.status === "conflict") {
+              sendHudStreamError(
+                conversationId,
+                "Request token conflict detected for a different conversation. Please retry from the active chat thread.",
+                ws,
+                0,
+                incomingUserId,
+              );
+              return;
+            }
             if (reservation.status === "duplicate_accepted") {
               sendHudMessageAck(ws, {
                 opToken,
@@ -697,13 +758,9 @@ export function startGateway() {
                     nlpBypass: data.nlpBypass === true,
                     conversationId: conversationId || undefined,
                     sessionKeyHint:
-                      typeof data.sessionKey === "string"
+                      typeof data.sessionKey === "string" && data.sessionKey.trim()
                         ? data.sessionKey
-                        : conversationId
-                          ? incomingUserId
-                            ? `agent:nova:hud:user:${incomingUserId}:dm:${conversationId}`
-                            : `agent:nova:hud:dm:${conversationId}`
-                          : undefined,
+                        : `agent:nova:hud:user:${incomingUserId}:dm:${conversationId}`,
                   });
                 } finally {
                   markHudWorkEnd();

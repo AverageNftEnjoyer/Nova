@@ -4,7 +4,7 @@ import { useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { cn } from "@/lib/shared/utils"
-import { SettingToggle, getSettingsCardClass, playClickSound } from "@/components/settings/settings-primitives"
+import { SettingToggle, playClickSound } from "@/components/settings/settings-primitives"
 import type { UserSettings } from "@/lib/settings/userSettings"
 import type { BootMusicAssetMeta } from "@/lib/media/bootMusicStorage"
 

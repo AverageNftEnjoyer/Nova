@@ -1,6 +1,8 @@
 import { MemoryTtlCache } from "./cache.js";
+import { CoinbaseCircuitBreaker } from "./circuit-breaker.js";
 import { CoinbaseHttpClient } from "./client.js";
 import { CoinbaseError, asCoinbaseError } from "./errors.js";
+import { recordCoinbaseMetric, recordCoinbaseStructuredLog } from "./observability.js";
 import { CoinbaseRateLimitAdapter } from "./rate-limit.js";
 import { CoinbaseDataStore } from "./store.js";
 import type {
@@ -37,6 +39,7 @@ export interface CoinbaseServiceOptions {
   cache?: MemoryTtlCache<CacheRecord>;
   rateLimiter?: CoinbaseRateLimitAdapter;
   dataStore?: CoinbaseDataStore | null;
+  circuitBreaker?: CoinbaseCircuitBreaker;
 }
 
 type CoinbasePriceResponse = {
@@ -79,6 +82,7 @@ export class CoinbaseService implements CoinbaseProvider {
   private readonly cache: MemoryTtlCache<CacheRecord>;
   private readonly rateLimiter: CoinbaseRateLimitAdapter;
   private readonly dataStore: CoinbaseDataStore | null;
+  private readonly circuitBreaker: CoinbaseCircuitBreaker;
 
   constructor(options: CoinbaseServiceOptions) {
     this.credentialProvider = options.credentialProvider;
@@ -92,6 +96,7 @@ export class CoinbaseService implements CoinbaseProvider {
     this.cache = options.cache || new MemoryTtlCache<CacheRecord>({ maxEntries: 2_000 });
     this.rateLimiter = options.rateLimiter || new CoinbaseRateLimitAdapter();
     this.dataStore = options.dataStore || null;
+    this.circuitBreaker = options.circuitBreaker || new CoinbaseCircuitBreaker();
   }
 
   public async getCapabilities(ctx: CoinbaseRequestContext): Promise<CoinbaseCapabilityStatus> {
@@ -198,10 +203,24 @@ export class CoinbaseService implements CoinbaseProvider {
       }
     }
 
+    const endpoint = "/v2/prices/:symbol/spot";
     const fresh = await this.rateLimiter.run(userContextId, async () => {
+      const gate = this.circuitBreaker.canRequest(endpoint);
+      if (!gate.ok) {
+        throw new CoinbaseError({
+          code: "UPSTREAM_UNAVAILABLE",
+          message: `Coinbase circuit is open for ${endpoint}.`,
+          retryable: true,
+          endpoint,
+          userContextId,
+          retryAfterMs: gate.retryAfterMs,
+        });
+      }
+      const startedAtMs = Date.now();
       const credentials = await this.requireCredentials(userContextId);
-      const client = this.createClient(credentials);
-      const payload = await client.getPublicJson<CoinbasePriceResponse>(`/v2/prices/${normalizedPair}/spot`, { userContextId });
+      const client = this.createClient(credentials, { timeoutMs: 4_000, maxRetries: 1 });
+      try {
+        const payload = await client.getPublicJson<CoinbasePriceResponse>(`/v2/prices/${normalizedPair}/spot`, { userContextId });
       const amountRaw = String(payload?.data?.amount || "").trim();
       const amount = Number.parseFloat(amountRaw);
       if (!Number.isFinite(amount)) {
@@ -243,7 +262,33 @@ export class CoinbaseService implements CoinbaseProvider {
         missionRunId: ctx.missionRunId,
         details: { symbolPair: normalizedPair, source: model.source },
       });
+      this.recordRequestTelemetry({
+        event: "coinbase.spot_price",
+        endpoint,
+        ok: true,
+        userContextId,
+        conversationId: ctx.conversationId,
+        missionRunId: ctx.missionRunId,
+        latencyMs: Date.now() - startedAtMs,
+      });
+      this.circuitBreaker.onSuccess(endpoint);
       return model;
+      } catch (error) {
+        const mapped = asCoinbaseError(error, { code: "UNKNOWN", endpoint, userContextId });
+        this.circuitBreaker.onFailure(endpoint);
+        this.recordRequestTelemetry({
+          event: "coinbase.spot_price",
+          endpoint,
+          ok: false,
+          errorCode: mapped.code,
+          userContextId,
+          conversationId: ctx.conversationId,
+          missionRunId: ctx.missionRunId,
+          latencyMs: Date.now() - startedAtMs,
+          message: mapped.message,
+        });
+        throw error;
+      }
     });
 
     return fresh;
@@ -265,10 +310,24 @@ export class CoinbaseService implements CoinbaseProvider {
       }
     }
 
+    const endpoint = "/api/v3/brokerage/accounts";
     const fresh = await this.rateLimiter.run(userContextId, async () => {
+      const gate = this.circuitBreaker.canRequest(endpoint);
+      if (!gate.ok) {
+        throw new CoinbaseError({
+          code: "UPSTREAM_UNAVAILABLE",
+          message: `Coinbase circuit is open for ${endpoint}.`,
+          retryable: true,
+          endpoint,
+          userContextId,
+          retryAfterMs: gate.retryAfterMs,
+        });
+      }
+      const startedAtMs = Date.now();
       const credentials = await this.requireCredentials(userContextId);
-      const client = this.createClient(credentials);
-      const payload = await client.getPrivateJson<CoinbaseAccountsResponse>("/api/v3/brokerage/accounts", {
+      const client = this.createClient(credentials, { timeoutMs: 6_000, maxRetries: 1 });
+      try {
+        const payload = await client.getPrivateJson<CoinbaseAccountsResponse>("/api/v3/brokerage/accounts", {
         userContextId,
         credentials,
       });
@@ -320,7 +379,33 @@ export class CoinbaseService implements CoinbaseProvider {
         missionRunId: ctx.missionRunId,
         details: { balances: model.balances.length, source: model.source },
       });
+      this.recordRequestTelemetry({
+        event: "coinbase.portfolio",
+        endpoint,
+        ok: true,
+        userContextId,
+        conversationId: ctx.conversationId,
+        missionRunId: ctx.missionRunId,
+        latencyMs: Date.now() - startedAtMs,
+      });
+      this.circuitBreaker.onSuccess(endpoint);
       return model;
+      } catch (error) {
+        const mapped = asCoinbaseError(error, { code: "UNKNOWN", endpoint, userContextId });
+        this.circuitBreaker.onFailure(endpoint);
+        this.recordRequestTelemetry({
+          event: "coinbase.portfolio",
+          endpoint,
+          ok: false,
+          errorCode: mapped.code,
+          userContextId,
+          conversationId: ctx.conversationId,
+          missionRunId: ctx.missionRunId,
+          latencyMs: Date.now() - startedAtMs,
+          message: mapped.message,
+        });
+        throw error;
+      }
     });
 
     return fresh;
@@ -341,10 +426,24 @@ export class CoinbaseService implements CoinbaseProvider {
       }
     }
 
+    const endpoint = "/api/v3/brokerage/orders/historical/fills";
     const fresh = await this.rateLimiter.run(userContextId, async () => {
+      const gate = this.circuitBreaker.canRequest(endpoint);
+      if (!gate.ok) {
+        throw new CoinbaseError({
+          code: "UPSTREAM_UNAVAILABLE",
+          message: `Coinbase circuit is open for ${endpoint}.`,
+          retryable: true,
+          endpoint,
+          userContextId,
+          retryAfterMs: gate.retryAfterMs,
+        });
+      }
+      const startedAtMs = Date.now();
       const credentials = await this.requireCredentials(userContextId);
-      const client = this.createClient(credentials);
-      const payload = await client.getPrivateJson<CoinbaseFillsResponse>("/api/v3/brokerage/orders/historical/fills", {
+      const client = this.createClient(credentials, { timeoutMs: 6_000, maxRetries: 1 });
+      try {
+        const payload = await client.getPrivateJson<CoinbaseFillsResponse>("/api/v3/brokerage/orders/historical/fills", {
         userContextId,
         credentials,
         query: { limit },
@@ -393,7 +492,33 @@ export class CoinbaseService implements CoinbaseProvider {
         missionRunId: ctx.missionRunId,
         details: { count: events.length, limit },
       });
+      this.recordRequestTelemetry({
+        event: "coinbase.transactions",
+        endpoint,
+        ok: true,
+        userContextId,
+        conversationId: ctx.conversationId,
+        missionRunId: ctx.missionRunId,
+        latencyMs: Date.now() - startedAtMs,
+      });
+      this.circuitBreaker.onSuccess(endpoint);
       return events;
+      } catch (error) {
+        const mapped = asCoinbaseError(error, { code: "UNKNOWN", endpoint, userContextId });
+        this.circuitBreaker.onFailure(endpoint);
+        this.recordRequestTelemetry({
+          event: "coinbase.transactions",
+          endpoint,
+          ok: false,
+          errorCode: mapped.code,
+          userContextId,
+          conversationId: ctx.conversationId,
+          missionRunId: ctx.missionRunId,
+          latencyMs: Date.now() - startedAtMs,
+          message: mapped.message,
+        });
+        throw error;
+      }
     });
 
     return fresh;
@@ -414,18 +539,25 @@ export class CoinbaseService implements CoinbaseProvider {
     });
   }
 
-  private createClient(credentials: CoinbaseCredentials): CoinbaseHttpClient {
+  private createClient(credentials: CoinbaseCredentials, options?: { timeoutMs?: number; maxRetries?: number }): CoinbaseHttpClient {
     return new CoinbaseHttpClient({
       baseUrl: String(credentials.baseUrl || this.baseUrl).trim() || this.baseUrl,
       authStrategy: this.authStrategy,
-      timeoutMs: 10_000,
-      maxRetries: 2,
+      timeoutMs: options?.timeoutMs ?? 6_000,
+      maxRetries: options?.maxRetries ?? 1,
     });
   }
 
   private async requireCredentials(userContextId: string): Promise<CoinbaseCredentials> {
     const credentials = await this.credentialProvider.resolve(userContextId);
     if (!credentials || !credentials.connected) {
+      this.recordRequestTelemetry({
+        event: "coinbase.auth",
+        endpoint: "auth.resolve",
+        ok: false,
+        errorCode: "DISCONNECTED",
+        userContextId,
+      });
       throw new CoinbaseError({
         code: "DISCONNECTED",
         message: `Coinbase credentials are not connected for user ${userContextId}.`,
@@ -433,6 +565,13 @@ export class CoinbaseService implements CoinbaseProvider {
       });
     }
     if (!credentials.apiKey || !credentials.apiSecret) {
+      this.recordRequestTelemetry({
+        event: "coinbase.auth",
+        endpoint: "auth.resolve",
+        ok: false,
+        errorCode: "AUTH_FAILED",
+        userContextId,
+      });
       throw new CoinbaseError({
         code: "DISCONNECTED",
         message: `Coinbase credentials are incomplete for user ${userContextId}.`,
@@ -445,7 +584,54 @@ export class CoinbaseService implements CoinbaseProvider {
       mode: "api_key_pair",
       keyFingerprint: createKeyFingerprint(credentials.apiKey),
     });
+    this.recordRequestTelemetry({
+      event: "coinbase.auth",
+      endpoint: "auth.resolve",
+      ok: true,
+      userContextId,
+      category: "refresh",
+    });
     return credentials;
+  }
+
+  private recordRequestTelemetry(input: {
+    event: string;
+    endpoint: string;
+    ok: boolean;
+    userContextId: string;
+    conversationId?: string;
+    missionRunId?: string;
+    latencyMs?: number;
+    errorCode?: string;
+    message?: string;
+    category?: "request" | "report" | "refresh";
+  }): void {
+    recordCoinbaseStructuredLog({
+      ts: new Date().toISOString(),
+      provider: "coinbase",
+      event: input.event,
+      endpoint: input.endpoint,
+      status: input.ok ? "ok" : "error",
+      userContextId: input.userContextId,
+      conversationId: input.conversationId,
+      missionRunId: input.missionRunId,
+      latencyMs: input.latencyMs,
+      errorCode: input.errorCode,
+      message: input.message,
+    });
+    const statusClass =
+      input.ok ? "2xx" :
+      input.errorCode === "RATE_LIMITED" ? "429" :
+      input.errorCode === "AUTH_FAILED" || input.errorCode === "DISCONNECTED" ? "401" :
+      "5xx";
+    recordCoinbaseMetric({
+      endpoint: input.endpoint,
+      latencyMs: input.latencyMs,
+      ok: input.ok,
+      errorCode: input.errorCode,
+      statusClass,
+      category: input.category || "request",
+    });
   }
 
   private writeSnapshot(input: {
