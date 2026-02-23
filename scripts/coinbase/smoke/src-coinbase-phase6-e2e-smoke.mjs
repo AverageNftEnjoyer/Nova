@@ -38,14 +38,15 @@ const conversationsHookSource = read("hud/lib/chat/hooks/useConversations.ts");
 
 await run("P6-E2E-C1 Coinbase mission build path is wired from prompt generation", async () => {
   assert.equal(generationSource.includes("buildCoinbaseWorkflow"), true);
-  assert.equal(generationSource.includes('fetchSource: "coinbase"'), true);
+  assert.equal(generationSource.includes('type: "coinbase"'), true);
+  assert.equal(generationSource.includes("coinbaseIntent"), true);
   assert.equal(generationSource.includes("promptLooksLikeCoinbaseTask"), true);
 });
 
 await run("P6-E2E-C2 Mission execution uses Coinbase fetch path", async () => {
-  assert.equal(executionSource.includes("parseCoinbaseFetchQuery"), true);
-  assert.equal(executionSource.includes("fetchCoinbaseMissionData"), true);
-  assert.equal(executionSource.includes("source === \"coinbase\""), true);
+  assert.equal(executionSource.includes("executeCoinbaseWorkflowStep"), true);
+  assert.equal(executionSource.includes("type === \"coinbase\""), true);
+  assert.equal(executionSource.includes("coinbaseArtifactContext"), true);
 });
 
 await run("P6-E2E-C3 Coinbase mission fetch includes authenticated account data paths", async () => {

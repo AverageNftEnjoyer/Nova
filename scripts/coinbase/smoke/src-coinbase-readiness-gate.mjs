@@ -28,7 +28,7 @@ assert.equal(result.status, 0, "phase12 rollout smoke failed while running readi
 
 const readinessPath = path.join(
   process.cwd(),
-  ".agent",
+  "archive",
   "logs",
   "coinbase-phase12-readiness-report.json",
 );

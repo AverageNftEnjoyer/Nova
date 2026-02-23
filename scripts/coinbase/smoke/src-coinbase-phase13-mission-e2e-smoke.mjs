@@ -56,7 +56,8 @@ await run("P13-C1 mission build maps natural-language prompts to Coinbase primit
     "weekly_pnl_summary",
     "price_alert_digest",
     "buildCoinbaseWorkflow(",
-    "fetchSource: \"coinbase\"",
+    "type: \"coinbase\"",
+    "coinbaseIntent",
   ];
   for (const token of required) {
     assert.equal(generationSource.includes(token), true, `missing token: ${token}`);
@@ -76,9 +77,9 @@ await run("P13-C2 scheduler execution path uses authenticated account + transact
     assert.equal(coinbaseFetchSource.includes(token), true, `missing fetch token: ${token}`);
   }
   const requiredExecTokens = [
-    "parseCoinbaseFetchQuery",
-    "fetchCoinbaseMissionData",
-    "source === \"coinbase\"",
+    "executeCoinbaseWorkflowStep",
+    "type === \"coinbase\"",
+    "coinbaseArtifactContext",
   ];
   for (const token of requiredExecTokens) {
     assert.equal(executionSource.includes(token), true, `missing execution token: ${token}`);

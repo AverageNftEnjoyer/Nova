@@ -18,7 +18,7 @@ export type IntegrationsSaveTarget =
   | "gmail-account"
   | "provider"
 
-export type IntegrationsSaveStatus = null | { type: "success" | "error"; message: string }
+export type IntegrationsSaveStatus = null | { type: "success" | "error" | "disabled"; message: string }
 
 interface UseLlmProviderSetupParams {
   provider: LlmProvider
@@ -144,7 +144,7 @@ export function useLlmProviderSetup({
       })
       if (!res.ok) throw new Error(`Failed to update ${label} status`)
       setSaveStatus({
-        type: "success",
+        type: "disabled",
         message: `${label} disabled.`,
       })
     } catch {

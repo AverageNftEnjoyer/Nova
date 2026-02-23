@@ -71,6 +71,7 @@ export function getModelOptionsForProvider(provider: AiIntegrationType, settings
 export function renderStepIcon(type: WorkflowStepType, className: string) {
   if (type === "trigger") return <Zap className={className} />
   if (type === "fetch") return <Database className={className} />
+  if (type === "coinbase") return <Sparkles className={className} />
   if (type === "ai") return <WandSparkles className={className} />
   if (type === "transform") return <GitBranch className={className} />
   if (type === "condition") return <SlidersHorizontal className={className} />
@@ -119,7 +120,7 @@ export function parseMissionWorkflowMeta(message: string): MissionWorkflowMeta {
 }
 
 export function isWorkflowStepType(value: string): value is WorkflowStepType {
-  return value === "trigger" || value === "fetch" || value === "ai" || value === "transform" || value === "condition" || value === "output"
+  return value === "trigger" || value === "fetch" || value === "coinbase" || value === "ai" || value === "transform" || value === "condition" || value === "output"
 }
 
 export function normalizePriority(value: string | undefined): "low" | "medium" | "high" | "critical" {
@@ -218,6 +219,39 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" && step.fetchSelector.trim() ? step.fetchSelector : "a[href]") : undefined,
       fetchRefreshMinutes: resolvedType === "fetch" ? (typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes ? step.fetchRefreshMinutes : "15") : undefined,
       fetchIncludeSources: resolvedType === "fetch" ? normalizeFetchIncludeSources(step.fetchIncludeSources) : undefined,
+      coinbaseIntent: resolvedType === "coinbase"
+        ? (step.coinbaseIntent === "status" || step.coinbaseIntent === "price" || step.coinbaseIntent === "portfolio" || step.coinbaseIntent === "transactions" || step.coinbaseIntent === "report"
+          ? step.coinbaseIntent
+          : "report")
+        : undefined,
+      coinbaseParams: resolvedType === "coinbase"
+        ? {
+          assets: Array.isArray(step.coinbaseParams?.assets)
+            ? step.coinbaseParams.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
+            : ["BTC", "ETH", "SOL"],
+          quoteCurrency: typeof step.coinbaseParams?.quoteCurrency === "string" && step.coinbaseParams.quoteCurrency.trim()
+            ? step.coinbaseParams.quoteCurrency.trim().toUpperCase()
+            : "USD",
+          thresholdPct: Number.isFinite(Number(step.coinbaseParams?.thresholdPct)) ? Number(step.coinbaseParams?.thresholdPct) : undefined,
+          cadence: typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence.trim()
+            ? step.coinbaseParams.cadence
+            : "daily",
+          transactionLimit: Number.isFinite(Number(step.coinbaseParams?.transactionLimit)) ? Number(step.coinbaseParams?.transactionLimit) : undefined,
+          includePreviousArtifactContext: typeof step.coinbaseParams?.includePreviousArtifactContext === "boolean"
+            ? step.coinbaseParams.includePreviousArtifactContext
+            : true,
+        }
+        : undefined,
+      coinbaseFormat: resolvedType === "coinbase"
+        ? {
+          style: step.coinbaseFormat?.style === "concise" || step.coinbaseFormat?.style === "detailed" || step.coinbaseFormat?.style === "standard"
+            ? step.coinbaseFormat.style
+            : "standard",
+          includeRawMetadata: typeof step.coinbaseFormat?.includeRawMetadata === "boolean"
+            ? step.coinbaseFormat.includeRawMetadata
+            : true,
+        }
+        : undefined,
       transformAction: resolvedType === "transform" ? (step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich" ? step.transformAction : "normalize") : undefined,
       transformFormat: resolvedType === "transform" ? (step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table" ? step.transformFormat : "markdown") : undefined,
       transformInstruction: resolvedType === "transform" ? (typeof step.transformInstruction === "string" ? step.transformInstruction : "") : undefined,

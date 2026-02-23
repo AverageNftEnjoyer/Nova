@@ -7,7 +7,7 @@ import { AnimatedOrb } from "@/components/orb/animated-orb"
 import { BootRotatingGlobe } from "@/components/boot/boot-rotating-globe"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { loadBootMusicBlob } from "@/lib/media/bootMusicStorage"
-import { playBootMusic } from "@/lib/media/bootMusicPlayer"
+import { playBootMusic, stopBootMusic, type BootMusicDiagnostic } from "@/lib/media/bootMusicPlayer"
 import { loadUserSettings, ORB_COLORS, ACCENT_COLORS, type OrbColor, type AccentColor } from "@/lib/settings/userSettings"
 
 interface NovaBootupProps {
@@ -217,6 +217,20 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     let attempts = 0
     let retryTimer: number | null = null
     let blobUrl: string | null = null
+    const bootMusicEffectStartedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+    const diagnosticsKey = "__NOVA_BOOT_AUDIO_DIAGNOSTICS__"
+    const logBootAudio = (event: string, detail?: Record<string, unknown>) => {
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now()
+      const elapsedMs = Math.max(0, Math.round(now - bootMusicEffectStartedAt))
+      const payload = { elapsedMs, event, ...(detail || {}) }
+      console.info("[NovaBootAudio]", payload)
+      try {
+        const win = window as unknown as Record<string, unknown>
+        const prev = Array.isArray(win[diagnosticsKey]) ? (win[diagnosticsKey] as unknown[]) : []
+        win[diagnosticsKey] = [...prev.slice(-79), payload]
+      } catch {
+      }
+    }
     const settings = loadUserSettings()
     const nextOrbColor = settings.app.orbColor in ORB_COLORS ? (settings.app.orbColor as OrbColor) : "violet"
     const nextAccentColor = settings.app.accentColor in ACCENT_COLORS ? (settings.app.accentColor as AccentColor) : "violet"
@@ -224,56 +238,116 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     setBootOrbColor(nextOrbColor)
     setBootAccentColor(nextAccentColor)
     setBootAssistantName(nextAssistantName)
+    logBootAudio("effect-init", {
+      bootMusicEnabled: settings.app.bootMusicEnabled,
+      hasDataUrl: Boolean(settings.app.bootMusicDataUrl),
+      hasAssetId: Boolean(settings.app.bootMusicAssetId),
+      extendedBootMusicEnabled: settings.app.extendedBootMusicEnabled,
+      retryMs: BOOT_MUSIC_RETRY_MS,
+      quickRetryMs: BOOT_MUSIC_QUICK_RETRY_MS,
+      maxAttempts: BOOT_MUSIC_MAX_ATTEMPTS,
+    })
+
+    const onPlayerDiagnostic = (entry: BootMusicDiagnostic) => {
+      logBootAudio("player-diagnostic", entry as unknown as Record<string, unknown>)
+    }
 
     const tryPlayBootMusic = async () => {
-      if (cancelled || started) return
+      if (cancelled || started) {
+        logBootAudio("attempt-skip", { reason: cancelled ? "effect-cancelled" : "already-started", attempts })
+        return
+      }
 
       const liveSettings = loadUserSettings()
-      if (!liveSettings.app.bootMusicEnabled) return
+      if (!liveSettings.app.bootMusicEnabled) {
+        logBootAudio("attempt-skip", { reason: "boot-music-disabled", attempts })
+        return
+      }
       const hasConfiguredBootMusic = Boolean(liveSettings.app.bootMusicDataUrl || liveSettings.app.bootMusicAssetId)
-      if (!hasConfiguredBootMusic) return
+      if (!hasConfiguredBootMusic) {
+        logBootAudio("attempt-skip", { reason: "no-configured-boot-music", attempts })
+        return
+      }
       attempts += 1
       const maxSeconds = liveSettings.app.extendedBootMusicEnabled ? null : 30
       let didStart = false
+      let startSource: "data-url" | "blob-url" | "none" = "none"
+      logBootAudio("attempt-start", {
+        attempt: attempts,
+        maxSeconds,
+        hasDataUrl: Boolean(liveSettings.app.bootMusicDataUrl),
+        hasAssetId: Boolean(liveSettings.app.bootMusicAssetId),
+      })
 
       if (liveSettings.app.bootMusicDataUrl) {
-        didStart = await playBootMusic(liveSettings.app.bootMusicDataUrl, { maxSeconds, volume: 0.5 })
+        didStart = await playBootMusic(liveSettings.app.bootMusicDataUrl, {
+          maxSeconds,
+          volume: 0.5,
+          onDiagnostic: onPlayerDiagnostic,
+        })
+        if (didStart) startSource = "data-url"
       }
 
       if (!didStart && !blobUrl) {
         try {
           const blob = await loadBootMusicBlob(liveSettings.app.bootMusicAssetId || undefined)
           if (cancelled) return
-          if (blob) blobUrl = URL.createObjectURL(blob)
-        } catch {
+          if (blob) {
+            blobUrl = URL.createObjectURL(blob)
+            logBootAudio("blob-load", { status: "created-object-url" })
+          } else {
+            logBootAudio("blob-load", { status: "missing-blob" })
+          }
+        } catch (error) {
+          logBootAudio("blob-load", {
+            status: "load-failed",
+            error: error instanceof Error ? error.message : String(error),
+          })
         }
       }
 
       if (!didStart && blobUrl) {
-        didStart = await playBootMusic(blobUrl, { maxSeconds, volume: 0.5, objectUrl: blobUrl })
+        didStart = await playBootMusic(blobUrl, {
+          maxSeconds,
+          volume: 0.5,
+          objectUrl: blobUrl,
+          onDiagnostic: onPlayerDiagnostic,
+        })
+        if (didStart) startSource = "blob-url"
         if (!didStart) blobUrl = null
       }
 
-      if (didStart) started = true
+      if (didStart) {
+        started = true
+        logBootAudio("attempt-success", { attempt: attempts, source: startSource })
+      } else {
+        logBootAudio("attempt-failed", { attempt: attempts, source: startSource })
+      }
     }
 
     void tryPlayBootMusic()
     const quickRetry = window.setTimeout(() => {
-      if (!started && !cancelled) void tryPlayBootMusic()
+      if (!started && !cancelled) {
+        logBootAudio("quick-retry-fire", { attempts })
+        void tryPlayBootMusic()
+      }
     }, BOOT_MUSIC_QUICK_RETRY_MS)
     retryTimer = window.setInterval(() => {
       if (started || attempts >= BOOT_MUSIC_MAX_ATTEMPTS) {
         if (retryTimer !== null) {
           window.clearInterval(retryTimer)
           retryTimer = null
+          logBootAudio("retry-loop-stop", { started, attempts })
         }
         return
       }
+      logBootAudio("retry-tick", { attempts })
       void tryPlayBootMusic()
     }, BOOT_MUSIC_RETRY_MS)
 
     const onUserChanged = () => {
       if (started || cancelled) return
+      logBootAudio("active-user-changed", { attempts })
       void tryPlayBootMusic()
     }
     window.addEventListener(ACTIVE_USER_CHANGED_EVENT, onUserChanged as EventListener)
@@ -283,6 +357,8 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
       window.clearTimeout(quickRetry)
       if (retryTimer !== null) window.clearInterval(retryTimer)
       window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, onUserChanged as EventListener)
+      logBootAudio("effect-cleanup", { attempts, started })
+      stopBootMusic()
     }
   }, [])
 

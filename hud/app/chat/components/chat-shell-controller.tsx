@@ -81,6 +81,7 @@ export function ChatShellController() {
     ensureServerConversationForOptimistic,
     resolveConversationIdForAgent,
     resolveSessionConversationIdForAgent,
+    pendingQueueStatus,
   } = useConversations({
     agentConnected,
     agentMessages,
@@ -426,6 +427,22 @@ export function ChatShellController() {
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-page" : "bg-transparent")}>
+      {pendingQueueStatus.mode !== "idle" ? (
+        <div className="pointer-events-none fixed left-1/2 top-5 z-50 -translate-x-1/2">
+          <div
+            className={cn(
+              "rounded-lg border px-3 py-2 text-xs backdrop-blur-md shadow-lg",
+              isLight
+                ? "border-amber-300/40 bg-amber-500/12 text-amber-700"
+                : "border-amber-300/40 bg-amber-500/15 text-amber-200",
+            )}
+          >
+            {pendingQueueStatus.mode === "retrying"
+              ? `${pendingQueueStatus.message} Retrying in ${pendingQueueStatus.retryInSeconds}s.`
+              : "Processing pending mission output..."}
+          </div>
+        </div>
+      ) : null}
 
       {/* Sidebar */}
       <ChatSidebar

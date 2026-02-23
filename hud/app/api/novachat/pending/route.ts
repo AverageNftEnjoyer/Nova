@@ -17,7 +17,12 @@ export async function GET(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.novachatPendingPoll)
-  if (!limit.allowed) return rateLimitExceededResponse(limit, "Polling too quickly. Slow down and retry.")
+  if (!limit.allowed) {
+    return rateLimitExceededResponse(
+      limit,
+      "Nova is still processing queued mission output. Please retry after the provided cooldown.",
+    )
+  }
 
   try {
     const messages = await loadPendingMessages(verified.user.id)

@@ -240,6 +240,24 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         fetchIncludeSources: false,
       }
     }
+    if (type === "coinbase") {
+      return {
+        id,
+        type,
+        title: titleOverride ?? "Run Coinbase step",
+        coinbaseIntent: "report",
+        coinbaseParams: {
+          assets: ["BTC", "ETH", "SOL"],
+          quoteCurrency: "USD",
+          cadence: "daily",
+          includePreviousArtifactContext: true,
+        },
+        coinbaseFormat: {
+          style: "standard",
+          includeRawMetadata: true,
+        },
+      }
+    }
     if (type === "transform") {
       return {
         id,
@@ -475,6 +493,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
             title?: string
             status?: string
             detail?: string
+            errorCode?: string
+            artifactRef?: string
+            retryCount?: number
             startedAt?: string
             endedAt?: string
           }
@@ -496,6 +517,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
             })(),
             status: normalizedStatus,
             detail: typeof next.detail === "string" && next.detail.trim() ? next.detail.trim() : undefined,
+            errorCode: typeof next.errorCode === "string" && next.errorCode.trim() ? next.errorCode.trim() : undefined,
+            artifactRef: typeof next.artifactRef === "string" && next.artifactRef.trim() ? next.artifactRef.trim() : undefined,
+            retryCount: Number.isFinite(Number(next.retryCount)) ? Number(next.retryCount) : undefined,
             startedAt: typeof next.startedAt === "string" && next.startedAt.trim() ? next.startedAt : undefined,
             endedAt: typeof next.endedAt === "string" && next.endedAt.trim() ? next.endedAt : undefined,
           }
@@ -512,6 +536,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     title?: string
     status?: string
     detail?: string
+    errorCode?: string
+    artifactRef?: string
+    retryCount?: number
     startedAt?: string
     endedAt?: string
   }) => {
@@ -539,6 +566,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
               title: String(trace.title || step.title || `Step ${index + 1}`),
               status,
               detail: typeof trace.detail === "string" && trace.detail.trim() ? trace.detail.trim() : step.detail,
+              errorCode: typeof trace.errorCode === "string" && trace.errorCode.trim() ? trace.errorCode.trim() : step.errorCode,
+              artifactRef: typeof trace.artifactRef === "string" && trace.artifactRef.trim() ? trace.artifactRef.trim() : step.artifactRef,
+              retryCount: Number.isFinite(Number(trace.retryCount)) ? Number(trace.retryCount) : step.retryCount,
               startedAt: typeof trace.startedAt === "string" && trace.startedAt.trim() ? trace.startedAt : step.startedAt,
               endedAt: typeof trace.endedAt === "string" && trace.endedAt.trim() ? trace.endedAt : step.endedAt,
             }
@@ -598,6 +628,54 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
             fetchSelector: typeof step.fetchSelector === "string" ? step.fetchSelector : base.fetchSelector,
             fetchRefreshMinutes: typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes.trim() ? step.fetchRefreshMinutes : base.fetchRefreshMinutes,
             fetchIncludeSources: normalizeFetchIncludeSources(step.fetchIncludeSources),
+          } as WorkflowStep
+        }
+
+        if (resolvedType === "coinbase") {
+          return {
+            ...base,
+            title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
+            coinbaseIntent:
+              step.coinbaseIntent === "status" ||
+              step.coinbaseIntent === "price" ||
+              step.coinbaseIntent === "portfolio" ||
+              step.coinbaseIntent === "transactions" ||
+              step.coinbaseIntent === "report"
+                ? step.coinbaseIntent
+                : base.coinbaseIntent,
+            coinbaseParams: {
+              assets: Array.isArray(step.coinbaseParams?.assets)
+                ? step.coinbaseParams.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
+                : base.coinbaseParams?.assets,
+              quoteCurrency:
+                typeof step.coinbaseParams?.quoteCurrency === "string" && step.coinbaseParams.quoteCurrency.trim()
+                  ? step.coinbaseParams.quoteCurrency.trim().toUpperCase()
+                  : base.coinbaseParams?.quoteCurrency,
+              thresholdPct: Number.isFinite(Number(step.coinbaseParams?.thresholdPct))
+                ? Number(step.coinbaseParams?.thresholdPct)
+                : base.coinbaseParams?.thresholdPct,
+              cadence:
+                typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence.trim()
+                  ? step.coinbaseParams.cadence
+                  : base.coinbaseParams?.cadence,
+              transactionLimit: Number.isFinite(Number(step.coinbaseParams?.transactionLimit))
+                ? Number(step.coinbaseParams?.transactionLimit)
+                : base.coinbaseParams?.transactionLimit,
+              includePreviousArtifactContext: typeof step.coinbaseParams?.includePreviousArtifactContext === "boolean"
+                ? step.coinbaseParams.includePreviousArtifactContext
+                : base.coinbaseParams?.includePreviousArtifactContext,
+            },
+            coinbaseFormat: {
+              style:
+                step.coinbaseFormat?.style === "concise" ||
+                step.coinbaseFormat?.style === "standard" ||
+                step.coinbaseFormat?.style === "detailed"
+                  ? step.coinbaseFormat.style
+                  : base.coinbaseFormat?.style,
+              includeRawMetadata: typeof step.coinbaseFormat?.includeRawMetadata === "boolean"
+                ? step.coinbaseFormat.includeRawMetadata
+                : base.coinbaseFormat?.includeRawMetadata,
+            },
           } as WorkflowStep
         }
 
@@ -1020,6 +1098,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
             if (step.fetchUrl?.trim()) return [`${step.fetchMethod === "POST" ? "POST" : "GET"} ${step.fetchUrl.trim()}`]
             return [`FETCH:${step.fetchSource || "api"}`]
           }
+          if (step.type === "coinbase") return [`COINBASE:${step.coinbaseIntent || "report"}`]
           if (step.type === "ai") return [`LLM:${step.aiIntegration || integrationsSettings.activeLlmProvider}`]
           if (step.type === "output") return [`OUTPUT:${step.outputChannel || "telegram"}`]
           return []

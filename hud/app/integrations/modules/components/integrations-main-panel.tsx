@@ -4,16 +4,16 @@ import { cn } from "@/lib/shared/utils"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { NovaSwitch } from "@/components/ui/nova-switch"
 
-import { LlmSetupPanel, GmailSetupPanel } from "../../components"
+import { LlmSetupPanel, GmailSetupPanel, SecretInput } from "../../components"
 import { COINBASE_TIMEZONE_OPTIONS, COINBASE_CURRENCY_OPTIONS, COINBASE_CADENCE_OPTIONS } from "../coinbase/meta"
 import type { IntegrationsMainPanelProps } from "../types"
 
 export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
   const {
     activeSetup, panelStyle, panelClass, moduleHeightClass, isLight, subPanelClass, settings, isSavingTarget,
-    braveNeedsKeyWarning, braveApiKeyConfigured, braveApiKeyMasked, coinbaseNeedsKeyWarning, coinbasePendingAction, coinbaseSyncBadgeClass, coinbaseSyncLabel,
+    telegramNeedsKeyWarning, braveApiKeyConfigured, braveApiKeyMasked, coinbaseNeedsKeyWarning, coinbasePendingAction, coinbaseSyncBadgeClass, coinbaseSyncLabel,
     coinbaseLastSyncText, coinbaseFreshnessText, coinbaseErrorText, coinbaseHasKeys, coinbaseScopeSummary, coinbasePrivacy, coinbasePrivacyHydrated, coinbasePrivacySaving, coinbasePrivacyError,
-    coinbaseApiKey, setCoinbaseApiKey, showCoinbaseApiKey, setShowCoinbaseApiKey, coinbaseApiKeyConfigured,
+    coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
     coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
     coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, telegramSetupSectionRef,
     discordSetupSectionRef, braveSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef, setBotToken,
@@ -63,39 +63,19 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
               </div>
 
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
-                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Bot Token</p>
-                  {botTokenConfigured && botTokenMasked && (
-                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                      Token on server: <span className="font-mono">{botTokenMasked}</span>
-                    </p>
-                  )}
-                  <div>
-                    <input
-                      type="password"
-                      value={botToken}
-                      onChange={(e) => setBotToken(e.target.value)}
-                      placeholder={botTokenConfigured ? "Enter new bot token to replace current token" : "1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
-                      name="telegram_token_input"
-                      autoComplete="off"
-                      data-lpignore="true"
-                      data-1p-ignore="true"
-                      data-form-type="other"
-                      spellCheck={false}
-                      autoCorrect="off"
-                      autoCapitalize="none"
-                      data-gramm="false"
-                      data-gramm_editor="false"
-                      data-enable-grammarly="false"
-                      className={cn(
-                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
-                        isLight
-                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
-                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
-                      )}
-                    />
-                  </div>
-                </div>
+                <SecretInput
+                  value={botToken}
+                  onChange={setBotToken}
+                  label="Bot Token"
+                  placeholder="1234567890:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  placeholderWhenConfigured="Enter new bot token to replace current token"
+                  maskedValue={botTokenMasked}
+                  isConfigured={botTokenConfigured}
+                  serverLabel="Token on server"
+                  name="telegram_token_input"
+                  isLight={isLight}
+                  subPanelClass={subPanelClass}
+                />
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
                   <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Chat IDs</p>
@@ -124,7 +104,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
-                    {braveNeedsKeyWarning && (
+                    {telegramNeedsKeyWarning && (
                       <p className={cn("text-[11px]", isLight ? "text-amber-700" : "text-amber-300")}>
                         Key missing
                       </p>
@@ -284,37 +264,18 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
               </div>
 
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
-                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>API Key</p>
-                  {braveApiKeyConfigured && braveApiKeyMasked && (
-                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                      Key on server: <span className="font-mono">{braveApiKeyMasked}</span>
-                    </p>
-                  )}
-                  <input
-                    type="password"
-                    value={braveApiKey}
-                    onChange={(e) => setBraveApiKey(e.target.value)}
-                    placeholder={braveApiKeyConfigured ? "Enter new key to replace current key" : "BSAI-xxxxxxxxxxxxxxxx"}
-                    name="brave_api_key_input"
-                    autoComplete="off"
-                    data-lpignore="true"
-                    data-1p-ignore="true"
-                    data-form-type="other"
-                    spellCheck={false}
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    data-gramm="false"
-                    data-gramm_editor="false"
-                    data-enable-grammarly="false"
-                    className={cn(
-                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
-                      isLight
-                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
-                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
-                    )}
-                  />
-                </div>
+                <SecretInput
+                  value={braveApiKey}
+                  onChange={setBraveApiKey}
+                  label="API Key"
+                  placeholder="BSAI-xxxxxxxxxxxxxxxx"
+                  placeholderWhenConfigured="Enter new key to replace current key"
+                  maskedValue={braveApiKeyMasked}
+                  isConfigured={braveApiKeyConfigured}
+                  name="brave_api_key_input"
+                  isLight={isLight}
+                  subPanelClass={subPanelClass}
+                />
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
                   <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
@@ -571,62 +532,33 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   </p>
                 </div>
 
-                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Secret API Key</p>
-                  {coinbaseApiKeyConfigured && coinbaseApiKeyMasked && (
-                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                      Key on server: <span className="font-mono">{coinbaseApiKeyMasked}</span>
-                    </p>
-                  )}
-                  <div className="relative">
-                    <input
-                      type={showCoinbaseApiKey ? "text" : "password"}
-                      value={coinbaseApiKey}
-                      onChange={(e) => setCoinbaseApiKey(e.target.value)}
-                      placeholder={coinbaseApiKeyConfigured ? "Enter new key to replace current key" : "organizations/{org_id}/apiKeys/{key_id}"}
-                      name="coinbase_api_key_input"
-                      autoComplete="off"
-                      data-lpignore="true"
-                      data-1p-ignore="true"
-                      data-form-type="other"
-                      spellCheck={false}
-                      autoCorrect="off"
-                      autoCapitalize="none"
-                      data-gramm="false"
-                      data-gramm_editor="false"
-                      data-enable-grammarly="false"
-                      className={cn(
-                        "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
-                        isLight
-                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
-                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
-                        )}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCoinbaseApiKey((v: boolean) => !v)}
-                      className={cn(
-                        "absolute right-2 top-1/2 z-10 -translate-y-1/2 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150",
-                        isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10",
-                      )}
-                      aria-label={showCoinbaseApiKey ? "Hide API key" : "Show API key"}
-                      title={showCoinbaseApiKey ? "Hide API key" : "Show API key"}
-                    >
-                      {showCoinbaseApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
-                    Paste the Coinbase secret API key value (usually <span className="font-mono">organizations/.../apiKeys/...</span>). Do not paste the nickname.
-                  </p>
-                </div>
+                <SecretInput
+                  value={coinbaseApiKey}
+                  onChange={setCoinbaseApiKey}
+                  label="Secret API Key"
+                  placeholder="organizations/{org_id}/apiKeys/{key_id}"
+                  placeholderWhenConfigured="Enter new key to replace current key"
+                  maskedValue={coinbaseApiKeyMasked}
+                  isConfigured={coinbaseApiKeyConfigured}
+                  name="coinbase_api_key_input"
+                  isLight={isLight}
+                  subPanelClass={subPanelClass}
+                  hint={
+                    <>
+                      Paste the Coinbase secret API key value (usually <span className="font-mono">organizations/.../apiKeys/...</span>). Do not paste the nickname.
+                    </>
+                  }
+                />
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Secret</p>
-                  {coinbaseApiSecretConfigured && coinbaseApiSecretMasked && (
-                    <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                      Secret on server: <span className="font-mono">{coinbaseApiSecretMasked}</span>
-                    </p>
-                  )}
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Secret</p>
+                    {coinbaseApiSecretConfigured && coinbaseApiSecretMasked && (
+                      <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                        Secret on server: <span className="font-mono">{coinbaseApiSecretMasked}</span>
+                      </p>
+                    )}
+                  </div>
                   <div className="relative">
                     <textarea
                       value={coinbaseApiSecret}

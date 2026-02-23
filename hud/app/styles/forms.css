@@ -7,3 +7,9 @@ input:-webkit-autofill:active {
   transition: background-color 9999s ease-out 0s;
   -webkit-box-shadow: 0 0 0 1000px rgba(0, 0, 0, 0.35) inset !important;
 }
+
+/* Hide native Edge/IE password reveal controls when custom eye toggles are used. */
+.no-edge-reveal::-ms-reveal,
+.no-edge-reveal::-ms-clear {
+  display: none;
+}

@@ -12,7 +12,7 @@ import type { WorkflowStep, WorkflowStepType, AiDetailLevel } from "../types"
 export function normalizeWorkflowStep(raw: WorkflowStep, index: number): WorkflowStep {
   const type = String(raw.type || "output").toLowerCase()
   const stepType: WorkflowStepType =
-    type === "trigger" || type === "fetch" || type === "ai" || type === "transform" || type === "condition" || type === "output"
+    type === "trigger" || type === "fetch" || type === "coinbase" || type === "ai" || type === "transform" || type === "condition" || type === "output"
       ? (type as WorkflowStepType)
       : "output"
   const normalized: WorkflowStep = {
@@ -26,6 +26,37 @@ export function normalizeWorkflowStep(raw: WorkflowStep, index: number): Workflo
   }
   if (stepType === "ai") {
     normalized.aiDetailLevel = resolveAiDetailLevel(raw.aiDetailLevel, "standard")
+  }
+  if (stepType === "coinbase") {
+    const normalizedIntent = String(raw.coinbaseIntent || "").trim().toLowerCase()
+    normalized.coinbaseIntent =
+      normalizedIntent === "status" ||
+      normalizedIntent === "price" ||
+      normalizedIntent === "portfolio" ||
+      normalizedIntent === "transactions" ||
+      normalizedIntent === "report"
+        ? normalizedIntent
+        : "report"
+    normalized.coinbaseParams = {
+      assets: Array.isArray(raw.coinbaseParams?.assets)
+        ? raw.coinbaseParams?.assets.map((value) => String(value).trim()).filter(Boolean).slice(0, 8)
+        : undefined,
+      quoteCurrency: typeof raw.coinbaseParams?.quoteCurrency === "string" ? raw.coinbaseParams.quoteCurrency : undefined,
+      thresholdPct: Number.isFinite(Number(raw.coinbaseParams?.thresholdPct)) ? Number(raw.coinbaseParams?.thresholdPct) : undefined,
+      cadence: typeof raw.coinbaseParams?.cadence === "string" ? raw.coinbaseParams.cadence : undefined,
+      transactionLimit: Number.isFinite(Number(raw.coinbaseParams?.transactionLimit)) ? Number(raw.coinbaseParams?.transactionLimit) : undefined,
+      includePreviousArtifactContext:
+        typeof raw.coinbaseParams?.includePreviousArtifactContext === "boolean"
+          ? raw.coinbaseParams.includePreviousArtifactContext
+          : true,
+    }
+    normalized.coinbaseFormat = {
+      style: typeof raw.coinbaseFormat?.style === "string" ? raw.coinbaseFormat.style : "standard",
+      includeRawMetadata: typeof raw.coinbaseFormat?.includeRawMetadata === "boolean" ? raw.coinbaseFormat.includeRawMetadata : true,
+    }
+    if (!raw.title || /^coinbase$/i.test(String(raw.title))) {
+      normalized.title = "Run Coinbase step"
+    }
   }
   if (stepType === "output") {
     const channel = String(raw.outputChannel || "").trim().toLowerCase()

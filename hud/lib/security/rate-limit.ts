@@ -177,8 +177,15 @@ export function createRateLimitHeaders(decision: RateLimitDecision, base?: Heade
 }
 
 export function rateLimitExceededResponse(decision: RateLimitDecision, error = "Rate limit exceeded."): NextResponse {
+  const retryAfterMs = Math.max(0, Math.round(Number(decision.retryAfterSeconds || 0) * 1000))
   return NextResponse.json(
-    { ok: false, error },
+    {
+      ok: false,
+      code: "RATE_LIMITED",
+      error,
+      message: error,
+      retryAfterMs,
+    },
     {
       status: 429,
       headers: createRateLimitHeaders(decision),

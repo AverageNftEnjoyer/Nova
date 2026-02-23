@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
 
@@ -13,6 +13,7 @@ export interface SecretInputProps {
   maskedValue?: string
   isConfigured?: boolean
   serverLabel?: string
+  hint?: ReactNode
   name?: string
   isLight: boolean
   subPanelClass: string
@@ -27,6 +28,7 @@ export function SecretInput({
   maskedValue,
   isConfigured = false,
   serverLabel = "Key on server",
+  hint,
   name,
   isLight,
   subPanelClass,
@@ -35,14 +37,16 @@ export function SecretInput({
 
   return (
     <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
-      <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
-        {label}
-      </p>
-      {isConfigured && maskedValue && (
-        <p className={cn("mb-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-          {serverLabel}: <span className="font-mono">{maskedValue}</span>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
+          {label}
         </p>
-      )}
+        {isConfigured && maskedValue && (
+          <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+            {serverLabel}: <span className="font-mono">{maskedValue}</span>
+          </p>
+        )}
+      </div>
       <div className="relative">
         <input
           type={showValue ? "text" : "password"}
@@ -61,7 +65,7 @@ export function SecretInput({
           data-gramm_editor="false"
           data-enable-grammarly="false"
           className={cn(
-            "w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+            "no-edge-reveal w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
             isLight
               ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
               : "border-white/10 text-slate-100 placeholder:text-slate-500"
@@ -71,7 +75,7 @@ export function SecretInput({
           type="button"
           onClick={() => setShowValue((v) => !v)}
           className={cn(
-            "absolute right-1 top-1 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
+            "absolute right-2 top-1/2 z-10 -translate-y-1/2 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150",
             isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10"
           )}
           aria-label={showValue ? "Hide value" : "Show value"}
@@ -80,6 +84,11 @@ export function SecretInput({
           {showValue ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
         </button>
       </div>
+      {hint ? (
+        <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+          {hint}
+        </p>
+      ) : null}
     </div>
   )
 }

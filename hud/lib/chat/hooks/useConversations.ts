@@ -15,6 +15,13 @@ import {
   resolveConversationTitle,
 } from "@/lib/chat/conversations"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
+import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user"
+import {
+  buildPendingPollScopeKey,
+  computeBackoffDelayMs,
+  defaultPollIntervalMs,
+  parseRetryAfterMs,
+} from "@/lib/novachat/polling-resilience"
 
 function parseIsoTimestamp(value: string | undefined): number {
   const ts = Date.parse(String(value || ""))
@@ -123,6 +130,31 @@ const USER_ECHO_DEDUP_MS = 15_000
 const ASSISTANT_ECHO_DEDUP_MS = 60_000
 /** Local optimistic ids from home are generateId() format. */
 const OPTIMISTIC_ID_REGEX = /^\d+-[a-z0-9]+$/
+const MISSION_SPAM_COOLDOWN_MS = 30_000
+const MISSION_INFLIGHT_MAX_MS = 90_000
+const PENDING_POLL_LEASE_TTL_MS = 12_000
+const PENDING_POLL_LEASE_STORAGE_KEY = "nova_pending_poll_lease_v1"
+
+function normalizeMissionPromptSignature(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 260)
+}
+
+function isLikelyMissionPrompt(value: string): boolean {
+  const text = normalizeMissionPromptSignature(value)
+  if (!text) return false
+  return /\b(mission|workflow|automation|schedule|scheduled|remind|reminder|every day|daily|weekday)\b/.test(text)
+}
+
+function buildMissionScopeKey(userContextId: string, sessionConversationId: string): string {
+  const user = String(userContextId || "").trim().toLowerCase() || "anonymous"
+  const convo = String(sessionConversationId || "").trim().toLowerCase() || "none"
+  return `mission:${user}:${convo}`
+}
 
 function normalizeMessageSignature(value: string): string {
   return String(value || "")
@@ -437,6 +469,11 @@ export interface UseConversationsReturn {
   ensureServerConversationForOptimistic: (convo: Conversation) => Promise<void>
   resolveConversationIdForAgent: (conversationId: string) => string
   resolveSessionConversationIdForAgent: (conversationId: string) => string
+  pendingQueueStatus: {
+    mode: "idle" | "processing" | "retrying"
+    message: string
+    retryInSeconds: number
+  }
 }
 
 export function useConversations({
@@ -455,6 +492,24 @@ export function useConversations({
   const mergedCountRef = useRef(0)
   const syncTimersRef = useRef<Map<string, number>>(new Map())
   const pendingMessagesInFlightRef = useRef(false)
+  const pendingPollPromiseRef = useRef<Promise<number> | null>(null)
+  const pendingPollAbortRef = useRef<AbortController | null>(null)
+  const pendingPollBackoffTimerRef = useRef<number | null>(null)
+  const pendingRedirectTimerRef = useRef<number | null>(null)
+  const pendingPollBackoffAttemptsRef = useRef(0)
+  const pendingPollScopeKeyRef = useRef("")
+  const pendingPollTabIdRef = useRef(`tab-${Math.random().toString(36).slice(2, 10)}`)
+  const activeUserIdRef = useRef("")
+  const missionInFlightByScopeRef = useRef<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>(new Map())
+  const [pendingQueueStatus, setPendingQueueStatus] = useState<{
+    mode: "idle" | "processing" | "retrying"
+    message: string
+    retryAtMs: number
+  }>({
+    mode: "idle",
+    message: "",
+    retryAtMs: 0,
+  })
   const processedAgentMessageKeysRef = useRef<Set<string>>(new Set())
   /** When we replace an optimistic convo with server convo, agent replies may still use the old id; route them to the server convo */
   const optimisticIdToServerIdRef = useRef<Map<string, string>>(new Map())
@@ -465,6 +520,17 @@ export function useConversations({
   const latestActiveConvoIdRef = useRef<string>("")
   latestConversationsRef.current = conversations
   latestActiveConvoIdRef.current = String(activeConvo?.id || "").trim()
+
+  useEffect(() => {
+    const updateActiveUser = () => {
+      activeUserIdRef.current = String(getActiveUserId() || "").trim()
+    }
+    updateActiveUser()
+    window.addEventListener(ACTIVE_USER_CHANGED_EVENT, updateActiveUser as EventListener)
+    return () => {
+      window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, updateActiveUser as EventListener)
+    }
+  }, [])
 
   // Server API functions
   const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
@@ -525,6 +591,102 @@ export function useConversations({
     if (!normalized) return ""
     return sessionConversationIdByConversationIdRef.current.get(normalized) || normalized
   }, [])
+
+  useEffect(() => {
+    if (pendingQueueStatus.mode !== "retrying") return
+    const tick = window.setInterval(() => {
+      setPendingQueueStatus((prev) => {
+        if (prev.mode !== "retrying") return prev
+        if (prev.retryAtMs <= Date.now()) return { mode: "processing", message: "Retrying pending queue...", retryAtMs: 0 }
+        return { ...prev }
+      })
+    }, 250)
+    return () => window.clearInterval(tick)
+  }, [pendingQueueStatus.mode])
+
+  const tryAcquirePendingPollLease = useCallback((scopeKey: string): boolean => {
+    if (typeof window === "undefined") return true
+    const nowMs = Date.now()
+    const holder = String(pendingPollTabIdRef.current || "").trim()
+    if (!holder || !scopeKey) return true
+    try {
+      const raw = localStorage.getItem(PENDING_POLL_LEASE_STORAGE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw) as { scopeKey?: string; holder?: string; expiresAt?: number }
+        const existingScope = String(parsed.scopeKey || "").trim()
+        const existingHolder = String(parsed.holder || "").trim()
+        const expiresAt = Number(parsed.expiresAt || 0)
+        if (existingScope === scopeKey && existingHolder && existingHolder !== holder && expiresAt > nowMs) {
+          return false
+        }
+      }
+      const next = {
+        scopeKey,
+        holder,
+        expiresAt: nowMs + PENDING_POLL_LEASE_TTL_MS,
+      }
+      localStorage.setItem(PENDING_POLL_LEASE_STORAGE_KEY, JSON.stringify(next))
+      const confirmRaw = localStorage.getItem(PENDING_POLL_LEASE_STORAGE_KEY)
+      if (!confirmRaw) return false
+      const confirm = JSON.parse(confirmRaw) as { scopeKey?: string; holder?: string; expiresAt?: number }
+      return (
+        String(confirm.scopeKey || "").trim() === scopeKey
+        && String(confirm.holder || "").trim() === holder
+        && Number(confirm.expiresAt || 0) > nowMs
+      )
+    } catch {
+      // If storage is unavailable, fall back to single-tab runtime guards.
+      return true
+    }
+  }, [])
+
+  const releasePendingPollLease = useCallback((scopeKey: string): void => {
+    if (typeof window === "undefined") return
+    const holder = String(pendingPollTabIdRef.current || "").trim()
+    if (!holder || !scopeKey) return
+    try {
+      const raw = localStorage.getItem(PENDING_POLL_LEASE_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { scopeKey?: string; holder?: string; expiresAt?: number }
+      if (String(parsed.scopeKey || "").trim() !== scopeKey) return
+      if (String(parsed.holder || "").trim() !== holder) return
+      localStorage.removeItem(PENDING_POLL_LEASE_STORAGE_KEY)
+    } catch {
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      releasePendingPollLease(String(pendingPollScopeKeyRef.current || ""))
+      if (pendingPollBackoffTimerRef.current !== null) {
+        window.clearTimeout(pendingPollBackoffTimerRef.current)
+        pendingPollBackoffTimerRef.current = null
+      }
+      if (pendingRedirectTimerRef.current !== null) {
+        window.clearTimeout(pendingRedirectTimerRef.current)
+        pendingRedirectTimerRef.current = null
+      }
+      pendingPollAbortRef.current?.abort()
+      pendingPollAbortRef.current = null
+      pendingPollPromiseRef.current = null
+    }
+  }, [releasePendingPollLease])
+
+  useEffect(() => {
+    const nextScopeKey = buildPendingPollScopeKey(
+      activeUserIdRef.current,
+      resolveSessionConversationIdForAgent(activeConvo?.id || ""),
+    )
+    if (pendingPollScopeKeyRef.current && pendingPollScopeKeyRef.current !== nextScopeKey) {
+      releasePendingPollLease(String(pendingPollScopeKeyRef.current || ""))
+      pendingPollAbortRef.current?.abort()
+      pendingPollAbortRef.current = null
+      pendingPollPromiseRef.current = null
+      pendingMessagesInFlightRef.current = false
+      setPendingQueueStatus((prev) => (prev.mode === "idle" ? prev : { mode: "idle", message: "", retryAtMs: 0 }))
+    }
+    pendingPollScopeKeyRef.current = nextScopeKey
+  }, [activeConvo?.id, resolveSessionConversationIdForAgent, releasePendingPollLease])
 
   const reconcileOptimisticConversationMappings = useCallback(
     (localConvos: Conversation[], remoteConvos: Conversation[]) => {
@@ -633,9 +795,12 @@ export function useConversations({
       return
     }
     if (shouldOpenPendingNovaChat) {
+      const activeId = getActiveId()
+      const activeFromCache =
+        (activeId ? cachedConversations.find((c) => c.id === activeId) : null) ?? cachedConversations[0]
       setConversations(cachedConversations)
-      setActiveConvo(null)
-      setActiveId(null)
+      setActiveConvo(activeFromCache || null)
+      if (activeFromCache) setActiveId(activeFromCache.id)
       setIsLoaded(true)
       return
     }
@@ -665,11 +830,14 @@ export function useConversations({
         const selectedActiveId = resolveConversationSelectionId(activeId || "", mergedConvos)
         const found = mergedConvos.find((c) => c.id === selectedActiveId)
         if (shouldOpenPendingNovaChat) {
+          const fallbackActiveId = getActiveId()
+          const fallbackActive =
+            (fallbackActiveId ? mergedConvos.find((c) => c.id === fallbackActiveId) : null) ?? mergedConvos[0] ?? null
           setConversations(mergedConvos)
           saveConversations(mergedConvos)
           writeShellUiCache({ conversations: mergedConvos })
-          setActiveConvo(null)
-          setActiveId(null)
+          setActiveConvo(fallbackActive)
+          if (fallbackActive) setActiveId(fallbackActive.id)
           setIsLoaded(true)
           return
         }
@@ -726,129 +894,224 @@ export function useConversations({
 
   // Process pending NovaChat messages
   const processPendingNovaChatMessages = useCallback(async (): Promise<number> => {
-    if (!isLoaded || pendingMessagesInFlightRef.current) return 0
+    if (!isLoaded) return 0
+    if (pendingPollPromiseRef.current) return pendingPollPromiseRef.current
+    if (pendingMessagesInFlightRef.current) return 0
     pendingMessagesInFlightRef.current = true
-    try {
-      const res = await fetch("/api/novachat/pending", { cache: "no-store" })
-      if (!res.ok) return 0
-      const data = await res.json() as {
-        ok: boolean
-        messages?: Array<{
-          id: string
-          title: string
-          content: string
-          missionId?: string
-          missionLabel?: string
-          metadata?: {
-            missionRunId?: string
-            runKey?: string
-            attempt?: number
-            source?: "scheduler" | "trigger"
-            outputChannel?: string
-          }
-          createdAt: string
-        }>
-      }
-      if (!data.ok || !Array.isArray(data.messages) || data.messages.length === 0) return 0
-
-      const consumedIds: string[] = []
-      let latestConvo: Conversation | null = null
-      let updatedConvos = [...conversations]
-
-      for (const msg of data.messages) {
-        const newConvo = await createServerConversation().catch(() => null)
-        if (!newConvo) continue
-
-        const assistantMsg: ChatMessage = {
-          id: generateId(),
-          role: "assistant",
-          content: msg.content,
-          createdAt: msg.createdAt || new Date().toISOString(),
-          source: "agent",
-          sender: msg.missionLabel || "Nova Mission",
-          missionId: msg.missionId,
-          missionLabel: msg.missionLabel,
-          missionRunId: msg.metadata?.missionRunId,
-          missionRunKey: msg.metadata?.runKey,
-          missionAttempt:
-            Number.isFinite(Number(msg.metadata?.attempt || 0)) && Number(msg.metadata?.attempt || 0) > 0
-              ? Number(msg.metadata?.attempt || 0)
-              : undefined,
-          missionSource: msg.metadata?.source,
-          missionOutputChannel: msg.metadata?.outputChannel,
-        }
-
-        const convoWithMessage: Conversation = {
-          ...newConvo,
-          title: msg.title || msg.missionLabel || "Mission Report",
-          messages: [assistantMsg],
-          updatedAt: new Date().toISOString(),
-        }
-
-        const synced = await syncServerMessages(convoWithMessage).then(() => true).catch(() => false)
-        if (!synced) continue
-
-        consumedIds.push(msg.id)
-        updatedConvos = [convoWithMessage, ...updatedConvos.filter((c) => c.id !== convoWithMessage.id)]
-        latestConvo = convoWithMessage
-      }
-
-      if (latestConvo) {
-        persist(updatedConvos, latestConvo)
-      }
-
-      if (consumedIds.length > 0) {
-        await fetch("/api/novachat/pending", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageIds: consumedIds }),
-        }).catch(() => {})
-      }
-      return consumedIds.length
-    } catch {
-      return 0
-    } finally {
+    const pollScopeKey = buildPendingPollScopeKey(
+      activeUserIdRef.current,
+      resolveSessionConversationIdForAgent(activeConvo?.id || ""),
+    )
+    pendingPollScopeKeyRef.current = pollScopeKey
+    if (!tryAcquirePendingPollLease(pollScopeKey)) {
       pendingMessagesInFlightRef.current = false
+      return 0
     }
-  }, [isLoaded, conversations, createServerConversation, syncServerMessages, persist])
+    const controller = new AbortController()
+    pendingPollAbortRef.current = controller
+    const run = (async () => {
+      try {
+        setPendingQueueStatus((prev) => (prev.mode === "idle" ? { mode: "processing", message: "Checking pending queue...", retryAtMs: 0 } : prev))
+        const res = await fetch("/api/novachat/pending", {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        if (res.status === 429) {
+          const body = await res.json().catch(() => ({})) as { retryAfterMs?: number }
+          const retryAfterMs = Math.max(
+            parseRetryAfterMs(res.headers.get("Retry-After"), Number(body?.retryAfterMs || 0)),
+            defaultPollIntervalMs(),
+          )
+          pendingPollBackoffAttemptsRef.current += 1
+          const delay = computeBackoffDelayMs({
+            attempt: pendingPollBackoffAttemptsRef.current,
+            retryAfterMs,
+          })
+          setPendingQueueStatus({
+            mode: "retrying",
+            message: "Pending queue rate-limited. Retrying shortly.",
+            retryAtMs: Date.now() + delay,
+          })
+          if (pendingPollBackoffTimerRef.current !== null) window.clearTimeout(pendingPollBackoffTimerRef.current)
+          pendingPollBackoffTimerRef.current = window.setTimeout(() => {
+            pendingPollBackoffTimerRef.current = null
+            void processPendingNovaChatMessages()
+          }, delay)
+          return 0
+        }
+        if (!res.ok) {
+          pendingPollBackoffAttemptsRef.current += 1
+          const delay = computeBackoffDelayMs({ attempt: pendingPollBackoffAttemptsRef.current })
+          setPendingQueueStatus({
+            mode: "retrying",
+            message: "Pending queue temporarily unavailable. Retrying.",
+            retryAtMs: Date.now() + delay,
+          })
+          if (pendingPollBackoffTimerRef.current !== null) window.clearTimeout(pendingPollBackoffTimerRef.current)
+          pendingPollBackoffTimerRef.current = window.setTimeout(() => {
+            pendingPollBackoffTimerRef.current = null
+            void processPendingNovaChatMessages()
+          }, delay)
+          return 0
+        }
+        pendingPollBackoffAttemptsRef.current = 0
+        setPendingQueueStatus((prev) => (prev.mode === "idle" ? prev : { mode: "idle", message: "", retryAtMs: 0 }))
+        const data = await res.json() as {
+          ok: boolean
+          messages?: Array<{
+            id: string
+            title: string
+            content: string
+            missionId?: string
+            missionLabel?: string
+            metadata?: {
+              missionRunId?: string
+              runKey?: string
+              attempt?: number
+              source?: "scheduler" | "trigger"
+              outputChannel?: string
+            }
+            createdAt: string
+          }>
+        }
+        if (!data.ok || !Array.isArray(data.messages) || data.messages.length === 0) return 0
+
+        const consumedIds: string[] = []
+        let latestConvo: Conversation | null = null
+        let updatedConvos = [...conversations]
+
+        for (const msg of data.messages) {
+          const newConvo = await createServerConversation().catch(() => null)
+          if (!newConvo) continue
+
+          const assistantMsg: ChatMessage = {
+            id: generateId(),
+            role: "assistant",
+            content: msg.content,
+            createdAt: msg.createdAt || new Date().toISOString(),
+            source: "agent",
+            sender: msg.missionLabel || "Nova Mission",
+            missionId: msg.missionId,
+            missionLabel: msg.missionLabel,
+            missionRunId: msg.metadata?.missionRunId,
+            missionRunKey: msg.metadata?.runKey,
+            missionAttempt:
+              Number.isFinite(Number(msg.metadata?.attempt || 0)) && Number(msg.metadata?.attempt || 0) > 0
+                ? Number(msg.metadata?.attempt || 0)
+                : undefined,
+            missionSource: msg.metadata?.source,
+            missionOutputChannel: msg.metadata?.outputChannel,
+          }
+
+          const convoWithMessage: Conversation = {
+            ...newConvo,
+            title: msg.title || msg.missionLabel || "Mission Report",
+            messages: [assistantMsg],
+            updatedAt: new Date().toISOString(),
+          }
+
+          const synced = await syncServerMessages(convoWithMessage).then(() => true).catch(() => false)
+          if (!synced) continue
+
+          consumedIds.push(msg.id)
+          updatedConvos = [convoWithMessage, ...updatedConvos.filter((c) => c.id !== convoWithMessage.id)]
+          latestConvo = convoWithMessage
+        }
+
+        if (latestConvo) {
+          persist(updatedConvos, latestConvo)
+        }
+
+        if (consumedIds.length > 0) {
+          await fetch("/api/novachat/pending", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageIds: consumedIds }),
+          }).catch(() => {})
+        }
+        return consumedIds.length
+      } catch {
+        pendingPollBackoffAttemptsRef.current += 1
+        const delay = computeBackoffDelayMs({ attempt: pendingPollBackoffAttemptsRef.current })
+        setPendingQueueStatus({
+          mode: "retrying",
+          message: "Pending queue error. Retrying.",
+          retryAtMs: Date.now() + delay,
+        })
+        if (pendingPollBackoffTimerRef.current !== null) window.clearTimeout(pendingPollBackoffTimerRef.current)
+        pendingPollBackoffTimerRef.current = window.setTimeout(() => {
+          pendingPollBackoffTimerRef.current = null
+          void processPendingNovaChatMessages()
+        }, delay)
+        return 0
+      } finally {
+        pendingMessagesInFlightRef.current = false
+        pendingPollAbortRef.current = null
+        pendingPollPromiseRef.current = null
+      }
+    })()
+    pendingPollPromiseRef.current = run
+    return run
+  }, [
+    isLoaded,
+    activeConvo,
+    conversations,
+    createServerConversation,
+    syncServerMessages,
+    persist,
+    resolveSessionConversationIdForAgent,
+    tryAcquirePendingPollLease,
+  ])
 
   // Poll for pending messages
   useEffect(() => {
     if (!isLoaded) return
+    if (shouldOpenPendingNovaChat) return
     void processPendingNovaChatMessages()
     const intervalId = window.setInterval(() => {
       void processPendingNovaChatMessages()
-    }, 15000)
+    }, Math.max(5000, defaultPollIntervalMs() * 4))
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [isLoaded, processPendingNovaChatMessages])
+  }, [isLoaded, processPendingNovaChatMessages, shouldOpenPendingNovaChat])
 
   // Handle pending nova chat redirect
   useEffect(() => {
     if (!isLoaded) return
     if (!shouldOpenPendingNovaChat) return
     let attempts = 0
-    const maxAttempts = 40
-    void (async () => {
+    let cancelled = false
+    const maxAttempts = 20
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return
+      if (pendingRedirectTimerRef.current !== null) window.clearTimeout(pendingRedirectTimerRef.current)
+      pendingRedirectTimerRef.current = window.setTimeout(() => {
+        pendingRedirectTimerRef.current = null
+        void runPoll()
+      }, delayMs)
+    }
+    const runPoll = async () => {
+      if (cancelled) return
       const consumed = await processPendingNovaChatMessages()
-      if (consumed > 0) {
+      if (consumed > 0 || attempts >= maxAttempts) {
         router.replace("/chat")
+        return
       }
-    })()
-    const intervalId = window.setInterval(() => {
-      void (async () => {
-        const consumed = await processPendingNovaChatMessages()
-        if (consumed > 0 || attempts >= maxAttempts) {
-          window.clearInterval(intervalId)
-          router.replace("/chat")
-          return
-        }
-        attempts += 1
-      })()
-    }, 250)
+      attempts += 1
+      const delayMs = computeBackoffDelayMs({
+        attempt: pendingPollBackoffAttemptsRef.current,
+        baseMs: defaultPollIntervalMs(),
+      })
+      scheduleNext(Math.max(defaultPollIntervalMs(), delayMs))
+    }
+    void runPoll()
     return () => {
-      window.clearInterval(intervalId)
+      cancelled = true
+      if (pendingRedirectTimerRef.current !== null) {
+        window.clearTimeout(pendingRedirectTimerRef.current)
+        pendingRedirectTimerRef.current = null
+      }
     }
   }, [isLoaded, processPendingNovaChatMessages, router, shouldOpenPendingNovaChat])
 
@@ -969,6 +1232,14 @@ export function useConversations({
     })
     if (changedById.size === 0) return
 
+    const userContextId = String(activeUserIdRef.current || "").trim()
+    for (const [conversationId, incoming] of incomingByConversation.entries()) {
+      if (!incoming.some((item) => item.role === "assistant")) continue
+      const sessionConversationId = resolveSessionConversationIdForAgent(conversationId)
+      const missionScopeKey = buildMissionScopeKey(userContextId, sessionConversationId)
+      missionInFlightByScopeRef.current.delete(missionScopeKey)
+    }
+
     const nextActive = activeConvo ? convos.find((c) => c.id === activeConvo.id) ?? activeConvo : null
     persist(convos, nextActive)
 
@@ -979,7 +1250,7 @@ export function useConversations({
         void patchServerConversation(updated.id, { title: updated.title }).catch(() => {})
       }
     }
-  }, [agentMessages, activeConvo, conversations, patchServerConversation, persist, scheduleServerSync])
+  }, [agentMessages, activeConvo, conversations, patchServerConversation, persist, scheduleServerSync, resolveSessionConversationIdForAgent])
 
   // Cleanup sync timer
   useEffect(() => {
@@ -1239,7 +1510,6 @@ export function useConversations({
       if (!content.trim() || !agentConnected || !activeConvo) return
 
       const { loadUserSettings } = await import("@/lib/settings/userSettings")
-      const { getActiveUserId } = await import("@/lib/auth/active-user")
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
       const sessionConversationId = resolveSessionConversationIdForAgent(activeConvo.id)
@@ -1247,6 +1517,43 @@ export function useConversations({
         && activeUserId
         ? `agent:nova:hud:user:${activeUserId}:dm:${sessionConversationId}`
         : ""
+      const missionPrompt = isLikelyMissionPrompt(content)
+      if (missionPrompt) {
+        const nowMs = Date.now()
+        const scopeKey = buildMissionScopeKey(activeUserId, sessionConversationId || activeConvo.id)
+        const signature = normalizeMissionPromptSignature(content)
+        for (const [key, value] of missionInFlightByScopeRef.current.entries()) {
+          if (!value) continue
+          if (nowMs - Number(value.startedAt || 0) > MISSION_INFLIGHT_MAX_MS) {
+            missionInFlightByScopeRef.current.delete(key)
+          }
+        }
+        const existing = missionInFlightByScopeRef.current.get(scopeKey)
+        if (
+          existing
+          && existing.signature === signature
+          && nowMs < Number(existing.cooldownUntil || 0)
+        ) {
+          const activeSnapshot = latestConversationsRef.current.find((entry) => entry.id === activeConvo.id) || activeConvo
+          const notice: ChatMessage = {
+            id: generateId(),
+            role: "assistant",
+            content: "Still processing your mission request. I did not send a duplicate. I will update you once it finishes.",
+            createdAt: new Date().toISOString(),
+            source: "agent",
+            sender: "Nova",
+          }
+          const updated = { ...activeSnapshot, messages: [...activeSnapshot.messages, notice], updatedAt: new Date().toISOString() }
+          const nextConvos = latestConversationsRef.current.map((entry) => (entry.id === updated.id ? updated : entry))
+          persist(nextConvos, updated)
+          return
+        }
+        missionInFlightByScopeRef.current.set(scopeKey, {
+          signature,
+          startedAt: nowMs,
+          cooldownUntil: nowMs + MISSION_SPAM_COOLDOWN_MS,
+        })
+      }
       const updatedConvo = addUserMessage(content, {
         ...(sessionConversationId ? { sessionConversationId } : {}),
         ...(sessionKey ? { sessionKey } : {}),
@@ -1265,7 +1572,7 @@ export function useConversations({
         tone: settings.personalization.tone,
       })
     },
-    [activeConvo, agentConnected, addUserMessage, resolveConversationIdForAgent, resolveSessionConversationIdForAgent],
+    [activeConvo, agentConnected, addUserMessage, persist, resolveConversationIdForAgent, resolveSessionConversationIdForAgent],
   )
 
   return {
@@ -1284,5 +1591,14 @@ export function useConversations({
     ensureServerConversationForOptimistic,
     resolveConversationIdForAgent,
     resolveSessionConversationIdForAgent,
+    pendingQueueStatus: {
+      mode: pendingQueueStatus.mode,
+      message: pendingQueueStatus.message,
+      retryInSeconds:
+        pendingQueueStatus.mode === "retrying"
+          ? Math.max(1, Math.ceil((pendingQueueStatus.retryAtMs - Date.now()) / 1000))
+          : 0,
+    },
   }
 }
+

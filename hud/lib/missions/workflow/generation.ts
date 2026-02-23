@@ -18,6 +18,14 @@ import { completeWithConfiguredLlm } from "../llm/providers"
 import { detectTopicsInPrompt, type DetectedTopic } from "../topics/detection"
 import type { WorkflowStep, WorkflowSummary, Provider } from "../types"
 
+function logCoinbaseGeneration(details: Record<string, unknown>) {
+  console.info("[MissionWorkflow]", {
+    event: "coinbase.step.generated",
+    ts: new Date().toISOString(),
+    ...details,
+  })
+}
+
 /**
  * Check if prompt requests immediate output.
  */
@@ -271,12 +279,27 @@ function buildCoinbaseWorkflow(input: {
       triggerDays: scheduleDays,
     }, 0),
     normalizeWorkflowStep({
-      type: "fetch",
-      title: "Fetch Coinbase market data",
-      fetchSource: "coinbase",
-      fetchMethod: "GET",
+      type: "coinbase",
+      title: "Run Coinbase data step",
+      coinbaseIntent:
+        primitive === "price_alert_digest"
+          ? "price"
+          : primitive === "weekly_pnl_summary"
+            ? "transactions"
+            : "report",
+      coinbaseParams: {
+        assets,
+        quoteCurrency: "USD",
+        thresholdPct: primitive === "price_alert_digest" ? 2.5 : undefined,
+        cadence: scheduleMode,
+        includePreviousArtifactContext: true,
+      },
+      coinbaseFormat: {
+        style: "standard",
+        includeRawMetadata: true,
+      },
+      // Backward compatibility for older execution engines still reading fetchQuery.
       fetchQuery: queryParts.join("&"),
-      fetchIncludeSources: false,
     }, 1),
     normalizeWorkflowStep({
       type: "ai",
@@ -308,7 +331,7 @@ function buildCoinbaseWorkflow(input: {
       },
       missionActive: true,
       tags: ["coinbase", "crypto", scheduleMode],
-      apiCalls: ["FETCH:coinbase", `OUTPUT:${input.channel}`],
+      apiCalls: ["COINBASE:report", `OUTPUT:${input.channel}`],
       coinbase: {
         primitive,
         assets,
@@ -429,6 +452,7 @@ function simplifyGeneratedWorkflowSteps(input: {
 
   const trigger = input.steps.find((step) => step.type === "trigger")
   const fetch = input.steps.find((step) => step.type === "fetch")
+  const coinbase = input.steps.find((step) => step.type === "coinbase")
   const transform = wantsTransform ? input.steps.find((step) => step.type === "transform") : null
   const ai = input.steps.find((step) => step.type === "ai")
   const condition = wantsCondition ? input.steps.find((step) => step.type === "condition" && String(step.conditionField || "").trim()) : null
@@ -448,6 +472,7 @@ function simplifyGeneratedWorkflowSteps(input: {
   ))
 
   if (fetch) ordered.push(normalizeWorkflowStep(fetch, ordered.length))
+  if (coinbase) ordered.push(normalizeWorkflowStep(coinbase, ordered.length))
   if (transform) ordered.push(normalizeWorkflowStep(transform, ordered.length))
 
   ordered.push(normalizeWorkflowStep(
@@ -636,6 +661,11 @@ export async function buildWorkflowFromPrompt(
       timezone: defaultSchedule.timezone,
       channel: requestedOutput,
     })
+    logCoinbaseGeneration({
+      route: "deterministic",
+      stepCount: workflow.summary.workflowSteps?.filter((step) => step.type === "coinbase").length || 0,
+      integration: workflow.integration,
+    })
     return {
       workflow,
       provider:
@@ -692,6 +722,7 @@ export async function buildWorkflowFromPrompt(
     "Return only strict JSON.",
     "Design complete, executable workflows with trigger, fetch, transform/ai, condition, and output steps when relevant.",
     "For mission generation, every fetch step must use fetchSource=web (Brave web search pipeline). Do not emit api/crypto/rss/database fetch sources.",
+    "Coinbase/crypto account tasks should use a dedicated step with type=coinbase and coinbaseIntent + coinbaseParams fields.",
     "If the user asks for market/news/web updates, you must include at least one fetch step that retrieves real external data before any AI summary step.",
     "Do not invent source facts. The workflow must be grounded in fetched data.",
     "For web/news summaries, keep outputs legible. Include at most 2 source links only when source sharing is enabled.",
@@ -717,6 +748,7 @@ export async function buildWorkflowFromPrompt(
       workflowSteps: [
         { type: "trigger", title: "Mission triggered", triggerMode: "daily", triggerTime: "09:00", triggerTimezone: "America/New_York", triggerDays: ["mon", "tue", "wed", "thu", "fri"] },
         { type: "fetch", title: "Fetch web data", fetchSource: "web", fetchMethod: "GET", fetchApiIntegrationId: "", fetchUrl: "", fetchQuery: "", fetchSelector: "a[href]", fetchHeaders: "" },
+        { type: "coinbase", title: "Run Coinbase step", coinbaseIntent: "report", coinbaseParams: { assets: ["BTC", "ETH"], quoteCurrency: "USD", includePreviousArtifactContext: true }, coinbaseFormat: { style: "standard", includeRawMetadata: true } },
         { type: "ai", title: "Summarize report", aiPrompt: "Summarize in concise bullets. Include sources only if enabled.", aiIntegration: "openai", aiModel: "", aiDetailLevel: "standard" },
         { type: "condition", title: "Check threshold", conditionField: "", conditionOperator: "greater_than", conditionValue: "", conditionLogic: "all", conditionFailureAction: "skip" },
         { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "scheduled", outputTime: "09:00", outputFrequency: "once", outputRecipients: "" }
@@ -834,6 +866,48 @@ export async function buildWorkflowFromPrompt(
       }
       return step
     }
+    if (step.type === "fetch" && String(step.fetchSource || "").toLowerCase() === "coinbase") {
+      const assets = extractCoinbaseAssets(prompt)
+      return normalizeWorkflowStep(
+        {
+          ...step,
+          type: "coinbase",
+          title: String(step.title || "").trim() || "Run Coinbase step",
+          coinbaseIntent: /price|alert|threshold/i.test(String(step.fetchQuery || "")) ? "price" : "report",
+          coinbaseParams: {
+            assets,
+            quoteCurrency: "USD",
+            includePreviousArtifactContext: true,
+          },
+          coinbaseFormat: {
+            style: "standard",
+            includeRawMetadata: true,
+          },
+        },
+        0,
+      )
+    }
+    if (step.type === "coinbase") {
+      const intent = String(step.coinbaseIntent || "").toLowerCase()
+      step.coinbaseIntent =
+        intent === "status" || intent === "price" || intent === "portfolio" || intent === "transactions" || intent === "report"
+          ? intent
+          : "report"
+      if (!step.coinbaseParams) step.coinbaseParams = {}
+      if (!Array.isArray(step.coinbaseParams.assets) || step.coinbaseParams.assets.length === 0) {
+        step.coinbaseParams.assets = extractCoinbaseAssets(prompt)
+      }
+      if (!step.coinbaseParams.quoteCurrency || !String(step.coinbaseParams.quoteCurrency).trim()) {
+        step.coinbaseParams.quoteCurrency = "USD"
+      }
+      if (typeof step.coinbaseParams.includePreviousArtifactContext !== "boolean") {
+        step.coinbaseParams.includePreviousArtifactContext = true
+      }
+      if (!step.coinbaseFormat) {
+        step.coinbaseFormat = { style: "standard", includeRawMetadata: true }
+      }
+      return step
+    }
     return step
   }).filter((step): step is WorkflowStep => Boolean(step))
 
@@ -915,6 +989,9 @@ export async function buildWorkflowFromPrompt(
           if (step.fetchUrl?.trim()) return [`${String(step.fetchMethod || "GET").toUpperCase()} ${step.fetchUrl.trim()}`]
           return [`FETCH:${step.fetchSource || "api"}`]
         }
+        if (step.type === "coinbase") {
+          return [`COINBASE:${step.coinbaseIntent || "report"}`]
+        }
         if (step.type === "ai") return [`LLM:${step.aiIntegration || defaultLlm}`]
         if (step.type === "output") return [`OUTPUT:${step.outputChannel || defaultOutput}`]
         return []
@@ -933,6 +1010,15 @@ export async function buildWorkflowFromPrompt(
       normalizeWorkflowStep({ type: "trigger", title: "Mission triggered", triggerMode: "daily", triggerTime: schedule.time, triggerTimezone: schedule.timezone, triggerDays: schedule.days }, 0),
       normalizeWorkflowStep({ type: "output", title: "Send notification", outputChannel: outputSet.has(integration) ? integration : defaultOutput, outputTiming: "scheduled", outputTime: schedule.time, outputFrequency: "once" }, 1),
     ],
+  }
+
+  const generatedCoinbaseSteps = summary.workflowSteps?.filter((step) => step.type === "coinbase").length || 0
+  if (generatedCoinbaseSteps > 0) {
+    logCoinbaseGeneration({
+      route: "llm",
+      stepCount: generatedCoinbaseSteps,
+      integration,
+    })
   }
 
   return {

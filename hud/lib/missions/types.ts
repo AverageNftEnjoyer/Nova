@@ -13,7 +13,7 @@ import type { NotificationSchedule } from "@/lib/notifications/store"
 
 export type Provider = "openai" | "claude" | "grok" | "gemini"
 
-export type WorkflowStepType = "trigger" | "fetch" | "ai" | "transform" | "condition" | "output"
+export type WorkflowStepType = "trigger" | "fetch" | "coinbase" | "ai" | "transform" | "condition" | "output"
 
 export type AiDetailLevel = "concise" | "standard" | "detailed"
 
@@ -58,6 +58,19 @@ export interface WorkflowStep {
   fetchSelector?: string
   fetchRefreshMinutes?: string
   fetchIncludeSources?: boolean | string
+  coinbaseIntent?: "status" | "price" | "portfolio" | "transactions" | "report" | string
+  coinbaseParams?: {
+    assets?: string[]
+    quoteCurrency?: string
+    thresholdPct?: number
+    cadence?: "daily" | "weekly" | string
+    transactionLimit?: number
+    includePreviousArtifactContext?: boolean
+  }
+  coinbaseFormat?: {
+    style?: "concise" | "standard" | "detailed" | string
+    includeRawMetadata?: boolean
+  }
   transformAction?: "normalize" | "dedupe" | "aggregate" | "format" | "enrich" | string
   transformFormat?: "text" | "json" | "markdown" | "table" | string
   transformInstruction?: string
@@ -158,6 +171,9 @@ export interface WorkflowStepTrace {
   title: string
   status: "running" | "completed" | "failed" | "skipped"
   detail?: string
+  errorCode?: string
+  artifactRef?: string
+  retryCount?: number
   startedAt: string
   endedAt?: string
 }

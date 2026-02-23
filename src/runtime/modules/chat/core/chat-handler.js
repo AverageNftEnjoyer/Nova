@@ -159,6 +159,21 @@ const OPENAI_STRICT_MAX_COMPLETION_TOKENS = Number.parseInt(
   process.env.NOVA_OPENAI_STRICT_MAX_COMPLETION_TOKENS || "900",
   10,
 );
+
+function mergeMissionPrompt(basePrompt, incomingText) {
+  const base = String(basePrompt || "").replace(/\s+/g, " ").trim();
+  const incomingRaw = stripAssistantInvocation(incomingText);
+  const incoming = String(incomingRaw || incomingText || "").replace(/\s+/g, " ").trim();
+  if (!base) return incoming;
+  if (!incoming) return base;
+  const baseNorm = base.toLowerCase();
+  const incomingNorm = incoming.toLowerCase();
+  if (incomingNorm === baseNorm) return base;
+  if (baseNorm.includes(incomingNorm)) return base;
+  if (incomingNorm.includes(baseNorm)) return incoming;
+  return `${base}. ${incoming}`.replace(/\s+/g, " ").trim();
+}
+
 function resolveAdaptiveOpenAiMaxCompletionTokens(userText, {
   strict = false,
   fastLane = false,
@@ -1733,6 +1748,8 @@ async function handleInputCore(text, opts = {}) {
   });
   const duplicateMayBeCryptoReport = isExplicitCryptoReportRequest(text)
     || (isCryptoRequestText(text) && /\b(report|summary|pnl|daily|weekly)\b/i.test(text));
+  const duplicateMayBeMissionRequest = shouldBuildWorkflowFromPrompt(text)
+    || shouldConfirmWorkflowFromPrompt(text);
   const n = text.toLowerCase().trim();
   if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
     await handleShutdown({ ttsVoice });
@@ -1745,7 +1762,10 @@ async function handleInputCore(text, opts = {}) {
   }
 
   const explicitCryptoReportRequest = isExplicitCryptoReportRequest(text);
-  const skipDuplicateInbound = !explicitCryptoReportRequest && !followUpContinuationCue && shouldSkipDuplicateInbound({
+  const skipDuplicateInbound = !explicitCryptoReportRequest
+    && !duplicateMayBeMissionRequest
+    && !followUpContinuationCue
+    && shouldSkipDuplicateInbound({
     text,
     source,
     sender,
@@ -1776,6 +1796,9 @@ async function handleInputCore(text, opts = {}) {
       },
     });
     if (duplicateRecovery) return duplicateRecovery;
+    const duplicateReply =
+      "I got that same request again and skipped the duplicate. Say 'run it again' if you want me to execute it again.";
+    broadcastMessage("assistant", duplicateReply, source, conversationId, userContextId);
     appendRawStream({
       event: "request_duplicate_skipped",
       source,
@@ -1786,7 +1809,7 @@ async function handleInputCore(text, opts = {}) {
     return {
       route: "duplicate_skipped",
       ok: true,
-      reply: "",
+      reply: duplicateReply,
       error: "",
       provider: "",
       model: "",
@@ -1941,9 +1964,7 @@ async function handleInputCore(text, opts = {}) {
     && !missionPolicy.isCancel(normalizedTextForRouting);
   if (missionIsFollowUpRefine && !getPendingMissionConfirm(sessionKey)) {
     const basePrompt = String(missionShortTermContext?.slots?.pendingPrompt || "").trim();
-    const mergedPrompt = basePrompt
-      ? `${basePrompt}. ${stripAssistantInvocation(text)}`.replace(/\s+/g, " ").trim()
-      : stripAssistantInvocation(text);
+    const mergedPrompt = mergeMissionPrompt(basePrompt, text);
     if (mergedPrompt) {
       setPendingMissionConfirm(sessionKey, mergedPrompt);
       upsertShortTermContextState({
@@ -2042,7 +2063,7 @@ async function handleInputCore(text, opts = {}) {
 
     if (isMissionConfirmYes(text)) {
       const details = stripMissionConfirmPrefix(text);
-      const mergedPrompt = details ? `${pendingMission.prompt}. ${details}` : pendingMission.prompt;
+      const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, details);
       clearPendingMissionConfirm(sessionKey);
       clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
       return await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
@@ -2050,7 +2071,7 @@ async function handleInputCore(text, opts = {}) {
 
     const detailLikeFollowUp = /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|novachat|daily|every|morning|night|tomorrow)\b/i.test(text);
     if (detailLikeFollowUp) {
-      const mergedPrompt = `${pendingMission.prompt}. ${stripAssistantInvocation(text)}`.replace(/\s+/g, " ").trim();
+      const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, text);
       setPendingMissionConfirm(sessionKey, mergedPrompt);
       upsertShortTermContextState({
         userContextId,

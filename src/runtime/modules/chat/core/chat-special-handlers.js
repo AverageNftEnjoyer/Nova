@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { exec } from "child_process";
+import crypto from "crypto";
 import {
   COMMAND_ACKS,
   OPENAI_REQUEST_TIMEOUT_MS,
@@ -33,6 +34,17 @@ const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://loc
   .trim()
   .replace(/\/+$/, "");
 const WORKFLOW_BUILD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WORKFLOW_BUILD_TIMEOUT_MS || "45000", 10);
+
+function buildMissionBuildIdempotencyKey({ userContextId, conversationId, prompt, deploy }) {
+  const payload = JSON.stringify({
+    userContextId: String(userContextId || "").trim().toLowerCase(),
+    conversationId: String(conversationId || "").trim().toLowerCase(),
+    deploy: deploy !== false,
+    prompt: String(prompt || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 1200),
+  });
+  return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 40);
+}
+
 export async function sendDirectAssistantReply(userText, replyText, ctx, thinkingStatus = "Confirming mission") {
   const { source, sender, sessionId, useVoice, ttsVoice, conversationId, userContextId } = ctx;
   const normalizedReply = normalizeAssistantReply(replyText);
@@ -324,7 +336,6 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
   const startedAt = Date.now();
   broadcastState("thinking", userContextId);
   broadcastThinkingStatus("Building workflow", userContextId);
-  broadcastMessage("user", text, source, conversationId, userContextId);
   try {
     const deploy = !shouldDraftOnlyWorkflow(text);
     appendRawStream({
@@ -338,6 +349,12 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), Math.max(5000, WORKFLOW_BUILD_TIMEOUT_MS));
     const headers = { "Content-Type": "application/json" };
+    headers["X-Idempotency-Key"] = buildMissionBuildIdempotencyKey({
+      userContextId,
+      conversationId,
+      prompt: text,
+      deploy,
+    });
     if (String(supabaseAccessToken || "").trim()) {
       headers.Authorization = `Bearer ${String(supabaseAccessToken).trim()}`;
     }
@@ -348,6 +365,21 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
       body: JSON.stringify({ prompt: text, deploy, engine }),
     }).finally(() => clearTimeout(timeoutId));
     const data = await res.json().catch(() => ({}));
+    if (res.status === 202 && data?.pending) {
+      const retryAfterMs = Number(data?.retryAfterMs || 0);
+      const retryAfterNote = retryAfterMs > 0
+        ? ` I will keep this in progress and you can retry in about ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`
+        : "";
+      const pendingReply = `I'm already building that mission for you.${retryAfterNote}`;
+      const normalizedPending = normalizeAssistantReply(pendingReply);
+      summary.reply = normalizedPending.skip ? "" : normalizedPending.text;
+      summary.ok = true;
+      if (!normalizedPending.skip) {
+        broadcastMessage("assistant", normalizedPending.text, source, conversationId, userContextId);
+        if (useVoice) await speak(normalizeAssistantSpeechText(normalizedPending.text) || normalizedPending.text, ttsVoice);
+      }
+      return summary;
+    }
     if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
 
     const label = data?.workflow?.label || "Generated Workflow";

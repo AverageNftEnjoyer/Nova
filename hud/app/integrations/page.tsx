@@ -94,7 +94,6 @@ export default function IntegrationsPage() {
   const [, setCoinbasePersistedSnapshot] = useState<CoinbasePersistedSnapshot>(() =>
     makeCoinbaseSnapshot(loadIntegrationsSettings().coinbase),
   )
-  const [showCoinbaseApiKey, setShowCoinbaseApiKey] = useState(false)
   const [showCoinbaseApiSecret, setShowCoinbaseApiSecret] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
@@ -381,6 +380,7 @@ export default function IntegrationsPage() {
         spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
       })
     }
+    refresh()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
   }, [])
@@ -435,6 +435,11 @@ export default function IntegrationsPage() {
   const compactModelLabel = useMemo(() => formatCompactModelLabelFromIntegrations(settings), [settings])
   const integrationTextClass = (connected: boolean) =>
     !integrationsHydrated ? "text-slate-400" : connected ? "text-emerald-400" : "text-rose-400"
+  const telegramNeedsKeyWarning = !(
+    settings.telegram.botTokenConfigured ||
+    botTokenConfigured ||
+    botToken.trim().length > 0
+  )
   const braveNeedsKeyWarning = !(settings.brave.connected && (settings.brave.apiKeyConfigured || braveApiKeyConfigured))
   const coinbaseNeedsKeyWarning = !(settings.coinbase.connected && (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) && (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured))
   const coinbaseHasKeys = Boolean(
@@ -645,6 +650,7 @@ export default function IntegrationsPage() {
             subPanelClass={subPanelClass}
             settings={settings}
             isSavingTarget={isSavingTarget}
+            telegramNeedsKeyWarning={telegramNeedsKeyWarning}
             braveNeedsKeyWarning={braveNeedsKeyWarning}
             braveApiKeyConfigured={braveApiKeyConfigured}
             braveApiKeyMasked={braveApiKeyMasked}
@@ -663,8 +669,6 @@ export default function IntegrationsPage() {
             coinbasePrivacyError={coinbasePrivacyError}
             coinbaseApiKey={coinbaseApiKey}
             setCoinbaseApiKey={setCoinbaseApiKey}
-            showCoinbaseApiKey={showCoinbaseApiKey}
-            setShowCoinbaseApiKey={setShowCoinbaseApiKey}
             coinbaseApiKeyConfigured={coinbaseApiKeyConfigured}
             coinbaseApiKeyMasked={coinbaseApiKeyMasked}
             coinbaseApiSecret={coinbaseApiSecret}

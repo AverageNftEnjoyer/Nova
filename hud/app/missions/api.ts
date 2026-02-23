@@ -16,6 +16,31 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
   }
 }
 
+function normalizeMissionBuildIdempotencySeed(payload: {
+  prompt: string
+  deploy: boolean
+  timezone: string
+  enabled: boolean
+}): string {
+  return JSON.stringify({
+    prompt: String(payload.prompt || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 1200),
+    deploy: payload.deploy !== false,
+    timezone: String(payload.timezone || "").trim(),
+    enabled: payload.enabled !== false,
+  })
+}
+
+function hashMissionBuildSeed(seed: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return Math.abs(hash >>> 0).toString(16).padStart(8, "0")
+}
+
+const missionBuildInFlight = new Map<string, Promise<ApiResult<BuildMissionResponse>>>()
+
 export interface SchedulesListResponse {
   schedules?: NotificationSchedule[]
   error?: string
@@ -39,6 +64,11 @@ export interface TriggerMissionResponse {
 
 export interface BuildMissionResponse {
   ok?: boolean
+  pending?: boolean
+  code?: string
+  message?: string
+  retryAfterMs?: number
+  idempotencyKey?: string
   error?: string
   debug?: string
   provider?: string
@@ -106,6 +136,9 @@ export interface TriggerMissionStreamEvent {
     title?: string
     status?: string
     detail?: string
+    errorCode?: string
+    artifactRef?: string
+    retryCount?: number
     startedAt?: string
     endedAt?: string
   }
@@ -196,11 +229,23 @@ export function buildMissionFromPrompt(payload: {
   timezone: string
   enabled: boolean
 }) {
-  return requestJson<BuildMissionResponse>("/api/missions/build", {
+  const seed = normalizeMissionBuildIdempotencySeed(payload)
+  const inFlightKey = hashMissionBuildSeed(seed)
+  const existing = missionBuildInFlight.get(inFlightKey)
+  if (existing) return existing
+  const request = requestJson<BuildMissionResponse>("/api/missions/build", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": inFlightKey,
+    },
     body: JSON.stringify(payload),
   })
+    .finally(() => {
+      missionBuildInFlight.delete(inFlightKey)
+    })
+  missionBuildInFlight.set(inFlightKey, request)
+  return request
 }
 
 export function requestNovaSuggest(payload: { stepTitle: string }) {

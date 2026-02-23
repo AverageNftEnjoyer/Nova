@@ -9,6 +9,14 @@
  *
  * Version History:
  *
+ * - V.25 Alpha: NovaChat pending resiliency + mission idempotency hardening
+ *     - Hardened `/api/novachat/pending` polling against spam with single-flight fetch control, 429 recovery backoff+jitter, Retry-After compliance, and stale-request aborts.
+ *     - Added cross-tab pending-poll lease coordination so one tab owns user+conversation scoped polling at a time.
+ *     - Added durable mission-build idempotency storage (user-scoped locked store) to prevent duplicate mission creation under retries/spam.
+ *     - Added end-to-end idempotency key propagation from chat/runtime and missions UI to mission-build API.
+ *     - Added stable HUD processing/retrying status badge with countdown (`Retrying in Ns`) aligned to existing popup toast styling.
+ *     - Added resilience smoke coverage for pending poll scope isolation, Retry-After parsing, backoff behavior, and mission idempotency lifecycle.
+ *
  * - V.24 Alpha: Discord production hardening + personality PnL commentary
  *     - Hardened Discord delivery with strict webhook validation, redaction, retry/backoff+jitter, timeout handling, dedupe, concurrency caps, and per-user isolation safeguards.
  *     - Added Discord security controls: encrypted webhook storage at rest, masked client responses, and rate-limited integration probe endpoint.
@@ -165,4 +173,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.24 Alpha"
+export const NOVA_VERSION = "V.25 Alpha"

@@ -37,6 +37,25 @@ import {
 import type { AiIntegrationType, WorkflowStep } from "../types"
 import { TimeField } from "./time-field"
 
+const COINBASE_INTENT_OPTIONS = [
+  { value: "report", label: "Portfolio Report" },
+  { value: "status", label: "Connection Status" },
+  { value: "price", label: "Spot Prices" },
+  { value: "portfolio", label: "Portfolio Snapshot" },
+  { value: "transactions", label: "Transactions" },
+]
+
+const COINBASE_CADENCE_OPTIONS = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+]
+
+const COINBASE_FORMAT_STYLE_OPTIONS = [
+  { value: "concise", label: "Concise" },
+  { value: "standard", label: "Standard" },
+  { value: "detailed", label: "Detailed" },
+]
+
 interface MissionBuilderModalProps {
   [key: string]: unknown
 }
@@ -541,6 +560,175 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
                               />
                             </div>
                           )}
+                        </div>
+                      )}
+                      {step.type === "coinbase" && (
+                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-cyan-200/80" : "border-cyan-300/20")}>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Intent</label>
+                              <FluidSelect
+                                value={step.coinbaseIntent ?? "report"}
+                                onChange={(next) => updateWorkflowStep(step.id, {
+                                  coinbaseIntent: next as WorkflowStep["coinbaseIntent"],
+                                })}
+                                options={COINBASE_INTENT_OPTIONS}
+                                isLight={isLight}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Quote Currency</label>
+                              <input
+                                value={step.coinbaseParams?.quoteCurrency ?? "USD"}
+                                onChange={(e) => updateWorkflowStep(step.id, {
+                                  coinbaseParams: {
+                                    ...(step.coinbaseParams || {}),
+                                    quoteCurrency: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10),
+                                  },
+                                })}
+                                placeholder="USD"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Cadence</label>
+                              <FluidSelect
+                                value={typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence ? step.coinbaseParams.cadence : "daily"}
+                                onChange={(next) => updateWorkflowStep(step.id, {
+                                  coinbaseParams: {
+                                    ...(step.coinbaseParams || {}),
+                                    cadence: next,
+                                  },
+                                })}
+                                options={COINBASE_CADENCE_OPTIONS}
+                                isLight={isLight}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Assets (comma-separated)</label>
+                              <input
+                                value={Array.isArray(step.coinbaseParams?.assets) ? step.coinbaseParams?.assets.join(",") : "BTC,ETH,SOL"}
+                                onChange={(e) => updateWorkflowStep(step.id, {
+                                  coinbaseParams: {
+                                    ...(step.coinbaseParams || {}),
+                                    assets: e.target.value
+                                      .split(",")
+                                      .map((item) => item.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""))
+                                      .filter(Boolean)
+                                      .slice(0, 8),
+                                  },
+                                })}
+                                placeholder="BTC,ETH,SOL"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Threshold % (optional)</label>
+                              <input
+                                value={Number.isFinite(Number(step.coinbaseParams?.thresholdPct)) ? String(step.coinbaseParams?.thresholdPct) : ""}
+                                onChange={(e) => {
+                                  const nextRaw = e.target.value.trim()
+                                  const nextValue = Number.parseFloat(nextRaw)
+                                  updateWorkflowStep(step.id, {
+                                    coinbaseParams: {
+                                      ...(step.coinbaseParams || {}),
+                                      thresholdPct: Number.isFinite(nextValue) ? nextValue : undefined,
+                                    },
+                                  })
+                                }}
+                                placeholder="2.5"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Transaction Limit (optional)</label>
+                              <input
+                                value={Number.isFinite(Number(step.coinbaseParams?.transactionLimit)) ? String(step.coinbaseParams?.transactionLimit) : ""}
+                                onChange={(e) => {
+                                  const nextRaw = e.target.value.replace(/\D/g, "").slice(0, 3)
+                                  const nextNum = Number.parseInt(nextRaw || "0", 10)
+                                  updateWorkflowStep(step.id, {
+                                    coinbaseParams: {
+                                      ...(step.coinbaseParams || {}),
+                                      transactionLimit: Number.isFinite(nextNum) && nextNum > 0 ? nextNum : undefined,
+                                    },
+                                  })
+                                }}
+                                placeholder="20"
+                                className={cn(
+                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
+                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
+                                )}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Format Style</label>
+                              <FluidSelect
+                                value={step.coinbaseFormat?.style ?? "standard"}
+                                onChange={(next) => updateWorkflowStep(step.id, {
+                                  coinbaseFormat: {
+                                    ...(step.coinbaseFormat || {}),
+                                    style: next as NonNullable<WorkflowStep["coinbaseFormat"]>["style"],
+                                  },
+                                })}
+                                options={COINBASE_FORMAT_STYLE_OPTIONS}
+                                isLight={isLight}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className={cn("flex items-center justify-between rounded-md border px-3 py-2", isLight ? "border-cyan-200 bg-white/90" : "border-cyan-300/30 bg-black/20")}>
+                              <div>
+                                <p className={cn("text-xs font-medium", isLight ? "text-cyan-700" : "text-cyan-300")}>Use Prior Coinbase Artifacts</p>
+                                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Pulls recent step artifacts for this same mission scope.</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => updateWorkflowStep(step.id, {
+                                  coinbaseParams: {
+                                    ...(step.coinbaseParams || {}),
+                                    includePreviousArtifactContext: !(step.coinbaseParams?.includePreviousArtifactContext !== false),
+                                  },
+                                })}
+                                className="inline-flex items-center"
+                                aria-label="Toggle prior Coinbase artifact context"
+                              >
+                                <NovaSwitch checked={step.coinbaseParams?.includePreviousArtifactContext !== false} />
+                              </button>
+                            </div>
+                            <div className={cn("flex items-center justify-between rounded-md border px-3 py-2", isLight ? "border-cyan-200 bg-white/90" : "border-cyan-300/30 bg-black/20")}>
+                              <div>
+                                <p className={cn("text-xs font-medium", isLight ? "text-cyan-700" : "text-cyan-300")}>Include Raw Metadata</p>
+                                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Stores normalized tool metadata with summary artifact.</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => updateWorkflowStep(step.id, {
+                                  coinbaseFormat: {
+                                    ...(step.coinbaseFormat || {}),
+                                    includeRawMetadata: !(step.coinbaseFormat?.includeRawMetadata === false),
+                                  },
+                                })}
+                                className="inline-flex items-center"
+                                aria-label="Toggle raw Coinbase metadata storage"
+                              >
+                                <NovaSwitch checked={step.coinbaseFormat?.includeRawMetadata !== false} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       )}
                       {step.type === "transform" && (

@@ -161,6 +161,7 @@ export const QUICK_TEMPLATE_OPTIONS: QuickTemplateOption[] = [
 export const STEP_TYPE_OPTIONS: Array<{ type: WorkflowStepType; label: string }> = [
   { type: "trigger", label: "Trigger" },
   { type: "fetch", label: "Fetch Data" },
+  { type: "coinbase", label: "Coinbase" },
   { type: "ai", label: "AI Process" },
   { type: "transform", label: "Transform" },
   { type: "condition", label: "Condition" },
@@ -269,6 +270,12 @@ export const STEP_THEME: Record<WorkflowStepType, { light: string; dark: string;
     pillLight: "bg-sky-100 text-sky-700",
     pillDark: "bg-sky-500/20 text-sky-300",
   },
+  coinbase: {
+    light: "border-cyan-300 bg-cyan-50",
+    dark: "border-cyan-400/30 bg-cyan-500/10",
+    pillLight: "bg-cyan-100 text-cyan-700",
+    pillDark: "bg-cyan-500/20 text-cyan-300",
+  },
   ai: {
     light: "border-violet-300 bg-violet-50",
     dark: "border-violet-400/30 bg-violet-500/10",
@@ -298,6 +305,7 @@ export const STEP_THEME: Record<WorkflowStepType, { light: string; dark: string;
 export const STEP_TEXT_THEME: Record<WorkflowStepType, { light: string; dark: string }> = {
   trigger: { light: "text-amber-700", dark: "text-amber-300" },
   fetch: { light: "text-sky-700", dark: "text-sky-300" },
+  coinbase: { light: "text-cyan-700", dark: "text-cyan-300" },
   ai: { light: "text-violet-700", dark: "text-violet-300" },
   transform: { light: "text-emerald-700", dark: "text-emerald-300" },
   condition: { light: "text-orange-700", dark: "text-orange-300" },

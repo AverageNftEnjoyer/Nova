@@ -121,6 +121,7 @@ export type IntegrationsMainPanelProps = {
   subPanelClass: string
   settings: IntegrationsSettings
   isSavingTarget: IntegrationsSaveTarget
+  telegramNeedsKeyWarning: boolean
   braveNeedsKeyWarning: boolean
   braveApiKeyConfigured: boolean
   braveApiKeyMasked: string
@@ -139,8 +140,6 @@ export type IntegrationsMainPanelProps = {
   coinbasePrivacyError: string
   coinbaseApiKey: string
   setCoinbaseApiKey: SetState<string>
-  showCoinbaseApiKey: boolean
-  setShowCoinbaseApiKey: SetState<boolean>
   coinbaseApiKeyConfigured: boolean
   coinbaseApiKeyMasked: string
   coinbaseApiSecret: string

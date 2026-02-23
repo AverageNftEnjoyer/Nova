@@ -20,6 +20,9 @@ export interface MissionRunStepTrace {
   title: string
   status: "pending" | "running" | "completed" | "failed" | "skipped"
   detail?: string
+  errorCode?: string
+  artifactRef?: string
+  retryCount?: number
   startedAt?: string
   endedAt?: string
 }
@@ -48,7 +51,7 @@ export interface MissionActionMenuState {
   top: number
 }
 
-export type WorkflowStepType = "trigger" | "fetch" | "ai" | "transform" | "condition" | "output"
+export type WorkflowStepType = "trigger" | "fetch" | "coinbase" | "ai" | "transform" | "condition" | "output"
 export type AiIntegrationType = "openai" | "claude" | "grok" | "gemini"
 
 export interface WorkflowStep {
@@ -73,6 +76,19 @@ export interface WorkflowStep {
   fetchSelector?: string
   fetchRefreshMinutes?: string
   fetchIncludeSources?: boolean
+  coinbaseIntent?: "status" | "price" | "portfolio" | "transactions" | "report"
+  coinbaseParams?: {
+    assets?: string[]
+    quoteCurrency?: string
+    thresholdPct?: number
+    cadence?: "daily" | "weekly" | string
+    transactionLimit?: number
+    includePreviousArtifactContext?: boolean
+  }
+  coinbaseFormat?: {
+    style?: "concise" | "standard" | "detailed"
+    includeRawMetadata?: boolean
+  }
   transformAction?: "normalize" | "dedupe" | "aggregate" | "format" | "enrich"
   transformFormat?: "text" | "json" | "markdown" | "table"
   transformInstruction?: string
@@ -121,6 +137,7 @@ export interface QuickTemplateStep {
   fetchSource?: "api" | "web" | "calendar" | "crypto" | "coinbase" | "rss" | "database"
   fetchUrl?: string
   fetchIncludeSources?: boolean
+  coinbaseIntent?: "status" | "price" | "portfolio" | "transactions" | "report"
   // AI step properties
   aiPrompt?: string
   aiIntegration?: AiIntegrationType

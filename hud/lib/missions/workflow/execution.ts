@@ -19,7 +19,6 @@ import { humanizeMissionOutputText } from "../output/formatters"
 import { applyMissionOutputQualityGuardrails } from "../output/quality"
 import { dispatchOutput } from "../output/dispatch"
 import { completeWithConfiguredLlm } from "../llm/providers"
-import { fetchCoinbaseMissionData, parseCoinbaseFetchQuery } from "../coinbase/fetch"
 import {
   buildWebEvidenceContext,
   buildForcedWebSummaryPrompt,
@@ -29,6 +28,8 @@ import {
   hasUsableMultiFetchData,
   type FetchResultItem,
 } from "../llm/prompts"
+import { executeCoinbaseWorkflowStep } from "./coinbase-step"
+import { buildCoinbaseArtifactContextSnippet, loadRecentCoinbaseStepArtifacts } from "./coinbase-artifacts"
 import { parseMissionWorkflow } from "./parsing"
 import { getLocalTimeParts, parseTime } from "./scheduling"
 import type {
@@ -58,12 +59,46 @@ const MISSION_OUTPUT_INCLUDE_HEADER = (() => {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on"
 })()
 
+function sanitizeUserContextId(value: unknown): string {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+  return normalized.slice(0, 96)
+}
+
+function deriveConversationId(runKey: string, fallback: string): string {
+  const normalized = String(runKey || "").trim()
+  const dmMatch = /:dm:([^:]+)$/.exec(normalized)
+  if (dmMatch?.[1]) return dmMatch[1].trim().slice(0, 128)
+  return String(fallback || "mission").trim().slice(0, 128) || "mission"
+}
+
 /**
  * Execute a mission workflow.
  */
 export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput): Promise<ExecuteMissionWorkflowResult> {
   const now = input.now ?? new Date()
   const missionRunId = String(input.missionRunId || "").trim() || crypto.randomUUID()
+  const runKey = String(input.runKey || "").trim()
+  const userContextId = sanitizeUserContextId(
+    input.schedule.userId || input.scope?.userId || input.scope?.user?.id || "",
+  )
+  const conversationId = deriveConversationId(runKey, input.schedule.id)
+  const missionId = String(input.schedule.id || "").trim() || "mission"
+  const logWorkflowEvent = (event: string, details?: Record<string, unknown>) => {
+    console.info("[MissionWorkflow]", {
+      event,
+      userContextId,
+      conversationId,
+      missionRunId,
+      missionId,
+      ...details,
+      ts: new Date().toISOString(),
+    })
+  }
   const skillSnapshot = input.skillSnapshot
   const stableSkillGuidance = truncateForModel(
     String(skillSnapshot?.guidance || "").trim(),
@@ -82,13 +117,15 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     mission: {
       id: input.schedule.id,
       runId: missionRunId,
-      runKey: String(input.runKey || "").trim() || undefined,
+      runKey: runKey || undefined,
       attempt: Number.isFinite(Number(input.attempt || 0)) ? Math.max(1, Number(input.attempt || 1)) : 1,
       label: input.schedule.label,
       integration: input.schedule.integration,
       time: input.schedule.time,
       timezone: input.schedule.timezone,
       source: input.source,
+      userContextId,
+      conversationId,
     },
     description: parsed.description,
     summary: parsed.summary || {},
@@ -105,10 +142,41 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     // Multi-fetch support: accumulate data from multiple fetch steps
     fetchResults: [] as Array<{ stepTitle: string; data: unknown }>,
     ai: null,
+    coinbaseArtifacts: [] as Array<{ artifactRef: string; summary: string; createdAt: string }>,
+    coinbaseArtifactContext: "",
     presentation: {
       includeSources: true,
       detailLevel: "standard",
     },
+  }
+
+  if (userContextId) {
+    try {
+      const seedArtifacts = await loadRecentCoinbaseStepArtifacts({
+        userContextId,
+        conversationId,
+        missionId,
+        nowMs: now.getTime(),
+        limit: 4,
+      })
+      if (seedArtifacts.length > 0) {
+        context.coinbaseArtifacts = seedArtifacts.map((artifact) => ({
+          artifactRef: artifact.artifactRef,
+          summary: artifact.summary,
+          createdAt: artifact.createdAt,
+        }))
+        context.coinbaseArtifactContext = buildCoinbaseArtifactContextSnippet({
+          artifacts: seedArtifacts,
+          maxChars: 2400,
+        })
+        logWorkflowEvent("coinbase.step.read-from-artifact", {
+          count: seedArtifacts.length,
+          refs: seedArtifacts.map((item) => item.artifactRef),
+        })
+      }
+    } catch {
+      // Artifact hydration is best-effort and must not block mission execution.
+    }
   }
 
   let skipped = false
@@ -140,6 +208,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     status: WorkflowStepTrace["status"],
     detail?: string,
     startedAt?: string,
+    extras?: Pick<WorkflowStepTrace, "errorCode" | "artifactRef" | "retryCount">,
   ) => {
     const trace: WorkflowStepTrace = {
       stepId: String(step.id || "").trim() || `step-${stepTraces.length + 1}`,
@@ -147,6 +216,9 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       title: String(step.title || step.type || "Step"),
       status,
       detail: detail?.trim() || undefined,
+      errorCode: extras?.errorCode,
+      artifactRef: extras?.artifactRef,
+      retryCount: extras?.retryCount,
       startedAt: startedAt || new Date().toISOString(),
       endedAt: new Date().toISOString(),
     }
@@ -172,60 +244,72 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const startedAt = await startStepTrace(step)
       let source = String(step.fetchSource || "api").toLowerCase()
       if (source === "coinbase") {
-        const summaryCoinbase =
-          context.summary && typeof context.summary === "object"
-            ? ((context.summary as Record<string, unknown>).coinbase as Record<string, unknown> | undefined)
-            : undefined
-        const queryInput = parseCoinbaseFetchQuery(String(step.fetchQuery || ""))
-        const coinbaseData = await fetchCoinbaseMissionData(
-          {
-            primitive:
-              typeof queryInput.primitive === "string"
-                ? queryInput.primitive
-                : (summaryCoinbase?.primitive as "daily_portfolio_summary" | "price_alert_digest" | "weekly_pnl_summary" | undefined),
-            assets:
-              Array.isArray(queryInput.assets) && queryInput.assets.length > 0
-                ? queryInput.assets
-                : Array.isArray(summaryCoinbase?.assets)
-                  ? summaryCoinbase.assets.map((item) => String(item))
-                  : [],
-            quoteCurrency:
-              typeof queryInput.quoteCurrency === "string" && queryInput.quoteCurrency.trim()
-                ? queryInput.quoteCurrency
-                : String(summaryCoinbase?.quoteCurrency || "USD"),
-            thresholdPct:
-              Number.isFinite(Number(queryInput.thresholdPct))
-                ? Number(queryInput.thresholdPct)
-                : Number.isFinite(Number(summaryCoinbase?.thresholdPct))
-                  ? Number(summaryCoinbase?.thresholdPct)
-                  : undefined,
-            cadence:
-              typeof queryInput.cadence === "string" && queryInput.cadence.trim()
-                ? queryInput.cadence
-                : String(summaryCoinbase?.cadence || ""),
-          },
-          input.scope,
-        )
-        const fetchData = {
-          source,
-          mode: "coinbase-spot",
-          stepTitle: step.title || "Fetch Coinbase data",
-          status: coinbaseData.ok ? 200 : 502,
-          ok: coinbaseData.ok,
-          payload: coinbaseData,
-          error: coinbaseData.ok ? undefined : coinbaseData.error || "Coinbase fetch failed.",
+        const compatCoinbaseStep: WorkflowStep = normalizeWorkflowStep({
+          ...step,
+          type: "coinbase",
+          title: step.title || "Run Coinbase step",
+        }, Number(String(step.id || "").replace(/\D/g, "") || 0))
+        const coinbaseResult = await executeCoinbaseWorkflowStep({
+          step: compatCoinbaseStep,
+          userContextId,
+          conversationId,
+          missionId,
+          missionRunId,
+          scope: input.scope,
+          contextNowMs: now.getTime(),
+          logger: (entry) => logWorkflowEvent(String(entry.event || "coinbase.step.event"), entry),
+        })
+        logWorkflowEvent("coinbase.step.executed", {
+          stepId: step.id,
+          ok: coinbaseResult.ok,
+          retryCount: coinbaseResult.retryCount,
+          artifactRef: coinbaseResult.artifactRef,
+          errorCode: coinbaseResult.errorCode,
+        })
+        if (coinbaseResult.ok && coinbaseResult.output) {
+          const fetchData = {
+            source: "coinbase",
+            mode: "coinbase-step",
+            stepTitle: step.title || "Run Coinbase step",
+            status: 200,
+            ok: true,
+            payload: coinbaseResult.output,
+            artifactRef: coinbaseResult.artifactRef,
+          }
+          context.data = fetchData
+          const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+          fetchResults.push({ stepTitle: step.title || "Run Coinbase step", data: fetchData })
+          context.coinbaseArtifacts = [
+            ...(context.coinbaseArtifacts as Array<{ artifactRef: string; summary: string; createdAt: string }>),
+            ...(coinbaseResult.artifactRef
+              ? [{ artifactRef: coinbaseResult.artifactRef, summary: coinbaseResult.summary, createdAt: new Date().toISOString() }]
+              : []),
+          ]
+          context.coinbaseArtifactContext = coinbaseResult.priorArtifactContextSnippet
+          await completeStepTrace(
+            step,
+            "completed",
+            `${coinbaseResult.summary}${coinbaseResult.artifactRef ? ` artifactRef=${coinbaseResult.artifactRef}.` : ""}`,
+            startedAt,
+            {
+              artifactRef: coinbaseResult.artifactRef,
+              retryCount: coinbaseResult.retryCount,
+            },
+          )
+        } else {
+          // Do not mutate context.data on failed Coinbase step to avoid contaminating downstream prompt context.
+          context.coinbaseArtifactContext = coinbaseResult.priorArtifactContextSnippet
+          await completeStepTrace(
+            step,
+            "failed",
+            `${coinbaseResult.userMessage || "Coinbase step failed."}${coinbaseResult.summary ? ` (${coinbaseResult.summary})` : ""}`,
+            startedAt,
+            {
+              errorCode: coinbaseResult.errorCode,
+              retryCount: coinbaseResult.retryCount,
+            },
+          )
         }
-        context.data = fetchData
-        const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
-        fetchResults.push({ stepTitle: step.title || "Fetch Coinbase data", data: fetchData })
-        await completeStepTrace(
-          step,
-          coinbaseData.ok ? "completed" : "failed",
-          coinbaseData.ok
-            ? `Fetched Coinbase spot data for ${coinbaseData.assets.join(", ")} (${coinbaseData.quoteCurrency}).`
-            : (coinbaseData.error || "Coinbase fetch failed."),
-          startedAt,
-        )
         continue
       }
       const includeSourcesForStep = resolveIncludeSources(step.fetchIncludeSources, false)
@@ -451,6 +535,72 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       continue
     }
 
+    if (type === "coinbase") {
+      const startedAt = await startStepTrace(step)
+      const coinbaseResult = await executeCoinbaseWorkflowStep({
+        step,
+        userContextId,
+        conversationId,
+        missionId,
+        missionRunId,
+        scope: input.scope,
+        contextNowMs: now.getTime(),
+        logger: (entry) => logWorkflowEvent(String(entry.event || "coinbase.step.event"), entry),
+      })
+      logWorkflowEvent("coinbase.step.executed", {
+        stepId: step.id,
+        ok: coinbaseResult.ok,
+        retryCount: coinbaseResult.retryCount,
+        artifactRef: coinbaseResult.artifactRef,
+        errorCode: coinbaseResult.errorCode,
+      })
+      if (coinbaseResult.ok && coinbaseResult.output) {
+        const payload = coinbaseResult.output
+        const coinbaseData = {
+          source: "coinbase",
+          mode: "coinbase-step",
+          stepTitle: step.title || "Run Coinbase step",
+          status: 200,
+          ok: true,
+          payload,
+          artifactRef: coinbaseResult.artifactRef,
+        }
+        context.data = coinbaseData
+        const fetchResults = context.fetchResults as Array<{ stepTitle: string; data: unknown }>
+        fetchResults.push({ stepTitle: step.title || "Run Coinbase step", data: coinbaseData })
+        context.coinbaseArtifacts = [
+          ...(context.coinbaseArtifacts as Array<{ artifactRef: string; summary: string; createdAt: string }>),
+          ...(coinbaseResult.artifactRef
+            ? [{ artifactRef: coinbaseResult.artifactRef, summary: coinbaseResult.summary, createdAt: new Date().toISOString() }]
+            : []),
+        ]
+        context.coinbaseArtifactContext = coinbaseResult.priorArtifactContextSnippet
+        await completeStepTrace(
+          step,
+          "completed",
+          `${coinbaseResult.summary}${coinbaseResult.artifactRef ? ` artifactRef=${coinbaseResult.artifactRef}.` : ""}`,
+          startedAt,
+          {
+            artifactRef: coinbaseResult.artifactRef,
+            retryCount: coinbaseResult.retryCount,
+          },
+        )
+      } else {
+        context.coinbaseArtifactContext = coinbaseResult.priorArtifactContextSnippet
+        await completeStepTrace(
+          step,
+          "failed",
+          `${coinbaseResult.userMessage || "Coinbase step failed."}${coinbaseResult.summary ? ` (${coinbaseResult.summary})` : ""}`,
+          startedAt,
+          {
+            errorCode: coinbaseResult.errorCode,
+            retryCount: coinbaseResult.retryCount,
+          },
+        )
+      }
+      continue
+    }
+
     if (type === "transform") {
       const startedAt = await startStepTrace(step)
       const action = String(step.transformAction || "normalize").toLowerCase()
@@ -614,6 +764,9 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const userText = [
         `Step: ${step.title || "AI step"}`,
         `Instruction: ${aiPrompt}`,
+        String(context.coinbaseArtifactContext || "").trim()
+          ? `Recent Coinbase artifacts (same user scope):\n${truncateForModel(String(context.coinbaseArtifactContext || ""), 2400)}`
+          : "",
         webEvidence ? "Context (Fact Extracts):" : "Context JSON:",
         truncateForModel(webEvidence || toTextPayload(context.data), MISSION_AI_CONTEXT_MAX_CHARS),
       ].join("\n\n")

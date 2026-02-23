@@ -96,7 +96,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         return updated
       })
       setSaveStatus({
-        type: "success",
+        type: connected ? "success" : "disabled",
         message: `Telegram ${connected ? "enabled" : "disabled"}.`,
       })
     } catch {
@@ -131,7 +131,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       })
       if (!res.ok) throw new Error("Failed to update Discord status")
       setSaveStatus({
-        type: "success",
+        type: next.discord.connected ? "success" : "disabled",
         message: `Discord ${next.discord.connected ? "enabled" : "disabled"}.`,
       })
     } catch {
@@ -190,7 +190,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         return updated
       })
       setSaveStatus({
-        type: "success",
+        type: connected ? "success" : "disabled",
         message: `Brave ${connected ? "enabled" : "disabled"}.`,
       })
     } catch {
@@ -345,7 +345,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       const connected = Boolean(payload?.config?.coinbase?.connected)
       applyCoinbaseServerConfig(payload?.config?.coinbase)
       setSaveStatus({
-        type: "success",
+        type: connected ? "success" : "disabled",
         message: `Coinbase ${connected ? "connected" : "disconnected"}.`,
       })
     } catch {

@@ -3,7 +3,7 @@
 import { cn } from "@/lib/shared/utils"
 
 export interface SaveStatus {
-  type: "success" | "error"
+  type: "success" | "error" | "disabled"
   message: string
 }
 
