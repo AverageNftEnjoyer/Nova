@@ -164,6 +164,30 @@
   animation: gradient-shift 2s ease infinite;
 }
 
+.assistant-name-orb-gradient {
+  color: var(--orb-name-b, #a78bfa);
+  background: linear-gradient(
+    120deg,
+    var(--orb-name-a, #8b5cf6) 0%,
+    var(--orb-name-b, #a78bfa) 42%,
+    var(--orb-name-c, #f472b6) 100%
+  );
+  background-size: 180% 180%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow:
+    0 0 14px color-mix(in srgb, var(--orb-name-a, #8b5cf6) 42%, transparent),
+    0 0 30px color-mix(in srgb, var(--orb-name-b, #a78bfa) 30%, transparent);
+  animation: assistant-orb-gradient-shift 6s ease-in-out infinite;
+}
+
+@keyframes assistant-orb-gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 @keyframes gradient-shift {
   0% {
     background-position: 0% 50%;

@@ -111,7 +111,7 @@ export function AnimatedOrb({
 
   return (
     <div
-      className="relative"
+      className="relative nova-orb-core-shell"
       style={{
         width: size,
         height: size,
@@ -267,6 +267,30 @@ export function AnimatedOrb({
           />
         )}
       </div>
+
+      {size >= 56 && (
+        <div className="space-orb-rings" aria-hidden="true">
+          <span className="space-orb-stars">
+            {Array.from({ length: 8 }, (_, i) => {
+              const angle = Math.round((360 / 8) * i)
+              const radius = Math.round(size * (0.7 + (i % 3) * 0.08))
+              const duration = (6.5 + i * 0.45).toFixed(2)
+              return (
+                <span
+                  key={`space-orb-star-${i}`}
+                  className="space-orb-star"
+                  style={{
+                    ["--space-orb-angle" as string]: `${angle}deg`,
+                    ["--space-orb-radius" as string]: `${radius}px`,
+                    animationDuration: `${duration}s`,
+                    animationDelay: `${(i * 0.21).toFixed(2)}s`,
+                  }}
+                />
+              )
+            })}
+          </span>
+        </div>
+      )}
 
       {/* State label for large orbs */}
       {showStateLabel && size >= 120 && state !== "idle" && (

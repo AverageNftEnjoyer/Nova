@@ -10,7 +10,7 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
-  type Node,
+  type Node as RFNode,
   type Edge,
   type Connection,
   ReactFlowProvider,
@@ -20,16 +20,15 @@ import "@xyflow/react/dist/style.css"
 import { CheckCircle2, Play, Save } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
 import type { Mission, MissionConnection, MissionNode, MissionNodeType } from "@/lib/missions/types"
-import { getNodeCatalogEntry } from "@/lib/missions/catalog"
+import { getNodeCatalogEntry, PALETTE_CATEGORIES, NODE_CATALOG, type NodeCatalogEntry } from "@/lib/missions/catalog"
 import { ACCENT_COLORS, loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { FluidSelect } from "@/components/ui/fluid-select"
 import { BaseNode, type MissionNodeData } from "./nodes/base-node"
-import { NodePalette } from "./node-palette"
-import { NodeConfigPanel } from "./node-config-panel"
 
 function missionNodesToRFNodes(
   missionNodes: MissionNode[],
   traceStatuses: Record<string, "running" | "completed" | "failed">,
-): Node<MissionNodeData>[] {
+): RFNode<MissionNodeData>[] {
   return missionNodes.map((n) => {
     const entry = getNodeCatalogEntry(n.type)
     const status = traceStatuses[n.id]
@@ -58,12 +57,12 @@ function missionConnectionsToRFEdges(connections: MissionConnection[]): Edge[] {
     target: c.targetNodeId,
     targetHandle: c.targetPort,
     type: "smoothstep",
-    animated: false,
-    style: { stroke: "hsl(var(--mission-flow-edge) / 0.62)", strokeWidth: 1.9 },
+    animated: true,
+    style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
   }))
 }
 
-function rfNodesToMissionNodes(rfNodes: Node<MissionNodeData>[], original: MissionNode[]): MissionNode[] {
+function rfNodesToMissionNodes(rfNodes: RFNode<MissionNodeData>[], original: MissionNode[]): MissionNode[] {
   const byId = new Map(original.map((n) => [n.id, n]))
   return rfNodes
     .map((rn) => {
@@ -96,7 +95,7 @@ const NODE_TYPES = { missionNode: BaseNode }
 function hexToRgbString(hex: string): string {
   const normalized = hex.startsWith("#") ? hex.slice(1) : hex
   const full = normalized.length === 3 ? normalized.split("").map((c) => `${c}${c}`).join("") : normalized
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) return "139, 92, 246"
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return "255, 255, 255"
   const num = Number.parseInt(full, 16)
   const r = (num >> 16) & 255
   const g = (num >> 8) & 255
@@ -104,10 +103,136 @@ function hexToRgbString(hex: string): string {
   return `${r}, ${g}, ${b}`
 }
 
+function buildDefaultNodeConfig(type: MissionNodeType, label: string, id: string, position: { x: number; y: number }): Record<string, unknown> {
+  const base = { id, type, label, position }
+
+  switch (type) {
+    case "schedule-trigger":
+      return { ...base, triggerMode: "daily", triggerTime: "09:00", triggerTimezone: "America/New_York", triggerDays: ["mon", "wed", "fri"] }
+    case "webhook-trigger":
+      return { ...base, method: "POST", path: `/missions/webhook/${id}`, authentication: "none", responseMode: "immediate" }
+    case "manual-trigger":
+      return { ...base }
+    case "event-trigger":
+      return { ...base, eventName: "nova.message.received", filter: "" }
+
+    case "http-request":
+      return { ...base, method: "GET", url: "https://api.example.com", responseFormat: "json" }
+    case "web-search":
+      return { ...base, query: "latest market updates", provider: "brave", maxResults: 5, includeSources: true, fetchContent: false }
+    case "rss-feed":
+      return { ...base, url: "https://example.com/feed.xml", maxItems: 10 }
+    case "coinbase":
+      return { ...base, intent: "report", assets: ["BTC", "ETH"], quoteCurrency: "USD", thresholdPct: 5, cadence: "daily" }
+    case "file-read":
+      return { ...base, path: "", format: "text", encoding: "utf8" }
+    case "form-input":
+      return { ...base, fields: [{ name: "input", label: "Input", type: "text" }] }
+
+    case "ai-summarize":
+      return { ...base, prompt: "Summarize the input clearly.", integration: "claude", detailLevel: "standard", model: "" }
+    case "ai-classify":
+      return { ...base, prompt: "Classify this content.", integration: "claude", categories: ["Important", "Normal"] }
+    case "ai-extract":
+      return { ...base, prompt: "Extract key entities and values.", integration: "claude", outputSchema: "{}" }
+    case "ai-generate":
+      return { ...base, prompt: "Generate a polished output.", integration: "claude", detailLevel: "standard", model: "" }
+    case "ai-chat":
+      return { ...base, integration: "claude", messages: [{ role: "user", content: "Hello" }] }
+
+    case "condition":
+      return { ...base, logic: "all", rules: [{ field: "{{$nodes.WebSearch.output.text}}", operator: "contains", value: "crypto" }] }
+    case "switch":
+      return { ...base, expression: "", cases: [{ value: "A", port: "case_0" }, { value: "B", port: "case_1" }], fallthrough: true }
+    case "loop":
+      return { ...base, inputExpression: "{{$nodes.Fetch.output.items}}", batchSize: 1, maxIterations: 100 }
+    case "merge":
+      return { ...base, mode: "wait-all", inputCount: 2 }
+    case "split":
+      return { ...base, outputCount: 2 }
+    case "wait":
+      return { ...base, waitMode: "duration", durationMs: 60000 }
+
+    case "set-variables":
+      return { ...base, assignments: [{ name: "var1", value: "" }] }
+    case "code":
+      return { ...base, language: "javascript", code: "return input;" }
+    case "format":
+      return { ...base, template: "{{input}}", outputFormat: "text" }
+    case "filter":
+      return { ...base, expression: "", mode: "keep" }
+    case "sort":
+      return { ...base, field: "", direction: "asc" }
+    case "dedupe":
+      return { ...base, field: "" }
+
+    case "novachat-output":
+      return { ...base, messageTemplate: "{{input}}" }
+    case "telegram-output":
+      return { ...base, chatIds: [], messageTemplate: "{{input}}", parseMode: "markdown" }
+    case "discord-output":
+      return { ...base, webhookUrls: [], messageTemplate: "{{input}}" }
+    case "email-output":
+      return { ...base, recipients: [], subject: "Mission Output", messageTemplate: "{{input}}", format: "text" }
+    case "webhook-output":
+      return { ...base, url: "https://example.com/webhook", method: "POST", bodyTemplate: "{{input}}" }
+    case "slack-output":
+      return { ...base, channel: "", messageTemplate: "{{input}}" }
+
+    case "sticky-note":
+      return { ...base, content: "Notes..." }
+    case "sub-workflow":
+      return { ...base, missionId: "", waitForCompletion: true }
+    default:
+      return { ...base }
+  }
+}
+
+function CategoryAddMenu({
+  categoryLabel,
+  entries,
+  buttonTone,
+  menuTone,
+  optionTone,
+  onAddNode,
+}: {
+  categoryLabel: string
+  entries: NodeCatalogEntry[]
+  buttonTone: string
+  menuTone: string
+  optionTone: string
+  onAddNode: (entry: NodeCatalogEntry) => void
+}) {
+  const [value, setValue] = useState("")
+  const options = useMemo(() => entries.map((entry) => ({ value: entry.type, label: entry.label })), [entries])
+
+  return (
+    <div className="w-[118px]">
+      <FluidSelect
+        isLight={false}
+        value={value}
+        options={options}
+        placeholder={categoryLabel}
+        onChange={(next) => {
+          const selected = entries.find((entry) => entry.type === next)
+          if (!selected) return
+          onAddNode(selected)
+          setValue("")
+        }}
+        buttonClassName={cn("h-8 px-2 text-[11px]", buttonTone)}
+        menuClassName={menuTone}
+        optionActiveClassName={optionTone}
+      />
+    </div>
+  )
+}
+
 function CanvasToolbar({
   mission,
   onSave,
   onRun,
+  onExit,
+  onAddNode,
   isSaving,
   isRunning,
   justSaved,
@@ -115,22 +240,72 @@ function CanvasToolbar({
   mission: Mission
   onSave: () => void
   onRun: () => void
+  onExit?: () => void
+  onAddNode: (entry: NodeCatalogEntry) => void
   isSaving?: boolean
   isRunning?: boolean
   justSaved?: boolean
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-white/12 bg-gradient-to-br from-slate-900/86 via-slate-900/78 to-black/72 px-3.5 py-2.5 shadow-[0_18px_42px_rgba(2,6,23,0.45)] backdrop-blur-xl">
+    <div className="flex items-center gap-2 rounded-xl border border-white/12 bg-black/70 px-3 py-2 shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+      {PALETTE_CATEGORIES.map((cat) => (
+        <CategoryAddMenu
+          key={cat.id}
+          categoryLabel={cat.label}
+          entries={NODE_CATALOG.filter((entry) => entry.category === cat.id)}
+          buttonTone={
+            cat.id === "triggers"
+              ? "border-amber-300/35 bg-amber-500/16 text-amber-100"
+              : cat.id === "data"
+                ? "border-cyan-300/35 bg-cyan-500/16 text-cyan-100"
+                : cat.id === "ai"
+                  ? "border-violet-300/35 bg-violet-500/16 text-violet-100"
+                  : cat.id === "logic"
+                    ? "border-orange-300/35 bg-orange-500/16 text-orange-100"
+                    : cat.id === "transform"
+                      ? "border-emerald-300/35 bg-emerald-500/16 text-emerald-100"
+                      : "border-pink-300/35 bg-pink-500/16 text-pink-100"
+          }
+          menuTone={
+            cat.id === "triggers"
+              ? "!border-amber-300/25 !bg-amber-500/10"
+              : cat.id === "data"
+                ? "!border-cyan-300/25 !bg-cyan-500/10"
+                : cat.id === "ai"
+                  ? "!border-violet-300/25 !bg-violet-500/10"
+                  : cat.id === "logic"
+                    ? "!border-orange-300/25 !bg-orange-500/10"
+                    : cat.id === "transform"
+                      ? "!border-emerald-300/25 !bg-emerald-500/10"
+                      : "!border-pink-300/25 !bg-pink-500/10"
+          }
+          optionTone={
+            cat.id === "triggers"
+              ? "!bg-amber-500/22 !text-amber-100"
+              : cat.id === "data"
+                ? "!bg-cyan-500/22 !text-cyan-100"
+                : cat.id === "ai"
+                  ? "!bg-violet-500/22 !text-violet-100"
+                  : cat.id === "logic"
+                    ? "!bg-orange-500/22 !text-orange-100"
+                    : cat.id === "transform"
+                      ? "!bg-emerald-500/22 !text-emerald-100"
+                      : "!bg-pink-500/22 !text-pink-100"
+          }
+          onAddNode={onAddNode}
+        />
+      ))}
+      <div className="h-6 w-px bg-white/14" />
       <div className="flex flex-col leading-tight">
-        <span className="max-w-[260px] truncate text-sm font-semibold text-white/92">{mission.label}</span>
+        <span className="max-w-[220px] truncate text-sm font-semibold text-white/92">{mission.label}</span>
         <span className="text-[10px] uppercase tracking-[0.1em] text-white/42">{mission.category} | {mission.status}</span>
       </div>
-      <div className="ml-3 flex items-center gap-1.5">
+      <div className="ml-2 flex items-center gap-1.5">
         <button
           onClick={onSave}
           disabled={isSaving}
           className={cn(
-            "flex items-center gap-1.5 rounded-lg border border-cyan-300/30 bg-cyan-500/16 px-2.5 py-1.5 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-500/24",
+            "flex items-center gap-1.5 rounded-lg border border-emerald-300/35 bg-emerald-500/18 px-2.5 py-1.5 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-500/28",
             isSaving && "opacity-50",
           )}
         >
@@ -141,13 +316,21 @@ function CanvasToolbar({
           onClick={onRun}
           disabled={isRunning}
           className={cn(
-            "flex items-center gap-1.5 rounded-lg border border-emerald-300/28 bg-emerald-500/14 px-2.5 py-1.5 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-500/24",
+            "flex items-center gap-1.5 rounded-lg border border-cyan-300/35 bg-cyan-500/18 px-2.5 py-1.5 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-500/28",
             isRunning && "opacity-50",
           )}
         >
           <Play className="h-3.5 w-3.5" />
-          {isRunning ? "Running..." : "Run Now"}
+          {isRunning ? "Running..." : "Run"}
         </button>
+        {onExit ? (
+          <button
+            onClick={onExit}
+            className="rounded-lg border border-rose-300/35 bg-rose-500/18 px-2.5 py-1.5 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-500/28"
+          >
+            Exit
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -156,7 +339,8 @@ function CanvasToolbar({
 interface MissionCanvasProps {
   mission: Mission
   onSave: (mission: Mission) => void | boolean | Promise<void | boolean>
-  onRun?: () => void | Promise<void>
+  onRun?: (mission: Mission) => void | Promise<void>
+  onExit?: () => void
   traceStatuses?: Record<string, "running" | "completed" | "failed">
   isSaving?: boolean
   isRunning?: boolean
@@ -166,15 +350,15 @@ function MissionCanvasInner({
   mission,
   onSave,
   onRun,
+  onExit,
   traceStatuses = {},
   isSaving,
   isRunning,
 }: MissionCanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [spotlightRgb, setSpotlightRgb] = useState("139, 92, 246")
+  const [spotlightRgb, setSpotlightRgb] = useState("255, 255, 255")
   const [spotlightPos, setSpotlightPos] = useState<{ x: number; y: number } | null>(null)
   const saveFlashTimeoutRef = useRef<number | null>(null)
 
@@ -189,7 +373,7 @@ function MissionCanvasInner({
     [mission.id],
   )
 
-  const [rfNodes, setRFNodes, onNodesChange] = useNodesState<Node<MissionNodeData>>(initialRFNodes)
+  const [rfNodes, setRFNodes, onNodesChange] = useNodesState<RFNode<MissionNodeData>>(initialRFNodes)
   const [rfEdges, setRFEdges, onEdgesChange] = useEdgesState(initialRFEdges)
 
   const buildDraftMission = useCallback((): Mission => {
@@ -221,7 +405,8 @@ function MissionCanvasInner({
         ...connection,
         id: `conn-${Date.now()}`,
         type: "smoothstep",
-        style: { stroke: "hsl(var(--mission-flow-edge) / 0.62)", strokeWidth: 1.9 },
+        animated: true,
+        style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
       }
       setRFEdges((eds) => addEdge(edge, eds))
     },
@@ -245,22 +430,23 @@ function MissionCanvasInner({
 
       const bounds = wrapper.getBoundingClientRect()
       const position = {
-        x: event.clientX - bounds.left - 90,
-        y: event.clientY - bounds.top - 30,
+        x: event.clientX - bounds.left - 130,
+        y: event.clientY - bounds.top - 50,
       }
 
       const newNodeId = `node-${Date.now()}`
       const entry = getNodeCatalogEntry(nodeType)
       if (!entry) return
 
-      const newNode: Node<MissionNodeData> = {
+      const nodeConfig = buildDefaultNodeConfig(nodeType, nodeLabel || entry.label, newNodeId, position)
+      const newNode: RFNode<MissionNodeData> = {
         id: newNodeId,
         type: "missionNode",
         position,
         data: {
-          nodeConfig: { id: newNodeId, type: nodeType, label: nodeLabel, position },
+          nodeConfig,
           catalogEntry: entry,
-          label: nodeLabel,
+          label: String(nodeConfig.label || entry.label),
         },
       }
       setRFNodes((nds) => [...nds, newNode])
@@ -269,18 +455,18 @@ function MissionCanvasInner({
   )
 
   const handleAddNode = useCallback(
-    (type: MissionNodeType, label: string) => {
-      const entry = getNodeCatalogEntry(type)
-      if (!entry) return
+    (entry: NodeCatalogEntry) => {
       const id = `node-${Date.now()}`
-      const newNode: Node<MissionNodeData> = {
+      const position = { x: 260 + Math.random() * 180, y: 200 + Math.random() * 120 }
+      const nodeConfig = buildDefaultNodeConfig(entry.type, entry.label, id, position)
+      const newNode: RFNode<MissionNodeData> = {
         id,
         type: "missionNode",
-        position: { x: 200 + Math.random() * 100, y: 200 + Math.random() * 100 },
+        position,
         data: {
-          nodeConfig: { id, type, label, position: { x: 200, y: 200 } },
+          nodeConfig,
           catalogEntry: entry,
-          label,
+          label: String(nodeConfig.label || entry.label),
         },
       }
       setRFNodes((nds) => [...nds, newNode])
@@ -329,6 +515,15 @@ function MissionCanvasInner({
     }
   }, [buildDraftMission, onSave])
 
+  const handleRun = useCallback(async () => {
+    const draftMission = buildDraftMission()
+    const saved = await onSave(draftMission)
+    if (saved === false) return
+    if (onRun) {
+      await onRun(draftMission)
+    }
+  }, [buildDraftMission, onRun, onSave])
+
   const handleCanvasMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
     setSpotlightPos({
@@ -342,46 +537,19 @@ function MissionCanvasInner({
     const y = spotlightPos?.y ?? -9999
     return {
       opacity: spotlightEnabled && spotlightPos ? 1 : 0,
-      background: `radial-gradient(170px circle at ${x}px ${y}px, rgba(${spotlightRgb}, 0.14) 0%, rgba(${spotlightRgb}, 0.08) 36%, rgba(${spotlightRgb}, 0.04) 56%, transparent 78%)`,
+      background: `radial-gradient(72px circle at ${x}px ${y}px, rgba(${spotlightRgb}, 0.1) 0%, rgba(${spotlightRgb}, 0.045) 40%, transparent 72%)`,
     }
   }, [spotlightEnabled, spotlightPos, spotlightRgb])
 
-  const selectedNode = useMemo(() => {
-    if (!selectedNodeId) return null
-    const rfNode = rfNodes.find((n) => n.id === selectedNodeId)
-    if (!rfNode) return null
-    return (rfNode.data?.nodeConfig || null) as unknown as MissionNode | null
-  }, [rfNodes, selectedNodeId])
-
-  const handleNodeUpdate = useCallback(
-    (nodeId: string, updates: Partial<MissionNode>) => {
-      setRFNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== nodeId) return n
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              label: (updates.label as string) || n.data.label,
-              nodeConfig: { ...n.data.nodeConfig, ...updates },
-            },
-          }
-        }),
-      )
-    },
-    [setRFNodes],
-  )
-
   return (
     <div className="mission-canvas-theme flex h-full w-full overflow-hidden">
-      <NodePalette onAddNode={handleAddNode} />
-
       <div
-        className="relative flex-1 overflow-hidden bg-gradient-to-br from-slate-950 via-slate-950 to-black"
+        className="relative flex-1 overflow-hidden bg-black"
         ref={reactFlowWrapper}
         onMouseMove={handleCanvasMouseMove}
         onMouseLeave={() => setSpotlightPos(null)}
       >
+        <div className="pointer-events-none absolute inset-0 z-[60] transition-opacity duration-150" style={spotlightStyle} />
         <ReactFlow
           nodes={nodesWithStatus}
           edges={rfEdges}
@@ -390,23 +558,20 @@ function MissionCanvasInner({
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
-          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-          onPaneClick={() => setSelectedNodeId(null)}
           nodeTypes={NODE_TYPES}
           fitView
-          fitViewOptions={{ padding: 0.2 }}
+          fitViewOptions={{ padding: 0.16 }}
           minZoom={0.2}
           maxZoom={2}
           defaultEdgeOptions={{
             type: "smoothstep",
-            style: { stroke: "hsl(var(--mission-flow-edge) / 0.62)", strokeWidth: 1.9 },
+            animated: true,
+            style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
           }}
           proOptions={{ hideAttribution: true }}
           className="bg-transparent"
         >
-          <div className="pointer-events-none absolute inset-0 z-[1] transition-opacity duration-150" style={spotlightStyle} />
-          <Background id="canvas-grid-minor" variant={BackgroundVariant.Lines} color="hsl(var(--mission-flow-dot) / 0.12)" gap={24} size={1} />
-          <Background id="canvas-grid-major" variant={BackgroundVariant.Lines} color="hsl(var(--mission-flow-dot) / 0.2)" gap={120} size={1.2} />
+          <Background id="canvas-grid-dots" variant={BackgroundVariant.Dots} color="hsl(var(--mission-flow-dot) / 0.28)" gap={20} size={1.2} />
           <Controls />
           <MiniMap
             nodeColor={(n) => {
@@ -419,7 +584,9 @@ function MissionCanvasInner({
             <CanvasToolbar
               mission={mission}
               onSave={handleSave}
-              onRun={onRun || (() => {})}
+              onRun={handleRun}
+              onExit={onExit}
+              onAddNode={handleAddNode}
               isSaving={isSaving}
               isRunning={isRunning}
               justSaved={justSaved}
@@ -427,10 +594,6 @@ function MissionCanvasInner({
           </Panel>
         </ReactFlow>
       </div>
-
-      {selectedNode && (
-        <NodeConfigPanel node={selectedNode} onUpdate={handleNodeUpdate} onClose={() => setSelectedNodeId(null)} />
-      )}
     </div>
   )
 }

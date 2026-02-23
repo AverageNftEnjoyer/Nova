@@ -354,6 +354,7 @@ export function migrateLegacyScheduleToMission(schedule: NotificationSchedule): 
 interface MissionsStoreFile {
   version: number
   missions: Mission[]
+  deletedIds?: string[]
   updatedAt: string
   migratedAt?: string
 }
@@ -424,6 +425,18 @@ async function ensureMissionsFile(userId: string): Promise<void> {
   }
 }
 
+async function readRawStoreFile(userId: string): Promise<MissionsStoreFile | null> {
+  const sanitized = sanitizeUserId(userId)
+  if (!sanitized) return null
+  const file = resolveMissionsFile(sanitized)
+  try {
+    const raw = await readFile(file, "utf8")
+    return JSON.parse(raw) as MissionsStoreFile
+  } catch {
+    return null
+  }
+}
+
 async function loadScopedMissions(userId: string): Promise<Mission[]> {
   const sanitized = sanitizeUserId(userId)
   if (!sanitized) return []
@@ -451,7 +464,7 @@ async function loadScopedMissions(userId: string): Promise<Mission[]> {
   }
 }
 
-async function saveScopedMissions(userId: string, missions: Mission[]): Promise<void> {
+async function saveScopedMissions(userId: string, missions: Mission[], deletedIds?: string[]): Promise<void> {
   const sanitized = sanitizeUserId(userId)
   if (!sanitized) return
   const file = resolveMissionsFile(sanitized)
@@ -461,11 +474,21 @@ async function saveScopedMissions(userId: string, missions: Mission[]): Promise<
       .filter((m): m is Mission => m !== null)
       .map((m) => ({ ...m, userId: sanitized })),
   )
-  await atomicWriteJson(file, {
+  // If no deletedIds provided, preserve existing ones from disk so they survive all writes.
+  let finalDeletedIds = deletedIds
+  if (finalDeletedIds === undefined) {
+    const raw = await readRawStoreFile(sanitized)
+    finalDeletedIds = Array.isArray(raw?.deletedIds) ? raw.deletedIds : []
+  }
+  const payload: MissionsStoreFile = {
     version: MISSIONS_SCHEMA_VERSION,
     missions: normalized,
     updatedAt: new Date().toISOString(),
-  } satisfies MissionsStoreFile)
+  }
+  if (finalDeletedIds.length > 0) {
+    payload.deletedIds = finalDeletedIds
+  }
+  await atomicWriteJson(file, payload)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -487,11 +510,15 @@ async function migrateFromLegacyIfNeeded(userId: string): Promise<void> {
   const existing = await loadScopedMissions(sanitized)
   const existingIds = new Set(existing.map((m) => m.id))
 
-  const toImport = legacySchedules.filter((s) => !existingIds.has(s.id))
+  // Load explicitly-deleted IDs so we never re-import missions the user deleted.
+  const rawStore = await readRawStoreFile(sanitized)
+  const deletedIds = new Set(Array.isArray(rawStore?.deletedIds) ? rawStore.deletedIds : [])
+
+  const toImport = legacySchedules.filter((s) => !existingIds.has(s.id) && !deletedIds.has(s.id))
   if (toImport.length === 0) return
 
   const migrated = toImport.map((s) => migrateLegacyScheduleToMission(s))
-  await saveScopedMissions(sanitized, [...existing, ...migrated])
+  await saveScopedMissions(sanitized, [...existing, ...migrated], Array.from(deletedIds))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -578,7 +605,11 @@ export async function deleteMission(missionId: string, userId: string): Promise<
   if (next.length === existing.length) {
     return { ok: true, deleted: false, reason: "not_found" }
   }
-  await saveScopedMissions(uid, next)
+  // Append to deletedIds so migrateFromLegacyIfNeeded never re-imports this mission.
+  const rawStore = await readRawStoreFile(uid)
+  const existingDeletedIds = Array.isArray(rawStore?.deletedIds) ? rawStore.deletedIds : []
+  const updatedDeletedIds = [...new Set([...existingDeletedIds, targetMissionId])]
+  await saveScopedMissions(uid, next, updatedDeletedIds)
   return { ok: true, deleted: true, reason: "deleted" }
 }
 

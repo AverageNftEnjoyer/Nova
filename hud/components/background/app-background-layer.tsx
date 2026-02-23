@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import FloatingLines from "@/components/effects/FloatingLines"
+import { SpaceBackground } from "@/components/background/space-background"
 import { useTheme } from "@/lib/context/theme-context"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -146,6 +147,14 @@ export function AppBackgroundLayer() {
     }
   }, [background, customBackgroundAssetId, isLight, showForPath])
 
+  useEffect(() => {
+    const active = mounted && showForPath && !isLight && background === "space"
+    document.documentElement.classList.toggle("nova-bg-space-active", active)
+    return () => {
+      document.documentElement.classList.remove("nova-bg-space-active")
+    }
+  }, [background, isLight, mounted, showForPath])
+
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo<[string, string]>(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -191,6 +200,7 @@ export function AppBackgroundLayer() {
           </div>
         </div>
       )}
+      {background === "space" && <SpaceBackground />}
       {background === "customVideo" && !!backgroundVideoUrl && (
         <div className="absolute inset-0 overflow-hidden">
           {backgroundMediaIsImage ? (

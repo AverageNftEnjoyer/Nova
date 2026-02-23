@@ -15,7 +15,7 @@ export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
  * Normalizes a cached background value to a valid ThemeBackgroundType.
  */
 export function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
-  if (value === "floatingLines" || value === "none" || value === "customVideo") return value
+  if (value === "floatingLines" || value === "space" || value === "none" || value === "customVideo") return value
   if (value === "default") return "floatingLines"
   return null
 }

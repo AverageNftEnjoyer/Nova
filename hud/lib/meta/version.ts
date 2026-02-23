@@ -9,6 +9,12 @@
  *
  * Version History:
  *
+ * - V.27 Alpha: Home visual polish + mission key stability fix
+ *     - Scoped the orb-gradient title treatment so only the assistant name is gradient-rendered while "Hi, I'm" remains theme text.
+ *     - Reworked space background planet variety toward a more realistic look (surface archetypes, subtler glow/motion, less repetitive crater treatment).
+ *     - Added rare bottom-to-top launch rocket event with subtle spin for occasional cinematic motion.
+ *     - Fixed duplicate React key warnings in mission template tags by making chip keys unique per template/tag/index.
+ *
  * - V.26 Alpha: Mission builder workflow UX overhaul (frosted glass)
  *     - Reworked mission canvas visual system with tokenized React Flow theming and refined controls/minimap treatment.
  *     - Upgraded node palette and node config panel hierarchy to match workflow-editor ergonomics from reference design patterns.
@@ -179,4 +185,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.26 Alpha"
+export const NOVA_VERSION = "V.27 Alpha"

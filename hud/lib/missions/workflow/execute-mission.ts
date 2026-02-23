@@ -180,8 +180,16 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
       : { due: false, reason: `Interval: only ${minutesSince.toFixed(1)}m of ${every}m elapsed.`, dayStamp: local.dayStamp }
   }
 
-  // Check day-lock for daily/weekly/once — don't re-run same day
-  if (mode === "daily" || mode === "weekly" || mode === "once") {
+  // "once" missions must never re-run after their first execution.
+  if (mode === "once") {
+    if (mission.lastSentLocalDate) {
+      return { due: false, reason: `Already ran once (on ${mission.lastSentLocalDate}).`, dayStamp: local.dayStamp }
+    }
+    return { due: true, reason: "Once: first run.", dayStamp: local.dayStamp }
+  }
+
+  // Check day-lock for daily/weekly — don't re-run same day
+  if (mode === "daily" || mode === "weekly") {
     if (mission.lastSentLocalDate === local.dayStamp) {
       return { due: false, reason: `Already ran today (${local.dayStamp}).`, dayStamp: local.dayStamp }
     }

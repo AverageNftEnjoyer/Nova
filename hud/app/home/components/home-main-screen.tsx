@@ -1,6 +1,7 @@
 "use client"
 
 import { Blocks, Pin, Settings, Activity, Clock3, CheckCircle2, AlertTriangle } from "lucide-react"
+import type { CSSProperties } from "react"
 import { AnimatedOrb } from "@/components/orb/animated-orb"
 import TextType from "@/components/effects/TextType"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
@@ -76,6 +77,11 @@ export function HomeMainScreen() {
   }
 
   const analyticsLiveActivity = MOCK_ACTIVITY_FEED.slice(0, 4)
+  const assistantNameGradientVars = {
+    "--orb-name-a": orbPalette.circle1,
+    "--orb-name-b": orbPalette.circle2,
+    "--orb-name-c": orbPalette.circle4,
+  } as CSSProperties
 
   const iconForActivityService = (service: string) => {
     const value = service.trim().toLowerCase()
@@ -137,12 +143,15 @@ export function HomeMainScreen() {
                 </div>
                 <div className="text-center">
                   <p className={cn(`mt-2 text-5xl font-semibold ${hasAnimated ? "text-blur-intro" : ""}`, isLight ? "text-s-90" : "text-white")}>
-                    Hi, I&apos;m {assistantName}
+                    Hi, I&apos;m{" "}
+                    <span className="assistant-name-orb-gradient" style={assistantNameGradientVars}>
+                      {assistantName}
+                    </span>
                   </p>
                   <p className={cn(`mt-3 text-lg ${hasAnimated ? "text-blur-intro-delay" : ""}`, isLight ? "text-s-50" : "text-slate-400")}>
                     <TextType
                       as="span"
-                      text={[welcomeMessage]}
+                      text={welcomeMessage}
                       typingSpeed={75}
                       pauseDuration={1500}
                       showCursor
@@ -180,7 +189,7 @@ export function HomeMainScreen() {
                     </div>
                     <button
                       onClick={openAnalytics}
-                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-dynamic group/analytics-gear`, subPanelClass)}
+                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow group/analytics-gear`, subPanelClass)}
                       aria-label="Open analytics dashboard"
                       title="Open analytics dashboard"
                     >
@@ -191,7 +200,7 @@ export function HomeMainScreen() {
                   <div className="module-hover-scroll hide-scrollbar mt-1 h-[116px] overflow-y-auto overflow-x-hidden pr-0.5">
                     <div className="grid grid-cols-2 gap-1">
                       {analyticsLiveActivity.map((event) => (
-                        <div key={event.id} className={cn("rounded-sm border px-1.5 py-1 flex items-start gap-1.5 min-w-0 home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                        <div key={event.id} className={cn("rounded-sm border px-1.5 py-1 flex items-start gap-1.5 min-w-0 home-spotlight-card home-border-glow", subPanelClass)}>
                           <div className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
                             {iconForActivityService(event.service)}
                           </div>
@@ -226,7 +235,7 @@ export function HomeMainScreen() {
                     </div>
                     <button
                       onClick={openDevLogs}
-                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-dynamic group/dev-tools-gear`, subPanelClass)}
+                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow group/dev-tools-gear`, subPanelClass)}
                       aria-label="Open dev logs dashboard"
                       title="Open dev logs dashboard"
                     >
@@ -235,27 +244,27 @@ export function HomeMainScreen() {
                   </div>
 
                   <div className="mt-1 grid grid-cols-2 gap-1">
-                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
                       <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Total Traces</p>
                       <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.totalTraces)}</p>
                     </div>
-                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
                       <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Errors</p>
                       <p className="mt-0.5 text-sm font-semibold text-rose-400 tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.errors)}</p>
                     </div>
-                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
                       <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Warnings</p>
                       <p className="mt-0.5 text-sm font-semibold text-amber-300 tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.warnings)}</p>
                     </div>
-                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
                       <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Avg Latency</p>
                       <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.avgLatencyMs)}ms</p>
                     </div>
-                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
                       <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Total Tokens</p>
                       <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.totalTokens)}</p>
                     </div>
-                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
                       <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Avg Quality</p>
                       <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{devToolsMetrics.avgQuality.toFixed(1)}</p>
                     </div>

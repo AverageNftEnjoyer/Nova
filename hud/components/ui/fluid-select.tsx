@@ -17,11 +17,26 @@ interface FluidSelectProps {
   options: FluidSelectOption[]
   onChange: (value: string) => void
   isLight: boolean
+  placeholder?: string
   className?: string
   buttonClassName?: string
+  menuClassName?: string
+  optionClassName?: string
+  optionActiveClassName?: string
 }
 
-export function FluidSelect({ value, options, onChange, isLight, className, buttonClassName }: FluidSelectProps) {
+export function FluidSelect({
+  value,
+  options,
+  onChange,
+  isLight,
+  placeholder,
+  className,
+  buttonClassName,
+  menuClassName,
+  optionClassName,
+  optionActiveClassName,
+}: FluidSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [hoveredValue, setHoveredValue] = useState<string | null>(null)
   const [menuStyle, setMenuStyle] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
@@ -29,7 +44,7 @@ export function FluidSelect({ value, options, onChange, isLight, className, butt
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
-  const selected = useMemo(() => options.find((o) => o.value === value) ?? options[0], [options, value])
+  const selected = useMemo(() => options.find((o) => o.value === value), [options, value])
 
   useEffect(() => {
     if (!isOpen) return
@@ -118,7 +133,7 @@ export function FluidSelect({ value, options, onChange, isLight, className, butt
           aria-expanded={isOpen}
           aria-haspopup="listbox"
         >
-          <span className="truncate">{selected?.label ?? ""}</span>
+          <span className="truncate">{selected?.label ?? placeholder ?? options[0]?.label ?? ""}</span>
           <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.16 }}>
             <ChevronDown className={cn("h-4 w-4", isLight ? "text-s-50" : "text-slate-400")} />
           </motion.div>
@@ -143,6 +158,7 @@ export function FluidSelect({ value, options, onChange, isLight, className, butt
                         isLight
                           ? "border-[#d5dce8] bg-[#f7faff]/95 shadow-[0_10px_30px_-18px_rgba(73,98,141,0.35)]"
                           : "border-white/14 bg-white/8 shadow-[0_14px_36px_-20px_rgba(120,170,255,0.35)]",
+                        menuClassName,
                       )}
                       initial={{ opacity: 0.95 }}
                       animate={{ opacity: 1 }}
@@ -173,6 +189,8 @@ export function FluidSelect({ value, options, onChange, isLight, className, butt
                               : isLight
                                 ? "text-s-70"
                                 : "text-slate-300",
+                            !option.disabled && optionClassName,
+                            (value === option.value || hoveredValue === option.value) && !option.disabled && optionActiveClassName,
                           )}
                         >
                           {option.label}

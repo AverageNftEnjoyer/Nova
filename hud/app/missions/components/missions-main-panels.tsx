@@ -112,8 +112,8 @@ export function MissionsMainPanels({
                 <p className={cn("mt-0.5 line-clamp-2 text-[11px] leading-snug", isLight ? "text-s-60" : "text-slate-400")}>{template.description}</p>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                {template.tags.map((tag) => (
-                  <span key={tag} className={cn("rounded-md px-1.5 py-0.5 text-[9px]", isLight ? "bg-[#e8eef9] text-s-70" : "bg-white/8 text-slate-300")}>
+                {template.tags.map((tag, tagIndex) => (
+                  <span key={`${template.id}-${tag}-${tagIndex}`} className={cn("rounded-md px-1.5 py-0.5 text-[9px]", isLight ? "bg-[#e8eef9] text-s-70" : "bg-white/8 text-slate-300")}>
                     #{tag}
                   </span>
                 ))}

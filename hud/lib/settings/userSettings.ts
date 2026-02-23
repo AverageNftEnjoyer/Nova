@@ -7,7 +7,7 @@ export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "or
 export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
 export type SpotlightColor = OrbColor
 export type BackgroundType = "default" | "none" // legacy
-export type DarkBackgroundType = "floatingLines" | "none" | "customVideo"
+export type DarkBackgroundType = "floatingLines" | "space" | "none" | "customVideo"
 export type LightBackgroundType = "none"
 export type ThemeBackgroundType = DarkBackgroundType | LightBackgroundType
 
@@ -399,6 +399,7 @@ export const BACKGROUNDS: Record<BackgroundType, { name: string; description: st
 
 export const DARK_BACKGROUNDS: Record<DarkBackgroundType, { name: string; description: string }> = {
   floatingLines: { name: "Floating Lines", description: "Interactive wave lines" },
+  space: { name: "Space", description: "Futuristic starfield with planets and Nova orbit rings" },
   customVideo: { name: "Custom Media", description: "Use an uploaded MP4 or image as the background" },
   none: { name: "None", description: "No background animation" },
 }

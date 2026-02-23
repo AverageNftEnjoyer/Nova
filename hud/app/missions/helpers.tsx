@@ -137,7 +137,7 @@ export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
 }
 
 export function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
-  if (value === "floatingLines" || value === "none" || value === "customVideo") return value
+  if (value === "floatingLines" || value === "space" || value === "none" || value === "customVideo") return value
   if (value === "default") return "floatingLines"
   return null
 }

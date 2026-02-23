@@ -961,7 +961,6 @@ export function useConversations({
     pendingPollAbortRef.current = controller
     const run = (async () => {
       try {
-        setPendingQueueStatus((prev) => (prev.mode === "idle" ? { mode: "processing", message: "Checking pending queue...", retryAtMs: 0 } : prev))
         const res = await fetch("/api/novachat/pending", {
           cache: "no-store",
           signal: controller.signal,
@@ -1012,9 +1011,12 @@ export function useConversations({
         }
         if (!data.ok || !Array.isArray(data.messages) || data.messages.length === 0) return 0
 
+        // Only show the banner when we actually have messages to process
+        setPendingQueueStatus((prev) => (prev.mode === "idle" ? { mode: "processing", message: "Checking pending queue...", retryAtMs: 0 } : prev))
+
         const consumedIds: string[] = []
         let latestConvo: Conversation | null = null
-        let updatedConvos = [...conversations]
+        let updatedConvos = [...latestConversationsRef.current]
         const seenDeliveryKeys = new Set<string>()
         const runConversationByGroup = pendingMissionConversationByGroupRef.current
         const sortedMessages = [...data.messages].sort((a, b) => parseIsoTimestamp(a.createdAt) - parseIsoTimestamp(b.createdAt))
@@ -1127,7 +1129,6 @@ export function useConversations({
   }, [
     isLoaded,
     activeConvo,
-    conversations,
     createServerConversation,
     syncServerMessages,
     persist,

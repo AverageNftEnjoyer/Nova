@@ -437,9 +437,22 @@ async function runScheduleTickInternal() {
         if (!result.skipped) {
           runCount += 1
           runCountByUser.set(userKey, perUserRuns + 1)
+          // Persist dayStamp so the schedule gate won't fire again for the same period.
+          // Without this, lastSentLocalDate stays stale and every 30s tick re-triggers.
+          const nativeTriggerNode = liveMission.nodes.find((n) => n.type === "schedule-trigger") as
+            | { triggerMode?: string; triggerTimezone?: string }
+            | undefined
+          const nativeTriggerMode = String(nativeTriggerNode?.triggerMode || "daily")
+          const nativeTz = String(nativeTriggerNode?.triggerTimezone || liveMission.settings?.timezone || "America/New_York")
+          const nativeLocal = getLocalParts(now, nativeTz)
+          const nativeDayStamp =
+            (nativeTriggerMode === "daily" || nativeTriggerMode === "weekly" || nativeTriggerMode === "once") && nativeLocal?.dayStamp
+              ? nativeLocal.dayStamp
+              : liveMission.lastSentLocalDate
           const updatedMission = {
             ...liveMission,
             lastRunAt: now.toISOString(),
+            lastSentLocalDate: nativeDayStamp,
             runCount: (liveMission.runCount || 0) + 1,
             successCount: result.ok ? (liveMission.successCount || 0) + 1 : (liveMission.successCount || 0),
             failureCount: result.ok ? (liveMission.failureCount || 0) : (liveMission.failureCount || 0) + 1,

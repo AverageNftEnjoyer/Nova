@@ -16,6 +16,7 @@ import {
 import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { purgePendingMessagesForMission } from "@/lib/novachat/pending-messages"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -416,6 +417,10 @@ export async function DELETE(req: Request) {
       await saveSchedules(nextSchedules, { userId })
       scheduleDeleted = true
     }
+
+    // Purge any queued novachat messages for this mission so deleted missions
+    // don't surface in chat on next poll or after reboot.
+    await purgePendingMessagesForMission(userId, id).catch(() => {})
 
     const deleted = missionDelete.deleted || scheduleDeleted
     const reason = deleted ? "deleted" : "not_found"

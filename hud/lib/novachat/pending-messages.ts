@@ -382,3 +382,21 @@ export async function markMessagesConsumedForUser(userId: string, messageIds: st
     )
   )
 }
+
+/**
+ * Purge all pending messages for a specific mission (mark as consumed).
+ * Call when a mission is deleted so stale outputs don't appear in chat.
+ */
+export async function purgePendingMessagesForMission(userId: string, missionId: string): Promise<void> {
+  await migrateLegacyPendingIfNeeded()
+  const scopedUserId = sanitizeUserContextId(userId)
+  const targetMissionId = String(missionId || "").trim()
+  if (!scopedUserId || !targetMissionId) return
+  await withLockedStoreWrite(scopedUserId, (messages) =>
+    messages.map((msg) =>
+      msg.userId === scopedUserId && msg.missionId === targetMissionId && !msg.consumed
+        ? { ...msg, consumed: true }
+        : msg
+    )
+  )
+}
