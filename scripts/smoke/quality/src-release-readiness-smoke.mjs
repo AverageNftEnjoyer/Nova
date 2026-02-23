@@ -53,6 +53,8 @@ await run("P20-C1 release gate scripts are present", async () => {
     "smoke:src-prompt",
     "smoke:src-missions",
     "smoke:src-scheduler",
+    "smoke:src-discord-delivery",
+    "smoke:src-telegram-delivery",
     "smoke:src-transport",
     "smoke:src-tools",
     "smoke:src-security",
@@ -79,6 +81,24 @@ await run("P20-C1b release gate includes Coinbase CI + readiness hard gates", as
     releaseScript.includes("smoke:src-coinbase-readiness"),
     true,
     "missing coinbase readiness gate in smoke:src-release",
+  );
+});
+
+await run("P20-C1c release gate includes Telegram delivery hard gate", async () => {
+  const releaseScript = String(packageJson?.scripts?.["smoke:src-release"] || "");
+  assert.equal(
+    releaseScript.includes("smoke:src-telegram-delivery"),
+    true,
+    "missing telegram delivery gate in smoke:src-release",
+  );
+});
+
+await run("P20-C1d release gate includes Discord delivery hard gate", async () => {
+  const releaseScript = String(packageJson?.scripts?.["smoke:src-release"] || "");
+  assert.equal(
+    releaseScript.includes("smoke:src-discord-delivery"),
+    true,
+    "missing discord delivery gate in smoke:src-release",
   );
 });
 

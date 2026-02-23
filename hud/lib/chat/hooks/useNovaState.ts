@@ -106,6 +106,7 @@ function repairAssistantReadability(value: string): string {
 
 const HUD_USER_ECHO_DEDUPE_MS = 15_000
 const EVENT_DEDUPE_MS = 2_500
+const ASSISTANT_MESSAGE_DEDUPE_MS = 12_000
 const ASSISTANT_MESSAGE_MERGE_WINDOW_MS = 10_000
 const HUD_MESSAGE_ACK_TTL_MS = 10 * 60 * 1000
 
@@ -271,20 +272,35 @@ export function useNovaState() {
       return false
     }
 
-    const ws = new WebSocket("ws://localhost:8765");
-    wsRef.current = ws;
+    let isMounted = true
+    const reconnectDelay = { ms: 1_000 }
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => {
-      setConnected(false);
-      setState("idle");
-      setThinkingStatus("");
-      setStreamingAssistantId(null);
-    };
+    const connect = () => {
+      if (!isMounted) return
+      const ws = new WebSocket("ws://localhost:8765")
+      wsRef.current = ws
 
-    ws.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
+      ws.onopen = () => {
+        reconnectDelay.ms = 1_000
+        setConnected(true)
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        setState("idle")
+        setThinkingStatus("")
+        setStreamingAssistantId(null)
+        if (!isMounted) return
+        reconnectTimer = setTimeout(() => {
+          reconnectDelay.ms = Math.min(reconnectDelay.ms * 2, 30_000)
+          connect()
+        }, reconnectDelay.ms)
+      }
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
         if (isScopedEventForOtherUser(data)) return
 
         if (data.type === "hud_message_ack") {
@@ -439,7 +455,7 @@ export function useNovaState() {
           }
           if (
             data.role === "assistant" &&
-            markRecentEvent(`assistant_msg:${conversationId}:${messageTs}:${normalizedForDedupe}`, EVENT_DEDUPE_MS)
+            markRecentEvent(`assistant_msg:${conversationId}:${normalizedForDedupe}`, ASSISTANT_MESSAGE_DEDUPE_MS)
           ) {
             return
           }
@@ -516,11 +532,15 @@ export function useNovaState() {
           });
         }
       } catch {}
-    };
+    }
+    } // end connect()
 
     const pendingAssistantDeltas = pendingAssistantDeltasRef.current
     const hudMessageAckMap = hudMessageAckRef.current
+    connect()
     return () => {
+      isMounted = false
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer)
       window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, syncActiveUserId as EventListener)
       if (deltaFlushRafRef.current !== null) {
         window.cancelAnimationFrame(deltaFlushRafRef.current)
@@ -528,7 +548,7 @@ export function useNovaState() {
       }
       pendingAssistantDeltas.clear()
       hudMessageAckMap.clear()
-      ws.close()
+      wsRef.current?.close()
     };
   }, [pruneHudMessageAckMap]);
 

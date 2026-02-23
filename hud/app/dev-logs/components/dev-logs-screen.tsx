@@ -94,7 +94,7 @@ export function DevLogsScreen() {
       { ref: filterRef, showSpotlightCore: false },
       { ref: tableRef, showSpotlightCore: false },
     ],
-    [isLight, spotlightEnabled],
+    [isLight, spotlightEnabled, data?.turns?.length || 0],
   )
 
   const turns = useMemo(() => data?.turns || [], [data?.turns])
@@ -119,13 +119,10 @@ export function DevLogsScreen() {
     })
   }, [search, statusFilter, turns])
 
-  useEffect(() => {
-    if (!filteredTurns.length) {
-      setExpandedTurnId("")
-      return
-    }
-    setExpandedTurnId((prev) => (prev && filteredTurns.some((turn) => turn.turnId === prev) ? prev : ""))
-  }, [filteredTurns])
+  const expandedTurnIdSafe = useMemo(
+    () => (expandedTurnId && filteredTurns.some((turn) => turn.turnId === expandedTurnId) ? expandedTurnId : ""),
+    [expandedTurnId, filteredTurns],
+  )
 
   const statusCounts = useMemo(() => {
     let ok = 0
@@ -208,22 +205,27 @@ export function DevLogsScreen() {
         </section>
 
         <section ref={tableRef} className={cn(panelClass, "home-spotlight-shell min-h-0 flex-1 overflow-hidden p-0")}>
-          <div className="h-full overflow-auto rounded-2xl module-hover-scroll">
-            <table className="w-full border-collapse">
-              <thead className={cn("sticky top-0 z-10 text-[11px] uppercase tracking-[0.12em] border-b", isLight ? "bg-[#eef3fb] border-[#dce5f3]" : "bg-white/[0.02] backdrop-blur-xl border-white/10")}>
+          <div className="relative h-full overflow-auto module-hover-scroll">
+            <table className="w-full min-w-full border-collapse">
+              <thead
+                className={cn(
+                  "text-[11px] uppercase tracking-[0.12em] border-b",
+                  isLight ? "bg-[#e7eef9] border-[#d2deef]" : "bg-transparent border-white/15",
+                )}
+              >
                 <tr className={cn(isLight ? "text-s-50" : "text-slate-400")}>
-                  <th className="w-9 px-2 py-3 text-left rounded-tl-2xl" />
+                  <th className="w-9 px-2 py-3 text-left" />
                   <th className="px-2 py-3 text-left">Trace</th>
                   <th className="px-2 py-3 text-left">Time</th>
                   <th className="px-2 py-3 text-left">Latency</th>
                   <th className="px-2 py-3 text-left">Quality</th>
                   <th className="px-2 py-3 text-left">Tokens</th>
-                  <th className="px-2 py-3 text-left rounded-tr-2xl">Status</th>
+                  <th className="px-2 py-3 text-left">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTurns.map((turn) => {
-                  const expanded = turn.turnId === expandedTurnId
+                  const expanded = turn.turnId === expandedTurnIdSafe
                   const status = deriveStatus(turn)
                   const latency = Number(turn.timing?.latencyMs || 0)
                   const quality = Number(turn.quality?.score || 0)
@@ -242,14 +244,14 @@ export function DevLogsScreen() {
                     <Fragment key={turn.turnId}>
                       <tr
                         className={cn(
-                          "border-t transition-colors home-spotlight-card home-border-glow",
+                          "border-t transition-colors",
                           isLight ? "border-[#dce5f3] hover:bg-[#f3f7ff]" : "border-white/10 hover:bg-white/[0.03]",
                         )}
                       >
                         <td className="px-2 py-3 align-top">
                           <button
                             onClick={() => setExpandedTurnId((prev) => (prev === turn.turnId ? "" : turn.turnId))}
-                            className={cn("rounded-md border p-1 home-spotlight-card home-border-glow", subPanelClass)}
+                            className={cn("rounded-md border p-1 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}
                             aria-label={expanded ? "Collapse row" : "Expand row"}
                           >
                             {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}

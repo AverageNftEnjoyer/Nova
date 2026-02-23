@@ -10,12 +10,44 @@ import { Check, RotateCcw, Sparkles, User } from "lucide-react"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { useEffect, useMemo, useRef, useState } from "react"
 
+// ── Thinking-state cycling (previously in TypingIndicator) ──────────────────
+const DEFAULT_THINKING_POOL = [
+  "Drafting response", "Composing reply", "Putting thoughts together", "Forming a response",
+  "Working on a reply", "Thinking it through", "Piecing it together", "Considering",
+  "Gathering my thoughts", "Crafting", "Preparing", "Working through this",
+  "Building a response", "Getting this together", "Shaping a reply", "Sorting through ideas",
+  "Almost there", "Refining my thoughts", "Connecting the dots", "Processing your request",
+  "Figuring this out", "Cooking up a reply", "Organizing my thoughts", "Running through options",
+  "Polishing the reply", "Sketching a response", "Rizzing", "One sec bro",
+] as const
+
+const WEATHER_THINKING_STATES = ["Checking weather", "Searching forecast", "Reviewing conditions", "Pulling up the forecast", "Reading conditions"] as const
+const WEB_THINKING_STATES = ["Searching the web", "Reviewing sources", "Verifying details", "Looking this up", "Scanning results"] as const
+const CODE_THINKING_STATES = ["Reading code", "Tracing the issue", "Testing an approach", "Analyzing the code", "Working through the logic"] as const
+
+const GENERIC_BACKEND_STATUSES = new Set(["drafting response", "finalizing response", "thinking", "reasoning"])
+
+function pickRandomSubset(pool: readonly string[], count: number): string[] {
+  return [...pool].sort(() => Math.random() - 0.5).slice(0, count)
+}
+
+function selectThinkingStatesFromMessage(message: string): string[] {
+  const text = String(message || "").toLowerCase()
+  if (/\b(weather|forecast|temperature|rain|snow|wind|humidity)\b/.test(text)) return pickRandomSubset(WEATHER_THINKING_STATES, 4)
+  if (/\b(latest|news|current|price|score|search|look up|lookup|find)\b/.test(text)) return pickRandomSubset(WEB_THINKING_STATES, 4)
+  if (/\b(code|bug|error|debug|fix|refactor|typescript|javascript|python|function|stack)\b/.test(text)) return pickRandomSubset(CODE_THINKING_STATES, 4)
+  return pickRandomSubset(DEFAULT_THINKING_POOL, 4)
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 interface MessageBubbleProps {
   message: Message
   isStreaming?: boolean
   compactMode?: boolean
   orbPalette: OrbPalette
   orbAnimated?: boolean
+  thinkingStatus?: string
+  latestUserMessage?: string
   onUseSuggestedWording?: (message: Message) => void | Promise<void>
 }
 
@@ -30,6 +62,8 @@ export function MessageBubble({
   compactMode = false,
   orbPalette,
   orbAnimated = false,
+  thinkingStatus = "",
+  latestUserMessage = "",
   onUseSuggestedWording,
 }: MessageBubbleProps) {
   const { theme } = useTheme()
@@ -84,10 +118,17 @@ export function MessageBubble({
       revealCarryRef.current = 0
       return
     }
+
+    // True when this effect re-ran only because more streaming content arrived
+    // for the same message — the RAF loop should continue uninterrupted.
+    const isContentUpdate = lastRevealMessageIdRef.current === message.id && isStreaming
+
     if (lastRevealMessageIdRef.current !== message.id) {
       lastRevealMessageIdRef.current = message.id
       revealTargetRef.current = raw
       setDisplayedContent(raw.length > 0 ? raw : "")
+      revealCarryRef.current = 0
+      revealLastAtRef.current = 0
     } else if (raw.length > revealTargetRef.current.length) {
       revealTargetRef.current = raw
     }
@@ -120,8 +161,10 @@ export function MessageBubble({
     const target = revealTargetRef.current
     const current = displayedContentRef.current
     if (current.length < target.length) {
-      revealLastAtRef.current = performance.now()
+      // Only reset timing when actually starting a fresh loop, not when extending
+      // an already-running animation with new content.
       if (revealFrameRef.current === null) {
+        revealLastAtRef.current = performance.now()
         revealFrameRef.current = requestAnimationFrame(tick)
       }
     } else if (!isStreaming && target.length >= current.length) {
@@ -135,6 +178,9 @@ export function MessageBubble({
     }
 
     return () => {
+      // During streaming of the same message, the RAF loop must continue
+      // across content updates — don't cancel or reset carry, just let it run.
+      if (isContentUpdate) return
       if (revealFrameRef.current !== null) {
         cancelAnimationFrame(revealFrameRef.current)
         revealFrameRef.current = null
@@ -144,6 +190,28 @@ export function MessageBubble({
   }, [message.content, isStreaming, isUser, message.id])
 
   const assistantContent = useMemo(() => (isUser ? (message.content || "") : displayedContent), [displayedContent, isUser, message.content])
+
+  // ── Pre-content thinking state (replaces separate TypingIndicator) ──────────
+  const isPreContent = !isUser && isStreaming && !String(message.content || "").trim()
+  const rawThinkingStatus = String(thinkingStatus || "").trim().replace(/\s+/g, " ")
+  const isGenericThinkingStatus = !rawThinkingStatus || GENERIC_BACKEND_STATUSES.has(rawThinkingStatus.toLowerCase())
+  const thinkingStates = useMemo(() => selectThinkingStatesFromMessage(latestUserMessage), [latestUserMessage])
+  const [thinkingStateIndex, setThinkingStateIndex] = useState(0)
+
+  useEffect(() => {
+    if (!isPreContent || !isGenericThinkingStatus) return
+    const timer = window.setInterval(() => {
+      setThinkingStateIndex((prev) => (prev + 1) % thinkingStates.length)
+    }, 4400)
+    return () => window.clearInterval(timer)
+  }, [isPreContent, isGenericThinkingStatus, thinkingStates])
+
+  const activeThinkingState = useMemo(() => {
+    if (!isGenericThinkingStatus) return rawThinkingStatus
+    return thinkingStates[thinkingStateIndex % Math.max(1, thinkingStates.length)] ?? "Thinking"
+  }, [isGenericThinkingStatus, rawThinkingStatus, thinkingStateIndex, thinkingStates])
+  // ────────────────────────────────────────────────────────────────────────────
+
   const hasNlpRewrite = isUser
     && showNlpEditHints
     && !message.nlpBypass
@@ -155,6 +223,21 @@ export function MessageBubble({
   const shouldShowNlpHint = hasNlpRewrite && (nlpConfidence < 0.8 || nlpCorrectionCount >= 2)
 
   if (!isUser) {
+    if (isPreContent) {
+      return (
+        <div className="flex w-full min-w-0 items-start gap-2.5" role="status" aria-label="Assistant is typing" aria-live="polite" aria-atomic="true">
+          <NovaOrbIndicator palette={orbPalette} size={28} animated className="mt-1.5 shrink-0" />
+          <div className="thinking-wrap">
+            <span className="thinking-text">
+              <span className="thinking-word-slot">
+                <span className="thinking-word">{activeThinkingState}</span>
+              </span>
+            </span>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="flex w-full min-w-0 items-start gap-2">
         <NovaOrbIndicator palette={orbPalette} size={28} animated={orbAnimated} className="mt-1.5 shrink-0" />

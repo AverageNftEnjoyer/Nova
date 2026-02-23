@@ -32,6 +32,7 @@ export { CoinbaseService, createStaticCredentialProvider } from "./service.js";
 export { FileBackedCoinbaseCredentialProvider } from "./credentials.js";
 export { createCoinbaseAutoAuthStrategy } from "./auth-strategy.js";
 export { renderCoinbasePortfolioReport, type CoinbaseRenderInput, type CoinbaseReportMode } from "./report-renderer.js";
+export { buildCoinbasePnlPersonalityComment, type CoinbasePnlPersonalityCommentInput } from "./pnl-personality-comment.js";
 export {
   recordCoinbaseMetric,
   recordCoinbaseStructuredLog,

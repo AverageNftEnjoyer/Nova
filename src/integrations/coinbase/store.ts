@@ -791,6 +791,37 @@ function ensureCoinbaseSchema(db: Database.Database): void {
       updated_at INTEGER NOT NULL
     );
   `);
+  ensureTableColumn(
+    db,
+    "coinbase_retention_settings",
+    "transaction_retention_days",
+    "ALTER TABLE coinbase_retention_settings ADD COLUMN transaction_retention_days INTEGER NOT NULL DEFAULT 30",
+  );
+  ensureTableColumn(
+    db,
+    "coinbase_privacy_settings",
+    "require_transaction_consent",
+    "ALTER TABLE coinbase_privacy_settings ADD COLUMN require_transaction_consent INTEGER NOT NULL DEFAULT 1",
+  );
+  ensureTableColumn(
+    db,
+    "coinbase_privacy_settings",
+    "transaction_history_consent_granted",
+    "ALTER TABLE coinbase_privacy_settings ADD COLUMN transaction_history_consent_granted INTEGER NOT NULL DEFAULT 0",
+  );
+}
+
+function ensureTableColumn(
+  db: Database.Database,
+  tableName: string,
+  columnName: string,
+  alterSql: string,
+): void {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: unknown }>;
+  const hasColumn = columns.some((col) => String(col?.name || "") === columnName);
+  if (!hasColumn) {
+    db.exec(alterSql);
+  }
 }
 
 function safeJsonStringify(value: unknown): string {

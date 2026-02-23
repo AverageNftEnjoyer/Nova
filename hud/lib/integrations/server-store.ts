@@ -333,7 +333,7 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
     discord: {
       connected: raw?.discord?.connected ?? DEFAULT_CONFIG.discord.connected,
       webhookUrls: Array.isArray(raw?.discord?.webhookUrls)
-        ? raw.discord.webhookUrls.map((url) => String(url).trim()).filter(Boolean)
+        ? raw.discord.webhookUrls.map((url) => unwrapStoredSecret(url)).map((url) => String(url).trim()).filter(Boolean)
         : [],
     },
     brave: {
@@ -459,6 +459,10 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
     telegram: {
       ...config.telegram,
       botToken: wrapStoredSecret(config.telegram.botToken),
+    },
+    discord: {
+      ...config.discord,
+      webhookUrls: config.discord.webhookUrls.map((url) => wrapStoredSecret(url)).filter(Boolean),
     },
     openai: {
       ...config.openai,

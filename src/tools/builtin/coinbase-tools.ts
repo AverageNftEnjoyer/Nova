@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 import {
@@ -6,6 +7,7 @@ import {
   createCoinbaseAutoAuthStrategy,
   CoinbaseDataStore,
   CoinbaseService,
+  buildCoinbasePnlPersonalityComment,
   FileBackedCoinbaseCredentialProvider,
   recordCoinbaseMetric,
   recordCoinbaseStructuredLog,
@@ -93,7 +95,30 @@ type ServiceState = {
   dataStore: CoinbaseDataStore;
 };
 
+const SERVICE_CACHE_MAX = 64;
 const serviceByWorkspaceAndUser = new Map<string, ServiceState>();
+const PERSONA_META_CACHE_TTL_MS = 60_000;
+const personaMetaByWorkspaceAndUser = new Map<string, {
+  ts: number;
+  value: {
+    assistantName: string;
+    tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed";
+  };
+}>();
+
+function evictOldestServiceIfNeeded(): void {
+  if (serviceByWorkspaceAndUser.size <= SERVICE_CACHE_MAX) return;
+  // Map insertion order is guaranteed in JS — first key is the oldest.
+  const oldestKey = serviceByWorkspaceAndUser.keys().next().value;
+  if (!oldestKey) return;
+  const evicted = serviceByWorkspaceAndUser.get(oldestKey);
+  serviceByWorkspaceAndUser.delete(oldestKey);
+  try {
+    evicted?.dataStore?.close();
+  } catch {
+    // Best effort — connection may already be closed.
+  }
+}
 
 export function isCoinbaseToolName(name: unknown): boolean {
   return COINBASE_TOOL_NAMES.has(String(name || "").trim());
@@ -154,6 +179,136 @@ function stripAssetToken(value: unknown): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+}
+
+type CoinbaseReportSkillPrefs = {
+  includeAssets: Set<string>;
+  excludeAssets: Set<string>;
+  decimalPlaces?: number;
+  includeTimestamp?: boolean;
+  includeFreshness?: boolean;
+  includeRecentNetCashFlow?: boolean;
+  dateFormat?: "MM/DD/YYYY" | "ISO_DATE";
+  sourcePath: string;
+  rules: string[];
+};
+
+function parseIncludedAssetsFromText(raw: string): string[] {
+  const tokens = String(raw || "")
+    .split(/[,\s|/]+/)
+    .map((token) => stripAssetToken(token))
+    .filter(Boolean);
+  const symbols = new Set<string>();
+  for (const token of tokens) {
+    const resolved = resolveBaseAsset(token);
+    if (resolved.status === "resolved" && resolved.symbol) {
+      symbols.add(resolved.symbol);
+    }
+  }
+  return [...symbols];
+}
+
+function loadCoinbaseReportSkillPrefs(workspaceDir: string, userContextId: string): CoinbaseReportSkillPrefs | null {
+  const normalizedUserContextId = toUserContextId(userContextId);
+  if (!normalizedUserContextId) return null;
+  const root = path.resolve(workspaceDir || process.cwd());
+  const candidates = [
+    path.join(root, ".agent", "user-context", normalizedUserContextId, "skills", "coinbase", "SKILL.md"),
+    path.join(root, ".agent", "user-context", normalizedUserContextId, "skills.md"),
+  ];
+  for (const filePath of candidates) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath, "utf8");
+      const includeAssets = new Set<string>();
+      const excludeAssets = new Set<string>();
+      let decimalPlaces: number | undefined;
+      let includeTimestamp: boolean | undefined;
+      let includeFreshness: boolean | undefined;
+      let includeRecentNetCashFlow: boolean | undefined;
+      let dateFormat: "MM/DD/YYYY" | "ISO_DATE" | undefined;
+      const rules: string[] = [];
+
+      for (const lineRaw of raw.split(/\r?\n/)) {
+        const line = String(lineRaw || "").trim();
+        if (!line || line.startsWith("#")) continue;
+        rules.push(line);
+
+        const exceptMatch = line.match(/exclude\s+all\s+assets\s+except\s+(.+)$/i);
+        if (exceptMatch?.[1]) {
+          for (const symbol of parseIncludedAssetsFromText(exceptMatch[1])) includeAssets.add(symbol);
+          continue;
+        }
+
+        const includeMatch = line.match(/(?:include_assets|only_assets|coinbase_assets)\s*:\s*(.+)$/i);
+        if (includeMatch?.[1]) {
+          for (const symbol of parseIncludedAssetsFromText(includeMatch[1])) includeAssets.add(symbol);
+          continue;
+        }
+
+        const excludeMatch = line.match(/exclude_assets\s*:\s*(.+)$/i);
+        if (excludeMatch?.[1]) {
+          for (const symbol of parseIncludedAssetsFromText(excludeMatch[1])) excludeAssets.add(symbol);
+          continue;
+        }
+
+        const decimalsMatch = line.match(/decimals\s*:\s*(\d+)/i) || line.match(/\bround(?:ed|ing)?\b.*?\b(\d+)\s+decimal/i);
+        if (decimalsMatch?.[1]) {
+          const parsed = Math.floor(Number(decimalsMatch[1]));
+          if (Number.isFinite(parsed)) decimalPlaces = Math.max(0, Math.min(8, parsed));
+          continue;
+        }
+
+        const noTs = /\b(no|hide|omit|remove)\b.*\b(timestamp|time)\b/i.test(line);
+        const yesTs = /\b(show|include)\b.*\b(timestamp|time)\b/i.test(line);
+        if (noTs) includeTimestamp = false;
+        if (yesTs) includeTimestamp = true;
+
+        const noFresh = /\b(no|hide|omit|remove)\b.*\bfreshness\b/i.test(line);
+        const yesFresh = /\b(show|include)\b.*\bfreshness\b/i.test(line);
+        if (noFresh) includeFreshness = false;
+        if (yesFresh) includeFreshness = true;
+
+        const explicitNetCashFlowMatch = line.match(/include_recent_net_cash_flow\s*:\s*(true|false)/i);
+        if (explicitNetCashFlowMatch?.[1]) {
+          includeRecentNetCashFlow = explicitNetCashFlowMatch[1].toLowerCase() === "true";
+        }
+        const noNetCashFlow = /\b(no|hide|omit|remove|exclude)\b.*\b(net\s*cash[-\s]?flow|p\s*&?\s*l\s*proxy|pnl\s*proxy|recent\s+net)\b/i.test(line);
+        const yesNetCashFlow = /\b(show|include|keep)\b.*\b(net\s*cash[-\s]?flow|p\s*&?\s*l\s*proxy|pnl\s*proxy|recent\s+net)\b/i.test(line);
+        if (noNetCashFlow) includeRecentNetCashFlow = false;
+        if (yesNetCashFlow) includeRecentNetCashFlow = true;
+
+        if (/\biso\s*date\b/i.test(line) || /\byyyy-mm-dd\b/i.test(line)) dateFormat = "ISO_DATE";
+        if (/\bmm\/dd\/yyyy\b/i.test(line) || /\bdate\s+only\b/i.test(line)) dateFormat = "MM/DD/YYYY";
+      }
+
+      if (
+        includeAssets.size > 0 ||
+        excludeAssets.size > 0 ||
+        typeof decimalPlaces === "number" ||
+        typeof includeTimestamp === "boolean" ||
+        typeof includeFreshness === "boolean" ||
+        typeof includeRecentNetCashFlow === "boolean" ||
+        typeof dateFormat === "string"
+      ) {
+        return {
+          includeAssets,
+          excludeAssets,
+          decimalPlaces,
+          includeTimestamp,
+          includeFreshness,
+          includeRecentNetCashFlow,
+          dateFormat,
+          sourcePath: filePath,
+          rules,
+        };
+      }
+    } catch (e) {
+      // Keep report generation resilient if user skill file is malformed.
+      console.warn("[CoinbaseTools] Failed to read skill prefs from", filePath, (e as Error)?.message);
+    }
+  }
+  return null;
 }
 
 function levenshteinDistance(aRaw: string, bRaw: string): number {
@@ -379,6 +534,7 @@ function getService(workspaceDir: string, userContextId: string): CoinbaseProvid
     dataStore,
   });
   serviceByWorkspaceAndUser.set(key, { service, dataStore });
+  evictOldestServiceIfNeeded();
   return service;
 }
 
@@ -396,22 +552,39 @@ function getPrivacySettings(workspaceDir: string, userContextId: string): {
   requireTransactionConsent: boolean;
   transactionHistoryConsentGranted: boolean;
 } {
+  const defaults = {
+    showBalances: true,
+    showTransactions: true,
+    requireTransactionConsent: true,
+    transactionHistoryConsentGranted: false,
+  };
+  const normalizedUserContextId = toUserContextId(userContextId);
+  if (!normalizedUserContextId) return defaults;
   const store = getDataStore(workspaceDir, userContextId);
-  if (!store) {
+  if (store) {
+    const settings = store.getPrivacySettings(normalizedUserContextId);
     return {
-      showBalances: true,
-      showTransactions: true,
-      requireTransactionConsent: true,
-      transactionHistoryConsentGranted: false,
+      showBalances: settings.showBalances,
+      showTransactions: settings.showTransactions,
+      requireTransactionConsent: settings.requireTransactionConsent,
+      transactionHistoryConsentGranted: settings.transactionHistoryConsentGranted,
     };
   }
-  const settings = store.getPrivacySettings(userContextId);
-  return {
-    showBalances: settings.showBalances,
-    showTransactions: settings.showTransactions,
-    requireTransactionConsent: settings.requireTransactionConsent,
-    transactionHistoryConsentGranted: settings.transactionHistoryConsentGranted,
-  };
+  const root = path.resolve(workspaceDir || process.cwd());
+  const directStore = new CoinbaseDataStore(coinbaseDbPathForUserContext(normalizedUserContextId, root));
+  try {
+    const settings = directStore.getPrivacySettings(normalizedUserContextId);
+    return {
+      showBalances: settings.showBalances,
+      showTransactions: settings.showTransactions,
+      requireTransactionConsent: settings.requireTransactionConsent,
+      transactionHistoryConsentGranted: settings.transactionHistoryConsentGranted,
+    };
+  } catch {
+    return defaults;
+  } finally {
+    directStore.close();
+  }
 }
 
 function buildConsentRequiredError(kind: string): CoinbaseToolErrorPayload {
@@ -422,7 +595,8 @@ function buildConsentRequiredError(kind: string): CoinbaseToolErrorPayload {
     errorCode: "CONSENT_REQUIRED",
     message: "Transaction-history consent is required before Coinbase transaction retrieval.",
     safeMessage: "I can't fetch transaction-level history until consent is granted.",
-    guidance: "Enable Coinbase transaction-history consent in privacy controls, then retry.",
+    guidance:
+      "In Integrations -> Coinbase -> Privacy Controls, turn ON `Transaction Consent Granted` (or turn OFF `Require Consent`), then retry.",
     retryable: false,
     requiredScopes: [...COINBASE_REQUIRED_SCOPES],
   };
@@ -440,6 +614,129 @@ async function readCapabilitiesOrError(
   } catch (err) {
     return { ok: false, error: toCoinbaseToolError(kind, err, actionLabel) };
   }
+}
+
+function toFiniteNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function computeRecentFlowSummary(
+  events: Array<{ side?: string; assetSymbol?: string; quantity?: number; price?: number | null }>,
+): {
+  recentFlowUpAssets: number;
+  recentFlowDownAssets: number;
+  recentNetNotionalUsd: number;
+} {
+  const flowByAsset = new Map<string, number>();
+  let recentNetNotionalUsd = 0;
+  for (const event of events) {
+    const side = String(event?.side || "").trim().toLowerCase();
+    const symbol = String(event?.assetSymbol || "").trim().toUpperCase();
+    if (!symbol || (side !== "buy" && side !== "sell")) continue;
+    const quantity = Math.max(0, toFiniteNumber(event?.quantity));
+    const signedQty = side === "buy" ? quantity : -quantity;
+    flowByAsset.set(symbol, toFiniteNumber(flowByAsset.get(symbol)) + signedQty);
+    const price = Number(event?.price);
+    if (Number.isFinite(price) && quantity > 0) {
+      const signedNotional = side === "buy" ? -(quantity * price) : quantity * price;
+      recentNetNotionalUsd += signedNotional;
+    }
+  }
+
+  let recentFlowUpAssets = 0;
+  let recentFlowDownAssets = 0;
+  for (const netQty of flowByAsset.values()) {
+    if (netQty > 0) recentFlowUpAssets += 1;
+    else if (netQty < 0) recentFlowDownAssets += 1;
+  }
+  return {
+    recentFlowUpAssets,
+    recentFlowDownAssets,
+    recentNetNotionalUsd,
+  };
+}
+
+async function estimatePortfolioUsdTotal(params: {
+  service: CoinbaseProvider;
+  ctx: CoinbaseRequestContext;
+  balances: Array<{ assetSymbol?: string; total?: number }>;
+}): Promise<{
+  estimatedTotalUsd: number;
+  valuedAssetCount: number;
+}> {
+  const byAsset = new Map<string, number>();
+  for (const balance of params.balances) {
+    const symbol = String(balance?.assetSymbol || "").trim().toUpperCase();
+    const total = toFiniteNumber(balance?.total);
+    if (!symbol || total <= 0) continue;
+    byAsset.set(symbol, toFiniteNumber(byAsset.get(symbol)) + total);
+  }
+  const symbols = [...byAsset.keys()].slice(0, 16);
+  if (symbols.length === 0) return { estimatedTotalUsd: 0, valuedAssetCount: 0 };
+
+  let estimatedTotalUsd = 0;
+  let valuedAssetCount = 0;
+  await Promise.all(
+    symbols.map(async (symbol) => {
+      try {
+        const spot = await params.service.getSpotPrice(params.ctx, {
+          symbolPair: `${symbol}-USD`,
+          bypassCache: false,
+        });
+        const price = Number(spot?.price);
+        const qty = toFiniteNumber(byAsset.get(symbol));
+        if (!Number.isFinite(price) || qty <= 0) return;
+        estimatedTotalUsd += qty * price;
+        valuedAssetCount += 1;
+      } catch {
+        // Best effort valuation only.
+      }
+    }),
+  );
+
+  return {
+    estimatedTotalUsd,
+    valuedAssetCount,
+  };
+}
+
+function normalizePersonaTone(raw: unknown): "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed" {
+  const tone = String(raw || "").trim().toLowerCase();
+  if (tone === "enthusiastic" || tone === "calm" || tone === "direct" || tone === "relaxed") return tone;
+  return "neutral";
+}
+
+function resolvePersonaMetaFromWorkspace(workspaceDir: string, userContextId: string): {
+  assistantName: string;
+  tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed";
+} {
+  const uid = toUserContextId(userContextId);
+  const root = path.resolve(workspaceDir || process.cwd());
+  if (!uid) return { assistantName: "Nova", tone: "neutral" };
+  const cacheKey = `${root}::${uid}`;
+  const now = Date.now();
+  const cached = personaMetaByWorkspaceAndUser.get(cacheKey);
+  if (cached && now - cached.ts < PERSONA_META_CACHE_TTL_MS) return cached.value;
+  const agentsPath = path.join(root, ".agent", "user-context", uid, "AGENTS.md");
+  let assistantName = "Nova";
+  let tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed" = "neutral";
+  try {
+    if (!fs.existsSync(agentsPath)) return { assistantName, tone };
+    const lines = fs.readFileSync(agentsPath, "utf8").split(/\r?\n/);
+    for (const rawLine of lines) {
+      const line = String(rawLine || "").trim();
+      let match = line.match(/^-+\s*Assistant name:\s*(.+)$/i);
+      if (match?.[1]) assistantName = String(match[1]).trim() || assistantName;
+      match = line.match(/^-+\s*Tone:\s*(.+)$/i);
+      if (match?.[1]) tone = normalizePersonaTone(match[1]);
+    }
+  } catch {
+    // Use defaults when persona metadata is unavailable.
+  }
+  const value = { assistantName, tone };
+  personaMetaByWorkspaceAndUser.set(cacheKey, { ts: now, value });
+  return value;
 }
 
 export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
@@ -621,6 +918,11 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           bypassCache: toBool(input?.bypassCache, false),
         });
         const nonZeroBalances = data.balances.filter((entry) => Number(entry.total || 0) > 0);
+        const valuation = await estimatePortfolioUsdTotal({
+          service,
+          ctx,
+          balances: nonZeroBalances.map((entry) => ({ assetSymbol: entry.assetSymbol, total: entry.total })),
+        });
         const resultBalances = privacy.showBalances
           ? data.balances
           : data.balances.map((entry) => ({ ...entry, available: 0, hold: 0, total: 0 }));
@@ -636,6 +938,8 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
             assetCount: nonZeroBalances.length,
             totalAccounts: data.balances.length,
             balancesRedacted: !privacy.showBalances,
+            estimatedTotalUsd: valuation.estimatedTotalUsd,
+            valuedAssetCount: valuation.valuedAssetCount,
           },
           checkedAtMs: Date.now(),
         });
@@ -759,32 +1063,101 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
       const transactionLimit = toInt(input?.transactionLimit, 6, 1, 20);
       const mode = String(input?.mode || "").trim().toLowerCase() === "detailed" ? "detailed" : "concise";
       const startedAtMs = Date.now();
+      // Initialise the service first so getPrivacySettings finds the DataStore in the
+      // cache and avoids opening a second temporary SQLite connection on the first call.
+      const service = getService(params.workspaceDir, ctx.userContextId);
       const privacy = getPrivacySettings(params.workspaceDir, ctx.userContextId);
       if (privacy.requireTransactionConsent && !privacy.transactionHistoryConsentGranted) {
         return toJson(buildConsentRequiredError("coinbase_portfolio_report"));
       }
       try {
-        const service = getService(params.workspaceDir, ctx.userContextId);
-        const [portfolio, transactions] = await Promise.all([
-          service.getPortfolioSnapshot(ctx, { bypassCache: false }),
-          service.getRecentTransactions(ctx, { limit: transactionLimit, bypassCache: false }),
-        ]);
-        const portfolioOut = privacy.showBalances
-          ? portfolio
-          : {
+        const portfolio = await service.getPortfolioSnapshot(ctx, { bypassCache: false });
+        let transactions: Awaited<ReturnType<CoinbaseProvider["getRecentTransactions"]>> = [];
+        let transactionsUnavailableReason = "";
+        try {
+          transactions = await service.getRecentTransactions(ctx, { limit: transactionLimit, bypassCache: false });
+        } catch (error) {
+          const mapped = asCoinbaseError(error, {
+            code: "UNKNOWN",
+            endpoint: "/api/v3/brokerage/orders/historical/fills",
+            userContextId: ctx.userContextId,
+          });
+          if (mapped.code === "AUTH_FAILED" || mapped.code === "AUTH_UNSUPPORTED") {
+            transactions = [];
+            transactionsUnavailableReason = "Transaction history is unavailable for this key; generated balances-only report.";
+          } else {
+            throw error;
+          }
+        }
+        const reportSkillPrefs = loadCoinbaseReportSkillPrefs(params.workspaceDir, ctx.userContextId);
+        const filteredPortfolio = reportSkillPrefs
+          ? {
               ...portfolio,
-              balances: portfolio.balances.map((entry) => ({ ...entry, available: 0, hold: 0, total: 0 })),
+              balances: portfolio.balances.filter((entry) => {
+                const symbol = String(entry.assetSymbol || "").toUpperCase();
+                if (reportSkillPrefs.includeAssets.size > 0 && !reportSkillPrefs.includeAssets.has(symbol)) return false;
+                if (reportSkillPrefs.excludeAssets.has(symbol)) return false;
+                return true;
+              }),
+            }
+          : portfolio;
+        const filteredTransactions = reportSkillPrefs
+          ? transactions.filter((event) => {
+              const symbol = String(event.assetSymbol || "").toUpperCase();
+              if (reportSkillPrefs.includeAssets.size > 0 && !reportSkillPrefs.includeAssets.has(symbol)) return false;
+              if (reportSkillPrefs.excludeAssets.has(symbol)) return false;
+              return true;
+            })
+          : transactions;
+        const portfolioOut = privacy.showBalances
+          ? filteredPortfolio
+          : {
+              ...filteredPortfolio,
+              balances: filteredPortfolio.balances.map((entry) => ({ ...entry, available: 0, hold: 0, total: 0 })),
             };
         const transactionsOut = privacy.showTransactions
-          ? transactions
-          : transactions.map((event) => ({ ...event, quantity: 0, price: null, fee: null }));
+          ? filteredTransactions
+          : filteredTransactions.map((event) => ({ ...event, quantity: 0, price: null, fee: null }));
+        const [valuation, recentFlow] = await Promise.all([
+          estimatePortfolioUsdTotal({
+            service,
+            ctx,
+            balances: portfolioOut.balances,
+          }),
+          Promise.resolve(computeRecentFlowSummary(transactionsOut)),
+        ]);
         const generatedAtMs = Date.now();
+        const personaMeta = resolvePersonaMetaFromWorkspace(params.workspaceDir, ctx.userContextId);
+        const personalityComment = buildCoinbasePnlPersonalityComment({
+          assistantName: personaMeta.assistantName,
+          tone: personaMeta.tone,
+          cadence: "report",
+          estimatedTotalUsd: valuation.estimatedTotalUsd,
+          recentNetNotionalUsd: recentFlow.recentNetNotionalUsd,
+          transactionCount: filteredTransactions.length,
+          valuedAssetCount: valuation.valuedAssetCount,
+          freshnessMs: portfolioOut.freshnessMs,
+          thresholdPct: 10,
+          minAbsoluteNotionalUsd: 250,
+          minTransactionCount: 3,
+          maxFreshnessMs: 6 * 60 * 60 * 1000,
+          seedKey: `${ctx.userContextId}:${generatedAtMs}:${mode}`,
+        });
         const rendered = renderCoinbasePortfolioReport({
           mode,
           source: "coinbase",
           generatedAtMs,
           portfolio: portfolioOut,
           transactions: transactionsOut,
+          personalityComment,
+          preferences: reportSkillPrefs
+            ? {
+                decimalPlaces: reportSkillPrefs.decimalPlaces,
+                includeTimestamp: reportSkillPrefs.includeTimestamp,
+                includeFreshness: reportSkillPrefs.includeFreshness,
+                dateFormat: reportSkillPrefs.dateFormat,
+              }
+            : undefined,
         });
         getDataStore(params.workspaceDir, ctx.userContextId)?.appendReportHistory({
           userContextId: ctx.userContextId,
@@ -795,8 +1168,24 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           payload: {
             mode,
             summary: {
-              nonZeroAssetCount: portfolio.balances.filter((entry) => Number(entry.total || 0) > 0).length,
-              transactionCount: transactions.length,
+              nonZeroAssetCount: filteredPortfolio.balances.filter((entry) => Number(entry.total || 0) > 0).length,
+              transactionCount: filteredTransactions.length,
+              estimatedTotalUsd: valuation.estimatedTotalUsd,
+              valuedAssetCount: valuation.valuedAssetCount,
+              recentFlowUpAssets: recentFlow.recentFlowUpAssets,
+              recentFlowDownAssets: recentFlow.recentFlowDownAssets,
+              recentNetNotionalUsd: recentFlow.recentNetNotionalUsd,
+              includeRecentNetCashFlow: reportSkillPrefs?.includeRecentNetCashFlow !== false,
+              transactionsUnavailableReason,
+              assetFilter:
+                reportSkillPrefs && reportSkillPrefs.includeAssets.size > 0
+                  ? [...reportSkillPrefs.includeAssets]
+                  : [],
+              assetExcludeFilter:
+                reportSkillPrefs && reportSkillPrefs.excludeAssets.size > 0
+                  ? [...reportSkillPrefs.excludeAssets]
+                  : [],
+              decimalPlaces: reportSkillPrefs?.decimalPlaces ?? 2,
             },
           },
         });
@@ -830,10 +1219,28 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
             portfolio: portfolioOut,
             transactions: transactionsOut,
             summary: {
-              nonZeroAssetCount: portfolio.balances.filter((entry) => Number(entry.total || 0) > 0).length,
-              transactionCount: transactions.length,
+              nonZeroAssetCount: filteredPortfolio.balances.filter((entry) => Number(entry.total || 0) > 0).length,
+              transactionCount: filteredTransactions.length,
               balancesRedacted: !privacy.showBalances,
               transactionsRedacted: !privacy.showTransactions,
+              estimatedTotalUsd: valuation.estimatedTotalUsd,
+              valuedAssetCount: valuation.valuedAssetCount,
+              recentFlowUpAssets: recentFlow.recentFlowUpAssets,
+              recentFlowDownAssets: recentFlow.recentFlowDownAssets,
+              recentNetNotionalUsd: recentFlow.recentNetNotionalUsd,
+              includeRecentNetCashFlow: reportSkillPrefs?.includeRecentNetCashFlow !== false,
+              transactionsUnavailableReason,
+              assetFilter:
+                reportSkillPrefs && reportSkillPrefs.includeAssets.size > 0
+                  ? [...reportSkillPrefs.includeAssets]
+                  : [],
+              assetExcludeFilter:
+                reportSkillPrefs && reportSkillPrefs.excludeAssets.size > 0
+                  ? [...reportSkillPrefs.excludeAssets]
+                  : [],
+              reportRules: reportSkillPrefs?.rules || [],
+              decimalPlaces: reportSkillPrefs?.decimalPlaces ?? 2,
+              assetFilterSource: reportSkillPrefs?.sourcePath || "",
             },
           },
         });

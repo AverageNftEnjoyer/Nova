@@ -392,7 +392,10 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
       engine,
       message: msg,
     });
-    const reply = `I couldn't build that workflow yet: ${msg}`;
+    const isUnauthorized = /\bunauthorized\b/i.test(msg);
+    const reply = isUnauthorized
+      ? "I could not build that workflow because your session is not authorized for missions yet. Re-open Nova, sign in again, then retry and I will continue from your latest prompt."
+      : `I couldn't build that workflow yet: ${msg}`;
     const normalizedReply = normalizeAssistantReply(reply);
     summary.reply = normalizedReply.skip ? "" : normalizedReply.text;
     if (!normalizedReply.skip) {

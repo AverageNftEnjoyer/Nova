@@ -18,10 +18,15 @@ import {
 } from "@/lib/integrations/server-store"
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
+import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+const DISCORD_MAX_WEBHOOKS = Math.max(
+  1,
+  Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
+)
 
 type CoinbaseCredentialMode = "pem_private_key" | "secret_string" | "unknown"
 
@@ -134,9 +139,24 @@ function normalizeDiscordInput(raw: unknown, current: DiscordIntegrationConfig):
   } else if (Array.isArray(discord.webhookUrls)) {
     webhookUrls = discord.webhookUrls.map((url) => String(url).trim()).filter(Boolean)
   }
+  webhookUrls = Array.from(new Set(webhookUrls.map((url) => url.trim()).filter(Boolean)))
+
+  const invalid = webhookUrls.find((url) => !isValidDiscordWebhookUrl(url))
+  if (invalid) {
+    throw new Error(`Invalid Discord webhook URL: ${redactWebhookTarget(invalid)}`)
+  }
+  if (webhookUrls.length > DISCORD_MAX_WEBHOOKS) {
+    throw new Error(`Discord webhook count exceeds cap (${DISCORD_MAX_WEBHOOKS}).`)
+  }
+
+  const requestedConnected = typeof discord.connected === "boolean" ? discord.connected : current.connected
+  if (requestedConnected && webhookUrls.length === 0) {
+    throw new Error("Discord cannot be enabled without at least one valid webhook URL.")
+  }
+  const connected = requestedConnected && webhookUrls.length > 0
 
   return {
-    connected: typeof discord.connected === "boolean" ? discord.connected : current.connected,
+    connected,
     webhookUrls,
   }
 }
@@ -357,6 +377,12 @@ function toClientConfig(config: IntegrationsConfig) {
       botTokenConfigured: config.telegram.botToken.trim().length > 0,
       botTokenMasked: maskSecret(config.telegram.botToken),
     },
+    discord: {
+      ...config.discord,
+      webhookUrls: [],
+      webhookUrlsConfigured: config.discord.webhookUrls.length > 0,
+      webhookUrlsMasked: config.discord.webhookUrls.map((url) => redactWebhookTarget(url)),
+    },
     openai: {
       ...config.openai,
       apiKey: "",
@@ -520,6 +546,14 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (/Invalid Discord webhook URL/i.test(error.message) ||
+        /Discord cannot be enabled/i.test(error.message) ||
+        /Discord webhook count exceeds cap/i.test(error.message))
+    ) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update integrations config" },
       { status: 500 },

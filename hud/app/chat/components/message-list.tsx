@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react"
 import { MessageBubble } from "./message-bubble"
 import type { Message } from "./chat-types"
-import { TypingIndicator } from "./typing-indicator"
 import { AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
@@ -65,20 +64,9 @@ export function MessageList({
   useEffect(() => {
     if (!containerRef.current) return
     scrollToBottom()
-
-    // Ensure we land on the latest message after layout/paint settles.
-    let raf2: number | null = null
-    const raf1 = requestAnimationFrame(() => {
-      scrollToBottom()
-      raf2 = requestAnimationFrame(() => {
-        scrollToBottom()
-      })
-    })
-
-    return () => {
-      cancelAnimationFrame(raf1)
-      if (raf2 !== null) cancelAnimationFrame(raf2)
-    }
+    // One RAF to settle after the DOM has fully laid out with the new message.
+    const raf = requestAnimationFrame(scrollToBottom)
+    return () => cancelAnimationFrame(raf)
   }, [messages.length, isLoaded, zoom, compactMode])
 
   useEffect(() => {
@@ -128,18 +116,12 @@ export function MessageList({
     setAutoScroll(isAtBottom)
   }
 
-  const lastMessage = messages[messages.length - 1]
   const latestUserMessage = (() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       if (messages[i]?.role === "user") return String(messages[i]?.content || "")
     }
     return ""
   })()
-  const showTypingIndicator = isStreaming && (
-    messages.length === 0
-    || lastMessage?.role === "user"
-    || (lastMessage?.role === "assistant" && !String(lastMessage?.content || "").trim())
-  )
   const shouldAnimateOrb = isStreaming
 
   if (!isLoaded) {
@@ -179,10 +161,10 @@ export function MessageList({
       )}
 
       {messages.map((message) => {
-            const isAssistantStreaming = message.role === "assistant" && streamingAssistantId === message.id
-            const isEmptyAssistantPlaceholder = message.role === "assistant" && !String(message.content || "").trim()
-            if (isEmptyAssistantPlaceholder) return null
-            return (
+        const isAssistantStreaming = message.role === "assistant" && streamingAssistantId === message.id
+        // Hide empty assistant messages that are not actively streaming (stale placeholders)
+        if (message.role === "assistant" && !String(message.content || "").trim() && !isAssistantStreaming) return null
+        return (
           <MessageBubble
             key={message.id}
             message={message}
@@ -190,18 +172,12 @@ export function MessageList({
             compactMode={compactMode}
             orbPalette={orbPalette}
             orbAnimated={shouldAnimateOrb && isAssistantStreaming}
+            thinkingStatus={thinkingStatus}
+            latestUserMessage={latestUserMessage}
             onUseSuggestedWording={onUseSuggestedWording}
           />
-            )
-          })}
-
-      {showTypingIndicator && (
-        <TypingIndicator
-          orbPalette={orbPalette}
-          thinkingStatus={thinkingStatus}
-          latestUserMessage={latestUserMessage}
-        />
-      )}
+        )
+      })}
 
       {error && (
         <div

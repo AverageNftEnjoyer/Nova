@@ -9,6 +9,8 @@ export interface TelegramIntegrationSettings {
 export interface DiscordIntegrationSettings {
   connected: boolean
   webhookUrls: string
+  webhookUrlsConfigured?: boolean
+  webhookUrlsMasked?: string[]
 }
 
 export interface BraveIntegrationSettings {
@@ -137,6 +139,8 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
   discord: {
     connected: false,
     webhookUrls: "",
+    webhookUrlsConfigured: false,
+    webhookUrlsMasked: [],
   },
   brave: {
     connected: false,
@@ -344,6 +348,7 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     },
     discord: {
       ...settings.discord,
+      webhookUrls: "",
     },
     brave: {
       ...settings.brave,

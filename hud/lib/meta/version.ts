@@ -9,6 +9,14 @@
  *
  * Version History:
  *
+ * - V.24 Alpha: Discord production hardening + personality PnL commentary
+ *     - Hardened Discord delivery with strict webhook validation, redaction, retry/backoff+jitter, timeout handling, dedupe, concurrency caps, and per-user isolation safeguards.
+ *     - Added Discord security controls: encrypted webhook storage at rest, masked client responses, and rate-limited integration probe endpoint.
+ *     - Added Discord regression gate (`smoke:src-discord-delivery`) and wired it into release readiness checks.
+ *     - Added personality-aware Coinbase PnL commentary for strong moves (>=10%) with user-scoped assistant tone/name behavior from settings context.
+ *     - Applied anti-false-trigger and latency protections for PnL commentary (minimum notional/transactions, freshness guard, threshold buffer, persona cache).
+ *     - Added deterministic fake-data PnL personality smoke coverage and scheduler-delivery assertion for notification payload inclusion.
+ *
  * - V.23 Alpha: Coinbase integration completion 
  *     - Completed Coinbase phase gates across storage isolation, quality coverage, and rollout controls.
  *     - Finalized deterministic smoke coverage for Coinbase-enabled flows with strict user scoping.
@@ -157,5 +165,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.23 Alpha"
-
+export const NOVA_VERSION = "V.24 Alpha"

@@ -25,6 +25,11 @@
 const MIN_TOKEN_LEN = 3;   // "go", "ok", "hi" — too risky to correct
 const MAX_TOKEN_LEN = 30;  // very long tokens are likely identifiers
 
+// High-signal domain terms that should be preserved verbatim.
+const DEFAULT_SKIP_WORDS = new Set<string>([
+  "crypto",
+]);
+
 // ─── User-extensible skip set ─────────────────────────────────────────────────
 
 const USER_SKIP_WORDS = new Set<string>();
@@ -58,8 +63,9 @@ export function isSkippableToken(token: string): boolean {
   // Length bounds
   if (len < MIN_TOKEN_LEN || len > MAX_TOKEN_LEN) return true;
 
-  // User-added skip words
-  if (USER_SKIP_WORDS.has(token.toLowerCase())) return true;
+  // Default and user-added skip words
+  const lower = token.toLowerCase();
+  if (DEFAULT_SKIP_WORDS.has(lower) || USER_SKIP_WORDS.has(lower)) return true;
 
   // Contains any digit — version numbers, model names, dates, IDs
   if (/\d/.test(token)) return true;

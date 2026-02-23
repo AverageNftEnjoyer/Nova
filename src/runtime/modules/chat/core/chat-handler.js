@@ -52,6 +52,7 @@ import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../infrastructu
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../context/persona-context.js";
 import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../context/user-preferences.js";
 import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../context/memory.js";
+import { applySkillPreferenceUpdateFromMessage } from "../../context/skill-preferences.js";
 import { buildRuntimeSkillsPrompt } from "../../context/skills.js";
 import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../routing/intent-router.js";
 import { speak, playThinking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../../audio/voice.js";
@@ -127,8 +128,21 @@ import {
 } from "../fast-path/weather-fast-path.js";
 import {
   isCryptoRequestText,
+  isExplicitCryptoReportRequest,
   tryCryptoFastPathReply,
 } from "../fast-path/crypto-fast-path.js";
+import {
+  cacheRecentCryptoReport,
+  handleDuplicateCryptoReportRequest,
+} from "./crypto-report-dedupe.js";
+import {
+  applyShortTermContextTurnClassification,
+  readShortTermContextState,
+  summarizeShortTermContextForPrompt,
+  upsertShortTermContextState,
+  clearShortTermContextState,
+} from "./short-term-context-engine.js";
+import { getShortTermContextPolicy } from "./short-term-context-policies.js";
 
 const MEMORY_RECALL_TIMEOUT_MS = Number.parseInt(process.env.NOVA_MEMORY_RECALL_TIMEOUT_MS || "450", 10);
 const WEB_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WEB_PRELOAD_TIMEOUT_MS || "900", 10);
@@ -145,7 +159,6 @@ const OPENAI_STRICT_MAX_COMPLETION_TOKENS = Number.parseInt(
   process.env.NOVA_OPENAI_STRICT_MAX_COMPLETION_TOKENS || "900",
   10,
 );
-
 function resolveAdaptiveOpenAiMaxCompletionTokens(userText, {
   strict = false,
   fastLane = false,
@@ -592,6 +605,26 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       }
     }
 
+    const shortTermContextSummary = String(requestHints?.assistantShortTermContextSummary || "").trim();
+    if (shortTermContextSummary) {
+      const sectionBody = [
+        `follow_up: ${requestHints?.assistantShortTermFollowUp === true ? "true" : "false"}`,
+        requestHints?.assistantTopicAffinityId ? `topic_affinity_id: ${String(requestHints.assistantTopicAffinityId)}` : "",
+        shortTermContextSummary,
+      ].filter(Boolean).join("\n");
+      const appended = appendBudgetedPromptSection({
+        ...promptBudgetOptions,
+        prompt: systemPrompt,
+        sectionTitle: "Short-Term Context",
+        sectionBody,
+      });
+      if (appended.included) {
+        systemPrompt = appended.prompt;
+      } else {
+        systemPrompt = `${systemPrompt}\n\n## Short-Term Context\n${sectionBody}`;
+      }
+    }
+
     const enrichmentTasks = [];
     if (shouldPreloadWebSearchForTurn && shouldPreloadWebSearch(text)) {
       enrichmentTasks.push(
@@ -814,6 +847,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           availableTools,
           userContextId,
           conversationId,
+          workspaceDir: personaWorkspaceDir,
         });
       }
     }
@@ -838,6 +872,9 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       broadcastThinkingStatus("Checking Coinbase", userContextId);
       reply = String(cryptoFastResult.reply || "").trim();
       if (cryptoFastResult?.toolCall) observedToolCalls.push(String(cryptoFastResult.toolCall));
+      if (String(cryptoFastResult?.toolCall || "").trim() === "coinbase_portfolio_report" && reply) {
+        cacheRecentCryptoReport(userContextId, conversationId, reply);
+      }
     } else {
       const serveIntentClass = !hasStrictOutputRequirements
         && turnPolicy?.weatherIntent !== true
@@ -1461,6 +1498,30 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       reply = fallbackReply;
     }
 
+    if (reply && !turnPolicy?.cryptoIntent && !turnPolicy?.weatherIntent) {
+      const assistantPolicy = getShortTermContextPolicy("assistant");
+      const previousAssistantContext = readShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "assistant",
+      });
+      const nextTopicAffinityId = String(
+        assistantPolicy.resolveTopicAffinityId?.(uiText, previousAssistantContext || {}) || previousAssistantContext?.topicAffinityId || "general_assistant",
+      ).trim();
+      upsertShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "assistant",
+        topicAffinityId: nextTopicAffinityId,
+        slots: {
+          lastUserText: String(uiText || "").slice(0, 400),
+          lastAssistantReply: String(reply || "").slice(0, 500),
+          lastResponseRoute: String(responseRoute || "").trim(),
+          followUpActive: requestHints?.assistantShortTermFollowUp === true,
+        },
+      });
+    }
+
     if (reply && !emittedAssistantDelta) {
       emittedAssistantDelta = true;
       broadcastAssistantStreamDelta(assistantStreamId, reply, source, undefined, conversationId, userContextId);
@@ -1660,6 +1721,18 @@ async function handleInputCore(text, opts = {}) {
   const runtimeAssistantName = String(opts.assistantName || "").trim();
   const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
   const inboundMessageId = String(opts.inboundMessageId || "").trim();
+  const normalizedTextForRouting = String(text || "").trim().toLowerCase();
+  const missionPolicy = getShortTermContextPolicy("mission_task");
+  const cryptoPolicy = getShortTermContextPolicy("crypto");
+  const assistantPolicyForDedupe = getShortTermContextPolicy("assistant");
+  const followUpContinuationCue = [missionPolicy, cryptoPolicy, assistantPolicyForDedupe].some((policy) => {
+    if (!policy) return false;
+    return policy.isNonCriticalFollowUp(normalizedTextForRouting)
+      && !policy.isCancel(normalizedTextForRouting)
+      && !policy.isNewTopic(normalizedTextForRouting);
+  });
+  const duplicateMayBeCryptoReport = isExplicitCryptoReportRequest(text)
+    || (isCryptoRequestText(text) && /\b(report|summary|pnl|daily|weekly)\b/i.test(text));
   const n = text.toLowerCase().trim();
   if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
     await handleShutdown({ ttsVoice });
@@ -1671,14 +1744,38 @@ async function handleInputCore(text, opts = {}) {
     };
   }
 
-  if (shouldSkipDuplicateInbound({
+  const explicitCryptoReportRequest = isExplicitCryptoReportRequest(text);
+  const skipDuplicateInbound = !explicitCryptoReportRequest && !followUpContinuationCue && shouldSkipDuplicateInbound({
     text,
     source,
     sender,
     userContextId,
     sessionKey,
     inboundMessageId,
-  })) {
+  });
+  if (skipDuplicateInbound) {
+    const duplicateRecovery = await handleDuplicateCryptoReportRequest({
+      duplicateMayBeCryptoReport,
+      userContextId,
+      conversationId,
+      source,
+      sessionKey,
+      text,
+      appendRawStream,
+      rerenderReport: async () => {
+        const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
+        const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
+        return await tryCryptoFastPathReply({
+          text,
+          runtimeTools,
+          availableTools,
+          userContextId,
+          conversationId,
+          workspaceDir: personaWorkspaceDir,
+        });
+      },
+    });
+    if (duplicateRecovery) return duplicateRecovery;
     appendRawStream({
       event: "request_duplicate_skipped",
       source,
@@ -1772,6 +1869,108 @@ async function handleInputCore(text, opts = {}) {
     return await handleMemoryUpdate(text, ctx);
   }
 
+  const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
+  const skillPreferenceUpdate = applySkillPreferenceUpdateFromMessage({
+    userContextId,
+    workspaceDir: personaWorkspaceDir,
+    userInputText: text,
+  });
+  if (skillPreferenceUpdate?.handled) {
+    const reply = await sendDirectAssistantReply(
+      text,
+      String(skillPreferenceUpdate.reply || "I couldn't save that skill preference yet. Retry once."),
+      ctx,
+      skillPreferenceUpdate.updated ? "Updating skill preferences" : "Clarifying skill update",
+    );
+    appendRawStream({
+      event: "skill_preference_update",
+      source,
+      sessionKey,
+      userContextId: userContextId || undefined,
+      skillName: String(skillPreferenceUpdate.skillName || ""),
+      updated: skillPreferenceUpdate.updated === true,
+      filePath: String(skillPreferenceUpdate.filePath || ""),
+    });
+    if (skillPreferenceUpdate.updated && skillPreferenceUpdate.filePath) {
+      console.log(
+        `[SkillPreference] Updated ${String(skillPreferenceUpdate.skillName || "unknown")} for ${userContextId || "anonymous"} at ${String(skillPreferenceUpdate.filePath)}.`,
+      );
+    }
+    return {
+      route: skillPreferenceUpdate.updated ? "skill_preference_update" : "skill_preference_clarify",
+      ok: !String(skillPreferenceUpdate.error || "").trim(),
+      reply: String(reply || ""),
+      error: String(skillPreferenceUpdate.error || ""),
+      latencyMs: 0,
+    };
+  }
+
+  const missionShortTermContext = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: "mission_task",
+  });
+  const cryptoShortTermContext = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: "crypto",
+  });
+  const missionContextIsPrimary =
+    missionShortTermContext
+    && Number(missionShortTermContext.ts || 0) >= Number(cryptoShortTermContext?.ts || 0);
+  if (missionContextIsPrimary && missionPolicy.isCancel(normalizedTextForRouting)) {
+    clearPendingMissionConfirm(sessionKey);
+    clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
+    const reply = await sendDirectAssistantReply(
+      text,
+      "Okay. I canceled the mission follow-up context.",
+      ctx,
+      "Clearing mission context",
+    );
+    return {
+      route: "mission_context_canceled",
+      ok: true,
+      reply,
+    };
+  }
+
+  const missionIsFollowUpRefine =
+    missionContextIsPrimary
+    && missionPolicy.isNonCriticalFollowUp(normalizedTextForRouting)
+    && !missionPolicy.isNewTopic(normalizedTextForRouting)
+    && !missionPolicy.isCancel(normalizedTextForRouting);
+  if (missionIsFollowUpRefine && !getPendingMissionConfirm(sessionKey)) {
+    const basePrompt = String(missionShortTermContext?.slots?.pendingPrompt || "").trim();
+    const mergedPrompt = basePrompt
+      ? `${basePrompt}. ${stripAssistantInvocation(text)}`.replace(/\s+/g, " ").trim()
+      : stripAssistantInvocation(text);
+    if (mergedPrompt) {
+      setPendingMissionConfirm(sessionKey, mergedPrompt);
+      upsertShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "mission_task",
+        topicAffinityId: "mission_task",
+        slots: {
+          pendingPrompt: mergedPrompt,
+          phase: "confirm_refine",
+          lastUserText: String(text || "").trim(),
+        },
+      });
+      const reply = await sendDirectAssistantReply(
+        text,
+        buildMissionConfirmReply(mergedPrompt),
+        ctx,
+        "Refining mission",
+      );
+      return {
+        route: "mission_context_refine",
+        ok: true,
+        reply,
+      };
+    }
+  }
+
   const pendingWeather = getPendingWeatherConfirm(sessionKey);
   if (pendingWeather) {
     if (isWeatherConfirmNo(text)) {
@@ -1828,6 +2027,7 @@ async function handleInputCore(text, opts = {}) {
   if (pendingMission) {
     if (isMissionConfirmNo(text)) {
       clearPendingMissionConfirm(sessionKey);
+      clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
       const reply = await sendDirectAssistantReply(
         text,
         "No problem. I will not create a mission. If you want one later, say: create a mission for ...",
@@ -1844,6 +2044,7 @@ async function handleInputCore(text, opts = {}) {
       const details = stripMissionConfirmPrefix(text);
       const mergedPrompt = details ? `${pendingMission.prompt}. ${details}` : pendingMission.prompt;
       clearPendingMissionConfirm(sessionKey);
+      clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
       return await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
     }
 
@@ -1851,6 +2052,17 @@ async function handleInputCore(text, opts = {}) {
     if (detailLikeFollowUp) {
       const mergedPrompt = `${pendingMission.prompt}. ${stripAssistantInvocation(text)}`.replace(/\s+/g, " ").trim();
       setPendingMissionConfirm(sessionKey, mergedPrompt);
+      upsertShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "mission_task",
+        topicAffinityId: "mission_task",
+        slots: {
+          pendingPrompt: mergedPrompt,
+          phase: "confirm_refine",
+          lastUserText: String(text || "").trim(),
+        },
+      });
       const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(mergedPrompt), ctx);
       return {
         route: "mission_confirm_refine",
@@ -1862,12 +2074,34 @@ async function handleInputCore(text, opts = {}) {
 
   if (shouldBuildWorkflowFromPrompt(text)) {
     clearPendingMissionConfirm(sessionKey);
+    upsertShortTermContextState({
+      userContextId,
+      conversationId,
+      domainId: "mission_task",
+      topicAffinityId: "mission_task",
+      slots: {
+        pendingPrompt: String(text || "").trim(),
+        phase: "build_attempt",
+        lastUserText: String(text || "").trim(),
+      },
+    });
     return await handleWorkflowBuild(text, ctx, { engine: "src" });
   }
 
   if (shouldConfirmWorkflowFromPrompt(text)) {
     const candidatePrompt = stripAssistantInvocation(text) || text;
     setPendingMissionConfirm(sessionKey, candidatePrompt);
+    upsertShortTermContextState({
+      userContextId,
+      conversationId,
+      domainId: "mission_task",
+      topicAffinityId: "mission_task",
+      slots: {
+        pendingPrompt: candidatePrompt,
+        phase: "confirm_prompt",
+        lastUserText: String(text || "").trim(),
+      },
+    });
     const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(candidatePrompt), ctx);
     return {
       route: "mission_confirm_prompt",
@@ -1882,9 +2116,31 @@ async function handleInputCore(text, opts = {}) {
     canRunWebSearchHint: true,
     canRunWebFetchHint: true,
   });
+  const assistantTurnClassification = applyShortTermContextTurnClassification({
+    userContextId,
+    conversationId,
+    domainId: "assistant",
+    text,
+  });
+  const assistantShortTermContext = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: "assistant",
+  });
   const requestHints = {
     fastLaneSimpleChat: turnPolicy.fastLaneSimpleChat === true,
+    assistantShortTermFollowUp: false,
+    assistantShortTermContextSummary: "",
   };
+  if (!turnPolicy.weatherIntent && !turnPolicy.cryptoIntent) {
+    if ((assistantTurnClassification.isCancel || assistantTurnClassification.isNewTopic) && assistantShortTermContext) {
+      clearShortTermContextState({ userContextId, conversationId, domainId: "assistant" });
+    } else if (assistantTurnClassification.isNonCriticalFollowUp && assistantShortTermContext) {
+      requestHints.assistantShortTermFollowUp = true;
+      requestHints.assistantShortTermContextSummary = summarizeShortTermContextForPrompt(assistantShortTermContext, 520);
+      requestHints.assistantTopicAffinityId = String(assistantShortTermContext.topicAffinityId || "");
+    }
+  }
 
   let runtimeTools = null;
   let availableTools = [];

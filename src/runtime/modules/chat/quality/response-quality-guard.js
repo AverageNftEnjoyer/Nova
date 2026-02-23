@@ -32,7 +32,11 @@ export function sanitizeTransportArtifacts(value, opts = {}) {
     .replace(ANSI_CSI_RE, "")
     .replace(BRACKETED_PASTE_RE, "")
     .replace(ZERO_WIDTH_RE, "")
-    .replace(CONTROL_RE, "");
+    .replace(CONTROL_RE, "")
+    .replace(/â€”/g, "-")
+    .replace(/â€“/g, "-")
+    .replace(/â€˜|â€™/g, "'")
+    .replace(/â€œ|â€\x9d/g, "\"");
 
   // Keep line breaks for assistant rendering, flatten for inbound prompts.
   if (!preserveNewlines) {

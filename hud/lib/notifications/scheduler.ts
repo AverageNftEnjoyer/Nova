@@ -31,6 +31,10 @@ const SCHEDULER_MAX_RUNS_PER_TICK = Math.max(
   1,
   Math.min(100, Number.parseInt(process.env.NOVA_SCHEDULER_MAX_RUNS_PER_TICK || "20", 10) || 20),
 )
+const SCHEDULER_MAX_RUNS_PER_USER_PER_TICK = Math.max(
+  1,
+  Math.min(25, Number.parseInt(process.env.NOVA_SCHEDULER_MAX_RUNS_PER_USER_PER_TICK || "4", 10) || 4),
+)
 const SCHEDULER_MAX_RETRIES_PER_RUN_KEY = Math.max(
   1,
   Math.min(8, Number.parseInt(process.env.NOVA_SCHEDULER_MAX_RETRIES_PER_RUN_KEY || "3", 10) || 3),
@@ -110,6 +114,7 @@ async function runScheduleTickInternal() {
   const nextSchedules: NotificationSchedule[] = []
   const orderedSchedules = [...schedules].sort((a, b) => String(a.id || "").localeCompare(String(b.id || "")))
   const skillSnapshotsByUser = new Map<string, Awaited<ReturnType<typeof loadMissionSkillSnapshot>>>()
+  const runCountByUser = new Map<string, number>()
 
   for (const schedule of orderedSchedules) {
     if (!schedule.enabled) {
@@ -148,6 +153,13 @@ async function runScheduleTickInternal() {
       }
     }
 
+    const userScopeKey = sanitizeSchedulerUserId(schedule.userId || "") || "__global__"
+    const perUserRunCount = runCountByUser.get(userScopeKey) || 0
+    if (perUserRunCount >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) {
+      nextSchedules.push(schedule)
+      continue
+    }
+
     if (runCount >= SCHEDULER_MAX_RUNS_PER_TICK) {
       nextSchedules.push(schedule)
       continue
@@ -183,10 +195,10 @@ async function runScheduleTickInternal() {
     }
     const attempt = Math.max(1, runHistory.attempts + 1)
     runCount += 1
+    runCountByUser.set(userScopeKey, perUserRunCount + 1)
 
     let execution = null
     let fallbackError = ""
-    const userScopeKey = sanitizeSchedulerUserId(schedule.userId || "") || "__global__"
     let skillSnapshot = skillSnapshotsByUser.get(userScopeKey)
     if (!skillSnapshot) {
       try {

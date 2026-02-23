@@ -6,11 +6,33 @@ import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { buildSchedule, loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+const DISCORD_MAX_TARGETS = Math.max(
+  1,
+  Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
+)
+
+function normalizeRecipients(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return Array.from(new Set(raw.map((value) => String(value || "").trim()).filter(Boolean)))
+}
+
+function validateDiscordTargets(targets: string[]): { ok: true } | { ok: false; message: string } {
+  if (targets.length === 0) return { ok: true }
+  if (targets.length > DISCORD_MAX_TARGETS) {
+    return { ok: false, message: `Discord target count exceeds cap (${DISCORD_MAX_TARGETS}).` }
+  }
+  const invalid = targets.find((target) => !isValidDiscordWebhookUrl(target))
+  if (invalid) {
+    return { ok: false, message: `Invalid Discord webhook URL: ${redactWebhookTarget(invalid)}` }
+  }
+  return { ok: true }
+}
 
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
@@ -28,6 +50,7 @@ export async function POST(req: Request) {
     const integration = typeof body?.integration === "string" ? body.integration.trim().toLowerCase() : ""
     const timezone = typeof body?.timezone === "string" ? body.timezone.trim() : "America/New_York"
     const time = typeof body?.time === "string" ? body.time.trim() : "09:00"
+    const chatIds = normalizeRecipients(body?.chatIds)
 
     if (scheduleId) {
       const schedules = await loadSchedules({ userId })
@@ -115,6 +138,10 @@ export async function POST(req: Request) {
     if (integration !== "telegram" && integration !== "discord") {
       return NextResponse.json({ error: "integration must be either 'telegram' or 'discord'" }, { status: 400 })
     }
+    if (integration === "discord") {
+      const validation = validateDiscordTargets(chatIds)
+      if (!validation.ok) return NextResponse.json({ error: validation.message }, { status: 400 })
+    }
 
     const tempSchedule = buildSchedule({
       userId,
@@ -124,7 +151,7 @@ export async function POST(req: Request) {
       time,
       timezone,
       enabled: true,
-      chatIds: Array.isArray(body?.chatIds) ? body.chatIds.map((v: unknown) => String(v)) : [],
+      chatIds,
     })
     const skillSnapshot = await loadMissionSkillSnapshot({ userId })
     const missionRunId = crypto.randomUUID()
@@ -163,4 +190,3 @@ export async function POST(req: Request) {
     )
   }
 }
-

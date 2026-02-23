@@ -15,7 +15,6 @@ import {
 // Module-internal cache — not exported
 const SKILL_DISCOVERY_CACHE = new Map();
 const STARTER_SKILLS_SEEDED_DIRS = new Set();
-const LEGACY_SKILLS_MIGRATED_DIRS = new Set();
 const LEGACY_STARTER_SKILLS_PRUNED_DIRS = new Set();
 const BINARY_AVAILABILITY_CACHE = new Map();
 const RUNTIME_SKILLS_PROMPT_CACHE = new Map();
@@ -297,7 +296,8 @@ function selectSkillsForPrompt(skills, requestText) {
 }
 
 // ===== File walking =====
-function walkSkillFiles(dir, out) {
+function walkSkillFiles(dir, out, depth = 0) {
+  if (depth > 8) return;
   let entries = [];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -307,7 +307,7 @@ function walkSkillFiles(dir, out) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      walkSkillFiles(full, out);
+      walkSkillFiles(full, out, depth + 1);
       continue;
     }
     if (entry.isFile() && entry.name.toLowerCase() === "skill.md") out.push(full);
@@ -656,45 +656,8 @@ export function ensureStarterSkillsForUser(personaWorkspaceDir) {
       catalogVersion: STARTER_SKILLS_CATALOG_VERSION,
     });
     STARTER_SKILLS_SEEDED_DIRS.add(userSkillsDir);
-  } catch {}
-}
-
-function migrateLegacyUserSkillsToGlobal(personaWorkspaceDir) {
-  if (!personaWorkspaceDir) return;
-  const legacySkillsDir = path.join(personaWorkspaceDir, "skills");
-  if (LEGACY_SKILLS_MIGRATED_DIRS.has(legacySkillsDir)) return;
-  LEGACY_SKILLS_MIGRATED_DIRS.add(legacySkillsDir);
-  if (!fs.existsSync(legacySkillsDir)) return;
-
-  const globalSkillsDir = path.join(ROOT_WORKSPACE_DIR, "skills");
-  try { fs.mkdirSync(globalSkillsDir, { recursive: true }); } catch {}
-
-  let moved = 0;
-  let entries = [];
-  try {
-    entries = fs.readdirSync(legacySkillsDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillName = String(entry.name || "").trim();
-    if (!skillName || !STARTER_SKILL_NAMES.has(skillName)) continue;
-    const legacySkillPath = path.join(legacySkillsDir, skillName, "SKILL.md");
-    if (!fs.existsSync(legacySkillPath)) continue;
-    const globalSkillPath = path.join(globalSkillsDir, skillName, "SKILL.md");
-    if (fs.existsSync(globalSkillPath)) continue;
-    try {
-      const raw = fs.readFileSync(legacySkillPath, "utf8");
-      fs.mkdirSync(path.dirname(globalSkillPath), { recursive: true });
-      fs.writeFileSync(globalSkillPath, `${String(raw || "").replace(/\r\n/g, "\n").trim()}\n`, "utf8");
-      moved += 1;
-    } catch {}
-  }
-
-  if (moved > 0) {
-    console.log(`[Skills] Migrated ${moved} legacy user skill(s) into global catalog.`);
+  } catch (e) {
+    console.error("[Skills] ensureStarterSkillsForUser failed:", e?.message, "dir:", userSkillsDir);
   }
 }
 
@@ -735,11 +698,8 @@ function pruneLegacyStarterSkills(personaWorkspaceDir) {
 }
 
 export function buildRuntimeSkillsPrompt(personaWorkspaceDir, requestText = "") {
-  try {
-    ensureStarterSkillsForUser(personaWorkspaceDir);
-  } catch {}
-  migrateLegacyUserSkillsToGlobal(personaWorkspaceDir);
-  pruneLegacyStarterSkills(personaWorkspaceDir);
+  // Runtime prompt assembly must be read-only. Mutating user skill folders here
+  // can delete or overwrite per-user overrides during normal chat turns.
   const dirs = [path.join(ROOT_WORKSPACE_DIR, "skills")];
   if (personaWorkspaceDir) dirs.push(path.join(personaWorkspaceDir, "skills"));
   const normalizedRequest = normalizeRequestForSkillScoring(requestText).slice(0, 240);

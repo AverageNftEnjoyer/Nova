@@ -57,7 +57,7 @@ function buildCoinbaseJwt(input: {
   apiKey: string;
   privateKeyPem: string;
   method: string;
-  pathWithQuery: string;
+  requestPath: string;
   host: string;
   nowMs: number;
 }): string {
@@ -74,10 +74,14 @@ function buildCoinbaseJwt(input: {
     sub: input.apiKey,
     nbf,
     exp,
-    uri: `${input.method.toUpperCase()} ${input.host}${input.pathWithQuery}`,
+    uri: `${input.method.toUpperCase()} ${input.host}${input.requestPath}`,
   };
   const signingInput = `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`;
-  const signature = crypto.createSign("SHA256").update(signingInput).end().sign(input.privateKeyPem);
+  const signature = crypto
+    .createSign("SHA256")
+    .update(signingInput)
+    .end()
+    .sign({ key: input.privateKeyPem, dsaEncoding: "ieee-p1363" });
   return `${signingInput}.${toBase64Url(signature)}`;
 }
 
@@ -112,6 +116,7 @@ export function createCoinbaseAutoAuthStrategy(params?: { host?: string }): Coin
         ? `?${input.query.toString()}`
         : "";
       const pathWithQuery = `${String(input.path || "").trim() || "/"}${queryText}`;
+      const requestPath = String(input.path || "").trim() || "/";
 
       const normalizedPem = normalizePrivateKeyPem(apiSecret);
       const derivedPem = normalizedPem || tryConvertSecretStringToPrivateKeyPem(apiSecret);
@@ -120,7 +125,7 @@ export function createCoinbaseAutoAuthStrategy(params?: { host?: string }): Coin
           apiKey,
           privateKeyPem: derivedPem,
           method: String(input.method || "GET"),
-          pathWithQuery,
+          requestPath,
           host,
           nowMs: Number(input.timestampMs || Date.now()),
         });
@@ -139,4 +144,3 @@ export function createCoinbaseAutoAuthStrategy(params?: { host?: string }): Coin
     },
   };
 }
-

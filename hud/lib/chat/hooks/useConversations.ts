@@ -120,7 +120,7 @@ function stabilizeServerMessageIds(localMessages: ChatMessage[], serverMessages:
 }
 
 const USER_ECHO_DEDUP_MS = 15_000
-const ASSISTANT_ECHO_DEDUP_MS = 8_000
+const ASSISTANT_ECHO_DEDUP_MS = 60_000
 /** Local optimistic ids from home are generateId() format. */
 const OPTIMISTIC_ID_REGEX = /^\d+-[a-z0-9]+$/
 

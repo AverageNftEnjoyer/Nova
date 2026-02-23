@@ -105,7 +105,9 @@ async function loadCoinbaseRuntimeModule(): Promise<{
   coinbaseDbPathForUserContext: (userContextId: string, workspaceRootInput?: string) => string
 }> {
   const modulePath = await resolveCoinbaseDistModulePath()
-  const loaded = await import(pathToFileURL(modulePath).href)
+  // Turbopack cannot statically resolve import(<expression>) in server chunks.
+  const runtimeImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>
+  const loaded = await runtimeImport(pathToFileURL(modulePath).href)
   return loaded as {
     CoinbaseDataStore: new (dbPath: string) => CoinbaseStore
     coinbaseDbPathForUserContext: (userContextId: string, workspaceRootInput?: string) => string

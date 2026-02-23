@@ -137,7 +137,10 @@ function buildCoinbaseJwt(params: {
     uri: `${params.method.toUpperCase()} ${params.host}${params.pathWithQuery}`,
   }
   const signingInput = `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`
-  const signature = createSign("SHA256").update(signingInput).end().sign(params.privateKeyPem)
+  const signature = createSign("SHA256")
+    .update(signingInput)
+    .end()
+    .sign({ key: params.privateKeyPem, dsaEncoding: "ieee-p1363" })
   return `${signingInput}.${toBase64Url(signature)}`
 }
 

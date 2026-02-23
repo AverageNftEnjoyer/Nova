@@ -122,15 +122,28 @@ export function ChatShellController() {
   const pendingBootSendDispatchedAtRef = useRef(0)
   const sidebarPanelsRef = useRef<HTMLElement | null>(null)
 
-  const [localThinking, setLocalThinking] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
-  const activeConversationStreaming = useMemo(() => {
-    if (!activeConvo || !streamingAssistantId) return false
-    return activeConvo.messages.some((message) => message.role === "assistant" && message.id === streamingAssistantId)
-  }, [activeConvo, streamingAssistantId])
-  const isBackendThinking = novaState === "thinking"
-  const isThinking = isBackendThinking || localThinking || activeConversationStreaming
+
+  // Single stable thinking signal — computed atomically to prevent inter-render flicker.
+  // Priority: backend novaState → streamingAssistantId (set before activeConvo.messages catches up)
+  // → agentMessages scan. Any one truthy keeps the orb visible.
+  const isThinking = useMemo(() => {
+    if (novaState === "thinking") return true
+    // streamingAssistantId is set before the first chunk lands in activeConvo.messages,
+    // so using it directly eliminates the race window that caused the orb to flicker off.
+    if (streamingAssistantId) return true
+    const activeConvoId = String(activeConvo?.id || "").trim()
+    if (!activeConvoId) return false
+    for (let i = agentMessages.length - 1; i >= 0; i -= 1) {
+      const item = agentMessages[i]
+      const itemConvoId = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
+      if (!itemConvoId || itemConvoId !== activeConvoId) continue
+      if (item.role === "user") return true
+      if (item.role === "assistant" && hasRenderableAssistantContent(item.content)) return false
+    }
+    return false
+  }, [novaState, streamingAssistantId, activeConvo?.id, agentMessages])
 
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
@@ -174,41 +187,6 @@ export function ChatShellController() {
       setMuted(isMuted)
     }
   }, [agentConnected, isMuted, muteHydrated, setMuted])
-
-  // Thinking state management
-  useEffect(() => {
-    if (novaState === "speaking") {
-      setLocalThinking(false)
-    }
-  }, [novaState])
-
-  useEffect(() => {
-    const activeConvoId = String(activeConvo?.id || "").trim()
-    if (!activeConvoId) {
-      setLocalThinking(false)
-      return
-    }
-    if (novaState === "thinking") {
-      setLocalThinking(true)
-      return
-    }
-
-    for (let i = agentMessages.length - 1; i >= 0; i -= 1) {
-      const item = agentMessages[i]
-      const itemConversationId = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
-      if (!itemConversationId || itemConversationId !== activeConvoId) continue
-      if (item.role === "user") {
-        setLocalThinking(true)
-        return
-      }
-      if (item.role === "assistant" && hasRenderableAssistantContent(item.content)) {
-        setLocalThinking(false)
-        return
-      }
-    }
-
-    setLocalThinking(false)
-  }, [activeConvo?.id, agentMessages, novaState])
 
   // Home -> Chat handoff
   useEffect(() => {
@@ -266,7 +244,6 @@ export function ChatShellController() {
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
       if (!activeUserId) {
-        setLocalThinking(false)
         return
       }
 
@@ -280,7 +257,6 @@ export function ChatShellController() {
         sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
       }
 
-      setLocalThinking(true)
       void (async () => {
         const supabaseAccessToken = await getSupabaseAccessToken()
         const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
@@ -379,13 +355,10 @@ export function ChatShellController() {
       const updatedConvo = addUserMessage(content)
       const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
       const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
-      setLocalThinking(true)
-
 
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
       if (!activeUserId) {
-        setLocalThinking(false)
         return
       }
       const supabaseAccessToken = await getSupabaseAccessToken()

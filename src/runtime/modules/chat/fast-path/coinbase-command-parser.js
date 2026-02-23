@@ -22,8 +22,14 @@ const COINBASE_ALIAS_PATTERNS = {
   reports: [
     /\bmy\s+crypto\s+report\b/i,
     /\bcrypto\s+report\b/i,
+    /\bdaily\s+report\s+of\s+my\s+crypto\b/i,
+    /\bdaily\s+crypto\s+summary\b/i,
+    /\bdaily\s+crypto\s+update\b/i,
+    /\bdaily\s+report\b/i,
     /\bweekly\s+p\s*&?\s*l\b/i,
     /\bweekly\s+pnl\b/i,
+    /\bdaily\s+p\s*&?\s*l\b/i,
+    /\bdaily\s+pnl\b/i,
     /\bdaily\s+crypto\s+report\b/i,
   ],
   status: [
@@ -71,6 +77,7 @@ const TYPO_NORMALIZATION_MAP = new Map([
   ["recnt", "recent"],
   ["wekly", "weekly"],
   ["weely", "weekly"],
+  ["dialy", "daily"],
   ["pnl", "pnl"],
   ["pn", "pnl"],
   ["reprot", "report"],
@@ -185,7 +192,20 @@ export function parseCoinbaseCommand(text) {
   const hasCryptoMarker = CRYPTO_MARKER_REGEX.test(normalized);
   const hasPriceIntent = /\b(price|quote|worth|rate|market\s+price|how much)\b/i.test(normalized);
   const hasDirectSymbol = hasDirectCryptoSymbolMention(normalized);
+  const hasPnlFollowUpIntent =
+    /\b(pnl|profit|loss|p\s*&?\s*l)\b/i.test(normalized)
+    && /\b(daily|weekly|account|portfolio|holdings?|balances?)\b/i.test(normalized);
   if (!hasCryptoMarker && (!hasPriceIntent || !hasDirectSymbol)) {
+    if (hasPnlFollowUpIntent) {
+      return {
+        isCrypto: true,
+        intent: "report",
+        category: "reports",
+        normalizedText: normalized,
+        matchedBy: "intent",
+        ambiguous: false,
+      };
+    }
     return {
       isCrypto: false,
       intent: "",

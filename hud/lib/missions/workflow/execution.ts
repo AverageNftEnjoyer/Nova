@@ -752,6 +752,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
       const frequency = String(step.outputFrequency || "once").toLowerCase()
       const repeatCount = Math.max(1, Math.min(10, Number(step.outputRepeatCount || "1") || 1))
       const loops = frequency === "multiple" ? repeatCount : 1
+      const outputStartIndex = outputs.length
 
       for (let i = 0; i < loops; i += 1) {
         const textBase = MISSION_OUTPUT_INCLUDE_HEADER
@@ -783,8 +784,9 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         )
         outputs = outputs.concat(result)
       }
-      const stepResults = outputs.slice(-loops)
-      const outputOk = stepResults.some((result) => result.ok)
+      const stepResults = outputs.slice(outputStartIndex)
+      const outputOk = stepResults.length > 0 && stepResults.every((result) => result.ok)
+      const partialFailure = stepResults.some((result) => result.ok) && stepResults.some((result) => !result.ok)
       const outputError = stepResults.find((result) => !result.ok && result.error)?.error
       const qualityDetail = qualityGuard.applied
         ? ` Quality guardrail applied (${qualityGuard.report.score} -> ${qualityGuard.fallbackReport?.score ?? qualityGuard.report.score}).`
@@ -796,7 +798,7 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
         outputOk ? "completed" : "failed",
         outputOk
           ? `Output sent via ${channel}.${qualityDetail}`
-          : `Output failed via ${channel}${outputError ? `: ${outputError}` : "."}${qualityDetail}`,
+          : `Output failed via ${channel}${outputError ? `: ${outputError}` : "."}${partialFailure ? " Partial delivery detected." : ""}${qualityDetail}`,
         startedAt,
       )
       continue
@@ -860,6 +862,6 @@ export async function executeMissionWorkflow(input: ExecuteMissionWorkflowInput)
     return { ok: true, skipped: true, outputs: [], reason: skipReason || "Workflow skipped.", stepTraces }
   }
 
-  const ok = outputs.some((r) => r.ok)
-  return { ok, skipped: false, outputs, reason: ok ? undefined : "All workflow outputs failed.", stepTraces }
+  const ok = outputs.length > 0 && outputs.every((r) => r.ok)
+  return { ok, skipped: false, outputs, reason: ok ? undefined : "One or more workflow outputs failed.", stepTraces }
 }
