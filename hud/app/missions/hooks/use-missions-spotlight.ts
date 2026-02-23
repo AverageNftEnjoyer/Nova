@@ -41,11 +41,11 @@ export function useMissionsSpotlight({
       let suppressResetTimer: number | null = null
       let rafId: number | null = null
       let pendingEvent: MouseEvent | null = null
-      const cards = Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
+      const getCards = () => Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
 
       const clearSpotlightState = () => {
         if (spotlight) spotlight.style.opacity = "0"
-        cards.forEach((card) => {
+        getCards().forEach((card) => {
           card.style.setProperty("--glow-intensity", "0")
           const stars = card.querySelectorAll(".fx-star-particle")
           stars.forEach((star) => star.remove())
@@ -64,7 +64,7 @@ export function useMissionsSpotlight({
 
         const proximity = 70
         const fadeDistance = 140
-        cards.forEach((card) => {
+        getCards().forEach((card) => {
           const cardRect = card.getBoundingClientRect()
           const inside =
             e.clientX >= cardRect.left &&

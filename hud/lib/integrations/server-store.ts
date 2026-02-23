@@ -1,6 +1,6 @@
 import "server-only"
 
-import { decryptSecret, encryptSecret } from "@/lib/security/encryption"
+import { decryptSecret, decryptSecretWithMeta, encryptSecret } from "@/lib/security/encryption"
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
@@ -232,7 +232,12 @@ function unwrapStoredSecret(value: unknown): string {
 function wrapStoredSecret(value: unknown): string {
   const raw = typeof value === "string" ? value.trim() : ""
   if (!raw) return ""
-  if (decryptSecret(raw)) return raw
+  const decrypted = decryptSecretWithMeta(raw)
+  if (decrypted.value) {
+    // Opportunistically re-encrypt old-key envelopes with the current primary key.
+    if (decrypted.keyIndex > 0) return encryptSecret(decrypted.value)
+    return raw
+  }
   // Preserve already-encrypted envelopes even if decrypt fails in this process.
   // This avoids nesting ciphertext inside new ciphertext.
   const parts = raw.split(".")

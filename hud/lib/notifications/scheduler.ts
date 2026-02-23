@@ -1,12 +1,15 @@
 import "server-only"
 
 import { loadSchedules, saveSchedules, type NotificationSchedule } from "@/lib/notifications/store"
-import { executeMissionWorkflow, shouldWorkflowRunNow } from "@/lib/missions/runtime"
+import { shouldWorkflowRunNow } from "@/lib/missions/runtime"
+import { loadMissions, migrateLegacyScheduleToMission, upsertMission } from "@/lib/missions/store"
+import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { getLocalParts } from "@/lib/missions/workflow/scheduling"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { getRunKeyHistory } from "@/lib/notifications/run-log"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
+import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 
 type SchedulerState = {
   timer: NodeJS.Timeout | null
@@ -75,6 +78,14 @@ function sanitizeSchedulerUserId(value: unknown): string {
     .slice(0, 96)
 }
 
+async function loadLiveMissionForUser(params: { missionId: string; userId?: string }): Promise<Mission | null> {
+  const missionId = String(params.missionId || "").trim()
+  const userId = String(params.userId || "").trim()
+  if (!missionId || !userId) return null
+  const userMissions = await loadMissions({ userId })
+  return userMissions.find((mission) => mission.id === missionId) ?? null
+}
+
 function buildScheduleRunKey(params: {
   schedule: NotificationSchedule
   mode: string
@@ -97,8 +108,26 @@ function computeRetryDelayMs(previousAttempts: number): number {
   return Math.max(SCHEDULER_RETRY_BASE_MS, Math.min(SCHEDULER_RETRY_MAX_MS, Math.floor(delay)))
 }
 
+function nodeTracesToStepTraces(traces: NodeExecutionTrace[]): WorkflowStepTrace[] {
+  return traces.map((trace) => ({
+    stepId: trace.nodeId,
+    type: trace.nodeType,
+    title: trace.label,
+    status: trace.status,
+    detail: trace.detail,
+    errorCode: trace.errorCode,
+    artifactRef: trace.artifactRef,
+    retryCount: trace.retryCount,
+    startedAt: trace.startedAt,
+    endedAt: trace.endedAt,
+  }))
+}
+
 async function runScheduleTickInternal() {
-  const schedules = await loadSchedules({ allUsers: true })
+  const [schedules, allMissions] = await Promise.all([
+    loadSchedules({ allUsers: true }),
+    loadMissions({ allUsers: true }),
+  ])
   if (schedules.length === 0) {
     return {
       dueCount: 0,
@@ -115,6 +144,7 @@ async function runScheduleTickInternal() {
   const orderedSchedules = [...schedules].sort((a, b) => String(a.id || "").localeCompare(String(b.id || "")))
   const skillSnapshotsByUser = new Map<string, Awaited<ReturnType<typeof loadMissionSkillSnapshot>>>()
   const runCountByUser = new Map<string, number>()
+  const missionById = new Map(allMissions.map((mission) => [mission.id, mission]))
 
   for (const schedule of orderedSchedules) {
     if (!schedule.enabled) {
@@ -197,7 +227,37 @@ async function runScheduleTickInternal() {
     runCount += 1
     runCountByUser.set(userScopeKey, perUserRunCount + 1)
 
-    let execution = null
+    const mission = missionById.get(schedule.id) ?? migrateLegacyScheduleToMission(schedule)
+    const liveMission = await loadLiveMissionForUser({ missionId: mission.id, userId: schedule.userId })
+    if (!liveMission) {
+      changed = true
+      console.warn(
+        JSON.stringify({
+          event: "scheduler.skip.deleted_mission",
+          missionId: mission.id,
+          userContextId: schedule.userId || "",
+          scheduleId: schedule.id,
+        }),
+      )
+      continue
+    }
+    if (liveMission.status !== "active") {
+      const disabledSchedule = {
+        ...schedule,
+        enabled: false,
+        updatedAt: now.toISOString(),
+      }
+      nextSchedules.push(disabledSchedule)
+      changed = true
+      continue
+    }
+    let execution: {
+      ok: boolean
+      skipped: boolean
+      outputs: Array<{ ok: boolean; error?: string; status?: number }>
+      reason?: string
+      stepTraces: WorkflowStepTrace[]
+    } | null = null
     let fallbackError = ""
     let skillSnapshot = skillSnapshotsByUser.get(userScopeKey)
     if (!skillSnapshot) {
@@ -218,8 +278,8 @@ async function runScheduleTickInternal() {
     const startedAtMs = Date.now()
     try {
       const missionRunId = crypto.randomUUID()
-      execution = await executeMissionWorkflow({
-        schedule,
+      const dagResult = await executeMission({
+        mission: liveMission,
         source: "scheduler",
         missionRunId,
         runKey,
@@ -227,14 +287,21 @@ async function runScheduleTickInternal() {
         now,
         enforceOutputTime: true,
         skillSnapshot,
-        scope: schedule.userId
+        scope: liveMission.userId
           ? {
-              userId: schedule.userId,
+              userId: liveMission.userId,
               allowServiceRole: true,
               serviceRoleReason: "scheduler",
             }
           : undefined,
       })
+      execution = {
+        ok: dagResult.ok,
+        skipped: dagResult.skipped,
+        outputs: dagResult.outputs,
+        reason: dagResult.reason,
+        stepTraces: nodeTracesToStepTraces(dagResult.nodeTraces),
+      }
     } catch {
       execution = null
       fallbackError = "Mission execution threw an unhandled scheduler error."
@@ -281,16 +348,52 @@ async function runScheduleTickInternal() {
       })
       nextSchedules.push(updated)
       changed = true
+      try {
+        const missionStatus: Mission["lastRunStatus"] = logResult.status
+        const nowIso = now.toISOString()
+        const currentMission = missionById.get(liveMission.id) ?? liveMission
+        const updatedMission: Mission = {
+          ...currentMission,
+          runCount: (currentMission.runCount || 0) + 1,
+          successCount: (currentMission.successCount || 0) + (missionStatus === "success" ? 1 : 0),
+          failureCount: (currentMission.failureCount || 0) + (missionStatus === "error" ? 1 : 0),
+          lastRunAt: nowIso,
+          lastRunStatus: missionStatus,
+          updatedAt: nowIso,
+        }
+        await upsertMission(updatedMission, updatedMission.userId || schedule.userId || "")
+        missionById.set(updatedMission.id, updatedMission)
+      } catch {
+        // Mission metric persistence is best-effort.
+      }
     } catch {
       // Logging failures should not block scheduling.
+      const derivedStatus: Mission["lastRunStatus"] = execution?.ok ? "success" : execution?.skipped ? "skipped" : "error"
       const updated = applyScheduleRunOutcome(schedule, {
-        status: execution?.ok ? "success" : execution?.skipped ? "skipped" : "error",
+        status: derivedStatus,
         now,
         dayStamp: gate.dayStamp,
         mode: gate.mode,
       })
       nextSchedules.push(updated)
       changed = true
+      try {
+        const nowIso = now.toISOString()
+        const currentMission = missionById.get(liveMission.id) ?? liveMission
+        const updatedMission: Mission = {
+          ...currentMission,
+          runCount: (currentMission.runCount || 0) + 1,
+          successCount: (currentMission.successCount || 0) + (derivedStatus === "success" ? 1 : 0),
+          failureCount: (currentMission.failureCount || 0) + (derivedStatus === "error" ? 1 : 0),
+          lastRunAt: nowIso,
+          lastRunStatus: derivedStatus,
+          updatedAt: nowIso,
+        }
+        await upsertMission(updatedMission, updatedMission.userId || schedule.userId || "")
+        missionById.set(updatedMission.id, updatedMission)
+      } catch {
+        // Mission metric persistence is best-effort.
+      }
     }
   }
 
@@ -302,6 +405,54 @@ async function runScheduleTickInternal() {
         `[Scheduler] Failed to persist updated schedules: ${error instanceof Error ? error.message : "unknown error"}`,
       )
     }
+  }
+
+  // ── Native Mission Tick ───────────────────────────────────────────────────
+  // Process new-format missions that are NOT in the legacy schedule store.
+  // Schedules are executed above via the same DAG mission engine.
+  const legacyIds = new Set(orderedSchedules.map((s) => s.id))
+  try {
+    const nativeMissions = allMissions.filter(
+      (m) => m.status === "active" && !legacyIds.has(m.id),
+    )
+    for (const mission of nativeMissions) {
+      if (runCount >= SCHEDULER_MAX_RUNS_PER_TICK) break
+      const userKey = sanitizeSchedulerUserId(mission.userId || "") || "__global__"
+      const perUserRuns = runCountByUser.get(userKey) || 0
+      if (perUserRuns >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) continue
+      try {
+        const liveMission = await loadLiveMissionForUser({ missionId: mission.id, userId: mission.userId })
+        if (!liveMission || liveMission.status !== "active") continue
+        const scope = liveMission.userId
+          ? { userId: liveMission.userId, allowServiceRole: true as const, serviceRoleReason: "scheduler" as const }
+          : undefined
+        const result = await executeMission({
+          mission: liveMission,
+          source: "scheduler",
+          now,
+          enforceOutputTime: true,
+          missionRunId: crypto.randomUUID(),
+          scope,
+        })
+        if (!result.skipped) {
+          runCount += 1
+          runCountByUser.set(userKey, perUserRuns + 1)
+          const updatedMission = {
+            ...liveMission,
+            lastRunAt: now.toISOString(),
+            runCount: (liveMission.runCount || 0) + 1,
+            successCount: result.ok ? (liveMission.successCount || 0) + 1 : (liveMission.successCount || 0),
+            failureCount: result.ok ? (liveMission.failureCount || 0) : (liveMission.failureCount || 0) + 1,
+            lastRunStatus: result.ok ? ("success" as const) : ("error" as const),
+          }
+          await upsertMission(updatedMission, liveMission.userId || "")
+        }
+      } catch (err) {
+        console.error(`[Scheduler] Native mission ${mission.id} failed: ${err instanceof Error ? err.message : "unknown"}`)
+      }
+    }
+  } catch (err) {
+    console.error(`[Scheduler] Native missions tick failed: ${err instanceof Error ? err.message : "unknown"}`)
   }
 
   return { dueCount, runCount, changed }

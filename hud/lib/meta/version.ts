@@ -9,6 +9,12 @@
  *
  * Version History:
  *
+ * - V.26 Alpha: Mission builder workflow UX overhaul (frosted glass)
+ *     - Reworked mission canvas visual system with tokenized React Flow theming and refined controls/minimap treatment.
+ *     - Upgraded node palette and node config panel hierarchy to match workflow-editor ergonomics from reference design patterns.
+ *     - Polished mission node cards, edge/grid styling, and top toolbar density while preserving drag/drop/connect/save/run behavior.
+ *     - Added phased implementation tracker artifact: `tasks/mission-builder-ux-overhaul-phases-2026-02-23.md`.
+ *
  * - V.25 Alpha: NovaChat pending resiliency + mission idempotency hardening
  *     - Hardened `/api/novachat/pending` polling against spam with single-flight fetch control, 429 recovery backoff+jitter, Retry-After compliance, and stale-request aborts.
  *     - Added cross-tab pending-poll lease coordination so one tab owns user+conversation scoped polling at a time.
@@ -173,4 +179,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.25 Alpha"
+export const NOVA_VERSION = "V.26 Alpha"

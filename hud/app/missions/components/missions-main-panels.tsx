@@ -1,15 +1,15 @@
 "use client"
 
 import type { CSSProperties, RefObject } from "react"
-import { LayoutGrid, List, MoreVertical, Pin, Search, Sparkles, Trash2, WandSparkles } from "lucide-react"
+import { LayoutGrid, List, MoreVertical, Network, Pin, Search, Sparkles, Trash2, WandSparkles } from "lucide-react"
 
 import { FluidSelect } from "@/components/ui/fluid-select"
 import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { MissionTemplate } from "@/lib/missions/templates"
 import { cn } from "@/lib/shared/utils"
 import {
   AI_PROVIDER_LABELS,
   MISSION_FILTER_STATUS_OPTIONS,
-  QUICK_TEMPLATE_OPTIONS,
 } from "../constants"
 import {
   formatIntegrationLabel,
@@ -31,6 +31,7 @@ interface MissionsMainPanelsProps {
   subPanelClass: string
   createSectionRef: RefObject<HTMLElement | null>
   listSectionRef: RefObject<HTMLElement | null>
+  templates: MissionTemplate[]
   integrationsSettings: IntegrationsSettings
   novaMissionPrompt: string
   novaGeneratingMission: boolean
@@ -53,6 +54,7 @@ interface MissionsMainPanelsProps {
   onMissionActionMenu: (mission: NotificationSchedule, left: number, top: number) => void
   onToggleMissionEnabled: (mission: NotificationSchedule) => void
   onRequestDeleteMission: (mission: NotificationSchedule) => void
+  onViewInCanvas?: (missionId: string) => void
 }
 
 export function MissionsMainPanels({
@@ -63,6 +65,7 @@ export function MissionsMainPanels({
   subPanelClass,
   createSectionRef,
   listSectionRef,
+  templates,
   integrationsSettings,
   novaMissionPrompt,
   novaGeneratingMission,
@@ -85,6 +88,7 @@ export function MissionsMainPanels({
   onMissionActionMenu,
   onToggleMissionEnabled,
   onRequestDeleteMission,
+  onViewInCanvas,
 }: MissionsMainPanelsProps) {
   return (
     <div className="grid w-full grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,28vw)_minmax(0,1fr)]">
@@ -101,7 +105,7 @@ export function MissionsMainPanels({
           Launch production-ready mission blueprints and fine-tune in Mission Builder.
         </p>
         <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto space-y-2 pr-1">
-          {QUICK_TEMPLATE_OPTIONS.map((template) => (
+          {templates.map((template) => (
             <div key={template.id} className={cn("rounded-lg border p-2.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
               <div>
                 <h3 className={cn("text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{template.label}</h3>
@@ -384,6 +388,15 @@ export function MissionsMainPanels({
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
+                        {onViewInCanvas && (
+                          <button
+                            onClick={() => onViewInCanvas(mission.id)}
+                            className="h-7 w-7 rounded-md border border-violet-400/40 bg-violet-500/15 text-violet-300 transition-colors inline-flex items-center justify-center home-spotlight-card home-border-glow"
+                            title="View in Canvas"
+                          >
+                            <Network className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onToggleMissionEnabled(mission)}
                           disabled={busy}

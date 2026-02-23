@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { arc as d3Arc, pie as d3Pie } from "d3"
 
 import type { UsageSlice } from "../types"
@@ -59,7 +59,7 @@ export function UsageDistributionPanel({ slices, isLight }: UsageDistributionPan
       <h3 className={`text-sm uppercase tracking-[0.22em] font-semibold ${isLight ? "text-s-90" : "text-slate-200"}`}>Usage Distribution</h3>
       <p className={`mt-1 text-xs ${isLight ? "text-s-50" : "text-slate-400"}`}>Request share by integration</p>
 
-      <div className={`home-spotlight-card home-border-glow mt-3 min-h-0 flex-1 flex flex-col rounded-xl border p-3 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
+      <div className={`home-spotlight-card mt-3 min-h-0 flex-1 flex flex-col rounded-xl border p-3 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
         <div className="flex items-center justify-center pb-2" onMouseLeave={() => setHoveredKey(null)}>
           <svg viewBox="0 0 220 220" className="h-52 w-full max-w-[260px]">
             <g transform="translate(110,110)">

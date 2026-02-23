@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server"
-import path from "node:path"
 import { createHmac, createPrivateKey, createSign, randomUUID } from "node:crypto"
 
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
-import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseIntegrationConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,6 +14,30 @@ type ProbeFailure = {
   code: CoinbaseSyncErrorCode
   message: string
   status: number
+}
+
+function maskSecret(value: string): string {
+  const trimmed = String(value || "").trim()
+  if (!trimmed) return ""
+  if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}****`
+  return `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`
+}
+
+function toClientCoinbaseConfig(config: CoinbaseIntegrationConfig): CoinbaseIntegrationConfig & {
+  apiKeyConfigured: boolean
+  apiSecretConfigured: boolean
+  apiKeyMasked: string
+  apiSecretMasked: string
+} {
+  return {
+    ...config,
+    apiKey: "",
+    apiSecret: "",
+    apiKeyConfigured: String(config.apiKey || "").trim().length > 0,
+    apiSecretConfigured: String(config.apiSecret || "").trim().length > 0,
+    apiKeyMasked: maskSecret(config.apiKey),
+    apiSecretMasked: maskSecret(config.apiSecret),
+  }
 }
 
 function classifyHttpFailure(status: number, detail: string): ProbeFailure {
@@ -210,7 +234,7 @@ export async function POST(req: Request) {
         error: "Coinbase API key + private key are required before running a probe.",
         code: "permission_denied",
         config: {
-          coinbase: next.coinbase,
+          coinbase: toClientCoinbaseConfig(next.coinbase),
         },
       },
       { status: 400 },
@@ -248,7 +272,7 @@ export async function POST(req: Request) {
           error: failure.message,
           code: failure.code,
           config: {
-            coinbase: next.coinbase,
+            coinbase: toClientCoinbaseConfig(next.coinbase),
           },
         },
         { status: failure.status },
@@ -300,7 +324,7 @@ export async function POST(req: Request) {
           guidance:
             "Use Coinbase Secret API key + matching private key, enable View scope, and ensure your current outbound public IP/IPv6 is allowlisted.",
           config: {
-            coinbase: next.coinbase,
+            coinbase: toClientCoinbaseConfig(next.coinbase),
           },
         },
         { status: failure.status },
@@ -328,7 +352,7 @@ export async function POST(req: Request) {
       verified,
     )
     try {
-      await syncAgentRuntimeIntegrationsSnapshot(path.resolve(process.cwd(), ".."), verified.user.id, next)
+      await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), verified.user.id, next)
     } catch (error) {
       console.warn("[integrations/test-coinbase] Failed to sync agent runtime snapshot:", error)
     }
@@ -342,7 +366,7 @@ export async function POST(req: Request) {
       privateEndpoint: privatePath,
       privateAccountsCount,
       config: {
-        coinbase: next.coinbase,
+        coinbase: toClientCoinbaseConfig(next.coinbase),
       },
     })
   } catch (error) {
@@ -366,7 +390,7 @@ export async function POST(req: Request) {
         error: message,
         code: "network",
         config: {
-          coinbase: next.coinbase,
+          coinbase: toClientCoinbaseConfig(next.coinbase),
         },
       },
       { status: 502 },

@@ -26,6 +26,8 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
 
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
+  const analyticsSectionRef = useRef<HTMLElement | null>(null)
+  const devToolsSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -171,6 +173,8 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
 
     const cleanups: Array<() => void> = []
     if (pipelineSectionRef.current) cleanups.push(setupSectionSpotlight(pipelineSectionRef.current))
+    if (analyticsSectionRef.current) cleanups.push(setupSectionSpotlight(analyticsSectionRef.current))
+    if (devToolsSectionRef.current) cleanups.push(setupSectionSpotlight(devToolsSectionRef.current))
     if (integrationsSectionRef.current) cleanups.push(setupSectionSpotlight(integrationsSectionRef.current))
 
     return () => {
@@ -201,6 +205,8 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     missionHover,
     orbPalette,
     pipelineSectionRef,
+    analyticsSectionRef,
+    devToolsSectionRef,
     integrationsSectionRef,
   }
 }

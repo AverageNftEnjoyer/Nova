@@ -1,26 +1,52 @@
 import { NextResponse } from "next/server"
 
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
-import { executeMissionWorkflow } from "@/lib/missions/runtime"
+import { executeMission } from "@/lib/missions/workflow/execute-mission"
+import { loadMissions, upsertMission } from "@/lib/missions/store"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { buildSchedule, loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { dispatchOutput } from "@/lib/missions/output/dispatch"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
+import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import type { NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 
-export const runtime = "nodejs"
-export const dynamic = "force-dynamic"
-const DISCORD_MAX_TARGETS = Math.max(
-  1,
-  Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
-)
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function nodeTracesToStepTraces(traces: NodeExecutionTrace[]): WorkflowStepTrace[] {
+  return traces.map((t) => ({
+    stepId: t.nodeId,
+    type: t.nodeType,
+    title: t.label,
+    status: t.status,
+    detail: t.detail,
+    errorCode: t.errorCode,
+    artifactRef: t.artifactRef,
+    retryCount: t.retryCount,
+    startedAt: t.startedAt,
+    endedAt: t.endedAt,
+  }))
+}
+
+function detectNovachatQueued(traces: NodeExecutionTrace[]): boolean {
+  return traces.some((t) => t.nodeType === "novachat-output" && t.status === "completed")
+}
 
 function normalizeRecipients(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   return Array.from(new Set(raw.map((value) => String(value || "").trim()).filter(Boolean)))
 }
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+const DISCORD_MAX_TARGETS = Math.max(
+  1,
+  Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
+)
 
 function validateDiscordTargets(targets: string[]): { ok: true } | { ok: false; message: string } {
   if (targets.length === 0) return { ok: true }
@@ -35,6 +61,9 @@ function validateDiscordTargets(targets: string[]): { ok: true } | { ok: false; 
 }
 
 export async function POST(req: Request) {
+  const runtimeTokenDecision = verifyRuntimeSharedToken(req)
+  if (!runtimeTokenDecision.ok) return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
+
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionTrigger)
@@ -52,19 +81,26 @@ export async function POST(req: Request) {
     const time = typeof body?.time === "string" ? body.time.trim() : "09:00"
     const chatIds = normalizeRecipients(body?.chatIds)
 
+    // ── Run a saved mission by ID via the DAG engine ───────────────────────────
     if (scheduleId) {
-      const schedules = await loadSchedules({ userId })
-      const targetIndex = schedules.findIndex((item) => item.id === scheduleId)
-      const target = targetIndex >= 0 ? schedules[targetIndex] : undefined
-      if (!target) {
-        return NextResponse.json({ error: "schedule not found" }, { status: 404 })
+      const [allMissions, schedules] = await Promise.all([
+        loadMissions({ userId }),
+        loadSchedules({ userId }),
+      ])
+      const mission = allMissions.find((m) => m.id === scheduleId)
+      if (!mission) {
+        return NextResponse.json({ error: "Mission not found." }, { status: 404 })
       }
-      const runKey = `manual-trigger:${target.id}:${Date.now()}`
+      const targetIndex = schedules.findIndex((row) => row.id === scheduleId)
+      const target = targetIndex >= 0 ? schedules[targetIndex] : null
+
       const missionRunId = crypto.randomUUID()
+      const runKey = `manual-trigger:${mission.id}:${Date.now()}`
       const skillSnapshot = await loadMissionSkillSnapshot({ userId })
       const startedAtMs = Date.now()
-      const execution = await executeMissionWorkflow({
-        schedule: target,
+
+      const dagResult = await executeMission({
+        mission,
         source: "trigger",
         missionRunId,
         runKey,
@@ -73,68 +109,101 @@ export async function POST(req: Request) {
         skillSnapshot,
         scope: verified,
       })
+
       const durationMs = Date.now() - startedAtMs
-      const novachatQueued = execution.stepTraces.some((trace) =>
-        String(trace.type || "").toLowerCase() === "output" &&
-        String(trace.status || "").toLowerCase() === "completed" &&
-        /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
-      )
-      let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
-      let deadLetterId = ""
+      const stepTraces = nodeTracesToStepTraces(dagResult.nodeTraces)
+      const novachatQueued = detectNovachatQueued(dagResult.nodeTraces)
+      const execution = {
+        ok: dagResult.ok,
+        skipped: dagResult.skipped,
+        reason: dagResult.reason,
+        outputs: dagResult.outputs,
+        stepTraces,
+      }
+
+      // Persist updated run counters
       try {
-        const logResult = await appendRunLogForExecution({
-          schedule: target,
-          source: "trigger",
-          execution,
-          durationMs,
-          mode: "manual-trigger",
-          runKey,
-          attempt: 1,
-        })
-        logStatus = logResult.status
-        if (logStatus === "error") {
-          deadLetterId = await appendNotificationDeadLetter({
-            scheduleId: target.id,
-            userId: target.userId,
-            label: target.label,
+        const now = new Date().toISOString()
+        const runStatus = dagResult.ok ? "success" : dagResult.skipped ? "skipped" : "error"
+        await upsertMission(
+          {
+            ...mission,
+            runCount: (mission.runCount || 0) + 1,
+            successCount: (mission.successCount || 0) + (runStatus === "success" ? 1 : 0),
+            failureCount: (mission.failureCount || 0) + (runStatus === "error" ? 1 : 0),
+            lastRunAt: now,
+            lastRunStatus: dagResult.ok ? "success" : dagResult.skipped ? "skipped" : "error",
+            updatedAt: now,
+          },
+          userId,
+        )
+      } catch {
+        // Metrics update failure should not block the response.
+      }
+
+      let deadLetterId = ""
+      if (target) {
+        let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
+        try {
+          const logResult = await appendRunLogForExecution({
+            schedule: target,
             source: "trigger",
+            execution,
+            durationMs,
+            mode: "manual-trigger",
             runKey,
             attempt: 1,
-            reason: logResult.errorMessage || execution.reason || "Manual trigger execution failed.",
-            outputOkCount: execution.outputs.filter((item) => item.ok).length,
-            outputFailCount: execution.outputs.filter((item) => !item.ok).length,
-            metadata: { mode: "manual-trigger" },
           })
+          logStatus = logResult.status
+          if (logStatus === "error") {
+            deadLetterId = await appendNotificationDeadLetter({
+              scheduleId: target.id,
+              userId: target.userId,
+              label: target.label,
+              source: "trigger",
+              runKey,
+              attempt: 1,
+              reason: logResult.errorMessage || execution.reason || "Manual trigger execution failed.",
+              outputOkCount: execution.outputs.filter((item) => item.ok).length,
+              outputFailCount: execution.outputs.filter((item) => !item.ok).length,
+              metadata: { mode: "manual-trigger" },
+            })
+          }
+        } catch {
+          // Logging failures should not block trigger response.
         }
-      } catch {
-        // Logging failures should not block trigger response.
+        const updatedSchedule = applyScheduleRunOutcome(target, {
+          status: logStatus,
+          now: new Date(),
+          mode: "manual-trigger",
+        })
+        schedules[targetIndex] = updatedSchedule
+        try {
+          await saveSchedules(schedules, { userId })
+        } catch {
+          // Schedule persistence is best-effort for mission-first execution.
+        }
       }
-      const updatedSchedule = applyScheduleRunOutcome(target, {
-        status: logStatus,
-        now: new Date(),
-        mode: "manual-trigger",
-      })
-      schedules[targetIndex] = updatedSchedule
-      await saveSchedules(schedules, { userId })
+
       return NextResponse.json(
         {
           ok: execution.ok,
           skipped: execution.skipped,
           reason: execution.reason,
           results: execution.outputs,
-          stepTraces: execution.stepTraces,
+          stepTraces,
           novachatQueued,
           deadLetterId: deadLetterId || undefined,
-          schedule: updatedSchedule,
+          durationMs,
         },
         { status: execution.ok || execution.skipped ? 200 : 502 },
       )
     }
 
+    // ── Ad-hoc text send (no persisted mission) ────────────────────────────────
     if (!text) {
       return NextResponse.json({ error: "message is required" }, { status: 400 })
     }
-
     if (integration !== "telegram" && integration !== "discord") {
       return NextResponse.json({ error: "integration must be either 'telegram' or 'discord'" }, { status: 400 })
     }
@@ -143,7 +212,7 @@ export async function POST(req: Request) {
       if (!validation.ok) return NextResponse.json({ error: validation.message }, { status: 400 })
     }
 
-    const tempSchedule = buildSchedule({
+    const adHocSchedule = buildSchedule({
       userId,
       integration,
       label: typeof body?.label === "string" ? body.label : "Manual trigger",
@@ -153,39 +222,37 @@ export async function POST(req: Request) {
       enabled: true,
       chatIds,
     })
-    const skillSnapshot = await loadMissionSkillSnapshot({ userId })
-    const missionRunId = crypto.randomUUID()
-    const execution = await executeMissionWorkflow({
-      schedule: tempSchedule,
-      source: "trigger",
-      missionRunId,
-      runKey: `manual-trigger:${tempSchedule.id}:${Date.now()}`,
-      attempt: 1,
-      skillSnapshot,
-      scope: verified,
-    })
-    const novachatQueued = execution.stepTraces.some((trace) =>
-      String(trace.type || "").toLowerCase() === "output" &&
-      String(trace.status || "").toLowerCase() === "completed" &&
-      /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
-    )
+
+    const startedAt = new Date().toISOString()
+    const results = await dispatchOutput(integration, text, chatIds, adHocSchedule, verified)
+    const endedAt = new Date().toISOString()
+    const ok = results.some((r) => r.ok)
+
+    const stepTraces: WorkflowStepTrace[] = [
+      {
+        stepId: adHocSchedule.id,
+        type: `${integration}-output`,
+        title: `Send via ${integration}`,
+        status: ok ? "completed" : "failed",
+        detail: ok ? `Dispatched to ${chatIds.length} target(s)` : (results[0]?.error ?? "Dispatch failed"),
+        startedAt,
+        endedAt,
+      },
+    ]
 
     return NextResponse.json(
       {
-        ok: execution.ok,
-        skipped: execution.skipped,
-        reason: execution.reason,
-        results: execution.outputs,
-        stepTraces: execution.stepTraces,
-        novachatQueued,
+        ok,
+        skipped: false,
+        results,
+        stepTraces,
+        novachatQueued: false,
       },
-      { status: execution.ok ? 200 : 502 },
+      { status: ok ? 200 : 502 },
     )
   } catch (error) {
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to send notification",
-      },
+      { error: error instanceof Error ? error.message : "Failed to send notification" },
       { status: 500 },
     )
   }

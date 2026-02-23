@@ -28,6 +28,17 @@ const USER_CONTEXT_INTEGRATIONS_ROOT = path.join(
 );
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
 
+function resolveWorkspaceRoot(workspaceRootInput = "") {
+  const provided = String(workspaceRootInput || "").trim();
+  if (provided) return path.resolve(provided);
+  const cwd = path.resolve(process.cwd());
+  if (fs.existsSync(path.join(cwd, "hud")) && fs.existsSync(path.join(cwd, "src"))) return cwd;
+  if (path.basename(cwd).toLowerCase() === "hud") return path.resolve(cwd, "..");
+  const parent = path.resolve(cwd, "..");
+  if (fs.existsSync(path.join(parent, "hud")) && fs.existsSync(path.join(parent, "src"))) return parent;
+  return cwd;
+}
+
 // ===== Error Helpers =====
 export function describeUnknownError(err) {
   if (err instanceof Error) return err.message;
@@ -89,7 +100,13 @@ function resolveEncryptionKeyCandidates() {
   const candidates = [];
   const envKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
   if (envKey) candidates.push(envKey);
-  const root = process.cwd();
+  const fallbackRaw = String(process.env.NOVA_ENCRYPTION_KEY_FALLBACKS || "").trim();
+  if (fallbackRaw) {
+    for (const entry of fallbackRaw.split(/[,\n]/).map((v) => v.trim()).filter(Boolean)) {
+      candidates.push(entry);
+    }
+  }
+  const root = resolveWorkspaceRoot();
   const dotenvPaths = [
     path.join(root, ".env"),
     path.join(root, ".env.local"),
@@ -98,6 +115,13 @@ function resolveEncryptionKeyCandidates() {
   for (const dotenvPath of dotenvPaths) {
     const key = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY");
     if (key) candidates.push(key);
+  }
+  for (const dotenvPath of dotenvPaths) {
+    const fallback = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY_FALLBACKS");
+    if (!fallback) continue;
+    for (const entry of fallback.split(/[,\n]/).map((v) => v.trim()).filter(Boolean)) {
+      candidates.push(entry);
+    }
   }
   return candidates;
 }

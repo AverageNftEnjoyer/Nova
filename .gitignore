@@ -34,6 +34,8 @@ pnpm-debug.log*
 .npm-cache/
 out/
 build/
+!hud/app/api/missions/build/
+!hud/app/api/missions/build/**
 dist/
 coverage/
 *.tsbuildinfo

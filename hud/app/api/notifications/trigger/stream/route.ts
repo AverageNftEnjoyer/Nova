@@ -1,11 +1,15 @@
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
-import { executeMissionWorkflow } from "@/lib/missions/runtime"
+import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { loadMissions, migrateLegacyScheduleToMission } from "@/lib/missions/store"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
+import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
+import type { NotificationSchedule } from "@/lib/notifications/store"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,7 +19,59 @@ function streamPayload(controller: ReadableStreamDefaultController<Uint8Array>, 
   controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
 }
 
+function nodeTracesToStepTraces(traces: NodeExecutionTrace[]): WorkflowStepTrace[] {
+  return traces.map((trace) => ({
+    stepId: trace.nodeId,
+    type: trace.nodeType,
+    title: trace.label,
+    status: trace.status,
+    detail: trace.detail,
+    errorCode: trace.errorCode,
+    artifactRef: trace.artifactRef,
+    retryCount: trace.retryCount,
+    startedAt: trace.startedAt,
+    endedAt: trace.endedAt,
+  }))
+}
+
+function buildScheduleFallbackFromMission(mission: Mission, userId: string): NotificationSchedule {
+  const trigger = mission.nodes.find((node) => node.type === "schedule-trigger")
+  const time = trigger?.type === "schedule-trigger" && typeof trigger.triggerTime === "string" && trigger.triggerTime.trim().length > 0
+    ? trigger.triggerTime.trim()
+    : "09:00"
+  const timezone = trigger?.type === "schedule-trigger" && typeof trigger.triggerTimezone === "string" && trigger.triggerTimezone.trim().length > 0
+    ? trigger.triggerTimezone.trim()
+    : (mission.settings?.timezone || "America/New_York")
+  const nowIso = new Date().toISOString()
+  return {
+    id: mission.id,
+    userId,
+    integration: String(mission.integration || "telegram").trim() || "telegram",
+    label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
+    message: String(mission.description || mission.label || "Mission run"),
+    time,
+    timezone,
+    enabled: mission.status !== "archived",
+    chatIds: Array.isArray(mission.chatIds) ? mission.chatIds.map((id) => String(id).trim()).filter(Boolean) : [],
+    createdAt: mission.createdAt || nowIso,
+    updatedAt: mission.updatedAt || nowIso,
+    runCount: Number.isFinite(mission.runCount) ? mission.runCount : 0,
+    successCount: Number.isFinite(mission.successCount) ? mission.successCount : 0,
+    failureCount: Number.isFinite(mission.failureCount) ? mission.failureCount : 0,
+    lastRunAt: mission.lastRunAt,
+    lastRunStatus: mission.lastRunStatus,
+  }
+}
+
 export async function GET(req: Request) {
+  const runtimeTokenDecision = verifyRuntimeSharedToken(req)
+  if (!runtimeTokenDecision.ok) {
+    const message = runtimeTokenDecision.code === "RUNTIME_TOKEN_REQUIRED"
+      ? "Runtime shared token required."
+      : "Runtime shared token is invalid."
+    return new Response(message, { status: 401, headers: { "Content-Type": "text/plain; charset=utf-8" } })
+  }
+
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) {
     return unauthorized ?? new Response("Unauthorized", { status: 401 })
@@ -40,30 +96,54 @@ export async function GET(req: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      let streamClosed = false
+      const safeStreamPayload = (payload: unknown) => {
+        if (streamClosed) return
+        try {
+          streamPayload(controller, payload)
+        } catch (error) {
+          if (!(error instanceof TypeError) || !/controller is already closed/i.test(String(error.message || ""))) {
+            throw error
+          }
+        }
+      }
+      const safeClose = () => {
+        if (streamClosed) return
+        streamClosed = true
+        try {
+          controller.close()
+        } catch {
+          // Stream may already be closed; ignore.
+        }
+      }
       void (async () => {
         try {
-          const schedules = await loadSchedules({ userId })
+          const [schedules, missions] = await Promise.all([
+            loadSchedules({ userId }),
+            loadMissions({ userId }),
+          ])
           const targetIndex = schedules.findIndex((item) => item.id === scheduleId)
-          const target = targetIndex >= 0 ? schedules[targetIndex] : undefined
-          if (!target) {
-            streamPayload(controller, { type: "error", error: "schedule not found" })
-            controller.close()
+          const existingSchedule = targetIndex >= 0 ? schedules[targetIndex] : undefined
+          const mission = missions.find((row) => row.id === scheduleId) || (existingSchedule ? migrateLegacyScheduleToMission(existingSchedule) : null)
+          if (!mission) {
+            safeStreamPayload({ type: "error", error: "schedule not found" })
             return
           }
+          const target = existingSchedule || buildScheduleFallbackFromMission(mission, userId)
 
-          streamPayload(controller, {
+          safeStreamPayload({
             type: "started",
             missionId: scheduleId,
             missionLabel: target.label || "Untitled mission",
             startedAt: new Date().toISOString(),
           })
 
-          const runKey = `manual-trigger-stream:${target.id}:${Date.now()}`
+          const runKey = `manual-trigger-stream:${mission.id}:${Date.now()}`
           const missionRunId = crypto.randomUUID()
           const skillSnapshot = await loadMissionSkillSnapshot({ userId })
           const startedAtMs = Date.now()
-          const execution = await executeMissionWorkflow({
-            schedule: target,
+          const dagResult = await executeMission({
+            mission,
             source: "trigger",
             missionRunId,
             runKey,
@@ -71,13 +151,22 @@ export async function GET(req: Request) {
             enforceOutputTime: false,
             skillSnapshot,
             scope: verified,
-            onStepTrace: async (trace) => {
-              streamPayload(controller, { type: "step", trace })
+            onNodeTrace: async (trace) => {
+              const stepTrace = nodeTracesToStepTraces([trace])[0]
+              safeStreamPayload({ type: "step", trace: stepTrace })
             },
           })
           const durationMs = Date.now() - startedAtMs
+          const stepTraces = nodeTracesToStepTraces(dagResult.nodeTraces)
+          const execution = {
+            ok: dagResult.ok,
+            skipped: dagResult.skipped,
+            reason: dagResult.reason,
+            outputs: dagResult.outputs,
+            stepTraces,
+          }
 
-          const novachatQueued = execution.stepTraces.some((trace) =>
+          const novachatQueued = stepTraces.some((trace) =>
             String(trace.type || "").toLowerCase() === "output" &&
             String(trace.status || "").toLowerCase() === "completed" &&
             /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
@@ -117,29 +206,33 @@ export async function GET(req: Request) {
             now: new Date(),
             mode: "manual-trigger-stream",
           })
-          schedules[targetIndex] = updatedSchedule
+          if (targetIndex >= 0) {
+            schedules[targetIndex] = updatedSchedule
+          } else {
+            schedules.push(updatedSchedule)
+          }
           await saveSchedules(schedules, { userId })
 
-          streamPayload(controller, {
+          safeStreamPayload({
             type: "done",
             data: {
               ok: execution.ok,
               skipped: execution.skipped,
               reason: execution.reason,
               results: execution.outputs,
-              stepTraces: execution.stepTraces,
+              stepTraces,
               novachatQueued,
               deadLetterId: deadLetterId || undefined,
               schedule: updatedSchedule,
             },
           })
         } catch (error) {
-          streamPayload(controller, {
+          safeStreamPayload({
             type: "error",
             error: error instanceof Error ? error.message : "Failed to run mission stream.",
           })
         } finally {
-          controller.close()
+          safeClose()
         }
       })()
     },

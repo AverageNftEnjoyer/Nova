@@ -97,6 +97,38 @@ export const TOOL_LOOP_REQUEST_TIMEOUT_MS =
   Number.isFinite(parsedToolLoopRequestTimeoutMs) && parsedToolLoopRequestTimeoutMs >= 3000
     ? Math.min(parsedToolLoopRequestTimeoutMs, OPENAI_REQUEST_TIMEOUT_MS)
     : Math.min(14000, OPENAI_REQUEST_TIMEOUT_MS);
+const parsedToolLoopMaxDurationMs = Number.parseInt(
+  process.env.NOVA_TOOL_LOOP_MAX_DURATION_MS || "32000",
+  10,
+);
+export const TOOL_LOOP_MAX_DURATION_MS =
+  Number.isFinite(parsedToolLoopMaxDurationMs) && parsedToolLoopMaxDurationMs >= 5000
+    ? Math.min(parsedToolLoopMaxDurationMs, OPENAI_REQUEST_TIMEOUT_MS)
+    : Math.min(32000, OPENAI_REQUEST_TIMEOUT_MS);
+const parsedToolLoopToolExecTimeoutMs = Number.parseInt(
+  process.env.NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS || "8000",
+  10,
+);
+export const TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS =
+  Number.isFinite(parsedToolLoopToolExecTimeoutMs) && parsedToolLoopToolExecTimeoutMs >= 1000
+    ? Math.min(parsedToolLoopToolExecTimeoutMs, TOOL_LOOP_MAX_DURATION_MS)
+    : Math.min(8000, TOOL_LOOP_MAX_DURATION_MS);
+const parsedToolLoopRecoveryTimeoutMs = Number.parseInt(
+  process.env.NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS || "6000",
+  10,
+);
+export const TOOL_LOOP_RECOVERY_TIMEOUT_MS =
+  Number.isFinite(parsedToolLoopRecoveryTimeoutMs) && parsedToolLoopRecoveryTimeoutMs >= 1000
+    ? Math.min(parsedToolLoopRecoveryTimeoutMs, TOOL_LOOP_MAX_DURATION_MS)
+    : Math.min(6000, TOOL_LOOP_MAX_DURATION_MS);
+const parsedToolLoopMaxToolCallsPerStep = Number.parseInt(
+  process.env.NOVA_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP || "6",
+  10,
+);
+export const TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP =
+  Number.isFinite(parsedToolLoopMaxToolCallsPerStep) && parsedToolLoopMaxToolCallsPerStep >= 1
+    ? Math.min(parsedToolLoopMaxToolCallsPerStep, 20)
+    : 6;
 
 // ===== Voice/Mic Config =====
 export const MIC_RECORD_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RECORD_SECONDS || "4");
@@ -258,7 +290,9 @@ export const SPOTIFY_INTENT_MAX_TOKENS = Number.parseInt(
   10,
 );
 export const OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS = Number.parseInt(
-  process.env.NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS || "2048",
+  process.env.NOVA_OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS ||
+    process.env.NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS ||
+    "2048",
   10,
 );
 

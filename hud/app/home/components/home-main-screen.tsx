@@ -1,12 +1,13 @@
 "use client"
 
-import { Blocks, Pin, Settings, BarChart3, Activity } from "lucide-react"
+import { Blocks, Pin, Settings, Activity, Clock3, CheckCircle2, AlertTriangle } from "lucide-react"
 import { AnimatedOrb } from "@/components/orb/animated-orb"
 import TextType from "@/components/effects/TextType"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
 import { cn } from "@/lib/shared/utils"
+import { MOCK_ACTIVITY_FEED } from "@/app/analytics/data/mock-analytics-data"
 import { formatDailyTime } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 
@@ -33,6 +34,8 @@ export function HomeMainScreen() {
     handleMuteToggle,
     muteHydrated,
     pipelineSectionRef,
+    analyticsSectionRef,
+    devToolsSectionRef,
     integrationsSectionRef,
     panelStyle,
     panelClass,
@@ -43,6 +46,7 @@ export function HomeMainScreen() {
     openIntegrations,
     openAnalytics,
     openDevLogs,
+    devToolsMetrics,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
     handleToggleBraveIntegration,
@@ -64,6 +68,28 @@ export function HomeMainScreen() {
     geminiConnected,
     gmailConnected,
   } = useHomeMainScreenState()
+
+  const formatNumber = (value: unknown) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return "0"
+    return n.toLocaleString("en-US")
+  }
+
+  const analyticsLiveActivity = MOCK_ACTIVITY_FEED.slice(0, 4)
+
+  const iconForActivityService = (service: string) => {
+    const value = service.trim().toLowerCase()
+    if (value.includes("openai")) return <OpenAIIcon className="w-3.5 h-3.5" />
+    if (value.includes("claude")) return <ClaudeIcon className="w-3.5 h-3.5" />
+    if (value.includes("grok")) return <XAIIcon size={14} />
+    if (value.includes("gemini")) return <GeminiIcon size={14} />
+    if (value.includes("telegram")) return <TelegramIcon className="w-3.5 h-3.5" />
+    if (value.includes("discord")) return <DiscordIcon className="w-3.5 h-3.5" />
+    if (value.includes("gmail")) return <GmailIcon className="w-3.5 h-3.5" />
+    if (value.includes("brave")) return <BraveIcon className="w-3.5 h-3.5" />
+    if (value.includes("coinbase")) return <CoinbaseIcon className="w-3.5 h-3.5" />
+    return <Activity className="w-3.5 h-3.5" />
+  }
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
@@ -138,6 +164,103 @@ export function HomeMainScreen() {
                 onToggleMute={handleMuteToggle}
                 muteHydrated={muteHydrated}
               />
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <section
+                  ref={analyticsSectionRef}
+                  style={panelStyle}
+                  className={`${panelClass} home-spotlight-shell h-52 px-3 pb-2 pt-2`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 text-s-80">
+                      <Clock3 className="w-4 h-4 text-accent" />
+                      <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Analytics</h2>
+                      <p className={cn("text-[11px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Check your API Activity</p>
+                    </div>
+                    <button
+                      onClick={openAnalytics}
+                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-dynamic group/analytics-gear`, subPanelClass)}
+                      aria-label="Open analytics dashboard"
+                      title="Open analytics dashboard"
+                    >
+                      <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/analytics-gear:text-accent group-hover/analytics-gear:rotate-90 transition-transform duration-200" />
+                    </button>
+                  </div>
+
+                  <div className="module-hover-scroll hide-scrollbar mt-1 h-[116px] overflow-y-auto overflow-x-hidden pr-0.5">
+                    <div className="grid grid-cols-2 gap-1">
+                      {analyticsLiveActivity.map((event) => (
+                        <div key={event.id} className={cn("rounded-sm border px-1.5 py-1 flex items-start gap-1.5 min-w-0 home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                          <div className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                            {iconForActivityService(event.service)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className={cn("text-[10px] leading-tight truncate", isLight ? "text-s-90" : "text-slate-100")}>{event.service}</p>
+                            <p className={cn("text-[9px] leading-tight truncate", isLight ? "text-s-60" : "text-slate-400")}>{event.action}</p>
+                          </div>
+                          <div className="inline-flex items-center gap-1 pt-0.5 shrink-0">
+                            <p className={cn("text-[9px] font-mono whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>{event.timeAgo}</p>
+                            <span className="shrink-0">
+                              {event.status === "success"
+                                ? <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+                                : <AlertTriangle className={cn("w-3 h-3", event.status === "warning" ? "text-amber-300" : "text-rose-300")} />}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section
+                  ref={devToolsSectionRef}
+                  style={panelStyle}
+                  className={`${panelClass} home-spotlight-shell h-52 px-3 pb-2 pt-2`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 text-s-80">
+                      <Activity className="w-4 h-4 text-accent" />
+                      <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Dev Tools</h2>
+                      <p className={cn("text-[11px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Conversation Quality Hub</p>
+                    </div>
+                    <button
+                      onClick={openDevLogs}
+                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-dynamic group/dev-tools-gear`, subPanelClass)}
+                      aria-label="Open dev logs dashboard"
+                      title="Open dev logs dashboard"
+                    >
+                      <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/dev-tools-gear:text-accent group-hover/dev-tools-gear:rotate-90 transition-transform duration-200" />
+                    </button>
+                  </div>
+
+                  <div className="mt-1 grid grid-cols-2 gap-1">
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                      <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Total Traces</p>
+                      <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.totalTraces)}</p>
+                    </div>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                      <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Errors</p>
+                      <p className="mt-0.5 text-sm font-semibold text-rose-400 tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.errors)}</p>
+                    </div>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                      <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Warnings</p>
+                      <p className="mt-0.5 text-sm font-semibold text-amber-300 tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.warnings)}</p>
+                    </div>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                      <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Avg Latency</p>
+                      <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.avgLatencyMs)}ms</p>
+                    </div>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                      <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Total Tokens</p>
+                      <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.totalTokens)}</p>
+                    </div>
+                    <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow home-spotlight-dynamic", subPanelClass)}>
+                      <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Avg Quality</p>
+                      <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{devToolsMetrics.avgQuality.toFixed(1)}</p>
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
 
@@ -222,22 +345,6 @@ export function HomeMainScreen() {
                     <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={openAnalytics}
-                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover`, subPanelClass)}
-                      aria-label="Open analytics"
-                      title="Open analytics"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
-                    </button>
-                    <button
-                      onClick={openDevLogs}
-                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover`, subPanelClass)}
-                      aria-label="Open dev logs dashboard"
-                      title="Open dev logs dashboard"
-                    >
-                      <Activity className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
-                    </button>
                     <button
                       onClick={openIntegrations}
                       className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear`, subPanelClass)}

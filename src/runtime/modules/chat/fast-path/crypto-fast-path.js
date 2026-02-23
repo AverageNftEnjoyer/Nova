@@ -46,6 +46,10 @@ const CONTEXTUAL_REPORT_FOLLOWUP_REGEX =
   /\b(reports?|summary|pnl|concise|detailed|detail|freshness|timestamps?|format|again|rerun|refresh|plain\s+english|less\s+technical)\b/i;
 const PERSONALITY_PNL_TRIGGER_REGEX = /\b(daily|weekly|pnl|profit|loss|p\s*&?\s*l)\b/i;
 const PERSONALITY_PNL_THRESHOLD_PCT = 10;
+const MISSION_CUE_REGEX =
+  /\b(mission|workflow|automation|schedule|scheduled|briefing|brief|digest|build)\b/i;
+const NON_CRYPTO_TOPIC_CUE_REGEX =
+  /\b(nba|nfl|mlb|nhl|weather|forecast|quote|quotes|inspirational|motivational|tech|technology|news|headline|article|recap|story)\b/i;
 
 const SYMBOL_ALIASES = {
   bitcoin: "BTC",
@@ -182,6 +186,14 @@ export function isCryptoRequestText(text) {
   if (CRYPTO_MARKER_REGEX.test(normalized)) return true;
   if (!PRICE_INTENT_REGEX.test(normalized)) return false;
   return hasDirectCryptoSymbolMention(normalized);
+}
+
+function shouldDeferCryptoFastPathToMissionBuilder(text) {
+  const normalized = normalizeCoinbaseCommandText(text);
+  if (!normalized) return false;
+  if (!MISSION_CUE_REGEX.test(normalized)) return false;
+  if (!CRYPTO_MARKER_REGEX.test(normalized) && !hasDirectCryptoSymbolMention(normalized)) return false;
+  return NON_CRYPTO_TOPIC_CUE_REGEX.test(normalized);
 }
 
 export function isExplicitCryptoReportRequest(text) {
@@ -915,6 +927,9 @@ export async function tryCryptoFastPathReply({
     };
   }
   const normalizedInput = normalizeCoinbaseCommandText(text);
+  if (shouldDeferCryptoFastPathToMissionBuilder(normalizedInput)) {
+    return { reply: "", source: "" };
+  }
   const followUpKey = getCoinbaseFollowUpKey(normalizedUserContextId, conversationId);
   const followUpState = readCoinbaseFollowUpState(followUpKey);
   const shortTermTurn = applyShortTermContextTurnClassification({

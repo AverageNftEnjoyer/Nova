@@ -31,24 +31,24 @@ function iconForService(service: string) {
 
 export function ActivityFeedPanel({ events, isLight }: ActivityFeedPanelProps) {
   return (
-    <section className="h-full p-4 flex flex-col">
-      <div className="mb-3 flex items-center gap-2">
+    <section className="h-full p-3 flex flex-col">
+      <div className="mb-1.5 flex items-center gap-2">
         <Clock3 className="h-4 w-4 text-accent" />
         <h3 className={`text-sm uppercase tracking-[0.22em] font-semibold ${isLight ? "text-s-90" : "text-slate-200"}`}>Live Activity</h3>
       </div>
-      <p className={`mb-3 text-xs ${isLight ? "text-s-50" : "text-slate-400"}`}>Recent events across integrations</p>
+      <p className={`mb-1 text-xs ${isLight ? "text-s-50" : "text-slate-400"}`}>Recent events across integrations</p>
 
-      <div className="module-hover-scroll min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+      <div className="module-hover-scroll h-[108px] space-y-1 overflow-y-auto pr-1">
         {events.map((event) => (
-          <div key={event.id} className={`flex items-start gap-2 rounded-lg border px-2.5 py-1.5 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
+          <div key={event.id} className={`flex items-start gap-2 rounded-lg border px-2 py-1 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
             <span className={`mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-md border ${isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20"}`}>
               {iconForService(event.service)}
             </span>
             <div className="min-w-0 flex-1">
-              <p className={`truncate text-[13px] leading-tight ${isLight ? "text-s-90" : "text-slate-100"}`}>{event.service}</p>
-              <p className="truncate text-[11px] text-s-50">{event.action}</p>
+              <p className={`truncate text-[12px] leading-tight ${isLight ? "text-s-90" : "text-slate-100"}`}>{event.service}</p>
+              <p className="text-[10px] leading-tight text-s-50">{event.action}</p>
             </div>
-            <div className="inline-flex items-center gap-1.5">
+            <div className="inline-flex items-center gap-1.5 pt-0.5">
               <span className="text-[10px] font-mono text-s-50">{event.timeAgo}</span>
               <span className="shrink-0">{statusIcon(event.status)}</span>
             </div>

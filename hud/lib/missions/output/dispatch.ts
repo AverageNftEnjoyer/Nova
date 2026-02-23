@@ -8,8 +8,20 @@ import { dispatchNotification, type NotificationIntegration } from "@/lib/notifi
 import type { NotificationSchedule } from "@/lib/notifications/store"
 import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { addPendingMessage } from "@/lib/novachat/pending-messages"
-import { formatNotificationText } from "../text/formatting"
+import { fetchWithSsrfGuard } from "../web/safe-fetch"
 import type { OutputResult } from "../types"
+import { enforceMissionOutputContract } from "./contract"
+
+function readIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = String(process.env[name] || "").trim()
+  if (!raw) return fallback
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
+}
+
+const WEBHOOK_TIMEOUT_MS = readIntEnv("NOVA_WORKFLOW_WEBHOOK_TIMEOUT_MS", 15_000, 1_000, 120_000)
+const WEBHOOK_MAX_REDIRECTS = readIntEnv("NOVA_WORKFLOW_WEBHOOK_MAX_REDIRECTS", 0, 0, 5)
 
 /**
  * Dispatch mission output to a channel.
@@ -25,14 +37,27 @@ export async function dispatchOutput(
     runKey?: string
     attempt?: number
     source?: "scheduler" | "trigger"
+    nodeId?: string
+    outputIndex?: number
+    deliveryKey?: string
   },
 ): Promise<OutputResult[]> {
+  const userContextId = String(scope?.userId || scope?.user?.id || schedule.userId || "").trim()
+  const contracted = enforceMissionOutputContract({
+    channel,
+    text,
+    userContextId,
+    missionId: String(schedule.id || "").trim(),
+    missionRunId: String(metadata?.missionRunId || "").trim(),
+    nodeId: String(metadata?.nodeId || "").trim(),
+  })
+  const safeText = contracted.text
+
   if (channel === "discord" || channel === "telegram" || channel === "email") {
-    const formattedText = formatNotificationText(text)
     try {
       return await dispatchNotification({
         integration: channel as NotificationIntegration,
-        text: formattedText,
+        text: safeText,
         targets,
         parseMode: channel === "telegram" ? "HTML" : undefined,
         source: "workflow",
@@ -55,18 +80,27 @@ export async function dispatchOutput(
       return [{ ok: false, error: "NovaChat output requires a user ID." }]
     }
     try {
+      const missionRunId = String(metadata?.missionRunId || "").trim()
+      const runKey = String(metadata?.runKey || "").trim()
+      const nodeId = String(metadata?.nodeId || "output").trim() || "output"
+      const outputIndex = Number.isFinite(Number(metadata?.outputIndex))
+        ? Math.max(0, Number(metadata?.outputIndex))
+        : 0
+      const deliveryKey = String(metadata?.deliveryKey || "").trim()
+        || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
       await addPendingMessage({
         userId,
         title: schedule.label || "Mission Report",
-        content: text,
+        content: safeText,
         missionId: schedule.id,
         missionLabel: schedule.label,
         metadata: {
-          missionRunId: metadata?.missionRunId,
-          runKey: metadata?.runKey,
+          missionRunId: missionRunId || undefined,
+          runKey: runKey || undefined,
           attempt: metadata?.attempt,
           source: metadata?.source,
           outputChannel: "novachat",
+          deliveryKey,
         },
       })
       return [{ ok: true }]
@@ -82,17 +116,22 @@ export async function dispatchOutput(
     }
     const results = await Promise.all(urls.map(async (url) => {
       try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            text,
-            scheduleId: schedule.id,
-            label: schedule.label,
-            ts: new Date().toISOString(),
-          }),
+        const { response } = await fetchWithSsrfGuard({
+          url,
+          timeoutMs: WEBHOOK_TIMEOUT_MS,
+          maxRedirects: WEBHOOK_MAX_REDIRECTS,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: safeText,
+              scheduleId: schedule.id,
+              label: schedule.label,
+              ts: new Date().toISOString(),
+            }),
+          },
         })
-        return { ok: res.ok, status: res.status, error: res.ok ? undefined : `Webhook returned ${res.status}` }
+        return { ok: response.ok, status: response.status, error: response.ok ? undefined : `Webhook returned ${response.status}` }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : "Webhook send failed" }
       }

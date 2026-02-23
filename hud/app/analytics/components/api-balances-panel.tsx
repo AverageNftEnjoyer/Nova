@@ -32,7 +32,7 @@ export function ApiBalancesPanel({ balances, isLight }: ApiBalancesPanelProps) {
           const pct = Math.min(100, (balance.used / Math.max(1, balance.limit)) * 100)
           const isCritical = pct >= 80
           return (
-            <div key={balance.key} className={`home-spotlight-card home-border-glow rounded-lg border p-3 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
+            <div key={balance.key} className={`home-spotlight-card rounded-lg border p-3 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
               <div className="mb-1.5 flex items-center justify-between text-xs">
                 <span className={`inline-flex items-center gap-1.5 font-medium ${isLight ? "text-s-90" : "text-slate-100"}`}>
                   {balance.name}

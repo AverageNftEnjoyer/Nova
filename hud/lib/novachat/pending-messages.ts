@@ -23,6 +23,7 @@ export interface PendingNovaChatMessage {
     attempt?: number
     source?: "scheduler" | "trigger"
     outputChannel?: string
+    deliveryKey?: string
   }
   createdAt: string
   consumed: boolean
@@ -73,6 +74,16 @@ async function ensureDataFile(userId: string) {
   } catch {
     await writeFile(dataFile, "[]", "utf8")
   }
+}
+
+function normalizeDeliveryKey(value: unknown): string | undefined {
+  const normalized = String(value || "").trim().slice(0, 240)
+  return normalized || undefined
+}
+
+function pruneExpiredMessages(messages: PendingNovaChatMessage[]): PendingNovaChatMessage[] {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  return messages.filter((msg) => !msg.consumed || new Date(msg.createdAt).getTime() > cutoff)
 }
 
 async function acquireLock(lockFile: string, timeoutMs = 3000): Promise<() => Promise<void>> {
@@ -198,6 +209,10 @@ async function migrateLegacyPendingIfNeeded(): Promise<void> {
                   typeof (msg.metadata as { outputChannel?: unknown }).outputChannel === "string"
                     ? String((msg.metadata as { outputChannel?: unknown }).outputChannel)
                     : undefined,
+                deliveryKey:
+                  typeof (msg.metadata as { deliveryKey?: unknown }).deliveryKey === "string"
+                    ? String((msg.metadata as { deliveryKey?: unknown }).deliveryKey)
+                    : undefined,
               }
             : undefined,
         createdAt: String(msg.createdAt),
@@ -273,6 +288,7 @@ export async function addPendingMessage(input: {
     attempt?: number
     source?: "scheduler" | "trigger"
     outputChannel?: string
+    deliveryKey?: string
   }
 }): Promise<PendingNovaChatMessage> {
   await migrateLegacyPendingIfNeeded()
@@ -287,19 +303,34 @@ export async function addPendingMessage(input: {
     content: input.content,
     missionId: input.missionId,
     missionLabel: input.missionLabel,
-    metadata: input.metadata,
+    metadata: input.metadata
+      ? {
+          ...input.metadata,
+          deliveryKey: normalizeDeliveryKey(input.metadata.deliveryKey),
+        }
+      : undefined,
     createdAt: new Date().toISOString(),
     consumed: false,
   }
 
+  let persistedMessage: PendingNovaChatMessage = message
   await withLockedStoreWrite(scopedUserId, (messages) => {
+    const deliveryKey = normalizeDeliveryKey(message.metadata?.deliveryKey)
+    if (deliveryKey) {
+      const existing = messages.find((msg) =>
+        !msg.consumed
+        && normalizeDeliveryKey(msg.metadata?.deliveryKey) === deliveryKey
+      )
+      if (existing) {
+        persistedMessage = existing
+        return pruneExpiredMessages(messages)
+      }
+    }
     messages.push(message)
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000
-    return messages.filter(
-      (msg) => !msg.consumed || new Date(msg.createdAt).getTime() > cutoff
-    )
+    persistedMessage = message
+    return pruneExpiredMessages(messages)
   })
-  return message
+  return persistedMessage
 }
 
 /**

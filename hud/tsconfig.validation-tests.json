@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "outDir": ".tmp-validation-tests",
+    "rootDir": ".",
+    "noEmit": false
+  },
+  "include": [
+    "lib/missions/workflow/validation/**/*.ts",
+    "lib/missions/workflow/parsing.ts",
+    "lib/missions/text/cleaning.ts",
+    "lib/missions/utils/config.ts",
+    "lib/missions/types.ts",
+    "lib/notifications/store.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

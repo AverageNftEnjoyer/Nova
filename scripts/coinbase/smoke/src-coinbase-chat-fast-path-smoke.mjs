@@ -180,6 +180,15 @@ const cryptoHelpReply = await tryCryptoFastPathReply({
 });
 assert.match(String(cryptoHelpReply.reply || ""), /Commands:/i, "crypto help should include supported commands guidance");
 
+const mixedMissionReply = await tryCryptoFastPathReply({
+  text: "build me a morning mission with nba recap, inspirational quote, sui price, and a tech headline",
+  runtimeTools,
+  availableTools,
+  userContextId: "u1",
+  conversationId: "c1",
+});
+assert.equal(String(mixedMissionReply.reply || "").trim(), "", "mixed mission prompt should defer to mission builder, not coinbase fast-path");
+
 assert.equal(runtimeTools.calls.some((call) => call.userContextId === "u1"), true, "tool calls should include first userContextId");
 assert.equal(runtimeTools.calls.some((call) => call.userContextId === "u2"), true, "tool calls should include second userContextId");
 assert.equal(runtimeTools.calls.every((call) => call.userContextId.length > 0), true, "tool calls should never drop userContextId");

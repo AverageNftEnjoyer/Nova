@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -15,13 +15,24 @@ import { NOVA_VERSION } from "@/lib/meta/version"
 import { DeleteMissionDialog } from "./components/delete-mission-dialog"
 import { MissionActionMenu } from "./components/mission-action-menu"
 import { MissionBuilderModal } from "./components/mission-builder-modal"
+import { MissionCanvasModal } from "./components/mission-canvas-modal"
 import { MissionsMainPanels } from "./components/missions-main-panels"
 import { RunProgressPanel } from "./components/run-progress-panel"
+import { defaultMissionSettings, type Mission } from "@/lib/missions/types"
+import { MISSION_TEMPLATES } from "@/lib/missions/templates"
 import { hexToRgba } from "./helpers"
 import { useMissionsPageState } from "./hooks/use-missions-page-state"
+import { missionToWorkflowSummaryForAutofix } from "./canvas/workflow-autofix-bridge"
+import type { NotificationSchedule } from "./types"
+
+const WORKFLOW_MARKER = "[NOVA WORKFLOW]"
+
 export default function MissionsPage() {
   const router = useRouter()
   const [orbHovered, setOrbHovered] = useState(false)
+  const [canvasModalOpen, setCanvasModalOpen] = useState(false)
+  const [canvasMission, setCanvasMission] = useState<Mission | null>(null)
+  const [canvasSaving, setCanvasSaving] = useState(false)
   const { theme } = useTheme()
   const pageActive = usePageActive()
   const { state: novaState, connected: agentConnected } = useNovaState()
@@ -33,8 +44,11 @@ export default function MissionsPage() {
     builderOpen,
     setBuilderOpen,
     status,
+    setStatus,
     runProgress,
     setRunProgress,
+    setSchedules,
+    setBaselineById,
     createSectionRef,
     listSectionRef,
     integrationsSettings,
@@ -51,11 +65,9 @@ export default function MissionsPage() {
     setSearchQuery,
     setStatusFilter,
     setMissionBoardView,
-    applyTemplate,
     generateMissionDraftFromPrompt,
     playClickSound,
     formatStatusTime,
-    resetMissionBuilder,
     setMissionActionMenu,
     updateLocalSchedule,
     saveMission,
@@ -78,6 +90,10 @@ export default function MissionsPage() {
     newScheduleMode,
     setNewScheduleMode,
     workflowSteps,
+    workflowAutofixPreview,
+    workflowAutofixSelectionById,
+    workflowAutofixLoading,
+    workflowAutofixApplying,
     draggingStepId,
     setDragOverStepId,
     moveWorkflowStepByDrop,
@@ -98,6 +114,9 @@ export default function MissionsPage() {
     novaSuggestForAiStep,
     novaSuggestingByStepId,
     addWorkflowStep,
+    previewWorkflowFixes,
+    toggleWorkflowAutofixSelection,
+    applyWorkflowFixes,
     builderBodyRef,
     builderFooterRef,
     missionActive,
@@ -123,6 +142,188 @@ export default function MissionsPage() {
     headerActionsRef,
     missionStats,
   } = useMissionsPageState({ isLight })
+
+  const buildPipelineScheduleFromMission = (mission: Mission): NotificationSchedule => {
+    const trigger = mission.nodes.find((node) => node.type === "schedule-trigger")
+    const summary = missionToWorkflowSummaryForAutofix(mission)
+    const workflowSummary = {
+      description: String(mission.description || "").trim(),
+      priority: "medium",
+      schedule: {
+        mode: trigger?.type === "schedule-trigger" ? trigger.triggerMode || "daily" : "daily",
+        days: trigger?.type === "schedule-trigger" && Array.isArray(trigger.triggerDays) && trigger.triggerDays.length > 0
+          ? trigger.triggerDays
+          : ["mon", "tue", "wed", "thu", "fri"],
+        time: trigger?.type === "schedule-trigger" ? trigger.triggerTime || "09:00" : "09:00",
+        timezone: trigger?.type === "schedule-trigger" ? trigger.triggerTimezone || (mission.settings?.timezone || detectedTimezone || "America/New_York") : (mission.settings?.timezone || detectedTimezone || "America/New_York"),
+      },
+      missionActive: mission.status === "active" || mission.status === "draft",
+      tags: Array.isArray(mission.tags) ? mission.tags : [],
+      workflowSteps: summary.workflowSteps || [],
+    }
+    const description = workflowSummary.description || mission.label || "Mission run"
+    const message = `${description}\n\n${WORKFLOW_MARKER}\n${JSON.stringify(workflowSummary)}`
+    return {
+      id: mission.id,
+      integration: mission.integration || "telegram",
+      label: mission.label || "Untitled mission",
+      message,
+      time: workflowSummary.schedule.time,
+      timezone: workflowSummary.schedule.timezone,
+      enabled: workflowSummary.missionActive !== false,
+      chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
+      updatedAt: mission.updatedAt || new Date().toISOString(),
+      runCount: Number.isFinite(mission.runCount) ? mission.runCount : 0,
+      successCount: Number.isFinite(mission.successCount) ? mission.successCount : 0,
+      failureCount: Number.isFinite(mission.failureCount) ? mission.failureCount : 0,
+      lastRunAt: mission.lastRunAt,
+    }
+  }
+
+  const upsertMissionInPipeline = (schedule: NotificationSchedule) => {
+    setSchedules((prev) => {
+      const idx = prev.findIndex((row) => row.id === schedule.id)
+      if (idx < 0) return [schedule, ...prev]
+      const next = [...prev]
+      next[idx] = { ...next[idx], ...schedule }
+      return next
+    })
+    setBaselineById((prev) => ({ ...prev, [schedule.id]: schedule }))
+  }
+
+  const upsertNotificationSchedule = async (schedule: NotificationSchedule): Promise<NotificationSchedule> => {
+    const payload = {
+      id: schedule.id,
+      integration: schedule.integration,
+      label: schedule.label,
+      message: schedule.message,
+      time: schedule.time,
+      timezone: schedule.timezone,
+      enabled: schedule.enabled,
+      chatIds: Array.isArray(schedule.chatIds) ? schedule.chatIds : [],
+    }
+    const response = await fetch("/api/notifications/schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const data = await response.json().catch(() => ({})) as { schedule?: NotificationSchedule; error?: string }
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to save mission pipeline schedule.")
+    }
+    return data.schedule || schedule
+  }
+
+  const handleApplyTemplate = async (templateId: string) => {
+    try {
+      const res = await fetch("/api/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
+      })
+      const data = await res.json() as { ok: boolean; mission?: Mission }
+      if (data.ok && data.mission) {
+        upsertMissionInPipeline(buildPipelineScheduleFromMission(data.mission))
+        setCanvasMission(data.mission)
+        setCanvasModalOpen(true)
+        return
+      }
+    } catch {}
+  }
+
+  const handleViewInCanvas = async (missionId: string) => {
+    try {
+      const res = await fetch(`/api/missions?id=${encodeURIComponent(missionId)}`)
+      const data = await res.json() as { ok: boolean; mission?: Mission }
+      if (data.ok && data.mission) {
+        setCanvasMission(data.mission)
+        setCanvasModalOpen(true)
+      }
+    } catch {
+      // Silently fail â€” canvas button is optional
+    }
+  }
+
+  const handleCanvasSave = async (mission: Mission): Promise<boolean> => {
+    setCanvasSaving(true)
+    try {
+      const response = await fetch("/api/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mission }),
+      })
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; mission?: Mission; error?: string }
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to save mission.")
+      }
+      const savedMission = data?.mission || mission
+      const persistedSchedule = await upsertNotificationSchedule(buildPipelineScheduleFromMission(savedMission))
+      upsertMissionInPipeline(persistedSchedule)
+      setCanvasMission(savedMission)
+      setCanvasModalOpen(false)
+      setStatus({ type: "success", message: `Mission "${savedMission.label || "Untitled mission"}" saved to Mission Pipeline Settings.` })
+      return true
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to save mission." })
+      return false
+    } finally {
+      setCanvasSaving(false)
+    }
+  }
+
+  const handleCanvasRun = async (mission: Mission) => {
+    setCanvasSaving(true)
+    try {
+      const response = await fetch("/api/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mission }),
+      })
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; mission?: Mission; error?: string }
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to save mission before run.")
+      }
+      const savedMission = data?.mission || mission
+      const persistedSchedule = await upsertNotificationSchedule(buildPipelineScheduleFromMission(savedMission))
+      upsertMissionInPipeline(persistedSchedule)
+      setCanvasMission(savedMission)
+      setCanvasModalOpen(false)
+      await runMissionNow(persistedSchedule, {
+        workflowSteps: missionToWorkflowSummaryForAutofix(savedMission).workflowSteps,
+      })
+    } catch (error) {
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to run mission." })
+    } finally {
+      setCanvasSaving(false)
+    }
+  }
+
+  const handleCreateMissionInCanvas = () => {
+    const now = new Date().toISOString()
+    const draftMission: Mission = {
+      id: crypto.randomUUID(),
+      userId: "",
+      label: "New Mission",
+      description: "",
+      category: "research",
+      tags: [],
+      status: "draft",
+      version: 1,
+      nodes: [],
+      connections: [],
+      variables: [],
+      settings: defaultMissionSettings(),
+      createdAt: now,
+      updatedAt: now,
+      runCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      integration: "telegram",
+      chatIds: [],
+    }
+    setCanvasMission(draftMission)
+    setCanvasModalOpen(true)
+  }
 
   const presence = getNovaPresence({ agentConnected, novaState })
   const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
@@ -203,8 +404,7 @@ export default function MissionsPage() {
                 <button
                   onClick={() => {
                     playClickSound()
-                    resetMissionBuilder()
-                    setBuilderOpen(true)
+                    handleCreateMissionInCanvas()
                   }}
                   className={cn(
                     "h-8 px-3 rounded-lg border transition-colors text-sm font-medium inline-flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-dynamic",
@@ -252,6 +452,7 @@ export default function MissionsPage() {
               subPanelClass={subPanelClass}
               createSectionRef={createSectionRef}
               listSectionRef={listSectionRef}
+              templates={MISSION_TEMPLATES}
               integrationsSettings={integrationsSettings}
               novaMissionPrompt={novaMissionPrompt}
               novaGeneratingMission={novaGeneratingMission}
@@ -267,7 +468,7 @@ export default function MissionsPage() {
               onSearchQueryChange={setSearchQuery}
               onStatusFilterChange={setStatusFilter}
               onMissionBoardViewChange={setMissionBoardView}
-              onApplyTemplate={applyTemplate}
+              onApplyTemplate={(id) => void handleApplyTemplate(id)}
               onGenerateMissionDraft={() => {
                 void generateMissionDraftFromPrompt()
               }}
@@ -280,6 +481,7 @@ export default function MissionsPage() {
                 void saveMission({ ...mission, enabled: nextEnabled })
               }}
               onRequestDeleteMission={setPendingDeleteMission}
+              onViewInCanvas={(id) => void handleViewInCanvas(id)}
             />
           </div>
         </div>
@@ -312,6 +514,10 @@ export default function MissionsPage() {
         newScheduleMode={newScheduleMode}
         setNewScheduleMode={setNewScheduleMode}
         workflowSteps={workflowSteps}
+        workflowAutofixPreview={workflowAutofixPreview}
+        workflowAutofixSelectionById={workflowAutofixSelectionById}
+        workflowAutofixLoading={workflowAutofixLoading}
+        workflowAutofixApplying={workflowAutofixApplying}
         draggingStepId={draggingStepId}
         setDragOverStepId={setDragOverStepId}
         moveWorkflowStepByDrop={moveWorkflowStepByDrop}
@@ -333,6 +539,9 @@ export default function MissionsPage() {
         novaSuggestForAiStep={novaSuggestForAiStep}
         novaSuggestingByStepId={novaSuggestingByStepId}
         addWorkflowStep={addWorkflowStep}
+        previewWorkflowFixes={previewWorkflowFixes}
+        toggleWorkflowAutofixSelection={toggleWorkflowAutofixSelection}
+        applyWorkflowFixes={applyWorkflowFixes}
         builderFooterRef={builderFooterRef}
         missionActive={missionActive}
         setMissionActive={setMissionActive}
@@ -382,7 +591,17 @@ export default function MissionsPage() {
         />
       )}
 
+      <MissionCanvasModal
+        mission={canvasMission}
+        open={canvasModalOpen}
+        onClose={() => setCanvasModalOpen(false)}
+        onSave={handleCanvasSave}
+        onRun={handleCanvasRun}
+        isSaving={canvasSaving}
+      />
+
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
+

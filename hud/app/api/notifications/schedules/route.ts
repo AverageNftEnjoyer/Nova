@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
 
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { SAVE_WORKFLOW_VALIDATION_POLICY, validateMissionWorkflowMessage } from "@/lib/missions/workflow/validation"
 import { buildSchedule, loadSchedules, parseDailyTime, saveSchedules } from "@/lib/notifications/store"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -58,6 +60,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json()
+    const explicitId = typeof body?.id === "string" ? body.id.trim() : ""
     const message = typeof body?.message === "string" ? body.message.trim() : ""
     const time = typeof body?.time === "string" ? body.time.trim() : ""
     const timezone = typeof body?.timezone === "string" ? body.timezone.trim() : "America/New_York"
@@ -65,6 +68,45 @@ export async function POST(req: Request) {
     if (!message) {
       return NextResponse.json({ error: "message is required" }, { status: 400 })
     }
+
+    const workflowValidation = validateMissionWorkflowMessage({
+      message,
+      stage: "save",
+      mode: SAVE_WORKFLOW_VALIDATION_POLICY.mode,
+      profile: SAVE_WORKFLOW_VALIDATION_POLICY.profile,
+      userContextId: userId,
+    })
+    if (workflowValidation.blocked) {
+      await emitMissionTelemetryEvent({
+        eventType: "mission.validation.completed",
+        status: "error",
+        userContextId: userId,
+        metadata: {
+          stage: "save",
+          blocked: true,
+          errorCount: workflowValidation.issueCount.error,
+          warningCount: workflowValidation.issueCount.warning,
+        },
+      }).catch(() => {})
+      return NextResponse.json(
+        {
+          error: "Workflow validation failed.",
+          validation: workflowValidation,
+        },
+        { status: 400 },
+      )
+    }
+    await emitMissionTelemetryEvent({
+      eventType: "mission.validation.completed",
+      status: "success",
+      userContextId: userId,
+      metadata: {
+        stage: "save",
+        blocked: false,
+        errorCount: workflowValidation.issueCount.error,
+        warningCount: workflowValidation.issueCount.warning,
+      },
+    }).catch(() => {})
 
     if (!parseDailyTime(time)) {
       return NextResponse.json({ error: "time must be HH:mm (24h format)" }, { status: 400 })
@@ -81,6 +123,7 @@ export async function POST(req: Request) {
     }
 
     const schedule = buildSchedule({
+      id: explicitId || undefined,
       userId,
       integration,
       label: typeof body?.label === "string" ? body.label : undefined,
@@ -92,10 +135,33 @@ export async function POST(req: Request) {
     })
 
     const schedules = await loadSchedules({ userId })
-    schedules.push(schedule)
+    if (explicitId) {
+      const existingIndex = schedules.findIndex((item) => item.id === explicitId)
+      if (existingIndex >= 0) {
+        const current = schedules[existingIndex]
+        schedules[existingIndex] = {
+          ...current,
+          integration: schedule.integration,
+          label: schedule.label,
+          message: schedule.message,
+          time: schedule.time,
+          timezone: schedule.timezone,
+          enabled: schedule.enabled,
+          chatIds: schedule.chatIds,
+          updatedAt: new Date().toISOString(),
+        }
+      } else {
+        schedules.push(schedule)
+      }
+    } else {
+      schedules.push(schedule)
+    }
     await saveSchedules(schedules, { userId })
 
-    return NextResponse.json({ schedule }, { status: 201 })
+    const saved = explicitId
+      ? schedules.find((item) => item.id === explicitId) || schedule
+      : schedule
+    return NextResponse.json({ schedule: saved }, { status: 201 })
   } catch (error) {
     return NextResponse.json(
       {
@@ -128,6 +194,48 @@ export async function PATCH(req: Request) {
     }
 
     const current = schedules[targetIndex]
+    const nextMessage = typeof body?.message === "string" ? body.message.trim() || current.message : current.message
+    const workflowValidation = validateMissionWorkflowMessage({
+      message: nextMessage,
+      stage: "save",
+      mode: SAVE_WORKFLOW_VALIDATION_POLICY.mode,
+      profile: SAVE_WORKFLOW_VALIDATION_POLICY.profile,
+      userContextId: userId,
+      scheduleId: id,
+    })
+    if (workflowValidation.blocked) {
+      await emitMissionTelemetryEvent({
+        eventType: "mission.validation.completed",
+        status: "error",
+        userContextId: userId,
+        scheduleId: id,
+        metadata: {
+          stage: "save",
+          blocked: true,
+          errorCount: workflowValidation.issueCount.error,
+          warningCount: workflowValidation.issueCount.warning,
+        },
+      }).catch(() => {})
+      return NextResponse.json(
+        {
+          error: "Workflow validation failed.",
+          validation: workflowValidation,
+        },
+        { status: 400 },
+      )
+    }
+    await emitMissionTelemetryEvent({
+      eventType: "mission.validation.completed",
+      status: "success",
+      userContextId: userId,
+      scheduleId: id,
+      metadata: {
+        stage: "save",
+        blocked: false,
+        errorCount: workflowValidation.issueCount.error,
+        warningCount: workflowValidation.issueCount.warning,
+      },
+    }).catch(() => {})
 
     if (typeof body?.time === "string" && !parseDailyTime(body.time.trim())) {
       return NextResponse.json({ error: "time must be HH:mm (24h format)" }, { status: 400 })
@@ -147,7 +255,7 @@ export async function PATCH(req: Request) {
       ...current,
       integration: parsedIntegration,
       label: typeof body?.label === "string" ? body.label.trim() || current.label : current.label,
-      message: typeof body?.message === "string" ? body.message.trim() || current.message : current.message,
+      message: nextMessage,
       time: typeof body?.time === "string" ? body.time.trim() : current.time,
       timezone: typeof body?.timezone === "string" ? body.timezone.trim() || current.timezone : current.timezone,
       enabled: typeof body?.enabled === "boolean" ? body.enabled : current.enabled,

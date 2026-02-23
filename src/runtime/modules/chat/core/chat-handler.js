@@ -31,6 +31,10 @@ import {
   TOOL_LOOP_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_ENABLED,
   TOOL_LOOP_MAX_STEPS,
+  TOOL_LOOP_MAX_DURATION_MS,
+  TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS,
+  TOOL_LOOP_RECOVERY_TIMEOUT_MS,
+  TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP,
   CLAUDE_CHAT_MAX_TOKENS,
   OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
   MEMORY_LOOP_ENABLED,
@@ -110,6 +114,7 @@ import {
   stripMissionConfirmPrefix,
   summarizeToolResultPreview,
 } from "./chat-utils.js";
+import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "./tool-loop-guardrails.js";
 import {
   sendDirectAssistantReply,
   handleMemoryUpdate,
@@ -147,6 +152,12 @@ import { getShortTermContextPolicy } from "./short-term-context-policies.js";
 const MEMORY_RECALL_TIMEOUT_MS = Number.parseInt(process.env.NOVA_MEMORY_RECALL_TIMEOUT_MS || "450", 10);
 const WEB_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WEB_PRELOAD_TIMEOUT_MS || "900", 10);
 const LINK_PRELOAD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_LINK_PRELOAD_TIMEOUT_MS || "900", 10);
+const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000").trim().replace(/\/+$/, "");
+const INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS = Math.max(
+  5_000,
+  Number.parseInt(process.env.NOVA_INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS || "20000", 10) || 20_000,
+);
+const integrationsSnapshotEnsuredAtByUser = new Map();
 const OPENAI_DEFAULT_MAX_COMPLETION_TOKENS = Number.parseInt(
   process.env.NOVA_OPENAI_DEFAULT_MAX_COMPLETION_TOKENS || "1200",
   10,
@@ -159,6 +170,30 @@ const OPENAI_STRICT_MAX_COMPLETION_TOKENS = Number.parseInt(
   process.env.NOVA_OPENAI_STRICT_MAX_COMPLETION_TOKENS || "900",
   10,
 );
+
+async function ensureRuntimeIntegrationsSnapshot(userContextId, supabaseAccessToken) {
+  const userId = sessionRuntime.normalizeUserContextId(String(userContextId || ""));
+  const token = String(supabaseAccessToken || "").trim();
+  if (!userId || !token) return;
+  const now = Date.now();
+  const last = Number(integrationsSnapshotEnsuredAtByUser.get(userId) || 0);
+  if (now - last < INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS) return;
+  try {
+    const res = await fetch(`${HUD_API_BASE_URL}/api/integrations/config/runtime-snapshot`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (res.ok) {
+      integrationsSnapshotEnsuredAtByUser.set(userId, now);
+      return;
+    }
+    console.warn(`[IntegrationsSnapshot] ensure failed status=${res.status} user=${userId}`);
+  } catch (err) {
+    console.warn(`[IntegrationsSnapshot] ensure failed user=${userId} error=${describeUnknownError(err)}`);
+  }
+}
 
 function mergeMissionPrompt(basePrompt, incomingText) {
   const base = String(basePrompt || "").replace(/\s+/g, " ").trim();
@@ -497,6 +532,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     fallbackReason: "",
     fallbackStage: "",
     hadCandidateBeforeFallback: false,
+    toolLoopGuardrails: null,
   };
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
   if (turnPolicy && typeof turnPolicy === "object") {
@@ -958,10 +994,41 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       const toolOutputsForRecovery = [];
       let forcedToolFallbackReply = "";
       let usedFallback = false;
+      const toolLoopBudget = createToolLoopBudget({
+        maxDurationMs: Math.max(5000, Number(TOOL_LOOP_MAX_DURATION_MS || 0)),
+        minTimeoutMs: 1000,
+      });
+      const toolLoopGuardrails = {
+        maxDurationMs: Math.max(5000, Number(TOOL_LOOP_MAX_DURATION_MS || 0)),
+        requestTimeoutMs: Math.max(1000, Number(TOOL_LOOP_REQUEST_TIMEOUT_MS || 0)),
+        toolExecTimeoutMs: Math.max(1000, Number(TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS || 0)),
+        recoveryTimeoutMs: Math.max(1000, Number(TOOL_LOOP_RECOVERY_TIMEOUT_MS || 0)),
+        maxToolCallsPerStep: Math.max(1, Number(TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP || 1)),
+        budgetExhausted: false,
+        stepTimeouts: 0,
+        toolExecutionTimeouts: 0,
+        recoveryBudgetExhausted: false,
+        cappedToolCalls: 0,
+      };
 
       for (let step = 0; step < Math.max(1, TOOL_LOOP_MAX_STEPS); step += 1) {
+        if (toolLoopBudget.isExhausted()) {
+          toolLoopGuardrails.budgetExhausted = true;
+          latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
+          forcedToolFallbackReply =
+            "I hit the tool execution time budget before finalizing the response. Please retry with a narrower request.";
+          break;
+        }
         broadcastThinkingStatus("Reasoning", userContextId);
         let completion = null;
+        const stepTimeoutMs = toolLoopBudget.resolveTimeoutMs(TOOL_LOOP_REQUEST_TIMEOUT_MS, 3000);
+        if (stepTimeoutMs <= 0) {
+          toolLoopGuardrails.budgetExhausted = true;
+          latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
+          forcedToolFallbackReply =
+            "I hit the tool execution time budget before finalizing the response. Please retry with a narrower request.";
+          break;
+        }
         try {
               completion = await withTimeout(
                 activeOpenAiCompatibleClient.chat.completions.create({
@@ -972,7 +1039,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
                   tools: openAiToolDefs,
                   tool_choice: "auto",
                 }),
-            TOOL_LOOP_REQUEST_TIMEOUT_MS,
+            stepTimeoutMs,
             `Tool loop model ${modelUsed}`,
           );
         } catch (err) {
@@ -995,10 +1062,14 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
                 tools: openAiToolDefs,
                 tool_choice: "auto",
               }),
-              TOOL_LOOP_REQUEST_TIMEOUT_MS,
+              toolLoopBudget.resolveTimeoutMs(TOOL_LOOP_REQUEST_TIMEOUT_MS, 3000),
               `Tool loop fallback model ${modelUsed}`,
             );
           } else {
+            if (isLikelyTimeoutError(err)) {
+              toolLoopGuardrails.stepTimeouts += 1;
+              latencyTelemetry.incrementCounter("tool_loop_step_timeouts");
+            }
             throw err;
           }
         }
@@ -1016,10 +1087,31 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           break;
         }
 
-        loopMessages.push({ role: "assistant", content: assistantText || "", tool_calls: toolCalls });
+        const toolCallCap = capToolCallsPerStep(toolCalls, TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP);
+        const cappedToolCalls = toolCallCap.capped;
+        if (toolCallCap.wasCapped) {
+          toolLoopGuardrails.cappedToolCalls += toolCallCap.requestedCount - toolCallCap.cappedCount;
+          latencyTelemetry.incrementCounter("tool_loop_tool_call_caps");
+          console.warn(
+            `[ToolLoop] Capped tool calls for step ${step + 1}: requested=${toolCalls.length} cap=${cappedToolCalls.length}`,
+          );
+          toolOutputsForRecovery.push({
+            name: "tool_loop_guardrail",
+            content: `Tool call count capped at ${cappedToolCalls.length} for this step.`,
+          });
+        }
+
+        loopMessages.push({ role: "assistant", content: assistantText || "", tool_calls: cappedToolCalls });
 
         // Bug Fix 2: tool errors are caught, logged, and surfaced instead of swallowed
-        for (const toolCall of toolCalls) {
+        for (const toolCall of cappedToolCalls) {
+          if (toolLoopBudget.isExhausted()) {
+            toolLoopGuardrails.budgetExhausted = true;
+            latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
+            forcedToolFallbackReply =
+              "I ran out of time while executing tools. Please retry with a narrower request.";
+            break;
+          }
           const toolName = String(toolCall?.function?.name || toolCall?.id || "").trim();
           const normalizedToolName = toolName.toLowerCase();
           if (normalizedToolName === "web_search") broadcastThinkingStatus("Searching web", userContextId);
@@ -1038,7 +1130,15 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           let toolResult;
           const toolStartedAt = Date.now();
           try {
-            toolResult = await runtimeTools.executeToolUse(toolUse, availableTools);
+            const toolExecTimeoutMs = toolLoopBudget.resolveTimeoutMs(TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS, 1000);
+            if (toolExecTimeoutMs <= 0) {
+              throw new Error("tool loop execution budget exhausted");
+            }
+            toolResult = await withTimeout(
+              runtimeTools.executeToolUse(toolUse, availableTools),
+              toolExecTimeoutMs,
+              `Tool ${normalizedToolName || "unknown"}`,
+            );
             toolExecutions.push({
               name: normalizedToolName || "unknown",
               status: "ok",
@@ -1047,6 +1147,10 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
             });
           } catch (toolErr) {
             const errMsg = describeUnknownError(toolErr);
+            if (isLikelyTimeoutError(toolErr)) {
+              toolLoopGuardrails.toolExecutionTimeouts += 1;
+              latencyTelemetry.incrementCounter("tool_loop_tool_exec_timeouts");
+            }
             console.error(`[ToolLoop] Tool "${toolCall.function?.name ?? toolCall.id}" failed: ${errMsg}`);
             broadcastAssistantStreamDelta(
               assistantStreamId,
@@ -1111,6 +1215,12 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         // Some OpenAI-compatible providers can end tool loops without a terminal text message.
         // Try one no-tools recovery completion first, then fall back to the latest tool output.
         try {
+          const recoveryTimeoutMs = toolLoopBudget.resolveTimeoutMs(TOOL_LOOP_RECOVERY_TIMEOUT_MS, 1000);
+          if (recoveryTimeoutMs <= 0) {
+            toolLoopGuardrails.recoveryBudgetExhausted = true;
+            latencyTelemetry.incrementCounter("tool_loop_recovery_budget_exhausted");
+            throw new Error("tool loop recovery budget exhausted");
+          }
           const recovery = await withTimeout(
             activeOpenAiCompatibleClient.chat.completions.create({
               model: modelUsed,
@@ -1124,7 +1234,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
               max_completion_tokens: openAiMaxCompletionTokens,
               ...openAiRequestTuningForModel(modelUsed),
             }),
-            TOOL_LOOP_REQUEST_TIMEOUT_MS,
+            recoveryTimeoutMs,
             `Tool loop recovery model ${modelUsed}`,
           );
           reply = extractOpenAIChatText(recovery).trim();
@@ -1132,6 +1242,7 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           console.warn(`[ToolLoop] recovery completion failed: ${describeUnknownError(recoveryErr)}`);
         }
       }
+      runSummary.toolLoopGuardrails = toolLoopGuardrails;
 
       if (!reply || !reply.trim()) {
         const latestUsefulTool = [...toolOutputsForRecovery]
@@ -2184,6 +2295,7 @@ async function handleInputCore(text, opts = {}) {
 
   // Resolve provider (Bug Fix 4: uses cached loader) + routing arbitration
   const providerResolutionStartedAt = Date.now();
+  await ensureRuntimeIntegrationsSnapshot(userContextId, ctx.supabaseAccessToken);
   const integrationsRuntime = cachedLoadIntegrationsRuntime({ userContextId });
   const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, {
     strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
@@ -2323,6 +2435,9 @@ export async function handleInput(text, opts = {}) {
       fallbackReason: String(summary.fallbackReason || ""),
       fallbackStage: String(summary.fallbackStage || ""),
       hadCandidateBeforeFallback: summary.hadCandidateBeforeFallback === true,
+      toolLoopGuardrails: summary.toolLoopGuardrails && typeof summary.toolLoopGuardrails === "object"
+        ? summary.toolLoopGuardrails
+        : null,
       ok: summary.ok !== false && !caughtError,
       error: String(summary.error || (caughtError ? describeUnknownError(caughtError) : "")),
       nlpBypass,

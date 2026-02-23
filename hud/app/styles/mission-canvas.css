@@ -1,0 +1,55 @@
+@layer base {
+  :root {
+    --mission-flow-bg: 228 28% 7%;
+    --mission-flow-surface: 224 22% 10%;
+    --mission-flow-surface-strong: 224 18% 14%;
+    --mission-flow-border: 213 26% 80%;
+    --mission-flow-border-soft: 212 22% 28%;
+    --mission-flow-text: 210 24% 95%;
+    --mission-flow-text-muted: 214 18% 70%;
+    --mission-flow-edge: 212 18% 64%;
+    --mission-flow-dot: 210 20% 78%;
+    --mission-flow-handle: 216 20% 66%;
+  }
+}
+
+.mission-canvas-theme .react-flow__attribution {
+  display: none !important;
+}
+
+.mission-canvas-theme .react-flow__controls {
+  background: linear-gradient(150deg, hsl(var(--mission-flow-surface) / 0.82), hsl(var(--mission-flow-surface-strong) / 0.7)) !important;
+  border: 1px solid hsl(var(--mission-flow-border-soft) / 0.78) !important;
+  box-shadow: 0 16px 40px rgba(2, 6, 23, 0.42) !important;
+  backdrop-filter: blur(14px);
+}
+
+.mission-canvas-theme .react-flow__controls-button {
+  background: transparent !important;
+  border-bottom: 1px solid hsl(var(--mission-flow-border-soft) / 0.55) !important;
+  color: hsl(var(--mission-flow-text-muted)) !important;
+}
+
+.mission-canvas-theme .react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+
+.mission-canvas-theme .react-flow__controls-button:hover {
+  background: hsl(var(--mission-flow-surface-strong) / 0.66) !important;
+  color: hsl(var(--mission-flow-text)) !important;
+}
+
+.mission-canvas-theme .react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.mission-canvas-theme .react-flow__minimap {
+  background: linear-gradient(145deg, hsl(var(--mission-flow-surface) / 0.85), hsl(var(--mission-flow-surface-strong) / 0.72)) !important;
+  border: 1px solid hsl(var(--mission-flow-border-soft) / 0.82) !important;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35) !important;
+  backdrop-filter: blur(12px);
+}
+
+.mission-canvas-theme .react-flow__edge-path {
+  stroke: hsl(var(--mission-flow-edge)) !important;
+}

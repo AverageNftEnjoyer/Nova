@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import path from "node:path"
 
 import {
   loadIntegrationsConfig,
@@ -20,6 +19,7 @@ import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-r
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -455,7 +455,7 @@ export async function GET(req: Request) {
 
   const config = await loadIntegrationsConfig(verified)
   try {
-    await syncAgentRuntimeIntegrationsSnapshot(path.resolve(process.cwd(), ".."), verified.user.id, config)
+    await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), verified.user.id, config)
   } catch (error) {
     console.warn("[integrations/config][GET] Failed to sync agent runtime snapshot:", error)
   }
@@ -481,11 +481,23 @@ export async function PATCH(req: Request) {
     }
     const current = await loadIntegrationsConfig(verified)
     const wasCoinbaseConnected = Boolean(current.coinbase.connected)
-    const telegram = normalizeTelegramInput(body.telegram, current.telegram)
-    const discord = normalizeDiscordInput(body.discord, current.discord)
-    const brave = normalizeBraveInput(body.brave, current.brave)
-    const coinbase = normalizeCoinbaseInput(body.coinbase, current.coinbase)
+    const hasTelegramPatch = Object.prototype.hasOwnProperty.call(body, "telegram")
+    const hasDiscordPatch = Object.prototype.hasOwnProperty.call(body, "discord")
+    const hasBravePatch = Object.prototype.hasOwnProperty.call(body, "brave")
+    const hasCoinbasePatch = Object.prototype.hasOwnProperty.call(body, "coinbase")
+    const hasOpenAIPatch = Object.prototype.hasOwnProperty.call(body, "openai")
+    const hasClaudePatch = Object.prototype.hasOwnProperty.call(body, "claude")
+    const hasGrokPatch = Object.prototype.hasOwnProperty.call(body, "grok")
+    const hasGeminiPatch = Object.prototype.hasOwnProperty.call(body, "gemini")
+    const hasGmailPatch = Object.prototype.hasOwnProperty.call(body, "gmail")
+    const hasActiveProviderPatch = Object.prototype.hasOwnProperty.call(body, "activeLlmProvider")
+    const hasAgentsPatch = Object.prototype.hasOwnProperty.call(body, "agents")
+    const telegram = hasTelegramPatch ? normalizeTelegramInput(body.telegram, current.telegram) : current.telegram
+    const discord = hasDiscordPatch ? normalizeDiscordInput(body.discord, current.discord) : current.discord
+    const brave = hasBravePatch ? normalizeBraveInput(body.brave, current.brave) : current.brave
+    const coinbase = hasCoinbasePatch ? normalizeCoinbaseInput(body.coinbase, current.coinbase) : current.coinbase
     const shouldValidateCoinbaseApiPair =
+      hasCoinbasePatch &&
       coinbase.connectionMode === "api_key_pair" &&
       (coinbase.connected || typeof body.coinbase?.apiKey === "string" || typeof body.coinbase?.apiSecret === "string")
     let coinbaseCredentialMode: CoinbaseCredentialMode = detectCoinbaseCredentialMode(coinbase.apiSecret)
@@ -496,12 +508,14 @@ export async function PATCH(req: Request) {
       }
       coinbaseCredentialMode = validation.credentialMode
     }
-    const openai = normalizeOpenAIInput(body.openai, current.openai)
-    const claude = normalizeClaudeInput(body.claude, current.claude)
-    const grok = normalizeGrokInput(body.grok, current.grok)
-    const gemini = normalizeGeminiInput(body.gemini, current.gemini)
-    const gmail = normalizeGmailInput(body.gmail, current.gmail)
-    const activeLlmProvider = normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
+    const openai = hasOpenAIPatch ? normalizeOpenAIInput(body.openai, current.openai) : current.openai
+    const claude = hasClaudePatch ? normalizeClaudeInput(body.claude, current.claude) : current.claude
+    const grok = hasGrokPatch ? normalizeGrokInput(body.grok, current.grok) : current.grok
+    const gemini = hasGeminiPatch ? normalizeGeminiInput(body.gemini, current.gemini) : current.gemini
+    const gmail = hasGmailPatch ? normalizeGmailInput(body.gmail, current.gmail) : current.gmail
+    const activeLlmProvider = hasActiveProviderPatch
+      ? normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
+      : current.activeLlmProvider
     const next = await updateIntegrationsConfig({
       telegram,
       discord,
@@ -513,7 +527,7 @@ export async function PATCH(req: Request) {
       gemini,
       gmail,
       activeLlmProvider,
-      agents: body.agents ?? current.agents,
+      agents: hasAgentsPatch ? (body.agents ?? current.agents) : current.agents,
     }, verified)
     if (wasCoinbaseConnected && !next.coinbase.connected) {
       const userContextId = String(verified.user.id || "").trim().toLowerCase()
@@ -533,7 +547,7 @@ export async function PATCH(req: Request) {
       }
     }
     try {
-      await syncAgentRuntimeIntegrationsSnapshot(path.resolve(process.cwd(), ".."), verified.user.id, next)
+      await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), verified.user.id, next)
     } catch (error) {
       console.warn("[integrations/config][PATCH] Failed to sync agent runtime snapshot:", error)
     }

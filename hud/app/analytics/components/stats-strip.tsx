@@ -16,7 +16,7 @@ function formatCompact(value: number, suffix = ""): string {
 
 function StatCard({ title, value, hint, isLight, icon }: { title: string; value: string; hint: string; isLight: boolean; icon: React.ReactNode }) {
   return (
-    <div className={`home-spotlight-card home-border-glow home-spotlight-card--hover h-[118px] rounded-xl border p-4 transition-colors ${isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
+    <div className={`home-spotlight-card home-spotlight-card--hover h-[118px] rounded-xl border p-4 transition-colors ${isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
       <div className="mb-2 flex items-center justify-between">
         <p className={`text-xs uppercase tracking-[0.14em] ${isLight ? "text-s-50" : "text-slate-400"}`}>{title}</p>
         <span className={isLight ? "text-s-60" : "text-slate-400"}>{icon}</span>

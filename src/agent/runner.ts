@@ -41,6 +41,16 @@ async function delay(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  const safeTimeout = Math.max(1, Number.parseInt(String(timeoutMs || 0), 10) || 1);
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out after ${safeTimeout}ms`)), safeTimeout);
+    }),
+  ]);
+}
+
 function extractTextFromResponse(message: Anthropic.Messages.Message): string {
   return message.content
     .filter((block) => block.type === "text")
@@ -272,6 +282,13 @@ export async function runAgentTurn(
     let totalOutputTokens = 0;
     let response: Anthropic.Messages.Message;
     let compactedThisTurn = false;
+    const toolLoopMaxSteps = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_STEPS", 8, 1);
+    const toolLoopMaxDurationMs = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_DURATION_MS", 32000, 1000);
+    const toolExecTimeoutMs = envPositiveInt("NOVA_AGENT_TOOL_EXEC_TIMEOUT_MS", 8000, 1000);
+    const toolLoopMaxToolCallsPerStep = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP", 6, 1);
+    const toolLoopStartedAt = Date.now();
+    let toolLoopStep = 0;
+    let loopTerminationReason = "";
 
     const request = async () => {
       try {
@@ -311,6 +328,16 @@ export async function runAgentTurn(
     response = await request();
 
     while (true) {
+      toolLoopStep += 1;
+      if (toolLoopStep > toolLoopMaxSteps) {
+        loopTerminationReason = `tool loop step cap reached (${toolLoopMaxSteps})`;
+        break;
+      }
+      if (Date.now() - toolLoopStartedAt > toolLoopMaxDurationMs) {
+        loopTerminationReason = `tool loop duration cap reached (${toolLoopMaxDurationMs}ms)`;
+        break;
+      }
+
       totalInputTokens += response.usage.input_tokens;
       totalOutputTokens += response.usage.output_tokens;
 
@@ -325,9 +352,22 @@ export async function runAgentTurn(
       messages.push({ role: "assistant", content: response.content as Anthropic.Messages.ContentBlockParam[] });
 
       const toolResults = [];
-      for (const toolUse of toolUseBlocks) {
+      const cappedToolUseBlocks = toolUseBlocks.slice(0, toolLoopMaxToolCallsPerStep);
+      if (toolUseBlocks.length > cappedToolUseBlocks.length) {
+        toolResults.push({
+          type: "tool_result" as const,
+          tool_use_id: "tool-loop-guardrail",
+          content: `Tool call count capped at ${toolLoopMaxToolCallsPerStep} for this step.`,
+          is_error: true,
+        });
+      }
+      for (const toolUse of cappedToolUseBlocks) {
         toolCalls.push(toolUse.name);
-        const result = await executeToolUse(toolUse, tools);
+        const result = await withTimeout(
+          executeToolUse(toolUse, tools),
+          toolExecTimeoutMs,
+          `Tool ${toolUse.name}`,
+        );
         toolResults.push(toAnthropicToolResultBlock(result));
       }
 
@@ -339,7 +379,13 @@ export async function runAgentTurn(
       response = await request();
     }
 
-    const finalText = extractTextFromResponse(response) || "I could not produce a text response.";
+    let finalText = extractTextFromResponse(response) || "";
+    if (!finalText && loopTerminationReason) {
+      finalText = `I stopped tool execution early (${loopTerminationReason}). Please retry with a narrower request.`;
+    }
+    if (!finalText) {
+      finalText = "I could not produce a text response.";
+    }
 
     // Persist raw_text so the transcript reflects what the user actually typed
     sessionStore.appendTurnBySessionId(sessionEntry.sessionId, "user", rawUserText, undefined, nlpTurnMeta);

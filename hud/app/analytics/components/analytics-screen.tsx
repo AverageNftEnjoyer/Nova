@@ -171,7 +171,7 @@ export function AnalyticsScreen() {
                   <button
                     onClick={() => setMenuOpen((prev) => !prev)}
                     className={cn(
-                      "h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      "h-8 w-8 rounded-lg transition-colors home-spotlight-card home-spotlight-card--hover",
                       isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md",
                     )}
                     aria-label="Analytics module settings"
@@ -185,7 +185,7 @@ export function AnalyticsScreen() {
                       setSettingsOpen(true)
                     }}
                     className={cn(
-                      "h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/gear",
+                      "h-8 w-8 rounded-lg transition-colors home-spotlight-card home-spotlight-card--hover group/gear",
                       isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md",
                     )}
                     aria-label="Open user settings"

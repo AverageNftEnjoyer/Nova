@@ -313,7 +313,10 @@ export async function searchWebAndCollect(
     }
   }
 
-  if (preferred === "brave") {
+  // Always try Brave when an API key is available regardless of provider
+  // preference — the preference is advisory, not a gate. Without this, any
+  // non-"brave" preference value silently returns zero results.
+  if (preferred === "brave" || braveApiKey) {
     const brave = await collectFromProvider()
     if (brave && brave.results.length > 0) return brave
   }

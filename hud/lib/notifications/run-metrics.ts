@@ -1,8 +1,16 @@
 import "server-only"
 
-import type { ExecuteMissionWorkflowResult } from "@/lib/missions/types"
+import type { WorkflowStepTrace } from "@/lib/missions/types"
 import { appendNotificationRunLog, type NotificationRunStatus } from "@/lib/notifications/run-log"
 import type { NotificationSchedule } from "@/lib/notifications/store"
+
+interface RunExecutionSummary {
+  ok: boolean
+  skipped: boolean
+  outputs: Array<{ ok: boolean; error?: string; status?: number }>
+  reason?: string
+  stepTraces: WorkflowStepTrace[]
+}
 
 export function summarizeOutputCounts(outputs: unknown): { okCount: number; failCount: number } {
   const list = Array.isArray(outputs) ? outputs : []
@@ -14,7 +22,7 @@ export function summarizeOutputCounts(outputs: unknown): { okCount: number; fail
 }
 
 export function resolveRunStatus(params: {
-  execution?: ExecuteMissionWorkflowResult | null
+  execution?: RunExecutionSummary | null
   fallbackError?: string
 }): { status: NotificationRunStatus; errorMessage: string } {
   const execution = params.execution ?? null
@@ -70,7 +78,7 @@ export function applyScheduleRunOutcome(
 export async function appendRunLogForExecution(params: {
   schedule: NotificationSchedule
   source: "scheduler" | "trigger"
-  execution?: ExecuteMissionWorkflowResult | null
+  execution?: RunExecutionSummary | null
   fallbackError?: string
   mode?: string
   dayStamp?: string

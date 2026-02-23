@@ -62,6 +62,92 @@ function cleanupModelOutput(raw: string): string {
   )
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function formatUsd(value: unknown): string {
+  const n = toFiniteNumber(value)
+  if (n === null) return "n/a"
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: n >= 100 ? 2 : 6,
+  }).format(n)
+}
+
+function humanizeCoinbaseStructuredOutput(parsed: Record<string, unknown>): string | null {
+  const source = String(parsed.source || "").trim().toLowerCase()
+  const primitive = String(parsed.primitive || "").trim().toLowerCase()
+  const looksLikeCoinbase = source === "coinbase" || primitive.length > 0 || Array.isArray(parsed.prices)
+  if (!looksLikeCoinbase) return null
+
+  const label = primitive
+    ? primitive.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+    : "Market Update"
+
+  const lines: string[] = [`Coinbase ${label}`]
+  const quoteCurrency = String(parsed.quoteCurrency || "USD").trim().toUpperCase() || "USD"
+  const requestedAssets = Array.isArray(parsed.assets)
+    ? parsed.assets.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean)
+    : []
+  const prices = Array.isArray(parsed.prices) ? parsed.prices as Array<Record<string, unknown>> : []
+  const scopedPrices = prices.filter((row) => {
+    if (requestedAssets.length === 0) return true
+    const asset = String(row.baseAsset || row.asset || row.symbol || "").trim().toUpperCase()
+    return requestedAssets.includes(asset)
+  })
+  if (scopedPrices.length > 0) {
+    lines.push("")
+    lines.push("Prices:")
+    for (const row of scopedPrices.slice(0, 8)) {
+      const asset = String(row.baseAsset || row.asset || row.symbol || row.symbolPair || "").trim() || "Asset"
+      const deltaPct = toFiniteNumber((row as Record<string, unknown>).deltaPct ?? (row as Record<string, unknown>).changePct)
+      const delta = deltaPct === null
+        ? ""
+        : ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)`
+      lines.push(`- ${asset}: ${formatUsd(row.price)} ${quoteCurrency}${delta}`)
+    }
+  }
+
+  const portfolioRaw = parsed.portfolio && typeof parsed.portfolio === "object"
+    ? parsed.portfolio as Record<string, unknown>
+    : null
+  const balances = Array.isArray(portfolioRaw?.balances)
+    ? portfolioRaw!.balances as Array<Record<string, unknown>>
+    : []
+  const activeBalances = balances
+    .map((row) => ({
+      symbol: String(row.assetSymbol || "").trim(),
+      total: toFiniteNumber(row.total) ?? 0,
+    }))
+    .filter((row) => row.symbol && Math.abs(row.total) > 0)
+    .sort((a, b) => Math.abs(b.total) - Math.abs(a.total))
+  const includePortfolioSummary = primitive !== "price_alert_digest"
+    || parsed.includePortfolio === true
+    || parsed.includePortfolioSummary === true
+  if (includePortfolioSummary && balances.length > 0) {
+    lines.push("")
+    lines.push(`Portfolio: ${activeBalances.length} active asset${activeBalances.length === 1 ? "" : "s"}.`)
+    if (activeBalances.length > 0) {
+      lines.push(`Top holdings: ${activeBalances.slice(0, 6).map((row) => `${row.symbol} (${row.total.toFixed(4)})`).join(", ")}`)
+    }
+  }
+
+  const transactions = Array.isArray(parsed.transactions) ? parsed.transactions : []
+  if (transactions.length > 0) {
+    lines.push(`Recent transactions: ${transactions.length}.`)
+  }
+
+  const checkedAtIso = String(parsed.checkedAtIso || "").trim()
+  if (checkedAtIso) {
+    lines.push(`Checked: ${checkedAtIso}.`)
+  }
+
+  return lines.join("\n").trim()
+}
+
 /**
  * Format structured mission output when model returns JSON payload.
  */
@@ -70,6 +156,8 @@ export function formatStructuredMissionOutput(raw: string): string {
   if (!text) return text
   const parsed = parseJsonObject(text)
   if (!parsed) return text
+  const coinbase = humanizeCoinbaseStructuredOutput(parsed)
+  if (coinbase) return coinbase
 
   const primaryText = [
     String(parsed.message || "").trim(),

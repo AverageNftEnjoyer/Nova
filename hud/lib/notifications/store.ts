@@ -407,6 +407,7 @@ export function parseDailyTime(value: string): { hour: number; minute: number } 
 }
 
 export function buildSchedule(input: {
+  id?: string
   userId?: string
   integration?: string
   label?: string
@@ -419,7 +420,7 @@ export function buildSchedule(input: {
   const now = new Date().toISOString()
 
   return {
-    id: crypto.randomUUID(),
+    id: String(input.id || "").trim() || crypto.randomUUID(),
     userId: String(input.userId || "").trim(),
     integration: normalizeIntegration(input.integration),
     label: input.label?.trim() || "Scheduled notification",

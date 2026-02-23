@@ -12,23 +12,28 @@ import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColo
 import {
   AI_PROVIDER_LABELS,
   FALLBACK_OUTPUT_CHANNEL_OPTIONS,
-  QUICK_TEMPLATE_OPTIONS,
   STEP_TYPE_OPTIONS,
 } from "../constants"
 import {
+  applyMissionWorkflowAutofix,
   buildMissionFromPrompt,
   createMissionSchedule,
-  deleteMissionSchedule,
+  deleteMissionById,
   fetchIntegrationCatalog as fetchIntegrationCatalogApi,
+  fetchMissionReliability as fetchMissionReliabilityApi,
   fetchSchedules as fetchSchedulesApi,
+  previewMissionWorkflowAutofix,
   requestNovaSuggest,
   triggerMissionScheduleStream,
   updateMissionSchedule,
   type BuildMissionResponse,
+  type MissionReliabilitySloStatus,
+  type MissionReliabilitySummary,
+  type MissionReliabilityResponse,
+  type WorkflowAutofixResponse,
   type NovaSuggestResponse,
 } from "../api"
 import {
-  buildBuilderWorkflowStepsFromMeta,
   getDefaultModelForProvider,
   hexToRgba,
   isWorkflowStepType,
@@ -105,6 +110,10 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const [tagInput, setTagInput] = useState("")
   const [missionTags, setMissionTags] = useState<string[]>([])
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([])
+  const [workflowAutofixPreview, setWorkflowAutofixPreview] = useState<WorkflowAutofixResponse | null>(null)
+  const [workflowAutofixSelectionById, setWorkflowAutofixSelectionById] = useState<Record<string, boolean>>({})
+  const [workflowAutofixLoading, setWorkflowAutofixLoading] = useState(false)
+  const [workflowAutofixApplying, setWorkflowAutofixApplying] = useState(false)
   const [collapsedStepIds, setCollapsedStepIds] = useState<Record<string, boolean>>({})
   const [integrationCatalog, setIntegrationCatalog] = useState<IntegrationCatalogItem[]>([])
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null)
@@ -118,6 +127,11 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   const [runImmediatelyOnCreate, setRunImmediatelyOnCreate] = useState(false)
   const [runProgress, setRunProgress] = useState<MissionRunProgress | null>(null)
   const [missionRuntimeStatusById, setMissionRuntimeStatusById] = useState<Record<string, MissionRuntimeStatus>>({})
+  const [missionReliabilitySummary, setMissionReliabilitySummary] = useState<MissionReliabilitySummary | null>(null)
+  const [missionReliabilitySlos, setMissionReliabilitySlos] = useState<MissionReliabilitySloStatus[]>([])
+  const [missionReliabilityLookbackDays, setMissionReliabilityLookbackDays] = useState(7)
+  const [missionReliabilityLoading, setMissionReliabilityLoading] = useState(false)
+  const [missionReliabilityLastUpdatedAt, setMissionReliabilityLastUpdatedAt] = useState(0)
   const runProgressAnimationTimerRef = useRef<number | null>(null)
 
   const catalogApiById = useMemo(() => {
@@ -204,10 +218,14 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   }, [integrationsSettings])
 
   const resolveDefaultAiIntegration = useCallback((): AiIntegrationType => {
+    const active = integrationsSettings.activeLlmProvider
+    if (configuredAiIntegrationOptions.some((option) => option.value === active)) {
+      return active
+    }
     if (configuredAiIntegrationOptions.length > 0) {
       return configuredAiIntegrationOptions[0].value as AiIntegrationType
     }
-    return integrationsSettings.activeLlmProvider
+    return active
   }, [configuredAiIntegrationOptions, integrationsSettings.activeLlmProvider])
 
   const createWorkflowStep = useCallback((type: WorkflowStepType, titleOverride?: string): WorkflowStep => {
@@ -323,53 +341,11 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setTagInput("")
     setMissionTags([])
     setWorkflowSteps([])
+    setWorkflowAutofixPreview(null)
+    setWorkflowAutofixSelectionById({})
     setCollapsedStepIds({})
     setRunImmediatelyOnCreate(false)
   }, [])
-
-  const applyTemplate = useCallback((templateId: string) => {
-    const template = QUICK_TEMPLATE_OPTIONS.find((item) => item.id === templateId)
-    if (!template) return
-    const preferredOutputChannel = resolvePreferredOutputChannel()
-    setEditingMissionId(null)
-    setNewPriority(template.priority)
-    setNewLabel(template.title)
-    setNewDescription(template.description)
-    setNewTime(template.time)
-    setMissionTags(template.tags)
-    // Create base workflow steps and then apply template-specific overrides
-    setWorkflowSteps(
-      template.steps.map((step) => {
-        const baseStep = createWorkflowStep(step.type, step.title)
-        // Apply template-specific properties
-        return {
-          ...baseStep,
-          // Fetch step overrides
-          ...(step.fetchQuery ? { fetchQuery: step.fetchQuery } : {}),
-          ...(step.fetchSource ? { fetchSource: step.fetchSource } : {}),
-          ...(step.fetchUrl ? { fetchUrl: step.fetchUrl } : {}),
-          ...(step.fetchIncludeSources !== undefined ? { fetchIncludeSources: step.fetchIncludeSources } : {}),
-          // AI step overrides
-          ...(step.aiPrompt ? { aiPrompt: step.aiPrompt } : {}),
-          ...(step.aiIntegration ? { aiIntegration: step.aiIntegration } : {}),
-          ...(step.aiDetailLevel ? { aiDetailLevel: step.aiDetailLevel } : {}),
-          // Trigger overrides
-          ...(step.triggerMode ? { triggerMode: step.triggerMode } : {}),
-          ...(step.triggerIntervalMinutes ? { triggerIntervalMinutes: step.triggerIntervalMinutes } : {}),
-          // Condition overrides
-          ...(step.conditionField ? { conditionField: step.conditionField } : {}),
-          ...(step.conditionOperator ? { conditionOperator: step.conditionOperator } : {}),
-          ...(step.conditionValue ? { conditionValue: step.conditionValue } : {}),
-          ...(step.conditionFailureAction ? { conditionFailureAction: step.conditionFailureAction } : {}),
-          // Output overrides
-          ...(step.outputChannel ? { outputChannel: preferredOutputChannel } : {}),
-          ...(step.outputTiming ? { outputTiming: step.outputTiming } : {}),
-        }
-      }),
-    )
-    setCollapsedStepIds({})
-    setBuilderOpen(true)
-  }, [createWorkflowStep, resolvePreferredOutputChannel])
 
   const toggleScheduleDay = useCallback((day: string) => {
     setNewScheduleDays((prev) => (
@@ -880,6 +856,36 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     } catch {}
   }, [])
 
+  const refreshMissionReliability = useCallback(async (input?: { days?: number; silent?: boolean }) => {
+    const days = Number.isFinite(Number(input?.days))
+      ? Math.max(1, Math.min(30, Number(input?.days)))
+      : missionReliabilityLookbackDays
+    if (!input?.silent) setMissionReliabilityLoading(true)
+    try {
+      const response = await fetchMissionReliabilityApi({ days })
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Unauthorized")
+      }
+      const data = response.data as MissionReliabilityResponse
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(data?.error || "Failed to load mission reliability.")
+      }
+      setMissionReliabilitySummary(data.summary || null)
+      setMissionReliabilitySlos(Array.isArray(data.slos) ? data.slos : [])
+      setMissionReliabilityLookbackDays(
+        Number.isFinite(Number(data.lookbackDays)) ? Number(data.lookbackDays) : days,
+      )
+      setMissionReliabilityLastUpdatedAt(Date.now())
+    } catch {
+      if (!input?.silent) {
+        setStatus({ type: "error", message: "Failed to load mission reliability." })
+      }
+    } finally {
+      if (!input?.silent) setMissionReliabilityLoading(false)
+    }
+  }, [missionReliabilityLookbackDays, router])
+
   const refreshSchedules = useCallback(async () => {
     if (schedules.length === 0) setLoading(true)
     try {
@@ -893,6 +899,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       setSchedules(next)
       setBaselineById(buildBaselineById(next))
       writeShellUiCache({ missionSchedules: next })
+      void refreshMissionReliability({ silent: true })
     } catch {
       setStatus({ type: "error", message: "Failed to load missions." })
       if (schedules.length === 0) {
@@ -903,7 +910,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     } finally {
       setLoading(false)
     }
-  }, [router, schedules.length])
+  }, [refreshMissionReliability, router, schedules.length])
 
   useEffect(() => {
     const refreshIntegrationSettings = () => {
@@ -1004,6 +1011,22 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   }, [refreshSchedules])
 
   useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      if (cancelled) return
+      await refreshMissionReliability({ silent: false })
+    }
+    void run()
+    const timer = window.setInterval(() => {
+      void refreshMissionReliability({ silent: true })
+    }, 60_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [refreshMissionReliability])
+
+  useEffect(() => {
     writeShellUiCache({ missionSchedules: schedules })
   }, [schedules])
 
@@ -1036,6 +1059,199 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
   }, [])
 
+  const buildWorkflowSummaryDraft = useCallback(() => {
+    const description = newDescription.trim()
+    const time = newTime.trim()
+    const timezone = (detectedTimezone || "America/New_York").trim()
+    const workflowStepsForSave = workflowSteps.map((step) => {
+      if (step.type !== "output") return step
+      const outputChannel = step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+        ? step.outputChannel
+        : "telegram"
+      const outputTiming: WorkflowStep["outputTiming"] =
+        step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate"
+      const outputFrequency: WorkflowStep["outputFrequency"] = step.outputFrequency === "multiple" ? "multiple" : "once"
+      const outputRepeatCount = outputFrequency === "multiple"
+        ? (typeof step.outputRepeatCount === "string" && /^\d{1,2}$/.test(step.outputRepeatCount) ? step.outputRepeatCount : "3")
+        : "1"
+      return {
+        ...step,
+        outputChannel,
+        outputTiming,
+        outputFrequency,
+        outputRepeatCount,
+        outputTime: time,
+        outputRecipients: "",
+        outputTemplate: "",
+      }
+    })
+
+    const derivedApiCalls = Array.from(
+      new Set(
+        workflowStepsForSave.flatMap((step) => {
+          if (step.type === "fetch") {
+            if (step.fetchApiIntegrationId) return [`INTEGRATION:${step.fetchApiIntegrationId}`]
+            if (step.fetchUrl?.trim()) return [`${step.fetchMethod === "POST" ? "POST" : "GET"} ${step.fetchUrl.trim()}`]
+            return [`FETCH:${step.fetchSource || "api"}`]
+          }
+          if (step.type === "coinbase") return [`COINBASE:${step.coinbaseIntent || "report"}`]
+          if (step.type === "ai") return [`LLM:${step.aiIntegration || integrationsSettings.activeLlmProvider}`]
+          if (step.type === "output") return [`OUTPUT:${step.outputChannel || "telegram"}`]
+          return []
+        }),
+      ),
+    )
+
+    return {
+      workflowStepsForSave,
+      summary: {
+        description,
+        priority: newPriority,
+        schedule: {
+          mode: newScheduleMode,
+          days: newScheduleDays,
+          time,
+          timezone,
+        },
+        missionActive,
+        tags: missionTags,
+        apiCalls: derivedApiCalls,
+        workflowSteps: workflowStepsForSave,
+      },
+    }
+  }, [
+    detectedTimezone,
+    integrationsSettings.activeLlmProvider,
+    missionActive,
+    missionTags,
+    newDescription,
+    newPriority,
+    newScheduleDays,
+    newScheduleMode,
+    newTime,
+    workflowSteps,
+  ])
+
+  const applyAutofixSummaryToBuilder = useCallback((summary: { workflowSteps?: Array<Partial<WorkflowStep>>; description?: string; schedule?: { time?: string; timezone?: string } }) => {
+    const resolvedTime = String(summary?.schedule?.time || newTime || "09:00")
+    const resolvedTimezone = String(summary?.schedule?.timezone || detectedTimezone || "America/New_York")
+    setWorkflowSteps(mapWorkflowStepsForBuilder(summary.workflowSteps, resolvedTime, resolvedTimezone))
+    if (typeof summary.description === "string" && summary.description.trim()) {
+      setNewDescription(summary.description.trim())
+    }
+  }, [detectedTimezone, mapWorkflowStepsForBuilder, newTime])
+
+  const previewWorkflowFixes = useCallback(async () => {
+    if (workflowSteps.length === 0) {
+      setStatus({ type: "error", message: "Add at least one workflow step before running autofix." })
+      return
+    }
+    setWorkflowAutofixLoading(true)
+    try {
+      const { summary } = buildWorkflowSummaryDraft()
+      const response = await previewMissionWorkflowAutofix({
+        summary,
+        mode: "full",
+        profile: "strict",
+        scheduleId: editingMissionId || undefined,
+      })
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
+      const data = response.data
+      if (!response.ok || !data?.autofix) {
+        throw new Error(data?.error || "Failed to preview workflow fixes.")
+      }
+      setWorkflowAutofixPreview(data.autofix)
+      setWorkflowAutofixSelectionById(
+        Object.fromEntries(
+          data.autofix.candidates
+            .filter((candidate) => candidate.disposition === "needs_approval")
+            .map((candidate) => [candidate.id, false]),
+        ),
+      )
+      setStatus({
+        type: "success",
+        message: `Autofix preview ready. ${data.autofix.candidates.length} candidates found.`,
+      })
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to preview workflow fixes.",
+      })
+    } finally {
+      setWorkflowAutofixLoading(false)
+    }
+  }, [buildWorkflowSummaryDraft, editingMissionId, router, workflowSteps.length])
+
+  const toggleWorkflowAutofixSelection = useCallback((candidateId: string) => {
+    setWorkflowAutofixSelectionById((prev) => ({
+      ...prev,
+      [candidateId]: !prev[candidateId],
+    }))
+  }, [])
+
+  const applyWorkflowFixes = useCallback(async (strategy: "safe" | "selected") => {
+    if (workflowSteps.length === 0) {
+      setStatus({ type: "error", message: "Add at least one workflow step before applying autofix." })
+      return
+    }
+    setWorkflowAutofixApplying(true)
+    try {
+      const { summary } = buildWorkflowSummaryDraft()
+      const approvedFixIds = strategy === "selected"
+        ? Object.entries(workflowAutofixSelectionById)
+          .filter((entry) => entry[1])
+          .map((entry) => entry[0])
+        : []
+      const response = await applyMissionWorkflowAutofix({
+        summary,
+        approvedFixIds,
+        mode: "full",
+        profile: "strict",
+        scheduleId: editingMissionId || undefined,
+      })
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
+      const data = response.data
+      if (!response.ok || !data?.autofix) {
+        throw new Error(data?.error || "Failed to apply workflow fixes.")
+      }
+      applyAutofixSummaryToBuilder(data.autofix.summary)
+      setWorkflowAutofixPreview(data.autofix)
+      setWorkflowAutofixSelectionById(
+        Object.fromEntries(
+          data.autofix.candidates
+            .filter((candidate) => candidate.disposition === "needs_approval")
+            .map((candidate) => [candidate.id, false]),
+        ),
+      )
+      setStatus({
+        type: data.autofix.blocked ? "error" : "success",
+        message: data.autofix.blocked
+          ? `Autofix applied ${data.autofix.appliedFixIds.length} fix(es), but blocking issues remain.`
+          : `Autofix applied ${data.autofix.appliedFixIds.length} fix(es).`,
+      })
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to apply workflow fixes.",
+      })
+    } finally {
+      setWorkflowAutofixApplying(false)
+    }
+  }, [
+    applyAutofixSummaryToBuilder,
+    buildWorkflowSummaryDraft,
+    editingMissionId,
+    router,
+    workflowAutofixSelectionById,
+    workflowSteps.length,
+  ])
+
   const deployMissionFromBuilder = useCallback(async () => {
     const label = newLabel.trim()
     const description = newDescription.trim()
@@ -1065,66 +1281,15 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       return
     }
 
-    const workflowStepsForSave = workflowSteps.map((step) => {
-      if (step.type !== "output") return step
-      const outputChannel = step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
-        ? step.outputChannel
-        : "telegram"
-      const outputTiming = step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate"
-      const outputFrequency = step.outputFrequency === "multiple" ? "multiple" : "once"
-      const outputRepeatCount = outputFrequency === "multiple"
-        ? (typeof step.outputRepeatCount === "string" && /^\d{1,2}$/.test(step.outputRepeatCount) ? step.outputRepeatCount : "3")
-        : "1"
-      return {
-        ...step,
-        outputChannel,
-        outputTiming,
-        outputFrequency,
-        outputRepeatCount,
-        outputTime: time,
-        outputRecipients: "",
-        outputTemplate: "",
-      }
-    })
+    const { workflowStepsForSave, summary: workflowSummary } = buildWorkflowSummaryDraft()
 
     const derivedIntegration = (
       workflowStepsForSave.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "telegram"
     )
-    const derivedApiCalls = Array.from(
-      new Set(
-        workflowStepsForSave.flatMap((step) => {
-          if (step.type === "fetch") {
-            if (step.fetchApiIntegrationId) return [`INTEGRATION:${step.fetchApiIntegrationId}`]
-            if (step.fetchUrl?.trim()) return [`${step.fetchMethod === "POST" ? "POST" : "GET"} ${step.fetchUrl.trim()}`]
-            return [`FETCH:${step.fetchSource || "api"}`]
-          }
-          if (step.type === "coinbase") return [`COINBASE:${step.coinbaseIntent || "report"}`]
-          if (step.type === "ai") return [`LLM:${step.aiIntegration || integrationsSettings.activeLlmProvider}`]
-          if (step.type === "output") return [`OUTPUT:${step.outputChannel || "telegram"}`]
-          return []
-        }),
-      ),
-    )
-
     setBuilderOpen(false)
     setDeployingMission(true)
     setStatus(null)
     try {
-      const workflowSummary = {
-        description,
-        priority: newPriority,
-        schedule: {
-          mode: newScheduleMode,
-          days: newScheduleDays,
-          time,
-          timezone,
-        },
-        missionActive,
-        tags: missionTags,
-        apiCalls: derivedApiCalls,
-        workflowSteps: workflowStepsForSave,
-      }
-
       const payload = {
         integration: derivedIntegration,
         label,
@@ -1267,14 +1432,12 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       setDeployingMission(false)
     }
   }, [
+    buildWorkflowSummaryDraft,
     detectedTimezone,
     editingMissionId,
-    integrationsSettings.activeLlmProvider,
     missionActive,
-    missionTags,
     newDescription,
     newLabel,
-    newPriority,
     newScheduleDays,
     newScheduleMode,
     newTime,
@@ -1335,13 +1498,17 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setItemBusy(id, true)
     setStatus(null)
     try {
-      const response = await deleteMissionSchedule(id)
-      const data = response.data as { error?: string }
+      const response = await deleteMissionById(id)
+      const data = response.data as { deleted?: boolean; reason?: string; error?: string }
       if (response.status === 401) {
         router.replace(`/login?next=${encodeURIComponent("/missions")}`)
         throw new Error("Session expired. Please sign in again.")
       }
       if (!response.ok) throw new Error(data?.error || "Failed to delete mission")
+      if (!data?.deleted) {
+        const reason = data?.reason === "not_found" ? "Mission was already removed." : "Mission was not deleted."
+        throw new Error(reason)
+      }
       setSchedules((prev) => prev.filter((s) => s.id !== id))
       setBaselineById((prev) => {
         const next = { ...prev }
@@ -1353,13 +1520,14 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         delete next[id]
         return next
       })
+      await refreshSchedules()
       setStatus({ type: "success", message: "Mission deleted." })
     } catch (error) {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to delete mission." })
     } finally {
       setItemBusy(id, false)
     }
-  }, [router, setItemBusy])
+  }, [refreshSchedules, router, setItemBusy])
 
   const confirmDeleteMission = useCallback(async () => {
     if (!pendingDeleteMission) return
@@ -1380,17 +1548,16 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     if (meta.mode) setNewScheduleMode(meta.mode)
     if (Array.isArray(meta.days) && meta.days.length > 0) setNewScheduleDays(meta.days)
     setMissionTags(Array.isArray(meta.tags) ? meta.tags : [])
-    setWorkflowSteps(buildBuilderWorkflowStepsFromMeta({
-      mission,
-      rawSteps: meta.workflowSteps,
-      idPrefix: "edit",
-      detectedTimezone,
-      integrationsSettings,
-      resolveDefaultAiIntegration,
-    }))
+    setWorkflowSteps(
+      mapWorkflowStepsForBuilder(
+        meta.workflowSteps,
+        mission.time || "09:00",
+        mission.timezone || detectedTimezone || "America/New_York",
+      ),
+    )
     setCollapsedStepIds({})
     setBuilderOpen(true)
-  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
+  }, [detectedTimezone, mapWorkflowStepsForBuilder])
 
   const duplicateMission = useCallback(async (mission: NotificationSchedule) => {
     const meta = parseMissionWorkflowMeta(mission.message)
@@ -1404,24 +1571,26 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     if (meta.mode) setNewScheduleMode(meta.mode)
     if (Array.isArray(meta.days) && meta.days.length > 0) setNewScheduleDays(meta.days)
     setMissionTags(Array.isArray(meta.tags) ? meta.tags : [])
-    setWorkflowSteps(buildBuilderWorkflowStepsFromMeta({
-      mission,
-      rawSteps: meta.workflowSteps,
-      idPrefix: "duplicate",
-      detectedTimezone,
-      integrationsSettings,
-      resolveDefaultAiIntegration,
-    }))
+    setWorkflowSteps(
+      mapWorkflowStepsForBuilder(
+        meta.workflowSteps,
+        mission.time || "09:00",
+        mission.timezone || detectedTimezone || "America/New_York",
+      ),
+    )
     setCollapsedStepIds({})
     setRunImmediatelyOnCreate(false)
     setBuilderOpen(true)
     setStatus({ type: "success", message: "Mission duplicated into builder. Configure and deploy." })
-  }, [detectedTimezone, integrationsSettings, resolveDefaultAiIntegration])
+  }, [detectedTimezone, mapWorkflowStepsForBuilder])
 
-  const runMissionNow = useCallback(async (mission: NotificationSchedule) => {
+  const runMissionNow = useCallback(async (
+    mission: NotificationSchedule,
+    options?: { workflowSteps?: Array<Partial<WorkflowStep>> },
+  ) => {
     setStatus(null)
     const meta = parseMissionWorkflowMeta(mission.message)
-    const pendingSteps = toPendingRunSteps(meta.workflowSteps)
+    const pendingSteps = toPendingRunSteps(options?.workflowSteps ?? meta.workflowSteps)
     const runningTotal = Math.max(pendingSteps.length, 1)
     setMissionRuntimeStatusById((prev) => ({
       ...prev,
@@ -1604,6 +1773,14 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setMissionTags,
     workflowSteps,
     setWorkflowSteps,
+    workflowAutofixPreview,
+    setWorkflowAutofixPreview,
+    workflowAutofixSelectionById,
+    setWorkflowAutofixSelectionById,
+    workflowAutofixLoading,
+    setWorkflowAutofixLoading,
+    workflowAutofixApplying,
+    setWorkflowAutofixApplying,
     collapsedStepIds,
     setCollapsedStepIds,
     integrationCatalog,
@@ -1630,6 +1807,16 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     setRunProgress,
     missionRuntimeStatusById,
     setMissionRuntimeStatusById,
+    missionReliabilitySummary,
+    setMissionReliabilitySummary,
+    missionReliabilitySlos,
+    setMissionReliabilitySlos,
+    missionReliabilityLookbackDays,
+    setMissionReliabilityLookbackDays,
+    missionReliabilityLoading,
+    setMissionReliabilityLoading,
+    missionReliabilityLastUpdatedAt,
+    setMissionReliabilityLastUpdatedAt,
     catalogApiById,
     apiFetchIntegrationOptions,
     outputChannelOptions,
@@ -1646,7 +1833,6 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     createWorkflowStep,
     setItemBusy,
     resetMissionBuilder,
-    applyTemplate,
     toggleScheduleDay,
     addWorkflowStep,
     toggleWorkflowStepCollapsed,
@@ -1654,6 +1840,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     updateWorkflowStep,
     updateWorkflowStepAi,
     removeWorkflowStep,
+    previewWorkflowFixes,
+    toggleWorkflowAutofixSelection,
+    applyWorkflowFixes,
     toPendingRunSteps,
     normalizeRunStepTraces,
     mapWorkflowStepsForBuilder,
@@ -1664,6 +1853,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     removeTag,
     playClickSound,
     refreshSchedules,
+    refreshMissionReliability,
     updateLocalSchedule,
     deployMissionFromBuilder,
     saveMission,

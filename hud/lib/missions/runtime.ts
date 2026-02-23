@@ -29,8 +29,6 @@ export type {
   ParsedWorkflow,
   CompletionResult,
   CompletionOverride,
-  ExecuteMissionWorkflowInput,
-  ExecuteMissionWorkflowResult,
   WorkflowScheduleGate,
   WorkflowStepTrace,
   WebDocumentResult,
@@ -46,7 +44,6 @@ export type {
 export { WORKFLOW_MARKER, parseMissionWorkflow } from "./workflow/parsing"
 export { shouldWorkflowRunNow } from "./workflow/scheduling"
 export { buildWorkflowFromPrompt } from "./workflow/generation"
-export { executeMissionWorkflow } from "./workflow/execution"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM Exports

@@ -112,7 +112,7 @@ export function FluidSelect({ value, options, onChange, isLight, className, butt
             "h-9 w-full rounded-md border px-3 text-left text-sm transition-colors inline-flex items-center justify-between",
             isLight
               ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 hover:bg-[#eef3fb]"
-              : "border-white/12 bg-white/[0.06] text-slate-100 backdrop-blur-md hover:bg-white/[0.1]",
+              : "border-white/12 bg-white/6 text-slate-100 backdrop-blur-md hover:bg-white/10",
             buttonClassName,
           )}
           aria-expanded={isOpen}
@@ -135,7 +135,7 @@ export function FluidSelect({ value, options, onChange, isLight, className, butt
                     exit={{ opacity: 0, y: -6, height: 0 }}
                     transition={{ duration: 0.14, ease: "easeOut" }}
                     style={{ left: menuStyle.left, top: menuStyle.top, width: menuStyle.width, maxHeight: menuStyle.maxHeight }}
-                    className="fixed z-[80]"
+                    className="fixed z-80"
                   >
                     <motion.div
                       className={cn(

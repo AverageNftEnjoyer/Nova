@@ -65,6 +65,16 @@ const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
 
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
 
+function resolveWorkspaceRoot(workspaceRootInput?: string): string {
+  if (toNonEmptyString(workspaceRootInput)) return path.resolve(String(workspaceRootInput));
+  const cwd = path.resolve(process.cwd());
+  if (fs.existsSync(path.join(cwd, "hud")) && fs.existsSync(path.join(cwd, "src"))) return cwd;
+  if (path.basename(cwd).toLowerCase() === "hud") return path.resolve(cwd, "..");
+  const parent = path.resolve(cwd, "..");
+  if (fs.existsSync(path.join(parent, "hud")) && fs.existsSync(path.join(parent, "src"))) return parent;
+  return cwd;
+}
+
 function toRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -112,8 +122,8 @@ export function toErrorDetails(err: unknown): ErrorDetails {
   };
 }
 
-export function resolveRuntimePaths(workspaceRoot = process.cwd()): RuntimePaths {
-  const root = path.resolve(workspaceRoot);
+export function resolveRuntimePaths(workspaceRoot?: string): RuntimePaths {
+  const root = resolveWorkspaceRoot(workspaceRoot);
   const integrationsConfigPath = path.join(root, "hud", "data", "integrations-config.json");
   const hudRoot = path.dirname(integrationsConfigPath);
   return {
@@ -162,6 +172,11 @@ function resolveEncryptionKeyCandidates(paths: RuntimePaths): string[] {
   const candidates: string[] = [];
   const envKey = toNonEmptyString(process.env.NOVA_ENCRYPTION_KEY);
   if (envKey) candidates.push(envKey);
+  const fallbackKeys = toNonEmptyString(process.env.NOVA_ENCRYPTION_KEY_FALLBACKS)
+    .split(/[,\n]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  candidates.push(...fallbackKeys);
 
   // Fallbacks for process contexts where dotenv was not hydrated before runtime init.
   const dotenvPaths = [
@@ -172,6 +187,15 @@ function resolveEncryptionKeyCandidates(paths: RuntimePaths): string[] {
   for (const dotenvPath of dotenvPaths) {
     const key = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY");
     if (key) candidates.push(key);
+  }
+  for (const dotenvPath of dotenvPaths) {
+    const fallback = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY_FALLBACKS");
+    if (!fallback) continue;
+    const parsed = fallback
+      .split(/[,\n]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    candidates.push(...parsed);
   }
   return candidates;
 }

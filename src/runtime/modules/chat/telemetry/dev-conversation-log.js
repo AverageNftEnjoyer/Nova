@@ -31,7 +31,37 @@ const DEV_CONVERSATION_SCAN_WARN_SCORE = Math.max(
   0,
   Math.min(100, Number.parseInt(process.env.NOVA_DEV_CONVERSATION_SCAN_WARN_SCORE || "75", 10) || 75),
 );
+const TOOL_LOOP_ALERT_WINDOW_MS = Math.max(
+  60_000,
+  Number.parseInt(process.env.NOVA_TOOL_LOOP_ALERT_WINDOW_MS || "900000", 10) || 900_000,
+);
+const TOOL_LOOP_ALERT_MIN_SAMPLES = Math.max(
+  1,
+  Number.parseInt(process.env.NOVA_TOOL_LOOP_ALERT_MIN_SAMPLES || "25", 10) || 25,
+);
+const TOOL_LOOP_ALERT_BUDGET_EXHAUSTED_RATE = Math.max(
+  0,
+  Math.min(1, Number.parseFloat(process.env.NOVA_TOOL_LOOP_ALERT_BUDGET_EXHAUSTED_RATE || "0.05") || 0.05),
+);
+const TOOL_LOOP_ALERT_STEP_TIMEOUT_RATE = Math.max(
+  0,
+  Math.min(1, Number.parseFloat(process.env.NOVA_TOOL_LOOP_ALERT_STEP_TIMEOUT_RATE || "0.10") || 0.1),
+);
+const TOOL_LOOP_ALERT_TOOL_TIMEOUT_RATE = Math.max(
+  0,
+  Math.min(1, Number.parseFloat(process.env.NOVA_TOOL_LOOP_ALERT_TOOL_TIMEOUT_RATE || "0.10") || 0.1),
+);
+const TOOL_LOOP_ALERT_CAP_RATE = Math.max(
+  0,
+  Math.min(1, Number.parseFloat(process.env.NOVA_TOOL_LOOP_ALERT_CAP_RATE || "0.20") || 0.2),
+);
+const TOOL_LOOP_ALERT_WARN_COOLDOWN_MS = Math.max(
+  30_000,
+  Number.parseInt(process.env.NOVA_TOOL_LOOP_ALERT_WARN_COOLDOWN_MS || "300000", 10) || 300_000,
+);
 const ANNOUNCED_LOG_PATHS = new Set();
+const TOOL_LOOP_ALERT_WINDOW_BY_SCOPE = new Map();
+const TOOL_LOOP_ALERT_LAST_WARN_BY_SCOPE = new Map();
 
 function normalizeUserContextId(value) {
   return sessionRuntime.normalizeUserContextId(String(value || ""));
@@ -147,6 +177,129 @@ function normalizeMemoryDiagnostics(value) {
   return out;
 }
 
+function normalizeToolLoopGuardrails(value) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    maxDurationMs: Number.isFinite(Number(value.maxDurationMs)) ? Number(value.maxDurationMs) : 0,
+    requestTimeoutMs: Number.isFinite(Number(value.requestTimeoutMs)) ? Number(value.requestTimeoutMs) : 0,
+    toolExecTimeoutMs: Number.isFinite(Number(value.toolExecTimeoutMs)) ? Number(value.toolExecTimeoutMs) : 0,
+    recoveryTimeoutMs: Number.isFinite(Number(value.recoveryTimeoutMs)) ? Number(value.recoveryTimeoutMs) : 0,
+    maxToolCallsPerStep: Number.isFinite(Number(value.maxToolCallsPerStep)) ? Number(value.maxToolCallsPerStep) : 0,
+    budgetExhausted: value.budgetExhausted === true,
+    stepTimeouts: Number.isFinite(Number(value.stepTimeouts)) ? Number(value.stepTimeouts) : 0,
+    toolExecutionTimeouts: Number.isFinite(Number(value.toolExecutionTimeouts)) ? Number(value.toolExecutionTimeouts) : 0,
+    recoveryBudgetExhausted: value.recoveryBudgetExhausted === true,
+    cappedToolCalls: Number.isFinite(Number(value.cappedToolCalls)) ? Number(value.cappedToolCalls) : 0,
+  };
+}
+
+function evaluateToolLoopGuardrailAlerts({ userContextId, toolLoopGuardrails, route, tsMs }) {
+  if (!toolLoopGuardrails || typeof toolLoopGuardrails !== "object") {
+    return {
+      triggered: false,
+      sampleCount: 0,
+      rates: null,
+      thresholds: null,
+      reasons: [],
+      scope: userContextId || "anonymous",
+    };
+  }
+
+  const routeText = String(route || "").toLowerCase();
+  if (!routeText.includes("tool_loop")) {
+    return {
+      triggered: false,
+      sampleCount: 0,
+      rates: null,
+      thresholds: null,
+      reasons: [],
+      scope: userContextId || "anonymous",
+    };
+  }
+
+  const scope = String(userContextId || "anonymous").trim() || "anonymous";
+  const nowMs = Number.isFinite(Number(tsMs)) ? Number(tsMs) : Date.now();
+  const thresholdWindowMs = TOOL_LOOP_ALERT_WINDOW_MS;
+  const minTs = nowMs - thresholdWindowMs;
+  const currentEntry = {
+    tsMs: nowMs,
+    budgetExhausted: toolLoopGuardrails.budgetExhausted === true,
+    stepTimeout: Number(toolLoopGuardrails.stepTimeouts || 0) > 0,
+    toolExecTimeout: Number(toolLoopGuardrails.toolExecutionTimeouts || 0) > 0,
+    callCapped: Number(toolLoopGuardrails.cappedToolCalls || 0) > 0,
+  };
+
+  const previous = Array.isArray(TOOL_LOOP_ALERT_WINDOW_BY_SCOPE.get(scope))
+    ? TOOL_LOOP_ALERT_WINDOW_BY_SCOPE.get(scope)
+    : [];
+  const windowed = [...previous.filter((entry) => Number(entry?.tsMs || 0) >= minTs), currentEntry];
+  TOOL_LOOP_ALERT_WINDOW_BY_SCOPE.set(scope, windowed);
+
+  const sampleCount = windowed.length;
+  if (sampleCount < TOOL_LOOP_ALERT_MIN_SAMPLES) {
+    return {
+      triggered: false,
+      sampleCount,
+      rates: null,
+      thresholds: null,
+      reasons: [],
+      scope,
+    };
+  }
+
+  const countWhere = (predicate) => windowed.reduce((acc, entry) => (predicate(entry) ? acc + 1 : acc), 0);
+  const rates = {
+    budgetExhausted: countWhere((entry) => entry.budgetExhausted) / sampleCount,
+    stepTimeout: countWhere((entry) => entry.stepTimeout) / sampleCount,
+    toolExecTimeout: countWhere((entry) => entry.toolExecTimeout) / sampleCount,
+    callCapped: countWhere((entry) => entry.callCapped) / sampleCount,
+  };
+  const thresholds = {
+    budgetExhausted: TOOL_LOOP_ALERT_BUDGET_EXHAUSTED_RATE,
+    stepTimeout: TOOL_LOOP_ALERT_STEP_TIMEOUT_RATE,
+    toolExecTimeout: TOOL_LOOP_ALERT_TOOL_TIMEOUT_RATE,
+    callCapped: TOOL_LOOP_ALERT_CAP_RATE,
+  };
+  const reasons = [];
+  if (rates.budgetExhausted > thresholds.budgetExhausted) reasons.push("budget_exhausted_rate");
+  if (rates.stepTimeout > thresholds.stepTimeout) reasons.push("step_timeout_rate");
+  if (rates.toolExecTimeout > thresholds.toolExecTimeout) reasons.push("tool_exec_timeout_rate");
+  if (rates.callCapped > thresholds.callCapped) reasons.push("tool_call_cap_rate");
+  const triggered = reasons.length > 0;
+
+  if (triggered) {
+    const lastWarnAt = Number(TOOL_LOOP_ALERT_LAST_WARN_BY_SCOPE.get(scope) || 0);
+    if (!Number.isFinite(lastWarnAt) || nowMs - lastWarnAt >= TOOL_LOOP_ALERT_WARN_COOLDOWN_MS) {
+      TOOL_LOOP_ALERT_LAST_WARN_BY_SCOPE.set(scope, nowMs);
+      console.warn(
+        `[ToolLoopAlert] scope=${scope} samples=${sampleCount}` +
+          ` rates=${JSON.stringify({
+            budgetExhausted: Number(rates.budgetExhausted.toFixed(4)),
+            stepTimeout: Number(rates.stepTimeout.toFixed(4)),
+            toolExecTimeout: Number(rates.toolExecTimeout.toFixed(4)),
+            callCapped: Number(rates.callCapped.toFixed(4)),
+          })}` +
+          ` thresholds=${JSON.stringify(thresholds)}` +
+          ` reasons=${reasons.join(",")}`,
+      );
+    }
+  }
+
+  return {
+    triggered,
+    sampleCount,
+    rates: {
+      budgetExhausted: Number(rates.budgetExhausted.toFixed(4)),
+      stepTimeout: Number(rates.stepTimeout.toFixed(4)),
+      toolExecTimeout: Number(rates.toolExecTimeout.toFixed(4)),
+      callCapped: Number(rates.callCapped.toFixed(4)),
+    },
+    thresholds,
+    reasons,
+    scope,
+  };
+}
+
 function inferHotLatencyStage(latencyStages, latencyMs) {
   const entries = Object.entries(latencyStages || {});
   if (entries.length === 0) return { hotPath: "", hotPathRatio: 0 };
@@ -198,6 +351,15 @@ function inferQuality(payload) {
   if (userInput.length < 4) tags.push("very_short_input");
   if (Number(payload.nlpCorrectionCount || 0) >= 2) tags.push("noisy_input");
   if (fallbackStage) tags.push("degraded_fallback");
+  const toolLoopGuardrails = payload.toolLoopGuardrails && typeof payload.toolLoopGuardrails === "object"
+    ? payload.toolLoopGuardrails
+    : null;
+  if (toolLoopGuardrails) {
+    if (toolLoopGuardrails.budgetExhausted === true) tags.push("tool_loop_budget_exhausted");
+    if (Number(toolLoopGuardrails.stepTimeouts || 0) > 0) tags.push("tool_loop_step_timeout");
+    if (Number(toolLoopGuardrails.toolExecutionTimeouts || 0) > 0) tags.push("tool_exec_timeout");
+    if (Number(toolLoopGuardrails.cappedToolCalls || 0) > 0) tags.push("tool_call_cap_applied");
+  }
 
   let score = 100;
   if (tags.includes("runtime_error")) score -= 50;
@@ -305,6 +467,10 @@ export function appendDevConversationLog(event = {}) {
         fallbackStage: String(event.fallbackStage || "").trim().toLowerCase(),
         hadCandidateBeforeFallback: event.hadCandidateBeforeFallback === true,
       },
+      toolLoopGuardrails: normalizeToolLoopGuardrails(event.toolLoopGuardrails),
+      ops: {
+        toolLoopAlerts: null,
+      },
       nlp: {
         bypass: event.nlpBypass === true,
         confidence: Number.isFinite(Number(event.nlpConfidence)) ? Number(event.nlpConfidence) : null,
@@ -333,6 +499,14 @@ export function appendDevConversationLog(event = {}) {
       linkUnderstandingUsed: event.linkUnderstandingUsed === true,
       nlpCorrectionCount: payload.nlp.correctionCount,
       error: payload.status.error,
+      toolLoopGuardrails: payload.toolLoopGuardrails,
+    });
+
+    payload.ops.toolLoopAlerts = evaluateToolLoopGuardrailAlerts({
+      userContextId,
+      toolLoopGuardrails: payload.toolLoopGuardrails,
+      route,
+      tsMs: Date.parse(ts),
     });
 
     const targetPath = resolveLogPath(userContextId);

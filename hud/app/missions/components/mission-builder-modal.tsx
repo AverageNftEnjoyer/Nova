@@ -34,6 +34,7 @@ import {
   renderStepIcon,
   sanitizeOutputRecipients,
 } from "../helpers"
+import type { WorkflowAutofixResponse } from "../api"
 import type { AiIntegrationType, WorkflowStep } from "../types"
 import { TimeField } from "./time-field"
 
@@ -88,6 +89,10 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     newScheduleMode,
     setNewScheduleMode,
     workflowSteps,
+    workflowAutofixPreview,
+    workflowAutofixSelectionById,
+    workflowAutofixLoading,
+    workflowAutofixApplying,
     draggingStepId,
     setDragOverStepId,
     moveWorkflowStepByDrop,
@@ -109,6 +114,9 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     novaSuggestForAiStep,
     novaSuggestingByStepId,
     addWorkflowStep,
+    previewWorkflowFixes,
+    toggleWorkflowAutofixSelection,
+    applyWorkflowFixes,
     builderFooterRef,
     missionActive,
     setMissionActive,
@@ -144,6 +152,10 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     newScheduleMode: string
     setNewScheduleMode: (mode: string) => void
     workflowSteps: WorkflowStep[]
+    workflowAutofixPreview: WorkflowAutofixResponse | null
+    workflowAutofixSelectionById: Record<string, boolean>
+    workflowAutofixLoading: boolean
+    workflowAutofixApplying: boolean
     draggingStepId: string | null
     setDragOverStepId: (id: string | null) => void
     moveWorkflowStepByDrop: (fromId: string, toId: string) => void
@@ -168,6 +180,9 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     novaSuggestForAiStep: (stepId: string) => Promise<void>
     novaSuggestingByStepId: Record<string, boolean>
     addWorkflowStep: (type: WorkflowStep["type"]) => void
+    previewWorkflowFixes: () => Promise<void>
+    toggleWorkflowAutofixSelection: (candidateId: string) => void
+    applyWorkflowFixes: (strategy: "safe" | "selected") => Promise<void>
     builderFooterRef: MutableRefObject<HTMLDivElement | null>
     missionActive: boolean
     setMissionActive: (updater: (prev: boolean) => boolean) => void
@@ -957,6 +972,102 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
                       <span>{option.label}</span>
                     </button>
                   ))}
+                </div>
+                <div className={cn("mt-3 rounded-lg border p-2.5", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/12 bg-black/25")}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className={cn("text-xs font-semibold uppercase tracking-[0.12em]", isLight ? "text-s-60" : "text-slate-300")}>Workflow Autofix</p>
+                      <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+                        Preview confidence-ranked fixes. Low-risk fixes can auto-apply; medium/high require explicit approval.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound()
+                          void previewWorkflowFixes()
+                        }}
+                        disabled={workflowAutofixLoading || workflowAutofixApplying}
+                        className={cn(
+                          "h-7 px-2.5 rounded-md border text-xs font-medium",
+                          isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/15 bg-black/20 text-slate-200",
+                        )}
+                      >
+                        {workflowAutofixLoading ? "Scanning..." : "Preview Fixes"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound()
+                          void applyWorkflowFixes("safe")
+                        }}
+                        disabled={workflowAutofixLoading || workflowAutofixApplying}
+                        className="h-7 px-2.5 rounded-md border border-emerald-300/40 bg-emerald-500/10 text-emerald-300 text-xs font-medium"
+                      >
+                        Apply Safe
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          playClickSound()
+                          void applyWorkflowFixes("selected")
+                        }}
+                        disabled={
+                          workflowAutofixLoading ||
+                          workflowAutofixApplying ||
+                          Object.values(workflowAutofixSelectionById).every((selected) => !selected)
+                        }
+                        className="h-7 px-2.5 rounded-md border border-accent-30 bg-accent-10 text-accent text-xs font-medium disabled:opacity-50"
+                      >
+                        {workflowAutofixApplying ? "Applying..." : "Apply Selected"}
+                      </button>
+                    </div>
+                  </div>
+                  {workflowAutofixPreview && (
+                    <div className="mt-2 space-y-2">
+                      <div className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
+                        Issues: {workflowAutofixPreview.issueReduction.before} {"->"} {workflowAutofixPreview.issueReduction.after}
+                      </div>
+                      <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                        {workflowAutofixPreview.candidates.length === 0 && (
+                          <div className={cn("rounded-md border px-2 py-1.5 text-[11px]", isLight ? "border-[#d5dce8] bg-white text-s-60" : "border-white/12 bg-black/20 text-slate-400")}>
+                            No autofix candidates for current workflow.
+                          </div>
+                        )}
+                        {workflowAutofixPreview.candidates.map((candidate) => {
+                          const needsApproval = candidate.disposition === "needs_approval"
+                          const selected = Boolean(workflowAutofixSelectionById[candidate.id])
+                          return (
+                            <label
+                              key={candidate.id}
+                              className={cn(
+                                "flex items-start gap-2 rounded-md border px-2 py-1.5",
+                                isLight ? "border-[#d5dce8] bg-white" : "border-white/12 bg-black/20",
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={needsApproval ? selected : true}
+                                disabled={!needsApproval}
+                                onChange={() => {
+                                  if (needsApproval) toggleWorkflowAutofixSelection(candidate.id)
+                                }}
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-100")}>{candidate.title}</span>
+                                  <span className={cn("text-[10px] uppercase tracking-[0.1em]", candidate.risk === "low" ? "text-emerald-400" : candidate.risk === "medium" ? "text-amber-400" : "text-rose-400")}>{candidate.risk}</span>
+                                  <span className={cn("text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>{Math.round(candidate.confidence * 100)}%</span>
+                                </div>
+                                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>{candidate.changePreview}</p>
+                              </div>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

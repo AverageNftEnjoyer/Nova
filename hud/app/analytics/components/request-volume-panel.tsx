@@ -108,7 +108,7 @@ export function RequestVolumePanel({ points, category, isLight }: RequestVolumeP
         </div>
       </div>
 
-      <div className={`home-spotlight-card home-border-glow min-h-0 flex-1 flex flex-col rounded-xl border p-2.5 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
+      <div className={`home-spotlight-card min-h-0 flex-1 flex flex-col rounded-xl border p-2.5 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
         <div ref={plotHostRef} className="min-h-0 flex-1">
           <svg viewBox={`0 0 ${width} ${height}`} className="pointer-events-none h-full w-full select-none">
           <g transform={`translate(${margin.left},${margin.top})`}>

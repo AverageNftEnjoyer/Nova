@@ -210,6 +210,49 @@ type IncomingAgentMessage = {
   nlpBypass?: boolean
 }
 
+type PendingMissionMessage = {
+  id: string
+  title: string
+  content: string
+  missionId?: string
+  missionLabel?: string
+  metadata?: {
+    missionRunId?: string
+    runKey?: string
+    attempt?: number
+    source?: "scheduler" | "trigger"
+    outputChannel?: string
+    deliveryKey?: string
+  }
+  createdAt: string
+}
+
+function resolvePendingMissionGroupKey(msg: PendingMissionMessage): string {
+  const deliveryKey = String(msg.metadata?.deliveryKey || "").trim()
+  if (deliveryKey) {
+    const deliveryParts = deliveryKey.split(":")
+    if (deliveryParts.length >= 2) {
+      return `run:${deliveryParts[0]}:${deliveryParts[1]}`
+    }
+  }
+  const missionId = String(msg.missionId || "").trim() || "mission"
+  const missionRunId = String(msg.metadata?.missionRunId || "").trim()
+  const runKey = String(msg.metadata?.runKey || "").trim()
+  if (missionRunId) return `run:${missionId}:${missionRunId}`
+  if (runKey) return `run:${missionId}:${runKey}`
+  return `message:${msg.id}`
+}
+
+function resolvePendingMissionDeliveryKey(msg: PendingMissionMessage): string {
+  const explicit = String(msg.metadata?.deliveryKey || "").trim()
+  if (explicit) return explicit
+  const missionId = String(msg.missionId || "").trim() || "mission"
+  const missionRunId = String(msg.metadata?.missionRunId || "").trim()
+  const runKey = String(msg.metadata?.runKey || "").trim()
+  const contentSig = normalizeMessageComparableCompact(String(msg.content || "")).slice(0, 80) || "content"
+  return `fallback:${missionId}:${missionRunId || runKey || "run"}:${contentSig}`
+}
+
 function mergeConversationsPreferLocal(
   local: Conversation[],
   remote: Conversation[],
@@ -498,6 +541,7 @@ export function useConversations({
   const pendingRedirectTimerRef = useRef<number | null>(null)
   const pendingPollBackoffAttemptsRef = useRef(0)
   const pendingPollScopeKeyRef = useRef("")
+  const pendingMissionConversationByGroupRef = useRef<Map<string, string>>(new Map())
   const pendingPollTabIdRef = useRef(`tab-${Math.random().toString(36).slice(2, 10)}`)
   const activeUserIdRef = useRef("")
   const missionInFlightByScopeRef = useRef<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>(new Map())
@@ -510,6 +554,12 @@ export function useConversations({
     message: "",
     retryAtMs: 0,
   })
+  const setPendingQueueStatusSafe = useCallback((next: { mode: "idle" | "processing" | "retrying"; message: string; retryAtMs: number }) => {
+    setPendingQueueStatus((prev) => {
+      if (prev.mode === next.mode && prev.message === next.message && prev.retryAtMs === next.retryAtMs) return prev
+      return next
+    })
+  }, [])
   const processedAgentMessageKeysRef = useRef<Set<string>>(new Set())
   /** When we replace an optimistic convo with server convo, agent replies may still use the old id; route them to the server convo */
   const optimisticIdToServerIdRef = useRef<Map<string, string>>(new Map())
@@ -927,7 +977,7 @@ export function useConversations({
             attempt: pendingPollBackoffAttemptsRef.current,
             retryAfterMs,
           })
-          setPendingQueueStatus({
+          setPendingQueueStatusSafe({
             mode: "retrying",
             message: "Pending queue rate-limited. Retrying shortly.",
             retryAtMs: Date.now() + delay,
@@ -942,7 +992,7 @@ export function useConversations({
         if (!res.ok) {
           pendingPollBackoffAttemptsRef.current += 1
           const delay = computeBackoffDelayMs({ attempt: pendingPollBackoffAttemptsRef.current })
-          setPendingQueueStatus({
+          setPendingQueueStatusSafe({
             mode: "retrying",
             message: "Pending queue temporarily unavailable. Retrying.",
             retryAtMs: Date.now() + delay,
@@ -958,31 +1008,41 @@ export function useConversations({
         setPendingQueueStatus((prev) => (prev.mode === "idle" ? prev : { mode: "idle", message: "", retryAtMs: 0 }))
         const data = await res.json() as {
           ok: boolean
-          messages?: Array<{
-            id: string
-            title: string
-            content: string
-            missionId?: string
-            missionLabel?: string
-            metadata?: {
-              missionRunId?: string
-              runKey?: string
-              attempt?: number
-              source?: "scheduler" | "trigger"
-              outputChannel?: string
-            }
-            createdAt: string
-          }>
+          messages?: PendingMissionMessage[]
         }
         if (!data.ok || !Array.isArray(data.messages) || data.messages.length === 0) return 0
 
         const consumedIds: string[] = []
         let latestConvo: Conversation | null = null
         let updatedConvos = [...conversations]
+        const seenDeliveryKeys = new Set<string>()
+        const runConversationByGroup = pendingMissionConversationByGroupRef.current
+        const sortedMessages = [...data.messages].sort((a, b) => parseIsoTimestamp(a.createdAt) - parseIsoTimestamp(b.createdAt))
 
-        for (const msg of data.messages) {
-          const newConvo = await createServerConversation().catch(() => null)
-          if (!newConvo) continue
+        for (const msg of sortedMessages) {
+          const deliveryKey = resolvePendingMissionDeliveryKey(msg)
+          if (seenDeliveryKeys.has(deliveryKey)) {
+            consumedIds.push(msg.id)
+            continue
+          }
+          seenDeliveryKeys.add(deliveryKey)
+          const groupKey = resolvePendingMissionGroupKey(msg)
+          const existingByGroupId = runConversationByGroup.get(groupKey)
+          const missionRunId = String(msg.metadata?.missionRunId || "").trim()
+          const missionRunKey = String(msg.metadata?.runKey || "").trim()
+          let targetConvo =
+            (existingByGroupId ? updatedConvos.find((c) => c.id === existingByGroupId) : null)
+            || (missionRunId
+              ? updatedConvos.find((c) => c.messages.some((m) => String(m.missionRunId || "").trim() === missionRunId))
+              : null)
+            || (missionRunKey
+              ? updatedConvos.find((c) => c.messages.some((m) => String(m.missionRunKey || "").trim() === missionRunKey))
+              : null)
+            || null
+          if (!targetConvo) {
+            targetConvo = await createServerConversation(msg.title || msg.missionLabel || "Mission Report").catch(() => null)
+            if (!targetConvo) continue
+          }
 
           const assistantMsg: ChatMessage = {
             id: generateId(),
@@ -1003,10 +1063,21 @@ export function useConversations({
             missionOutputChannel: msg.metadata?.outputChannel,
           }
 
+          const alreadyPresent = targetConvo.messages.some((existing) => {
+            if (existing.role !== "assistant") return false
+            if (String(existing.missionRunId || "").trim() !== missionRunId) return false
+            return normalizeMessageComparableCompact(String(existing.content || "")) === normalizeMessageComparableCompact(String(msg.content || ""))
+          })
+          if (alreadyPresent) {
+            consumedIds.push(msg.id)
+            runConversationByGroup.set(groupKey, targetConvo.id)
+            continue
+          }
+
           const convoWithMessage: Conversation = {
-            ...newConvo,
-            title: msg.title || msg.missionLabel || "Mission Report",
-            messages: [assistantMsg],
+            ...targetConvo,
+            title: targetConvo.title || msg.title || msg.missionLabel || "Mission Report",
+            messages: [...targetConvo.messages, assistantMsg],
             updatedAt: new Date().toISOString(),
           }
 
@@ -1016,6 +1087,7 @@ export function useConversations({
           consumedIds.push(msg.id)
           updatedConvos = [convoWithMessage, ...updatedConvos.filter((c) => c.id !== convoWithMessage.id)]
           latestConvo = convoWithMessage
+          runConversationByGroup.set(groupKey, convoWithMessage.id)
         }
 
         if (latestConvo) {
@@ -1033,7 +1105,7 @@ export function useConversations({
       } catch {
         pendingPollBackoffAttemptsRef.current += 1
         const delay = computeBackoffDelayMs({ attempt: pendingPollBackoffAttemptsRef.current })
-        setPendingQueueStatus({
+        setPendingQueueStatusSafe({
           mode: "retrying",
           message: "Pending queue error. Retrying.",
           retryAtMs: Date.now() + delay,
@@ -1060,6 +1132,7 @@ export function useConversations({
     syncServerMessages,
     persist,
     resolveSessionConversationIdForAgent,
+    setPendingQueueStatusSafe,
     tryAcquirePendingPollLease,
   ])
 

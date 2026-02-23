@@ -42,6 +42,7 @@
     "@radix-ui/react-tooltip": "1.1.6",
     "@supabase/supabase-js": "^2.57.4",
     "@types/topojson-client": "^3.1.5",
+    "@xyflow/react": "^12.10.1",
     "ai": "6.0.38",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",

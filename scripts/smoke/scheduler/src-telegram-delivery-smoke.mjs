@@ -214,6 +214,87 @@ await run("P21-T3 Telegram multi-chat returns partial failure matrix with dedupe
   assert.equal(String(failure?.error || "").includes("chat not found"), true);
 });
 
+await run("P21-T4 Telegram auto-chunks long messages instead of failing", async () => {
+  const sentBodies = [];
+  harness.config = {
+    telegram: {
+      connected: true,
+      botToken: "token-long",
+      chatIds: ["chat-long"],
+    },
+  };
+  harness.fetchImpl = async (_url, init) => {
+    const body = JSON.parse(String(init?.body || "{}"));
+    sentBodies.push(body);
+    return {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({ ok: true }),
+    };
+  };
+
+  const longText = Array.from({ length: 1200 }, (_, index) => `Line ${index + 1}: enterprise mission section.`).join("\n");
+  const result = await sendTelegramMessage(
+    {
+      text: longText,
+      parseMode: "HTML",
+    },
+    { userId: "smoke-user-telegram" },
+  );
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].ok, true);
+  assert.equal(sentBodies.length > 1, true);
+  assert.equal(sentBodies.every((payload) => String(payload.text || "").length <= 4096), true);
+});
+
+await run("P21-T5 Telegram section chunker splits on briefing section boundaries", async () => {
+  const sentBodies = [];
+  harness.config = {
+    telegram: {
+      connected: true,
+      botToken: "token-sections",
+      chatIds: ["chat-sections"],
+    },
+  };
+  harness.fetchImpl = async (_url, init) => {
+    const body = JSON.parse(String(init?.body || "{}"));
+    sentBodies.push(body);
+    return {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({ ok: true }),
+    };
+  };
+
+  const briefing = [
+    "**NBA RECAP**\n" + "Lakers 112-109 Celtics Final\n".repeat(30),
+    "**INSPIRATIONAL QUOTE**\n" + "\"Discipline is choosing between what you want now and what you want most.\" - Abraham Lincoln\n".repeat(25),
+    "**CRYPTO PRICES (USD)**\n" + "ETH: $1866.77 | SUI: $0.8767\n".repeat(30),
+    "**TOP TECH STORY**\n" + "Headline: New chip architecture lowers inference costs.\nWhy it matters: materially cheaper deployment across enterprise workloads.\n".repeat(25),
+  ].join("\n\n");
+
+  const result = await sendTelegramMessage(
+    {
+      text: briefing,
+      parseMode: "HTML",
+    },
+    { userId: "smoke-user-telegram" },
+  );
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].ok, true);
+  assert.equal(sentBodies.length >= 2, true);
+  const allChunkTexts = sentBodies.map((payload) => String(payload.text || ""));
+  assert.equal(allChunkTexts.every((chunk) => chunk.length <= 4096), true);
+  assert.equal(allChunkTexts.some((chunk) => chunk.includes("NBA RECAP")), true);
+  assert.equal(allChunkTexts.some((chunk) => chunk.includes("INSPIRATIONAL QUOTE")), true);
+  assert.equal(allChunkTexts.some((chunk) => chunk.includes("CRYPTO PRICES (USD)")), true);
+  assert.equal(allChunkTexts.some((chunk) => chunk.includes("TOP TECH STORY")), true);
+});
+
 if (typeof previousEnv.NOVA_TELEGRAM_SEND_TIMEOUT_MS === "string") {
   process.env.NOVA_TELEGRAM_SEND_TIMEOUT_MS = previousEnv.NOVA_TELEGRAM_SEND_TIMEOUT_MS;
 } else {

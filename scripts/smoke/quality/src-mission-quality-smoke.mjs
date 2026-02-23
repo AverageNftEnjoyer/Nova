@@ -27,7 +27,8 @@ function read(relativePath) {
 }
 
 const qualitySource = read("hud/lib/missions/output/quality.ts");
-const executionSource = read("hud/lib/missions/workflow/execution.ts");
+const outputExecutorSource = read("hud/lib/missions/workflow/executors/output-executors.ts");
+const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
 
 await run("P17-C1 quality module exposes scoring + guardrail APIs", async () => {
   const requiredTokens = [
@@ -55,25 +56,23 @@ await run("P17-C2 quality module supports runtime guardrail tunables", async () 
 
 await run("P17-C3 workflow output path applies quality guardrails before dispatch", async () => {
   const requiredTokens = [
-    'import { applyMissionOutputQualityGuardrails } from "../output/quality"',
-    "const qualityGuard = applyMissionOutputQualityGuardrails",
-    "const guardedText = qualityGuard.text",
-    "Quality guardrail applied",
-    "Output sent via",
+    'import { applyMissionOutputQualityGuardrails } from "../../output/quality"',
+    "const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)",
+    "dispatchOutput(",
   ];
   for (const token of requiredTokens) {
-    assert.equal(executionSource.includes(token), true, `missing execution token: ${token}`);
+    assert.equal(outputExecutorSource.includes(token), true, `missing execution token: ${token}`);
   }
 });
 
 await run("P17-C4 fallback-output path also applies quality guardrails", async () => {
   const requiredTokens = [
-    "const fallbackQualityGuard = applyMissionOutputQualityGuardrails",
-    "const guardedFallbackText = fallbackQualityGuard.text",
-    "Fallback output sent.",
+    'const { applyMissionOutputQualityGuardrails } = await import("../output/quality")',
+    "const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)",
+    "fallback.output.dispatched",
   ];
   for (const token of requiredTokens) {
-    assert.equal(executionSource.includes(token), true, `missing fallback token: ${token}`);
+    assert.equal(executeMissionSource.includes(token), true, `missing fallback token: ${token}`);
   }
 });
 

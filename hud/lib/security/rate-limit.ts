@@ -66,6 +66,26 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_TRIGGER_STREAM_PER_MIN", 4, 1, 120),
     windowMs: 60_000,
   },
+  missionSave: {
+    bucket: "mission-save",
+    limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_SAVE_PER_MIN", 20, 1, 300),
+    windowMs: 60_000,
+  },
+  missionVersionsRead: {
+    bucket: "mission-versions-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_VERSIONS_READ_PER_MIN", 30, 1, 500),
+    windowMs: 60_000,
+  },
+  missionVersionRestore: {
+    bucket: "mission-version-restore",
+    limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_VERSION_RESTORE_PER_10M", 10, 1, 200),
+    windowMs: 10 * 60_000,
+  },
+  missionReliabilityRead: {
+    bucket: "mission-reliability-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_RELIABILITY_READ_PER_MIN", 30, 1, 500),
+    windowMs: 60_000,
+  },
   integrationModelProbe: {
     bucket: "integration-model-probe",
     limit: readIntEnv("NOVA_RATE_LIMIT_INTEGRATION_PROBE_PER_MIN", 18, 1, 500),

@@ -37,7 +37,7 @@ export function AgentRosterPanel({ agents, isLight }: AgentRosterPanelProps) {
           const status = statuses[agent.id] || agent.status
           const isOpen = expanded === agent.id
           return (
-            <div key={agent.id} className={`home-spotlight-card home-border-glow rounded-xl border ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25"}`}>
+            <div key={agent.id} className={`home-spotlight-card rounded-xl border ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25"}`}>
               <button
                 type="button"
                 onClick={() => setExpanded((prev) => (prev === agent.id ? null : agent.id))}

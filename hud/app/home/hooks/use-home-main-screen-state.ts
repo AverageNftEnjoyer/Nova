@@ -8,6 +8,7 @@ import { loadUserSettings, normalizeResponseTone } from "@/lib/settings/userSett
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { pickGreetingForTone } from "../constants"
 import { useHomeConversations } from "./use-home-conversations"
+import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeVisuals } from "./use-home-visuals"
 
@@ -31,6 +32,7 @@ export function useHomeMainScreenState() {
 
   const visuals = useHomeVisuals({ isLight })
   const integrations = useHomeIntegrations({ latestUsage })
+  const devTools = useHomeDevTools()
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
   const [isMuted, setIsMuted] = useState(true)
@@ -126,6 +128,8 @@ export function useHomeMainScreenState() {
     handleMuteToggle,
     muteHydrated,
     pipelineSectionRef: visuals.pipelineSectionRef,
+    analyticsSectionRef: visuals.analyticsSectionRef,
+    devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
     panelStyle: visuals.panelStyle,
     panelClass: visuals.panelClass,
@@ -136,6 +140,7 @@ export function useHomeMainScreenState() {
     openIntegrations,
     openAnalytics,
     openDevLogs,
+    devToolsMetrics: devTools.devToolsMetrics,
     handleToggleTelegramIntegration: integrations.handleToggleTelegramIntegration,
     handleToggleDiscordIntegration: integrations.handleToggleDiscordIntegration,
     handleToggleBraveIntegration: integrations.handleToggleBraveIntegration,

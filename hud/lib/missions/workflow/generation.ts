@@ -7,7 +7,7 @@
 import "server-only"
 
 import { loadIntegrationCatalog } from "@/lib/integrations/catalog-server"
-import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, type IntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { cleanText, parseJsonObject } from "../text/cleaning"
 import { generateShortTitle } from "../text/formatting"
 import { normalizeWorkflowStep, normalizeOutputRecipientsForChannel } from "../utils/config"
@@ -23,6 +23,36 @@ function logCoinbaseGeneration(details: Record<string, unknown>) {
     event: "coinbase.step.generated",
     ts: new Date().toISOString(),
     ...details,
+  })
+}
+
+function modelForProvider(config: IntegrationsConfig, provider: Provider): string {
+  if (provider === "claude") return String(config.claude.defaultModel || "").trim()
+  if (provider === "grok") return String(config.grok.defaultModel || "").trim()
+  if (provider === "gemini") return String(config.gemini.defaultModel || "").trim()
+  return String(config.openai.defaultModel || "").trim()
+}
+
+function normalizeProvider(value: string): Provider {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "claude" || normalized === "grok" || normalized === "gemini" || normalized === "openai") {
+    return normalized
+  }
+  return "openai"
+}
+
+function enforceAiProviderAndModel(steps: WorkflowStep[], provider: Provider, model: string): WorkflowStep[] {
+  const normalizedModel = String(model || "").trim()
+  return steps.map((step, index) => {
+    if (step.type !== "ai") return step
+    return normalizeWorkflowStep(
+      {
+        ...step,
+        aiIntegration: provider,
+        aiModel: normalizedModel,
+      },
+      index,
+    )
   })
 }
 
@@ -233,12 +263,19 @@ function shouldSkipFetchForTopic(topic: DetectedTopic, prompt: string): boolean 
 
 function promptLooksLikeCoinbaseTask(prompt: string): boolean {
   const text = String(prompt || "").toLowerCase()
-  return /\bcoinbase\b/.test(text) || (/\b(crypto|bitcoin|ethereum|solana|portfolio|pnl|price alert)\b/.test(text) && /\b(digest|mission|workflow|schedule|daily|weekly)\b/.test(text))
+  if (/\bcoinbase\b/.test(text)) return true
+  const asksAccountData = /\b(my|our)\s+(crypto\s+)?(account|portfolio|holdings?|balances?|wallet|positions?)\b/.test(text)
+  const hasCryptoDomain = /\b(crypto|bitcoin|btc|ethereum|eth|solana|sol|sui|xrp|ada|doge|ltc|portfolio|pnl|token)\b/.test(text)
+  const asksForPriceOrMarketContext = /\b(price|quote|quoted|current|live|market|sentiment|why|reason|at its price|valuation|movement|movers?)\b/.test(text)
+  const asksForAutomation = /\b(digest|mission|workflow|schedule|daily|weekly|every day|every morning|every night|report|summary)\b/.test(text)
+  if (hasCryptoDomain && asksAccountData) return true
+  if (hasCryptoDomain && asksForPriceOrMarketContext) return true
+  return hasCryptoDomain && asksForAutomation
 }
 
 function extractCoinbaseAssets(prompt: string): string[] {
   const text = String(prompt || "").toUpperCase()
-  const known = ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "USDT", "USDC", "EURC"]
+  const known = ["BTC", "ETH", "SOL", "SUI", "XRP", "ADA", "DOGE", "LTC", "USDT", "USDC", "EURC"]
   const out: string[] = []
   for (const token of known) {
     if (new RegExp(`\\b${token}\\b`, "i").test(text)) out.push(token)
@@ -249,6 +286,7 @@ function extractCoinbaseAssets(prompt: string): string[] {
 function inferCoinbasePrimitive(prompt: string): "daily_portfolio_summary" | "price_alert_digest" | "weekly_pnl_summary" {
   const text = String(prompt || "").toLowerCase()
   if (/\bweekly\b/.test(text) && /\bpnl|profit|loss\b/.test(text)) return "weekly_pnl_summary"
+  if (/\b(price|quote|current|live|market|sentiment|reason|why)\b/.test(text)) return "price_alert_digest"
   if (/\balert|threshold|move|mover\b/.test(text)) return "price_alert_digest"
   return "daily_portfolio_summary"
 }
@@ -261,6 +299,8 @@ function buildCoinbaseWorkflow(input: {
 }): { label: string; integration: string; summary: WorkflowSummary } {
   const primitive = inferCoinbasePrimitive(input.prompt)
   const assets = extractCoinbaseAssets(input.prompt)
+  const asksSentimentOrReasoning = /\b(sentiment|why|reason|driver|drivers|context)\b/i.test(String(input.prompt || ""))
+  const promptContextLine = `User request: ${cleanText(String(input.prompt || "")).slice(0, 220)}`
   const scheduleMode = primitive === "weekly_pnl_summary" ? "weekly" : "daily"
   const scheduleDays = primitive === "weekly_pnl_summary" ? ["sun"] : ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
   const queryParts = [
@@ -301,12 +341,30 @@ function buildCoinbaseWorkflow(input: {
       // Backward compatibility for older execution engines still reading fetchQuery.
       fetchQuery: queryParts.join("&"),
     }, 1),
+    ...(asksSentimentOrReasoning
+      ? [
+        normalizeWorkflowStep({
+          type: "fetch",
+          title: "Fetch market sentiment context",
+          fetchSource: "web",
+          fetchMethod: "GET",
+          fetchUrl: "",
+          fetchQuery: `latest ${assets.join(" ")} market sentiment drivers`,
+          fetchHeaders: "",
+          fetchSelector: "a[href]",
+          fetchRefreshMinutes: "15",
+          fetchIncludeSources: true,
+        }, 2),
+      ]
+      : []),
     normalizeWorkflowStep({
       type: "ai",
       title: "Summarize Coinbase report",
-      aiPrompt: "Summarize Coinbase market data clearly. Use only provided values. If required PnL inputs are missing, state that explicitly.",
+      aiPrompt: asksSentimentOrReasoning
+        ? `${promptContextLine}\nSummarize Coinbase prices first, then explain likely market sentiment drivers using fetched context. Do not invent numbers. If a value is unavailable, say unavailable and why.`
+        : `${promptContextLine}\nSummarize Coinbase market data clearly. Use only provided values. If required data is missing, state that explicitly.`,
       aiDetailLevel: "standard",
-    }, 2),
+    }, asksSentimentOrReasoning ? 3 : 2),
     normalizeWorkflowStep({
       type: "output",
       title: "Send notification",
@@ -315,7 +373,7 @@ function buildCoinbaseWorkflow(input: {
       outputTime: input.time,
       outputFrequency: "once",
       outputRepeatCount: "1",
-    }, 3),
+    }, asksSentimentOrReasoning ? 4 : 3),
   ]
   return {
     label: generateShortTitle(input.prompt || "Coinbase Mission"),
@@ -331,7 +389,7 @@ function buildCoinbaseWorkflow(input: {
       },
       missionActive: true,
       tags: ["coinbase", "crypto", scheduleMode],
-      apiCalls: ["COINBASE:report", `OUTPUT:${input.channel}`],
+      apiCalls: [`COINBASE:${primitive === "price_alert_digest" ? "price" : primitive === "weekly_pnl_summary" ? "transactions" : "report"}`, `OUTPUT:${input.channel}`],
       coinbase: {
         primitive,
         assets,
@@ -435,6 +493,29 @@ function buildFallbackWorkflowPayload(
   }
 }
 
+function isLowValueAiPrompt(prompt: string): boolean {
+  const normalized = String(prompt || "").trim().toLowerCase()
+  if (!normalized) return true
+  if (normalized.length < 24) return true
+  return (
+    /^(summarize|summarise)\b/.test(normalized) &&
+    /\b(data|report|results|sources?)\b/.test(normalized) &&
+    !/\b(if|when|must|required|include|avoid|explain|because|why)\b/.test(normalized)
+  )
+}
+
+function buildPromptGroundedAiPrompt(prompt: string): string {
+  const dynamicAiPrompt = detectTopicsInPrompt(prompt).aiPrompt
+  const userIntent = cleanText(String(prompt || "")).slice(0, 220)
+  if (!userIntent) return dynamicAiPrompt
+  return [
+    `User request: ${userIntent}`,
+    "Write a concrete, production-grade mission response grounded only in upstream step data.",
+    "State unavailable fields explicitly instead of guessing.",
+    dynamicAiPrompt,
+  ].join("\n")
+}
+
 /**
  * Simplify generated workflow steps.
  */
@@ -444,62 +525,178 @@ function simplifyGeneratedWorkflowSteps(input: {
   schedule: { time: string; timezone: string; days: string[] }
   defaultOutput: string
   defaultLlm: string
+  defaultLlmModel: string
 }): WorkflowStep[] {
   const wantsCondition = promptRequestsConditionLogic(input.prompt)
   const wantsTransform = promptRequestsTransformLogic(input.prompt)
   const immediate = promptRequestsImmediateOutput(input.prompt)
-  const defaultTopicPrompt = detectTopicsInPrompt(input.prompt).aiPrompt
+  const defaultTopicPrompt = buildPromptGroundedAiPrompt(input.prompt)
+  const requiresCoinbase = promptLooksLikeCoinbaseTask(input.prompt)
+  const normalizedInput = input.steps.map((step, index) => normalizeWorkflowStep(step, index))
+  const trigger = normalizedInput.find((step) => step.type === "trigger")
+  const output = normalizedInput.find((step) => step.type === "output")
 
-  const trigger = input.steps.find((step) => step.type === "trigger")
-  const fetch = input.steps.find((step) => step.type === "fetch")
-  const coinbase = input.steps.find((step) => step.type === "coinbase")
-  const transform = wantsTransform ? input.steps.find((step) => step.type === "transform") : null
-  const ai = input.steps.find((step) => step.type === "ai")
-  const condition = wantsCondition ? input.steps.find((step) => step.type === "condition" && String(step.conditionField || "").trim()) : null
-  const output = input.steps.find((step) => step.type === "output")
+  const bodyCandidates = normalizedInput.filter((step) => step.type !== "trigger" && step.type !== "output")
+  const body: WorkflowStep[] = []
+  for (const step of bodyCandidates) {
+    if (step.type === "condition") {
+      const field = String(step.conditionField || "").trim()
+      if (!wantsCondition && !field) continue
+      body.push(normalizeWorkflowStep(step, body.length))
+      continue
+    }
+    if (step.type === "transform") {
+      const hasCustomTransformInstruction = String(step.transformInstruction || "").trim().length > 0
+      if (!wantsTransform && !hasCustomTransformInstruction) continue
+      body.push(normalizeWorkflowStep(step, body.length))
+      continue
+    }
+    if (step.type === "ai") {
+      body.push(
+        normalizeWorkflowStep(
+          {
+            ...step,
+            aiPrompt: isLowValueAiPrompt(String(step.aiPrompt || "")) ? defaultTopicPrompt : step.aiPrompt,
+            aiIntegration: input.defaultLlm,
+            aiModel: input.defaultLlmModel,
+          },
+          body.length,
+        ),
+      )
+      continue
+    }
+    body.push(normalizeWorkflowStep(step, body.length))
+  }
+
+  const hasCoinbaseStep = body.some((step) => step.type === "coinbase")
+  if (requiresCoinbase && !hasCoinbaseStep) {
+    body.unshift(
+      normalizeWorkflowStep(
+        {
+          type: "coinbase",
+          title: "Run Coinbase data step",
+          coinbaseIntent: /\b(price|alert|threshold|move|mover)\b/i.test(input.prompt) ? "price" : "report",
+          coinbaseParams: {
+            assets: extractCoinbaseAssets(input.prompt),
+            quoteCurrency: "USD",
+            includePreviousArtifactContext: true,
+          },
+          coinbaseFormat: {
+            style: "standard",
+            includeRawMetadata: true,
+          },
+        },
+        body.length,
+      ),
+    )
+  }
+
+  const hasDataStep = body.some((step) => step.type === "fetch" || step.type === "coinbase")
+  if (!hasDataStep) {
+    const fallbackQuery = derivePromptSearchQuery(input.prompt) || cleanText(input.prompt).slice(0, 180) || "latest updates"
+    body.unshift(
+      normalizeWorkflowStep(
+        {
+          type: "fetch",
+          title: "Fetch supporting data",
+          fetchSource: "web",
+          fetchMethod: "GET",
+          fetchUrl: "",
+          fetchQuery: fallbackQuery,
+          fetchHeaders: "",
+          fetchSelector: "a[href]",
+          fetchRefreshMinutes: "15",
+          fetchIncludeSources: false,
+        },
+        body.length,
+      ),
+    )
+  }
+
+  const hasTransform = body.some((step) => step.type === "transform")
+  if (wantsTransform && !hasTransform) {
+    const firstNonDataIndex = body.findIndex((step) => step.type !== "fetch" && step.type !== "coinbase")
+    const transformStep = normalizeWorkflowStep(
+      {
+        type: "transform",
+        title: "Normalize data for downstream analysis",
+        transformAction: "normalize",
+        transformFormat: "markdown",
+        transformInstruction: "Normalize and structure upstream data into concise, comparable bullet points with preserved key metrics.",
+      },
+      body.length,
+    )
+    if (firstNonDataIndex >= 0) body.splice(firstNonDataIndex, 0, transformStep)
+    else body.push(transformStep)
+  }
+
+  const hasCondition = body.some((step) => step.type === "condition")
+  if (wantsCondition && !hasCondition) {
+    body.push(
+      normalizeWorkflowStep(
+        {
+          type: "condition",
+          title: "Gate output by requested condition",
+          conditionField: "data.payload",
+          conditionOperator: "exists",
+          conditionValue: "",
+          conditionLogic: "all",
+          conditionFailureAction: "skip",
+        },
+        body.length,
+      ),
+    )
+  }
+
+  const hasAi = body.some((step) => step.type === "ai")
+  if (!hasAi) {
+    const firstConditionIndex = body.findIndex((step) => step.type === "condition")
+    const aiStep = normalizeWorkflowStep(
+      {
+        type: "ai",
+        title: "Summarize report",
+        aiPrompt: defaultTopicPrompt,
+        aiIntegration: input.defaultLlm,
+        aiModel: input.defaultLlmModel,
+        aiDetailLevel: "standard",
+      },
+      body.length,
+    )
+    if (firstConditionIndex >= 0) body.splice(firstConditionIndex, 0, aiStep)
+    else body.push(aiStep)
+  }
 
   const ordered: WorkflowStep[] = []
-  ordered.push(normalizeWorkflowStep(
-    trigger || {
-      type: "trigger",
-      title: "Mission triggered",
-      triggerMode: "daily",
-      triggerTime: input.schedule.time || "09:00",
-      triggerTimezone: input.schedule.timezone || "America/New_York",
-      triggerDays: input.schedule.days.length > 0 ? input.schedule.days : ["mon", "tue", "wed", "thu", "fri"],
-    },
-    ordered.length,
-  ))
-
-  if (fetch) ordered.push(normalizeWorkflowStep(fetch, ordered.length))
-  if (coinbase) ordered.push(normalizeWorkflowStep(coinbase, ordered.length))
-  if (transform) ordered.push(normalizeWorkflowStep(transform, ordered.length))
-
-  ordered.push(normalizeWorkflowStep(
-    ai || {
-      type: "ai",
-      title: "Summarize report",
-      aiPrompt: defaultTopicPrompt,
-      aiIntegration: input.defaultLlm,
-      aiDetailLevel: "standard",
-    },
-    ordered.length,
-  ))
-
-  if (condition) ordered.push(normalizeWorkflowStep(condition, ordered.length))
-
-  ordered.push(normalizeWorkflowStep(
-    output || {
-      type: "output",
-      title: "Send notification",
-      outputChannel: input.defaultOutput,
-      outputTiming: immediate ? "immediate" : "scheduled",
-      outputTime: input.schedule.time || "09:00",
-      outputFrequency: "once",
-      outputRepeatCount: "1",
-    },
-    ordered.length,
-  ))
+  ordered.push(
+    normalizeWorkflowStep(
+      trigger || {
+        type: "trigger",
+        title: "Mission triggered",
+        triggerMode: "daily",
+        triggerTime: input.schedule.time || "09:00",
+        triggerTimezone: input.schedule.timezone || "America/New_York",
+        triggerDays: input.schedule.days.length > 0 ? input.schedule.days : ["mon", "tue", "wed", "thu", "fri"],
+      },
+      ordered.length,
+    ),
+  )
+  for (const step of body) {
+    ordered.push(normalizeWorkflowStep(step, ordered.length))
+  }
+  ordered.push(
+    normalizeWorkflowStep(
+      output || {
+        type: "output",
+        title: "Send notification",
+        outputChannel: input.defaultOutput,
+        outputTiming: immediate ? "immediate" : "scheduled",
+        outputTime: input.schedule.time || "09:00",
+        outputFrequency: "once",
+        outputRepeatCount: "1",
+      },
+      ordered.length,
+    ),
+  )
 
   return ordered
 }
@@ -579,6 +776,118 @@ export function buildStableWebSummarySteps(input: {
   return steps
 }
 
+function buildMixedTopicSteps(input: {
+  prompt: string
+  time: string
+  timezone: string
+  defaultOutput: string
+  defaultLlm: string
+  defaultLlmModel: string
+}): WorkflowStep[] {
+  const topicResult = detectTopicsInPrompt(input.prompt)
+  const topics = topicResult.topics
+  const primitive = inferCoinbasePrimitive(input.prompt)
+  const assets = extractCoinbaseAssets(input.prompt)
+  const includeCoinbase = promptLooksLikeCoinbaseTask(input.prompt)
+  let stepIndex = 0
+  let coinbaseInserted = false
+  const steps: WorkflowStep[] = []
+
+  steps.push(normalizeWorkflowStep({
+    type: "trigger",
+    title: "Mission triggered",
+    triggerMode: "daily",
+    triggerTime: input.time || "09:00",
+    triggerTimezone: input.timezone || "America/New_York",
+    triggerDays: ["mon", "tue", "wed", "thu", "fri"],
+  }, stepIndex++))
+
+  for (const topic of topics) {
+    if (topic.category === "crypto" && includeCoinbase && !coinbaseInserted) {
+      steps.push(normalizeWorkflowStep({
+        type: "coinbase",
+        title: "Fetch crypto prices from Coinbase",
+        coinbaseIntent:
+          primitive === "price_alert_digest"
+            ? "price"
+            : primitive === "weekly_pnl_summary"
+              ? "transactions"
+              : "report",
+        coinbaseParams: {
+          assets,
+          quoteCurrency: "USD",
+          thresholdPct: primitive === "price_alert_digest" ? 2.5 : undefined,
+          cadence: primitive === "weekly_pnl_summary" ? "weekly" : "daily",
+          includePreviousArtifactContext: true,
+        },
+        coinbaseFormat: {
+          style: "standard",
+          includeRawMetadata: true,
+        },
+      }, stepIndex++))
+      coinbaseInserted = true
+      continue
+    }
+
+    if (shouldSkipFetchForTopic(topic, input.prompt)) continue
+    const siteFilter = topic.siteHints.length > 0
+      ? ` site:${topic.siteHints.slice(0, 2).join(" OR site:")}`
+      : ""
+    const query = `${topic.searchQuery}${siteFilter}`.slice(0, 200)
+
+    steps.push(normalizeWorkflowStep({
+      type: "fetch",
+      title: `Fetch ${topic.label}`,
+      fetchSource: "web",
+      fetchMethod: "GET",
+      fetchUrl: "",
+      fetchQuery: query,
+      fetchSelector: "a[href]",
+      fetchHeaders: "",
+      fetchRefreshMinutes: "15",
+      fetchIncludeSources: false,
+    }, stepIndex++))
+  }
+
+  if (includeCoinbase && !coinbaseInserted) {
+    steps.push(normalizeWorkflowStep({
+      type: "coinbase",
+      title: "Fetch crypto prices from Coinbase",
+      coinbaseIntent: primitive === "price_alert_digest" ? "price" : "report",
+      coinbaseParams: {
+        assets,
+        quoteCurrency: "USD",
+        includePreviousArtifactContext: true,
+      },
+      coinbaseFormat: {
+        style: "standard",
+        includeRawMetadata: true,
+      },
+    }, stepIndex++))
+  }
+
+  steps.push(normalizeWorkflowStep({
+    type: "ai",
+    title: "Compose unified morning briefing",
+    aiPrompt: buildPromptGroundedAiPrompt(input.prompt),
+    aiIntegration: input.defaultLlm,
+    aiModel: input.defaultLlmModel,
+    aiDetailLevel: "standard",
+  }, stepIndex++))
+
+  steps.push(normalizeWorkflowStep({
+    type: "output",
+    title: "Send notification",
+    outputChannel: input.defaultOutput,
+    outputTiming: promptRequestsImmediateOutput(input.prompt) ? "immediate" : "scheduled",
+    outputTime: input.time || "09:00",
+    outputFrequency: "once",
+    outputRepeatCount: "1",
+  }, stepIndex++))
+
+  return steps
+}
+
 /**
  * Build fetch steps for detected topics.
  * Used by both AI generator and manual workflow builder.
@@ -623,10 +932,12 @@ export async function buildWorkflowFromPrompt(
   const defaultOutput = outputOptions[0] || "telegram"
   const requestedOutput = inferRequestedOutputChannel(prompt, outputSet, defaultOutput)
   const activeLlmProvider = config.activeLlmProvider
-  const defaultLlm =
+  const defaultLlm: Provider = normalizeProvider(
     llmOptions.includes(activeLlmProvider)
       ? activeLlmProvider
-      : (llmOptions[0] || "openai")
+      : (llmOptions[0] || "openai"),
+  )
+  const defaultLlmModel = modelForProvider(config, defaultLlm)
   const forceImmediateOutput = promptRequestsImmediateOutput(prompt)
   const scheduleHint = deriveScheduleFromPrompt(prompt)
   const defaultSchedule = {
@@ -635,6 +946,9 @@ export async function buildWorkflowFromPrompt(
     time: scheduleHint.time || "09:00",
     timezone: scheduleHint.timezone || "America/New_York",
   }
+  const topicResult = detectTopicsInPrompt(prompt)
+  const hasNonCryptoTopic = topicResult.topics.some((topic) => topic.category !== "crypto")
+  const isMixedCryptoMultiTopic = promptLooksLikeCoinbaseTask(prompt) && hasNonCryptoTopic
 
   // Deterministic path for reminder-style prompts
   if (promptLooksLikeReminderTask(prompt)) {
@@ -653,6 +967,53 @@ export async function buildWorkflowFromPrompt(
     }
   }
 
+  if (isMixedCryptoMultiTopic) {
+    const schedule = { ...defaultSchedule }
+    const integration = requestedOutput
+    const steps = enforceAiProviderAndModel(buildMixedTopicSteps({
+      prompt,
+      time: schedule.time,
+      timezone: schedule.timezone,
+      defaultOutput: integration,
+      defaultLlm,
+      defaultLlmModel,
+    }), defaultLlm, defaultLlmModel).map((step) => {
+      if (step.type !== "output") return step
+      if (forceImmediateOutput) step.outputTiming = "immediate"
+      step.outputRecipients = normalizeOutputRecipientsForChannel(String(step.outputChannel || integration), step.outputRecipients)
+      return step
+    })
+
+    const summary: WorkflowSummary = {
+      description: cleanText(prompt),
+      priority: "medium",
+      schedule,
+      missionActive: true,
+      tags: ["automation", "multi-topic", "composite-briefing"],
+      apiCalls: Array.from(new Set(steps.flatMap((step) => {
+        if (step.type === "coinbase") return [`COINBASE:${step.coinbaseIntent || "report"}`]
+        if (step.type === "fetch") return ["FETCH:web"]
+        if (step.type === "ai") return [`LLM:${step.aiIntegration || defaultLlm}`]
+        if (step.type === "output") return [`OUTPUT:${step.outputChannel || integration}`]
+        return []
+      }))),
+      workflowSteps: steps,
+    }
+
+    return {
+      workflow: {
+        label: generateShortTitle(prompt),
+        integration,
+        summary,
+      },
+      provider:
+        defaultLlm === "claude" || defaultLlm === "grok" || defaultLlm === "gemini" || defaultLlm === "openai"
+          ? defaultLlm
+          : "openai",
+      model: "deterministic-mixed-topic-template",
+    }
+  }
+
   // Deterministic path for Coinbase missions
   if (promptLooksLikeCoinbaseTask(prompt)) {
     const workflow = buildCoinbaseWorkflow({
@@ -661,6 +1022,7 @@ export async function buildWorkflowFromPrompt(
       timezone: defaultSchedule.timezone,
       channel: requestedOutput,
     })
+    workflow.summary.workflowSteps = enforceAiProviderAndModel(workflow.summary.workflowSteps || [], defaultLlm, defaultLlmModel)
     logCoinbaseGeneration({
       route: "deterministic",
       stepCount: workflow.summary.workflowSteps?.filter((step) => step.type === "coinbase").length || 0,
@@ -680,13 +1042,13 @@ export async function buildWorkflowFromPrompt(
   if (promptLooksLikeWebLookupTask(prompt)) {
     const schedule = { ...defaultSchedule }
     const integration = requestedOutput
-    const steps = buildStableWebSummarySteps({
+    const steps = enforceAiProviderAndModel(buildStableWebSummarySteps({
       prompt,
       time: schedule.time,
       timezone: schedule.timezone,
       defaultOutput: integration,
       defaultLlm,
-    }).map((step) => {
+    }), defaultLlm, defaultLlmModel).map((step) => {
       if (step.type !== "output") return step
       if (forceImmediateOutput) step.outputTiming = "immediate"
       step.outputRecipients = normalizeOutputRecipientsForChannel(String(step.outputChannel || integration), step.outputRecipients)
@@ -779,17 +1141,19 @@ export async function buildWorkflowFromPrompt(
     ? parsed.workflowSteps.map((step, index) => normalizeWorkflowStep((step || {}) as WorkflowStep, index))
     : []
 
-  const llmSet = new Set(llmOptions.length > 0 ? llmOptions : ["openai", "claude", "grok", "gemini"])
   const integration = outputSet.has(integrationRaw) ? integrationRaw : requestedOutput
   const apiById = new Map(apiIntegrations.map((item) => [item.id, item.endpoint]))
 
-  let steps = stepsRaw.map((step) => {
+  let steps = stepsRaw.map((step, index) => {
     if (step.type === "ai") {
-      const provider = String(step.aiIntegration || "").trim().toLowerCase()
-      if (!llmSet.has(provider)) {
-        step.aiIntegration = defaultLlm
-      }
-      return step
+      return normalizeWorkflowStep(
+        {
+          ...step,
+          aiIntegration: defaultLlm,
+          aiModel: defaultLlmModel,
+        },
+        index,
+      )
     }
     if (step.type === "output") {
       const channel = String(step.outputChannel || "").trim().toLowerCase()
@@ -917,6 +1281,7 @@ export async function buildWorkflowFromPrompt(
     schedule,
     defaultOutput: integration,
     defaultLlm,
+    defaultLlmModel,
   })
 
   // Enforce Brave web-search fetches
@@ -965,7 +1330,7 @@ export async function buildWorkflowFromPrompt(
     if (step.type !== "ai") return step
     const aiPrompt = String(step.aiPrompt || "").trim()
     const isLowValuePrompt =
-      !aiPrompt ||
+      isLowValueAiPrompt(aiPrompt) ||
       /summarize fetched data in clear bullet points/i.test(aiPrompt) ||
       /summarize fetched web sources in clear bullet points/i.test(aiPrompt) ||
       /summarize key facts as 2-4 concise bullet points/i.test(aiPrompt)
@@ -973,8 +1338,9 @@ export async function buildWorkflowFromPrompt(
     return normalizeWorkflowStep(
       {
         ...step,
-        aiPrompt: dynamicAiPrompt,
-        aiIntegration: String(step.aiIntegration || defaultLlm).trim() || defaultLlm,
+        aiPrompt: buildPromptGroundedAiPrompt(prompt) || dynamicAiPrompt,
+        aiIntegration: defaultLlm,
+        aiModel: defaultLlmModel,
         aiDetailLevel: step.aiDetailLevel || "standard",
       },
       index,

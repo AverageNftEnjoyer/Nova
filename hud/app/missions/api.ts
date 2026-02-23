@@ -51,6 +51,13 @@ export interface ScheduleMutationResponse {
   error?: string
 }
 
+export interface MissionDeleteResponse {
+  ok?: boolean
+  deleted?: boolean
+  reason?: "deleted" | "not_found" | "invalid_user"
+  error?: string
+}
+
 export interface TriggerMissionResponse {
   ok?: boolean
   skipped?: boolean
@@ -90,6 +97,89 @@ export interface IntegrationCatalogResponse {
   catalog?: unknown[]
 }
 
+export interface WorkflowAutofixCandidate {
+  id: string
+  issueCode: string
+  risk: "low" | "medium" | "high"
+  disposition: "safe_auto_apply" | "needs_approval"
+  confidence: number
+  path: string
+  title: string
+  message: string
+  remediation: string
+  changePreview: string
+}
+
+export interface WorkflowAutofixResponse {
+  ok: boolean
+  blocked: boolean
+  mode: "minimal" | "full"
+  profile: "minimal" | "runtime" | "strict" | "ai-friendly"
+  candidates: WorkflowAutofixCandidate[]
+  appliedFixIds: string[]
+  pendingApprovalFixIds: string[]
+  issueReduction: { before: number; after: number }
+  summary: GeneratedMissionSummary
+}
+
+export interface MissionWorkflowAutofixApiResponse {
+  ok?: boolean
+  error?: string
+  autofix?: WorkflowAutofixResponse
+}
+
+export interface MissionVersionRecord {
+  versionId: string
+  missionId: string
+  actorId: string
+  ts: string
+  eventType: "snapshot" | "pre_restore_backup" | "restore"
+  reason?: string
+  sourceMissionVersion: number
+}
+
+export interface MissionVersionsListResponse {
+  ok?: boolean
+  error?: string
+  versions?: MissionVersionRecord[]
+}
+
+export interface MissionVersionRestoreResponse {
+  ok?: boolean
+  error?: string
+  mission?: unknown
+  restore?: {
+    restoredVersionId?: string
+    backupVersionId?: string
+  }
+}
+
+export interface MissionReliabilitySloStatus {
+  metric: "validationPassRate" | "runSuccessRate" | "retryRate" | "runP95Ms"
+  target: number
+  value: number
+  ok: boolean
+  unit: "ratio" | "ms"
+}
+
+export interface MissionReliabilitySummary {
+  totalEvents: number
+  validationPassRate: number
+  runSuccessRate: number
+  retryRate: number
+  runP95Ms: number
+}
+
+export interface MissionReliabilityResponse {
+  ok?: boolean
+  error?: string
+  lookbackDays?: number
+  since?: string
+  summary?: MissionReliabilitySummary
+  slos?: MissionReliabilitySloStatus[]
+  totalEvents?: number
+}
+
 export function fetchSchedules() {
   return requestJson<SchedulesListResponse>("/api/notifications/schedules", { cache: "no-store" })
 }
@@ -111,11 +201,21 @@ export function updateMissionSchedule(payload: Record<string, unknown>) {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  }).then(async (result) => {
+    if (result.status !== 404) return result
+    // Upsert fallback: some mission graph saves do not have a legacy schedule row yet.
+    return createMissionSchedule(payload)
   })
 }
 
 export function deleteMissionSchedule(id: string) {
   return requestJson<ScheduleMutationResponse>(`/api/notifications/schedules?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  })
+}
+
+export function deleteMissionById(id: string) {
+  return requestJson<MissionDeleteResponse>(`/api/missions?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
   })
 }
@@ -253,5 +353,69 @@ export function requestNovaSuggest(payload: { stepTitle: string }) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  })
+}
+
+export function previewMissionWorkflowAutofix(payload: {
+  summary: GeneratedMissionSummary
+  mode?: "minimal" | "full"
+  profile?: "minimal" | "runtime" | "strict" | "ai-friendly"
+  scheduleId?: string
+}) {
+  return requestJson<MissionWorkflowAutofixApiResponse>("/api/missions/autofix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: payload.summary,
+      apply: false,
+      mode: payload.mode || "full",
+      profile: payload.profile || "strict",
+      scheduleId: payload.scheduleId,
+    }),
+  })
+}
+
+export function applyMissionWorkflowAutofix(payload: {
+  summary: GeneratedMissionSummary
+  approvedFixIds?: string[]
+  mode?: "minimal" | "full"
+  profile?: "minimal" | "runtime" | "strict" | "ai-friendly"
+  scheduleId?: string
+}) {
+  return requestJson<MissionWorkflowAutofixApiResponse>("/api/missions/autofix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: payload.summary,
+      apply: true,
+      approvedFixIds: Array.isArray(payload.approvedFixIds) ? payload.approvedFixIds : [],
+      mode: payload.mode || "full",
+      profile: payload.profile || "strict",
+      scheduleId: payload.scheduleId,
+    }),
+  })
+}
+
+export function fetchMissionVersions(payload: { missionId: string; limit?: number }) {
+  const missionId = encodeURIComponent(payload.missionId)
+  const limit = Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : 50
+  return requestJson<MissionVersionsListResponse>(`/api/missions/versions?missionId=${missionId}&limit=${limit}`, {
+    cache: "no-store",
+  })
+}
+
+export function restoreMissionVersion(payload: { missionId: string; versionId: string; reason?: string }) {
+  return requestJson<MissionVersionRestoreResponse>("/api/missions/versions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function fetchMissionReliability(payload?: { days?: number }) {
+  const days = Number.isFinite(Number(payload?.days)) ? Math.max(1, Math.min(30, Number(payload?.days))) : undefined
+  const query = typeof days === "number" ? `?days=${encodeURIComponent(String(days))}` : ""
+  return requestJson<MissionReliabilityResponse>(`/api/missions/reliability${query}`, {
+    cache: "no-store",
   })
 }

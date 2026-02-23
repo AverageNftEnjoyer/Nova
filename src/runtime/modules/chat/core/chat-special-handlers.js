@@ -34,6 +34,10 @@ const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://loc
   .trim()
   .replace(/\/+$/, "");
 const WORKFLOW_BUILD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WORKFLOW_BUILD_TIMEOUT_MS || "45000", 10);
+const RUNTIME_SHARED_TOKEN = String(process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
+const RUNTIME_SHARED_TOKEN_HEADER = String(process.env.NOVA_RUNTIME_SHARED_TOKEN_HEADER || "x-nova-runtime-token")
+  .trim()
+  .toLowerCase() || "x-nova-runtime-token";
 
 function buildMissionBuildIdempotencyKey({ userContextId, conversationId, prompt, deploy }) {
   const payload = JSON.stringify({
@@ -357,6 +361,9 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
     });
     if (String(supabaseAccessToken || "").trim()) {
       headers.Authorization = `Bearer ${String(supabaseAccessToken).trim()}`;
+    }
+    if (RUNTIME_SHARED_TOKEN) {
+      headers[RUNTIME_SHARED_TOKEN_HEADER] = RUNTIME_SHARED_TOKEN;
     }
     const res = await fetch(`${HUD_API_BASE_URL}/api/missions/build`, {
       method: "POST",
