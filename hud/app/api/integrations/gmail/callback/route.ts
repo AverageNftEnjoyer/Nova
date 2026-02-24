@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { exchangeCodeForGmailTokens, parseGmailOAuthState } from "@/lib/integrations/gmail"
+import { gmailError } from "@/lib/integrations/gmail/errors"
+import { logGmailApi } from "@/app/api/integrations/gmail/_shared"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -98,14 +100,21 @@ export async function GET(req: Request) {
   const popupFlow = isPopupFlow(returnTo)
 
   if (!parsedState) {
+    const error = gmailError("gmail.invalid_state", "Invalid Gmail OAuth state.", { status: 400 })
+    logGmailApi("callback.invalid_state", { code: error.code, message: error.message })
     return popupCloseResponse({
       status: "error",
-      message: "Invalid Gmail OAuth state.",
+      message: error.message,
       returnTo: "/integrations?gmailPopup=1",
     })
   }
   if (!code) {
     const errorDesc = String(requestUrl.searchParams.get("error_description") || requestUrl.searchParams.get("error") || "Missing OAuth code.")
+    logGmailApi("callback.missing_code", {
+      userContextId: parsedState.userId,
+      returnTo,
+      error: errorDesc,
+    })
     if (popupFlow) {
       return popupCloseResponse({ status: "error", message: errorDesc, returnTo })
     }
@@ -113,25 +122,39 @@ export async function GET(req: Request) {
   }
 
   try {
+    logGmailApi("callback.exchange.begin", {
+      userContextId: parsedState.userId,
+      returnTo,
+    })
     await exchangeCodeForGmailTokens(code, {
       userId: parsedState.userId,
       allowServiceRole: true,
       serviceRoleReason: "gmail-oauth-callback",
+    })
+    logGmailApi("callback.exchange.success", {
+      userContextId: parsedState.userId,
+      returnTo,
     })
     if (popupFlow) {
       return popupCloseResponse({ status: "success", message: "Gmail connected.", returnTo })
     }
     return NextResponse.redirect(new URL(withStatus(returnTo, "success", "Gmail connected."), requestUrl.origin), { status: 302 })
   } catch (error) {
+    const normalized = error instanceof Error ? error.message : "Failed to connect Gmail."
+    logGmailApi("callback.exchange.failed", {
+      userContextId: parsedState.userId,
+      returnTo,
+      error: normalized,
+    })
     if (popupFlow) {
       return popupCloseResponse({
         status: "error",
-        message: error instanceof Error ? error.message : "Failed to connect Gmail.",
+        message: normalized,
         returnTo,
       })
     }
     return NextResponse.redirect(
-      new URL(withStatus(returnTo, "error", error instanceof Error ? error.message : "Failed to connect Gmail."), requestUrl.origin),
+      new URL(withStatus(returnTo, "error", normalized), requestUrl.origin),
       { status: 302 },
     )
   }

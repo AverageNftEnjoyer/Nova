@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, Clock3, Globe, ShieldQuestion } from "lucide-react"
 
-import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 
 import type { ActivityEvent } from "../types"
 
@@ -25,6 +25,7 @@ function iconForService(service: string) {
   if (value.includes("discord")) return <DiscordIcon className="h-3.5 w-3.5" />
   if (value.includes("gmail")) return <GmailIcon className="h-3.5 w-3.5" />
   if (value.includes("brave")) return <BraveIcon className="h-3.5 w-3.5" />
+  if (value.includes("coinbase")) return <CoinbaseIcon className="h-3.5 w-3.5" />
   if (value.includes("firecrawl")) return <Globe className="h-3.5 w-3.5" />
   return <ShieldQuestion className="h-3.5 w-3.5" />
 }
@@ -38,10 +39,10 @@ export function ActivityFeedPanel({ events, isLight }: ActivityFeedPanelProps) {
       </div>
       <p className={`mb-1 text-xs ${isLight ? "text-s-50" : "text-slate-400"}`}>Recent events across integrations</p>
 
-      <div className="module-hover-scroll h-[108px] space-y-1 overflow-y-auto pr-1">
+      <div className="module-hover-scroll min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
         {events.map((event) => (
           <div key={event.id} className={`flex items-start gap-2 rounded-lg border px-2 py-1 ${isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md"}`}>
-            <span className={`mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-md border ${isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20"}`}>
+            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center text-slate-400">
               {iconForService(event.service)}
             </span>
             <div className="min-w-0 flex-1">

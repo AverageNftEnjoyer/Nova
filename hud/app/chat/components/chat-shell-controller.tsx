@@ -20,6 +20,7 @@ import { useConversations } from "@/lib/chat/hooks/useConversations"
 import { useIntegrationsStatus } from "@/lib/integrations/hooks/useIntegrationsStatus"
 import { useMissions, formatDailyTime } from "@/lib/missions/hooks/useMissions"
 import { useChatBackground } from "@/lib/chat/hooks/useChatBackground"
+import { buildEmailAssistantFailureReply, buildEmailAssistantReply, extractEmailSummaryMaxResults, isEmailAssistantIntent, type GmailSummaryApiResponse } from "@/lib/chat/email-assistant"
 
 const PENDING_BOOT_ACK_TIMEOUT_MS = 8_000
 
@@ -78,6 +79,7 @@ export function ChatShellController() {
     handleArchiveConvo,
     handlePinConvo,
     addUserMessage,
+    addAssistantMessage,
     ensureServerConversationForOptimistic,
     resolveConversationIdForAgent,
     resolveSessionConversationIdForAgent,
@@ -363,6 +365,65 @@ export function ChatShellController() {
         return
       }
       const supabaseAccessToken = await getSupabaseAccessToken()
+      if (gmailConnected && isEmailAssistantIntent(content)) {
+        const maxResults = extractEmailSummaryMaxResults(content, 6)
+        try {
+          const response = await fetch("/api/integrations/gmail/summary", {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "content-type": "application/json",
+              ...(supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : {}),
+            },
+            body: JSON.stringify({ maxResults }),
+          })
+          const payload = (await response.json().catch(() => ({}))) as GmailSummaryApiResponse
+          if (!response.ok || !payload.ok) {
+            const message = response.status === 401
+              ? buildEmailAssistantFailureReply({
+                  nickname: settings.personalization.nickname,
+                  communicationStyle: settings.personalization.communicationStyle,
+                  tone: settings.personalization.tone,
+                  characteristics: settings.personalization.characteristics,
+                  customInstructions: settings.personalization.customInstructions,
+                  reason: "unauthorized",
+                })
+              : (payload.error || buildEmailAssistantFailureReply({
+                  nickname: settings.personalization.nickname,
+                  communicationStyle: settings.personalization.communicationStyle,
+                  tone: settings.personalization.tone,
+                  characteristics: settings.personalization.characteristics,
+                  customInstructions: settings.personalization.customInstructions,
+                  reason: "temporary",
+                }))
+            addAssistantMessage(message, { sender: settings.personalization.assistantName })
+            return
+          }
+          const assistantReply = buildEmailAssistantReply({
+            prompt: content,
+            nickname: settings.personalization.nickname,
+            assistantName: settings.personalization.assistantName,
+            communicationStyle: settings.personalization.communicationStyle,
+            tone: settings.personalization.tone,
+            characteristics: settings.personalization.characteristics,
+            customInstructions: settings.personalization.customInstructions,
+            summary: String(payload.summary || ""),
+            emails: Array.isArray(payload.emails) ? payload.emails : [],
+          })
+          addAssistantMessage(assistantReply, { sender: settings.personalization.assistantName })
+          return
+        } catch {
+          addAssistantMessage(buildEmailAssistantFailureReply({
+            nickname: settings.personalization.nickname,
+            communicationStyle: settings.personalization.communicationStyle,
+            tone: settings.personalization.tone,
+            characteristics: settings.personalization.characteristics,
+            customInstructions: settings.personalization.customInstructions,
+            reason: "temporary",
+          }), { sender: settings.personalization.assistantName })
+          return
+        }
+      }
       const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
       sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: resolveConversationIdForAgent(activeConvo.id),
@@ -377,7 +438,7 @@ export function ChatShellController() {
         tone: settings.personalization.tone,
       })
     },
-    [activeConvo, agentConnected, sendToAgent, addUserMessage, getSupabaseAccessToken, resolveConversationIdForAgent, buildHudSessionKey],
+    [activeConvo, agentConnected, sendToAgent, addUserMessage, addAssistantMessage, getSupabaseAccessToken, resolveConversationIdForAgent, buildHudSessionKey, gmailConnected],
   )
 
   const handleUseSuggestedWording = useCallback(

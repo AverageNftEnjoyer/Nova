@@ -13,12 +13,21 @@ const SAFE_TOOL_NAMES = new Set([
   "coinbase_portfolio_snapshot",
   "coinbase_recent_transactions",
   "coinbase_portfolio_report",
+  "gmail_capabilities",
+  "gmail_list_accounts",
+  "gmail_scope_check",
+  "gmail_list_messages",
+  "gmail_get_message",
+  "gmail_daily_summary",
+  "gmail_classify_importance",
 ]);
 
 const ELEVATED_TOOL_NAMES = new Set([
   "write",
   "edit",
   "exec",
+  "gmail_forward_message",
+  "gmail_reply_draft",
 ]);
 
 // Keep this aligned with upstream dangerous tool semantics.

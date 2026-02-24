@@ -13,6 +13,30 @@ import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeVisuals } from "./use-home-visuals"
 
 const GREETING_COOLDOWN_MS = 60_000
+const MAX_LIVE_ACTIVITY = 6
+
+type HomeActivityEvent = {
+  id: string
+  service: string
+  action: string
+  timeAgo: string
+  status: "success" | "warning" | "error"
+}
+
+const USAGE_PROVIDER_LABEL: Record<string, string> = {
+  openai: "OpenAI",
+  claude: "Claude",
+  grok: "Grok",
+  gemini: "Gemini",
+}
+
+function timeAgoStr(tsMs: number): string {
+  const diff = Math.max(0, Date.now() - tsMs)
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  return `${Math.floor(diff / 86_400_000)}d ago`
+}
 
 export function useHomeMainScreenState() {
   const router = useRouter()
@@ -29,6 +53,30 @@ export function useHomeMainScreenState() {
     latestUsage,
     clearAgentMessages,
   } = useNovaState()
+
+  const [liveActivity, setLiveActivity] = useState<HomeActivityEvent[]>([])
+
+  useEffect(() => {
+    if (!latestUsage) return
+    const label = USAGE_PROVIDER_LABEL[latestUsage.provider] ?? latestUsage.provider
+    const tokenStr = latestUsage.totalTokens > 0
+      ? `${latestUsage.totalTokens.toLocaleString("en-US")} tokens`
+      : "Response completed"
+    const action = latestUsage.estimatedCostUsd != null && latestUsage.estimatedCostUsd > 0
+      ? `$${latestUsage.estimatedCostUsd.toFixed(4)} · ${tokenStr}`
+      : tokenStr
+    const event: HomeActivityEvent = {
+      id: `live-${latestUsage.ts}`,
+      service: label,
+      action,
+      timeAgo: timeAgoStr(latestUsage.ts),
+      status: "success",
+    }
+    setLiveActivity((prev) => {
+      if (prev.some((e) => e.id === event.id)) return prev
+      return [event, ...prev].slice(0, MAX_LIVE_ACTIVITY)
+    })
+  }, [latestUsage])
 
   const visuals = useHomeVisuals({ isLight })
   const integrations = useHomeIntegrations({ latestUsage })
@@ -140,6 +188,7 @@ export function useHomeMainScreenState() {
     openIntegrations,
     openAnalytics,
     openDevLogs,
+    liveActivity,
     devToolsMetrics: devTools.devToolsMetrics,
     handleToggleTelegramIntegration: integrations.handleToggleTelegramIntegration,
     handleToggleDiscordIntegration: integrations.handleToggleDiscordIntegration,

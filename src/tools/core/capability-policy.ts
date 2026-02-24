@@ -16,6 +16,15 @@ const DEFAULT_TOOL_CAPABILITIES: Record<string, string[]> = {
   coinbase_portfolio_snapshot: ["network.crypto", "finance.portfolio.read"],
   coinbase_recent_transactions: ["network.crypto", "finance.transactions.read"],
   coinbase_portfolio_report: ["network.crypto", "finance.portfolio.read", "finance.transactions.read"],
+  gmail_capabilities: ["integration.gmail.read"],
+  gmail_list_accounts: ["integration.gmail.read"],
+  gmail_scope_check: ["integration.gmail.read"],
+  gmail_list_messages: ["integration.gmail.read"],
+  gmail_get_message: ["integration.gmail.read"],
+  gmail_daily_summary: ["integration.gmail.read"],
+  gmail_classify_importance: ["integration.gmail.read"],
+  gmail_forward_message: ["integration.gmail.send"],
+  gmail_reply_draft: ["integration.gmail.send"],
 };
 
 function parseCsvSet(values: string | undefined): Set<string> {

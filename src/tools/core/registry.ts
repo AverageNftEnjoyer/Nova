@@ -1,5 +1,6 @@
 import type { ToolsConfig } from "../../config/types.js";
 import { createCoinbaseTools } from "../builtin/coinbase-tools.js";
+import { createGmailTools } from "../builtin/gmail-tools.js";
 import type { MemoryIndexManager } from "../../memory/manager.js";
 import { createExecTool } from "../builtin/exec.js";
 import { createFileTools } from "../builtin/file-tools.js";
@@ -58,6 +59,24 @@ export function createToolRegistry(
     enabled.has("coinbase_portfolio_report")
   ) {
     for (const tool of createCoinbaseTools({ workspaceDir: params.workspaceDir })) {
+      if (enabled.has(tool.name)) {
+        registry.push(tool);
+      }
+    }
+  }
+
+  if (
+    enabled.has("gmail_capabilities") ||
+    enabled.has("gmail_list_accounts") ||
+    enabled.has("gmail_scope_check") ||
+    enabled.has("gmail_list_messages") ||
+    enabled.has("gmail_get_message") ||
+    enabled.has("gmail_daily_summary") ||
+    enabled.has("gmail_classify_importance") ||
+    enabled.has("gmail_forward_message") ||
+    enabled.has("gmail_reply_draft")
+  ) {
+    for (const tool of createGmailTools({ workspaceDir: params.workspaceDir })) {
       if (enabled.has(tool.name)) {
         registry.push(tool);
       }

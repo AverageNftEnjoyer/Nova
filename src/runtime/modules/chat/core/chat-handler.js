@@ -69,6 +69,7 @@ import {
   broadcastAssistantStreamStart,
   broadcastAssistantStreamDelta,
   broadcastAssistantStreamDone,
+  consumeHudOpTokenForSensitiveAction,
 } from "../../infrastructure/hud-gateway.js";
 import {
   claudeMessagesCreate,
@@ -252,6 +253,36 @@ function didLikelyHitCompletionCap(completionTokens, maxCompletionTokens) {
   return used >= Math.max(128, Math.floor(cap * 0.85));
 }
 
+function resolveGmailToolFallbackReply(content) {
+  const raw = String(content || "").trim();
+  if (!raw) return "";
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return "";
+  }
+  if (!parsed || typeof parsed !== "object") return "";
+  if (parsed.ok !== false) return "";
+  const code = String(parsed.errorCode || "").trim().toUpperCase();
+  const safeMessage = String(parsed.safeMessage || "").trim();
+  const guidance = String(parsed.guidance || "").trim();
+  if (safeMessage) return guidance ? `${safeMessage} ${guidance}` : safeMessage;
+  if (code === "DISCONNECTED") {
+    return "Gmail is not connected. Connect Gmail in Integrations and retry.";
+  }
+  if (code === "MISSING_SCOPE") {
+    return "Gmail permissions are missing for this request. Reconnect Gmail with the required scopes and retry.";
+  }
+  if (code === "BAD_INPUT") {
+    return "I couldn't run the Gmail tool because user context was missing. Retry from an authenticated chat session.";
+  }
+  if (code === "NO_ACCOUNTS") {
+    return "No Gmail account is enabled for this user. Reconnect Gmail and enable at least one account.";
+  }
+  return "";
+}
+
 function buildEmptyReplyFailureReason(baseReason, {
   finishReason = "",
   completionTokens = 0,
@@ -423,7 +454,7 @@ function buildConstraintSafeFallback(outputConstraints, userText, { strict = fal
 async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId, conversationId,
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions,
-    raw_text: displayText } = ctx;
+    raw_text: displayText, hudOpToken } = ctx;
   // displayText: original user text for UI/transcript; text: clean_text for LLM/tools
   const uiText = displayText || text;
   const {
@@ -1117,15 +1148,59 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           if (normalizedToolName === "web_search") broadcastThinkingStatus("Searching web", userContextId);
           else if (normalizedToolName === "web_fetch") broadcastThinkingStatus("Reviewing sources", userContextId);
           else if (normalizedToolName.startsWith("coinbase_")) broadcastThinkingStatus("Querying Coinbase", userContextId);
+          else if (normalizedToolName.startsWith("gmail_")) broadcastThinkingStatus("Checking Gmail", userContextId);
           else broadcastThinkingStatus("Running tools", userContextId);
           if (toolName) observedToolCalls.push(toolName);
           const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
-          if (String(toolUse?.name || "").toLowerCase().startsWith("coinbase_")) {
+          if (
+            String(toolUse?.name || "").toLowerCase().startsWith("coinbase_")
+            || String(toolUse?.name || "").toLowerCase().startsWith("gmail_")
+          ) {
             toolUse.input = {
               ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
               userContextId,
               conversationId,
             };
+          }
+          if (
+            normalizedToolName === "gmail_forward_message"
+            || normalizedToolName === "gmail_reply_draft"
+          ) {
+            toolUse.input = {
+              ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
+              requireExplicitUserConfirm: true,
+            };
+            const confirmState = consumeHudOpTokenForSensitiveAction({
+              userContextId,
+              opToken: hudOpToken,
+              conversationId,
+              action: normalizedToolName,
+            });
+            if (!confirmState.ok) {
+              const safeBlockedMessage =
+                "I need an explicit confirmation action before sending Gmail content. Please confirm and retry.";
+              forcedToolFallbackReply = safeBlockedMessage;
+              toolExecutions.push({
+                name: normalizedToolName,
+                status: "blocked",
+                durationMs: 0,
+                error: `sensitive_action_blocked:${confirmState.reason}`,
+                resultPreview: "",
+              });
+              loopMessages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({
+                  ok: false,
+                  kind: normalizedToolName,
+                  errorCode: "CONFIRM_REQUIRED",
+                  safeMessage: safeBlockedMessage,
+                  guidance: "Use the UI confirmation and retry.",
+                  retryable: true,
+                }),
+              });
+              break;
+            }
           }
           let toolResult;
           const toolStartedAt = Date.now();
@@ -1187,6 +1262,12 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
                   } else {
                     forcedToolFallbackReply =
                       `Live web search failed: ${content.replace(/^web_search error:\s*/i, "").trim()}`;
+                  }
+                }
+                if (normalizedName.startsWith("gmail_")) {
+                  const gmailFallback = resolveGmailToolFallbackReply(content);
+                  if (gmailFallback) {
+                    forcedToolFallbackReply = gmailFallback;
                   }
                 }
               }
@@ -1847,6 +1928,7 @@ async function handleInputCore(text, opts = {}) {
   const runtimeAssistantName = String(opts.assistantName || "").trim();
   const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
   const inboundMessageId = String(opts.inboundMessageId || "").trim();
+  const hudOpToken = String(opts.hudOpToken || "").trim();
   const normalizedTextForRouting = String(text || "").trim().toLowerCase();
   const missionPolicy = getShortTermContextPolicy("mission_task");
   const cryptoPolicy = getShortTermContextPolicy("crypto");
@@ -1989,6 +2071,7 @@ async function handleInputCore(text, opts = {}) {
     useVoice, ttsVoice, runtimeTone, runtimeCommunicationStyle,
     runtimeAssistantName, runtimeCustomInstructions,
     conversationId,
+    hudOpToken,
     supabaseAccessToken: String(opts.supabaseAccessToken || "").trim(),
     sessionId: sessionContext.sessionEntry?.sessionId,
     // NLP: raw_text for display/persistence; clean_text already in `text`

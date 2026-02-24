@@ -28,7 +28,7 @@ export const MEMORY_LOOP_ENABLED = String(process.env.NOVA_MEMORY_ENABLED || "1"
 export const TOOL_LOOP_MAX_STEPS = Number.parseInt(process.env.NOVA_TOOL_LOOP_MAX_STEPS || "6", 10);
 export const TOOL_REGISTRY_ENABLED_TOOLS = String(
   process.env.NOVA_ENABLED_TOOLS ||
-    "read,write,edit,ls,grep,exec,web_search,web_fetch,memory_search,memory_get,coinbase_capabilities,coinbase_spot_price,coinbase_portfolio_snapshot,coinbase_recent_transactions,coinbase_portfolio_report",
+    "read,write,edit,ls,grep,exec,web_search,web_fetch,memory_search,memory_get,coinbase_capabilities,coinbase_spot_price,coinbase_portfolio_snapshot,coinbase_recent_transactions,coinbase_portfolio_report,gmail_capabilities,gmail_list_accounts,gmail_scope_check,gmail_list_messages,gmail_get_message,gmail_daily_summary,gmail_classify_importance,gmail_forward_message,gmail_reply_draft",
 )
   .split(",")
   .map((t) => t.trim())

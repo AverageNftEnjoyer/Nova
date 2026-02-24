@@ -9,6 +9,14 @@
  *
  * Version History:
  *
+ * - V.28 Alpha: Gmail runtime hardening + 3D orb interaction/visual refinement
+ *     - Added Gmail runtime tool suite in `src/` with safe-fail auth/scope handling, per-user context enforcement, and chat-loop integration.
+ *     - Added sensitive Gmail action guardrails with explicit confirmation requirements and server-side HUD op-token consumption for send/draft paths.
+ *     - Added Gmail runtime parsing compatibility for optional user-scoped integration config shape and isolation-focused tests.
+ *     - Upgraded Home orb to 3D pipeline and refined animation behavior: no hover-coupled motion, richer speaking-state pulse dynamics.
+ *     - Removed ring overlays and outer glow layers from the orb visual stack; kept particles as a separate non-clipping outer layer.
+ *     - Locked orb/particle color rendering to the user-selected orb palette path (no hardcoded cyan/white fallback path in active orb rendering flow).
+ *
  * - V.27 Alpha: Home visual polish + mission key stability fix
  *     - Scoped the orb-gradient title treatment so only the assistant name is gradient-rendered while "Hi, I'm" remains theme text.
  *     - Reworked space background planet variety toward a more realistic look (surface archetypes, subtler glow/motion, less repetitive crater treatment).
@@ -185,4 +193,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.27 Alpha"
+export const NOVA_VERSION = "V.28 Alpha"

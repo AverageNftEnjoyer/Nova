@@ -1,31 +1,37 @@
 import { NextResponse } from "next/server"
 
 import { disconnectGmail } from "@/lib/integrations/gmail"
+import { deriveGmailAfterSetEnabled, deriveGmailAfterSetPrimary } from "@/lib/integrations/gmail/accounts"
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/server-store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { accountsBodySchema, gmailApiErrorResponse, logGmailApi, safeJson } from "@/app/api/integrations/gmail/_shared"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-type Body =
-  | { action: "set_primary"; accountId?: string }
-  | { action: "set_enabled"; accountId?: string; enabled?: boolean }
-  | { action: "delete"; accountId?: string }
 
 export async function PATCH(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const body = (await req.json().catch(() => ({}))) as Body
-    const action = String((body as { action?: string }).action || "").trim()
-    const accountId = String((body as { accountId?: string }).accountId || "").trim().toLowerCase()
-    if (!accountId) {
-      return NextResponse.json({ ok: false, error: "accountId is required." }, { status: 400 })
+    const parsed = accountsBodySchema.safeParse(await safeJson(req))
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: parsed.error.issues[0]?.message || "Invalid request." }, { status: 400 })
     }
+    const { action, accountId } = parsed.data
+    logGmailApi("accounts.patch.begin", {
+      userContextId: verified.user.id,
+      action,
+      accountId,
+    })
 
     if (action === "delete") {
       await disconnectGmail(accountId, verified)
+      logGmailApi("accounts.patch.success", {
+        userContextId: verified.user.id,
+        action,
+        accountId,
+      })
       return NextResponse.json({ ok: true })
     }
 
@@ -37,55 +43,33 @@ export async function PATCH(req: Request) {
     }
 
     if (action === "set_primary") {
-      const target = accounts.find((item) => item.id === accountId)
-      if (!target || !target.enabled) {
-        return NextResponse.json({ ok: false, error: "Only enabled accounts can be primary." }, { status: 400 })
-      }
       await updateIntegrationsConfig({
-        gmail: {
-          ...current.gmail,
-          activeAccountId: accountId,
-          email: target.email,
-          scopes: target.scopes,
-          accessTokenEnc: target.accessTokenEnc,
-          refreshTokenEnc: target.refreshTokenEnc,
-          tokenExpiry: target.tokenExpiry,
-          connected: true,
-        },
+        gmail: deriveGmailAfterSetPrimary(current.gmail, accountId),
       }, verified)
+      logGmailApi("accounts.patch.success", {
+        userContextId: verified.user.id,
+        action,
+        accountId,
+      })
       return NextResponse.json({ ok: true })
     }
 
     if (action === "set_enabled") {
-      const enabled = Boolean((body as { enabled?: boolean }).enabled)
-      const nextAccounts = accounts.map((item) =>
-        item.id === accountId
-          ? { ...item, enabled }
-          : item,
-      )
-      const enabledAccounts = nextAccounts.filter((item) => item.enabled)
-      const nextActive = enabledAccounts.find((item) => item.id === current.gmail.activeAccountId) || enabledAccounts[0] || null
+      const enabled = parsed.data.enabled
       await updateIntegrationsConfig({
-        gmail: {
-          ...current.gmail,
-          accounts: nextAccounts,
-          connected: enabledAccounts.length > 0,
-          activeAccountId: nextActive?.id || "",
-          email: nextActive?.email || "",
-          scopes: nextActive?.scopes || [],
-          accessTokenEnc: nextActive?.accessTokenEnc || "",
-          refreshTokenEnc: nextActive?.refreshTokenEnc || "",
-          tokenExpiry: nextActive?.tokenExpiry || 0,
-        },
+        gmail: deriveGmailAfterSetEnabled(current.gmail, accountId, enabled),
       }, verified)
+      logGmailApi("accounts.patch.success", {
+        userContextId: verified.user.id,
+        action,
+        accountId,
+        enabled,
+      })
       return NextResponse.json({ ok: true })
     }
 
     return NextResponse.json({ ok: false, error: "Unsupported action." }, { status: 400 })
   } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Failed to update Gmail account." },
-      { status: 500 },
-    )
+    return gmailApiErrorResponse(error, "Failed to update Gmail account.")
   }
 }

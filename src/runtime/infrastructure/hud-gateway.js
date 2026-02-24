@@ -32,6 +32,10 @@ const wsByUserContext = new Map();
 const wsContextBySocket = new WeakMap();
 const conversationOwnerById = new Map();
 const hudOpTokenStateByKey = new Map();
+const HUD_SENSITIVE_ACTIONS = new Set([
+  "gmail_forward_message",
+  "gmail_reply_draft",
+]);
 const hudRequestScheduler = createRequestScheduler();
 let hudWorkInFlight = 0;
 
@@ -304,6 +308,7 @@ function reserveHudOpToken(userContextId, opToken, conversationId = "") {
     status: "pending",
     updatedAt: nowMs,
     conversationId: normalizedConversationId,
+    sensitiveConsumed: false,
   });
   return { status: "reserved", key, conversationId: normalizedConversationId };
 }
@@ -317,6 +322,44 @@ function markHudOpTokenAccepted(key, conversationId = "") {
   const normalizedConversationId = normalizeConversationId(conversationId);
   if (normalizedConversationId) existing.conversationId = normalizedConversationId;
   hudOpTokenStateByKey.set(key, existing);
+}
+
+export function consumeHudOpTokenForSensitiveAction({
+  userContextId = "",
+  opToken = "",
+  conversationId = "",
+  action = "",
+} = {}) {
+  const key = buildHudOpTokenKey(userContextId, opToken);
+  const normalizedAction = String(action || "").trim().toLowerCase();
+  if (!key || !normalizedAction) {
+    return { ok: false, reason: "missing_token" };
+  }
+  if (!HUD_SENSITIVE_ACTIONS.has(normalizedAction)) {
+    return { ok: false, reason: "unsupported_action" };
+  }
+  const nowMs = Date.now();
+  gcHudOpTokenStore(nowMs);
+  const entry = hudOpTokenStateByKey.get(key);
+  if (!entry) return { ok: false, reason: "token_not_found" };
+  if (nowMs - Number(entry.updatedAt || 0) > HUD_OP_TOKEN_TTL_MS) {
+    hudOpTokenStateByKey.delete(key);
+    return { ok: false, reason: "token_expired" };
+  }
+  if (entry.status !== "accepted") return { ok: false, reason: "token_not_accepted" };
+  const expectedConversationId = normalizeConversationId(entry.conversationId || "");
+  const receivedConversationId = normalizeConversationId(conversationId);
+  if (expectedConversationId && receivedConversationId && expectedConversationId !== receivedConversationId) {
+    return { ok: false, reason: "conversation_mismatch" };
+  }
+  if (entry.sensitiveConsumed === true) {
+    return { ok: false, reason: "already_consumed" };
+  }
+  entry.sensitiveConsumed = true;
+  entry.sensitiveAction = normalizedAction;
+  entry.updatedAt = nowMs;
+  hudOpTokenStateByKey.set(key, entry);
+  return { ok: true, reason: "authorized" };
 }
 
 function releaseHudOpTokenReservation(key) {
@@ -757,6 +800,7 @@ export function startGateway() {
                     customInstructions: typeof data.customInstructions === "string" ? data.customInstructions : "",
                     nlpBypass: data.nlpBypass === true,
                     conversationId: conversationId || undefined,
+                    hudOpToken: opToken || "",
                     sessionKeyHint:
                       typeof data.sessionKey === "string" && data.sessionKey.trim()
                         ? data.sessionKey

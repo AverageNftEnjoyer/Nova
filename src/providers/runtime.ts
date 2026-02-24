@@ -18,6 +18,26 @@ export interface IntegrationsRuntime {
   claude: ProviderRuntime;
   grok: ProviderRuntime;
   gemini: ProviderRuntime;
+  gmail: GmailRuntime;
+}
+
+export interface GmailAccountRuntime {
+  id: string;
+  email: string;
+  enabled: boolean;
+  scopes: string[];
+  accessToken?: string;
+  tokenExpiry?: number;
+}
+
+export interface GmailRuntime {
+  connected: boolean;
+  activeAccountId: string;
+  email: string;
+  scopes: string[];
+  accounts: GmailAccountRuntime[];
+  accessToken?: string;
+  tokenExpiry?: number;
 }
 
 export interface ResolvedChatRuntime extends ProviderRuntime {
@@ -88,6 +108,21 @@ function toNonEmptyString(value: unknown): string {
 
 function boolFlag(value: unknown): boolean {
   return value === true;
+}
+
+function toStringArray(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of input) {
+    const value = toNonEmptyString(entry);
+    if (!value) continue;
+    const dedupeKey = value.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push(value);
+  }
+  return out;
 }
 
 export function describeUnknownError(err: unknown): string {
@@ -310,6 +345,48 @@ function parseProviderModel(value: unknown, fallback: string): string {
   return candidate || fallback;
 }
 
+function createDefaultGmailRuntime(): GmailRuntime {
+  return {
+    connected: false,
+    activeAccountId: "",
+    email: "",
+    scopes: [],
+    accounts: [],
+  };
+}
+
+function parseGmailRuntime(value: unknown, paths: RuntimePaths): GmailRuntime {
+  const integration = toRecord(value);
+  const accountsInput = Array.isArray(integration.accounts) ? integration.accounts : [];
+  const accounts = accountsInput
+    .map((entry) => {
+      const account = toRecord(entry);
+      return {
+        id: toNonEmptyString(account.id),
+        email: toNonEmptyString(account.email),
+        enabled: account.enabled === true,
+        scopes: toStringArray(account.scopes),
+        accessToken: unwrapStoredSecret(account.accessToken, paths) || "",
+        tokenExpiry: typeof account.tokenExpiry === "number" && Number.isFinite(account.tokenExpiry)
+          ? Math.max(0, Math.floor(account.tokenExpiry))
+          : 0,
+      };
+    })
+    .filter((entry) => entry.id.length > 0 || entry.email.length > 0 || entry.scopes.length > 0);
+
+  return {
+    connected: boolFlag(integration.connected),
+    activeAccountId: toNonEmptyString(integration.activeAccountId),
+    email: toNonEmptyString(integration.email),
+    scopes: toStringArray(integration.scopes),
+    accessToken: unwrapStoredSecret(integration.accessToken, paths) || "",
+    tokenExpiry: typeof integration.tokenExpiry === "number" && Number.isFinite(integration.tokenExpiry)
+      ? Math.max(0, Math.floor(integration.tokenExpiry))
+      : 0,
+    accounts,
+  };
+}
+
 function parseActiveProvider(value: unknown): ProviderName {
   const candidate = toNonEmptyString(value);
   if (candidate === "claude" || candidate === "grok" || candidate === "gemini" || candidate === "openai") {
@@ -452,6 +529,7 @@ export function loadIntegrationsRuntime(options?: {
     const claudeIntegration = toRecord(parsed.claude);
     const grokIntegration = toRecord(parsed.grok);
     const geminiIntegration = toRecord(parsed.gemini);
+    const gmailIntegration = parseGmailRuntime(parsed.gmail, paths);
 
     const activeProvider = parseActiveProvider(parsed.activeLlmProvider);
     const openaiApiKey = resolveProviderApiKey("openai", openaiIntegration.apiKey, paths);
@@ -486,6 +564,7 @@ export function loadIntegrationsRuntime(options?: {
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
         model: parseProviderModel(geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
       },
+      gmail: gmailIntegration,
     };
   } catch {
     const openaiApiKey = resolveProviderApiKey("openai", "", paths);
@@ -522,6 +601,7 @@ export function loadIntegrationsRuntime(options?: {
         baseURL: DEFAULT_GEMINI_BASE_URL,
         model: DEFAULT_GEMINI_MODEL,
       },
+      gmail: createDefaultGmailRuntime(),
     };
   }
 }

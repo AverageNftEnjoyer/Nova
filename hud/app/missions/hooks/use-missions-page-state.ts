@@ -64,7 +64,16 @@ interface UseMissionsPageStateInput {
 type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
 
 const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["novachat", "telegram", "discord", "email", "push", "webhook"]
-const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "webhook", "novachat"]
+const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "email", "webhook", "novachat"]
+
+function normalizeOutputChannelAlias(value: string): OutputChannel | "" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "gmail") return "email"
+  if (normalized === "novachat" || normalized === "telegram" || normalized === "discord" || normalized === "email" || normalized === "push" || normalized === "webhook") {
+    return normalized
+  }
+  return ""
+}
 
 function isOutputChannel(value: string): value is OutputChannel {
   return OUTPUT_CHANNEL_VALUES.includes(value as OutputChannel)
@@ -152,9 +161,16 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
   )
 
   const outputChannelOptions = useMemo<FluidSelectOption[]>(() => {
-    const connected = integrationCatalog
-      .filter((item) => item.kind === "channel" && item.connected)
-      .map((item) => ({ value: item.id, label: item.label }))
+    const connected: FluidSelectOption[] = []
+    for (const item of integrationCatalog) {
+      if (item.kind !== "channel" || !item.connected) continue
+      const value = normalizeOutputChannelAlias(item.id)
+      if (!value) continue
+      connected.push({
+        value,
+        label: value === "email" ? "Email" : item.label,
+      })
+    }
 
     const combined = connected.length > 0
       ? [...connected, ...FALLBACK_OUTPUT_CHANNEL_OPTIONS]
@@ -163,7 +179,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     const deduped: FluidSelectOption[] = []
     const seen = new Set<string>()
     for (const option of combined) {
-      const value = String(option.value || "").trim().toLowerCase()
+      const value = normalizeOutputChannelAlias(String(option.value || "").trim().toLowerCase())
       if (!value || seen.has(value)) continue
       seen.add(value)
       deduped.push({ value, label: option.label })
@@ -173,14 +189,15 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
 
   const resolvePreferredOutputChannel = useCallback((): OutputChannel => {
     const schedulePreference = schedules
-      .map((schedule) => String(schedule.integration || "").trim().toLowerCase())
-      .find((integration) => isOutputChannel(integration))
-    if (schedulePreference) return schedulePreference
+      .map((schedule) => normalizeOutputChannelAlias(String(schedule.integration || "").trim().toLowerCase()))
+      .find((integration): integration is OutputChannel => Boolean(integration))
+    if (schedulePreference && isOutputChannel(schedulePreference)) return schedulePreference
 
     const connectedChannels = new Set(
       integrationCatalog
         .filter((item) => item.kind === "channel" && item.connected)
-        .map((item) => String(item.id || "").trim().toLowerCase()),
+        .map((item) => normalizeOutputChannelAlias(String(item.id || "").trim().toLowerCase()))
+        .filter(Boolean),
     )
     for (const channel of CONNECTED_CHANNEL_PREFERENCE) {
       if (connectedChannels.has(channel)) return channel
@@ -700,17 +717,13 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
         return {
           ...base,
           title: typeof step.title === "string" && step.title.trim() ? step.title.trim() : base.title,
-          outputChannel: step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
-            ? step.outputChannel
-            : base.outputChannel,
+          outputChannel: normalizeOutputChannelAlias(String(step.outputChannel || "")) || base.outputChannel,
           outputTiming: step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate",
           outputTime: typeof step.outputTime === "string" && /^\d{2}:\d{2}$/.test(step.outputTime) ? step.outputTime : (fallbackTime || base.outputTime),
           outputFrequency: step.outputFrequency === "multiple" ? "multiple" : "once",
           outputRepeatCount: typeof step.outputRepeatCount === "string" && step.outputRepeatCount.trim() ? step.outputRepeatCount : base.outputRepeatCount,
           outputRecipients: sanitizeOutputRecipients(
-            step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
-              ? step.outputChannel
-              : base.outputChannel,
+            normalizeOutputChannelAlias(String(step.outputChannel || "")) || base.outputChannel,
             typeof step.outputRecipients === "string" ? step.outputRecipients : base.outputRecipients,
           ),
           outputTemplate: typeof step.outputTemplate === "string" ? step.outputTemplate : base.outputTemplate,
@@ -1065,9 +1078,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     const timezone = (detectedTimezone || "America/New_York").trim()
     const workflowStepsForSave = workflowSteps.map((step) => {
       if (step.type !== "output") return step
-      const outputChannel = step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
-        ? step.outputChannel
-        : "telegram"
+      const outputChannel = normalizeOutputChannelAlias(String(step.outputChannel || "")) || resolvePreferredOutputChannel()
       const outputTiming: WorkflowStep["outputTiming"] =
         step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate"
       const outputFrequency: WorkflowStep["outputFrequency"] = step.outputFrequency === "multiple" ? "multiple" : "once"
@@ -1096,7 +1107,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
           }
           if (step.type === "coinbase") return [`COINBASE:${step.coinbaseIntent || "report"}`]
           if (step.type === "ai") return [`LLM:${step.aiIntegration || integrationsSettings.activeLlmProvider}`]
-          if (step.type === "output") return [`OUTPUT:${step.outputChannel || "telegram"}`]
+          if (step.type === "output") return [`OUTPUT:${normalizeOutputChannelAlias(String(step.outputChannel || "")) || resolvePreferredOutputChannel()}`]
           return []
         }),
       ),
@@ -1126,6 +1137,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     missionTags,
     newDescription,
     newPriority,
+    resolvePreferredOutputChannel,
     newScheduleDays,
     newScheduleMode,
     newTime,
@@ -1284,7 +1296,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     const { workflowStepsForSave, summary: workflowSummary } = buildWorkflowSummaryDraft()
 
     const derivedIntegration = (
-      workflowStepsForSave.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "telegram"
+      normalizeOutputChannelAlias(workflowStepsForSave.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "") || resolvePreferredOutputChannel()
     )
     setBuilderOpen(false)
     setDeployingMission(true)
@@ -1443,6 +1455,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     newTime,
     runImmediatelyOnCreate,
     refreshSchedules,
+    resolvePreferredOutputChannel,
     resetMissionBuilder,
     router,
     toPendingRunSteps,

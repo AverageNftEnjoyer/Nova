@@ -11,6 +11,13 @@ export interface DispatchNotificationInput {
   integration: NotificationIntegration
   text: string
   targets?: string[]
+  accountId?: string
+  threadId?: string
+  inReplyTo?: string
+  references?: string[]
+  idempotencyKey?: string
+  timeoutMs?: number
+  signal?: AbortSignal
   parseMode?: "Markdown" | "MarkdownV2" | "HTML"
   disableNotification?: boolean
   source?: string
@@ -43,6 +50,13 @@ export async function dispatchNotification(
       text: input.text,
       recipients: input.targets,
       subject: input.label ? `Nova Mission: ${input.label}` : "Nova Mission Report",
+      accountId: input.accountId,
+      threadId: input.threadId,
+      inReplyTo: input.inReplyTo,
+      references: input.references,
+      idempotencyKey: input.idempotencyKey,
+      timeoutMs: input.timeoutMs,
+      signal: input.signal,
     }, input.scope)
   }
 

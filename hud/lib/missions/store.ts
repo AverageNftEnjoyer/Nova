@@ -236,17 +236,22 @@ function legacyStepToNode(step: ReturnType<typeof normalizeWorkflowStep>, index:
       ? step.outputTemplate
       : undefined
 
+    // Parse outputRecipients string → typed array for each channel's node field
+    const rawRecipients = typeof step.outputRecipients === "string" ? step.outputRecipients.trim() : ""
+    const recipientList = rawRecipients ? rawRecipients.split(",").map((r) => r.trim()).filter(Boolean) : undefined
+
     if (channel === "telegram") {
-      return { id, type: "telegram-output", label, position, messageTemplate: msgTemplate }
+      return { id, type: "telegram-output", label, position, messageTemplate: msgTemplate, ...(recipientList ? { chatIds: recipientList } : {}) }
     }
     if (channel === "discord") {
-      return { id, type: "discord-output", label, position, messageTemplate: msgTemplate }
+      return { id, type: "discord-output", label, position, messageTemplate: msgTemplate, ...(recipientList ? { webhookUrls: recipientList } : {}) }
     }
     if (channel === "email") {
-      return { id, type: "email-output", label, position, messageTemplate: msgTemplate }
+      return { id, type: "email-output", label, position, messageTemplate: msgTemplate, ...(recipientList ? { recipients: recipientList } : {}) }
     }
     if (channel === "webhook") {
-      return { id, type: "webhook-output", label, position, url: "" }
+      const webhookUrl = recipientList?.[0] || ""
+      return { id, type: "webhook-output", label, position, url: webhookUrl }
     }
     if (channel === "slack") {
       return { id, type: "slack-output", label, position, messageTemplate: msgTemplate }

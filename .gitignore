@@ -67,5 +67,6 @@ agent/mic_*.wav
 agent/speech_*.mp3
 agent/assets/*.mp4
 
-# local agent instructions
+# local agent instructions (never commit prompt engineering)
 /AGENTS.md
+prompts/

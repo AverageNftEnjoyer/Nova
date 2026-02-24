@@ -1,12 +1,19 @@
 import "server-only"
 
 import { type IntegrationsStoreScope, loadIntegrationsConfig } from "@/lib/integrations/server-store"
-import { getValidGmailAccessToken } from "@/lib/integrations/gmail"
+import { sendGmailMessage } from "@/lib/integrations/gmail"
 
 export interface EmailSendInput {
   text: string
   recipients?: string[]
   subject?: string
+  accountId?: string
+  threadId?: string
+  inReplyTo?: string
+  references?: string[]
+  idempotencyKey?: string
+  timeoutMs?: number
+  signal?: AbortSignal
 }
 
 interface EmailSendResult {
@@ -27,20 +34,6 @@ function resolveRecipients(config: Awaited<ReturnType<typeof loadIntegrationsCon
   return fallback ? [fallback] : []
 }
 
-function toBase64Url(text: string): string {
-  return Buffer.from(text, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
-}
-
-function buildRawMessage(params: { to: string; subject: string; text: string }): string {
-  return [
-    `To: ${params.to}`,
-    `Subject: ${params.subject}`,
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    params.text,
-  ].join("\r\n")
-}
-
 export async function sendEmailMessage(input: EmailSendInput, scope?: IntegrationsStoreScope): Promise<EmailSendResult[]> {
   const config = await loadIntegrationsConfig(scope)
   if (!config.gmail.connected) {
@@ -53,33 +46,35 @@ export async function sendEmailMessage(input: EmailSendInput, scope?: Integratio
   if (recipients.length === 0) {
     throw new Error("Email delivery is unavailable because no recipient is configured.")
   }
-  const accessToken = await getValidGmailAccessToken(undefined, false, scope)
   const subject = String(input.subject || "Nova Coinbase Report").trim() || "Nova Coinbase Report"
 
   const results = await Promise.all(recipients.map(async (recipient): Promise<EmailSendResult> => {
     try {
-      const raw = buildRawMessage({ to: recipient, subject, text: input.text })
-      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ raw: toBase64Url(raw) }),
-        cache: "no-store",
+      await sendGmailMessage({
+        to: recipient,
+        subject,
+        text: input.text,
+        accountId: input.accountId,
+        threadId: input.threadId,
+        inReplyTo: input.inReplyTo,
+        references: input.references,
+        idempotencyKey: input.idempotencyKey ? `${input.idempotencyKey}:${recipient}` : undefined,
+        timeoutMs: input.timeoutMs,
+        signal: input.signal,
+        scope,
       })
-      const payload = await response.json().catch(() => ({}))
       return {
         recipient,
-        ok: response.ok,
-        status: response.status,
-        error: response.ok ? undefined : String((payload as { error?: { message?: string } })?.error?.message || `gmail-send-${response.status}`),
+        ok: true,
+        status: 200,
       }
     } catch (error) {
       return {
         recipient,
         ok: false,
-        status: 0,
+        status: error instanceof Error && "status" in error && Number.isFinite(Number((error as { status?: number }).status))
+          ? Number((error as { status?: number }).status)
+          : 0,
         error: error instanceof Error ? error.message : "Unknown Gmail send error",
       }
     }

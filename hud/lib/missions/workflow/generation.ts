@@ -137,11 +137,18 @@ function inferRequestedOutputChannel(
   fallback: string,
 ): string {
   const text = normalizePromptTextForExtraction(prompt).toLowerCase()
+  if (/\b(email|e-mail|gmail|inbox)\b/.test(text) && outputSet.has("email")) return "email"
   if (/\btelegram\b/.test(text) && outputSet.has("telegram")) return "telegram"
   if (/\bdiscord\b/.test(text) && outputSet.has("discord")) return "discord"
   if (/\b(webhook|http)\b/.test(text) && outputSet.has("webhook")) return "webhook"
   if (/\b(chat|nova ?chat|hud)\b/.test(text) && outputSet.has("novachat")) return "novachat"
   return fallback
+}
+
+function normalizeOutputChannelId(value: string): string {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "gmail") return "email"
+  return normalized
 }
 
 function promptLooksLikeReminderTask(prompt: string): boolean {
@@ -924,11 +931,14 @@ export async function buildWorkflowFromPrompt(
   const config = await loadIntegrationsConfig(scope)
   const catalog = await loadIntegrationCatalog(scope)
   const llmOptions = catalog.filter((item) => item.kind === "llm" && item.connected).map((item) => item.id).filter(Boolean)
-  const outputOptions = catalog.filter((item) => item.kind === "channel" && item.connected).map((item) => item.id).filter(Boolean)
+  const outputOptions = catalog
+    .filter((item) => item.kind === "channel" && item.connected)
+    .map((item) => normalizeOutputChannelId(item.id))
+    .filter(Boolean)
   const apiIntegrations = catalog
     .filter((item) => item.kind === "api" && item.connected && item.endpoint)
     .map((item) => ({ id: item.id, label: item.label, endpoint: item.endpoint as string }))
-  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["novachat", "telegram", "discord", "webhook"])
+  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["novachat", "telegram", "discord", "email", "webhook"])
   const defaultOutput = outputOptions[0] || "telegram"
   const requestedOutput = inferRequestedOutputChannel(prompt, outputSet, defaultOutput)
   const activeLlmProvider = config.activeLlmProvider
@@ -1093,7 +1103,7 @@ export async function buildWorkflowFromPrompt(
     "When no reliable data is fetched, prefer workflow condition failure action 'skip' or explicit no-data output.",
     "Use 24h HH:mm time and realistic defaults.",
     `Connected AI providers: ${llmOptions.join(", ") || "openai"}.`,
-    `Connected output channels: ${outputOptions.join(", ") || "novachat, telegram, discord, webhook"}.`,
+    `Connected output channels: ${outputOptions.join(", ") || "novachat, telegram, discord, email, webhook"}.`,
     `Configured API integrations: ${apiIntegrations.length > 0 ? JSON.stringify(apiIntegrations) : "none"}.`,
   ].join(" ")
 
@@ -1103,7 +1113,7 @@ export async function buildWorkflowFromPrompt(
     JSON.stringify({
       label: "",
       description: "",
-      integration: "telegram",
+      integration: requestedOutput,
       priority: "medium",
       schedule: { mode: "daily", days: ["mon", "tue", "wed", "thu", "fri"], time: "09:00", timezone: "America/New_York" },
       tags: ["automation"],
@@ -1113,18 +1123,25 @@ export async function buildWorkflowFromPrompt(
         { type: "coinbase", title: "Run Coinbase step", coinbaseIntent: "report", coinbaseParams: { assets: ["BTC", "ETH"], quoteCurrency: "USD", includePreviousArtifactContext: true }, coinbaseFormat: { style: "standard", includeRawMetadata: true } },
         { type: "ai", title: "Summarize report", aiPrompt: "Summarize in concise bullets. Include sources only if enabled.", aiIntegration: "openai", aiModel: "", aiDetailLevel: "standard" },
         { type: "condition", title: "Check threshold", conditionField: "", conditionOperator: "greater_than", conditionValue: "", conditionLogic: "all", conditionFailureAction: "skip" },
-        { type: "output", title: "Send notification", outputChannel: "telegram", outputTiming: "scheduled", outputTime: "09:00", outputFrequency: "once", outputRecipients: "" }
+        { type: "output", title: "Send notification", outputChannel: requestedOutput, outputTiming: "scheduled", outputTime: "09:00", outputFrequency: "once", outputRecipients: "" }
       ]
     }),
   ].join("\n")
 
   const completion = await completeWithConfiguredLlm(systemText, userText, 1800, scope)
-  const parsed = parseJsonObject(completion.text) || buildFallbackWorkflowPayload(prompt, requestedOutput, scheduleHint)
+  const parsedJson = parseJsonObject(completion.text)
+  if (!parsedJson) {
+    console.warn("[WORKFLOW_BUILD] LLM returned non-parseable JSON — using fallback payload", {
+      prompt: prompt.slice(0, 120),
+      responseSnippet: completion.text.slice(0, 200),
+    })
+  }
+  const parsed = parsedJson || buildFallbackWorkflowPayload(prompt, requestedOutput, scheduleHint)
 
   const parsedLabel = cleanText(String(parsed.label || ""))
   const label = parsedLabel && parsedLabel.length <= 35 ? parsedLabel : generateShortTitle(prompt)
   const description = cleanText(String(parsed.description || "")) || cleanText(prompt)
-  const integrationRaw = cleanText(String(parsed.integration || "telegram")).toLowerCase() || "telegram"
+  const integrationRaw = normalizeOutputChannelId(cleanText(String(parsed.integration || requestedOutput)).toLowerCase() || requestedOutput)
   const priority = cleanText(String(parsed.priority || "medium")).toLowerCase() || "medium"
 
   const scheduleObj = parsed.schedule && typeof parsed.schedule === "object" ? (parsed.schedule as Record<string, unknown>) : {}
@@ -1156,25 +1173,36 @@ export async function buildWorkflowFromPrompt(
       )
     }
     if (step.type === "output") {
-      const channel = String(step.outputChannel || "").trim().toLowerCase()
+      const channel = normalizeOutputChannelId(String(step.outputChannel || "").trim().toLowerCase())
       if (!outputSet.has(channel)) {
         step.outputChannel = requestedOutput
+      } else {
+        step.outputChannel = channel
       }
       if (forceImmediateOutput) {
         step.outputTiming = "immediate"
       } else if (String(step.outputTiming || "").trim() !== "immediate" && String(step.outputTiming || "").trim() !== "scheduled" && String(step.outputTiming || "").trim() !== "digest") {
-        step.outputTiming = "immediate"
+        // Default to scheduled (not immediate) — preserves user's requested schedule
+        step.outputTiming = "scheduled"
       }
       step.outputRecipients = normalizeOutputRecipientsForChannel(String(step.outputChannel || requestedOutput), step.outputRecipients)
       return step
     }
     if (step.type === "condition") {
       let field = String(step.conditionField || "").trim()
+      // Auto-convert LLM template expressions to plain dot-paths
+      // e.g. {{$nodes.WebSearch.output.count}} → data.WebSearch.count
+      field = field.replace(/\{\{\s*\$nodes\.(\w+)\.output\.(\w+)\s*\}\}/g, "data.$1.$2")
+      field = field.replace(/\{\{\s*\$nodes\.(\w+)\s*\}\}/g, "data.$1")
+      field = field.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_, inner) => inner.trim().replace(/\./g, "_"))
       if (/credibleSourceCount/i.test(field)) {
         field = "data.credibleSourceCount"
       }
       if (isInvalidConditionFieldPath(field)) {
-        return null
+        // Use a safe fallback rather than silently deleting the step
+        step.conditionField = "data.text"
+        step.conditionOperator = step.conditionOperator || "exists"
+        return step
       }
       step.conditionField = field
       return step

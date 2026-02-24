@@ -2,13 +2,12 @@
 
 import { Blocks, Pin, Settings, Activity, Clock3, CheckCircle2, AlertTriangle } from "lucide-react"
 import type { CSSProperties } from "react"
-import { AnimatedOrb } from "@/components/orb/animated-orb"
+import { NovaOrb3D, type OrbState } from "@/components/orb/NovaOrb3D"
 import TextType from "@/components/effects/TextType"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
 import { cn } from "@/lib/shared/utils"
-import { MOCK_ACTIVITY_FEED } from "@/app/analytics/data/mock-analytics-data"
 import { formatDailyTime } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 
@@ -47,6 +46,7 @@ export function HomeMainScreen() {
     openIntegrations,
     openAnalytics,
     openDevLogs,
+    liveActivity,
     devToolsMetrics,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
@@ -76,12 +76,17 @@ export function HomeMainScreen() {
     return n.toLocaleString("en-US")
   }
 
-  const analyticsLiveActivity = MOCK_ACTIVITY_FEED.slice(0, 4)
+  const analyticsLiveActivity = liveActivity
   const assistantNameGradientVars = {
     "--orb-name-a": orbPalette.circle1,
     "--orb-name-b": orbPalette.circle2,
     "--orb-name-c": orbPalette.circle4,
   } as CSSProperties
+  const orbState: OrbState = (
+    novaState === "idle" || novaState === "listening" || novaState === "thinking" || novaState === "speaking"
+      ? novaState
+      : "idle"
+  )
 
   const iconForActivityService = (service: string) => {
     const value = service.trim().toLowerCase()
@@ -137,7 +142,14 @@ export function HomeMainScreen() {
                           }}
                         />
                       )}
-                      <AnimatedOrb size={280} palette={orbPalette} showStateLabel={false} />
+                      <NovaOrb3D
+                        size={280}
+                        palette={orbPalette}
+                        orbState={orbState}
+                        quality="high"
+                        intensity={1}
+                        theme={isLight ? "light" : "dark"}
+                      />
                     </>
                   )}
                 </div>

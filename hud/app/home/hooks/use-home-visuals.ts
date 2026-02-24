@@ -55,8 +55,6 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
         sessionStorage.removeItem("nova-home-intro-pending")
         setHasAnimated(true)
       }
-
-      setWelcomeMessage(pickGreetingForTone(tone))
     }, 0)
 
     return () => window.clearTimeout(sync)

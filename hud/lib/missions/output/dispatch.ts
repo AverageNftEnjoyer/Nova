@@ -22,6 +22,7 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
 
 const WEBHOOK_TIMEOUT_MS = readIntEnv("NOVA_WORKFLOW_WEBHOOK_TIMEOUT_MS", 15_000, 1_000, 120_000)
 const WEBHOOK_MAX_REDIRECTS = readIntEnv("NOVA_WORKFLOW_WEBHOOK_MAX_REDIRECTS", 0, 0, 5)
+const EMAIL_TIMEOUT_MS = readIntEnv("NOVA_WORKFLOW_EMAIL_TIMEOUT_MS", 12_000, 1_000, 120_000)
 
 /**
  * Dispatch mission output to a channel.
@@ -55,10 +56,20 @@ export async function dispatchOutput(
 
   if (channel === "discord" || channel === "telegram" || channel === "email") {
     try {
+      const missionRunId = String(metadata?.missionRunId || "").trim()
+      const runKey = String(metadata?.runKey || "").trim()
+      const nodeId = String(metadata?.nodeId || "output").trim() || "output"
+      const outputIndex = Number.isFinite(Number(metadata?.outputIndex))
+        ? Math.max(0, Number(metadata?.outputIndex))
+        : 0
+      const deliveryKey = String(metadata?.deliveryKey || "").trim()
+        || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
       return await dispatchNotification({
         integration: channel as NotificationIntegration,
         text: safeText,
         targets,
+        idempotencyKey: channel === "email" ? deliveryKey : undefined,
+        timeoutMs: channel === "email" ? EMAIL_TIMEOUT_MS : undefined,
         parseMode: channel === "telegram" ? "HTML" : undefined,
         source: "workflow",
         scheduleId: schedule.id,

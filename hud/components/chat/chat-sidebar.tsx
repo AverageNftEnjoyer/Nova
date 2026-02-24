@@ -124,8 +124,6 @@ export function ChatSidebar({
     }
 
     if (!spotlight) return
-    let liveStars = 0
-
     const handleMouseMove = (e: MouseEvent) => {
       const rect = sidebar.getBoundingClientRect()
       const mouseX = e.clientX - rect.left
@@ -165,27 +163,8 @@ export function ChatSidebar({
         card.style.setProperty("--glow-intensity", glowIntensity.toString())
         card.style.setProperty("--glow-radius", "90px")
 
-        if (isInsideCard && glowIntensity > 0.2 && Math.random() <= 0.16 && liveStars < 42) {
-          liveStars += 1
-          const star = document.createElement("span")
-          star.className = "fx-star-particle"
-          star.style.left = `${e.clientX - cardRect.left}px`
-          star.style.top = `${e.clientY - cardRect.top}px`
-          star.style.setProperty("--fx-star-color", "rgba(255,255,255,1)")
-          star.style.setProperty("--fx-star-glow", "rgba(255,255,255,0.7)")
-          star.style.setProperty("--star-x", `${(Math.random() - 0.5) * 34}px`)
-          star.style.setProperty("--star-y", `${-12 - Math.random() * 26}px`)
-          star.style.animationDuration = `${0.9 + Math.random() * 0.6}s`
-          card.appendChild(star)
-          star.addEventListener(
-            "animationend",
-            () => {
-              star.remove()
-              liveStars = Math.max(0, liveStars - 1)
-            },
-            { once: true },
-          )
-        }
+        // Avoid appending ephemeral nodes into React-managed card trees.
+        // Spotlight intensity is preserved via CSS vars only.
       })
     }
 
@@ -235,10 +214,7 @@ export function ChatSidebar({
   const profile = userSettings?.profile
   const activeConversations = conversations.filter((c) => !c.archived)
   const archivedConversations = conversations.filter((c) => c.archived)
-  const filteredActiveConversations = activeConversations
-  const filteredArchivedConversations = archivedConversations
-  const quickActionConversations = filteredActiveConversations.filter((c) => c.pinned).slice(0, 3)
-  const listConversations = filteredActiveConversations
+  const quickActionConversations = activeConversations.filter((c) => c.pinned).slice(0, 3)
   const panelClass = embedded
     ? (isLight
         ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
@@ -549,10 +525,10 @@ export function ChatSidebar({
             </button>
             {chatsOpen && (
               <>
-                {listConversations.length === 0 ? (
+                {activeConversations.length === 0 ? (
                   <p className={cn("text-xs px-2 py-2", isLight ? "text-s-40" : "text-slate-500")}>No chats yet.</p>
                 ) : (
-                  listConversations.map(renderConversationRow)
+                  activeConversations.map(renderConversationRow)
                 )}
               </>
             )}
@@ -576,10 +552,10 @@ export function ChatSidebar({
             </button>
             {archivedOpen && (
               <>
-                {filteredArchivedConversations.length === 0 ? (
+                {archivedConversations.length === 0 ? (
                   <p className={cn("text-xs px-2 py-2", isLight ? "text-s-40" : "text-slate-500")}>No archived chats.</p>
                 ) : (
-                  filteredArchivedConversations.map(renderConversationRow)
+                  archivedConversations.map(renderConversationRow)
                 )}
               </>
             )}

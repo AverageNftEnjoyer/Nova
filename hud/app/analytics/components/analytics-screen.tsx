@@ -226,7 +226,7 @@ export function AnalyticsScreen() {
               </div>
             )}
             {enabledModules.activityFeed && (
-              <div ref={activityFeedRef} style={moduleShellStyle} className={moduleShellClass}>
+              <div ref={activityFeedRef} style={moduleShellStyle} className={cn(moduleShellClass, "h-140 min-h-0")}>
                 <ActivityFeedPanel events={activityFeed} isLight={isLight} />
               </div>
             )}

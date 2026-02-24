@@ -260,6 +260,56 @@ function resolveProviderConnectedState(connectedFlag, apiKey) {
   return Boolean(connectedFlag) && String(apiKey || "").trim().length > 0;
 }
 
+function toStringArray(input) {
+  if (!Array.isArray(input)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const entry of input) {
+    const value = String(entry || "").trim();
+    if (!value) continue;
+    const dedupeKey = value.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push(value);
+  }
+  return out;
+}
+
+function parseGmailRuntime(value) {
+  const integration = value && typeof value === "object" ? value : {};
+  const accountsInput = Array.isArray(integration.accounts) ? integration.accounts : [];
+  const accounts = accountsInput
+    .map((entry) => {
+      const account = entry && typeof entry === "object" ? entry : {};
+      return {
+        id: String(account.id || "").trim(),
+        email: String(account.email || "").trim(),
+        enabled: account.enabled === true,
+        scopes: toStringArray(account.scopes),
+        accessToken: unwrapStoredSecret(account.accessToken) || "",
+        tokenExpiry: Number.isFinite(Number(account.tokenExpiry))
+          ? Math.max(0, Math.floor(Number(account.tokenExpiry)))
+          : 0,
+      };
+    })
+    .filter((account) =>
+      String(account.id || "").trim() ||
+      String(account.email || "").trim() ||
+      (Array.isArray(account.scopes) && account.scopes.length > 0),
+    );
+  return {
+    connected: integration.connected === true,
+    activeAccountId: String(integration.activeAccountId || "").trim(),
+    email: String(integration.email || "").trim(),
+    scopes: toStringArray(integration.scopes),
+    accessToken: unwrapStoredSecret(integration.accessToken) || "",
+    tokenExpiry: Number.isFinite(Number(integration.tokenExpiry))
+      ? Math.max(0, Math.floor(Number(integration.tokenExpiry)))
+      : 0,
+    accounts,
+  };
+}
+
 export function loadIntegrationsRuntime(options = {}) {
   const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
@@ -270,6 +320,7 @@ export function loadIntegrationsRuntime(options = {}) {
     const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
     const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
     const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
+    const gmailIntegration = parseGmailRuntime(parsed?.gmail);
     const activeProvider = parsed?.activeLlmProvider === "claude"
       ? "claude"
       : parsed?.activeLlmProvider === "grok"
@@ -319,7 +370,8 @@ export function loadIntegrationsRuntime(options = {}) {
         model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
           ? geminiIntegration.defaultModel.trim()
           : DEFAULT_GEMINI_MODEL
-      }
+      },
+      gmail: gmailIntegration
     };
   } catch {
     const activeProvider = parseActiveProvider(String(process.env.NOVA_ACTIVE_LLM_PROVIDER || "").trim() || "openai");
@@ -333,7 +385,14 @@ export function loadIntegrationsRuntime(options = {}) {
       openai: { connected: openaiApiKey.length > 0, apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
       claude: { connected: claudeApiKey.length > 0, apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
       grok: { connected: grokApiKey.length > 0, apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: geminiApiKey.length > 0, apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL }
+      gemini: { connected: geminiApiKey.length > 0, apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
+      gmail: {
+        connected: false,
+        activeAccountId: "",
+        email: "",
+        scopes: [],
+        accounts: [],
+      }
     };
   }
 }

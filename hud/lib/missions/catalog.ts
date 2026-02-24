@@ -451,7 +451,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     textColor: "text-pink-300",
     inputs: ["main"],
     outputs: [],
-    tags: ["email", "smtp", "notification", "message", "inbox"],
+    tags: ["email", "gmail", "smtp", "notification", "message", "inbox"],
   },
   {
     type: "webhook-output",

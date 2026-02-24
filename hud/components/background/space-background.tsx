@@ -9,6 +9,14 @@ function seeded(index: number, salt: number, bootSeed = 0): number {
 
 type PlanetSurface = "ocean" | "gas" | "ice" | "volcanic" | "cratered"
 type RingType = "none" | "single" | "double"
+type FlightPath = {
+  startLeft: string
+  startTop: string
+  deltaX: string
+  deltaY: string
+  heading: string
+  facing: number
+}
 
 export function SpaceBackground() {
   const [bootSeed] = useState(() => Math.floor(Math.random() * 1_000_000_000))
@@ -299,12 +307,12 @@ export function SpaceBackground() {
 
   const shootingStars = useMemo(
     () =>
-      Array.from({ length: 2 }, (_, index) => ({
+      Array.from({ length: 5 }, (_, index) => ({
         id: `shoot-${index}`,
         top: `${-14 + Math.round(seeded(index, 13, bootSeed) * 28)}%`,
         left: `${-10 + Math.round(seeded(index, 14, bootSeed) * 88)}%`,
-        delay: `${(10 + seeded(index, 15, bootSeed) * 36).toFixed(2)}s`,
-        duration: `${(84 + seeded(index, 16, bootSeed) * 14).toFixed(2)}s`,
+        delay: `${(8 + seeded(index, 15, bootSeed) * 28).toFixed(2)}s`,
+        duration: `${(62 + seeded(index, 16, bootSeed) * 38).toFixed(2)}s`,
         scale: (0.78 + seeded(index, 21, bootSeed) * 0.55).toFixed(2),
       })),
     [bootSeed],
@@ -358,12 +366,178 @@ export function SpaceBackground() {
     [bootSeed],
   )
 
+  const alienShips = useMemo(
+    () => {
+      const buildPath = (index: number, salt: number): FlightPath => {
+        const route = Math.floor(seeded(index, salt, bootSeed) * 4)
+        if (route === 0) {
+          return {
+            startLeft: "-18%",
+            startTop: `${10 + Math.round(seeded(index, salt + 1, bootSeed) * 70)}%`,
+            deltaX: "132vw",
+            deltaY: "-10px",
+            heading: "0deg",
+            facing: 1,
+          }
+        }
+        if (route === 1) {
+          return {
+            startLeft: "112%",
+            startTop: `${10 + Math.round(seeded(index, salt + 2, bootSeed) * 70)}%`,
+            deltaX: "-132vw",
+            deltaY: "10px",
+            heading: "180deg",
+            facing: -1,
+          }
+        }
+        if (route === 2) {
+          return {
+            startLeft: `${12 + Math.round(seeded(index, salt + 3, bootSeed) * 74)}%`,
+            startTop: "-18%",
+            deltaX: "14px",
+            deltaY: "132vh",
+            heading: "90deg",
+            facing: 1,
+          }
+        }
+        return {
+          startLeft: `${12 + Math.round(seeded(index, salt + 4, bootSeed) * 74)}%`,
+          startTop: "112%",
+          deltaX: "-14px",
+          deltaY: "-132vh",
+          heading: "-90deg",
+          facing: 1,
+        }
+      }
+      return Array.from({ length: 2 }, (_, index) => {
+        const path = buildPath(index, 73)
+        return {
+          id: `alien-${index}`,
+          delay: `${(28 + seeded(index, 74, bootSeed) * 92).toFixed(2)}s`,
+          duration: `${(96 + seeded(index, 75, bootSeed) * 86).toFixed(2)}s`,
+          tilt: `${(-4 + seeded(index, 76, bootSeed) * 8).toFixed(2)}deg`,
+          ...path,
+        }
+      })
+    },
+    [bootSeed],
+  )
+
+  const battleStations = useMemo(
+    () =>
+      Array.from({ length: 1 }, (_, index) => ({
+        id: `station-${index}`,
+        top: `${6 + Math.round(seeded(index, 77, bootSeed) * 22)}%`,
+        left: `${66 + Math.round(seeded(index, 78, bootSeed) * 24)}%`,
+        size: `${84 + Math.round(seeded(index, 79, bootSeed) * 42)}px`,
+        delay: `${(44 + seeded(index, 80, bootSeed) * 120).toFixed(2)}s`,
+        duration: `${(150 + seeded(index, 81, bootSeed) * 120).toFixed(2)}s`,
+      })),
+    [bootSeed],
+  )
+
+  const tieFighters = useMemo(
+    () => {
+      const buildPath = (index: number, salt: number): FlightPath => {
+        const route = Math.floor(seeded(index, salt, bootSeed) * 4)
+        if (route === 0) {
+          return {
+            startLeft: "-18%",
+            startTop: `${12 + Math.round(seeded(index, salt + 1, bootSeed) * 68)}%`,
+            deltaX: "128vw",
+            deltaY: "-20px",
+            heading: "0deg",
+            facing: 1,
+          }
+        }
+        if (route === 1) {
+          return {
+            startLeft: "112%",
+            startTop: `${12 + Math.round(seeded(index, salt + 2, bootSeed) * 68)}%`,
+            deltaX: "-128vw",
+            deltaY: "20px",
+            heading: "180deg",
+            facing: -1,
+          }
+        }
+        if (route === 2) {
+          return {
+            startLeft: `${10 + Math.round(seeded(index, salt + 3, bootSeed) * 76)}%`,
+            startTop: "-20%",
+            deltaX: "14px",
+            deltaY: "132vh",
+            heading: "90deg",
+            facing: 1,
+          }
+        }
+        return {
+          startLeft: `${10 + Math.round(seeded(index, salt + 4, bootSeed) * 76)}%`,
+          startTop: "114%",
+          deltaX: "-14px",
+          deltaY: "-132vh",
+          heading: "-90deg",
+          facing: 1,
+        }
+      }
+      return Array.from({ length: 2 }, (_, index) => {
+        const path = buildPath(index, 82)
+        return {
+          id: `tie-${index}`,
+          delay: `${(34 + seeded(index, 83, bootSeed) * 126).toFixed(2)}s`,
+          duration: `${(118 + seeded(index, 84, bootSeed) * 96).toFixed(2)}s`,
+          scale: (0.8 + seeded(index, 85, bootSeed) * 0.5).toFixed(2),
+          tilt: `${(-8 + seeded(index, 86, bootSeed) * 16).toFixed(2)}deg`,
+          laserDelay: `${(seeded(index, 87, bootSeed) * 0.42).toFixed(2)}s`,
+          ...path,
+        }
+      })
+    },
+    [bootSeed],
+  )
+
+  const backgroundStations = useMemo(
+    () =>
+      Array.from({ length: 2 }, (_, index) => ({
+        id: `bg-station-${index}`,
+        top: `${8 + Math.round(seeded(index, 88, bootSeed) * 70)}%`,
+        left: `${106 + Math.round(seeded(index, 89, bootSeed) * 12)}%`,
+        size: `${52 + Math.round(seeded(index, 90, bootSeed) * 36)}px`,
+        delay: `${(seeded(index, 91, bootSeed) * 40).toFixed(2)}s`,
+        duration: `${(220 + seeded(index, 92, bootSeed) * 120).toFixed(2)}s`,
+        driftY: `${(-20 + Math.round(seeded(index, 93, bootSeed) * 40))}px`,
+      })),
+    [bootSeed],
+  )
+
   return (
     <div className="space-bg absolute inset-0 overflow-hidden">
       <div className="space-bg__base" />
       <div className="space-bg__nebula space-bg__nebula--left" />
       <div className="space-bg__nebula space-bg__nebula--right" />
       <div className="space-bg__nebula space-bg__nebula--bottom" />
+      <div className="space-bg__deep-stations">
+        {backgroundStations.map((station) => (
+          <span
+            key={station.id}
+            className="space-bg__deep-station"
+            style={{
+              top: station.top,
+              left: station.left,
+              width: station.size,
+              height: station.size,
+              animationDelay: station.delay,
+              animationDuration: station.duration,
+              ["--space-deep-station-dy" as string]: station.driftY,
+            }}
+          >
+            <span className="space-bg__deep-station-hull" />
+            <span className="space-bg__deep-station-truss" />
+            <span className="space-bg__deep-station-panel space-bg__deep-station-panel--left" />
+            <span className="space-bg__deep-station-panel space-bg__deep-station-panel--right" />
+            <span className="space-bg__deep-station-dish" />
+          </span>
+        ))}
+      </div>
 
       <div className="space-bg__stars">
         {stars.map((star) => (
@@ -537,6 +711,79 @@ export function SpaceBackground() {
               <span className="space-bg__rocket-window" />
               <span className="space-bg__rocket-flame" />
             </span>
+          </span>
+        ))}
+      </div>
+
+      <div className="space-bg__battle-stations">
+        {battleStations.map((station) => (
+          <span
+            key={station.id}
+            className="space-bg__battle-station"
+            style={{
+              top: station.top,
+              left: station.left,
+              width: station.size,
+              height: station.size,
+              animationDelay: station.delay,
+              animationDuration: station.duration,
+            }}
+          >
+            <span className="space-bg__battle-station-trench" />
+            <span className="space-bg__battle-station-dish" />
+          </span>
+        ))}
+      </div>
+
+      <div className="space-bg__alien-ships">
+        {alienShips.map((ship) => (
+          <span
+            key={ship.id}
+            className="space-bg__alien-ship"
+            style={{
+              top: ship.startTop,
+              left: ship.startLeft,
+              animationDelay: ship.delay,
+              animationDuration: ship.duration,
+              ["--space-alien-tilt" as string]: ship.tilt,
+              ["--space-alien-heading" as string]: ship.heading,
+              ["--space-alien-dx" as string]: ship.deltaX,
+              ["--space-alien-dy" as string]: ship.deltaY,
+              ["--space-alien-facing" as string]: `${ship.facing}`,
+            }}
+          >
+            <span className="space-bg__alien-dome" />
+            <span className="space-bg__alien-lights" />
+          </span>
+        ))}
+      </div>
+
+      <div className="space-bg__tie-squad">
+        {tieFighters.map((fighter) => (
+          <span
+            key={fighter.id}
+            className="space-bg__tie-fighter"
+            style={{
+              top: fighter.startTop,
+              left: fighter.startLeft,
+              animationDelay: fighter.delay,
+              animationDuration: fighter.duration,
+              ["--space-tie-scale" as string]: fighter.scale,
+              ["--space-tie-tilt" as string]: fighter.tilt,
+              ["--space-tie-heading" as string]: fighter.heading,
+              ["--space-tie-dx" as string]: fighter.deltaX,
+              ["--space-tie-dy" as string]: fighter.deltaY,
+              ["--space-tie-facing" as string]: `${fighter.facing}`,
+              ["--space-tie-laser-delay" as string]: fighter.laserDelay,
+            }}
+          >
+            <span className="space-bg__tie-wing space-bg__tie-wing--left" />
+            <span className="space-bg__tie-wing-link space-bg__tie-wing-link--left" />
+            <span className="space-bg__tie-cockpit" />
+            <span className="space-bg__tie-wing-link space-bg__tie-wing-link--right" />
+            <span className="space-bg__tie-wing space-bg__tie-wing--right" />
+            <span className="space-bg__tie-laser space-bg__tie-laser--a" />
+            <span className="space-bg__tie-laser space-bg__tie-laser--b" />
           </span>
         ))}
       </div>

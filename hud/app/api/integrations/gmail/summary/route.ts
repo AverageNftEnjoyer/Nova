@@ -4,15 +4,10 @@ import { listRecentGmailMessages } from "@/lib/integrations/gmail"
 import { completeWithConfiguredLlm } from "@/lib/missions/runtime"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { gmailApiErrorResponse, logGmailApi, safeJson, summaryInputSchema } from "@/app/api/integrations/gmail/_shared"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-function parseMaxResults(value: unknown): number {
-  const raw = typeof value === "string" ? Number(value) : typeof value === "number" ? value : 8
-  if (!Number.isFinite(raw)) return 8
-  return Math.max(1, Math.min(25, Math.floor(raw)))
-}
 
 async function handleSummary(req: Request, input: { maxResults?: unknown; accountId?: unknown }) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
@@ -21,8 +16,16 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const maxResults = parseMaxResults(input.maxResults)
-    const accountId = typeof input.accountId === "string" ? input.accountId.trim().toLowerCase() : undefined
+    const parsed = summaryInputSchema.safeParse(input)
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: parsed.error.issues[0]?.message || "Invalid request." }, { status: 400 })
+    }
+    const { maxResults, accountId } = parsed.data
+    logGmailApi("summary.begin", {
+      userContextId: verified.user.id,
+      maxResults,
+      accountId: accountId || "active",
+    })
     const emails = await listRecentGmailMessages(maxResults, accountId, verified)
     if (emails.length === 0) {
       return NextResponse.json({
@@ -50,15 +53,12 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
       emails,
     })
   } catch (error) {
-    return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Failed to summarize Gmail inbox." },
-      { status: 500 },
-    )
+    return gmailApiErrorResponse(error, "Failed to summarize Gmail inbox.")
   }
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { maxResults?: number; accountId?: string }
+  const body = (await safeJson(req)) as { maxResults?: number; accountId?: string }
   return handleSummary(req, body)
 }
 

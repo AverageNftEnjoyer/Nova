@@ -509,6 +509,7 @@ export interface UseConversationsReturn {
   handleArchiveConvo: (id: string, archived: boolean) => void
   handlePinConvo: (id: string, pinned: boolean) => void
   addUserMessage: (content: string) => Conversation | null
+  addAssistantMessage: (content: string, options?: { sender?: string }) => Conversation | null
   ensureServerConversationForOptimistic: (convo: Conversation) => Promise<void>
   resolveConversationIdForAgent: (conversationId: string) => string
   resolveSessionConversationIdForAgent: (conversationId: string) => string
@@ -1487,6 +1488,35 @@ export function useConversations({
     [activeConvo, conversations, patchServerConversation, persist],
   )
 
+  const addAssistantMessage = useCallback(
+    (
+      content: string,
+      options?: { sender?: string },
+    ): Conversation | null => {
+      if (!content.trim() || !activeConvo) return null
+
+      const assistantMsg: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content: content.trim(),
+        createdAt: new Date().toISOString(),
+        source: "agent",
+        sender: String(options?.sender || "Nova").trim() || "Nova",
+      }
+
+      const updated: Conversation = {
+        ...activeConvo,
+        messages: [...activeConvo.messages, assistantMsg],
+        updatedAt: new Date().toISOString(),
+      }
+      const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
+      persist(convos, updated)
+      void syncServerMessages(updated).catch(() => {})
+      return updated
+    },
+    [activeConvo, conversations, persist, syncServerMessages],
+  )
+
   const ensureServerConversationForOptimistic = useCallback(
     async (convo: Conversation): Promise<void> => {
       if (!OPTIMISTIC_ID_REGEX.test(convo.id)) return
@@ -1662,6 +1692,7 @@ export function useConversations({
     handleArchiveConvo,
     handlePinConvo,
     addUserMessage,
+    addAssistantMessage,
     ensureServerConversationForOptimistic,
     resolveConversationIdForAgent,
     resolveSessionConversationIdForAgent,
@@ -1675,4 +1706,3 @@ export function useConversations({
     },
   }
 }
-

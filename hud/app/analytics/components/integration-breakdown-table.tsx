@@ -1,6 +1,6 @@
 import { Globe, ShieldQuestion, Sparkles, Waypoints } from "lucide-react"
 
-import { BraveIcon, ClaudeIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 
 import type { IntegrationMetricRow } from "../types"
 
@@ -19,6 +19,7 @@ function iconForSlug(slug: string) {
   if (normalized === "discord") return <DiscordIcon className="h-3.5 w-3.5" />
   if (normalized === "gmail") return <GmailIcon className="h-3.5 w-3.5" />
   if (normalized === "brave") return <BraveIcon className="h-3.5 w-3.5" />
+  if (normalized === "coinbase") return <CoinbaseIcon className="h-3.5 w-3.5" />
   if (normalized === "firecrawl") return <Globe className="h-3.5 w-3.5" />
   return <ShieldQuestion className="h-3.5 w-3.5" />
 }
@@ -65,10 +66,10 @@ export function IntegrationBreakdownTable({ rows, isLight }: IntegrationBreakdow
                 <tr key={row.key} className={isLight ? "border-t border-[#dfe5ef]" : "border-t border-white/10"}>
                   <td className="px-2 py-2">
                     <div className="inline-flex items-center gap-1.5">
-                      <span className={`inline-flex h-5 w-5 items-center justify-center rounded-md border ${isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20 backdrop-blur-sm"}`}>
+                      <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center ${isLight ? "text-s-50" : "text-slate-400"}`}>
                         {iconForSlug(row.slug)}
                       </span>
-                      <span className={`truncate max-w-[80px] ${isLight ? "text-s-90" : "text-slate-100"}`}>{row.name}</span>
+                      <span className={`truncate max-w-20 ${isLight ? "text-s-90" : "text-slate-100"}`}>{row.name}</span>
                     </div>
                   </td>
                   <td className="px-2 py-2 text-right font-mono text-xs">{row.requests.toLocaleString()}</td>
