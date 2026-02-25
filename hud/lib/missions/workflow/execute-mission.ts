@@ -181,6 +181,25 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
   const local = getLocalParts(now, timezone)
   if (!local) return { due: false, reason: "Could not determine local time.", dayStamp: "" }
 
+  // Calendar reschedule override: treat as a one-time trigger within a 15-minute window.
+  // The override is consumed (cleared) after a successful run by the caller via upsertMission.
+  if (mission.scheduledAtOverride) {
+    const overrideTime = new Date(mission.scheduledAtOverride)
+    if (Number.isNaN(overrideTime.getTime())) {
+      // Malformed override — fall through to normal schedule
+    } else {
+      const diffMs = now.getTime() - overrideTime.getTime()
+      // Due if we are within a 15-minute window after the override time
+      if (diffMs >= 0 && diffMs <= 15 * 60 * 1000) {
+        return { due: true, reason: `Calendar override at ${mission.scheduledAtOverride}.`, dayStamp: local.dayStamp }
+      }
+      if (diffMs < 0) {
+        return { due: false, reason: `Calendar override pending — ${Math.round(-diffMs / 60000)}m until ${mission.scheduledAtOverride}.`, dayStamp: local.dayStamp }
+      }
+      // Override window expired — fall through to normal schedule
+    }
+  }
+
   const mode = triggerNode.triggerMode || "daily"
 
   if (mode === "interval") {

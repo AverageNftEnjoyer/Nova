@@ -4,7 +4,7 @@ import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
-import { loadMissions, migrateLegacyScheduleToMission } from "@/lib/missions/store"
+import { loadMissions } from "@/lib/missions/store"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
@@ -124,7 +124,7 @@ export async function GET(req: Request) {
           ])
           const targetIndex = schedules.findIndex((item) => item.id === scheduleId)
           const existingSchedule = targetIndex >= 0 ? schedules[targetIndex] : undefined
-          const mission = missions.find((row) => row.id === scheduleId) || (existingSchedule ? migrateLegacyScheduleToMission(existingSchedule) : null)
+          const mission = missions.find((row) => row.id === scheduleId) || null
           if (!mission) {
             safeStreamPayload({ type: "error", error: "schedule not found" })
             return

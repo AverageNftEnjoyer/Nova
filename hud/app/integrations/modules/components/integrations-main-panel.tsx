@@ -4,7 +4,7 @@ import { cn } from "@/lib/shared/utils"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { NovaSwitch } from "@/components/ui/nova-switch"
 
-import { LlmSetupPanel, GmailSetupPanel, SecretInput } from "../../components"
+import { LlmSetupPanel, GmailSetupPanel, GmailCalendarSetupPanel, SecretInput } from "../../components"
 import { COINBASE_TIMEZONE_OPTIONS, COINBASE_CURRENCY_OPTIONS, COINBASE_CADENCE_OPTIONS } from "../coinbase/meta"
 import type { IntegrationsMainPanelProps } from "../types"
 
@@ -15,8 +15,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
     coinbaseLastSyncText, coinbaseFreshnessText, coinbaseErrorText, coinbaseHasKeys, coinbaseScopeSummary, coinbasePrivacy, coinbasePrivacyHydrated, coinbasePrivacySaving, coinbasePrivacyError,
     coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
     coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
-    coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, telegramSetupSectionRef,
-    discordSetupSectionRef, braveSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef, setBotToken,
+    coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
+    telegramSetupSectionRef,
+    discordSetupSectionRef, braveSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
+    gmailCalendarSetupSectionRef, setBotToken,
     botToken, botTokenConfigured, botTokenMasked, setChatIds, chatIds, setDiscordWebhookUrls, discordWebhookUrls,
     setBraveApiKey, braveApiKey, toggleTelegram, saveTelegramConfig, toggleDiscord, saveDiscordConfig, toggleBrave,
     saveBraveConfig, probeCoinbaseConnection, toggleCoinbase, saveCoinbaseConfig, updateCoinbasePrivacy,
@@ -726,6 +728,24 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                 onDisconnectGmail={gmailSetup.disconnectGmail}
                 onSetPrimaryGmailAccount={gmailSetup.setPrimaryGmailAccount}
                 onUpdateGmailAccountState={gmailSetup.updateGmailAccountState}
+              />
+            )}
+
+            {activeSetup === "gmail-calendar" && (
+              <GmailCalendarSetupPanel
+                sectionRef={gmailCalendarSetupSectionRef}
+                panelStyle={panelStyle}
+                panelClass={panelClass}
+                moduleHeightClass={moduleHeightClass}
+                isLight={isLight}
+                subPanelClass={subPanelClass}
+                settings={settings}
+                isSavingAny={isSavingTarget !== null}
+                selectedAccountId={gmailCalendarSetup.selectedAccountId}
+                onSelectAccount={gmailCalendarSetup.setSelectedAccountId}
+                onConnect={gmailCalendarSetup.connectGmailCalendar}
+                onDisconnect={gmailCalendarSetup.disconnectGmailCalendar}
+                onUpdatePermissions={gmailCalendarSetup.updateCalendarPermissions}
               />
             )}
 

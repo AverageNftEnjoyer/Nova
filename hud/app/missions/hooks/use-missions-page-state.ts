@@ -59,6 +59,7 @@ import type {
 
 interface UseMissionsPageStateInput {
   isLight: boolean
+  returnTo?: string | null
 }
 
 type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
@@ -90,7 +91,7 @@ function buildBaselineById(schedules: NotificationSchedule[]): Record<string, No
   return baseline
 }
 
-export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
+export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageStateInput) {
   const router = useRouter()
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
@@ -1437,6 +1438,9 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
       setBuilderOpen(false)
       resetMissionBuilder()
       await refreshSchedules()
+      if (returnTo) {
+        router.push(returnTo)
+      }
     } catch (error) {
       stopRunProgressAnimation()
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to deploy mission." })
@@ -1455,6 +1459,7 @@ export function useMissionsPageState({ isLight }: UseMissionsPageStateInput) {
     newTime,
     runImmediatelyOnCreate,
     refreshSchedules,
+    returnTo,
     resolvePreferredOutputChannel,
     resetMissionBuilder,
     router,

@@ -45,6 +45,24 @@ export function GmailIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+interface GmailCalendarIconProps {
+  className?: string
+  size?: number
+}
+export function GmailCalendarIcon({ className = "w-4 h-4", size }: GmailCalendarIconProps) {
+  const px = size ?? 16
+  return (
+    <Image
+      src="/images/gcalendar.svg"
+      alt="Google Calendar"
+      width={px}
+      height={px}
+      className={className}
+      unoptimized
+    />
+  )
+}
+
 type OpenAIIconProps = Omit<ComponentProps<typeof OpenAI>, "size"> & {
   size?: number
 }

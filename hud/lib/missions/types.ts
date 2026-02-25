@@ -474,6 +474,9 @@ export interface Mission {
   successCount: number
   failureCount: number
   lastRunStatus?: "success" | "error" | "skipped"
+  // calendar reschedule override — set by drag-drop in Calendar Hub
+  // scheduler reads this in preference to the schedule-trigger node's triggerTime
+  scheduledAtOverride?: string  // ISO8601 UTC
   // legacy / routing
   integration: string
   chatIds: string[]

@@ -104,7 +104,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.77.0",
     "@mozilla/readability": "^0.6.0",
-    "@openai/agents": "^0.4.15",
+    "@openai/agents": "^0.5.1",
     "better-sqlite3": "^12.6.2",
     "dictionary-en": "^4.0.0",
     "dotenv": "^17.2.3",

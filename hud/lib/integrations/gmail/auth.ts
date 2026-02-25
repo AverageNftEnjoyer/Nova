@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from "node:crypto"
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
 import { gmailError } from "./errors"
 import { DEFAULT_GMAIL_SCOPES, GOOGLE_OAUTH_BASE, type GmailClientConfig, type GmailOAuthStatePayload } from "./types"
@@ -26,7 +26,10 @@ function verifyState(raw: string): GmailOAuthStatePayload | null {
   const [body, signature] = String(raw || "").split(".")
   if (!body || !signature) return null
   const expected = createHmac("sha256", getOAuthSecret()).update(body).digest("base64url")
-  if (expected !== signature) return null
+  const expectedBuf = Buffer.from(expected, "utf8")
+  const signatureBuf = Buffer.from(signature, "utf8")
+  if (expectedBuf.length !== signatureBuf.length) return null
+  if (!timingSafeEqual(expectedBuf, signatureBuf)) return null
   try {
     const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as GmailOAuthStatePayload
     if (!parsed || typeof parsed !== "object") return null

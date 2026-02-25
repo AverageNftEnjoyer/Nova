@@ -16,6 +16,8 @@ export type IntegrationsSaveTarget =
   | "gmail-disconnect"
   | "gmail-primary"
   | "gmail-account"
+  | "gmail-calendar-disconnect"
+  | "gmail-calendar-permissions"
   | "provider"
 
 export type IntegrationsSaveStatus = null | { type: "success" | "error" | "disabled"; message: string }

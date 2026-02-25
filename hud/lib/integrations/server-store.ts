@@ -99,6 +99,32 @@ export interface GmailIntegrationConfig {
   tokenExpiry: number
 }
 
+export interface GmailCalendarIntegrationConfig {
+  connected: boolean
+  email: string
+  scopes: string[]
+  permissions: {
+    allowCreate: boolean
+    allowEdit: boolean
+    allowDelete: boolean
+  }
+  accounts: Array<{
+    id: string
+    email: string
+    scopes: string[]
+    enabled: boolean
+    accessTokenEnc: string
+    refreshTokenEnc: string
+    tokenExpiry: number
+    connectedAt: string
+  }>
+  activeAccountId: string
+  redirectUri: string
+  accessTokenEnc: string
+  refreshTokenEnc: string
+  tokenExpiry: number
+}
+
 export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
 export interface AgentIntegrationConfig {
@@ -117,6 +143,7 @@ export interface IntegrationsConfig {
   grok: GrokIntegrationConfig
   gemini: GeminiIntegrationConfig
   gmail: GmailIntegrationConfig
+  gcalendar: GmailCalendarIntegrationConfig
   activeLlmProvider: LlmProvider
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
@@ -131,7 +158,7 @@ export type IntegrationsStoreScope =
       client?: SupabaseClient | null
       user?: { id?: string | null } | null
       allowServiceRole?: boolean
-      serviceRoleReason?: "scheduler" | "gmail-oauth-callback"
+      serviceRoleReason?: "scheduler" | "gmail-oauth-callback" | "gmail-calendar-oauth-callback"
     }
   | null
   | undefined
@@ -198,6 +225,22 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     oauthClientId: "",
     oauthClientSecret: "",
     redirectUri: "http://localhost:3000/api/integrations/gmail/callback",
+    accessTokenEnc: "",
+    refreshTokenEnc: "",
+    tokenExpiry: 0,
+  },
+  gcalendar: {
+    connected: false,
+    email: "",
+    scopes: [],
+    permissions: {
+      allowCreate: true,
+      allowEdit: true,
+      allowDelete: false,
+    },
+    accounts: [],
+    activeAccountId: "",
+    redirectUri: "http://localhost:3000/api/integrations/gcalendar/callback",
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,
@@ -423,6 +466,58 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       refreshTokenEnc: selectedAccount?.refreshTokenEnc || legacyRefresh,
       tokenExpiry: selectedAccount?.tokenExpiry || (typeof raw?.gmail?.tokenExpiry === "number" ? raw.gmail.tokenExpiry : 0),
     },
+    gcalendar: (() => {
+      const rawGcalAccounts = Array.isArray(raw?.gcalendar?.accounts) ? raw!.gcalendar!.accounts : []
+      const gcalAccounts = rawGcalAccounts
+        .map((account) => {
+          if (!account || typeof account !== "object") return null
+          const id = String((account as { id?: string }).id || "").trim()
+          const email = String((account as { email?: string }).email || "").trim()
+          if (!id || !email) return null
+          return {
+            id,
+            email,
+            scopes: Array.isArray((account as { scopes?: string[] }).scopes)
+              ? (account as { scopes: string[] }).scopes.map((s) => String(s).trim()).filter(Boolean)
+              : [],
+            enabled: typeof (account as { enabled?: boolean }).enabled === "boolean" ? Boolean((account as { enabled?: boolean }).enabled) : true,
+            accessTokenEnc: wrapStoredSecret((account as { accessTokenEnc?: string }).accessTokenEnc),
+            refreshTokenEnc: wrapStoredSecret((account as { refreshTokenEnc?: string }).refreshTokenEnc),
+            tokenExpiry: Number((account as { tokenExpiry?: number }).tokenExpiry || 0),
+            connectedAt: String((account as { connectedAt?: string }).connectedAt || "").trim() || new Date().toISOString(),
+          }
+        })
+        .filter((a): a is NonNullable<typeof a> => Boolean(a))
+      const gcalEnabledAccounts = gcalAccounts.filter((a) => a.enabled)
+      const gcalActiveId = String(raw?.gcalendar?.activeAccountId || "").trim()
+      const gcalSelected =
+        gcalEnabledAccounts.find((a) => a.id === gcalActiveId) ||
+        gcalEnabledAccounts[0] ||
+        gcalAccounts.find((a) => a.id === gcalActiveId) ||
+        gcalAccounts[0]
+      return {
+        connected: (raw?.gcalendar?.connected ?? false) && gcalEnabledAccounts.length > 0,
+        email: gcalSelected?.email || "",
+        scopes: gcalSelected?.scopes || [],
+        permissions: {
+          allowCreate: typeof raw?.gcalendar?.permissions?.allowCreate === "boolean"
+            ? raw.gcalendar.permissions.allowCreate
+            : DEFAULT_CONFIG.gcalendar.permissions.allowCreate,
+          allowEdit: typeof raw?.gcalendar?.permissions?.allowEdit === "boolean"
+            ? raw.gcalendar.permissions.allowEdit
+            : DEFAULT_CONFIG.gcalendar.permissions.allowEdit,
+          allowDelete: typeof raw?.gcalendar?.permissions?.allowDelete === "boolean"
+            ? raw.gcalendar.permissions.allowDelete
+            : DEFAULT_CONFIG.gcalendar.permissions.allowDelete,
+        },
+        accounts: gcalAccounts,
+        activeAccountId: gcalSelected?.id || "",
+        redirectUri: raw?.gcalendar?.redirectUri?.trim() || DEFAULT_CONFIG.gcalendar.redirectUri,
+        accessTokenEnc: gcalSelected?.accessTokenEnc || wrapStoredSecret(raw?.gcalendar?.accessTokenEnc),
+        refreshTokenEnc: gcalSelected?.refreshTokenEnc || wrapStoredSecret(raw?.gcalendar?.refreshTokenEnc),
+        tokenExpiry: gcalSelected?.tokenExpiry || (typeof raw?.gcalendar?.tokenExpiry === "number" ? raw.gcalendar.tokenExpiry : 0),
+      }
+    })(),
     activeLlmProvider:
       raw?.activeLlmProvider === "claude" || raw?.activeLlmProvider === "openai" || raw?.activeLlmProvider === "grok" || raw?.activeLlmProvider === "gemini"
         ? raw.activeLlmProvider
@@ -443,7 +538,7 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
   if (accessToken) return { userId, client: createSupabaseServerClient(accessToken) }
   if (scope?.allowServiceRole) {
     const reason = String(scope.serviceRoleReason || "").trim()
-    if (reason !== "scheduler" && reason !== "gmail-oauth-callback") {
+    if (reason !== "scheduler" && reason !== "gmail-oauth-callback" && reason !== "gmail-calendar-oauth-callback") {
       throw new Error("Service-role integrations access requires an approved internal reason.")
     }
     return { userId, client: createSupabaseAdminClient() }
@@ -502,6 +597,16 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
         refreshTokenEnc: wrapStoredSecret(account.refreshTokenEnc),
       })),
       oauthClientSecret: wrapStoredSecret(config.gmail.oauthClientSecret),
+    },
+    gcalendar: {
+      ...config.gcalendar,
+      accounts: config.gcalendar.accounts.map((account) => ({
+        ...account,
+        accessTokenEnc: wrapStoredSecret(account.accessTokenEnc),
+        refreshTokenEnc: wrapStoredSecret(account.refreshTokenEnc),
+      })),
+      accessTokenEnc: wrapStoredSecret(config.gcalendar.accessTokenEnc),
+      refreshTokenEnc: wrapStoredSecret(config.gcalendar.refreshTokenEnc),
     },
     agents: Object.fromEntries(
       Object.entries(config.agents).map(([id, agent]) => [
@@ -572,6 +677,41 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
         ? partial.gmail.scopes.map((scope) => String(scope).trim()).filter(Boolean)
         : current.gmail.scopes,
       tokenExpiry: typeof partial.gmail?.tokenExpiry === "number" ? partial.gmail.tokenExpiry : current.gmail.tokenExpiry,
+    },
+    gcalendar: {
+      ...current.gcalendar,
+      ...(partial.gcalendar || {}),
+      permissions: {
+        ...current.gcalendar.permissions,
+        ...(partial.gcalendar?.permissions || {}),
+        allowCreate: typeof partial.gcalendar?.permissions?.allowCreate === "boolean"
+          ? partial.gcalendar.permissions.allowCreate
+          : current.gcalendar.permissions.allowCreate,
+        allowEdit: typeof partial.gcalendar?.permissions?.allowEdit === "boolean"
+          ? partial.gcalendar.permissions.allowEdit
+          : current.gcalendar.permissions.allowEdit,
+        allowDelete: typeof partial.gcalendar?.permissions?.allowDelete === "boolean"
+          ? partial.gcalendar.permissions.allowDelete
+          : current.gcalendar.permissions.allowDelete,
+      },
+      accounts: Array.isArray(partial.gcalendar?.accounts)
+        ? partial.gcalendar.accounts
+            .map((account) => ({
+              id: String(account?.id || "").trim(),
+              email: String(account?.email || "").trim(),
+              scopes: Array.isArray(account?.scopes) ? account.scopes.map((s) => String(s).trim()).filter(Boolean) : [],
+              enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
+              accessTokenEnc: String(account?.accessTokenEnc || "").trim(),
+              refreshTokenEnc: String(account?.refreshTokenEnc || "").trim(),
+              tokenExpiry: Number(account?.tokenExpiry || 0),
+              connectedAt: String(account?.connectedAt || "").trim() || new Date().toISOString(),
+            }))
+            .filter((account) => account.id && account.email)
+        : current.gcalendar.accounts,
+      scopes: Array.isArray(partial.gcalendar?.scopes)
+        ? partial.gcalendar.scopes.map((s) => String(s).trim()).filter(Boolean)
+        : current.gcalendar.scopes,
+      tokenExpiry: typeof partial.gcalendar?.tokenExpiry === "number" ? partial.gcalendar.tokenExpiry : current.gcalendar.tokenExpiry,
     },
     activeLlmProvider:
       partial.activeLlmProvider === "claude" || partial.activeLlmProvider === "openai" || partial.activeLlmProvider === "grok" || partial.activeLlmProvider === "gemini"

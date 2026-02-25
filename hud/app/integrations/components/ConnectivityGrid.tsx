@@ -11,6 +11,7 @@ export type IntegrationSetupKey =
   | "grok"
   | "gemini"
   | "gmail"
+  | "gmail-calendar"
 
 interface ConnectivityGridProps {
   isLight: boolean
@@ -48,7 +49,7 @@ export function ConnectivityGrid({
           {item.icon}
         </button>
       ))}
-      {Array.from({ length: 22 }).map((_, index) => (
+      {Array.from({ length: 21 }).map((_, index) => (
         <div
           key={index}
           className={cn(

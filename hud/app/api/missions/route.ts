@@ -17,6 +17,7 @@ import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
 import { purgePendingMessagesForMission } from "@/lib/novachat/pending-messages"
+import { purgeMissionDerivedData } from "@/lib/missions/purge"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -424,9 +425,21 @@ export async function DELETE(req: Request) {
       scheduleDeleted = true
     }
 
-    // Purge any queued novachat messages for this mission so deleted missions
-    // don't surface in chat on next poll or after reboot.
+    // Purge novachat pending messages
     await purgePendingMessagesForMission(userId, id).catch(() => {})
+
+    // Purge all calendar and derived data for this mission (reschedule overrides,
+    // telemetry, version snapshots, run logs). Non-fatal — logged internally.
+    purgeMissionDerivedData(userId, id).catch((err) => {
+      console.error(
+        JSON.stringify({
+          event: "mission.delete.purge_derived_data.error",
+          missionId: id,
+          userContextId: userId,
+          error: err instanceof Error ? err.message : "unknown",
+        }),
+      )
+    })
 
     const deleted = missionDelete.deleted || scheduleDeleted
     const reason = deleted ? "deleted" : "not_found"

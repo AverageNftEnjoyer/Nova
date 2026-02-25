@@ -1,7 +1,7 @@
 ﻿"use client"
 
-import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect, useState } from "react"
 import { Settings } from "lucide-react"
 
 import { useTheme } from "@/lib/context/theme-context"
@@ -29,6 +29,8 @@ const WORKFLOW_MARKER = "[NOVA WORKFLOW]"
 
 export default function MissionsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = searchParams.get("returnTo")
   const [orbHovered, setOrbHovered] = useState(false)
   const [canvasModalOpen, setCanvasModalOpen] = useState(false)
   const [canvasMission, setCanvasMission] = useState<Mission | null>(null)
@@ -47,6 +49,7 @@ export default function MissionsPage() {
     setStatus,
     runProgress,
     setRunProgress,
+    schedules,
     setSchedules,
     setBaselineById,
     createSectionRef,
@@ -141,7 +144,15 @@ export default function MissionsPage() {
     heroHeaderRef,
     headerActionsRef,
     missionStats,
-  } = useMissionsPageState({ isLight })
+  } = useMissionsPageState({ isLight, returnTo })
+
+  const editId = searchParams.get("editId")
+  useEffect(() => {
+    if (!editId || loading || builderOpen) return
+    const target = schedules.find((s) => s.id === editId)
+    if (target) editMissionFromActions(target)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId, loading])
 
   const buildPipelineScheduleFromMission = (mission: Mission): NotificationSchedule => {
     const trigger = mission.nodes.find((node) => node.type === "schedule-trigger")

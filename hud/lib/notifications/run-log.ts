@@ -1,6 +1,6 @@
 import "server-only"
 
-import { mkdir, readFile, stat, writeFile, appendFile, rename } from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile, appendFile, rename, unlink } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 
@@ -142,6 +142,22 @@ export async function readNotificationRunLogEntries(
     }
   }
   return entries
+}
+
+/**
+ * Permanently delete the run log file for a specific mission/schedule ID.
+ * Called as part of mission deletion to prevent orphaned per-run log files.
+ */
+export async function purgeNotificationRunLog(
+  scheduleId: string,
+  userId: string | undefined,
+): Promise<void> {
+  const filePath = resolveNotificationRunLogPath(scheduleId, userId)
+  try {
+    await unlink(filePath)
+  } catch {
+    // File may not exist — that's fine
+  }
 }
 
 export async function getRunKeyHistory(params: {

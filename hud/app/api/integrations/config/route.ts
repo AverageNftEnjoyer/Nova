@@ -11,6 +11,7 @@ import {
   type GrokIntegrationConfig,
   type GeminiIntegrationConfig,
   type GmailIntegrationConfig,
+  type GmailCalendarIntegrationConfig,
   type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
@@ -363,6 +364,59 @@ function normalizeGmailInput(raw: unknown, current: GmailIntegrationConfig): Gma
   }
 }
 
+function normalizeGmailCalendarInput(raw: unknown, current: GmailCalendarIntegrationConfig): GmailCalendarIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const gcalendar = raw as Partial<GmailCalendarIntegrationConfig>
+  const scopes = Array.isArray(gcalendar.scopes)
+    ? gcalendar.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+    : current.scopes
+  const activeAccountId =
+    typeof gcalendar.activeAccountId === "string" ? gcalendar.activeAccountId.trim().toLowerCase() : current.activeAccountId
+  const accounts = Array.isArray(gcalendar.accounts)
+    ? gcalendar.accounts
+        .map((account) => ({
+          id: String(account?.id || "").trim().toLowerCase(),
+          email: String(account?.email || "").trim(),
+          scopes: Array.isArray(account?.scopes) ? account.scopes.map((scope) => String(scope).trim()).filter(Boolean) : [],
+          enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
+          accessTokenEnc: String(account?.accessTokenEnc || "").trim(),
+          refreshTokenEnc: String(account?.refreshTokenEnc || "").trim(),
+          tokenExpiry: Number(account?.tokenExpiry || 0),
+          connectedAt: String(account?.connectedAt || "").trim() || new Date().toISOString(),
+        }))
+        .filter((account) => account.id && account.email)
+    : current.accounts
+
+  return {
+    ...current,
+    connected: typeof gcalendar.connected === "boolean" ? gcalendar.connected : current.connected,
+    email: typeof gcalendar.email === "string" ? gcalendar.email.trim() : current.email,
+    scopes,
+    accounts,
+    activeAccountId,
+    redirectUri:
+      typeof gcalendar.redirectUri === "string" && gcalendar.redirectUri.trim().length > 0
+        ? gcalendar.redirectUri.trim()
+        : current.redirectUri,
+    permissions: {
+      ...current.permissions,
+      ...(gcalendar.permissions || {}),
+      allowCreate:
+        typeof gcalendar.permissions?.allowCreate === "boolean"
+          ? gcalendar.permissions.allowCreate
+          : current.permissions.allowCreate,
+      allowEdit:
+        typeof gcalendar.permissions?.allowEdit === "boolean"
+          ? gcalendar.permissions.allowEdit
+          : current.permissions.allowEdit,
+      allowDelete:
+        typeof gcalendar.permissions?.allowDelete === "boolean"
+          ? gcalendar.permissions.allowDelete
+          : current.permissions.allowDelete,
+    },
+  }
+}
+
 function normalizeActiveLlmProvider(raw: unknown, current: LlmProvider): LlmProvider {
   if (raw === "openai" || raw === "claude" || raw === "grok" || raw === "gemini") return raw
   return current
@@ -445,6 +499,30 @@ function toClientConfig(config: IntegrationsConfig) {
         config.gmail.refreshTokenEnc.trim().length > 0 ||
         config.gmail.accessTokenEnc.trim().length > 0,
     },
+    gcalendar: {
+      connected: config.gcalendar.connected,
+      email: config.gcalendar.email,
+      scopes: config.gcalendar.scopes,
+      permissions: {
+        allowCreate: Boolean(config.gcalendar.permissions?.allowCreate),
+        allowEdit: Boolean(config.gcalendar.permissions?.allowEdit),
+        allowDelete: Boolean(config.gcalendar.permissions?.allowDelete),
+      },
+      accounts: config.gcalendar.accounts.map((account) => ({
+        id: account.id,
+        email: account.email,
+        scopes: account.scopes,
+        enabled: account.enabled,
+        connectedAt: account.connectedAt,
+        active: account.id === config.gcalendar.activeAccountId,
+      })),
+      activeAccountId: config.gcalendar.activeAccountId,
+      redirectUri: config.gcalendar.redirectUri,
+      tokenConfigured:
+        config.gcalendar.accounts.some((account) => account.refreshTokenEnc.trim().length > 0 || account.accessTokenEnc.trim().length > 0) ||
+        config.gcalendar.refreshTokenEnc.trim().length > 0 ||
+        config.gcalendar.accessTokenEnc.trim().length > 0,
+    },
     agents: toClientAgents(config),
   }
 }
@@ -477,6 +555,7 @@ export async function PATCH(req: Request) {
       grok?: Partial<GrokIntegrationConfig>
       gemini?: Partial<GeminiIntegrationConfig>
       gmail?: Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
+      gcalendar?: Partial<GmailCalendarIntegrationConfig>
       activeLlmProvider?: LlmProvider
     }
     const current = await loadIntegrationsConfig(verified)
@@ -490,6 +569,7 @@ export async function PATCH(req: Request) {
     const hasGrokPatch = Object.prototype.hasOwnProperty.call(body, "grok")
     const hasGeminiPatch = Object.prototype.hasOwnProperty.call(body, "gemini")
     const hasGmailPatch = Object.prototype.hasOwnProperty.call(body, "gmail")
+    const hasGcalendarPatch = Object.prototype.hasOwnProperty.call(body, "gcalendar")
     const hasActiveProviderPatch = Object.prototype.hasOwnProperty.call(body, "activeLlmProvider")
     const hasAgentsPatch = Object.prototype.hasOwnProperty.call(body, "agents")
     const telegram = hasTelegramPatch ? normalizeTelegramInput(body.telegram, current.telegram) : current.telegram
@@ -513,6 +593,7 @@ export async function PATCH(req: Request) {
     const grok = hasGrokPatch ? normalizeGrokInput(body.grok, current.grok) : current.grok
     const gemini = hasGeminiPatch ? normalizeGeminiInput(body.gemini, current.gemini) : current.gemini
     const gmail = hasGmailPatch ? normalizeGmailInput(body.gmail, current.gmail) : current.gmail
+    const gcalendar = hasGcalendarPatch ? normalizeGmailCalendarInput(body.gcalendar, current.gcalendar) : current.gcalendar
     const activeLlmProvider = hasActiveProviderPatch
       ? normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
       : current.activeLlmProvider
@@ -526,6 +607,7 @@ export async function PATCH(req: Request) {
       grok,
       gemini,
       gmail,
+      gcalendar,
       activeLlmProvider,
       agents: hasAgentsPatch ? (body.agents ?? current.agents) : current.agents,
     }, verified)

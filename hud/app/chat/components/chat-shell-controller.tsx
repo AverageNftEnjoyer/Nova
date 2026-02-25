@@ -625,9 +625,9 @@ export function ChatShellController() {
               {/* Integrations */}
               <section style={panelStyle} className={`${panelClass} p-4`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-s-80">
+                  <div className="flex items-center gap-2 min-w-0 text-s-80">
                     <Blocks className="w-4 h-4 text-accent" />
-                    <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
+                    <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Integrations</h2>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
@@ -666,63 +666,63 @@ export function ChatShellController() {
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(telegramConnected))}
                       title={telegramConnected ? "Telegram connected" : "Telegram disconnected"}
                     >
-                      <TelegramIcon className="w-3.5 h-3.5" />
+                      <TelegramIcon className="w-3.5 h-3.5 -translate-y-0.5" />
                     </button>
                     <button
                       onClick={handleToggleDiscordIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(discordConnected))}
                       title={discordConnected ? "Discord connected" : "Discord disconnected"}
                     >
-                      <DiscordIcon className="w-3.5 h-3.5 text-white" />
+                      <DiscordIcon className="w-3.5 h-3.5 text-white -translate-y-0.5" />
                     </button>
                     <button
                       onClick={handleToggleOpenAIIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(openaiConnected))}
                       title={openaiConnected ? "OpenAI connected" : "OpenAI disconnected"}
                     >
-                      <OpenAIIcon className="w-4 h-4" />
+                      <OpenAIIcon className="w-4 h-4 -translate-y-0.5" />
                     </button>
                     <button
                       onClick={handleToggleClaudeIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(claudeConnected))}
                       title={claudeConnected ? "Claude connected" : "Claude disconnected"}
                     >
-                      <ClaudeIcon className="w-4 h-4" />
+                      <ClaudeIcon className="w-4 h-4 -translate-y-0.5" />
                     </button>
                     <button
                       onClick={handleToggleGrokIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(grokConnected))}
                       title={grokConnected ? "Grok connected" : "Grok disconnected"}
                     >
-                      <XAIIcon size={16} />
+                      <span className="inline-flex -translate-y-0.5"><XAIIcon size={16} /></span>
                     </button>
                     <button
                       onClick={handleToggleGeminiIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(geminiConnected))}
                       title={geminiConnected ? "Gemini connected" : "Gemini disconnected"}
                     >
-                      <GeminiIcon size={16} />
+                      <span className="inline-flex -translate-y-0.5"><GeminiIcon size={16} /></span>
                     </button>
                     <button
                       onClick={handleToggleGmailIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(gmailConnected))}
                       title={gmailConnected ? "Gmail connected" : "Gmail disconnected"}
                     >
-                      <GmailIcon className="w-3.5 h-3.5" />
+                      <GmailIcon className="w-3.5 h-3.5 -translate-y-0.5" />
                     </button>
                     <button
                       onClick={handleToggleBraveIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(braveConnected))}
                       title={braveConnected ? "Brave connected" : braveConfigured ? "Brave disconnected" : "Brave key required"}
                     >
-                      <BraveIcon className="w-4 h-4" />
+                      <BraveIcon className="w-4 h-4 -translate-y-0.5" />
                     </button>
                     <button
                       onClick={handleToggleCoinbaseIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(coinbaseConnected))}
                       title={coinbaseConnected ? "Coinbase connected" : coinbaseConfigured ? "Coinbase disconnected" : "Coinbase keys required"}
                     >
-                      <CoinbaseIcon className="w-4 h-4" />
+                      <CoinbaseIcon className="w-4 h-4 -translate-y-0.5" />
                     </button>
                     {Array.from({ length: 15 }).map((_, index) => (
                       <div key={index} className={cn("h-9 rounded-sm border home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20")} />

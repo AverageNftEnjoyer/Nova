@@ -253,7 +253,7 @@ function CanvasToolbar({
   justSaved?: boolean
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-white/12 bg-black/70 px-3 py-2 shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/12 bg-black/70 px-3 py-2 shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl max-w-[calc(100vw-2rem)]">
       {PALETTE_CATEGORIES.map((cat) => (
         <CategoryAddMenu
           key={cat.id}
@@ -301,12 +301,12 @@ function CanvasToolbar({
           onAddNode={onAddNode}
         />
       ))}
-      <div className="h-6 w-px bg-white/14" />
-      <div className="flex flex-col leading-tight">
-        <span className="max-w-55 truncate text-sm font-semibold text-white/92">{mission.label}</span>
-        <span className="text-[10px] uppercase tracking-widest text-white/42">{mission.category} | {mission.status}</span>
+      <div className="hidden sm:block h-6 w-px bg-white/14" />
+      <div className="flex flex-col leading-tight min-w-0">
+        <span className="max-w-40 xl:max-w-55 truncate text-sm font-semibold text-white/92">{mission.label}</span>
+        <span className="text-[10px] uppercase tracking-widest text-white/42 truncate">{mission.category} | {mission.status}</span>
       </div>
-      <div className="ml-2 flex items-center gap-1.5">
+      <div className="ml-auto flex items-center gap-1.5 shrink-0">
         <button
           onClick={onSave}
           disabled={isSaving}
@@ -316,7 +316,7 @@ function CanvasToolbar({
           )}
         >
           {justSaved && !isSaving ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-          {isSaving ? "Saving..." : justSaved ? "Saved" : "Save"}
+          <span className="hidden sm:inline">{isSaving ? "Saving..." : justSaved ? "Saved" : "Save"}</span>
         </button>
         <button
           onClick={onRun}
@@ -327,7 +327,7 @@ function CanvasToolbar({
           )}
         >
           <Play className="h-3.5 w-3.5" />
-          {isRunning ? "Running..." : "Run"}
+          <span className="hidden sm:inline">{isRunning ? "Running..." : "Run"}</span>
         </button>
         {onExit ? (
           <button

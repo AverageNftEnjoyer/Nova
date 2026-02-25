@@ -9,6 +9,11 @@
  *
  * Version History:
  *
+* - V.30 Alpha: Calendar + Home overhaul with Google Calendar integration
+*     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
+*     - Overhauled Home page visual/system modules for a cleaner Nova OS presentation and improved workflow accessibility.
+*     - Added and hardened Google Calendar integration flow across integrations and calendar surfaces, including synced event rendering.
+ *
  * - V.29 Alpha: Mission workflow reliability + builder/runtime alignment
  *     - Refined mission generation/build flow and mission graph validation to reduce invalid graph states before execution.
  *     - Hardened mission execution/output dispatch and executor paths for more deterministic run behavior.
@@ -199,4 +204,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.29 Alpha"
+export const NOVA_VERSION = "V.30 Alpha"

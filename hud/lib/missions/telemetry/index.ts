@@ -1,5 +1,5 @@
 export { emitMissionTelemetryEvent } from "./emitter"
-export { listMissionTelemetryEvents } from "./store"
+export { listMissionTelemetryEvents, purgeTelemetryForMission } from "./store"
 export { evaluateMissionSlos, summarizeMissionTelemetry } from "./slo"
 export { sanitizeMissionTelemetryMetadata } from "./sanitizer"
 export { MISSION_SLO_POLICY, MISSION_TELEMETRY_POLICY } from "./config"

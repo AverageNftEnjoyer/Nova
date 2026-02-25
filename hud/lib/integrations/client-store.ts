@@ -109,6 +109,28 @@ export interface GmailIntegrationSettings {
   tokenConfigured?: boolean
 }
 
+export interface GmailCalendarIntegrationSettings {
+  connected: boolean
+  email: string
+  scopes: string
+  permissions: {
+    allowCreate: boolean
+    allowEdit: boolean
+    allowDelete: boolean
+  }
+  accounts: Array<{
+    id: string
+    email: string
+    scopes: string[]
+    connectedAt?: string
+    active?: boolean
+    enabled?: boolean
+  }>
+  activeAccountId: string
+  redirectUri: string
+  tokenConfigured?: boolean
+}
+
 export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
 export interface IntegrationsSettings {
@@ -121,6 +143,7 @@ export interface IntegrationsSettings {
   grok: GrokIntegrationSettings
   gemini: GeminiIntegrationSettings
   gmail: GmailIntegrationSettings
+  gcalendar: GmailCalendarIntegrationSettings
   activeLlmProvider: LlmProvider
   updatedAt: string
 }
@@ -210,6 +233,20 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     redirectUri: "http://localhost:3000/api/integrations/gmail/callback",
     oauthClientSecretConfigured: false,
     oauthClientSecretMasked: "",
+    tokenConfigured: false,
+  },
+  gcalendar: {
+    connected: false,
+    email: "",
+    scopes: "",
+    permissions: {
+      allowCreate: true,
+      allowEdit: true,
+      allowDelete: false,
+    },
+    accounts: [],
+    activeAccountId: "",
+    redirectUri: "http://localhost:3000/api/integrations/gcalendar/callback",
     tokenConfigured: false,
   },
   activeLlmProvider: "openai",
@@ -323,6 +360,36 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         activeAccountId: typeof parsed.gmail?.activeAccountId === "string" ? parsed.gmail.activeAccountId : "",
         oauthClientSecret: "",
       },
+      gcalendar: {
+        ...DEFAULT_SETTINGS.gcalendar,
+        ...(parsed.gcalendar || {}),
+        permissions: {
+          ...DEFAULT_SETTINGS.gcalendar.permissions,
+          ...(parsed.gcalendar?.permissions || {}),
+          allowCreate: typeof parsed.gcalendar?.permissions?.allowCreate === "boolean"
+            ? parsed.gcalendar.permissions.allowCreate
+            : DEFAULT_SETTINGS.gcalendar.permissions.allowCreate,
+          allowEdit: typeof parsed.gcalendar?.permissions?.allowEdit === "boolean"
+            ? parsed.gcalendar.permissions.allowEdit
+            : DEFAULT_SETTINGS.gcalendar.permissions.allowEdit,
+          allowDelete: typeof parsed.gcalendar?.permissions?.allowDelete === "boolean"
+            ? parsed.gcalendar.permissions.allowDelete
+            : DEFAULT_SETTINGS.gcalendar.permissions.allowDelete,
+        },
+        accounts: Array.isArray(parsed.gcalendar?.accounts)
+          ? parsed.gcalendar.accounts
+              .map((account) => ({
+                id: String(account?.id || "").trim(),
+                email: String(account?.email || "").trim(),
+                scopes: Array.isArray(account?.scopes) ? account.scopes.map((s) => String(s).trim()).filter(Boolean) : [],
+                connectedAt: typeof account?.connectedAt === "string" ? account.connectedAt : "",
+                active: Boolean(account?.active),
+                enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
+              }))
+              .filter((account) => account.id && account.email)
+          : [],
+        activeAccountId: typeof parsed.gcalendar?.activeAccountId === "string" ? parsed.gcalendar.activeAccountId : "",
+      },
       activeLlmProvider:
         parsed.activeLlmProvider === "claude" || parsed.activeLlmProvider === "openai" || parsed.activeLlmProvider === "grok" || parsed.activeLlmProvider === "gemini"
           ? parsed.activeLlmProvider
@@ -378,6 +445,9 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     gmail: {
       ...settings.gmail,
       oauthClientSecret: "",
+    },
+    gcalendar: {
+      ...settings.gcalendar,
     },
   }
 
@@ -523,6 +593,20 @@ export function updateGmailIntegrationSettings(partial: Partial<GmailIntegration
     ...current,
     gmail: {
       ...current.gmail,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateGmailCalendarIntegrationSettings(partial: Partial<GmailCalendarIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    gcalendar: {
+      ...current.gcalendar,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

@@ -148,6 +148,7 @@ export function useHomeMainScreenState() {
 
   const goToBootup = useCallback(() => router.push("/boot-right"), [router])
   const openMissions = useCallback(() => router.push("/missions"), [router])
+  const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openAnalytics = useCallback(() => router.push("/analytics"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
@@ -176,6 +177,7 @@ export function useHomeMainScreenState() {
     handleMuteToggle,
     muteHydrated,
     pipelineSectionRef: visuals.pipelineSectionRef,
+    scheduleSectionRef: visuals.scheduleSectionRef,
     analyticsSectionRef: visuals.analyticsSectionRef,
     devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
@@ -185,23 +187,14 @@ export function useHomeMainScreenState() {
     missionHover: visuals.missionHover,
     missions: integrations.missions,
     openMissions,
+    openCalendar,
     openIntegrations,
     openAnalytics,
     openDevLogs,
     liveActivity,
     devToolsMetrics: devTools.devToolsMetrics,
-    handleToggleTelegramIntegration: integrations.handleToggleTelegramIntegration,
-    handleToggleDiscordIntegration: integrations.handleToggleDiscordIntegration,
-    handleToggleBraveIntegration: integrations.handleToggleBraveIntegration,
-    handleToggleCoinbaseIntegration: integrations.handleToggleCoinbaseIntegration,
-    handleToggleOpenAIIntegration: integrations.handleToggleOpenAIIntegration,
-    handleToggleClaudeIntegration: integrations.handleToggleClaudeIntegration,
-    handleToggleGrokIntegration: integrations.handleToggleGrokIntegration,
-    handleToggleGeminiIntegration: integrations.handleToggleGeminiIntegration,
-    handleToggleGmailIntegration: integrations.handleToggleGmailIntegration,
-    integrationGuardNotice: integrations.integrationGuardNotice,
-    integrationGuardTarget: integrations.integrationGuardTarget,
     integrationBadgeClass: integrations.integrationBadgeClass,
+    goToIntegrations: integrations.goToIntegrations,
     telegramConnected: integrations.telegramConnected,
     discordConnected: integrations.discordConnected,
     braveConnected: integrations.braveConnected,
@@ -211,5 +204,6 @@ export function useHomeMainScreenState() {
     grokConnected: integrations.grokConnected,
     geminiConnected: integrations.geminiConnected,
     gmailConnected: integrations.gmailConnected,
+    gcalendarConnected: integrations.gcalendarConnected,
   }
 }

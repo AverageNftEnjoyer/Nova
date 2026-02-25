@@ -86,8 +86,13 @@ export async function gmailFetchWithRetry(
 export async function readGmailErrorMessage(response: Response, fallback: string): Promise<string> {
   const payload = await response.json().catch(() => null)
   if (payload && typeof payload === "object") {
-    const errorBlock = (payload as { error?: { message?: string }; error_description?: string })
-    const message = String(errorBlock.error?.message || errorBlock.error_description || "").trim()
+    const errorBlock = (payload as { error?: { message?: string } | string; error_description?: string })
+    const nestedMessage = typeof errorBlock.error === "object" && errorBlock.error
+      ? String(errorBlock.error.message || "").trim()
+      : ""
+    const errorCode = typeof errorBlock.error === "string" ? errorBlock.error.trim() : ""
+    const errorDescription = String(errorBlock.error_description || "").trim()
+    const message = nestedMessage || (errorCode && errorDescription ? `${errorCode}: ${errorDescription}` : (errorDescription || errorCode))
     if (message) return message
   }
   return fallback

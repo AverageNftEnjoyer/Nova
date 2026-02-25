@@ -201,9 +201,21 @@ export function useGmailSetup({
           if (gmailPopupWatchRef.current !== null) {
             window.clearInterval(gmailPopupWatchRef.current)
           }
+          const watchStart = Date.now()
           gmailPopupWatchRef.current = window.setInterval(() => {
-            const handle = gmailPopupRef.current
-            if (!handle || handle.closed) {
+            try {
+              const handle = gmailPopupRef.current
+              const closed = !handle || handle.closed
+              const expired = Date.now() - watchStart > 5 * 60 * 1000
+              if (closed || expired) {
+                if (gmailPopupWatchRef.current !== null) {
+                  window.clearInterval(gmailPopupWatchRef.current)
+                  gmailPopupWatchRef.current = null
+                }
+                gmailPopupRef.current = null
+              }
+            } catch {
+              // COOP blocks .closed access on cross-origin popups — stop polling
               if (gmailPopupWatchRef.current !== null) {
                 window.clearInterval(gmailPopupWatchRef.current)
                 gmailPopupWatchRef.current = null

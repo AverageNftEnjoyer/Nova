@@ -166,6 +166,14 @@ export type IntegrationsMainPanelProps = {
     setPrimaryGmailAccount: (accountId: string) => void
     updateGmailAccountState: (action: "set_enabled" | "delete", accountId: string, enabled?: boolean) => void
   }
+  gmailCalendarSetup: {
+    selectedAccountId: string
+    setSelectedAccountId: (value: string) => void
+    connectGmailCalendar: () => void
+    disconnectGmailCalendar: (accountId?: string) => void
+    updateCalendarPermissions: (patch: Partial<IntegrationsSettings["gcalendar"]["permissions"]>) => Promise<void>
+  }
+  gmailCalendarSetupSectionRef: MutableRefObject<HTMLElement | null>
   telegramSetupSectionRef: MutableRefObject<HTMLElement | null>
   discordSetupSectionRef: MutableRefObject<HTMLElement | null>
   braveSetupSectionRef: MutableRefObject<HTMLElement | null>

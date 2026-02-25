@@ -14,7 +14,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -42,6 +42,7 @@ import {
   useGrokSetup,
   useGeminiSetup,
   useGmailSetup,
+  useGmailCalendarSetup,
   normalizeGmailAccountsForUi,
   type IntegrationsSaveStatus,
   type IntegrationsSaveTarget,
@@ -123,6 +124,7 @@ export default function IntegrationsPage() {
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
   const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
   const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
+  const gmailCalendarSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
 
   const openAISetup = useOpenAISetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
@@ -130,6 +132,13 @@ export default function IntegrationsPage() {
   const grokSetup = useGrokSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
   const geminiSetup = useGeminiSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
   const gmailSetup = useGmailSetup({
+    settings,
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
+  })
+  const gmailCalendarSetup = useGmailCalendarSetup({
     settings,
     setSettings,
     setSaveStatus,
@@ -303,6 +312,33 @@ export default function IntegrationsPage() {
             oauthClientSecretMasked: typeof config.gmail?.oauthClientSecretMasked === "string" ? config.gmail.oauthClientSecretMasked : "",
             tokenConfigured: Boolean(config.gmail?.tokenConfigured),
           },
+          gcalendar: {
+            connected: Boolean(config.gcalendar?.connected),
+            email: typeof config.gcalendar?.email === "string" ? config.gcalendar.email : "",
+            scopes: Array.isArray(config.gcalendar?.scopes)
+              ? config.gcalendar.scopes.join(" ")
+              : typeof config.gcalendar?.scopes === "string"
+                ? config.gcalendar.scopes
+                : "",
+            permissions: {
+              allowCreate: typeof config.gcalendar?.permissions?.allowCreate === "boolean" ? config.gcalendar.permissions.allowCreate : true,
+              allowEdit: typeof config.gcalendar?.permissions?.allowEdit === "boolean" ? config.gcalendar.permissions.allowEdit : true,
+              allowDelete: typeof config.gcalendar?.permissions?.allowDelete === "boolean" ? config.gcalendar.permissions.allowDelete : false,
+            },
+            accounts: Array.isArray(config.gcalendar?.accounts)
+              ? config.gcalendar.accounts.map((a: { id?: string; email?: string; scopes?: string[]; connectedAt?: string; enabled?: boolean; active?: boolean }) => ({
+                  id: String(a?.id || ""),
+                  email: String(a?.email || ""),
+                  scopes: Array.isArray(a?.scopes) ? a.scopes : [],
+                  connectedAt: a?.connectedAt || "",
+                  active: a?.id === config.gcalendar?.activeAccountId,
+                  enabled: a?.enabled ?? true,
+                }))
+              : [],
+            activeAccountId: typeof config.gcalendar?.activeAccountId === "string" ? config.gcalendar.activeAccountId : "",
+            redirectUri: typeof config.gcalendar?.redirectUri === "string" ? config.gcalendar.redirectUri : "http://localhost:3000/api/integrations/gmail-calendar/callback",
+            tokenConfigured: Boolean(config.gcalendar?.tokenConfigured),
+          },
           activeLlmProvider:
             config.activeLlmProvider === "claude"
               ? "claude"
@@ -406,6 +442,7 @@ export default function IntegrationsPage() {
       { ref: grokSetupSectionRef },
       { ref: geminiSetupSectionRef },
       { ref: gmailSetupSectionRef },
+      { ref: gmailCalendarSetupSectionRef },
       { ref: activeStatusSectionRef },
     ],
     [activeSetup]
@@ -473,6 +510,7 @@ export default function IntegrationsPage() {
     { key: "grok" as const, connected: settings.grok.connected, icon: <XAIIcon size={16} />, ariaLabel: "Open Grok setup" },
     { key: "gemini" as const, connected: settings.gemini.connected, icon: <GeminiIcon size={16} />, ariaLabel: "Open Gemini setup" },
     { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
+    { key: "gmail-calendar" as const, connected: settings.gcalendar.connected, icon: <GmailCalendarIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Google Calendar setup" },
     { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
     { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
   ]
@@ -679,6 +717,8 @@ export default function IntegrationsPage() {
             coinbaseApiSecretMasked={coinbaseApiSecretMasked}
             providerDefinition={activeProviderDefinition}
             gmailSetup={gmailSetup}
+            gmailCalendarSetup={gmailCalendarSetup}
+            gmailCalendarSetupSectionRef={gmailCalendarSetupSectionRef}
             telegramSetupSectionRef={telegramSetupSectionRef}
             discordSetupSectionRef={discordSetupSectionRef}
             braveSetupSectionRef={braveSetupSectionRef}
@@ -746,6 +786,7 @@ export default function IntegrationsPage() {
                 { name: "Grok", active: settings.grok.connected },
                 { name: "Gemini", active: settings.gemini.connected },
                 { name: "Gmail", active: settings.gmail.connected },
+                { name: "Google Calendar", active: settings.gcalendar.connected },
                 { name: "Brave", active: settings.brave.connected },
                 { name: "Coinbase", active: settings.coinbase.connected },
               ].map((item) => (

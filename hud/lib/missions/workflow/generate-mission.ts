@@ -454,8 +454,13 @@ export async function buildMissionFromPrompt(
     "",
   )
 
-  const config = await loadIntegrationsConfig(scope)
-  const catalog = await loadIntegrationCatalog(scope)
+  let config: Awaited<ReturnType<typeof loadIntegrationsConfig>> | null = null
+  let catalog: Awaited<ReturnType<typeof loadIntegrationCatalog>> = []
+  try {
+    ;[config, catalog] = await Promise.all([loadIntegrationsConfig(scope), loadIntegrationCatalog(scope)])
+  } catch (err) {
+    console.warn("[buildMissionFromPrompt] Failed to load integrations config/catalog, using defaults:", err instanceof Error ? err.message : "unknown")
+  }
 
   const llmOptions = catalog.filter((item) => item.kind === "llm" && item.connected).map((item) => item.id).filter(Boolean)
   const outputOptions = catalog
@@ -465,7 +470,7 @@ export async function buildMissionFromPrompt(
   const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["novachat", "telegram", "discord", "email", "webhook"])
   const defaultOutput = outputOptions[0] || "telegram"
 
-  const activeLlmProvider = String(config.activeLlmProvider || "")
+  const activeLlmProvider = String(config?.activeLlmProvider || "")
   const rawDefaultLlm = llmOptions.includes(activeLlmProvider) ? activeLlmProvider : (llmOptions[0] || "openai")
   const defaultLlm: Provider = rawDefaultLlm === "claude" || rawDefaultLlm === "grok" || rawDefaultLlm === "gemini" ? rawDefaultLlm as Provider : "openai"
 

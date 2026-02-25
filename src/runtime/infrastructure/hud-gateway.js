@@ -30,6 +30,7 @@ let wss = null;
 const wsUserRateWindow = new Map();
 const wsByUserContext = new Map();
 const wsContextBySocket = new WeakMap();
+const wsAuthByToken = new Map();
 const conversationOwnerById = new Map();
 const hudOpTokenStateByKey = new Map();
 const HUD_SENSITIVE_ACTIONS = new Set([
@@ -81,6 +82,18 @@ const WS_USER_RATE_GC_MS = Math.max(
     Number.parseInt(process.env.NOVA_WS_USER_RATE_LIMIT_GC_MS || "60000", 10) || 60_000,
   ),
 );
+const WS_AUTH_CACHE_TTL_MS = Math.max(
+  30_000,
+  Math.min(
+    30 * 60 * 1000,
+    Number.parseInt(process.env.NOVA_WS_AUTH_CACHE_TTL_MS || String(5 * 60 * 1000), 10) || 5 * 60 * 1000,
+  ),
+);
+const SUPABASE_URL = String(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "").trim();
+const SUPABASE_ANON_KEY = String(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
+const WS_REQUIRE_AUTH = String(
+  process.env.NOVA_WS_REQUIRE_AUTH || (SUPABASE_URL && SUPABASE_ANON_KEY ? "1" : "0"),
+).trim() !== "0";
 const CONVERSATION_OWNER_TTL_MS = Math.max(
   60_000,
   Math.min(
@@ -109,9 +122,109 @@ let lastHudOpTokenGcAt = 0;
 
 let lastWsUserRateGcAt = 0;
 let lastConversationOwnerGcAt = 0;
+let lastWsAuthGcAt = 0;
 
 function normalizeUserContextId(value) {
   return sessionRuntime.normalizeUserContextId(String(value || ""));
+}
+
+function normalizeSupabaseAccessToken(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) return "";
+  if (normalized.length > 8192) return "";
+  return normalized;
+}
+
+function resolveSupabaseUserEndpoint() {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return "";
+  return `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/user`;
+}
+
+function gcWsAuthCache(nowMs = Date.now()) {
+  if (nowMs - lastWsAuthGcAt < 30_000) return;
+  lastWsAuthGcAt = nowMs;
+  for (const [token, entry] of wsAuthByToken.entries()) {
+    if (!entry || nowMs - Number(entry.updatedAt || 0) > WS_AUTH_CACHE_TTL_MS) {
+      wsAuthByToken.delete(token);
+    }
+  }
+}
+
+async function resolveUserContextIdFromSupabaseToken(supabaseAccessToken) {
+  const token = normalizeSupabaseAccessToken(supabaseAccessToken);
+  if (!token) return "";
+  const endpoint = resolveSupabaseUserEndpoint();
+  if (!endpoint) return "";
+
+  const nowMs = Date.now();
+  gcWsAuthCache(nowMs);
+  const cached = wsAuthByToken.get(token);
+  if (cached && nowMs - Number(cached.updatedAt || 0) <= WS_AUTH_CACHE_TTL_MS) {
+    return normalizeUserContextId(cached.userContextId || "");
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) return "";
+    const data = await response.json().catch(() => null);
+    const resolved = normalizeUserContextId(data?.id || data?.user?.id || "");
+    if (!resolved) return "";
+    wsAuthByToken.set(token, { userContextId: resolved, updatedAt: nowMs });
+    return resolved;
+  } catch {
+    return "";
+  }
+}
+
+async function ensureSocketUserContextBinding(
+  ws,
+  {
+    requestedUserContextId = "",
+    supabaseAccessToken = "",
+  } = {},
+) {
+  const requested = normalizeUserContextId(requestedUserContextId);
+  const existing = normalizeUserContextId(wsContextBySocket.get(ws) || "");
+  if (existing) {
+    if (requested && requested !== existing) {
+      return { ok: false, code: "user_mismatch", message: "Socket already bound to a different user." };
+    }
+    return { ok: true, userContextId: existing };
+  }
+
+  if (!requested) {
+    return { ok: false, code: "missing_user", message: "Missing user context identity." };
+  }
+
+  if (WS_REQUIRE_AUTH) {
+    const resolvedFromToken = await resolveUserContextIdFromSupabaseToken(supabaseAccessToken);
+    if (!resolvedFromToken) {
+      return {
+        ok: false,
+        code: "missing_or_invalid_token",
+        message: "Missing or invalid Supabase access token for websocket binding.",
+      };
+    }
+    if (resolvedFromToken !== requested) {
+      return {
+        ok: false,
+        code: "token_user_mismatch",
+        message: "Token user does not match requested user context.",
+      };
+    }
+  }
+
+  const bound = bindSocketToUserContext(ws, requested);
+  if (!bound) {
+    return { ok: false, code: "bind_failed", message: "Failed to bind websocket to user context." };
+  }
+  return { ok: true, userContextId: bound };
 }
 
 function bindSocketToUserContext(ws, userContextId) {
@@ -626,12 +739,12 @@ export function startGateway() {
         }
 
         const data = JSON.parse(raw.toString());
-        const envelopeUserContextId = normalizeUserContextId(
-          typeof data.userId === "string" ? data.userId : "",
-        );
-        if (envelopeUserContextId) bindSocketToUserContext(ws, envelopeUserContextId);
-
         if (data.type === "interrupt") {
+          const interruptBind = await ensureSocketUserContextBinding(ws, {
+            requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
+            supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
+          });
+          if (!interruptBind.ok) return;
           console.log("[HUD] Interrupt received.");
           stopSpeaking();
           return;
@@ -651,6 +764,21 @@ export function startGateway() {
         }
 
         if (data.type === "greeting") {
+          const greetingBind = await ensureSocketUserContextBinding(ws, {
+            requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
+            supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
+          });
+          if (!greetingBind.ok) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: "auth_error",
+                code: greetingBind.code,
+                message: greetingBind.message,
+                ts: Date.now(),
+              }));
+            }
+            return;
+          }
           console.log("[HUD] Greeting requested. voiceEnabled:", data.voiceEnabled);
           if (typeof data.assistantName === "string" && data.assistantName.trim()) {
             wakeWordRuntime.setAssistantName(data.assistantName);
@@ -698,8 +826,23 @@ export function startGateway() {
           const incomingUserId = sessionRuntime.normalizeUserContextId(
             typeof data.userId === "string" ? data.userId : "",
           );
-          bindSocketToUserContext(ws, incomingUserId);
-          console.log("[HUD ->]", data.content, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
+          const bindDecision = await ensureSocketUserContextBinding(ws, {
+            requestedUserContextId: incomingUserId,
+            supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
+          });
+          if (!bindDecision.ok) {
+            sendHudStreamError(
+              conversationId,
+              bindDecision.message || "Request blocked: websocket authentication failed.",
+              ws,
+              0,
+              incomingUserId,
+            );
+            broadcastState("idle", incomingUserId);
+            return;
+          }
+          const redactedLen = String(data.content || "").length;
+          console.log("[HUD ->] chars:", redactedLen, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
           if (data.voice !== false) stopSpeaking();
 
           if (!incomingUserId) {
@@ -858,6 +1001,21 @@ export function startGateway() {
         }
 
         if (data.type === "set_voice") {
+          const voiceBind = await ensureSocketUserContextBinding(ws, {
+            requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
+            supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
+          });
+          if (!voiceBind.ok) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: "auth_error",
+                code: voiceBind.code,
+                message: voiceBind.message,
+                ts: Date.now(),
+              }));
+            }
+            return;
+          }
           if (typeof data.assistantName === "string" && data.assistantName.trim()) {
             wakeWordRuntime.setAssistantName(data.assistantName);
           }
@@ -872,6 +1030,21 @@ export function startGateway() {
         }
 
         if (data.type === "set_mute") {
+          const muteBind = await ensureSocketUserContextBinding(ws, {
+            requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
+            supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
+          });
+          if (!muteBind.ok) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: "auth_error",
+                code: muteBind.code,
+                message: muteBind.message,
+                ts: Date.now(),
+              }));
+            }
+            return;
+          }
           setMuted(data.muted === true);
           console.log("[Nova] Muted:", getMuted());
           const scopedUserContextId = normalizeUserContextId(wsContextBySocket.get(ws) || "");

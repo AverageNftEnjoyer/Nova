@@ -102,6 +102,18 @@
   background-clip: padding-box;
 }
 
+/* Calendar page: keep scrolling but hide scrollbars entirely */
+.calendar-scroll-hidden {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+.calendar-scroll-hidden::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none;
+}
+
 .module-scroll-visible {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);

@@ -1,11 +1,14 @@
 import type { Conversation } from "@/lib/chat/conversations"
 import type { ThemeBackgroundType, OrbColor } from "@/lib/settings/userSettings"
 import { getActiveUserId } from "@/lib/auth/active-user"
+import type { CalendarEvent } from "@/lib/calendar/types"
 
 const MISSION_SCHEDULES_STORAGE_KEY_PREFIX = "nova_shell_ui_mission_schedules"
 const MISSION_SCHEDULES_TTL_MS = 5 * 60 * 1000
 const DEV_TOOLS_METRICS_STORAGE_KEY_PREFIX = "nova_shell_ui_dev_tools_metrics"
 const DEV_TOOLS_METRICS_TTL_MS = 5 * 60 * 1000
+const DAILY_SCHEDULE_EVENTS_STORAGE_KEY_PREFIX = "nova_shell_ui_daily_schedule_events"
+const DAILY_SCHEDULE_EVENTS_TTL_MS = 5 * 60 * 1000
 
 interface ShellUiCache {
   conversations: Conversation[] | null
@@ -15,6 +18,7 @@ interface ShellUiCache {
   spotlightEnabled: boolean | null
   missionSchedules: MissionScheduleCacheItem[] | null
   devToolsMetrics: DevToolsMetricsCacheItem | null
+  dailyScheduleEvents: DailyScheduleEventCacheItem[] | null
 }
 
 export interface MissionScheduleCacheItem {
@@ -52,6 +56,13 @@ interface PersistedDevToolsMetrics {
   metrics: DevToolsMetricsCacheItem
 }
 
+export type DailyScheduleEventCacheItem = CalendarEvent
+
+interface PersistedDailyScheduleEvents {
+  updatedAt: number
+  events: DailyScheduleEventCacheItem[]
+}
+
 const cache: ShellUiCache = {
   conversations: null,
   orbColor: null,
@@ -60,6 +71,7 @@ const cache: ShellUiCache = {
   spotlightEnabled: null,
   missionSchedules: null,
   devToolsMetrics: null,
+  dailyScheduleEvents: null,
 }
 let cacheUserId: string | null = null
 
@@ -87,6 +99,22 @@ function devToolsMetricsStorageKeyForUser(userId: string | null): string | null 
 function clearPersistedDevToolsMetrics(userId: string | null): void {
   if (typeof window === "undefined") return
   const key = devToolsMetricsStorageKeyForUser(userId)
+  if (!key) return
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // no-op
+  }
+}
+
+function dailyScheduleEventsStorageKeyForUser(userId: string | null): string | null {
+  if (!userId) return null
+  return `${DAILY_SCHEDULE_EVENTS_STORAGE_KEY_PREFIX}:${userId}`
+}
+
+function clearPersistedDailyScheduleEvents(userId: string | null): void {
+  if (typeof window === "undefined") return
+  const key = dailyScheduleEventsStorageKeyForUser(userId)
   if (!key) return
   try {
     localStorage.removeItem(key)
@@ -157,6 +185,35 @@ function readPersistedDevToolsMetrics(userId: string | null): DevToolsMetricsCac
   }
 }
 
+function readPersistedDailyScheduleEvents(userId: string | null): DailyScheduleEventCacheItem[] | null {
+  if (typeof window === "undefined") return null
+  const key = dailyScheduleEventsStorageKeyForUser(userId)
+  if (!key) return null
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedDailyScheduleEvents
+    if (!parsed || typeof parsed !== "object") {
+      localStorage.removeItem(key)
+      return null
+    }
+    const updatedAt = Number(parsed.updatedAt)
+    const ageMs = Number.isFinite(updatedAt) ? Date.now() - updatedAt : Number.POSITIVE_INFINITY
+    if (ageMs > DAILY_SCHEDULE_EVENTS_TTL_MS) {
+      localStorage.removeItem(key)
+      return null
+    }
+    if (!Array.isArray(parsed.events)) {
+      localStorage.removeItem(key)
+      return null
+    }
+    return [...parsed.events]
+  } catch {
+    clearPersistedDailyScheduleEvents(userId)
+    return null
+  }
+}
+
 function writePersistedMissionSchedules(
   userId: string | null,
   schedules: MissionScheduleCacheItem[] | null,
@@ -205,12 +262,32 @@ function writePersistedDevToolsMetrics(userId: string | null, metrics: DevToolsM
   }
 }
 
+function writePersistedDailyScheduleEvents(userId: string | null, events: DailyScheduleEventCacheItem[] | null): void {
+  if (typeof window === "undefined") return
+  const key = dailyScheduleEventsStorageKeyForUser(userId)
+  if (!key) return
+  try {
+    if (!events || events.length === 0) {
+      localStorage.removeItem(key)
+      return
+    }
+    const payload: PersistedDailyScheduleEvents = {
+      updatedAt: Date.now(),
+      events: [...events],
+    }
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch {
+    // no-op
+  }
+}
+
 function ensureScopedCacheUser(): void {
   const currentUserId = getActiveUserId() || null
   if (cacheUserId === currentUserId) return
   if (cacheUserId && cacheUserId !== currentUserId) {
     clearPersistedMissionSchedules(cacheUserId)
     clearPersistedDevToolsMetrics(cacheUserId)
+    clearPersistedDailyScheduleEvents(cacheUserId)
   }
   cache.conversations = null
   cache.orbColor = null
@@ -219,6 +296,7 @@ function ensureScopedCacheUser(): void {
   cache.spotlightEnabled = null
   cache.missionSchedules = readPersistedMissionSchedules(currentUserId)
   cache.devToolsMetrics = readPersistedDevToolsMetrics(currentUserId)
+  cache.dailyScheduleEvents = readPersistedDailyScheduleEvents(currentUserId)
   cacheUserId = currentUserId
 }
 
@@ -260,5 +338,9 @@ export function writeShellUiCache(next: Partial<ShellUiCache>): void {
       }
       : null
     writePersistedDevToolsMetrics(cacheUserId, cache.devToolsMetrics)
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "dailyScheduleEvents")) {
+    cache.dailyScheduleEvents = next.dailyScheduleEvents ? [...next.dailyScheduleEvents] : null
+    writePersistedDailyScheduleEvents(cacheUserId, cache.dailyScheduleEvents)
   }
 }

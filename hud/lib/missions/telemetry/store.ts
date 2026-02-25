@@ -106,6 +106,20 @@ export async function appendMissionTelemetryEvent(event: MissionLifecycleEvent):
   }
 }
 
+export async function purgeTelemetryForMission(
+  userContextId: string,
+  missionId: string,
+): Promise<void> {
+  const uid = sanitizeUserContextId(userContextId)
+  const mid = String(missionId || "").trim()
+  if (!uid || !mid) return
+  const all = await readAllEvents(uid)
+  const filtered = all.filter((event) => event.missionId !== mid && event.scheduleId !== mid)
+  if (filtered.length !== all.length) {
+    await rewriteEvents(uid, filtered)
+  }
+}
+
 export async function listMissionTelemetryEvents(input: {
   userContextId: string
   sinceTs?: string

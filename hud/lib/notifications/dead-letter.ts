@@ -1,6 +1,7 @@
 import "server-only"
 
-import { appendFile, mkdir } from "node:fs/promises"
+import { appendFile, mkdir, readFile, writeFile, rename } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
 import path from "node:path"
 
 export interface NotificationDeadLetterEntry {
@@ -40,6 +41,34 @@ function resolveDeadLetterPath(userId?: string): string {
     return path.join(root, ".agent", "user-context", scoped, "notification-dead-letter.jsonl")
   }
   return path.join(root, "data", "notification-dead-letter.jsonl")
+}
+
+export async function purgeDeadLetterForMission(
+  userId: string | undefined,
+  scheduleId: string,
+): Promise<void> {
+  const mid = String(scheduleId || "").trim()
+  if (!mid) return
+  const filePath = resolveDeadLetterPath(userId)
+  let raw = ""
+  try {
+    raw = await readFile(filePath, "utf8")
+  } catch {
+    return // file doesn't exist — nothing to purge
+  }
+  const lines = raw.split("\n").filter(Boolean)
+  const kept = lines.filter((line) => {
+    try {
+      const row = JSON.parse(line) as Partial<NotificationDeadLetterEntry>
+      return String(row.scheduleId || "") !== mid
+    } catch {
+      return true // keep malformed lines
+    }
+  })
+  if (kept.length === lines.length) return
+  const tmpPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`
+  await writeFile(tmpPath, `${kept.join("\n")}${kept.length > 0 ? "\n" : ""}`, "utf8")
+  await rename(tmpPath, filePath)
 }
 
 export async function appendNotificationDeadLetter(entry: Omit<NotificationDeadLetterEntry, "id" | "ts">): Promise<string> {

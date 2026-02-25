@@ -8,15 +8,6 @@ import {
   loadIntegrationsSettings,
   type IntegrationsSettings,
   type LlmProvider,
-  updateBraveIntegrationSettings,
-  updateCoinbaseIntegrationSettings,
-  updateClaudeIntegrationSettings,
-  updateDiscordIntegrationSettings,
-  updateGeminiIntegrationSettings,
-  updateGmailIntegrationSettings,
-  updateGrokIntegrationSettings,
-  updateOpenAIIntegrationSettings,
-  updateTelegramIntegrationSettings,
 } from "@/lib/integrations/client-store"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { compareMissionPriority, parseMissionWorkflowMeta } from "../helpers"
@@ -32,8 +23,6 @@ interface IntegrationConfigShape {
   grok?: { defaultModel?: unknown }
   gemini?: { defaultModel?: unknown }
 }
-
-type IntegrationGuardTarget = "brave" | "coinbase" | "openai" | "claude" | "grok" | "gemini" | "gmail" | null
 
 function modelForProvider(provider: LlmProvider, config: IntegrationConfigShape): string {
   if (provider === "claude") return String(config?.claude?.defaultModel || "claude-sonnet-4-20250514")
@@ -63,26 +52,9 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
   const [gmailConnected, setGmailConnected] = useState(false)
-  const [braveConfigured, setBraveConfigured] = useState(false)
-  const [coinbaseConfigured, setCoinbaseConfigured] = useState(false)
-  const [openaiConfigured, setOpenaiConfigured] = useState(false)
-  const [claudeConfigured, setClaudeConfigured] = useState(false)
-  const [grokConfigured, setGrokConfigured] = useState(false)
-  const [geminiConfigured, setGeminiConfigured] = useState(false)
-  const [gmailTokenConfigured, setGmailTokenConfigured] = useState(false)
+  const [gcalendarConnected, setGcalendarConnected] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
-  const [integrationGuardNotice, setIntegrationGuardNotice] = useState<string | null>(null)
-  const [integrationGuardTarget, setIntegrationGuardTarget] = useState<IntegrationGuardTarget>(null)
-
-  useEffect(() => {
-    if (!integrationGuardNotice) return
-    const timer = window.setTimeout(() => {
-      setIntegrationGuardNotice(null)
-      setIntegrationGuardTarget(null)
-    }, 3000)
-    return () => window.clearTimeout(timer)
-  }, [integrationGuardNotice])
 
   const applyLocalSettings = useCallback((settings: IntegrationsSettings) => {
     setTelegramConnected(settings.telegram.connected)
@@ -94,13 +66,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     setGrokConnected(settings.grok.connected)
     setGeminiConnected(settings.gemini.connected)
     setGmailConnected(settings.gmail.connected)
-    setBraveConfigured(Boolean(settings.brave.apiKeyConfigured))
-    setCoinbaseConfigured(Boolean(settings.coinbase?.apiKeyConfigured && settings.coinbase?.apiSecretConfigured))
-    setOpenaiConfigured(Boolean(settings.openai.apiKeyConfigured))
-    setClaudeConfigured(Boolean(settings.claude.apiKeyConfigured))
-    setGrokConfigured(Boolean(settings.grok.apiKeyConfigured))
-    setGeminiConfigured(Boolean(settings.gemini.apiKeyConfigured))
-    setGmailTokenConfigured(Boolean(settings.gmail.tokenConfigured))
+    setGcalendarConnected(Boolean(settings.gcalendar?.connected))
     setActiveLlmProvider(settings.activeLlmProvider)
     setActiveLlmModel(
       settings.activeLlmProvider === "claude"
@@ -164,13 +130,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         setGrokConnected(Boolean(config?.grok?.connected))
         setGeminiConnected(Boolean(config?.gemini?.connected))
         setGmailConnected(Boolean(config?.gmail?.connected))
-        setBraveConfigured(Boolean(config?.brave?.apiKeyConfigured))
-        setCoinbaseConfigured(Boolean(config?.coinbase?.apiKeyConfigured && config?.coinbase?.apiSecretConfigured))
-        setOpenaiConfigured(Boolean(config?.openai?.apiKeyConfigured))
-        setClaudeConfigured(Boolean(config?.claude?.apiKeyConfigured))
-        setGrokConfigured(Boolean(config?.grok?.apiKeyConfigured))
-        setGeminiConfigured(Boolean(config?.gemini?.apiKeyConfigured))
-        setGmailTokenConfigured(Boolean(config?.gmail?.tokenConfigured))
+        setGcalendarConnected(Boolean(config?.gcalendar?.connected))
         setActiveLlmProvider(provider)
         setActiveLlmModel(modelForProvider(provider, config))
       })
@@ -189,139 +149,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
   }, [applyLocalSettings, refreshNotificationSchedules])
 
-  const handleToggleTelegramIntegration = useCallback(() => {
-    const next = !telegramConnected
-    setTelegramConnected(next)
-    updateTelegramIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ telegram: { connected: next } }),
-    }).catch(() => {})
-  }, [telegramConnected])
-
-  const handleToggleDiscordIntegration = useCallback(() => {
-    const next = !discordConnected
-    setDiscordConnected(next)
-    updateDiscordIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ discord: { connected: next } }),
-    }).catch(() => {})
-  }, [discordConnected])
-
-  const handleToggleBraveIntegration = useCallback(() => {
-    if (!braveConnected && !braveConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("brave")
-      return
-    }
-    const next = !braveConnected
-    setBraveConnected(next)
-    updateBraveIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brave: { connected: next } }),
-    }).catch(() => {})
-  }, [braveConnected, braveConfigured])
-
-  const handleToggleCoinbaseIntegration = useCallback(() => {
-    if (!coinbaseConnected && !coinbaseConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("coinbase")
-      return
-    }
-    const next = !coinbaseConnected
-    setCoinbaseConnected(next)
-    updateCoinbaseIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ coinbase: { connected: next } }),
-    }).catch(() => {})
-  }, [coinbaseConnected, coinbaseConfigured])
-
-  const handleToggleOpenAIIntegration = useCallback(() => {
-    if (!openaiConnected && !openaiConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("openai")
-      return
-    }
-    const next = !openaiConnected
-    setOpenaiConnected(next)
-    updateOpenAIIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ openai: { connected: next } }),
-    }).catch(() => {})
-  }, [openaiConnected, openaiConfigured])
-
-  const handleToggleClaudeIntegration = useCallback(() => {
-    if (!claudeConnected && !claudeConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("claude")
-      return
-    }
-    const next = !claudeConnected
-    setClaudeConnected(next)
-    updateClaudeIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ claude: { connected: next } }),
-    }).catch(() => {})
-  }, [claudeConnected, claudeConfigured])
-
-  const handleToggleGrokIntegration = useCallback(() => {
-    if (!grokConnected && !grokConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("grok")
-      return
-    }
-    const next = !grokConnected
-    setGrokConnected(next)
-    updateGrokIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ grok: { connected: next } }),
-    }).catch(() => {})
-  }, [grokConnected, grokConfigured])
-
-  const handleToggleGeminiIntegration = useCallback(() => {
-    if (!geminiConnected && !geminiConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("gemini")
-      return
-    }
-    const next = !geminiConnected
-    setGeminiConnected(next)
-    updateGeminiIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gemini: { connected: next } }),
-    }).catch(() => {})
-  }, [geminiConnected, geminiConfigured])
-
-  const handleToggleGmailIntegration = useCallback(() => {
-    if (!gmailConnected && !gmailTokenConfigured) {
-      setIntegrationGuardNotice("Error: Integration not set up.")
-      setIntegrationGuardTarget("gmail")
-      return
-    }
-    const next = !gmailConnected
-    setGmailConnected(next)
-    updateGmailIntegrationSettings({ connected: next })
-    void fetch("/api/integrations/config", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gmail: { connected: next } }),
-    }).catch(() => {})
-  }, [gmailConnected, gmailTokenConfigured])
+  const goToIntegrations = useCallback(() => router.push("/integrations"), [router])
 
   const missions = useMemo<MissionSummary[]>(() => {
     const grouped = new Map<string, MissionSummary>()
@@ -374,8 +202,8 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     ? providerFromValue(latestUsage.provider)
     : activeLlmProvider
   const runningModel = latestUsage?.model ?? activeLlmModel
-  const hasAnyLlmApiSetup = openaiConfigured || claudeConfigured || grokConfigured || geminiConfigured
-  const runningLabel = !latestUsage && !hasAnyLlmApiSetup
+  const hasAnyLlmConnected = openaiConnected || claudeConnected || grokConnected || geminiConnected
+  const runningLabel = !latestUsage && !hasAnyLlmConnected
     ? "Needs Setup"
     : `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
 
@@ -392,16 +220,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     grokConnected,
     geminiConnected,
     gmailConnected,
-    handleToggleTelegramIntegration,
-    handleToggleDiscordIntegration,
-    handleToggleBraveIntegration,
-    handleToggleCoinbaseIntegration,
-    handleToggleOpenAIIntegration,
-    handleToggleClaudeIntegration,
-    handleToggleGrokIntegration,
-    handleToggleGeminiIntegration,
-    handleToggleGmailIntegration,
-    integrationGuardNotice,
-    integrationGuardTarget,
+    gcalendarConnected,
+    goToIntegrations,
   }
 }

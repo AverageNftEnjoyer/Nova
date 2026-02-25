@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user";
 import { normalizeHandoffOperationToken } from "@/lib/chat/handoff";
+import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser";
 
 export type NovaState =
   | "idle"
@@ -181,6 +182,7 @@ export function useNovaState() {
   const pendingAssistantDeltasRef = useRef<Map<string, AgentMessage>>(new Map())
   const deltaFlushRafRef = useRef<number | null>(null)
   const activeUserIdRef = useRef<string>("")
+  const supabaseAccessTokenRef = useRef<string>("")
 
   const pruneHudMessageAckMap = useCallback((nowMs = Date.now()) => {
     const ackMap = hudMessageAckRef.current
@@ -197,6 +199,26 @@ export function useNovaState() {
     pruneHudMessageAckMap(Date.now())
     return hudMessageAckRef.current.has(normalizedToken)
   }, [pruneHudMessageAckMap])
+
+  useEffect(() => {
+    if (!hasSupabaseClientConfig || !supabaseBrowser) return
+    let mounted = true
+    const client = supabaseBrowser
+
+    void client.auth.getSession().then(({ data }) => {
+      if (!mounted) return
+      supabaseAccessTokenRef.current = String(data.session?.access_token || "").trim()
+    }).catch(() => {})
+
+    const { data: sub } = client.auth.onAuthStateChange((_event, session) => {
+      supabaseAccessTokenRef.current = String(session?.access_token || "").trim()
+    })
+
+    return () => {
+      mounted = false
+      sub.subscription.unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const syncActiveUserId = () => {
@@ -577,6 +599,7 @@ export function useNovaState() {
     },
   ) => {
     const ws = wsRef.current;
+    const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(
         JSON.stringify({
@@ -591,7 +614,7 @@ export function useNovaState() {
           ...(options?.opToken ? { opToken: options.opToken } : {}),
           ...(options?.nlpBypass ? { nlpBypass: true } : {}),
           ...(options?.userId ? { userId: options.userId } : {}),
-          ...(options?.supabaseAccessToken ? { supabaseAccessToken: options.supabaseAccessToken } : {}),
+          ...(options?.supabaseAccessToken ? { supabaseAccessToken: options.supabaseAccessToken } : token ? { supabaseAccessToken: token } : {}),
           ...(options?.assistantName ? { assistantName: options.assistantName } : {}),
           ...(options?.communicationStyle ? { communicationStyle: options.communicationStyle } : {}),
           ...(options?.tone ? { tone: options.tone } : {}),
@@ -608,8 +631,9 @@ export function useNovaState() {
 
   const interrupt = useCallback(() => {
     const ws = wsRef.current;
+    const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "interrupt", userId: getActiveUserId() }));
+      ws.send(JSON.stringify({ type: "interrupt", userId: getActiveUserId(), ...(token ? { supabaseAccessToken: token } : {}) }));
     }
   }, []);
 
@@ -625,6 +649,7 @@ export function useNovaState() {
     assistantName?: string,
   ) => {
     const ws = wsRef.current;
+    const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: "greeting",
@@ -632,6 +657,7 @@ export function useNovaState() {
         ttsVoice,
         voiceEnabled,
         userId: getActiveUserId(),
+        ...(token ? { supabaseAccessToken: token } : {}),
         ...(assistantName ? { assistantName } : {}),
       }));
     }
@@ -639,9 +665,11 @@ export function useNovaState() {
 
   const setVoicePreference = useCallback((ttsVoice: string, voiceEnabled?: boolean, assistantName?: string) => {
     const ws = wsRef.current;
+    const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      const payload: { type: string; ttsVoice: string; voiceEnabled?: boolean; assistantName?: string } = { type: "set_voice", ttsVoice };
+      const payload: { type: string; ttsVoice: string; voiceEnabled?: boolean; assistantName?: string; supabaseAccessToken?: string } = { type: "set_voice", ttsVoice };
       (payload as { userId?: string }).userId = getActiveUserId();
+      if (token) payload.supabaseAccessToken = token
       if (typeof voiceEnabled === "boolean") {
         payload.voiceEnabled = voiceEnabled;
       }
@@ -654,8 +682,9 @@ export function useNovaState() {
 
   const setMuted = useCallback((muted: boolean) => {
     const ws = wsRef.current;
+    const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "set_mute", muted, userId: getActiveUserId() }));
+      ws.send(JSON.stringify({ type: "set_mute", muted, userId: getActiveUserId(), ...(token ? { supabaseAccessToken: token } : {}) }));
     }
   }, []);
 
