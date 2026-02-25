@@ -17,6 +17,7 @@ import { executeToolUse, toAnthropicToolResultBlock } from "../tools/core/execut
 import { toAnthropicToolDefinitions } from "../tools/core/protocol.js";
 import type { AnthropicToolUseBlock, Tool } from "../tools/core/types.js";
 import { preprocess, logCorrections } from "../nlp/preprocess.js";
+import { syncAgentIdentitySignals } from "./identity.js";
 
 export interface AgentRunResult {
   response: string;
@@ -97,6 +98,11 @@ function normalizeTranscriptTurnContent(content: unknown): string | Anthropic.Me
   }
 
   return String(content ?? "");
+}
+
+function normalizeSource(value: unknown): string {
+  const source = String(value || "").trim().toLowerCase();
+  return source || "agent";
 }
 
 function transcriptToAnthropicMessages(turns: TranscriptTurn[]): Anthropic.MessageParam[] {
@@ -205,6 +211,17 @@ export async function runAgentTurn(
       userContextRoot: config.session.userContextRoot,
       userContextId: sessionEntry.userContextId || "",
     });
+    const identityLayer = (await syncAgentIdentitySignals({
+      userContextId: sessionEntry.userContextId || "",
+      personaWorkspaceDir,
+      userInputText: cleanUserText,
+      nlpConfidence: Number.isFinite(Number(nlpResult.confidence)) ? Number(nlpResult.confidence) : 1,
+      source: normalizeSource(inboundMessage.source || inboundMessage.channel),
+      sessionKey: resolved.sessionKey,
+      threadId: inboundMessage.threadId,
+      chatId: inboundMessage.chatId,
+      maxPromptTokens: envPositiveInt("NOVA_AGENT_IDENTITY_PROMPT_MAX_TOKENS", 220, 80),
+    })).promptSection;
 
     const memoryUpdate = await applyMemoryWriteThrough({
       input: cleanUserText,
@@ -251,6 +268,8 @@ export async function runAgentTurn(
       bootstrapFiles,
       memoryEnabled: config.memory.enabled,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      identityLayer,
+      identityLayerMaxTokens: envPositiveInt("NOVA_AGENT_IDENTITY_PROMPT_MAX_TOKENS", 220, 80),
     });
 
     if (inheritedSummaries.length > 0) {
@@ -408,6 +427,16 @@ export async function runAgentTurn(
       totalTokens: sessionEntry.totalTokens + totalInputTokens + totalOutputTokens,
       contextTokens: sessionEntry.contextTokens + totalInputTokens,
       model: config.agent.model,
+    });
+    await syncAgentIdentitySignals({
+      userContextId: sessionEntry.userContextId || "",
+      personaWorkspaceDir,
+      source: normalizeSource(inboundMessage.source || inboundMessage.channel),
+      sessionKey: resolved.sessionKey,
+      threadId: inboundMessage.threadId,
+      chatId: inboundMessage.chatId,
+      toolCalls,
+      maxPromptTokens: envPositiveInt("NOVA_AGENT_IDENTITY_PROMPT_MAX_TOKENS", 220, 80),
     });
 
     return {

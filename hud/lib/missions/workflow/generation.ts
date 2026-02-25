@@ -65,7 +65,8 @@ export function promptRequestsImmediateOutput(prompt: string): boolean {
 }
 
 function normalizeScheduleTime(value: string): string {
-  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(value || "").trim())
+  // Accept HH:MM and HH:MM:SS — strip seconds since cron granularity is minutes
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(String(value || "").trim())
   if (!m) return ""
   return `${m[1].padStart(2, "0")}:${m[2]}`
 }
@@ -125,13 +126,13 @@ function extractTimezoneFromPrompt(prompt: string): string {
   return map[token] || ""
 }
 
-function deriveScheduleFromPrompt(prompt: string): { time: string; timezone: string } {
+export function deriveScheduleFromPrompt(prompt: string): { time: string; timezone: string } {
   const time = extractTimeFromPrompt(prompt)
   const timezone = extractTimezoneFromPrompt(prompt)
   return { time, timezone }
 }
 
-function inferRequestedOutputChannel(
+export function inferRequestedOutputChannel(
   prompt: string,
   outputSet: Set<string>,
   fallback: string,
@@ -145,7 +146,7 @@ function inferRequestedOutputChannel(
   return fallback
 }
 
-function normalizeOutputChannelId(value: string): string {
+export function normalizeOutputChannelId(value: string): string {
   const normalized = String(value || "").trim().toLowerCase()
   if (normalized === "gmail") return "email"
   return normalized
@@ -511,7 +512,7 @@ function isLowValueAiPrompt(prompt: string): boolean {
   )
 }
 
-function buildPromptGroundedAiPrompt(prompt: string): string {
+export function buildPromptGroundedAiPrompt(prompt: string): string {
   const dynamicAiPrompt = detectTopicsInPrompt(prompt).aiPrompt
   const userIntent = cleanText(String(prompt || "")).slice(0, 220)
   if (!userIntent) return dynamicAiPrompt

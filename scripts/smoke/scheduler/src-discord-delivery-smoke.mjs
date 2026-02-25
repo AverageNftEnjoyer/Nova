@@ -364,6 +364,9 @@ await run("P22-D11 integration PATCH /api/integrations/config rejects invalid Di
     "@/lib/supabase/server": {
       requireSupabaseApiUser: async () => ({ verified: { user: { id: "discord-smoke-user" } }, unauthorized: null }),
     },
+    "@/lib/workspace/root": {
+      resolveWorkspaceRoot: () => process.cwd(),
+    },
     "@/lib/notifications/discord": {
       isValidDiscordWebhookUrl,
       redactWebhookTarget,
@@ -431,13 +434,15 @@ await run("P22-D12 integration POST /api/integrations/test-discord redacts targe
 });
 
 await run("P22-D13 integration mission workflow preserves per-target Discord outcomes", async () => {
-  const executionSource = read("hud/lib/missions/workflow/execution.ts");
+  const executionSource = read("hud/lib/missions/workflow/execute-mission.ts");
+  const outputExecutorSource = read("hud/lib/missions/workflow/executors/output-executors.ts");
   const dispatchSource = read("hud/lib/missions/output/dispatch.ts");
   assert.equal(dispatchSource.includes("dispatchNotification"), true);
-  assert.equal(executionSource.includes("outputs = outputs.concat(result)"), true);
-  assert.equal(executionSource.includes("const outputStartIndex = outputs.length"), true);
-  assert.equal(executionSource.includes("const stepResults = outputs.slice(outputStartIndex)"), true);
-  assert.equal(executionSource.includes("outputs.length > 0 && outputs.every((r) => r.ok)"), true);
+  assert.equal(dispatchSource.includes("return await dispatchNotification"), true);
+  assert.equal(outputExecutorSource.includes("data: results"), true);
+  assert.equal(outputExecutorSource.includes('const first = results[0] ?? { ok: false, error: "No result returned" }'), true);
+  assert.equal(executionSource.includes("outputs.push({ ok: output.ok, error: output.error, status: undefined })"), true);
+  assert.equal(executionSource.includes("outputs.length === 0 || outputs.some((o) => o.ok)"), true);
 });
 
 await run("P22-D14 integration scheduler outage safeguards keep tick loop alive", async () => {

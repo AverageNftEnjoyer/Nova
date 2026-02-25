@@ -10,6 +10,7 @@ import {
 import { sessionRuntime } from "../../infrastructure/config.js";
 import { resolvePersonaWorkspaceDir, appendRawStream } from "../../context/persona-context.js";
 import { captureUserPreferencesFromMessage } from "../../context/user-preferences.js";
+import { recordIdentityMemoryUpdate } from "../../context/identity/engine.js";
 import { extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate } from "../../context/memory.js";
 import { shouldDraftOnlyWorkflow } from "../routing/intent-router.js";
 import { speak, stopSpeaking } from "../../audio/voice.js";
@@ -158,6 +159,14 @@ export async function handleMemoryUpdate(text, ctx) {
         `[Preference] Updated ${preferenceCapture.updatedKeys.length} field(s) for ${userContextId || "anonymous"} during memory update.`,
       );
     }
+    recordIdentityMemoryUpdate({
+      userContextId,
+      workspaceDir: personaWorkspaceDir,
+      memoryFact: memoryMeta.fact,
+      conversationId,
+      sessionKey: ctx.sessionKey || "",
+      source: source || "hud",
+    });
     const confirmation = memoryMeta.hasStructuredField
       ? `Memory updated. I will remember this as current: ${memoryMeta.fact}`
       : `Memory updated. I saved: ${memoryMeta.fact}`;

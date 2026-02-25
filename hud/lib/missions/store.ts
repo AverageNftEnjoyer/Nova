@@ -29,6 +29,9 @@ import { normalizeWorkflowStep } from "./utils/config"
 const MISSIONS_FILE_NAME = "missions.json"
 const MISSIONS_SCHEMA_VERSION = 1
 const writesByPath = new Map<string, Promise<void>>()
+// Per-user lock for read-modify-write operations (upsert/delete) — prevents lost updates
+// under concurrent requests for the same user.
+const upsertLocksByUserId = new Map<string, Promise<void>>()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Path Helpers
@@ -71,12 +74,13 @@ async function atomicWriteJson(filePath: string, payload: unknown): Promise<void
       const tmpPath = `${resolved}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
       const body = `${JSON.stringify(payload, null, 2)}\n`
       await writeFile(tmpPath, body, "utf8")
-      await rename(tmpPath, resolved)
+      // Backup the current file BEFORE overwriting it, so .bak is never stale
       try {
         await copyFile(resolved, `${resolved}.bak`)
       } catch {
-        // Best-effort backup only.
+        // Best-effort — file may not exist yet on first write.
       }
+      await rename(tmpPath, resolved)
     })
   writesByPath.set(resolved, next)
   await next
@@ -580,14 +584,22 @@ export async function saveMissions(
 export async function upsertMission(mission: Mission, userId: string): Promise<void> {
   const uid = sanitizeUserId(userId)
   if (!uid) return
-  const existing = await loadScopedMissions(uid)
-  const idx = existing.findIndex((m) => m.id === mission.id)
-  if (idx >= 0) {
-    existing[idx] = { ...mission, userId: uid, updatedAt: new Date().toISOString() }
-  } else {
-    existing.push({ ...mission, userId: uid })
-  }
-  await saveScopedMissions(uid, existing)
+  // Serialize all upserts per user to prevent read-modify-write races
+  const prev = upsertLocksByUserId.get(uid) ?? Promise.resolve()
+  const next = prev.catch(() => undefined).then(async () => {
+    const existing = await loadScopedMissions(uid)
+    const idx = existing.findIndex((m) => m.id === mission.id)
+    if (idx >= 0) {
+      // Preserve existing execution metadata (lastRunAt, lastRunStatus, etc.) unless the
+      // incoming mission explicitly overwrites them.
+      existing[idx] = { ...existing[idx], ...mission, userId: uid, updatedAt: new Date().toISOString() }
+    } else {
+      existing.push({ ...mission, userId: uid })
+    }
+    await saveScopedMissions(uid, existing)
+  })
+  upsertLocksByUserId.set(uid, next)
+  await next
 }
 
 export interface MissionDeleteResult {
@@ -598,24 +610,26 @@ export interface MissionDeleteResult {
 
 export async function deleteMission(missionId: string, userId: string): Promise<MissionDeleteResult> {
   const uid = sanitizeUserId(userId)
-  if (!uid) {
-    return { ok: false, deleted: false, reason: "invalid_user" }
-  }
+  if (!uid) return { ok: false, deleted: false, reason: "invalid_user" }
   const targetMissionId = String(missionId || "").trim()
-  if (!targetMissionId) {
-    return { ok: true, deleted: false, reason: "not_found" }
-  }
-  const existing = await loadScopedMissions(uid)
-  const next = existing.filter((m) => m.id !== targetMissionId)
-  if (next.length === existing.length) {
-    return { ok: true, deleted: false, reason: "not_found" }
-  }
-  // Append to deletedIds so migrateFromLegacyIfNeeded never re-imports this mission.
-  const rawStore = await readRawStoreFile(uid)
-  const existingDeletedIds = Array.isArray(rawStore?.deletedIds) ? rawStore.deletedIds : []
-  const updatedDeletedIds = [...new Set([...existingDeletedIds, targetMissionId])]
-  await saveScopedMissions(uid, next, updatedDeletedIds)
-  return { ok: true, deleted: true, reason: "deleted" }
+  if (!targetMissionId) return { ok: true, deleted: false, reason: "not_found" }
+
+  let result: MissionDeleteResult = { ok: true, deleted: false, reason: "not_found" }
+  // Serialize with upserts to prevent concurrent read-modify-write races
+  const prev = upsertLocksByUserId.get(uid) ?? Promise.resolve()
+  const next = prev.catch(() => undefined).then(async () => {
+    const existing = await loadScopedMissions(uid)
+    const filtered = existing.filter((m) => m.id !== targetMissionId)
+    if (filtered.length === existing.length) return
+    const rawStore = await readRawStoreFile(uid)
+    const existingDeletedIds = Array.isArray(rawStore?.deletedIds) ? rawStore.deletedIds : []
+    const updatedDeletedIds = [...new Set([...existingDeletedIds, targetMissionId])]
+    await saveScopedMissions(uid, filtered, updatedDeletedIds)
+    result = { ok: true, deleted: true, reason: "deleted" }
+  })
+  upsertLocksByUserId.set(uid, next)
+  await next
+  return result
 }
 
 export function buildMission(input: {

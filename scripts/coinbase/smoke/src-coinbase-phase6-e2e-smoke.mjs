@@ -27,7 +27,8 @@ function read(relativePath) {
 }
 
 const generationSource = read("hud/lib/missions/workflow/generation.ts");
-const executionSource = read("hud/lib/missions/workflow/execution.ts");
+const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
+const dataExecutorsSource = read("hud/lib/missions/workflow/executors/data-executors.ts");
 const coinbaseFetchSource = read("hud/lib/missions/coinbase/fetch.ts");
 const schedulerSource = read("hud/lib/notifications/scheduler.ts");
 const triggerRouteSource = read("hud/app/api/notifications/trigger/route.ts");
@@ -43,10 +44,11 @@ await run("P6-E2E-C1 Coinbase mission build path is wired from prompt generation
   assert.equal(generationSource.includes("promptLooksLikeCoinbaseTask"), true);
 });
 
-await run("P6-E2E-C2 Mission execution uses Coinbase fetch path", async () => {
-  assert.equal(executionSource.includes("executeCoinbaseWorkflowStep"), true);
-  assert.equal(executionSource.includes("type === \"coinbase\""), true);
-  assert.equal(executionSource.includes("coinbaseArtifactContext"), true);
+await run("P6-E2E-C2 Mission execution routes Coinbase nodes through the data executor path", async () => {
+  assert.equal(dataExecutorsSource.includes("executeCoinbaseWorkflowStep"), true);
+  assert.equal(dataExecutorsSource.includes("type: \"coinbase\" as const"), true);
+  assert.equal(dataExecutorsSource.includes("artifactRef: result.artifactRef"), true);
+  assert.equal(executeMissionSource.includes("EXECUTOR_REGISTRY[node.type]"), true);
 });
 
 await run("P6-E2E-C3 Coinbase mission fetch includes authenticated account data paths", async () => {

@@ -569,6 +569,11 @@ export function useNovaState() {
       communicationStyle?: string
       tone?: string
       customInstructions?: string
+      proactivity?: string
+      humor_level?: string
+      risk_tolerance?: string
+      structure_preference?: string
+      challenge_level?: string
     },
   ) => {
     const ws = wsRef.current;
@@ -591,6 +596,11 @@ export function useNovaState() {
           ...(options?.communicationStyle ? { communicationStyle: options.communicationStyle } : {}),
           ...(options?.tone ? { tone: options.tone } : {}),
           ...(options?.customInstructions ? { customInstructions: options.customInstructions } : {}),
+          ...(options?.proactivity ? { proactivity: options.proactivity } : {}),
+          ...(options?.humor_level ? { humor_level: options.humor_level } : {}),
+          ...(options?.risk_tolerance ? { risk_tolerance: options.risk_tolerance } : {}),
+          ...(options?.structure_preference ? { structure_preference: options.structure_preference } : {}),
+          ...(options?.challenge_level ? { challenge_level: options.challenge_level } : {}),
         }),
       );
     }

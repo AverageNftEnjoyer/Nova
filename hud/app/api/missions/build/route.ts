@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server"
 
-import { buildWorkflowFromPrompt, WORKFLOW_MARKER } from "@/lib/missions/runtime"
-import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
-import { SAVE_WORKFLOW_VALIDATION_POLICY, validateMissionWorkflowMessage } from "@/lib/missions/workflow/validation"
+import { buildMissionFromPrompt } from "@/lib/missions/runtime"
 import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
-import { buildSchedule } from "@/lib/notifications/store"
-import { migrateLegacyScheduleToMission, upsertMission } from "@/lib/missions/store"
+import { upsertMission } from "@/lib/missions/store"
+import { validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
@@ -44,6 +41,9 @@ export async function POST(req: Request) {
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : ""
     if (!prompt) {
       return NextResponse.json({ ok: false, error: "Prompt is required." }, { status: 400 })
+    }
+    if (prompt.length > 5000) {
+      return NextResponse.json({ ok: false, error: "Prompt exceeds 5000 characters." }, { status: 400 })
     }
     await emitMissionTelemetryEvent({
       eventType: "mission.build.started",
@@ -99,39 +99,44 @@ export async function POST(req: Request) {
         { status: 500 },
       )
     }
-    const selected = resolveConfiguredLlmProvider(await loadIntegrationsConfig(verified))
-    debugSelected = `server_llm=${selected.provider} model=${selected.model}`
+    const generated = await buildMissionFromPrompt(prompt, { userId, scope: verified })
+    debugSelected = `server_llm=${generated.provider} model=${generated.model}`
 
-    const generated = await buildWorkflowFromPrompt(prompt, verified)
-    const workflow = generated.workflow
-    const summary = workflow.summary
+    const mission = generated.mission
+    const triggerNode = mission.nodes.find((n) => n.type === "schedule-trigger") as
+      | { triggerTime?: string; triggerTimezone?: string } | undefined
+    const scheduleTime = triggerNode?.triggerTime || "09:00"
+    const scheduleTimezone = timezoneOverride || triggerNode?.triggerTimezone || "America/New_York"
 
-    const scheduleTime = String(summary.schedule?.time || "09:00").trim() || "09:00"
-    const scheduleTimezone = timezoneOverride || String(summary.schedule?.timezone || "America/New_York").trim() || "America/New_York"
-    const messageDescription = String(summary.description || "").trim() || prompt
-
-    const payloadMessage = `${messageDescription}\n\n${WORKFLOW_MARKER}\n${JSON.stringify(summary)}`
-
+    // Backward-compat wrapper so existing agent consumers (chat-special-handlers.js)
+    // can still read workflow.label and workflow.summary.schedule.*
     const responseBase = {
       ok: true,
       provider: generated.provider,
       model: generated.model,
       debug: debugSelected,
       workflow: {
-        ...workflow,
+        label: mission.label,
+        integration: mission.integration,
         summary: {
-          ...summary,
-          schedule: {
-            ...(summary.schedule || {}),
-            time: scheduleTime,
-            timezone: scheduleTimezone,
-          },
+          description: mission.description,
+          workflowSteps: mission.nodes,   // length-only usage
+          schedule: { time: scheduleTime, timezone: scheduleTimezone },
         },
       },
     }
 
+    if (!mission.label?.trim()) {
+      return NextResponse.json({ ok: false, error: "Generated mission is missing a label." }, { status: 500 })
+    }
+
+    const graphIssues = validateMissionGraphForVersioning(mission)
+    if (graphIssues.length > 0) {
+      return NextResponse.json({ ok: false, error: "Generated mission graph failed validation.", validation: { blocked: true, issues: graphIssues } }, { status: 422 })
+    }
+
     if (!deploy) {
-      const payload = { ...responseBase, deployed: false, idempotencyKey: reservation.key }
+      const payload = { ...responseBase, deployed: false, mission, idempotencyKey: reservation.key }
       await finalizeMissionBuildRequest({ key: reservation.key, userContextId: userId, ok: true, result: payload })
       await emitMissionTelemetryEvent({
         eventType: "mission.build.completed",
@@ -143,62 +148,17 @@ export async function POST(req: Request) {
       return NextResponse.json(payload)
     }
 
-    if (!workflow.label?.trim()) {
-      return NextResponse.json({ ok: false, error: "Generated workflow is missing a label." }, { status: 500 })
-    }
-    const workflowValidation = validateMissionWorkflowMessage({
-      message: payloadMessage,
-      stage: "save",
-      mode: SAVE_WORKFLOW_VALIDATION_POLICY.mode,
-      profile: SAVE_WORKFLOW_VALIDATION_POLICY.profile,
-      userContextId: userId,
-    })
-    if (workflowValidation.blocked) {
-      await emitMissionTelemetryEvent({
-        eventType: "mission.validation.completed",
-        status: "error",
-        userContextId: userId,
-        metadata: {
-          stage: "save",
-          blocked: true,
-          errorCount: workflowValidation.issueCount.error,
-          warningCount: workflowValidation.issueCount.warning,
-        },
-      }).catch(() => {})
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Workflow validation failed.",
-          validation: workflowValidation,
-        },
-        { status: 400 },
-      )
-    }
     await emitMissionTelemetryEvent({
       eventType: "mission.validation.completed",
       status: "success",
       userContextId: userId,
-      metadata: {
-        stage: "save",
-        blocked: false,
-        errorCount: workflowValidation.issueCount.error,
-        warningCount: workflowValidation.issueCount.warning,
-      },
+      metadata: { stage: "save", blocked: false, issueCount: 0 },
     }).catch(() => {})
-    const syntheticSchedule = buildSchedule({
-      userId,
-      integration: workflow.integration || "telegram",
-      label: workflow.label,
-      message: payloadMessage,
-      time: scheduleTime,
-      timezone: scheduleTimezone,
-      enabled: typeof body.enabled === "boolean" ? body.enabled : true,
-      chatIds: [],
-    })
-    const mission = migrateLegacyScheduleToMission(syntheticSchedule)
-    await upsertMission(mission, userId)
 
-    const payload = { ...responseBase, deployed: true, mission, idempotencyKey: reservation.key }
+    const deployedMission = { ...mission, status: "active" as const, settings: { ...mission.settings, timezone: scheduleTimezone } }
+    await upsertMission(deployedMission, userId)
+
+    const payload = { ...responseBase, deployed: true, mission: deployedMission, idempotencyKey: reservation.key }
     await finalizeMissionBuildRequest({ key: reservation.key, userContextId: userId, ok: true, result: payload })
     await emitMissionTelemetryEvent({
       eventType: "mission.build.completed",

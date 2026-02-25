@@ -1,0 +1,16 @@
+[
+  {
+    "file": "scripts\\smoke\\core\\src-provider-smoke.mjs",
+    "line": 13,
+    "varName": "SMOKE_USER_CONTEXT_ID",
+    "envKey": "NOVA_SMOKE_USER_CONTEXT_ID",
+    "code": "const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || \"\").trim();"
+  },
+  {
+    "file": "scripts\\smoke\\core\\runtime-smoke.mjs",
+    "line": 22,
+    "varName": "SMOKE_USER_CONTEXT_ID",
+    "envKey": "NOVA_SMOKE_USER_CONTEXT_ID",
+    "code": "const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || \"\").trim();"
+  }
+]

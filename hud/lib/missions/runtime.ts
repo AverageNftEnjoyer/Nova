@@ -44,6 +44,7 @@ export type {
 export { WORKFLOW_MARKER, parseMissionWorkflow } from "./workflow/parsing"
 export { shouldWorkflowRunNow } from "./workflow/scheduling"
 export { buildWorkflowFromPrompt } from "./workflow/generation"
+export { buildMissionFromPrompt } from "./workflow/generate-mission"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM Exports

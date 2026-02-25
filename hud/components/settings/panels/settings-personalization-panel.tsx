@@ -119,6 +119,79 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
         isLight={isLight}
       />
 
+      <div className={cn("flex items-center gap-3 pt-1 pb-0.5")}>
+        <div className={cn("h-px flex-1", isLight ? "bg-[#d5dce8]" : "bg-white/10")} />
+        <span className={cn("text-xs font-semibold tracking-widest uppercase", isLight ? "text-s-40" : "text-slate-500")}>
+          Behavior Tuning
+        </span>
+        <div className={cn("h-px flex-1", isLight ? "bg-[#d5dce8]" : "bg-white/10")} />
+      </div>
+
+      <SettingSelect
+        label="Proactivity"
+        description="How often should Nova volunteer suggestions unprompted?"
+        isLight={isLight}
+        value={settings.personalization.proactivity}
+        options={[
+          { value: "reactive", label: "Reactive — only answer what's asked" },
+          { value: "balanced", label: "Balanced — suggest when clearly helpful" },
+          { value: "proactive", label: "Proactive — surface next steps and issues" },
+        ]}
+        onChange={(v) => updatePersonalization("proactivity", v)}
+      />
+
+      <SettingSelect
+        label="Humor"
+        description="How much personality and wit in responses?"
+        isLight={isLight}
+        value={settings.personalization.humor_level}
+        options={[
+          { value: "none", label: "None — strictly professional" },
+          { value: "subtle", label: "Subtle — light wit when it fits" },
+          { value: "playful", label: "Playful — banter welcome" },
+        ]}
+        onChange={(v) => updatePersonalization("humor_level", v)}
+      />
+
+      <SettingSelect
+        label="Response Structure"
+        description="Preferred format for answers"
+        isLight={isLight}
+        value={settings.personalization.structure_preference}
+        options={[
+          { value: "freeform", label: "Freeform — flowing prose" },
+          { value: "mixed", label: "Mixed — prose and structure as needed" },
+          { value: "structured", label: "Structured — bullets, headers, lists" },
+        ]}
+        onChange={(v) => updatePersonalization("structure_preference", v)}
+      />
+
+      <SettingSelect
+        label="Challenge Mode"
+        description="Should Nova push back or stay supportive?"
+        isLight={isLight}
+        value={settings.personalization.challenge_level}
+        options={[
+          { value: "supportive", label: "Supportive — validate and encourage" },
+          { value: "neutral", label: "Neutral — balanced perspective" },
+          { value: "challenger", label: "Challenger — push back on weak ideas" },
+        ]}
+        onChange={(v) => updatePersonalization("challenge_level", v)}
+      />
+
+      <SettingSelect
+        label="Risk Tolerance"
+        description="How bold should Nova be in recommendations?"
+        isLight={isLight}
+        value={settings.personalization.risk_tolerance}
+        options={[
+          { value: "conservative", label: "Conservative — highlight risks, prefer safe defaults" },
+          { value: "balanced", label: "Balanced — weigh opportunity and risk" },
+          { value: "bold", label: "Bold — favor ambitious, decisive options" },
+        ]}
+        onChange={(v) => updatePersonalization("risk_tolerance", v)}
+      />
+
       <div className={cn(getSettingsCardClass(isLight), "p-4")}>
         <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>Skill-Based Behavior</p>
         <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>

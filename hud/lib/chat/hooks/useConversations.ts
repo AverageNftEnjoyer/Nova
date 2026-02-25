@@ -1674,6 +1674,11 @@ export function useConversations({
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
+        proactivity: settings.personalization.proactivity,
+        humor_level: settings.personalization.humor_level,
+        risk_tolerance: settings.personalization.risk_tolerance,
+        structure_preference: settings.personalization.structure_preference,
+        challenge_level: settings.personalization.challenge_level,
       })
     },
     [activeConvo, agentConnected, addUserMessage, persist, resolveConversationIdForAgent, resolveSessionConversationIdForAgent],

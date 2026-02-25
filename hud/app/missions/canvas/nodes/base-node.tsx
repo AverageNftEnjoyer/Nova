@@ -30,6 +30,637 @@ function FieldWrap({ label, children }: { label: string; children: React.ReactNo
   )
 }
 
+// ── Shared typed field helpers ─────────────────────────────────────────────
+
+function PromptArea({ value, onChange, label = "Prompt", placeholder = "Describe what to do…" }: { value: string; onChange: (v: string) => void; label?: string; placeholder?: string }) {
+  return (
+    <FieldWrap label={label}>
+      <textarea className={cn(FIELD_INPUT, "min-h-16 resize-y")} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+    </FieldWrap>
+  )
+}
+
+function IntegrationSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <FieldWrap label="Model">
+      <FluidSelect
+        isLight={false}
+        value={value || "claude"}
+        options={[
+          { value: "claude", label: "Claude" },
+          { value: "openai", label: "OpenAI" },
+          { value: "grok", label: "Grok" },
+          { value: "gemini", label: "Gemini" },
+        ]}
+        onChange={onChange}
+        buttonClassName={FIELD_SELECT_BTN}
+      />
+    </FieldWrap>
+  )
+}
+
+function DetailLevelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <FieldWrap label="Detail">
+      <FluidSelect
+        isLight={false}
+        value={value || "standard"}
+        options={[
+          { value: "concise", label: "Concise" },
+          { value: "standard", label: "Standard" },
+          { value: "detailed", label: "Detailed" },
+        ]}
+        onChange={onChange}
+        buttonClassName={FIELD_SELECT_BTN}
+      />
+    </FieldWrap>
+  )
+}
+
+function MessageTemplateArea({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <FieldWrap label="Message">
+      <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y")} value={value} onChange={(e) => onChange(e.target.value)} placeholder="{{$nodes.AI.output.text}}" />
+    </FieldWrap>
+  )
+}
+
+function CsvField({ label, value, onChange, placeholder }: { label: string; value: string[]; onChange: (v: string[]) => void; placeholder: string }) {
+  return (
+    <FieldWrap label={label}>
+      <input
+        className={FIELD_INPUT}
+        value={value.join(", ")}
+        onChange={(e) => onChange(e.target.value.split(",").map((x) => x.trim()).filter(Boolean))}
+        placeholder={placeholder}
+      />
+    </FieldWrap>
+  )
+}
+
+// ── Type-specific field panels ─────────────────────────────────────────────
+
+function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unknown>; upd: (u: Record<string, unknown>) => void }) {
+  const str = (k: string, fb = "") => (cfg[k] !== undefined && cfg[k] !== null ? String(cfg[k]) : fb)
+  const num = (k: string, fb: number) => (typeof cfg[k] === "number" ? (cfg[k] as number) : fb)
+  const bool = (k: string, fb = false) => (typeof cfg[k] === "boolean" ? (cfg[k] as boolean) : fb)
+  const arr = (k: string): string[] => (Array.isArray(cfg[k]) ? (cfg[k] as unknown[]).map(String) : [])
+
+  switch (type) {
+    // ── Triggers ────────────────────────────────────────────────────────────
+    case "schedule-trigger": {
+      const mode = str("triggerMode", "daily")
+      return (
+        <>
+          <FieldWrap label="Schedule">
+            <FluidSelect
+              isLight={false}
+              value={mode}
+              options={[
+                { value: "daily", label: "Daily" },
+                { value: "weekly", label: "Weekly" },
+                { value: "interval", label: "Interval" },
+                { value: "once", label: "Once" },
+              ]}
+              onChange={(v) => upd({ triggerMode: v })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          </FieldWrap>
+          {mode === "interval" ? (
+            <FieldWrap label="Interval (min)">
+              <input className={FIELD_INPUT} type="number" value={num("triggerIntervalMinutes", 30)} onChange={(e) => upd({ triggerIntervalMinutes: Number(e.target.value) || 30 })} placeholder="30" />
+            </FieldWrap>
+          ) : (
+            <FieldWrap label="Time (HH:MM)">
+              <input className={FIELD_INPUT} value={str("triggerTime", "09:00")} onChange={(e) => upd({ triggerTime: e.target.value })} placeholder="09:00" />
+            </FieldWrap>
+          )}
+          {mode === "weekly" && (
+            <FieldWrap label="Days (csv)">
+              <input className={FIELD_INPUT} value={arr("triggerDays").join(", ")} onChange={(e) => upd({ triggerDays: e.target.value.split(",").map((x) => x.trim().toLowerCase()).filter(Boolean) })} placeholder="mon, wed, fri" />
+            </FieldWrap>
+          )}
+          <FieldWrap label="Timezone">
+            <input className={FIELD_INPUT} value={str("triggerTimezone", "America/New_York")} onChange={(e) => upd({ triggerTimezone: e.target.value })} placeholder="America/New_York" />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    case "webhook-trigger": {
+      const auth = str("authentication", "none")
+      return (
+        <>
+          <FieldWrap label="Request">
+            <div className="grid grid-cols-[72px_1fr] gap-1.5">
+              <FluidSelect isLight={false} value={str("method", "POST")} options={[{ value: "POST", label: "POST" }, { value: "GET", label: "GET" }, { value: "PUT", label: "PUT" }]} onChange={(v) => upd({ method: v })} buttonClassName={FIELD_SELECT_BTN} />
+              <input className={FIELD_INPUT} value={str("path")} onChange={(e) => upd({ path: e.target.value })} placeholder="/missions/webhook/:id" />
+            </div>
+          </FieldWrap>
+          <FieldWrap label="Auth">
+            <FluidSelect isLight={false} value={auth} options={[{ value: "none", label: "None" }, { value: "bearer", label: "Bearer" }, { value: "basic", label: "Basic" }]} onChange={(v) => upd({ authentication: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    case "manual-trigger":
+      return null
+
+    case "event-trigger":
+      return (
+        <>
+          <FieldWrap label="Event">
+            <input className={FIELD_INPUT} value={str("eventName")} onChange={(e) => upd({ eventName: e.target.value })} placeholder="nova.message.received" />
+          </FieldWrap>
+          <FieldWrap label="Filter">
+            <input className={FIELD_INPUT} value={str("filter")} onChange={(e) => upd({ filter: e.target.value })} placeholder="{{$event.type}} == 'message'" />
+          </FieldWrap>
+        </>
+      )
+
+    // ── Data ────────────────────────────────────────────────────────────────
+    case "http-request": {
+      const method = str("method", "GET")
+      return (
+        <>
+          <FieldWrap label="Request">
+            <div className="grid grid-cols-[72px_1fr] gap-1.5">
+              <FluidSelect isLight={false} value={method} options={[{ value: "GET", label: "GET" }, { value: "POST", label: "POST" }, { value: "PUT", label: "PUT" }, { value: "PATCH", label: "PATCH" }, { value: "DELETE", label: "DELETE" }]} onChange={(v) => upd({ method: v })} buttonClassName={FIELD_SELECT_BTN} />
+              <input className={FIELD_INPUT} value={str("url")} onChange={(e) => upd({ url: e.target.value })} placeholder="https://api.example.com" />
+            </div>
+          </FieldWrap>
+          <FieldWrap label="Auth">
+            <FluidSelect isLight={false} value={str("authentication", "none")} options={[{ value: "none", label: "None" }, { value: "bearer", label: "Bearer" }, { value: "basic", label: "Basic" }, { value: "api-key", label: "API Key" }]} onChange={(v) => upd({ authentication: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+          {(method === "POST" || method === "PUT" || method === "PATCH") && (
+            <FieldWrap label="Body">
+              <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y")} value={str("body")} onChange={(e) => upd({ body: e.target.value })} placeholder='{"key":"value"}' />
+            </FieldWrap>
+          )}
+          <FieldWrap label="Selector">
+            <input className={FIELD_INPUT} value={str("selector")} onChange={(e) => upd({ selector: e.target.value })} placeholder="$.data.items or .class-name" />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    case "web-search":
+      return (
+        <>
+          <FieldWrap label="Query">
+            <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y")} value={str("query")} onChange={(e) => upd({ query: e.target.value })} placeholder="Latest crypto market news" />
+          </FieldWrap>
+          <div className="grid grid-cols-2 gap-1.5">
+            <FieldWrap label="Provider">
+              <FluidSelect isLight={false} value={str("provider", "brave")} options={[{ value: "brave", label: "Brave" }, { value: "tavily", label: "Tavily" }]} onChange={(v) => upd({ provider: v })} buttonClassName={FIELD_SELECT_BTN} />
+            </FieldWrap>
+            <FieldWrap label="Max">
+              <input className={FIELD_INPUT} type="number" value={num("maxResults", 5)} onChange={(e) => upd({ maxResults: Number(e.target.value) || 5 })} placeholder="5" />
+            </FieldWrap>
+          </div>
+        </>
+      )
+
+    case "rss-feed":
+      return (
+        <>
+          <FieldWrap label="Feed URL">
+            <input className={FIELD_INPUT} value={str("url")} onChange={(e) => upd({ url: e.target.value })} placeholder="https://example.com/feed.xml" />
+          </FieldWrap>
+          <FieldWrap label="Max Items">
+            <input className={FIELD_INPUT} type="number" value={num("maxItems", 10)} onChange={(e) => upd({ maxItems: Number(e.target.value) || 10 })} placeholder="10" />
+          </FieldWrap>
+          <CsvField label="Filter Keywords" value={arr("filterKeywords")} onChange={(v) => upd({ filterKeywords: v })} placeholder="bitcoin, ethereum" />
+        </>
+      )
+
+    case "coinbase":
+      return (
+        <>
+          <FieldWrap label="Intent">
+            <FluidSelect isLight={false} value={str("intent", "report")} options={[{ value: "report", label: "Report" }, { value: "portfolio", label: "Portfolio" }, { value: "price", label: "Price" }, { value: "transactions", label: "Transactions" }, { value: "status", label: "Status" }]} onChange={(v) => upd({ intent: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+          <CsvField label="Assets" value={arr("assets")} onChange={(v) => upd({ assets: v })} placeholder="BTC, ETH, SOL" />
+          <div className="grid grid-cols-2 gap-1.5">
+            <FieldWrap label="Quote">
+              <input className={FIELD_INPUT} value={str("quoteCurrency", "USD")} onChange={(e) => upd({ quoteCurrency: e.target.value })} placeholder="USD" />
+            </FieldWrap>
+            <FieldWrap label="Alert %">
+              <input className={FIELD_INPUT} type="number" value={num("thresholdPct", 5)} onChange={(e) => upd({ thresholdPct: Number(e.target.value) || 5 })} placeholder="5" />
+            </FieldWrap>
+          </div>
+        </>
+      )
+
+    case "file-read":
+      return (
+        <>
+          <FieldWrap label="Path">
+            <input className={FIELD_INPUT} value={str("path")} onChange={(e) => upd({ path: e.target.value })} placeholder="/data/report.csv" />
+          </FieldWrap>
+          <div className="grid grid-cols-2 gap-1.5">
+            <FieldWrap label="Format">
+              <FluidSelect isLight={false} value={str("format", "text")} options={[{ value: "text", label: "Text" }, { value: "json", label: "JSON" }, { value: "csv", label: "CSV" }]} onChange={(v) => upd({ format: v })} buttonClassName={FIELD_SELECT_BTN} />
+            </FieldWrap>
+            <FieldWrap label="Encoding">
+              <FluidSelect isLight={false} value={str("encoding", "utf8")} options={[{ value: "utf8", label: "UTF-8" }, { value: "base64", label: "Base64" }]} onChange={(v) => upd({ encoding: v })} buttonClassName={FIELD_SELECT_BTN} />
+            </FieldWrap>
+          </div>
+        </>
+      )
+
+    case "form-input": {
+      const fields = Array.isArray(cfg.fields) ? (cfg.fields as Array<Record<string, unknown>>) : []
+      const fieldsText = fields.map((f) => `${String(f.name || "")}:${String(f.label || f.name || "")}`).join("\n")
+      return (
+        <FieldWrap label="Fields (name:label per line)">
+          <textarea
+            className={cn(FIELD_INPUT, "min-h-16 resize-y font-mono")}
+            value={fieldsText}
+            onChange={(e) => {
+              const parsed = e.target.value.split("\n").filter(Boolean).map((line) => {
+                const [name, ...rest] = line.split(":")
+                return { name: name.trim(), label: rest.join(":").trim() || name.trim(), type: "text" as const }
+              })
+              upd({ fields: parsed })
+            }}
+            placeholder={"query:Search Query\ndate:Target Date"}
+          />
+        </FieldWrap>
+      )
+    }
+
+    // ── AI ──────────────────────────────────────────────────────────────────
+    case "ai-summarize":
+      return (
+        <>
+          <PromptArea value={str("prompt")} onChange={(v) => upd({ prompt: v })} />
+          <IntegrationSelect value={str("integration")} onChange={(v) => upd({ integration: v })} />
+          <DetailLevelSelect value={str("detailLevel")} onChange={(v) => upd({ detailLevel: v })} />
+        </>
+      )
+
+    case "ai-classify":
+      return (
+        <>
+          <PromptArea value={str("prompt")} onChange={(v) => upd({ prompt: v })} />
+          <IntegrationSelect value={str("integration")} onChange={(v) => upd({ integration: v })} />
+          <CsvField label="Categories" value={arr("categories")} onChange={(v) => upd({ categories: v })} placeholder="Important, Normal, Spam" />
+        </>
+      )
+
+    case "ai-extract":
+      return (
+        <>
+          <PromptArea value={str("prompt")} onChange={(v) => upd({ prompt: v })} />
+          <IntegrationSelect value={str("integration")} onChange={(v) => upd({ integration: v })} />
+          <FieldWrap label="Output Schema (JSON)">
+            <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y font-mono")} value={str("outputSchema", "{}")} onChange={(e) => upd({ outputSchema: e.target.value })} placeholder='{"title":"string","price":"number"}' />
+          </FieldWrap>
+        </>
+      )
+
+    case "ai-generate":
+      return (
+        <>
+          <PromptArea value={str("prompt")} onChange={(v) => upd({ prompt: v })} />
+          <IntegrationSelect value={str("integration")} onChange={(v) => upd({ integration: v })} />
+          <DetailLevelSelect value={str("detailLevel")} onChange={(v) => upd({ detailLevel: v })} />
+        </>
+      )
+
+    case "ai-chat": {
+      const msgs = Array.isArray(cfg.messages) ? (cfg.messages as Array<Record<string, unknown>>) : []
+      const sysMsg = msgs.find((m) => String(m.role) === "system")
+      const userMsg = msgs.find((m) => String(m.role) === "user")
+      const updateMessages = (sys: string, user: string) => {
+        const next = []
+        if (sys) next.push({ role: "system", content: sys })
+        if (user) next.push({ role: "user", content: user })
+        upd({ messages: next })
+      }
+      return (
+        <>
+          <IntegrationSelect value={str("integration")} onChange={(v) => upd({ integration: v })} />
+          <FieldWrap label="System">
+            <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y")} value={String(sysMsg?.content || "")} onChange={(e) => updateMessages(e.target.value, String(userMsg?.content || ""))} placeholder="You are a helpful assistant." />
+          </FieldWrap>
+          <FieldWrap label="User Message">
+            <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y")} value={String(userMsg?.content || "")} onChange={(e) => updateMessages(String(sysMsg?.content || ""), e.target.value)} placeholder="{{$nodes.Fetch.output.text}}" />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    // ── Logic ────────────────────────────────────────────────────────────────
+    case "condition": {
+      const rules = Array.isArray(cfg.rules) ? (cfg.rules as Array<Record<string, unknown>>) : [{}]
+      const rule = rules[0] || {}
+      const op = String(rule.operator || "exists")
+      return (
+        <>
+          <FieldWrap label="Field">
+            <input className={FIELD_INPUT} value={String(rule.field || "")} onChange={(e) => upd({ rules: [{ ...rule, field: e.target.value, operator: op }] })} placeholder="{{$nodes.Step.output.text}}" />
+          </FieldWrap>
+          <FieldWrap label="Operator">
+            <FluidSelect isLight={false} value={op} options={[{ value: "exists", label: "Exists" }, { value: "not_exists", label: "Not Exists" }, { value: "contains", label: "Contains" }, { value: "equals", label: "Equals" }, { value: "not_equals", label: "≠ Equals" }, { value: "greater_than", label: "> Than" }, { value: "less_than", label: "< Than" }, { value: "regex", label: "Regex" }]} onChange={(v) => upd({ rules: [{ ...rule, field: rule.field || "", operator: v }] })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+          {op !== "exists" && op !== "not_exists" && (
+            <FieldWrap label="Value">
+              <input className={FIELD_INPUT} value={String(rule.value || "")} onChange={(e) => upd({ rules: [{ ...rule, field: rule.field || "", operator: op, value: e.target.value }] })} placeholder="Expected value" />
+            </FieldWrap>
+          )}
+          <FieldWrap label="Logic">
+            <FluidSelect isLight={false} value={str("logic", "all")} options={[{ value: "all", label: "All rules" }, { value: "any", label: "Any rule" }]} onChange={(v) => upd({ logic: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    case "switch": {
+      const cases = Array.isArray(cfg.cases) ? (cfg.cases as Array<Record<string, unknown>>) : []
+      const casesText = cases.map((c) => `${String(c.value || "")}→${String(c.port || "")}`).join("\n")
+      return (
+        <>
+          <FieldWrap label="Expression">
+            <input className={FIELD_INPUT} value={str("expression")} onChange={(e) => upd({ expression: e.target.value })} placeholder="{{$vars.status}}" />
+          </FieldWrap>
+          <FieldWrap label="Cases (value→port per line)">
+            <textarea
+              className={cn(FIELD_INPUT, "min-h-16 resize-y font-mono")}
+              value={casesText}
+              onChange={(e) => {
+                const parsed = e.target.value.split("\n").filter(Boolean).map((line, i) => {
+                  const arrow = line.lastIndexOf("→")
+                  const val = arrow >= 0 ? line.slice(0, arrow) : line
+                  const port = arrow >= 0 ? line.slice(arrow + 1) : ""
+                  return { value: val.trim(), port: port.trim() || `case_${i}` }
+                })
+                upd({ cases: parsed })
+              }}
+              placeholder={"success→case_0\nerror→case_1"}
+            />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    case "loop":
+      return (
+        <>
+          <FieldWrap label="Items Expression">
+            <input className={FIELD_INPUT} value={str("inputExpression")} onChange={(e) => upd({ inputExpression: e.target.value })} placeholder="{{$nodes.Fetch.output.items}}" />
+          </FieldWrap>
+          <div className="grid grid-cols-2 gap-1.5">
+            <FieldWrap label="Batch Size">
+              <input className={FIELD_INPUT} type="number" value={num("batchSize", 1)} onChange={(e) => upd({ batchSize: Number(e.target.value) || 1 })} placeholder="1" />
+            </FieldWrap>
+            <FieldWrap label="Max Iterations">
+              <input className={FIELD_INPUT} type="number" value={num("maxIterations", 100)} onChange={(e) => upd({ maxIterations: Number(e.target.value) || 100 })} placeholder="100" />
+            </FieldWrap>
+          </div>
+        </>
+      )
+
+    case "merge":
+      return (
+        <>
+          <FieldWrap label="Mode">
+            <FluidSelect isLight={false} value={str("mode", "wait-all")} options={[{ value: "wait-all", label: "Wait All" }, { value: "first-wins", label: "First Wins" }, { value: "append", label: "Append" }]} onChange={(v) => upd({ mode: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+          <FieldWrap label="Input Count">
+            <input className={FIELD_INPUT} type="number" value={num("inputCount", 2)} onChange={(e) => upd({ inputCount: Number(e.target.value) || 2 })} placeholder="2" />
+          </FieldWrap>
+        </>
+      )
+
+    case "split":
+      return (
+        <FieldWrap label="Output Count">
+          <input className={FIELD_INPUT} type="number" value={num("outputCount", 2)} onChange={(e) => upd({ outputCount: Number(e.target.value) || 2 })} placeholder="2" />
+        </FieldWrap>
+      )
+
+    case "wait": {
+      const waitMode = str("waitMode", "duration")
+      return (
+        <>
+          <FieldWrap label="Mode">
+            <FluidSelect isLight={false} value={waitMode} options={[{ value: "duration", label: "Duration" }, { value: "until-time", label: "Until Time" }, { value: "webhook", label: "Webhook" }]} onChange={(v) => upd({ waitMode: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+          {waitMode === "duration" && (
+            <FieldWrap label="Duration (ms)">
+              <input className={FIELD_INPUT} type="number" value={num("durationMs", 60000)} onChange={(e) => upd({ durationMs: Number(e.target.value) || 60000 })} placeholder="60000" />
+            </FieldWrap>
+          )}
+          {waitMode === "until-time" && (
+            <FieldWrap label="Until (HH:MM)">
+              <input className={FIELD_INPUT} value={str("untilTime")} onChange={(e) => upd({ untilTime: e.target.value })} placeholder="14:00" />
+            </FieldWrap>
+          )}
+          {waitMode === "webhook" && (
+            <FieldWrap label="Webhook Path">
+              <input className={FIELD_INPUT} value={str("webhookPath")} onChange={(e) => upd({ webhookPath: e.target.value })} placeholder="/missions/wait/:id" />
+            </FieldWrap>
+          )}
+        </>
+      )
+    }
+
+    // ── Transform ────────────────────────────────────────────────────────────
+    case "set-variables": {
+      const assignments = Array.isArray(cfg.assignments) ? (cfg.assignments as Array<Record<string, unknown>>) : []
+      const assignText = assignments.map((a) => `${String(a.name || "")}=${String(a.value || "")}`).join("\n")
+      return (
+        <FieldWrap label="Assignments (name=value per line)">
+          <textarea
+            className={cn(FIELD_INPUT, "min-h-16 resize-y font-mono")}
+            value={assignText}
+            onChange={(e) => {
+              const parsed = e.target.value.split("\n").filter(Boolean).map((line) => {
+                const eq = line.indexOf("=")
+                if (eq < 0) return { name: line.trim(), value: "" }
+                return { name: line.slice(0, eq).trim(), value: line.slice(eq + 1).trim() }
+              })
+              upd({ assignments: parsed })
+            }}
+            placeholder={"greeting=Hello {{$vars.name}}\ncount=0"}
+          />
+        </FieldWrap>
+      )
+    }
+
+    case "code":
+      return (
+        <>
+          <FieldWrap label="Input Expression">
+            <input className={FIELD_INPUT} value={str("inputExpression")} onChange={(e) => upd({ inputExpression: e.target.value })} placeholder="{{$nodes.Step.output.text}} (blank = last output)" />
+          </FieldWrap>
+          <FieldWrap label="Code (JS — use return)">
+            <textarea
+              className={cn(FIELD_INPUT, "min-h-[84px] resize-y font-mono text-[9.5px]")}
+              value={str("code", "return $input;")}
+              onChange={(e) => upd({ code: e.target.value })}
+              placeholder={"// $input, $vars, $nodes available\nreturn $input.toUpperCase()"}
+            />
+          </FieldWrap>
+        </>
+      )
+
+    case "format":
+      return (
+        <>
+          <FieldWrap label="Template">
+            <textarea className={cn(FIELD_INPUT, "min-h-16 resize-y")} value={str("template", "{{$nodes.AI.output.text}}")} onChange={(e) => upd({ template: e.target.value })} placeholder="{{$nodes.AI.output.text}}" />
+          </FieldWrap>
+          <FieldWrap label="Format">
+            <FluidSelect isLight={false} value={str("outputFormat", "text")} options={[{ value: "text", label: "Text" }, { value: "markdown", label: "Markdown" }, { value: "json", label: "JSON" }, { value: "html", label: "HTML" }]} onChange={(v) => upd({ outputFormat: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+
+    case "filter":
+      return (
+        <>
+          <FieldWrap label="Expression (per item)">
+            <input className={FIELD_INPUT} value={str("expression")} onChange={(e) => upd({ expression: e.target.value })} placeholder="$item.price > 100" />
+          </FieldWrap>
+          <FieldWrap label="Mode">
+            <FluidSelect isLight={false} value={str("mode", "keep")} options={[{ value: "keep", label: "Keep matching" }, { value: "remove", label: "Remove matching" }]} onChange={(v) => upd({ mode: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+
+    case "sort":
+      return (
+        <>
+          <FieldWrap label="Field">
+            <input className={FIELD_INPUT} value={str("field")} onChange={(e) => upd({ field: e.target.value })} placeholder="price" />
+          </FieldWrap>
+          <FieldWrap label="Direction">
+            <FluidSelect isLight={false} value={str("direction", "asc")} options={[{ value: "asc", label: "Ascending" }, { value: "desc", label: "Descending" }]} onChange={(v) => upd({ direction: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+
+    case "dedupe":
+      return (
+        <FieldWrap label="Dedup Field">
+          <input className={FIELD_INPUT} value={str("field")} onChange={(e) => upd({ field: e.target.value })} placeholder="id (blank = full item)" />
+        </FieldWrap>
+      )
+
+    // ── Output ───────────────────────────────────────────────────────────────
+    case "novachat-output":
+      return <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
+
+    case "telegram-output":
+      return (
+        <>
+          <CsvField label="Chat IDs" value={arr("chatIds")} onChange={(v) => upd({ chatIds: v })} placeholder="-100123456789" />
+          <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
+          <FieldWrap label="Parse Mode">
+            <FluidSelect isLight={false} value={str("parseMode", "markdown")} options={[{ value: "markdown", label: "Markdown" }, { value: "html", label: "HTML" }, { value: "plain", label: "Plain" }]} onChange={(v) => upd({ parseMode: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+
+    case "discord-output":
+      return (
+        <>
+          <CsvField label="Webhook URLs" value={arr("webhookUrls")} onChange={(v) => upd({ webhookUrls: v })} placeholder="https://discord.com/api/webhooks/..." />
+          <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
+        </>
+      )
+
+    case "email-output":
+      return (
+        <>
+          <CsvField label="Recipients" value={arr("recipients")} onChange={(v) => upd({ recipients: v })} placeholder="you@example.com" />
+          <FieldWrap label="Subject">
+            <input className={FIELD_INPUT} value={str("subject", "Mission Output")} onChange={(e) => upd({ subject: e.target.value })} placeholder="Daily Briefing: {{date}}" />
+          </FieldWrap>
+          <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
+          <FieldWrap label="Format">
+            <FluidSelect isLight={false} value={str("format", "text")} options={[{ value: "text", label: "Plain Text" }, { value: "html", label: "HTML" }]} onChange={(v) => upd({ format: v })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+
+    case "webhook-output": {
+      const headers = typeof cfg.headers === "object" && cfg.headers !== null ? (cfg.headers as Record<string, string>) : {}
+      const headersText = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join("\n")
+      return (
+        <>
+          <FieldWrap label="URL">
+            <div className="grid grid-cols-[72px_1fr] gap-1.5">
+              <FluidSelect isLight={false} value={str("method", "POST")} options={[{ value: "POST", label: "POST" }, { value: "PUT", label: "PUT" }]} onChange={(v) => upd({ method: v })} buttonClassName={FIELD_SELECT_BTN} />
+              <input className={FIELD_INPUT} value={str("url")} onChange={(e) => upd({ url: e.target.value })} placeholder="https://example.com/webhook" />
+            </div>
+          </FieldWrap>
+          <FieldWrap label="Headers (key: value per line)">
+            <textarea
+              className={cn(FIELD_INPUT, "min-h-12 resize-y font-mono text-[9.5px]")}
+              value={headersText}
+              onChange={(e) => {
+                const parsed: Record<string, string> = {}
+                for (const line of e.target.value.split("\n")) {
+                  const colon = line.indexOf(":")
+                  if (colon > 0) parsed[line.slice(0, colon).trim()] = line.slice(colon + 1).trim()
+                }
+                upd({ headers: parsed })
+              }}
+              placeholder={"Content-Type: application/json\nX-API-Key: secret"}
+            />
+          </FieldWrap>
+          <FieldWrap label="Body Template">
+            <textarea className={cn(FIELD_INPUT, "min-h-12 resize-y")} value={str("bodyTemplate")} onChange={(e) => upd({ bodyTemplate: e.target.value })} placeholder='{"text":"{{$nodes.AI.output.text}}"}' />
+          </FieldWrap>
+        </>
+      )
+    }
+
+    case "slack-output":
+      return (
+        <>
+          <FieldWrap label="Channel / Webhook URL">
+            <input className={FIELD_INPUT} value={str("webhookUrl") || str("channel")} onChange={(e) => {
+              const v = e.target.value
+              upd(v.startsWith("http") ? { webhookUrl: v, channel: "" } : { channel: v, webhookUrl: "" })
+            }} placeholder="#general or https://hooks.slack.com/..." />
+          </FieldWrap>
+          <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
+        </>
+      )
+
+    // ── Utility ──────────────────────────────────────────────────────────────
+    case "sticky-note":
+      return (
+        <FieldWrap label="Content">
+          <textarea className={cn(FIELD_INPUT, "min-h-[72px] resize-y")} value={str("content", "Notes…")} onChange={(e) => upd({ content: e.target.value })} placeholder="Notes…" />
+        </FieldWrap>
+      )
+
+    case "sub-workflow":
+      return (
+        <>
+          <FieldWrap label="Mission ID">
+            <input className={FIELD_INPUT} value={str("missionId")} onChange={(e) => upd({ missionId: e.target.value })} placeholder="Paste the target mission ID" />
+          </FieldWrap>
+          <FieldWrap label="Wait for Completion">
+            <FluidSelect isLight={false} value={bool("waitForCompletion", true) ? "yes" : "no"} options={[{ value: "yes", label: "Yes — block until done" }, { value: "no", label: "No — fire and forget" }]} onChange={(v) => upd({ waitForCompletion: v === "yes" })} buttonClassName={FIELD_SELECT_BTN} />
+          </FieldWrap>
+        </>
+      )
+
+    default:
+      return null
+  }
+}
+
+// ── InlineFields (the full inline config panel rendered inside each node) ──────
+
 function InlineFields({
   nodeId,
   nodeConfig,
@@ -58,32 +689,8 @@ function InlineFields({
     )
   }
 
+  const type = String(nodeConfig.type || "")
   const label = typeof nodeConfig.label === "string" ? nodeConfig.label : ""
-  const integration = typeof nodeConfig.integration === "string" ? nodeConfig.integration : ""
-  const prompt = typeof nodeConfig.prompt === "string" ? nodeConfig.prompt : ""
-  const query = typeof nodeConfig.query === "string" ? nodeConfig.query : ""
-  const eventName = typeof nodeConfig.eventName === "string" ? nodeConfig.eventName : ""
-  const path = typeof nodeConfig.path === "string" ? nodeConfig.path : ""
-  const intent = typeof nodeConfig.intent === "string" ? nodeConfig.intent : ""
-  const outputSchema = typeof nodeConfig.outputSchema === "string" ? nodeConfig.outputSchema : ""
-  const messageTemplate = typeof nodeConfig.messageTemplate === "string" ? nodeConfig.messageTemplate : ""
-  const expression = typeof nodeConfig.expression === "string" ? nodeConfig.expression : ""
-  const field = typeof nodeConfig.field === "string" ? nodeConfig.field : ""
-  const content = typeof nodeConfig.content === "string" ? nodeConfig.content : ""
-  const missionId = typeof nodeConfig.missionId === "string" ? nodeConfig.missionId : ""
-  const categories = Array.isArray(nodeConfig.categories) ? (nodeConfig.categories as string[]) : []
-  const recipients = Array.isArray(nodeConfig.recipients) ? (nodeConfig.recipients as string[]) : []
-  const subject = typeof nodeConfig.subject === "string" ? nodeConfig.subject : ""
-  const url = typeof nodeConfig.url === "string" ? nodeConfig.url : ""
-  const method = typeof nodeConfig.method === "string" ? nodeConfig.method : ""
-  const maxResults = nodeConfig.maxResults
-  const triggerMode = typeof nodeConfig.triggerMode === "string" ? nodeConfig.triggerMode : ""
-  const triggerTime = typeof nodeConfig.triggerTime === "string" ? nodeConfig.triggerTime : ""
-  const triggerTimezone = typeof nodeConfig.triggerTimezone === "string" ? nodeConfig.triggerTimezone : ""
-  const triggerInterval = nodeConfig.triggerIntervalMinutes
-
-  const rules = Array.isArray(nodeConfig.rules) ? (nodeConfig.rules as Array<Record<string, unknown>>) : []
-  const firstRule = rules[0] || {}
 
   return (
     <div className="mt-2 space-y-2 border-t border-white/[0.07] pt-2.5">
@@ -91,329 +698,16 @@ function InlineFields({
         <input
           className={FIELD_INPUT}
           value={label}
-          onChange={(event) => updateNodeConfig({ label: event.target.value })}
+          onChange={(e) => updateNodeConfig({ label: e.target.value })}
           placeholder="Node name"
         />
       </FieldWrap>
-
-      {integration ? (
-        <FieldWrap label="Model">
-          <FluidSelect
-            isLight={false}
-            value={integration}
-            options={[
-              { value: "claude", label: "Claude" },
-              { value: "openai", label: "OpenAI" },
-              { value: "grok", label: "Grok" },
-              { value: "gemini", label: "Gemini" },
-            ]}
-            onChange={(value) => updateNodeConfig({ integration: value })}
-            buttonClassName={FIELD_SELECT_BTN}
-          />
-        </FieldWrap>
-      ) : null}
-
-      {prompt ? (
-        <FieldWrap label="Prompt">
-          <textarea
-            className={cn(FIELD_INPUT, "min-h-16 resize-y")}
-            value={prompt}
-            onChange={(event) => updateNodeConfig({ prompt: event.target.value })}
-            placeholder="Write your AI prompt…"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {query ? (
-        <FieldWrap label="Query">
-          <textarea
-            className={cn(FIELD_INPUT, "min-h-12 resize-y")}
-            value={query}
-            onChange={(event) => updateNodeConfig({ query: event.target.value })}
-            placeholder="Search query"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {eventName ? (
-        <FieldWrap label="Event">
-          <input
-            className={FIELD_INPUT}
-            value={eventName}
-            onChange={(event) => updateNodeConfig({ eventName: event.target.value })}
-            placeholder="nova.task.complete"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {path ? (
-        <FieldWrap label="Path">
-          <input
-            className={FIELD_INPUT}
-            value={path}
-            onChange={(event) => updateNodeConfig({ path: event.target.value })}
-            placeholder="/webhook/path"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {intent ? (
-        <FieldWrap label="Intent">
-          <input
-            className={FIELD_INPUT}
-            value={intent}
-            onChange={(event) => updateNodeConfig({ intent: event.target.value })}
-            placeholder="Intent"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {method ? (
-        <FieldWrap label="Request">
-          <div className="grid grid-cols-[84px_1fr] gap-1.5">
-            <FluidSelect
-              isLight={false}
-              value={method}
-              options={[
-                { value: "GET", label: "GET" },
-                { value: "POST", label: "POST" },
-                { value: "PUT", label: "PUT" },
-                { value: "PATCH", label: "PATCH" },
-                { value: "DELETE", label: "DELETE" },
-              ]}
-              onChange={(value) => updateNodeConfig({ method: value })}
-              buttonClassName={FIELD_SELECT_BTN}
-            />
-            <input
-              className={FIELD_INPUT}
-              value={url}
-              onChange={(event) => updateNodeConfig({ url: event.target.value })}
-              placeholder="https://api.example.com"
-            />
-          </div>
-        </FieldWrap>
-      ) : null}
-
-      {typeof maxResults === "number" || typeof maxResults === "string" ? (
-        <FieldWrap label="Max Results">
-          <input
-            className={FIELD_INPUT}
-            type="number"
-            value={String(maxResults ?? "")}
-            onChange={(event) => updateNodeConfig({ maxResults: Number(event.target.value) || 5 })}
-            placeholder="5"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {categories.length ? (
-        <FieldWrap label="Categories">
-          <input
-            className={FIELD_INPUT}
-            value={categories.join(", ")}
-            onChange={(event) =>
-              updateNodeConfig({
-                categories: event.target.value.split(",").map((value) => value.trim()).filter(Boolean),
-              })
-            }
-            placeholder="Category A, Category B"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {recipients.length > 0 ? (
-        <FieldWrap label="Recipients">
-          <input
-            className={FIELD_INPUT}
-            value={recipients.join(", ")}
-            onChange={(event) =>
-              updateNodeConfig({
-                recipients: event.target.value.split(",").map((r) => r.trim()).filter(Boolean),
-              })
-            }
-            placeholder="you@example.com"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {subject ? (
-        <FieldWrap label="Subject">
-          <input
-            className={FIELD_INPUT}
-            value={subject}
-            onChange={(event) => updateNodeConfig({ subject: event.target.value })}
-            placeholder="Daily Briefing: {{date}}"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {outputSchema ? (
-        <FieldWrap label="Output Schema">
-          <textarea
-            className={cn(FIELD_INPUT, "min-h-12 resize-y")}
-            value={outputSchema}
-            onChange={(event) => updateNodeConfig({ outputSchema: event.target.value })}
-            placeholder="Output schema"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {messageTemplate ? (
-        <FieldWrap label="Message">
-          <textarea
-            className={cn(FIELD_INPUT, "min-h-12 resize-y")}
-            value={messageTemplate}
-            onChange={(event) => updateNodeConfig({ messageTemplate: event.target.value })}
-            placeholder="Message template"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {expression ? (
-        <FieldWrap label="Expression">
-          <input
-            className={FIELD_INPUT}
-            value={expression}
-            onChange={(event) => updateNodeConfig({ expression: event.target.value })}
-            placeholder="Expression"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {field ? (
-        <FieldWrap label="Field">
-          <input
-            className={FIELD_INPUT}
-            value={field}
-            onChange={(event) => updateNodeConfig({ field: event.target.value })}
-            placeholder="Field"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {content ? (
-        <FieldWrap label="Content">
-          <textarea
-            className={cn(FIELD_INPUT, "min-h-12 resize-y")}
-            value={content}
-            onChange={(event) => updateNodeConfig({ content: event.target.value })}
-            placeholder="Content"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {missionId ? (
-        <FieldWrap label="Mission ID">
-          <input
-            className={FIELD_INPUT}
-            value={missionId}
-            onChange={(event) => updateNodeConfig({ missionId: event.target.value })}
-            placeholder="Mission ID"
-          />
-        </FieldWrap>
-      ) : null}
-
-      {triggerMode ? (
-        <>
-          <FieldWrap label="Schedule">
-            <FluidSelect
-              isLight={false}
-              value={triggerMode}
-              options={[
-                { value: "daily", label: "Daily" },
-                { value: "weekly", label: "Weekly" },
-                { value: "interval", label: "Interval" },
-                { value: "once", label: "Once" },
-              ]}
-              onChange={(value) => updateNodeConfig({ triggerMode: value })}
-              buttonClassName={FIELD_SELECT_BTN}
-            />
-          </FieldWrap>
-          {triggerMode === "interval" ? (
-            <FieldWrap label="Interval (min)">
-              <input
-                className={FIELD_INPUT}
-                type="number"
-                value={String(triggerInterval ?? 30)}
-                onChange={(event) => updateNodeConfig({ triggerIntervalMinutes: Number(event.target.value) || 30 })}
-                placeholder="30"
-              />
-            </FieldWrap>
-          ) : (
-            <FieldWrap label="Time (HH:MM)">
-              <input
-                className={FIELD_INPUT}
-                value={triggerTime}
-                onChange={(event) => updateNodeConfig({ triggerTime: event.target.value })}
-                placeholder="09:00"
-              />
-            </FieldWrap>
-          )}
-          <FieldWrap label="Timezone">
-            <input
-              className={FIELD_INPUT}
-              value={triggerTimezone}
-              onChange={(event) => updateNodeConfig({ triggerTimezone: event.target.value })}
-              placeholder="America/New_York"
-            />
-          </FieldWrap>
-        </>
-      ) : null}
-
-      {rules.length > 0 ? (
-        <>
-          <FieldWrap label="Field / Expression">
-            <input
-              className={FIELD_INPUT}
-              value={String(firstRule.field || "")}
-              onChange={(event) =>
-                updateNodeConfig({
-                  rules: [{ ...firstRule, field: event.target.value, operator: firstRule.operator || "exists" }],
-                })
-              }
-              placeholder="{{$nodes.Step.output.text}}"
-            />
-          </FieldWrap>
-          <FieldWrap label="Operator">
-            <FluidSelect
-              isLight={false}
-              value={String(firstRule.operator || "exists")}
-              options={[
-                { value: "exists", label: "Exists" },
-                { value: "contains", label: "Contains" },
-                { value: "equals", label: "Equals" },
-                { value: "not_equals", label: "Not Equals" },
-                { value: "greater_than", label: "Greater Than" },
-                { value: "less_than", label: "Less Than" },
-                { value: "regex", label: "Regex" },
-              ]}
-              onChange={(value) =>
-                updateNodeConfig({
-                  rules: [{ ...firstRule, field: firstRule.field || "", operator: value }],
-                })
-              }
-              buttonClassName={FIELD_SELECT_BTN}
-            />
-          </FieldWrap>
-          {String(firstRule.operator || "exists") !== "exists" && String(firstRule.operator || "exists") !== "not_exists" ? (
-            <FieldWrap label="Value">
-              <input
-                className={FIELD_INPUT}
-                value={String(firstRule.value || "")}
-                onChange={(event) =>
-                  updateNodeConfig({
-                    rules: [{ ...firstRule, field: firstRule.field || "", operator: firstRule.operator || "exists", value: event.target.value }],
-                  })
-                }
-                placeholder="Expected value"
-              />
-            </FieldWrap>
-          ) : null}
-        </>
-      ) : null}
+      <TypeFields type={type} cfg={nodeConfig} upd={updateNodeConfig} />
     </div>
   )
 }
+
+// ── BaseNode ───────────────────────────────────────────────────────────────────
 
 export const BaseNode = memo(function BaseNode({ id, data, selected }: NodeProps) {
   const { catalogEntry, isRunning, hasError, hasCompleted, label, nodeConfig } = data as MissionNodeData

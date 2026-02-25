@@ -55,6 +55,12 @@ import {
 import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../infrastructure/config.js";
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../context/persona-context.js";
 import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../context/user-preferences.js";
+import {
+  recordIdentitySkillPreferenceUpdate,
+  recordIdentityToolUsage,
+  syncIdentityIntelligenceFromTurn,
+} from "../../context/identity/engine.js";
+import { syncPersonalityFromTurn } from "../../context/personality/index.js";
 import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../context/memory.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../context/skill-preferences.js";
 import { buildRuntimeSkillsPrompt } from "../../context/skills.js";
@@ -228,8 +234,8 @@ function resolveAdaptiveOpenAiMaxCompletionTokens(userText, {
   }
   if (strict) return Math.min(strictCap, 600);
   if (fastLane) return Math.min(fastLaneCap, 420);
-  if (raw.length <= 64) return Math.min(defaultCap, 700);
-  if (raw.length <= 180) return Math.min(defaultCap, 850);
+  if (raw.length <= 64) return Math.min(defaultCap, 560);
+  if (raw.length <= 180) return Math.min(defaultCap, 760);
   return defaultCap;
 }
 
@@ -454,6 +460,7 @@ function buildConstraintSafeFallback(outputConstraints, userText, { strict = fal
 async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId, conversationId,
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions,
+    runtimeProactivity, runtimeHumorLevel, runtimeRiskTolerance, runtimeStructurePreference, runtimeChallengeLevel,
     raw_text: displayText, hudOpToken } = ctx;
   // displayText: original user text for UI/transcript; text: clean_text for LLM/tools
   const uiText = displayText || text;
@@ -510,6 +517,9 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   let emittedAssistantDelta = false;
   let preferredNamePinned = false;
   let preferenceProfileUpdated = 0;
+  let identityAppliedSignals = 0;
+  let identityRejectedSignals = 0;
+  let identityPromptIncluded = false;
   let outputConstraintCorrectionPasses = 0;
   let fallbackReason = "";
   let fallbackStage = "";
@@ -542,6 +552,11 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       fastLaneSimpleChat,
       strictOutputConstraints: hasStrictOutputRequirements,
       preferredNamePinned: false,
+      identityProfileActive: false,
+      identityAppliedSignals: 0,
+      identityRejectedSignals: 0,
+      identityPromptIncluded: false,
+      identityToolAffinityUpdated: 0,
       latencyPolicy: turnPolicy?.fastLaneSimpleChat === true ? "fast_lane" : "default",
       openAiMaxCompletionTokens: openAiMaxCompletionTokens,
     },
@@ -686,6 +701,73 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         systemPrompt = `${systemPrompt}\n\n## User Preference Memory\n${preferencePrompt}`;
       }
     }
+
+    const identitySync = syncIdentityIntelligenceFromTurn({
+      userContextId,
+      workspaceDir: personaWorkspaceDir,
+      conversationId,
+      sessionKey,
+      source,
+      userInputText: uiText,
+      nlpConfidence: Number.isFinite(Number(ctx?.nlpConfidence)) ? Number(ctx.nlpConfidence) : 1,
+      runtimeAssistantName,
+      runtimeCommunicationStyle,
+      runtimeTone,
+      preferenceCapture,
+      maxPromptTokens: Math.max(120, Math.floor(promptBudgetProfile.sectionMaxTokens * 0.9)),
+    });
+    const identityPrompt = String(identitySync?.promptSection || "").trim();
+    identityAppliedSignals = Array.isArray(identitySync?.appliedSignals) ? identitySync.appliedSignals.length : 0;
+    identityRejectedSignals = Array.isArray(identitySync?.rejectedSignals) ? identitySync.rejectedSignals.length : 0;
+    if (identityPrompt) {
+      const appended = appendBudgetedPromptSection({
+        ...promptBudgetOptions,
+        prompt: systemPrompt,
+        sectionTitle: "Identity Intelligence",
+        sectionBody: identityPrompt,
+      });
+      if (appended.included) {
+        systemPrompt = appended.prompt;
+        identityPromptIncluded = true;
+      } else {
+        systemPrompt = `${systemPrompt}\n\n## Identity Intelligence\n${identityPrompt}`;
+        identityPromptIncluded = true;
+      }
+    }
+    runSummary.requestHints.identityProfileActive = Boolean(identityPromptIncluded || identityAppliedSignals > 0);
+    runSummary.requestHints.identityAppliedSignals = identityAppliedSignals;
+    runSummary.requestHints.identityRejectedSignals = identityRejectedSignals;
+    runSummary.requestHints.identityPromptIncluded = identityPromptIncluded;
+
+    // ── Personality calibration ──────────────────────────────────────────────
+    const personalitySync = syncPersonalityFromTurn({
+      userContextId,
+      workspaceDir: personaWorkspaceDir,
+      userText: uiText,
+      sessionIntent: identitySync?.snapshot?.temporalSessionIntent?.currentIntent,
+      seedData: {
+        proactivity: runtimeProactivity,
+        humor_level: runtimeHumorLevel,
+        risk_tolerance: runtimeRiskTolerance,
+        structure_preference: runtimeStructurePreference,
+        challenge_level: runtimeChallengeLevel,
+      },
+      conversationId,
+      maxPromptTokens: Math.max(80, Math.floor(promptBudgetProfile.sectionMaxTokens * 0.6)),
+    });
+    const personalityPrompt = String(personalitySync?.promptSection || "").trim();
+    if (personalityPrompt) {
+      const appended = appendBudgetedPromptSection({
+        ...promptBudgetOptions,
+        prompt: systemPrompt,
+        sectionTitle: "Personality Calibration",
+        sectionBody: personalityPrompt,
+      });
+      systemPrompt = appended.included
+        ? appended.prompt
+        : `${systemPrompt}\n\n## Personality Calibration\n${personalityPrompt}`;
+    }
+    runSummary.requestHints.personalityAppliedSignals = personalitySync?.appliedSignals || 0;
 
     const shortTermContextSummary = String(requestHints?.assistantShortTermContextSummary || "").trim();
     if (shortTermContextSummary) {
@@ -1807,6 +1889,19 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     } finally {
       latencyTelemetry.addStage("memory_autocapture", Date.now() - memoryCaptureStartedAt);
     }
+    const identityToolUsage = recordIdentityToolUsage({
+      userContextId,
+      workspaceDir: personaWorkspaceDir,
+      conversationId,
+      sessionKey,
+      source,
+      toolCalls: observedToolCalls,
+      maxPromptTokens: PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+    });
+    const identityToolAffinityUpdated = Array.isArray(identityToolUsage?.toolUpdates)
+      ? identityToolUsage.toolUpdates.length
+      : 0;
+    runSummary.requestHints.identityToolAffinityUpdated = identityToolAffinityUpdated;
 
     runSummary.ok = true;
     runSummary.provider = providerUsed;
@@ -1895,6 +1990,18 @@ async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.correctionPassCount = Number.isFinite(Number(latencySnapshot.counters?.output_constraint_correction_passes))
       ? Number(latencySnapshot.counters.output_constraint_correction_passes)
       : runSummary.correctionPassCount;
+    runSummary.requestHints.identityProfileActive = Boolean(
+      runSummary.requestHints.identityProfileActive || identityPromptIncluded || identityAppliedSignals > 0,
+    );
+    runSummary.requestHints.identityAppliedSignals = Number(
+      runSummary.requestHints.identityAppliedSignals || identityAppliedSignals || 0,
+    );
+    runSummary.requestHints.identityRejectedSignals = Number(
+      runSummary.requestHints.identityRejectedSignals || identityRejectedSignals || 0,
+    );
+    runSummary.requestHints.identityPromptIncluded = Boolean(
+      runSummary.requestHints.identityPromptIncluded || identityPromptIncluded,
+    );
     runSummary.fallbackReason = fallbackReason;
     runSummary.fallbackStage = fallbackStage;
     runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
@@ -1927,6 +2034,11 @@ async function handleInputCore(text, opts = {}) {
   const runtimeCommunicationStyle = String(opts.communicationStyle || "").trim();
   const runtimeAssistantName = String(opts.assistantName || "").trim();
   const runtimeCustomInstructions = String(opts.customInstructions || "").trim();
+  const runtimeProactivity = String(opts.proactivity || "").trim();
+  const runtimeHumorLevel = String(opts.humor_level || "").trim();
+  const runtimeRiskTolerance = String(opts.risk_tolerance || "").trim();
+  const runtimeStructurePreference = String(opts.structure_preference || "").trim();
+  const runtimeChallengeLevel = String(opts.challenge_level || "").trim();
   const inboundMessageId = String(opts.inboundMessageId || "").trim();
   const hudOpToken = String(opts.hudOpToken || "").trim();
   const normalizedTextForRouting = String(text || "").trim().toLowerCase();
@@ -2070,6 +2182,7 @@ async function handleInputCore(text, opts = {}) {
     source, sender, sessionContext, sessionKey, userContextId,
     useVoice, ttsVoice, runtimeTone, runtimeCommunicationStyle,
     runtimeAssistantName, runtimeCustomInstructions,
+    runtimeProactivity, runtimeHumorLevel, runtimeRiskTolerance, runtimeStructurePreference, runtimeChallengeLevel,
     conversationId,
     hudOpToken,
     supabaseAccessToken: String(opts.supabaseAccessToken || "").trim(),
@@ -2093,6 +2206,17 @@ async function handleInputCore(text, opts = {}) {
     userInputText: text,
   });
   if (skillPreferenceUpdate?.handled) {
+    if (skillPreferenceUpdate.updated && String(skillPreferenceUpdate.skillName || "").trim()) {
+      recordIdentitySkillPreferenceUpdate({
+        userContextId,
+        workspaceDir: personaWorkspaceDir,
+        conversationId,
+        sessionKey,
+        source,
+        skillName: skillPreferenceUpdate.skillName,
+        directive: skillPreferenceUpdate.directive || "",
+      });
+    }
     const reply = await sendDirectAssistantReply(
       text,
       String(skillPreferenceUpdate.reply || "I couldn't save that skill preference yet. Retry once."),

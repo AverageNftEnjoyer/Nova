@@ -11,13 +11,15 @@ import type { WorkflowStep, WorkflowStepType, AiDetailLevel } from "../types"
  */
 export function normalizeWorkflowStep(raw: WorkflowStep, index: number): WorkflowStep {
   const type = String(raw.type || "output").toLowerCase()
-  const stepType: WorkflowStepType =
-    type === "trigger" || type === "fetch" || type === "coinbase" || type === "ai" || type === "transform" || type === "condition" || type === "output"
-      ? (type as WorkflowStepType)
+  const stepType: WorkflowStepType | "switch" | "loop" =
+    type === "trigger" || type === "fetch" || type === "coinbase" || type === "ai" || type === "transform" || type === "condition" || type === "output" || type === "switch" || type === "loop"
+      ? (type as WorkflowStepType | "switch" | "loop")
       : "output"
   const normalized: WorkflowStep = {
     ...raw,
-    id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `step-${index + 1}`,
+    id: typeof raw.id === "string" && raw.id.trim()
+      ? raw.id.trim()
+      : `step-${index + 1}-${Math.random().toString(36).slice(2, 7)}`,
     type: stepType,
     title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : stepType,
   }

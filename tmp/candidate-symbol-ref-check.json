@@ -1,0 +1,261 @@
+[
+  {
+    "file": "hud/app/analytics/components/agent-roster-panel.tsx",
+    "symbols": [
+      "AgentRosterPanel"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "AgentRosterPanel",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/app/missions/canvas/node-config-panel.tsx",
+    "symbols": [
+      "NodeConfigPanel"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "NodeConfigPanel",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/app/missions/canvas/node-palette.tsx",
+    "symbols": [
+      "NodePalette"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "NodePalette",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/components/effects/MagicBento.tsx",
+    "symbols": [
+      "BentoCardProps",
+      "BentoProps"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "BentoCardProps",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "BentoProps",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/lib/missions/workflow/generate-mission.ts",
+    "symbols": [
+      "BuildMissionResult",
+      "buildMissionFromPrompt",
+      "guessMissionCategory"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "BuildMissionResult",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "buildMissionFromPrompt",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "guessMissionCategory",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/lib/notifications/discord-webhook.ts",
+    "symbols": [
+      "isValidDiscordWebhookUrl",
+      "parseDiscordWebhookUrls",
+      "redactDiscordWebhookUrl"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "isValidDiscordWebhookUrl",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "parseDiscordWebhookUrls",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "redactDiscordWebhookUrl",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/lib/security/supabase-auth.ts",
+    "symbols": [
+      "requireSupabaseSession"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "requireSupabaseSession",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "hud/proxy.ts",
+    "symbols": [
+      "proxy"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "proxy",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/agent/queue.ts",
+    "symbols": [
+      "AgentMessageQueue"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "AgentMessageQueue",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/agent/runner.ts",
+    "symbols": [
+      "AgentRunResult",
+      "runAgentTurn"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "AgentRunResult",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "runAgentTurn",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/agent/wake-runtime-compat.js",
+    "symbols": [
+      "createWakeWordRuntime"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "createWakeWordRuntime",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/config/index.ts",
+    "symbols": [
+      "loadConfig",
+      "DEFAULT_CONFIG_PATH"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "loadConfig",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "DEFAULT_CONFIG_PATH",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/integrations/chatkit/index.ts",
+    "symbols": [
+      "resolveChatKitRuntimeConfig",
+      "appendChatKitEvent",
+      "runChatKitWorkflow"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "resolveChatKitRuntimeConfig",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "appendChatKitEvent",
+        "refCount": 0,
+        "sample": []
+      },
+      {
+        "symbol": "runChatKitWorkflow",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/nlp/nspell.d.ts",
+    "symbols": [],
+    "symbolRefs": []
+  },
+  {
+    "file": "src/providers/index.ts",
+    "symbols": [],
+    "symbolRefs": []
+  },
+  {
+    "file": "src/runtime/core/entrypoint.js",
+    "symbols": [
+      "startNovaRuntime"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "startNovaRuntime",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  },
+  {
+    "file": "src/skills/snapshot.ts",
+    "symbols": [
+      "SkillSnapshot"
+    ],
+    "symbolRefs": [
+      {
+        "symbol": "SkillSnapshot",
+        "refCount": 0,
+        "sample": []
+      }
+    ]
+  }
+]

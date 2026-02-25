@@ -16,4 +16,4 @@ export type {
   GmailScope,
   GmailSendMessageInput,
   GmailSendMessageResult,
-} from "@/lib/integrations/gmail/types"`r`n
+} from "@/lib/integrations/gmail/types"

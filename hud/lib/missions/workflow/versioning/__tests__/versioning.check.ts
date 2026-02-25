@@ -67,3 +67,22 @@ await runCheck("restore creates mandatory pre-restore backup and validates graph
   assert.equal(Boolean(restored.backupVersionId), true)
   assert.equal(Boolean(restored.restoredVersionId), true)
 })
+
+await runCheck("graph validation blocks self loops and directed cycles", async () => {
+  const cyclicMission = buildMission({
+    userId: userContextId,
+    label: "Cycle Test",
+    nodes: [
+      { id: "node-a", type: "manual-trigger", label: "Start", position: { x: 0, y: 0 } },
+      { id: "node-b", type: "novachat-output", label: "Output", position: { x: 220, y: 0 } },
+    ],
+    connections: [
+      { id: "conn-1", sourceNodeId: "node-a", sourcePort: "main", targetNodeId: "node-b", targetPort: "main" },
+      { id: "conn-2", sourceNodeId: "node-b", sourcePort: "main", targetNodeId: "node-a", targetPort: "main" },
+      { id: "conn-3", sourceNodeId: "node-a", sourcePort: "main", targetNodeId: "node-a", targetPort: "main" },
+    ],
+  })
+  const issues = validateMissionGraphForVersioning(cyclicMission)
+  assert.equal(issues.some((issue) => issue.code === "mission.graph_cycle_detected"), true)
+  assert.equal(issues.some((issue) => issue.code === "mission.connection_self_loop"), true)
+})

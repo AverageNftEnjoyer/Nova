@@ -274,6 +274,11 @@ export function ChatShellController() {
           assistantName: settings.personalization.assistantName,
           communicationStyle: settings.personalization.communicationStyle,
           tone: settings.personalization.tone,
+          proactivity: settings.personalization.proactivity,
+          humor_level: settings.personalization.humor_level,
+          risk_tolerance: settings.personalization.risk_tolerance,
+          structure_preference: settings.personalization.structure_preference,
+          challenge_level: settings.personalization.challenge_level,
         })
         // Create/sync optimistic convo on server in background so list stays in sync
         void ensureServerConversationForOptimistic(activeConvo)
@@ -436,6 +441,11 @@ export function ChatShellController() {
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
+        proactivity: settings.personalization.proactivity,
+        humor_level: settings.personalization.humor_level,
+        risk_tolerance: settings.personalization.risk_tolerance,
+        structure_preference: settings.personalization.structure_preference,
+        challenge_level: settings.personalization.challenge_level,
       })
     },
     [activeConvo, agentConnected, sendToAgent, addUserMessage, addAssistantMessage, getSupabaseAccessToken, resolveConversationIdForAgent, buildHudSessionKey, gmailConnected],

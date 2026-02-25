@@ -29,7 +29,7 @@ function read(relativePath) {
 
 const constantsSource = read("src/runtime/core/constants.js");
 const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler.js");
-const missionExecutionSource = read("hud/lib/missions/workflow/execution.ts");
+const missionAiExecutorsSource = read("hud/lib/missions/workflow/executors/ai-executors.ts");
 const promptBudgetSource = read("src/runtime/modules/chat/prompt/prompt-budget.js");
 const promptBudgetModule = await import(
   pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt/prompt-budget.js")).href,
@@ -94,16 +94,17 @@ await run("P18-C3 chat handler uses budgeted context injection and dynamic histo
   }
 });
 
-await run("P18-C4 mission AI prompts are explicitly bounded before LLM calls", async () => {
+await run("P18-C4 mission AI executors are explicitly bounded before LLM calls", async () => {
   const requiredTokens = [
-    "MISSION_AI_CONTEXT_MAX_CHARS",
-    "MISSION_AI_PROMPT_MAX_CHARS",
-    "truncateForModel(webEvidence || toTextPayload(context.data), MISSION_AI_CONTEXT_MAX_CHARS)",
-    "const boundedUserText = truncateForModel(userText, MISSION_AI_PROMPT_MAX_CHARS)",
-    "const boundedForcedPrompt = truncateForModel(forcedPrompt, MISSION_AI_PROMPT_MAX_CHARS)",
+    "const MAX_INPUT_CHARS = 12000",
+    "const MAX_PROMPT_CHARS = 11000",
+    "return truncateForModel(fallback, MAX_INPUT_CHARS)",
+    "const fullPrompt = truncateForModel(",
+    "truncateForModel(prompt, MAX_PROMPT_CHARS)",
+    "truncateForModel(combinedPrompt, MAX_PROMPT_CHARS)",
   ];
   for (const token of requiredTokens) {
-    assert.equal(missionExecutionSource.includes(token), true, `missing mission execution token: ${token}`);
+    assert.equal(missionAiExecutorsSource.includes(token), true, `missing mission AI executor token: ${token}`);
   }
 
   const historyBudget = computeHistoryTokenBudget({

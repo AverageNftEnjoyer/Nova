@@ -57,7 +57,7 @@ await run("P17-C2 quality module supports runtime guardrail tunables", async () 
 await run("P17-C3 workflow output path applies quality guardrails before dispatch", async () => {
   const requiredTokens = [
     'import { applyMissionOutputQualityGuardrails } from "../../output/quality"',
-    "const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)",
+    "const { text: guarded } = applyMissionOutputQualityGuardrails(humanized, guardrailContext)",
     "dispatchOutput(",
   ];
   for (const token of requiredTokens) {

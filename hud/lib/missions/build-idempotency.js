@@ -115,10 +115,10 @@ function pruneExpiredRows(rows, nowMs) {
 
 export function resolveMissionBuildIdempotencyKey(input) {
   const userScope = sanitizeScopePart(input.userContextId)
-  const clientProvided = sanitizeScopePart(input.clientKey)
+  // Always use the server-computed fingerprint — never trust client-provided keys,
+  // as they could be reused across different prompts to cause dedup collisions.
   const fingerprint = computeDeterministicFingerprint(input)
-  const suffix = clientProvided || fingerprint
-  return `mission-build:${userScope}:${suffix}`
+  return `mission-build:${userScope}:${fingerprint}`
 }
 
 export async function reserveMissionBuildRequest(input) {

@@ -2,7 +2,11 @@
  * Transform Node Executors
  */
 
+import { runInNewContext } from "node:vm"
 import type { SetVariablesNode, CodeNode, FormatNode, FilterNode, SortNode, DedupeNode, NodeOutput, ExecutionContext } from "../../types"
+
+const CODE_EXEC_TIMEOUT_MS = 500
+const FILTER_EXEC_TIMEOUT_MS = 100
 
 // ─── Set Variables ────────────────────────────────────────────────────────────
 
@@ -10,8 +14,10 @@ export async function executeSetVariables(
   node: SetVariablesNode,
   ctx: ExecutionContext,
 ): Promise<NodeOutput> {
+  const BLOCKED_VAR_NAMES = new Set(["__proto__", "prototype", "constructor"])
   const assignments = node.assignments || []
   for (const { name, value } of assignments) {
+    if (!name || BLOCKED_VAR_NAMES.has(name) || !/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name)) continue
     const resolved = ctx.resolveExpr(value)
     ctx.variables[name] = resolved
   }
@@ -34,12 +40,18 @@ export async function executeCode(
     : ([...ctx.nodeOutputs.values()].map((o) => o.text).filter(Boolean).at(-1) || "")
 
   try {
-    const fn = new Function("$input", "$vars", "$nodes", node.code)
     const nodesProxy: Record<string, { output: { text?: string; data?: unknown } }> = {}
     for (const [id, output] of ctx.nodeOutputs.entries()) {
       nodesProxy[id] = { output }
     }
-    const result = fn(inputText, ctx.variables, nodesProxy)
+    // Run in an isolated vm context — prevents access to process, require, global etc.
+    const sandbox = Object.create(null) as Record<string, unknown>
+    sandbox.$input = inputText
+    sandbox.$vars = { ...ctx.variables }
+    sandbox.$nodes = nodesProxy
+    // Wrap user code in a function so `return` statements work as expected
+    const wrapped = `(function($input,$vars,$nodes){\n${node.code}\n})($input,$vars,$nodes)`
+    const result = runInNewContext(wrapped, sandbox, { timeout: CODE_EXEC_TIMEOUT_MS, filename: "mission-code.js" })
     const text = typeof result === "string" ? result : JSON.stringify(result)
     return { ok: true, text, data: result }
   } catch (err) {
@@ -77,11 +89,13 @@ export async function executeFilter(
 
   try {
     const mode = node.mode || "keep"
-    const fn = new Function("$item", "$vars", `return ${node.expression}`)
     const filtered = upstreamItems.filter((item) => {
+      const sandbox = Object.create(null) as Record<string, unknown>
+      sandbox.$item = item
+      sandbox.$vars = { ...ctx.variables }
       try {
-        const result = fn(item, ctx.variables)
-        return mode === "keep" ? Boolean(result) : !result
+        const result = runInNewContext(`(${node.expression})`, sandbox, { timeout: FILTER_EXEC_TIMEOUT_MS, filename: "mission-filter.js" })
+        return mode === "keep" ? Boolean(result) : !Boolean(result)
       } catch {
         return mode === "keep" ? false : true
       }

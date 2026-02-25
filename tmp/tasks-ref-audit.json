@@ -1,0 +1,52 @@
+[
+  {
+    "file": "tasks/coinbase-output-guard-report-2026-02-23.md",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/mission-builder-ux-overhaul-phases-2026-02-23.md",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/mission-engine-builder-e2e-report-2026-02-23.md",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/mission-generator-baseline-scorecard.json",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/mission-generator-overhaul-prod-report-2026-02-23.md",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/mission-generator-overhaul-smoke-results.json",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/mission-generator-prod-scorecard.json",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/morning-briefing-prod-fix-report-2026-02-23.md",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/nova-future-master-checklist.md",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "tasks/tool-loop-production-hardening-runbook.md",
+    "refCount": 0,
+    "refs": []
+  }
+]

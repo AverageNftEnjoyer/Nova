@@ -30,7 +30,8 @@ const snapshotSource = read("hud/lib/missions/skills/snapshot.ts");
 const schedulerSource = read("hud/lib/notifications/scheduler.ts");
 const triggerRouteSource = read("hud/app/api/notifications/trigger/route.ts");
 const triggerStreamRouteSource = read("hud/app/api/notifications/trigger/stream/route.ts");
-const workflowExecutionSource = read("hud/lib/missions/workflow/execution.ts");
+const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
+const missionTypesSource = read("hud/lib/missions/types.ts");
 const coinbaseSkillSource = read("skills/coinbase/SKILL.md");
 
 await run("P20-C1 mission skill snapshot module exists and fingerprints skills", async () => {
@@ -52,10 +53,10 @@ await run("P20-C3 manual trigger routes also use skill snapshots", async () => {
   assert.equal(triggerStreamRouteSource.includes("skillSnapshot,"), true);
 });
 
-await run("P20-C4 workflow execution uses stable skill guidance in AI system prompt", async () => {
-  assert.equal(workflowExecutionSource.includes("stableSkillGuidance"), true);
-  assert.equal(workflowExecutionSource.includes("input.skillSnapshot"), true);
-  assert.equal(workflowExecutionSource.includes("Stable skill snapshot guidance for this run"), true);
+await run("P20-C4 workflow execution contract carries skill snapshot through mission runtime context", async () => {
+  assert.equal(missionTypesSource.includes("skillSnapshot?: {"), true);
+  assert.equal(executeMissionSource.includes("skillSnapshot: input.skillSnapshot"), true);
+  assert.equal(executeMissionSource.includes("scope: input.scope"), true);
 });
 
 await run("P20-C5 Coinbase skill doc exists with deterministic aliases and admin controls", async () => {

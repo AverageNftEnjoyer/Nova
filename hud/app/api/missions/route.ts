@@ -53,6 +53,8 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const id = url.searchParams.get("id")
+  const limitParam = url.searchParams.get("limit")
+  const offsetParam = url.searchParams.get("offset")
 
   try {
     const missions = await loadMissions({ userId })
@@ -63,7 +65,11 @@ export async function GET(req: Request) {
       }
       return NextResponse.json({ ok: true, mission })
     }
-    return NextResponse.json({ ok: true, missions })
+    const total = missions.length
+    const offset = Math.max(0, Number.isFinite(Number(offsetParam)) ? Number(offsetParam) : 0)
+    const limit = limitParam != null && Number.isFinite(Number(limitParam)) ? Math.min(Math.max(1, Number(limitParam)), 500) : undefined
+    const paginated = limit != null ? missions.slice(offset, offset + limit) : missions.slice(offset)
+    return NextResponse.json({ ok: true, missions: paginated, total, offset, limit: limit ?? total })
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "Failed to load missions." },

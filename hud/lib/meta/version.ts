@@ -9,6 +9,12 @@
  *
  * Version History:
  *
+ * - V.29 Alpha: Mission workflow reliability + builder/runtime alignment
+ *     - Refined mission generation/build flow and mission graph validation to reduce invalid graph states before execution.
+ *     - Hardened mission execution/output dispatch and executor paths for more deterministic run behavior.
+ *     - Updated mission canvas/base-node UX flow to better align node editing, modal behavior, and run actions.
+ *     - Extended mission versioning and check coverage around graph validation and build lifecycle paths.
+ *
  * - V.28 Alpha: Gmail runtime hardening + 3D orb interaction/visual refinement
  *     - Added Gmail runtime tool suite in `src/` with safe-fail auth/scope handling, per-user context enforcement, and chat-loop integration.
  *     - Added sensitive Gmail action guardrails with explicit confirmation requirements and server-side HUD op-token consumption for send/draft paths.
@@ -193,4 +199,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.28 Alpha"
+export const NOVA_VERSION = "V.29 Alpha"

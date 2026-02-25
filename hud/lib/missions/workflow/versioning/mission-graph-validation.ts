@@ -12,6 +12,7 @@ export function validateMissionGraphForVersioning(mission: Mission): MissionGrap
   const connections = Array.isArray(mission.connections) ? mission.connections : []
   const nodeIdSet = new Set<string>()
   const connectionIdSet = new Set<string>()
+  const validConnections: MissionConnection[] = []
 
   nodes.forEach((node: MissionNode, index) => {
     const nodePath = `mission.nodes[${index}]`
@@ -71,7 +72,64 @@ export function validateMissionGraphForVersioning(mission: Mission): MissionGrap
         message: `Connection target "${targetNodeId || "unknown"}" does not reference a valid node id.`,
       })
     }
+    if (sourceNodeId && targetNodeId && sourceNodeId === targetNodeId) {
+      issues.push({
+        code: "mission.connection_self_loop",
+        path: connectionPath,
+        message: `Connection "${connectionId || "unknown"}" is a self-loop on node "${sourceNodeId}".`,
+      })
+    }
+    if (
+      sourceNodeId &&
+      targetNodeId &&
+      sourceNodeId !== targetNodeId &&
+      nodeIdSet.has(sourceNodeId) &&
+      nodeIdSet.has(targetNodeId)
+    ) {
+      validConnections.push(connection)
+    }
   })
+
+  if (nodeIdSet.size > 0 && validConnections.length > 0) {
+    const adjacency = new Map<string, string[]>()
+    for (const nodeId of nodeIdSet) adjacency.set(nodeId, [])
+    for (const connection of validConnections) {
+      const source = String(connection.sourceNodeId || "").trim()
+      const target = String(connection.targetNodeId || "").trim()
+      if (!source || !target) continue
+      adjacency.get(source)?.push(target)
+    }
+
+    const visiting = new Set<string>()
+    const visited = new Set<string>()
+    const hasCycleFrom = (nodeId: string): boolean => {
+      if (visiting.has(nodeId)) return true
+      if (visited.has(nodeId)) return false
+      visiting.add(nodeId)
+      const nextNodes = adjacency.get(nodeId) || []
+      for (const nextNodeId of nextNodes) {
+        if (hasCycleFrom(nextNodeId)) return true
+      }
+      visiting.delete(nodeId)
+      visited.add(nodeId)
+      return false
+    }
+
+    let cycleDetected = false
+    for (const nodeId of nodeIdSet) {
+      if (hasCycleFrom(nodeId)) {
+        cycleDetected = true
+        break
+      }
+    }
+    if (cycleDetected) {
+      issues.push({
+        code: "mission.graph_cycle_detected",
+        path: "mission.connections",
+        message: "Mission graph contains at least one directed cycle. DAG execution requires acyclic connections.",
+      })
+    }
+  }
 
   return issues
 }

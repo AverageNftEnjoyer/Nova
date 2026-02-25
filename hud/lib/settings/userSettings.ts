@@ -17,6 +17,12 @@ export interface UserProfile {
   accessTier: AccessTier
 }
 
+export type PersonalityProactivity = "reactive" | "balanced" | "proactive"
+export type PersonalityHumorLevel = "none" | "subtle" | "playful"
+export type PersonalityRiskTolerance = "conservative" | "balanced" | "bold"
+export type PersonalityStructure = "freeform" | "mixed" | "structured"
+export type PersonalityChallengeLevel = "supportive" | "neutral" | "challenger"
+
 export interface Personalization {
   assistantName: string // What the user wants to call the assistant
   nickname: string // What Nova should call the user
@@ -27,6 +33,12 @@ export interface Personalization {
   customInstructions: string // Freeform instructions for Nova
   characteristics: string // User personality traits to remember
   preferredLanguage: string
+  // Behavior dimensions — seeded into personality engine via settings_sync
+  proactivity: PersonalityProactivity
+  humor_level: PersonalityHumorLevel
+  risk_tolerance: PersonalityRiskTolerance
+  structure_preference: PersonalityStructure
+  challenge_level: PersonalityChallengeLevel
 }
 
 export type ResponseTone = "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed"
@@ -138,6 +150,11 @@ const DEFAULT_SETTINGS: UserSettings = {
     customInstructions: "",
     characteristics: "",
     preferredLanguage: "English",
+    proactivity: "balanced",
+    humor_level: "subtle",
+    risk_tolerance: "balanced",
+    structure_preference: "mixed",
+    challenge_level: "neutral",
   },
   updatedAt: new Date().toISOString(),
 }

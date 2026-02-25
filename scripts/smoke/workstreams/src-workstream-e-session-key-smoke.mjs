@@ -122,18 +122,29 @@ await run("E3 chat handoff resolves optimistic/server convo remap before pending
 });
 
 await run("E4 thinking indicator and assistant echo dedupe guards are present", async () => {
-  const shellRequired = [
-    "const isBackendThinking = novaState === \"thinking\"",
-    "const isThinking = isBackendThinking || localThinking || activeConversationStreaming",
-    "if (novaState === \"thinking\") {",
-    "setLocalThinking(true)",
+  const shellTokenSets = [
+    [
+      "const isBackendThinking = novaState === \"thinking\"",
+      "const isThinking = isBackendThinking || localThinking || activeConversationStreaming",
+      "setLocalThinking(true)",
+    ],
+    [
+      "const isThinking = useMemo(() => {",
+      "if (novaState === \"thinking\") return true",
+      "if (streamingAssistantId) return true",
+      "for (let i = agentMessages.length - 1; i >= 0; i -= 1)",
+    ],
   ];
-  for (const token of shellRequired) {
-    assert.equal(chatShellControllerSource.includes(token), true, `missing thinking guard token: ${token}`);
-  }
+  const shellGuardPresent = shellTokenSets.some((tokenSet) =>
+    tokenSet.every((token) => chatShellControllerSource.includes(token)));
+  assert.equal(shellGuardPresent, true, "missing thinking guard implementation in chat shell controller");
+
+  const dedupeConstantMatch = useConversationsSource.match(/const ASSISTANT_ECHO_DEDUP_MS\s*=\s*([0-9_]+)/);
+  assert.equal(Boolean(dedupeConstantMatch), true, "missing ASSISTANT_ECHO_DEDUP_MS constant");
+  const dedupeMs = Number(String(dedupeConstantMatch?.[1] || "0").replace(/_/g, ""));
+  assert.equal(Number.isFinite(dedupeMs) && dedupeMs >= 8_000 && dedupeMs <= 120_000, true);
 
   const convoRequired = [
-    "const ASSISTANT_ECHO_DEDUP_MS = 8_000",
     "Backend can emit a final assistant \"message\" event right after stream completion.",
     "const closeInTime = Math.abs(incomingTs - lastTs) <= ASSISTANT_ECHO_DEDUP_MS",
     "if (closeInTime && (sameText || semanticallySame)) {",

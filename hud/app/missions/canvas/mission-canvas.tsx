@@ -31,14 +31,15 @@ function missionNodesToRFNodes(
 ): RFNode<MissionNodeData>[] {
   return missionNodes.map((n) => {
     const entry = getNodeCatalogEntry(n.type)
+    if (!entry) return null
     const status = traceStatuses[n.id]
     return {
       id: n.id,
       type: "missionNode",
-      position: n.position,
+      position: n.position ?? { x: 200, y: 200 },
       data: {
         nodeConfig: n as unknown as Record<string, unknown>,
-        catalogEntry: entry!,
+        catalogEntry: entry,
         label: n.label,
         isRunning: status === "running",
         hasCompleted: status === "completed",
@@ -46,7 +47,7 @@ function missionNodesToRFNodes(
       },
       selected: false,
     }
-  })
+  }).filter(Boolean) as RFNode<MissionNodeData>[]
 }
 
 function missionConnectionsToRFEdges(connections: MissionConnection[]): Edge[] {
@@ -67,8 +68,13 @@ function rfNodesToMissionNodes(rfNodes: RFNode<MissionNodeData>[], original: Mis
   return rfNodes
     .map((rn) => {
       const orig = byId.get(rn.id)
-      if (!orig) return orig!
       const nodeConfig = (rn.data?.nodeConfig || {}) as Partial<MissionNode>
+      if (!orig) {
+        // New node added in canvas — preserve it using nodeConfig as the source
+        const base = nodeConfig as MissionNode
+        if (!base?.type) return null
+        return { ...base, id: rn.id, label: String(nodeConfig.label || rn.data?.label || rn.id), position: rn.position } as MissionNode
+      }
       return {
         ...orig,
         ...nodeConfig,
@@ -207,7 +213,7 @@ function CategoryAddMenu({
   const options = useMemo(() => entries.map((entry) => ({ value: entry.type, label: entry.label })), [entries])
 
   return (
-    <div className="w-[118px]">
+    <div className="w-29.5">
       <FluidSelect
         isLight={false}
         value={value}
@@ -297,8 +303,8 @@ function CanvasToolbar({
       ))}
       <div className="h-6 w-px bg-white/14" />
       <div className="flex flex-col leading-tight">
-        <span className="max-w-[220px] truncate text-sm font-semibold text-white/92">{mission.label}</span>
-        <span className="text-[10px] uppercase tracking-[0.1em] text-white/42">{mission.category} | {mission.status}</span>
+        <span className="max-w-55 truncate text-sm font-semibold text-white/92">{mission.label}</span>
+        <span className="text-[10px] uppercase tracking-widest text-white/42">{mission.category} | {mission.status}</span>
       </div>
       <div className="ml-2 flex items-center gap-1.5">
         <button
@@ -549,7 +555,7 @@ function MissionCanvasInner({
         onMouseMove={handleCanvasMouseMove}
         onMouseLeave={() => setSpotlightPos(null)}
       >
-        <div className="pointer-events-none absolute inset-0 z-[60] transition-opacity duration-150" style={spotlightStyle} />
+        <div className="pointer-events-none absolute inset-0 z-60 transition-opacity duration-150" style={spotlightStyle} />
         <ReactFlow
           nodes={nodesWithStatus}
           edges={rfEdges}
@@ -578,7 +584,7 @@ function MissionCanvasInner({
               const entry = (n.data as MissionNodeData)?.catalogEntry
               return entry ? entry.borderColor.replace("border-", "").replace("/40", "") : "#888"
             }}
-            className="!rounded-lg"
+            className="rounded-lg!"
           />
           <Panel position="top-center">
             <CanvasToolbar

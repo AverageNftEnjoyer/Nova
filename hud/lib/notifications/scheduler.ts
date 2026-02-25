@@ -471,7 +471,17 @@ async function runScheduleTickInternal() {
   return { dueCount, runCount, changed }
 }
 
+const TICK_WATCHDOG_MS = 10 * 60_000 // Reset stuck tickInFlight after 10 minutes
+
 async function runScheduleTick() {
+  // Watchdog: if a previous tick has been in-flight for > 10 min it is assumed hung; reset it.
+  if (state.tickInFlight && state.lastTickStartedAt) {
+    const elapsedMs = Date.now() - new Date(state.lastTickStartedAt).getTime()
+    if (elapsedMs > TICK_WATCHDOG_MS) {
+      state.tickInFlight = false
+      state.lastTickError = `Scheduler watchdog: reset tickInFlight after ${Math.round(elapsedMs / 1000)}s hung tick.`
+    }
+  }
   if (state.tickInFlight) {
     state.overlapSkipCount += 1
     return

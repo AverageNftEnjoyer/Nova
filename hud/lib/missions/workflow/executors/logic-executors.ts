@@ -32,8 +32,17 @@ export function evaluateConditionRule(rule: ConditionRule, ctx: ExecutionContext
       return !Number.isNaN(a) && !Number.isNaN(b) && a < b
     }
     case "regex": {
+      const pat = String(ruleValue ?? "")
+      if (!pat) return false
+      if (pat.length > 500) return false
+      // ReDoS guard — reject patterns known to cause catastrophic backtracking:
+      if (/(\([^)]*[+*][^)]*\))[+*?{]/.test(pat)) return false  // (a+)+  nested quantifier
+      if (/(\([^)]*\|[^)]*\))[+*?{]/.test(pat)) return false    // (a|b)+ alternation with outer quantifier
+      if (/(\[[^\]]+\])[+*][+*]/.test(pat)) return false         // [a-z]++ or [a-z]+* mixed quantifiers
+      if (/\.[+*][^|)]*\.[+*]/.test(pat)) return false           // .+.+ dotall sequences
       try {
-        return new RegExp(ruleValue ?? "", "i").test(fieldValue)
+        // Truncate input: ReDoS triggers on short strings, 2k chars is ample for legit use
+        return new RegExp(pat, "i").test(fieldValue.slice(0, 2_000))
       } catch {
         return false
       }

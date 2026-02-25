@@ -48,6 +48,18 @@ export function resolvePersonaWorkspaceDir(userContextId) {
   }
 }
 
+export function resolvePersonaProfileDir(userContextId = "") {
+  const userDir = resolvePersonaWorkspaceDir(userContextId);
+  if (!userDir) return "";
+  return path.join(userDir, "profile");
+}
+
+export function resolveIdentitySnapshotPath(userContextId = "") {
+  const profileDir = resolvePersonaProfileDir(userContextId);
+  if (!profileDir) return "";
+  return path.join(profileDir, "identity-intelligence.json");
+}
+
 // ===== Raw stream logging =====
 export function appendRawStream(event) {
   if (!RAW_STREAM_ENABLED) return;

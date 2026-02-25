@@ -84,10 +84,11 @@ export async function executeHttpRequest(
       try { data = JSON.parse(responseText) } catch { data = responseText }
     }
 
+    // Don't propagate error body as text — error pages/HTML should not flow to downstream nodes
     return {
       ok: response.ok,
-      text: typeof data === "string" ? data : JSON.stringify(data),
-      data,
+      text: response.ok ? (typeof data === "string" ? data : JSON.stringify(data)) : "",
+      data: response.ok ? data : undefined,
       ...(response.ok ? {} : { error: `HTTP ${response.status}`, errorCode: `HTTP_${response.status}` }),
     }
   } catch (err) {
@@ -141,7 +142,11 @@ function parseRssXml(xml: string, maxItems: number): Array<{ title?: string; des
   return items
 }
 
+const ALLOWED_XML_TAGS = new Set(["title", "description", "link", "pubDate", "author", "guid", "category"])
+
 function extractXmlTag(xml: string, tag: string): string | undefined {
+  // Allowlist prevents regex injection if tag is ever sourced from untrusted input
+  if (!ALLOWED_XML_TAGS.has(tag)) return undefined
   const m = new RegExp(`<${tag}[^>]*>(?:<!\\[CDATA\\[)?(.*?)(?:\\]\\]>)?<\\/${tag}>`, "si").exec(xml)
   return m?.[1]?.trim() || undefined
 }

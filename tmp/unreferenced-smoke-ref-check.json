@@ -1,0 +1,72 @@
+[
+  {
+    "file": "scripts/smoke/context/src-short-term-context-10turn-breaker.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/hud/hud-novachat-mission-output-idempotency-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-autofix-phase3-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-delete-contract-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-diff-phase2-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-generation-overhaul-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-output-coinbase-format-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-security-phase5-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/smoke/missions/src-mission-versioning-phase4-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/coinbase/smoke/src-coinbase-30turn-adversarial-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/coinbase/smoke/src-coinbase-30turn-human-stress-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/coinbase/smoke/src-coinbase-dedupe-report-guards-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/coinbase/smoke/src-coinbase-followup-affinity-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  },
+  {
+    "file": "scripts/coinbase/smoke/src-coinbase-targeted-regression-smoke.mjs",
+    "refCount": 0,
+    "refs": []
+  }
+]

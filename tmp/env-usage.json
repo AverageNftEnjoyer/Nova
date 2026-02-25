@@ -1,0 +1,2262 @@
+[
+  {
+    "key": "BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA",
+    "count": 1,
+    "files": [
+      "hud/next.config.ts"
+    ]
+  },
+  {
+    "key": "BROWSERSLIST_IGNORE_OLD_DATA",
+    "count": 1,
+    "files": [
+      "hud/next.config.ts"
+    ]
+  },
+  {
+    "key": "C",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "COMPUTERNAME",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "FISH_API_KEY",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/audio/voice.js"
+    ]
+  },
+  {
+    "key": "MORD_ID",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/audio/voice.js"
+    ]
+  },
+  {
+    "key": "MYAGENT_WEB_SEARCH_API_KEY",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/web/search.ts"
+    ]
+  },
+  {
+    "key": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "count": 1,
+    "files": [
+      "hud/lib/supabase/browser.ts"
+    ]
+  },
+  {
+    "key": "NEXT_PUBLIC_SUPABASE_URL",
+    "count": 1,
+    "files": [
+      "hud/lib/supabase/browser.ts"
+    ]
+  },
+  {
+    "key": "NLP_GOLD_MIN_EXPECTATION_PASS_RATE",
+    "count": 1,
+    "files": [
+      "scripts/tests/nlp/nlp-gold-eval.mjs"
+    ]
+  },
+  {
+    "key": "NLP_GOLD_MIN_PRECISION",
+    "count": 1,
+    "files": [
+      "scripts/tests/nlp/nlp-gold-eval.mjs"
+    ]
+  },
+  {
+    "key": "NLP_GOLD_MIN_RECALL",
+    "count": 1,
+    "files": [
+      "scripts/tests/nlp/nlp-gold-eval.mjs"
+    ]
+  },
+  {
+    "key": "NLP_GOLD_STRICT_PRESERVE",
+    "count": 1,
+    "files": [
+      "scripts/tests/nlp/nlp-gold-eval.mjs"
+    ]
+  },
+  {
+    "key": "NODE_ENV",
+    "count": 1,
+    "files": [
+      "hud/lib/integrations/gmail/auth.ts"
+    ]
+  },
+  {
+    "key": "NOVA_AFTER_TTS_SUPPRESS_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_AFTER_WAKE_SUPPRESS_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_ALLOW_DESTRUCTIVE",
+    "count": 1,
+    "files": [
+      "scripts/coinbase/rollback-store.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_APP_URL",
+    "count": 1,
+    "files": [
+      "hud/lib/integrations/gmail/tokens.ts"
+    ]
+  },
+  {
+    "key": "NOVA_AUTO_MEMORY_ENABLED",
+    "count": 1,
+    "files": [
+      "src/memory/runtime-compat.js"
+    ]
+  },
+  {
+    "key": "NOVA_AUTO_MEMORY_MAX_FACTS",
+    "count": 1,
+    "files": [
+      "src/memory/runtime-compat.js"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_PHASE5_LOOKBACK_MINUTES",
+    "count": 1,
+    "files": [
+      "scripts/smoke/quality/src-chatkit-phase5-release-gate-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_PHASE5_MIN_LIVE_SAMPLES",
+    "count": 1,
+    "files": [
+      "scripts/smoke/quality/src-chatkit-phase5-release-gate-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_PHASE5_USER_CONTEXT_PREFIX",
+    "count": 1,
+    "files": [
+      "scripts/smoke/quality/src-chatkit-phase5-release-gate-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SERVE_MAX_INFLIGHT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-serving.js"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SHADOW_MAX_INFLIGHT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-shadow.js"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_STORE",
+    "count": 1,
+    "files": [
+      "src/integrations/chatkit/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_WORKFLOW_MAX_ATTEMPTS",
+    "count": 1,
+    "files": [
+      "src/integrations/chatkit/workflows.ts"
+    ]
+  },
+  {
+    "key": "NOVA_CLAUDE_CHAT_MAX_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_AUTH_FAILURE_THRESHOLD",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_COOLDOWN_MS",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_LATENCY_MIN_SAMPLES",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_LATENCY_P95_MS",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_PROVIDER_FAILURE_THRESHOLD",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_REPORT_FAILURE_THRESHOLD",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALERT_WINDOW_MS",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/observability.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_API_KEY",
+    "count": 1,
+    "files": [
+      "scripts/coinbase/smoke/src-coinbase-phase11-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_API_SECRET",
+    "count": 1,
+    "files": [
+      "scripts/coinbase/smoke/src-coinbase-phase11-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_CB_COOLDOWN_MS",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/circuit-breaker.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_CB_FAILURE_THRESHOLD",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/circuit-breaker.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_LIVE_TESTS",
+    "count": 1,
+    "files": [
+      "scripts/coinbase/smoke/src-coinbase-phase11-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_READINESS_MODE",
+    "count": 1,
+    "files": [
+      "scripts/coinbase/smoke/src-coinbase-phase12-rollout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_MAX_ERROR_RATE_PCT",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/rollout.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_MAX_P95_MS",
+    "count": 1,
+    "files": [
+      "src/integrations/coinbase/rollout.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_STEP_ARTIFACT_TTL_MS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/coinbase-artifacts.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_STEP_MAX_ATTEMPTS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/coinbase-step.ts"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_STEP_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/coinbase-step.ts"
+    ]
+  },
+  {
+    "key": "NOVA_CONVERSATION_OWNER_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_CRYPTO_REPORT_REPLAY_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/crypto-report-dedupe.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_GLOBAL_LOG_ENABLED",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_LOG_ENABLED",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_LOG_FILENAME",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_LOG_HASH_SALT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_LOG_MAX_TEXT_CHARS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_LOG_REDACT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_SCAN_WARN_ENABLED",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DEV_CONVERSATION_SCAN_WARN_SCORE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_RETRY_ENABLED",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/discord.ts"
+    ]
+  },
+  {
+    "key": "NOVA_DOCS_PATH",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_DUPLICATE_COMMAND_COOLDOWN_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_DUPLICATE_TEXT_COOLDOWN_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_EMBEDDING_MODEL",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_EMBEDDING_PROVIDER",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_ENABLED_TOOLS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_FAST_LANE_HISTORY_TARGET_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/prompt/prompt-budget.js"
+    ]
+  },
+  {
+    "key": "NOVA_FAST_LANE_MAX_CHARS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/latency-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_FAST_LANE_MAX_WORDS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/latency-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_FAST_LANE_RESPONSE_RESERVE_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/prompt/prompt-budget.js"
+    ]
+  },
+  {
+    "key": "NOVA_FAST_LANE_SECTION_MAX_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/prompt/prompt-budget.js"
+    ]
+  },
+  {
+    "key": "NOVA_FORCE_WINDOW_MOVE",
+    "count": 1,
+    "files": [
+      "nova.js"
+    ]
+  },
+  {
+    "key": "NOVA_GMAIL_CLIENT_ID",
+    "count": 1,
+    "files": [
+      "hud/lib/integrations/gmail/tokens.ts"
+    ]
+  },
+  {
+    "key": "NOVA_GMAIL_CLIENT_SECRET",
+    "count": 1,
+    "files": [
+      "hud/lib/integrations/gmail/tokens.ts"
+    ]
+  },
+  {
+    "key": "NOVA_GMAIL_OAUTH_STATE_SECRET",
+    "count": 1,
+    "files": [
+      "hud/lib/integrations/gmail/auth.ts"
+    ]
+  },
+  {
+    "key": "NOVA_GMAIL_REDIRECT_URI",
+    "count": 1,
+    "files": [
+      "hud/lib/integrations/gmail/tokens.ts"
+    ]
+  },
+  {
+    "key": "NOVA_HEARTBEAT_PROMPT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_HUD_MODE",
+    "count": 1,
+    "files": [
+      "nova.js"
+    ]
+  },
+  {
+    "key": "NOVA_HUD_OP_TOKEN_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_IDENTITY_ALLOW_SENSITIVE_EXPLICIT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/identity/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_IDENTITY_INTENT_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/identity/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_IDENTITY_PROMPT_MAX_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/identity/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_LATENCY_HOT_STAGE_RATIO",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/latency-telemetry.js"
+    ]
+  },
+  {
+    "key": "NOVA_LINK_FETCH_CACHE_MAX",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/analysis/link-understanding.js"
+    ]
+  },
+  {
+    "key": "NOVA_LINK_FETCH_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/analysis/link-understanding.js"
+    ]
+  },
+  {
+    "key": "NOVA_LINK_PRELOAD_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_MAX_PROMPT_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_BM25_WEIGHT",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_CHUNK_OVERLAP",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_CHUNK_SIZE",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_CITATIONS_MODE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_ENABLED",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_FACT_MAX_CHARS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_INCLUDE_SHARED_SOURCE",
+    "count": 1,
+    "files": [
+      "src/tools/runtime/runtime-compat.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_RECALL_MIN_CHARS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/latency-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_RECALL_MIN_WORDS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/latency-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_RECALL_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_TOP_K",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_MEMORY_VECTOR_WEIGHT",
+    "count": 1,
+    "files": [
+      "src/runtime/core/config.js"
+    ]
+  },
+  {
+    "key": "NOVA_METRICS_INTERVAL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/infrastructure/windowsMetrics.js"
+    ]
+  },
+  {
+    "key": "NOVA_METRICS_MODE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/infrastructure/metrics.js"
+    ]
+  },
+  {
+    "key": "NOVA_MIC_IDLE_DELAY_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_MIC_RECORD_SECONDS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_MIC_RETRY_SECONDS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_CONFIRM_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-utils.js"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_SKILL_SNAPSHOT_MAX_CHARS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/skills/snapshot.ts"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_SKILL_SNAPSHOT_MAX_SKILLS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/skills/snapshot.ts"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_SLO_RETRY_RATE_MAX",
+    "count": 1,
+    "files": [
+      "scripts/ops/generate-mission-reliability-review.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_SLO_RUN_P95_MS_MAX",
+    "count": 1,
+    "files": [
+      "scripts/ops/generate-mission-reliability-review.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_SLO_RUN_SUCCESS_RATE_MIN",
+    "count": 1,
+    "files": [
+      "scripts/ops/generate-mission-reliability-review.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_SLO_VALIDATION_PASS_RATE_MIN",
+    "count": 1,
+    "files": [
+      "scripts/ops/generate-mission-reliability-review.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_VERSION_MAX_AGE_DAYS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/versioning/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_VERSION_MAX_VERSIONS_PER_MISSION",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/versioning/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_MISSIONS_NATIVE_API_ENFORCED",
+    "count": 1,
+    "files": [
+      "hud/app/api/missions/route.ts"
+    ]
+  },
+  {
+    "key": "NOVA_OPENAI_DEFAULT_MAX_COMPLETION_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_OPENAI_FALLBACK_MODEL",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_OPENAI_FAST_LANE_MAX_COMPLETION_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_OPENAI_STRICT_MAX_COMPLETION_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PERSONA_PROMPT_CACHE_MAX",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/bootstrap.js"
+    ]
+  },
+  {
+    "key": "NOVA_PERSONALITY_PROMPT_MAX_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/personality/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_POST_RESPONSE_GRACE_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PREFERENCE_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/user-preferences.js"
+    ]
+  },
+  {
+    "key": "NOVA_PREFERENCE_EXPLICIT_OVERRIDE_MIN_CONFIDENCE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/user-preferences.js"
+    ]
+  },
+  {
+    "key": "NOVA_PREFERENCE_OVERRIDE_MIN_MARGIN",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/user-preferences.js"
+    ]
+  },
+  {
+    "key": "NOVA_PROMPT_BUDGET_DEBUG",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PROMPT_CONTEXT_SECTION_MAX_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PROMPT_HISTORY_TARGET_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PROMPT_MIN_HISTORY_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PROMPT_MODE",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_PROMPT_RESPONSE_RESERVE_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_RAW_STREAM",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_RAW_STREAM_PATH",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_ROUTING_ALLOW_ACTIVE_OVERRIDE",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_ROUTING_PREFERENCE",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_ROUTING_PREFERRED_PROVIDERS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_RUNTIME_SKILLS_PROMPT_CACHE_MAX",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_RUNTIME_SKILLS_PROMPT_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SAFE_BINARIES",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_INFLIGHT_GLOBAL",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_INFLIGHT_PER_CONVERSATION",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_INFLIGHT_PER_USER",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_QUEUE_SIZE",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_QUEUE_SIZE_PER_USER",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_RETRIES_PER_RUN_KEY",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_RUNS_PER_TICK",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_MAX_RUNS_PER_USER_PER_TICK",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_QUEUE_STALE_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_RETRY_BASE_MS",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_RETRY_MAX_MS",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_RUN_HISTORY_MAX_LINES",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_STRICT_USER_ISOLATION",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_SUPERSEDE_QUEUED_BY_KEY",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_TICK_MS",
+    "count": 1,
+    "files": [
+      "hud/lib/notifications/scheduler.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_WEIGHT_BACKGROUND",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_WEIGHT_DEFAULT",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_WEIGHT_FAST",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_WEIGHT_TOOL",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/request-scheduler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SCHEDULER_WINDOW_MINUTES",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/scheduling.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_ALLOW_CROSS_CONTEXT_LOOKUP",
+    "count": 1,
+    "files": [
+      "src/session/store.ts"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_IDLE_MINUTES",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_MAIN_KEY",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_MAX_HISTORY_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_MAX_TRANSCRIPT_LINES",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_MAX_TURNS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_STORE_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/session/runtime-compat.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SESSION_TRANSCRIPTS_ENABLED",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_DISCOVERY_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PREFERENCE_DISCOVERY_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skill-preferences.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_BASELINE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_DEBUG",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_FALLBACK",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_MAX_CHARS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_MAX_HINT_CHARS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_MAX_SKILLS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILL_PROMPT_MIN_SCORE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/context/skills.js"
+    ]
+  },
+  {
+    "key": "NOVA_SKILLS_PROMPT",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_SPOTIFY_INTENT_MAX_TOKENS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_STC_TTL_ASSISTANT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/short-term-context-policies.js"
+    ]
+  },
+  {
+    "key": "NOVA_STC_TTL_CRYPTO_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/short-term-context-policies.js"
+    ]
+  },
+  {
+    "key": "NOVA_STC_TTL_MISSION_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/short-term-context-policies.js"
+    ]
+  },
+  {
+    "key": "NOVA_STT_MODEL",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_BUDGET_EXHAUSTED_RATE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_CAP_RATE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_MIN_SAMPLES",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_STEP_TIMEOUT_RATE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_TOOL_TIMEOUT_RATE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_WARN_COOLDOWN_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ALERT_WINDOW_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/telemetry/dev-conversation-log.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_ENABLED",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_MAX_DURATION_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_MAX_STEPS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_TRANSCRIPT_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/session/runtime-compat.js"
+    ]
+  },
+  {
+    "key": "NOVA_USE_TURBOPACK",
+    "count": 1,
+    "files": [
+      "hud/scripts/next-runner.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_USER_TIMEZONE",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_WAKE_COOLDOWN_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_WAKE_WORD",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_WAKE_WORD_VARIANTS",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_WEATHER_CACHE_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/fast-path/weather-fast-path.js"
+    ]
+  },
+  {
+    "key": "NOVA_WEATHER_CONFIRM_TTL_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/fast-path/weather-fast-path.js"
+    ]
+  },
+  {
+    "key": "NOVA_WEATHER_FETCH_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/fast-path/weather-fast-path.js"
+    ]
+  },
+  {
+    "key": "NOVA_WEATHER_FORECAST_DAYS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/fast-path/weather-fast-path.js"
+    ]
+  },
+  {
+    "key": "NOVA_WEB_PRELOAD_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "NOVA_WEB_SEARCH_API_KEY",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/web/search.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_APPROVAL_CONFIDENCE",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_AUTO_APPLY_LOW_RISK",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_DEFAULT_AI_INTEGRATION",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_DEFAULT_CONDITION_FIELD",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_DEFAULT_FETCH_QUERY",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_DEFAULT_OUTPUT_CHANNEL",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_LOW_RISK_CONFIDENCE",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_AUTOFIX_MAX_CANDIDATES",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/autofix/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_BUILD_TIMEOUT_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-special-handlers.js"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_AI_FRIENDLY_PROMPT_MIN_CHARS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_MAX_ISSUES",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_MAX_STEPS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_MINIMAL_P95_TARGET_MS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_RUN_MODE",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_RUN_PROFILE",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_SAVE_MODE",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_SAVE_PROFILE",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WORKFLOW_VALIDATION_STRICT_AI_PROMPT_MIN_CHARS",
+    "count": 1,
+    "files": [
+      "hud/lib/missions/workflow/validation/config.ts"
+    ]
+  },
+  {
+    "key": "NOVA_WS_MAX_PAYLOAD_BYTES",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_WS_MESSAGE_RATE_LIMIT_MAX",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_WS_MESSAGE_RATE_LIMIT_WINDOW_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_WS_USER_MESSAGE_RATE_LIMIT_MAX",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_WS_USER_MESSAGE_RATE_LIMIT_WINDOW_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "NOVA_WS_USER_RATE_LIMIT_GC_MS",
+    "count": 1,
+    "files": [
+      "src/runtime/infrastructure/hud-gateway.js"
+    ]
+  },
+  {
+    "key": "OPENCLAW_RAW_STREAM",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "OPENCLAW_RAW_STREAM_PATH",
+    "count": 1,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "PETER_ID",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/audio/voice.js"
+    ]
+  },
+  {
+    "key": "REFERENCE_ID",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/audio/voice.js"
+    ]
+  },
+  {
+    "key": "ROOT_WORKSPACE_DIR",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "SHELL",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js"
+    ]
+  },
+  {
+    "key": "ULTRON_ID",
+    "count": 1,
+    "files": [
+      "src/runtime/modules/audio/voice.js"
+    ]
+  },
+  {
+    "key": "ANTHROPIC_API_KEY",
+    "count": 2,
+    "files": [
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts"
+    ]
+  },
+  {
+    "key": "DISCORD_WEBHOOK_URL",
+    "count": 2,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "hud/scripts/send-notification.mjs"
+    ]
+  },
+  {
+    "key": "DISCORD_WEBHOOK_URLS",
+    "count": 2,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "hud/scripts/send-notification.mjs"
+    ]
+  },
+  {
+    "key": "GEMINI_API_KEY",
+    "count": 2,
+    "files": [
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts"
+    ]
+  },
+  {
+    "key": "GOOGLE_API_KEY",
+    "count": 2,
+    "files": [
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts"
+    ]
+  },
+  {
+    "key": "NOVA_ACTIVE_LLM_PROVIDER",
+    "count": 2,
+    "files": [
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts"
+    ]
+  },
+  {
+    "key": "NOVA_ALLOW_PROVIDER_FALLBACK",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "hud/lib/integrations/provider-selection.ts"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_MODEL",
+    "count": 2,
+    "files": [
+      "src/integrations/chatkit/config.ts",
+      "scripts/smoke/core/src-chatkit-phase1-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_REASONING_EFFORT",
+    "count": 2,
+    "files": [
+      "src/integrations/chatkit/config.ts",
+      "scripts/smoke/core/src-chatkit-phase1-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SERVE_INTENTS",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-serving.js",
+      "scripts/smoke/conversation/src-chatkit-phase3-serving-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SERVE_SAMPLE_PERCENT",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-serving.js",
+      "scripts/smoke/conversation/src-chatkit-phase3-serving-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SHADOW_SAMPLE_PERCENT",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-shadow.js",
+      "scripts/smoke/conversation/src-chatkit-phase2-shadow-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_TIMEOUT_MS",
+    "count": 2,
+    "files": [
+      "src/integrations/chatkit/config.ts",
+      "scripts/smoke/core/src-chatkit-phase1-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ALPHA_USERS",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_BETA_USERS",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_KILL_SWITCH",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_MIN_REPORT_SUCCESS_RATE_PCT",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "scripts/coinbase/smoke/src-coinbase-phase12-rollout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_MIN_SAMPLES",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "scripts/coinbase/smoke/src-coinbase-phase12-rollout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_PERCENT",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_SALT",
+    "count": 2,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js"
+    ]
+  },
+  {
+    "key": "NOVA_EXEC_APPROVAL_MODE",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js"
+    ]
+  },
+  {
+    "key": "NOVA_HUD_API_BASE_URL",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/chat/core/chat-handler.js",
+      "src/runtime/modules/chat/core/chat-special-handlers.js"
+    ]
+  },
+  {
+    "key": "NOVA_METRICS_DISABLED",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/infrastructure/metrics.js",
+      "src/runtime/modules/infrastructure/windowsMetrics.js"
+    ]
+  },
+  {
+    "key": "NOVA_MISSION_REVIEW_USER_CONTEXT_ID",
+    "count": 2,
+    "files": [
+      "scripts/ops/generate-mission-reliability-review.mjs",
+      "scripts/ops/generate-mission-runbook-drills.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_REVIEW_USER_CONTEXT_ID",
+    "count": 2,
+    "files": [
+      "scripts/ops/generate-mission-reliability-review.mjs",
+      "scripts/ops/generate-mission-runbook-drills.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_RUNTIME_SHARED_TOKEN",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/chat/core/chat-special-handlers.js",
+      "hud/lib/security/runtime-auth.ts"
+    ]
+  },
+  {
+    "key": "NOVA_RUNTIME_SHARED_TOKEN_HEADER",
+    "count": 2,
+    "files": [
+      "src/runtime/modules/chat/core/chat-special-handlers.js",
+      "hud/lib/security/runtime-auth.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_ALLOW_DANGEROUS",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/risk-policy.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_ALLOW_ELEVATED",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/risk-policy.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_CAPABILITY_ALLOWLIST",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/capability-policy.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_CAPABILITY_DENYLIST",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/capability-policy.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_CAPABILITY_ENFORCE",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/capability-policy.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_DANGEROUS_ALLOWLIST",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/risk-policy.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TOOL_ELEVATED_ALLOWLIST",
+    "count": 2,
+    "files": [
+      "src/runtime/core/constants.js",
+      "src/tools/core/risk-policy.ts"
+    ]
+  },
+  {
+    "key": "XAI_API_KEY",
+    "count": 2,
+    "files": [
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SERVE_MODE",
+    "count": 3,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-serving.js",
+      "scripts/smoke/conversation/src-chatkit-phase3-serving-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SHADOW_INTENTS",
+    "count": 3,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-shadow.js",
+      "scripts/smoke/conversation/src-chatkit-phase2-shadow-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_SHADOW_MODE",
+    "count": 3,
+    "files": [
+      "src/runtime/modules/chat/telemetry/chatkit-shadow.js",
+      "scripts/smoke/conversation/src-chatkit-phase2-shadow-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISABLE_SPAWN_FALLBACK",
+    "count": 3,
+    "files": [
+      "hud/scripts/next-runner.mjs",
+      "scripts/smoke/quality/src-eval-regression-smoke.mjs",
+      "scripts/smoke/security/src-security-regression-net-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_SEND_DISABLED",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_SEND_MAX_RETRIES",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_SEND_RETRY_BASE_MS",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_SEND_RETRY_JITTER_MS",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_SEND_TIMEOUT_MS",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_ENCRYPTION_KEY_FALLBACKS",
+    "count": 3,
+    "files": [
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts",
+      "hud/lib/security/encryption.ts"
+    ]
+  },
+  {
+    "key": "TELEGRAM_BOT_TOKEN",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/telegram.ts",
+      "hud/scripts/send-notification.mjs",
+      "hud/scripts/send-telegram-notification.mjs"
+    ]
+  },
+  {
+    "key": "TELEGRAM_CHAT_ID",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/telegram.ts",
+      "hud/scripts/send-notification.mjs",
+      "hud/scripts/send-telegram-notification.mjs"
+    ]
+  },
+  {
+    "key": "TELEGRAM_CHAT_IDS",
+    "count": 3,
+    "files": [
+      "hud/lib/notifications/telegram.ts",
+      "hud/scripts/send-notification.mjs",
+      "hud/scripts/send-telegram-notification.mjs"
+    ]
+  },
+  {
+    "key": "BRAVE_API_KEY",
+    "count": 4,
+    "files": [
+      "src/runtime/core/config.js",
+      "hud/lib/missions/web/search.ts",
+      "scripts/smoke/core/runtime-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_DB_PATH",
+    "count": 4,
+    "files": [
+      "scripts/coinbase/migrate-store.mjs",
+      "scripts/coinbase/rollback-store.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_ROLLOUT_STAGE",
+    "count": 4,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js",
+      "scripts/coinbase/smoke/src-coinbase-phase12-rollout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_SUPPORT_CHANNEL",
+    "count": 4,
+    "files": [
+      "src/integrations/coinbase/rollout.ts",
+      "src/runtime/modules/chat/fast-path/coinbase-rollout-policy.js",
+      "scripts/coinbase/smoke/src-coinbase-phase12-rollout-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_SEND_CONCURRENCY",
+    "count": 4,
+    "files": [
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_METRICS_DEBUG",
+    "count": 4,
+    "files": [
+      "src/runtime/modules/infrastructure/metrics.js",
+      "src/runtime/modules/infrastructure/windowsMetrics.js"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_TOKEN_KEYS",
+    "count": 5,
+    "files": [
+      "src/integrations/coinbase/crypto.ts",
+      "scripts/coinbase/smoke/src-coinbase-phase11-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-storage-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_ENCRYPTION_KEY",
+    "count": 5,
+    "files": [
+      "src/integrations/coinbase/crypto.ts",
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts",
+      "hud/lib/integrations/gmail/auth.ts",
+      "hud/lib/security/encryption.ts"
+    ]
+  },
+  {
+    "key": "NOVA_TELEGRAM_SEND_MAX_RETRIES",
+    "count": 5,
+    "files": [
+      "hud/lib/notifications/telegram.ts",
+      "scripts/smoke/scheduler/src-telegram-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_TELEGRAM_SEND_RETRY_BASE_MS",
+    "count": 5,
+    "files": [
+      "hud/lib/notifications/telegram.ts",
+      "scripts/smoke/scheduler/src-telegram-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_TELEGRAM_SEND_TIMEOUT_MS",
+    "count": 5,
+    "files": [
+      "hud/lib/notifications/telegram.ts",
+      "scripts/smoke/scheduler/src-telegram-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_CHATKIT_ENABLED",
+    "count": 6,
+    "files": [
+      "src/integrations/chatkit/config.ts",
+      "scripts/smoke/conversation/src-chatkit-phase2-shadow-smoke.mjs",
+      "scripts/smoke/conversation/src-chatkit-phase3-serving-smoke.mjs",
+      "scripts/smoke/core/src-chatkit-phase1-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_DISCORD_MAX_TARGETS",
+    "count": 6,
+    "files": [
+      "hud/app/api/integrations/config/route.ts",
+      "hud/app/api/notifications/schedules/route.ts",
+      "hud/app/api/notifications/trigger/route.ts",
+      "hud/lib/notifications/discord.ts",
+      "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs"
+    ]
+  },
+  {
+    "key": "OPENAI_API_KEY",
+    "count": 7,
+    "files": [
+      "src/integrations/chatkit/config.ts",
+      "src/providers/runtime-compat.js",
+      "src/providers/runtime.ts",
+      "src/runtime/core/config.js",
+      "scripts/smoke/core/src-chatkit-phase1-smoke.mjs"
+    ]
+  },
+  {
+    "key": "USER_CONTEXT_ID",
+    "count": 9,
+    "files": [
+      "scripts/coinbase/smoke/src-coinbase-30turn-adversarial-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-30turn-human-stress-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-dedupe-report-guards-smoke.mjs",
+      "scripts/smoke/context/src-short-term-context-10turn-breaker.mjs",
+      "scripts/smoke/conversation/src-conversation-quality-30turn-smoke.mjs",
+      "scripts/smoke/conversation/src-identity-intelligence-runtime-smoke.mjs",
+      "scripts/smoke/core/runtime-smoke.mjs",
+      "scripts/smoke/core/src-provider-smoke.mjs",
+      "scripts/smoke/workstreams/src-workstream-d-live-latency-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_USER_CONTEXT_ID",
+    "count": 11,
+    "files": [
+      "scripts/coinbase/migrate-store.mjs",
+      "scripts/coinbase/rollback-store.mjs",
+      "scripts/coinbase/smoke/src-coinbase-30turn-adversarial-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-30turn-human-stress-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-dedupe-report-guards-smoke.mjs",
+      "scripts/smoke/context/src-short-term-context-10turn-breaker.mjs",
+      "scripts/smoke/conversation/src-conversation-quality-30turn-smoke.mjs",
+      "scripts/smoke/conversation/src-identity-intelligence-runtime-smoke.mjs",
+      "scripts/smoke/core/runtime-smoke.mjs",
+      "scripts/smoke/core/src-provider-smoke.mjs",
+      "scripts/smoke/workstreams/src-workstream-d-live-latency-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_COMMAND_CATEGORIES",
+    "count": 16,
+    "files": [
+      "src/runtime/modules/chat/fast-path/coinbase-command-parser.js",
+      "scripts/coinbase/tests/unit-command-parser.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_SMOKE_USER_CONTEXT_ID",
+    "count": 18,
+    "files": [
+      "scripts/coinbase/smoke/src-coinbase-30turn-adversarial-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-30turn-human-stress-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-dedupe-report-guards-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-phase13-mission-e2e-smoke.mjs",
+      "scripts/ops/generate-mission-reliability-review.mjs",
+      "scripts/ops/generate-mission-runbook-drills.mjs",
+      "scripts/smoke/context/src-short-term-context-10turn-breaker.mjs",
+      "scripts/smoke/conversation/src-conversation-quality-30turn-smoke.mjs",
+      "scripts/smoke/conversation/src-identity-intelligence-runtime-smoke.mjs",
+      "scripts/smoke/core/runtime-smoke.mjs",
+      "scripts/smoke/core/src-provider-smoke.mjs",
+      "scripts/smoke/hud/hud-thread-delete-transcript-smoke.mjs",
+      "scripts/smoke/scheduler/src-mission-output-contract-smoke.mjs",
+      "scripts/smoke/workstreams/src-workstream-b-live-smoke.mjs",
+      "scripts/smoke/workstreams/src-workstream-d-live-latency-smoke.mjs",
+      "scripts/smoke/workstreams/src-workstream-e-session-key-smoke.mjs"
+    ]
+  },
+  {
+    "key": "NOVA_COINBASE_DISABLED_COMMAND_CATEGORIES",
+    "count": 28,
+    "files": [
+      "src/runtime/modules/chat/fast-path/coinbase-command-parser.js",
+      "scripts/coinbase/smoke/src-coinbase-chat-fast-path-smoke.mjs",
+      "scripts/coinbase/smoke/src-coinbase-phase7-matrix-smoke.mjs",
+      "scripts/coinbase/tests/unit-command-parser.mjs"
+    ]
+  }
+]

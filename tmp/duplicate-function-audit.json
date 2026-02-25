@@ -1,0 +1,292 @@
+[
+  {
+    "name": "run",
+    "normalizedLen": 156,
+    "occurrences": [
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase11-smoke.mjs",
+        "line": 23
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase12-rollout-smoke.mjs",
+        "line": 24
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase13-mission-e2e-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase6-e2e-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-pnl-personality-comment-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/conversation/src-identity-intelligence-runtime-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/conversation/src-identity-intelligence-unit-smoke.mjs",
+        "line": 18
+      },
+      {
+        "file": "scripts/smoke/conversation/src-memory-convergence-smoke.mjs",
+        "line": 23
+      },
+      {
+        "file": "scripts/smoke/conversation/src-output-constraints-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/conversation/src-persona-context-smoke.mjs",
+        "line": 17
+      },
+      {
+        "file": "scripts/smoke/conversation/src-user-preferences-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/core/src-runtime-relocation-smoke.mjs",
+        "line": 15
+      },
+      {
+        "file": "scripts/smoke/core/src-session-parity.mjs",
+        "line": 17
+      },
+      {
+        "file": "scripts/smoke/core/src-shell-parity-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/hud/hud-boot-music-startup-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/hud/hud-thread-delete-transcript-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-autofix-phase3-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-delete-contract-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-diff-phase2-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-generation-overhaul-smoke.mjs",
+        "line": 128
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-security-phase5-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-telemetry-phase6-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/missions/src-mission-versioning-phase4-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/quality/src-eval-regression-smoke.mjs",
+        "line": 17
+      },
+      {
+        "file": "scripts/smoke/quality/src-mission-quality-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/quality/src-prompt-budget-smoke.mjs",
+        "line": 13
+      },
+      {
+        "file": "scripts/smoke/quality/src-release-readiness-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/quality/src-response-quality-guard-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/routing/src-plugin-isolation-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/routing/src-routing-arbitration-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/routing/src-tool-loop-concurrency-smoke.mjs",
+        "line": 13
+      },
+      {
+        "file": "scripts/smoke/routing/src-tool-loop-guardrails-smoke.mjs",
+        "line": 26
+      },
+      {
+        "file": "scripts/smoke/routing/src-tool-loop-smoke.mjs",
+        "line": 20
+      },
+      {
+        "file": "scripts/smoke/routing/src-transport-stability-smoke.mjs",
+        "line": 13
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-coinbase-workflow-step-artifact-smoke.mjs",
+        "line": 19
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-coinbase-workflow-step-isolation-smoke.mjs",
+        "line": 19
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-discord-delivery-smoke.mjs",
+        "line": 16
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-mission-output-contract-smoke.mjs",
+        "line": 16
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-scheduler-coinbase-pnl-comment-delivery-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-scheduler-delivery-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-scheduler-skills-snapshot-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-scheduler-stability-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-scheduler-store-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/scheduler/src-telegram-delivery-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/security/src-identity-profile-divergence-smoke.mjs",
+        "line": 19
+      },
+      {
+        "file": "scripts/smoke/security/src-security-hardening-smoke.mjs",
+        "line": 21
+      },
+      {
+        "file": "scripts/smoke/security/src-security-regression-net-smoke.mjs",
+        "line": 16
+      },
+      {
+        "file": "scripts/smoke/security/src-user-context-isolation-smoke.mjs",
+        "line": 20
+      },
+      {
+        "file": "scripts/smoke/workstreams/src-workstream-b-live-smoke.mjs",
+        "line": 12
+      },
+      {
+        "file": "scripts/smoke/workstreams/src-workstream-d-latency-smoke.mjs",
+        "line": 13
+      },
+      {
+        "file": "scripts/smoke/workstreams/src-workstream-d-live-latency-smoke.mjs",
+        "line": 14
+      },
+      {
+        "file": "scripts/smoke/workstreams/src-workstream-e-session-key-smoke.mjs",
+        "line": 12
+      }
+    ]
+  },
+  {
+    "name": "percentile",
+    "normalizedLen": 263,
+    "occurrences": [
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-30turn-adversarial-smoke.mjs",
+        "line": 30
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-30turn-human-stress-smoke.mjs",
+        "line": 33
+      },
+      {
+        "file": "scripts/smoke/conversation/src-conversation-quality-30turn-smoke.mjs",
+        "line": 35
+      },
+      {
+        "file": "scripts/smoke/workstreams/src-workstream-d-live-latency-smoke.mjs",
+        "line": 53
+      }
+    ]
+  },
+  {
+    "name": "resolveSmokeUserContextId",
+    "normalizedLen": 694,
+    "occurrences": [
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-30turn-human-stress-smoke.mjs",
+        "line": 7
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-dedupe-report-guards-smoke.mjs",
+        "line": 8
+      },
+      {
+        "file": "scripts/smoke/context/src-short-term-context-10turn-breaker.mjs",
+        "line": 7
+      }
+    ]
+  },
+  {
+    "name": "run",
+    "normalizedLen": 228,
+    "occurrences": [
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase10-smoke.mjs",
+        "line": 10
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase8-smoke.mjs",
+        "line": 10
+      },
+      {
+        "file": "scripts/coinbase/smoke/src-coinbase-phase9-smoke.mjs",
+        "line": 18
+      }
+    ]
+  },
+  {
+    "name": "resolveSmokeUserContextId",
+    "normalizedLen": 817,
+    "occurrences": [
+      {
+        "file": "scripts/smoke/core/runtime-smoke.mjs",
+        "line": 38
+      },
+      {
+        "file": "scripts/smoke/core/src-provider-smoke.mjs",
+        "line": 29
+      },
+      {
+        "file": "scripts/smoke/workstreams/src-workstream-d-live-latency-smoke.mjs",
+        "line": 28
+      }
+    ]
+  }
+]

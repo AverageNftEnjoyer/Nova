@@ -14,6 +14,8 @@ export interface BuildSystemPromptParams {
   bootstrapFiles: BootstrapFile[];
   memoryEnabled: boolean;
   timezone?: string;
+  identityLayer?: string;
+  identityLayerMaxTokens?: number;
 }
 
 function getBootstrapContent(files: BootstrapFile[], name: string): string {
@@ -32,6 +34,31 @@ function renderProjectContext(files: BootstrapFile[]): string {
     .join("\n\n");
 }
 
+function countApproxTokens(text: string): number {
+  if (!text) return 0;
+  return Math.ceil(text.length / 3.5);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function compactIdentityLayer(raw: string, maxTokens: number): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const budget = clamp(Number(maxTokens || 220), 80, 640);
+  if (countApproxTokens(text) <= budget) return text;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const line of lines) {
+    const candidate = [...out, line].join("\n");
+    if (countApproxTokens(candidate) > budget) break;
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
 export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   if (params.mode === "none") {
     return "You are a personal assistant.";
@@ -45,6 +72,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
   const skillsPrompt = formatSkillsForPrompt(params.skills);
 
   if (params.mode === "minimal") {
+    const identityLayer = compactIdentityLayer(params.identityLayer || "", params.identityLayerMaxTokens || 220);
     return [
       "## Identity",
       identitySection,
@@ -58,6 +86,7 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
       "",
       "## Workspace",
       `Your working directory is: ${params.workspacePath}`,
+      ...(identityLayer ? ["", "## Identity Intelligence", identityLayer] : []),
     ].join("\n");
   }
 
@@ -98,6 +127,11 @@ export function buildSystemPrompt(params: BuildSystemPromptParams): string {
 
   if (userIdentity) {
     lines.push("## User Identity", userIdentity, "");
+  }
+
+  const identityLayer = compactIdentityLayer(params.identityLayer || "", params.identityLayerMaxTokens || 220);
+  if (identityLayer) {
+    lines.push("## Identity Intelligence", identityLayer, "");
   }
 
   const projectContext = renderProjectContext(params.bootstrapFiles);

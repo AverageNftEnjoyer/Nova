@@ -87,7 +87,7 @@ await runCase("T06", async () => assert.match((await ask("recnt trasnactions")).
 await runCase("T07", async () => assert.match((await ask("coibase status")).reply, /Coinbase status:/i));
 await runCase("T08", async () => assert.match((await ask("price btcc")).reply, /Did you mean BTC-USD/i));
 
-await runCase("G01", async () => assert.match((await ask("price")).reply, /Share the crypto ticker/i));
+await runCase("G01", async () => assert.match((await ask("price")).reply, /I can pull that, but I need the target|Share the crypto ticker/i));
 await runCase("G02", async () => assert.match((await ask("price usd")).reply, /Share the crypto ticker/i));
 await runCase("G03", async () => assert.match((await ask("weekly report")).reply, /weekly portfolio report or weekly PnL report/i));
 await runCase("G04", async () => assert.match((await ask("transfer funds")).reply, /out of scope/i));

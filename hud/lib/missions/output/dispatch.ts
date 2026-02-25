@@ -68,7 +68,7 @@ export async function dispatchOutput(
         integration: channel as NotificationIntegration,
         text: safeText,
         targets,
-        idempotencyKey: channel === "email" ? deliveryKey : undefined,
+        idempotencyKey: deliveryKey,
         timeoutMs: channel === "email" ? EMAIL_TIMEOUT_MS : undefined,
         parseMode: channel === "telegram" ? "HTML" : undefined,
         source: "workflow",
@@ -145,6 +145,44 @@ export async function dispatchOutput(
         return { ok: response.ok, status: response.status, error: response.ok ? undefined : `Webhook returned ${response.status}` }
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : "Webhook send failed" }
+      }
+    }))
+    return results
+  }
+
+  if (channel === "slack") {
+    const urls = (targets || []).map((t) => String(t || "").trim()).filter(Boolean)
+    if (!urls.length) {
+      return [{ ok: false, error: "Slack output requires at least one webhook URL in recipients." }]
+    }
+    const missionRunId = String(metadata?.missionRunId || "").trim()
+    const runKey = String(metadata?.runKey || "").trim()
+    const nodeId = String(metadata?.nodeId || "output").trim() || "output"
+    const outputIndex = Number.isFinite(Number(metadata?.outputIndex))
+      ? Math.max(0, Number(metadata?.outputIndex))
+      : 0
+    const deliveryKey = String(metadata?.deliveryKey || "").trim()
+      || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
+    const results = await Promise.all(urls.map(async (url) => {
+      try {
+        const { response } = await fetchWithSsrfGuard({
+          url,
+          timeoutMs: WEBHOOK_TIMEOUT_MS,
+          maxRedirects: WEBHOOK_MAX_REDIRECTS,
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Mission-Delivery-Key": deliveryKey },
+            body: JSON.stringify({
+              text: safeText,
+              scheduleId: schedule.id,
+              label: schedule.label,
+              ts: new Date().toISOString(),
+            }),
+          },
+        })
+        return { ok: response.ok, status: response.status, error: response.ok ? undefined : `Slack webhook returned ${response.status}` }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : "Slack webhook send failed" }
       }
     }))
     return results

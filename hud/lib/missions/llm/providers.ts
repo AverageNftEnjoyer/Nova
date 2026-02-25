@@ -11,6 +11,36 @@ import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-select
 import { toOpenAiLikeBase, toClaudeBase } from "../utils/config"
 import type { Provider, CompletionResult, CompletionOverride } from "../types"
 
+function readIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = String(process.env[name] || "").trim()
+  if (!raw) return fallback
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
+}
+
+const MISSION_LLM_TIMEOUT_MS = readIntEnv("NOVA_MISSION_LLM_TIMEOUT_MS", 25_000, 1_000, 180_000)
+
+async function postJsonWithTimeout(url: string, init: RequestInit): Promise<{ res: Response; payload: unknown }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MISSION_LLM_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    })
+    const payload = await res.json().catch(() => null)
+    return { res, payload }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`LLM request timed out after ${MISSION_LLM_TIMEOUT_MS}ms.`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Complete text using the configured LLM provider.
  */
@@ -52,7 +82,7 @@ export async function completeWithConfiguredLlm(
     if (!apiKey) throw new Error("Claude API key is missing.")
     if (!model) throw new Error("Claude default model is missing.")
 
-    const res = await fetch(`${baseUrl}/v1/messages`, {
+    const { res, payload } = await postJsonWithTimeout(`${baseUrl}/v1/messages`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -62,12 +92,12 @@ export async function completeWithConfiguredLlm(
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
+        temperature: 0,
         system: systemText,
         messages: [{ role: "user", content: userText }],
       }),
       cache: "no-store",
     })
-    const payload = await res.json().catch(() => null)
     if (!res.ok) {
       const msg = payload && typeof payload === "object" && "error" in payload
         ? String((payload as { error?: { message?: string } }).error?.message || "")
@@ -87,12 +117,13 @@ export async function completeWithConfiguredLlm(
     if (!apiKey) throw new Error("Grok API key is missing.")
     if (!model) throw new Error("Grok default model is missing.")
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const { res, payload } = await postJsonWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
+        temperature: 0,
         messages: [
           { role: "system", content: systemText },
           { role: "user", content: userText },
@@ -100,7 +131,6 @@ export async function completeWithConfiguredLlm(
       }),
       cache: "no-store",
     })
-    const payload = await res.json().catch(() => null)
     if (!res.ok) {
       const msg = payload && typeof payload === "object" && "error" in payload
         ? String((payload as { error?: { message?: string } }).error?.message || "")
@@ -118,12 +148,13 @@ export async function completeWithConfiguredLlm(
     if (!apiKey) throw new Error("Gemini API key is missing.")
     if (!model) throw new Error("Gemini default model is missing.")
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const { res, payload } = await postJsonWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
+        temperature: 0,
         messages: [
           { role: "system", content: systemText },
           { role: "user", content: userText },
@@ -131,7 +162,6 @@ export async function completeWithConfiguredLlm(
       }),
       cache: "no-store",
     })
-    const payload = await res.json().catch(() => null)
     if (!res.ok) {
       const msg = payload && typeof payload === "object" && "error" in payload
         ? String((payload as { error?: { message?: string } }).error?.message || "")
@@ -152,19 +182,19 @@ export async function completeWithConfiguredLlm(
   const openAiBody: Record<string, unknown> = {
     model,
     max_completion_tokens: maxTokens,
+    temperature: 0,
     messages: [
       { role: "system", content: systemText },
       { role: "user", content: userText },
     ],
   }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const { res, payload } = await postJsonWithTimeout(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(openAiBody),
     cache: "no-store",
   })
-  const payload = await res.json().catch(() => null)
   if (!res.ok) {
     const msg = payload && typeof payload === "object" && "error" in payload
       ? String((payload as { error?: { message?: string } }).error?.message || "")

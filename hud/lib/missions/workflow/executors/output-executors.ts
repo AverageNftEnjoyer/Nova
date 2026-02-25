@@ -86,7 +86,14 @@ async function dispatchToChannel(
     includeSources: true,
     detailLevel: "standard",
   })
-  const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)
+  // Collect fetch/search results from upstream nodes to enable guardrail fallback generation
+  const fetchResults: unknown[] = []
+  for (const [, nodeOut] of ctx.nodeOutputs.entries()) {
+    const items = (nodeOut.data as Record<string, unknown> | null)?.items
+    if (Array.isArray(items) && items.length > 0) fetchResults.push(...items)
+  }
+  const guardrailContext = fetchResults.length > 0 ? { fetchResults } : undefined
+  const { text: guarded } = applyMissionOutputQualityGuardrails(humanized, guardrailContext)
 
   const legacySchedule: NotificationSchedule = {
     id: ctx.missionId || "",

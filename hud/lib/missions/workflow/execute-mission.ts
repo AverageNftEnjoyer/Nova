@@ -23,6 +23,7 @@ import { EXECUTOR_REGISTRY } from "./executors/index"
 import { getLocalParts } from "./scheduling"
 import { acquireMissionExecutionSlot } from "./execution-guard"
 import { emitMissionTelemetryEvent } from "../telemetry"
+import { validateMissionGraphForVersioning } from "./versioning"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Expression Resolver
@@ -71,11 +72,14 @@ function buildExprResolver(nodeOutputs: Map<string, NodeOutput>, nodesByLabel: M
   }
 }
 
+const BLOCKED_PROPERTY_NAMES = new Set(["__proto__", "prototype", "constructor"])
+
 function getNestedField(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".")
   let curr: unknown = obj
   for (const part of parts) {
     if (!curr || typeof curr !== "object") return undefined
+    if (BLOCKED_PROPERTY_NAMES.has(part)) return undefined
     curr = (curr as Record<string, unknown>)[part]
   }
   return curr
@@ -104,9 +108,14 @@ function buildInDegreeMap(nodes: MissionNode[], connections: MissionConnection[]
 
 /**
  * Topological sort of nodes reachable from the given start node IDs.
- * Returns nodes in execution order (Kahn's algorithm).
+ * Returns nodes in execution order (Kahn's algorithm) plus cycle detection.
+ * If cycleDetected is true, cycleNodeLabels lists the nodes stuck in cycles.
  */
-function topologicalOrder(startIds: string[], allNodes: MissionNode[], connections: MissionConnection[]): MissionNode[] {
+function topologicalOrder(
+  startIds: string[],
+  allNodes: MissionNode[],
+  connections: MissionConnection[],
+): { nodes: MissionNode[]; cycleDetected: boolean; cycleNodeLabels: string[] } {
   const nodeById = new Map(allNodes.map((n) => [n.id, n]))
   const adjacency = buildAdjacencyMap(connections)
 
@@ -149,7 +158,13 @@ function topologicalOrder(startIds: string[], allNodes: MissionNode[], connectio
     }
   }
 
-  return result
+  // Any reachable nodes not visited could not be processed — they are in cycles
+  const unvisited = reachableNodes.filter((n) => !visited.has(n.id))
+  return {
+    nodes: result,
+    cycleDetected: unvisited.length > 0,
+    cycleNodeLabels: unvisited.map((n) => n.label || n.id),
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,10 +214,50 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main Execution Function
+// Global Execution Timeout
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function executeMission(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
+const MISSION_MAX_DURATION_MS = Number(process.env.NOVA_MISSION_MAX_DURATION_MS) || 5 * 60 * 1000 // default 5 minutes
+
+/**
+ * Public entry point — wraps the core execution with a global 5-minute timeout.
+ * If the mission takes longer, the caller receives a failure result immediately
+ * while any in-flight network/AI work completes in the background (slot released).
+ */
+export function executeMission(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+
+  const timeoutPromise = new Promise<ExecuteMissionResult>((resolve) => {
+    timeoutHandle = setTimeout(
+      () =>
+        resolve({
+          ok: false,
+          skipped: false,
+          reason: `Mission execution timed out after ${MISSION_MAX_DURATION_MS / 1000}s.`,
+          outputs: [],
+          nodeTraces: [],
+        }),
+      MISSION_MAX_DURATION_MS,
+    )
+  })
+
+  return Promise.race([executeMissionCore(input), timeoutPromise]).then(
+    (result) => {
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+      return result
+    },
+    (err: unknown) => {
+      if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+      throw err
+    },
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core Execution Function
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
   const { mission, source } = input
   const now = input.now ?? new Date()
   const runId = input.missionRunId || crypto.randomUUID()
@@ -281,6 +336,30 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
     }).catch(() => {})
     return { ok: false, skipped: false, reason: "Mission has no nodes.", outputs: [], nodeTraces: [] }
   }
+  const graphIssues = validateMissionGraphForVersioning(mission)
+  if (graphIssues.length > 0) {
+    await emitMissionTelemetryEvent({
+      eventType: "mission.run.failed",
+      status: "error",
+      userContextId,
+      missionId: mission.id,
+      missionRunId: runId,
+      durationMs: Date.now() - startedAtMs,
+      metadata: {
+        source,
+        reason: "Mission graph validation failed before execution.",
+        issueCount: graphIssues.length,
+        firstIssueCode: graphIssues[0]?.code,
+      },
+    }).catch(() => {})
+    return {
+      ok: false,
+      skipped: false,
+      reason: `Mission graph validation failed (${graphIssues.length} issue(s)).`,
+      outputs: [],
+      nodeTraces: [],
+    }
+  }
 
   // ── Build execution context ───────────────────────────────────────────────
   const nodesByLabel = new Map(mission.nodes.map((n) => [n.label, n]))
@@ -315,14 +394,50 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
   const triggerNodes = mission.nodes.filter((n) => triggerTypes.has(n.type))
   const startIds = triggerNodes.length > 0 ? triggerNodes.map((n) => n.id) : [mission.nodes[0].id]
 
-  // ── Topological sort ──────────────────────────────────────────────────────
-  const orderedNodes = topologicalOrder(startIds, mission.nodes, mission.connections)
+  // ── Topological sort + cycle detection ───────────────────────────────────
+  const { nodes: orderedNodes, cycleDetected, cycleNodeLabels } = topologicalOrder(startIds, mission.nodes, mission.connections)
   const adjacency = buildAdjacencyMap(mission.connections)
+
+  if (cycleDetected) {
+    const reason = `Mission graph has cyclic dependencies: ${cycleNodeLabels.join(", ")}`
+    log("graph.cycle_detected", { cycleNodes: cycleNodeLabels })
+    await emitMissionTelemetryEvent({
+      eventType: "mission.run.failed",
+      status: "error",
+      userContextId,
+      missionId: mission.id,
+      missionRunId: runId,
+      durationMs: Date.now() - startedAtMs,
+      metadata: { source, reason, cycleNodes: cycleNodeLabels },
+    }).catch(() => {})
+    return { ok: false, skipped: false, reason, outputs: [], nodeTraces: [] }
+  }
+
+  if (orderedNodes.length === 0) {
+    await emitMissionTelemetryEvent({
+      eventType: "mission.run.failed",
+      status: "error",
+      userContextId,
+      missionId: mission.id,
+      missionRunId: runId,
+      durationMs: Date.now() - startedAtMs,
+      metadata: {
+        source,
+        reason: "Mission graph has no reachable executable nodes.",
+      },
+    }).catch(() => {})
+    return {
+      ok: false,
+      skipped: false,
+      reason: "Mission graph has no reachable executable nodes.",
+      outputs: [],
+      nodeTraces: [],
+    }
+  }
 
   log("execution.start", { nodeCount: orderedNodes.length, startIds })
 
   // ── Execute each node ─────────────────────────────────────────────────────
-  let aborted = false
   let skipReason = ""
 
   for (const node of orderedNodes) {
@@ -333,6 +448,21 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
         label: node.label,
         status: "skipped",
         detail: "Node is disabled.",
+        startedAt: new Date().toISOString(),
+        endedAt: new Date().toISOString(),
+      })
+      continue
+    }
+
+    // Skip nodes pre-marked by condition/switch routing (wrong branch)
+    const preMarked = nodeOutputs.get(node.id)
+    if (preMarked?.data && typeof preMarked.data === "object" && (preMarked.data as Record<string, unknown>).skipped === true) {
+      nodeTraces.push({
+        nodeId: node.id,
+        nodeType: node.type,
+        label: node.label,
+        status: "skipped",
+        detail: String((preMarked.data as Record<string, unknown>).reason || "Branch not taken."),
         startedAt: new Date().toISOString(),
         endedAt: new Date().toISOString(),
       })
@@ -431,10 +561,7 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
         }
       }
       if (errorConnections.length === 0) {
-        if (mission.settings?.retryOnFail) {
-          aborted = false // let retry logic handle it upstream
-        }
-        log("node.failed", { nodeId: node.id, error: output.error })
+        log("node.failed", { nodeId: node.id, error: output.error, retryOnFailSetting: mission.settings?.retryOnFail ?? false })
       } else {
         log("node.failed.routed_to_error_port", { nodeId: node.id, errorTargets: errorConnections.map((c) => c.targetNodeId) })
       }
@@ -476,56 +603,64 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
   }
 
   // ── Fallback output if no output nodes ran ────────────────────────────────
-  if (outputs.length === 0 && !aborted) {
+  if (outputs.length === 0 || outputs.every((output) => !output.ok)) {
     const lastOutputText = [...nodeOutputs.values()].map((o) => o.text).filter(Boolean).at(-1)
-    if (lastOutputText) {
-      // Find default output channel from mission's integration setting
-      const channel = mission.integration || "novachat"
+    const fallbackText = String(lastOutputText || "").trim() || `Mission "${mission.label}" completed with upstream errors and no user-ready summary.`
+    if (fallbackText) {
+      const primaryChannel = String(mission.integration || "novachat").trim() || "novachat"
+      const fallbackChannels = outputs.length === 0
+        ? [primaryChannel, ...(primaryChannel === "novachat" ? [] : ["novachat"])]
+        : ["novachat", ...(primaryChannel === "novachat" ? [] : [primaryChannel])]
       const { dispatchOutput } = await import("../output/dispatch")
       const { humanizeMissionOutputText } = await import("../output/formatters")
       const { applyMissionOutputQualityGuardrails } = await import("../output/quality")
 
-      const humanized = humanizeMissionOutputText(lastOutputText, undefined, { includeSources: true, detailLevel: "standard" })
+      const humanized = humanizeMissionOutputText(fallbackText, undefined, { includeSources: true, detailLevel: "standard" })
       const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)
 
-      const fallbackSchedule: import("@/lib/notifications/store").NotificationSchedule = {
-        id: mission.id,
-        userId: String(input.scope?.userId || input.scope?.user?.id || ""),
-        label: mission.label,
-        integration: channel,
-        chatIds: mission.chatIds,
-        timezone: mission.settings?.timezone || "America/New_York",
-        message: "",
-        time: "09:00",
-        enabled: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        runCount: 0,
-        successCount: 0,
-        failureCount: 0,
-      }
+      for (const channel of fallbackChannels) {
+        const fallbackSchedule: import("@/lib/notifications/store").NotificationSchedule = {
+          id: mission.id,
+          userId: String(input.scope?.userId || input.scope?.user?.id || ""),
+          label: mission.label,
+          integration: channel,
+          chatIds: mission.chatIds,
+          timezone: mission.settings?.timezone || "America/New_York",
+          message: "",
+          time: "09:00",
+          enabled: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          // Preserve existing counters so fallback dispatch doesn't inflate metrics
+          runCount: mission.runCount ?? 0,
+          successCount: mission.successCount ?? 0,
+          failureCount: mission.failureCount ?? 0,
+        }
 
-      try {
-        const fallbackResults = await dispatchOutput(
-          channel,
-          guarded,
-          mission.chatIds,
-          fallbackSchedule,
-          input.scope,
-          {
-            missionRunId: runId,
-            runKey: input.runKey,
-            attempt: input.attempt ?? 1,
-            source: source === "scheduler" ? "scheduler" : "trigger",
-            nodeId: "fallback-output",
-            outputIndex: 0,
-          },
-        )
-        const first = fallbackResults[0] ?? { ok: false, error: "No result" }
-        outputs.push({ ok: first.ok, error: first.error })
-        log("fallback.output.dispatched", { channel, ok: first.ok })
-      } catch (err) {
-        log("fallback.output.failed", { error: String(err) })
+        try {
+          const fallbackResults = await dispatchOutput(
+            channel,
+            guarded,
+            mission.chatIds,
+            fallbackSchedule,
+            input.scope,
+            {
+              missionRunId: runId,
+              runKey: input.runKey,
+              attempt: input.attempt ?? 1,
+              source: source === "scheduler" ? "scheduler" : "trigger",
+              nodeId: "fallback-output",
+              outputIndex: 0,
+            },
+          )
+          const first = fallbackResults[0] ?? { ok: false, error: "No result" }
+          outputs.push({ ok: first.ok, error: first.error })
+          log("fallback.output.dispatched", { channel, ok: first.ok })
+          if (first.ok) break
+        } catch (err) {
+          outputs.push({ ok: false, error: String(err) })
+          log("fallback.output.failed", { channel, error: String(err) })
+        }
       }
     }
   }

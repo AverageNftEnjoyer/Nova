@@ -39,7 +39,8 @@ function sanitizeUserContextId(value) {
 }
 
 const generationSource = read("hud/lib/missions/workflow/generation.ts");
-const executionSource = read("hud/lib/missions/workflow/execution.ts");
+const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
+const dataExecutorsSource = read("hud/lib/missions/workflow/executors/data-executors.ts");
 const coinbaseFetchSource = read("hud/lib/missions/coinbase/fetch.ts");
 const schedulerSource = read("hud/lib/notifications/scheduler.ts");
 const triggerRouteSource = read("hud/app/api/notifications/trigger/route.ts");
@@ -78,12 +79,13 @@ await run("P13-C2 scheduler execution path uses authenticated account + transact
   }
   const requiredExecTokens = [
     "executeCoinbaseWorkflowStep",
-    "type === \"coinbase\"",
-    "coinbaseArtifactContext",
+    "type: \"coinbase\" as const",
+    "artifactRef: result.artifactRef",
   ];
   for (const token of requiredExecTokens) {
-    assert.equal(executionSource.includes(token), true, `missing execution token: ${token}`);
+    assert.equal(dataExecutorsSource.includes(token), true, `missing execution token: ${token}`);
   }
+  assert.equal(executeMissionSource.includes("EXECUTOR_REGISTRY[node.type]"), true, "missing executor registry dispatch");
 });
 
 await run("P13-C3 primitive data requirements are explicitly gated", async () => {

@@ -1,0 +1,155 @@
+[
+  {
+    "file": "hud/app/analytics/components/agent-roster-panel.tsx",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/app/missions/canvas/node-config-panel.tsx",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/app/missions/canvas/node-palette.tsx",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/components/effects/MagicBento.tsx",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/lib/missions/workflow/generate-mission.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/lib/notifications/discord-webhook.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/lib/security/supabase-auth.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "hud/proxy.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/agent/queue.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/agent/runner.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/agent/wake-runtime-compat.js",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/config/index.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/integrations/chatkit/index.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/nlp/nspell.d.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/providers/index.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/runtime/core/entrypoint.js",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  },
+  {
+    "file": "src/skills/snapshot.ts",
+    "pathCount": 0,
+    "pathSample": [
+      ""
+    ],
+    "baseCount": 0,
+    "baseSample": []
+  }
+]

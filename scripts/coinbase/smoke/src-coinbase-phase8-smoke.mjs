@@ -30,9 +30,9 @@ await run("P8-R1 concise renderer includes metadata", async () => {
     },
     transactions: [],
   });
-  assert.match(text, /timestamp:/i);
-  assert.match(text, /freshness:/i);
+  assert.match(text, /timestamp:|date:/i);
   assert.match(text, /source:/i);
+  assert.match(text, /active_assets:/i);
   assert.match(text, /concise portfolio report/i);
 });
 

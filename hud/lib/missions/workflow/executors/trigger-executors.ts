@@ -79,7 +79,15 @@ export async function executeWebhookTrigger(
   _node: WebhookTriggerNode,
   ctx: ExecutionContext,
 ): Promise<NodeOutput> {
-  const webhookData = ctx.variables["__webhook_payload"] ? JSON.parse(ctx.variables["__webhook_payload"]) : {}
+  let webhookData: unknown = {}
+  const raw = ctx.variables["__webhook_payload"]
+  if (raw) {
+    try {
+      webhookData = JSON.parse(raw)
+    } catch {
+      return { ok: false, error: "Webhook payload is not valid JSON." }
+    }
+  }
   return { ok: true, text: "Webhook trigger received.", data: { triggered: true, payload: webhookData } }
 }
 

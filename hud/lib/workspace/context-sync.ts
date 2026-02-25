@@ -119,6 +119,19 @@ async function upsertManagedMarkdown(
   updatedFiles.push(filePath)
 }
 
+async function upsertManagedJson(
+  filePath: string,
+  payload: unknown,
+  updatedFiles: string[],
+): Promise<void> {
+  const serialized = `${JSON.stringify(payload, null, 2)}\n`
+  const existing = await readTextFile(filePath)
+  if (existing === serialized) return
+  await mkdir(path.dirname(filePath), { recursive: true })
+  await writeFile(filePath, serialized, "utf8")
+  updatedFiles.push(filePath)
+}
+
 export async function syncWorkspaceContextFiles(
   workspaceRoot: string,
   userId: string,
@@ -207,6 +220,27 @@ export async function syncWorkspaceContextFiles(
   await upsertManagedMarkdown(path.join(userContextDir, "AGENTS.md"), "# AGENTS", agentsBlock, updatedFiles)
   await upsertManagedMarkdown(path.join(userContextDir, "MEMORY.md"), "# Persistent Memory", memoryBlock, updatedFiles)
   await upsertManagedMarkdown(path.join(userContextDir, "IDENTITY.md"), "# Identity", identityBlock, updatedFiles)
+  await upsertManagedJson(
+    path.join(userContextDir, "profile", "identity-seed.json"),
+    {
+      schemaVersion: 1,
+      source: "settings_sync",
+      updatedAt: new Date().toISOString(),
+      data: {
+        assistantName: input.assistantName,
+        userName: input.userName,
+        nickname: input.nickname || "",
+        occupation: input.occupation || "",
+        preferredLanguage: input.preferredLanguage,
+        communicationStyle: input.communicationStyle,
+        tone: input.tone,
+        characteristics: input.characteristics || "",
+        customInstructions: input.customInstructions || "",
+        interests: Array.isArray(input.interests) ? input.interests : [],
+      },
+    },
+    updatedFiles,
+  )
 
   return { userContextDir, updatedFiles }
 }
