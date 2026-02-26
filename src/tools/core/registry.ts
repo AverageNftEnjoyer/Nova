@@ -3,17 +3,46 @@ import { createCoinbaseTools } from "../builtin/coinbase-tools.js";
 import { createGmailTools } from "../builtin/gmail-tools.js";
 import type { MemoryIndexManager } from "../../memory/manager.js";
 import { createExecTool } from "../builtin/exec.js";
+import { createBrowserAgentTool } from "../builtin/browser-agent.js";
 import { createFileTools } from "../builtin/file-tools.js";
 import { createMemoryTools } from "../builtin/memory-tools.js";
 import type { Tool } from "./types.js";
 import { createWebFetchTool } from "../web/web-fetch.js";
 import { createWebSearchTool } from "../web/web-search.js";
 
+const COINBASE_TOOL_NAMES = [
+  "coinbase_capabilities",
+  "coinbase_spot_price",
+  "coinbase_portfolio_snapshot",
+  "coinbase_recent_transactions",
+  "coinbase_portfolio_report",
+] as const;
+
+const GMAIL_TOOL_NAMES = [
+  "gmail_capabilities",
+  "gmail_list_accounts",
+  "gmail_scope_check",
+  "gmail_list_messages",
+  "gmail_get_message",
+  "gmail_daily_summary",
+  "gmail_classify_importance",
+  "gmail_forward_message",
+  "gmail_reply_draft",
+] as const;
+
+function normalizeToolName(name: string): string {
+  return String(name || "").trim().toLowerCase();
+}
+
+function hasAnyEnabled(enabled: Set<string>, toolNames: readonly string[]): boolean {
+  return toolNames.some((name) => enabled.has(name));
+}
+
 export function createToolRegistry(
   config: ToolsConfig,
   params: { workspaceDir: string; memoryManager: MemoryIndexManager | null },
 ): Tool[] {
-  const enabled = new Set(config.enabledTools.map((name) => name.trim()).filter(Boolean));
+  const enabled = new Set(config.enabledTools.map(normalizeToolName).filter(Boolean));
   const registry: Tool[] = [];
 
   const fileTools = createFileTools(params.workspaceDir);
@@ -28,6 +57,10 @@ export function createToolRegistry(
         safeBinaries: config.safeBinaries,
       }),
     );
+  }
+
+  if (enabled.has("browser_agent")) {
+    registry.push(createBrowserAgentTool());
   }
 
   if (enabled.has("web_search")) {
@@ -51,13 +84,7 @@ export function createToolRegistry(
     }
   }
 
-  if (
-    enabled.has("coinbase_capabilities") ||
-    enabled.has("coinbase_spot_price") ||
-    enabled.has("coinbase_portfolio_snapshot") ||
-    enabled.has("coinbase_recent_transactions") ||
-    enabled.has("coinbase_portfolio_report")
-  ) {
+  if (hasAnyEnabled(enabled, COINBASE_TOOL_NAMES)) {
     for (const tool of createCoinbaseTools({ workspaceDir: params.workspaceDir })) {
       if (enabled.has(tool.name)) {
         registry.push(tool);
@@ -65,17 +92,7 @@ export function createToolRegistry(
     }
   }
 
-  if (
-    enabled.has("gmail_capabilities") ||
-    enabled.has("gmail_list_accounts") ||
-    enabled.has("gmail_scope_check") ||
-    enabled.has("gmail_list_messages") ||
-    enabled.has("gmail_get_message") ||
-    enabled.has("gmail_daily_summary") ||
-    enabled.has("gmail_classify_importance") ||
-    enabled.has("gmail_forward_message") ||
-    enabled.has("gmail_reply_draft")
-  ) {
+  if (hasAnyEnabled(enabled, GMAIL_TOOL_NAMES)) {
     for (const tool of createGmailTools({ workspaceDir: params.workspaceDir })) {
       if (enabled.has(tool.name)) {
         registry.push(tool);

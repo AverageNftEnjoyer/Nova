@@ -29,11 +29,14 @@ export class FileBackedCoinbaseCredentialProvider implements CoinbaseCredentialP
     if (!normalizedUser) return null;
 
     const paths = resolveRuntimePaths(this.workspaceRoot);
-    const scopedConfigPath = path.join(paths.userContextRoot, normalizedUser, "integrations-config.json");
+    const scopedConfigPath = path.join(paths.userContextRoot, normalizedUser, "state", "integrations-config.json");
+    const scopedLegacyConfigPath = path.join(paths.userContextRoot, normalizedUser, "integrations-config.json");
     const globalConfigPath = paths.integrationsConfigPath;
 
-    const scopedResult = this.resolveFromPath(normalizedUser, scopedConfigPath, paths.workspaceRoot);
-    if (scopedResult) return scopedResult;
+    for (const candidatePath of [scopedConfigPath, scopedLegacyConfigPath]) {
+      const scopedResult = this.resolveFromPath(normalizedUser, candidatePath, paths.workspaceRoot);
+      if (scopedResult) return scopedResult;
+    }
     return this.resolveFromPath(normalizedUser, globalConfigPath, paths.workspaceRoot);
   }
 
@@ -105,4 +108,3 @@ function safeStat(filePath: string): fs.Stats | null {
     return null;
   }
 }
-

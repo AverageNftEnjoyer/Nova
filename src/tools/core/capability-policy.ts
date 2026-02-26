@@ -7,6 +7,7 @@ const DEFAULT_TOOL_CAPABILITIES: Record<string, string[]> = {
   write: ["filesystem.write"],
   edit: ["filesystem.write"],
   exec: ["process.exec"],
+  browser_agent: ["automation.browser.execute"],
   web_search: ["network.search"],
   web_fetch: ["network.fetch"],
   memory_search: ["memory.read"],
@@ -59,6 +60,20 @@ function combineCapabilityRules(
   return next;
 }
 
+function ruleSetMatchesCapability(
+  capability: string,
+  rules: Set<string>,
+  toolScopeRule: string,
+): boolean {
+  if (rules.size === 0) return false;
+  if (rules.has("*") || rules.has(toolScopeRule)) return true;
+  for (const rule of rules) {
+    if (rule.startsWith("tool:")) continue;
+    if (capabilityMatchesRule(capability, rule)) return true;
+  }
+  return false;
+}
+
 function capabilityMatchesRule(capability: string, rule: string): boolean {
   if (rule === "*") return true;
   if (rule.endsWith(".*")) {
@@ -73,14 +88,7 @@ function capabilityAllowed(
   allowlist: Set<string>,
   toolName: string,
 ): boolean {
-  if (allowlist.size === 0) return false;
-  if (allowlist.has("*")) return true;
-  if (allowlist.has(`tool:${toolName}`)) return true;
-  for (const rule of allowlist) {
-    if (rule.startsWith("tool:")) continue;
-    if (capabilityMatchesRule(capability, rule)) return true;
-  }
-  return false;
+  return ruleSetMatchesCapability(capability, allowlist, `tool:${toolName}`);
 }
 
 function capabilityDenied(
@@ -88,22 +96,16 @@ function capabilityDenied(
   denylist: Set<string>,
   toolName: string,
 ): boolean {
-  if (denylist.size === 0) return false;
-  if (denylist.has("*")) return true;
-  if (denylist.has(`tool:${toolName}`)) return true;
-  for (const rule of denylist) {
-    if (rule.startsWith("tool:")) continue;
-    if (capabilityMatchesRule(capability, rule)) return true;
-  }
-  return false;
+  return ruleSetMatchesCapability(capability, denylist, `tool:${toolName}`);
 }
 
 export function resolveToolCapabilities(
   toolName: string,
   explicitCapabilities?: readonly string[],
 ): string[] {
-  const fromTool = Array.isArray(explicitCapabilities) ? explicitCapabilities : [];
-  const source = fromTool.length > 0 ? fromTool : (DEFAULT_TOOL_CAPABILITIES[toolName] || []);
+  const source = Array.isArray(explicitCapabilities)
+    ? explicitCapabilities
+    : (DEFAULT_TOOL_CAPABILITIES[toolName] || []);
   const out: string[] = [];
   const seen = new Set<string>();
   for (const entry of source) {

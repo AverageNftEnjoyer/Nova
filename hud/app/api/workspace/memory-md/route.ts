@@ -2,6 +2,7 @@ import path from "node:path"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { NextResponse } from "next/server"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
 export const runtime = "nodejs"
 
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
   if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const workspaceRoot = path.resolve(process.cwd(), "..")
+    const workspaceRoot = resolveWorkspaceRoot()
     const memoryFilePath = resolveMemoryFilePath(workspaceRoot, verified.user.id)
     const content = await readOrInitMemoryFile(memoryFilePath)
     return NextResponse.json({ ok: true, content })
@@ -84,7 +85,7 @@ export async function PUT(req: Request) {
       .trim()
       .slice(0, MAX_MEMORY_FILE_CHARS)
     const content = normalized || defaultMemoryTemplate()
-    const workspaceRoot = path.resolve(process.cwd(), "..")
+    const workspaceRoot = resolveWorkspaceRoot()
     const memoryFilePath = resolveMemoryFilePath(workspaceRoot, verified.user.id)
     await mkdir(path.dirname(memoryFilePath), { recursive: true })
     await writeFile(memoryFilePath, content, "utf8")
@@ -96,4 +97,3 @@ export async function PUT(req: Request) {
     )
   }
 }
-

@@ -25,22 +25,59 @@ function readIntEnv(name: string, fallback: number, minValue: number, maxValue: 
 const IP_WINDOW_MS = readIntEnv("NOVA_HTTP_IP_RATE_LIMIT_WINDOW_MS", 60_000, 5_000, 600_000)
 const IP_MAX = readIntEnv("NOVA_HTTP_IP_RATE_LIMIT_MAX", 240, 10, 10_000)
 const GC_INTERVAL_MS = readIntEnv("NOVA_HTTP_IP_RATE_LIMIT_GC_INTERVAL_MS", 60_000, 5_000, 600_000)
+const MAX_IP_STORE_ENTRIES = readIntEnv("NOVA_HTTP_IP_RATE_LIMIT_MAX_KEYS", 50_000, 1_000, 500_000)
+const MAX_IP_KEY_LEN = 96
 
-function maybeCollectGarbage(nowMs: number): void {
-  const lastGc = Number(globalState.__novaIpRateLimitLastGcAt || 0)
-  if (nowMs - lastGc < GC_INTERVAL_MS) return
-  globalState.__novaIpRateLimitLastGcAt = nowMs
+function normalizeClientIp(rawValue: string): string {
+  const raw = String(rawValue || "").trim().toLowerCase()
+  if (!raw) return "unknown"
+  const noPort = raw.includes(".") && raw.includes(":") ? raw.split(":")[0] : raw
+  const noMappedPrefix = noPort.startsWith("::ffff:") ? noPort.slice("::ffff:".length) : noPort
+  const safe = noMappedPrefix.replace(/[^a-f0-9:.]/g, "")
+  if (!safe) return "unknown"
+  return safe.slice(0, MAX_IP_KEY_LEN)
+}
+
+function enforceStoreSizeLimit(nowMs: number): void {
+  if (ipStore.size <= MAX_IP_STORE_ENTRIES) return
+
+  // Remove already-expired entries first.
   for (const [key, entry] of ipStore.entries()) {
     if (!entry || entry.resetAt <= nowMs) ipStore.delete(key)
   }
+  if (ipStore.size <= MAX_IP_STORE_ENTRIES) return
+
+  // If still oversized, drop oldest windows first.
+  const overflow = ipStore.size - MAX_IP_STORE_ENTRIES
+  if (overflow <= 0) return
+  const sortedByResetAt = [...ipStore.entries()].sort(
+    (a, b) => Number(a[1]?.resetAt || 0) - Number(b[1]?.resetAt || 0),
+  )
+  for (let i = 0; i < overflow && i < sortedByResetAt.length; i += 1) {
+    ipStore.delete(sortedByResetAt[i][0])
+  }
+}
+
+function maybeCollectGarbage(nowMs: number): void {
+  const lastGc = Number(globalState.__novaIpRateLimitLastGcAt || 0)
+  const shouldRunGc = nowMs - lastGc >= GC_INTERVAL_MS
+  if (shouldRunGc) {
+    globalState.__novaIpRateLimitLastGcAt = nowMs
+    for (const [key, entry] of ipStore.entries()) {
+      if (!entry || entry.resetAt <= nowMs) ipStore.delete(key)
+    }
+  }
+  enforceStoreSizeLimit(nowMs)
 }
 
 function getClientIp(req: NextRequest): string {
-  const forwarded = String(req.headers.get("x-forwarded-for") || "")
-    .split(",")[0]
-    ?.trim()
   const realIp = String(req.headers.get("x-real-ip") || "").trim()
-  return String(forwarded || realIp || "unknown").trim().toLowerCase()
+  const cfIp = String(req.headers.get("cf-connecting-ip") || "").trim()
+  const forwarded = String(req.headers.get("x-forwarded-for") || "")
+    .split(",")
+    .map((value) => value.trim())
+    .find(Boolean)
+  return normalizeClientIp(String(realIp || cfIp || forwarded || "unknown"))
 }
 
 function checkIpLimit(key: string): { allowed: boolean; remaining: number; resetAt: number; retryAfterSeconds: number } {
@@ -80,7 +117,21 @@ function createHeaders(details: { remaining: number; resetAt: number; retryAfter
   return headers
 }
 
+function shouldBypassIpRateLimit(req: NextRequest): boolean {
+  const pathname = String(req.nextUrl.pathname || "").trim()
+  const method = String(req.method || "").trim().toUpperCase()
+  // Skip preflight requests to reduce unnecessary limiter churn and latency.
+  if (method === "OPTIONS") return true
+  // Pending queue has its own authenticated per-user limiter and client backoff.
+  // Bypass global IP limiter so unrelated API traffic doesn't starve pending delivery.
+  if (pathname === "/api/novachat/pending" || pathname.startsWith("/api/novachat/pending/")) return true
+  return false
+}
+
 export function proxy(req: NextRequest): NextResponse {
+  if (shouldBypassIpRateLimit(req)) {
+    return NextResponse.next()
+  }
   const ip = getClientIp(req)
   const key = `ip:${ip}`
   const details = checkIpLimit(key)

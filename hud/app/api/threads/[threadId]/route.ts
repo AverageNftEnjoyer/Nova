@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server"
-import path from "node:path"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import {
   collectThreadCleanupHints,
   pruneThreadTranscripts,
 } from "@/lib/server/thread-transcript-cleanup"
+import { appendThreadDeleteAuditLog } from "@/lib/server/thread-delete-audit"
 
 export const runtime = "nodejs"
-
-function resolveWorkspaceRoot(): string {
-  const cwd = process.cwd()
-  if (path.basename(cwd).toLowerCase() === "hud") return path.resolve(cwd, "..")
-  return cwd
-}
 
 export async function PATCH(
   req: Request,
@@ -63,6 +58,7 @@ export async function DELETE(
     .select("metadata")
     .eq("thread_id", normalizedThreadId)
     .eq("user_id", verified.user.id)
+  const threadMessageCount = Array.isArray(messageMetadataRows) ? messageMetadataRows.length : 0
   const cleanupHints = collectThreadCleanupHints(normalizedThreadId, messageMetadataRows ?? [])
 
   const { error } = await verified.client
@@ -72,18 +68,47 @@ export async function DELETE(
     .eq("user_id", verified.user.id)
 
   if (error) {
+    await appendThreadDeleteAuditLog({
+      workspaceRoot,
+      threadId: normalizedThreadId,
+      userContextId: verified.user.id,
+      removedSessionEntries: 0,
+      removedTranscriptFiles: 0,
+      cleanupError: error.message || "Thread delete failed.",
+      threadMessageCount,
+    }).catch(() => {})
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
 
-  const transcriptCleanup = await pruneThreadTranscripts(
-    workspaceRoot,
-    verified.user.id,
-    normalizedThreadId,
-    {
-      sessionConversationIds: cleanupHints.sessionConversationIds,
-      sessionKeys: cleanupHints.sessionKeys,
-    },
-  ).catch(() => ({ removedSessionEntries: 0, removedTranscriptFiles: 0 }))
+  let transcriptCleanup = { removedSessionEntries: 0, removedTranscriptFiles: 0 }
+  let transcriptCleanupError = ""
+  try {
+    transcriptCleanup = await pruneThreadTranscripts(
+      workspaceRoot,
+      verified.user.id,
+      normalizedThreadId,
+      {
+        sessionConversationIds: cleanupHints.sessionConversationIds,
+        sessionKeys: cleanupHints.sessionKeys,
+      },
+    )
+  } catch (error) {
+    transcriptCleanupError = error instanceof Error ? error.message : "Transcript cleanup failed."
+  }
 
-  return NextResponse.json({ ok: true, transcriptCleanup })
+  await appendThreadDeleteAuditLog({
+    workspaceRoot,
+    threadId: normalizedThreadId,
+    userContextId: verified.user.id,
+    removedSessionEntries: transcriptCleanup.removedSessionEntries,
+    removedTranscriptFiles: transcriptCleanup.removedTranscriptFiles,
+    cleanupError: transcriptCleanupError,
+    threadMessageCount,
+  }).catch(() => {})
+
+  return NextResponse.json({
+    ok: true,
+    transcriptCleanup,
+    ...(transcriptCleanupError ? { transcriptCleanupError } : {}),
+  })
 }

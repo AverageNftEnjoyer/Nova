@@ -1,6 +1,7 @@
 import path from "node:path"
 import { NextResponse } from "next/server"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import {
   syncWorkspaceContextFiles,
   type WorkspaceContextSyncInput,
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}))
     const input = normalizeBody(body)
-    const workspaceRoot = path.resolve(process.cwd(), "..")
+    const workspaceRoot = resolveWorkspaceRoot()
     const result = await syncWorkspaceContextFiles(workspaceRoot, verified.user.id, input)
     return NextResponse.json({
       ok: true,

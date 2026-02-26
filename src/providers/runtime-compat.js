@@ -27,6 +27,7 @@ const USER_CONTEXT_INTEGRATIONS_ROOT = path.join(
   "user-context",
 );
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
+const USER_CONTEXT_STATE_DIR = "state";
 
 function resolveWorkspaceRoot(workspaceRootInput = "") {
   const provided = String(workspaceRootInput || "").trim();
@@ -238,11 +239,31 @@ function normalizeUserContextId(value) {
 
 function resolveIntegrationsConfigPath(userContextId) {
   const normalized = normalizeUserContextId(userContextId) || "anonymous";
-  return path.join(
+  const statePath = path.join(
+    USER_CONTEXT_INTEGRATIONS_ROOT,
+    normalized,
+    USER_CONTEXT_STATE_DIR,
+    USER_CONTEXT_INTEGRATIONS_FILE,
+  );
+  const legacyPath = path.join(
     USER_CONTEXT_INTEGRATIONS_ROOT,
     normalized,
     USER_CONTEXT_INTEGRATIONS_FILE,
   );
+  if (fs.existsSync(statePath)) return statePath;
+  if (!fs.existsSync(legacyPath)) return statePath;
+  try {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.renameSync(legacyPath, statePath);
+    return statePath;
+  } catch {
+    try {
+      fs.copyFileSync(legacyPath, statePath);
+      return statePath;
+    } catch {
+      return legacyPath;
+    }
+  }
 }
 
 function resolveProviderApiKey(provider, integrationApiKey) {

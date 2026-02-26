@@ -1,6 +1,6 @@
 import "server-only"
 
-import { mkdir, readdir, readFile, rename, writeFile, copyFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, writeFile, copyFile, stat } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 
@@ -54,6 +54,7 @@ function normalizeIntegration(value: unknown, raw?: Partial<NotificationSchedule
 }
 
 const DATA_FILE_NAME = "notification-schedules.json"
+const STATE_DIR_NAME = "state"
 const STORE_SCHEMA_VERSION = 2
 const LEGACY_DATA_DIR = path.join(process.cwd(), "data")
 const LEGACY_DATA_FILE = path.join(LEGACY_DATA_DIR, DATA_FILE_NAME)
@@ -79,7 +80,51 @@ function sanitizeUserContextId(value: unknown): string {
 }
 
 function resolveScopedDataFile(userId: string): string {
+  return path.join(resolveUserContextRoot(), userId, STATE_DIR_NAME, DATA_FILE_NAME)
+}
+
+function resolveLegacyScopedDataFile(userId: string): string {
   return path.join(resolveUserContextRoot(), userId, DATA_FILE_NAME)
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyScopedDataFileIfNeeded(userId: string): Promise<void> {
+  const target = resolveScopedDataFile(userId)
+  const legacy = resolveLegacyScopedDataFile(userId)
+  if (await fileExists(target)) return
+  if (!(await fileExists(legacy))) return
+  await mkdir(path.dirname(target), { recursive: true })
+  try {
+    await rename(legacy, target)
+  } catch {
+    try {
+      await copyFile(legacy, target)
+    } catch {
+      // Best effort migration only.
+    }
+  }
+
+  const legacyBak = `${legacy}.bak`
+  const targetBak = `${target}.bak`
+  if (await fileExists(targetBak)) return
+  if (!(await fileExists(legacyBak))) return
+  try {
+    await rename(legacyBak, targetBak)
+  } catch {
+    try {
+      await copyFile(legacyBak, targetBak)
+    } catch {
+      // Best effort migration only.
+    }
+  }
 }
 
 function defaultStorePayload(): NotificationScheduleStoreFile {
@@ -116,10 +161,17 @@ async function atomicWriteJson(filePath: string, payload: unknown): Promise<void
       }
     })
   writesByPath.set(resolved, next)
-  await next
+  try {
+    await next
+  } finally {
+    if (writesByPath.get(resolved) === next) {
+      writesByPath.delete(resolved)
+    }
+  }
 }
 
 async function ensureScopedDataFile(userId: string) {
+  await migrateLegacyScopedDataFileIfNeeded(userId)
   const dataFile = resolveScopedDataFile(userId)
   await mkdir(path.dirname(dataFile), { recursive: true })
   try {
@@ -230,10 +282,16 @@ async function listScopedUserIdsWithDataFile(): Promise<string[]> {
   const userContextRoot = resolveUserContextRoot()
   try {
     const entries = await readdir(userContextRoot, { withFileTypes: true })
-    return entries
+    const matches = await Promise.all(entries
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .filter((name) => /^[a-z0-9_-]+$/.test(name))
+      .map(async (name) => {
+        if (await fileExists(resolveScopedDataFile(name))) return name
+        if (await fileExists(resolveLegacyScopedDataFile(name))) return name
+        return ""
+      }))
+    return matches.filter(Boolean)
   } catch {
     return []
   }
@@ -347,12 +405,8 @@ export async function loadSchedules(options?: { userId?: string | null; allUsers
 
   if (options?.allUsers) {
     const userIds = await listScopedUserIdsWithDataFile()
-    const all: NotificationSchedule[] = []
-    for (const userId of userIds) {
-      const scoped = await loadScopedUserSchedules(userId)
-      all.push(...scoped)
-    }
-    return all
+    const grouped = await Promise.all(userIds.map(async (userId) => loadScopedUserSchedules(userId)))
+    return grouped.flat()
   }
 
   const userId = sanitizeUserContextId(options?.userId || "")
@@ -381,10 +435,12 @@ export async function saveSchedules(
     const touched = new Set<string>(existingUserIds)
     for (const userId of byUser.keys()) touched.add(userId)
 
-    for (const userId of touched) {
-      const next = byUser.get(userId) || []
-      await saveScopedUserSchedules(userId, next)
-    }
+    await Promise.all(
+      [...touched].map(async (userId) => {
+        const next = byUser.get(userId) || []
+        await saveScopedUserSchedules(userId, next)
+      }),
+    )
     return
   }
   const userId = sanitizeUserContextId(options?.userId || "")

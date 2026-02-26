@@ -7,17 +7,20 @@ function hasWorkspaceMarkers(dir: string): boolean {
   return fs.existsSync(path.join(dir, "hud")) && fs.existsSync(path.join(dir, "src"))
 }
 
+function findWorkspaceRoot(startDir: string): string {
+  let cursor = path.resolve(startDir)
+  for (;;) {
+    if (hasWorkspaceMarkers(cursor)) return cursor
+    const parent = path.dirname(cursor)
+    if (parent === cursor) return startDir
+    cursor = parent
+  }
+}
+
 export function resolveWorkspaceRoot(workspaceRootInput?: string): string {
   const provided = String(workspaceRootInput || "").trim()
-  if (provided) return path.resolve(provided)
+  if (provided) return findWorkspaceRoot(path.resolve(provided))
 
   const cwd = path.resolve(process.cwd())
-  if (hasWorkspaceMarkers(cwd)) return cwd
-
-  if (path.basename(cwd).toLowerCase() === "hud") return path.resolve(cwd, "..")
-
-  const parent = path.resolve(cwd, "..")
-  if (hasWorkspaceMarkers(parent)) return parent
-
-  return cwd
+  return findWorkspaceRoot(cwd)
 }

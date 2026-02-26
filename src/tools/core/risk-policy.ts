@@ -26,6 +26,7 @@ const ELEVATED_TOOL_NAMES = new Set([
   "write",
   "edit",
   "exec",
+  "browser_agent",
   "gmail_forward_message",
   "gmail_reply_draft",
 ]);
@@ -78,6 +79,21 @@ function combineAllowlists(
   return next;
 }
 
+function toolNameMatchesRule(toolName: string, rule: string): boolean {
+  if (!rule) return false;
+  if (rule === "*") return true;
+  if (rule.endsWith("*")) return toolName.startsWith(rule.slice(0, -1));
+  return toolName === rule;
+}
+
+function allowlistIncludesTool(allowlist: Set<string>, toolName: string): boolean {
+  if (allowlist.size === 0) return false;
+  for (const rule of allowlist) {
+    if (toolNameMatchesRule(toolName, rule)) return true;
+  }
+  return false;
+}
+
 export function classifyToolRisk(toolName: string, explicitRisk?: ToolRiskLevel): ToolRiskLevel {
   if (explicitRisk === "safe" || explicitRisk === "elevated" || explicitRisk === "dangerous") {
     return explicitRisk;
@@ -120,7 +136,7 @@ export function evaluateToolPolicy(params: {
   }
 
   if (risk === "elevated") {
-    if (allowElevatedTools || elevatedAllowlist.has(toolName)) {
+    if (allowElevatedTools || allowlistIncludesTool(elevatedAllowlist, toolName)) {
       return { allowed: true, reason: "elevated-allowed", risk };
     }
     return {
@@ -131,7 +147,7 @@ export function evaluateToolPolicy(params: {
     };
   }
 
-  if (allowDangerousTools || dangerousAllowlist.has(toolName)) {
+  if (allowDangerousTools || allowlistIncludesTool(dangerousAllowlist, toolName)) {
     return { allowed: true, reason: "dangerous-allowed", risk };
   }
 

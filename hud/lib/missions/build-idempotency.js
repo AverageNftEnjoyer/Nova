@@ -1,11 +1,12 @@
 import crypto from "node:crypto"
 import path from "node:path"
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises"
+import { mkdir, readFile, unlink, writeFile, rename, copyFile, stat } from "node:fs/promises"
 
 const PENDING_TTL_MS = 120000
 const RESULT_TTL_MS = 5 * 60 * 1000
 const DATA_FILE_NAME = "mission-build-idempotency.json"
 const LOCK_FILE_NAME = "mission-build-idempotency.lock"
+const STATE_DIR_NAME = "state"
 
 function sanitizeScopePart(value) {
   return String(value || "")
@@ -46,14 +47,67 @@ function resolveUserContextRoot() {
 }
 
 function resolveScopedDataFile(userContextId) {
-  return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), DATA_FILE_NAME)
+  return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), STATE_DIR_NAME, DATA_FILE_NAME)
 }
 
 function resolveScopedLockFile(userContextId) {
+  return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), STATE_DIR_NAME, LOCK_FILE_NAME)
+}
+
+function resolveLegacyScopedDataFile(userContextId) {
+  return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), DATA_FILE_NAME)
+}
+
+function resolveLegacyScopedLockFile(userContextId) {
   return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), LOCK_FILE_NAME)
 }
 
+async function fileExists(filePath) {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyScopedFilesIfNeeded(userContextId) {
+  const scopedUserId = sanitizeScopePart(userContextId)
+  if (!scopedUserId) return
+
+  const targetDataFile = resolveScopedDataFile(scopedUserId)
+  const legacyDataFile = resolveLegacyScopedDataFile(scopedUserId)
+  if (!(await fileExists(targetDataFile)) && (await fileExists(legacyDataFile))) {
+    await mkdir(path.dirname(targetDataFile), { recursive: true })
+    try {
+      await rename(legacyDataFile, targetDataFile)
+    } catch {
+      try {
+        await copyFile(legacyDataFile, targetDataFile)
+      } catch {
+        // Best effort migration.
+      }
+    }
+  }
+
+  const targetLockFile = resolveScopedLockFile(scopedUserId)
+  const legacyLockFile = resolveLegacyScopedLockFile(scopedUserId)
+  if (!(await fileExists(targetLockFile)) && (await fileExists(legacyLockFile))) {
+    await mkdir(path.dirname(targetLockFile), { recursive: true })
+    try {
+      await rename(legacyLockFile, targetLockFile)
+    } catch {
+      try {
+        await copyFile(legacyLockFile, targetLockFile)
+      } catch {
+        // Best effort migration.
+      }
+    }
+  }
+}
+
 async function ensureDataFile(userContextId) {
+  await migrateLegacyScopedFilesIfNeeded(userContextId)
   const file = resolveScopedDataFile(userContextId)
   await mkdir(path.dirname(file), { recursive: true })
   try {

@@ -30,17 +30,18 @@ const schedulerSource = read("hud/lib/notifications/scheduler.ts");
 const runLogSource = read("hud/lib/notifications/run-log.ts");
 const runMetricsSource = read("hud/lib/notifications/run-metrics.ts");
 
-await run("P19-C1 scheduler computes per-run idempotency keys", async () => {
-  assert.equal(schedulerSource.includes("buildScheduleRunKey"), true);
-  assert.equal(schedulerSource.includes("runKey"), true);
-  assert.equal(schedulerSource.includes("getRunKeyHistory"), true);
+await run("P19-C1 scheduler enforces day-lock guard for daily-like triggers", async () => {
+  assert.equal(schedulerSource.includes("getLocalParts"), true);
+  assert.equal(schedulerSource.includes("nativeDayStamp"), true);
+  assert.equal(schedulerSource.includes("liveMission.lastSentLocalDate === nativeDayStamp"), true);
 });
 
-await run("P19-C2 scheduler applies retry backoff and max retry gate", async () => {
+await run("P19-C2 scheduler applies mission-level retry backoff and max retry gate", async () => {
   assert.equal(schedulerSource.includes("SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
   assert.equal(schedulerSource.includes("SCHEDULER_RETRY_BASE_MS"), true);
   assert.equal(schedulerSource.includes("computeRetryDelayMs"), true);
-  assert.equal(schedulerSource.includes("runHistory.latestStatus === \"error\""), true);
+  assert.equal(schedulerSource.includes("liveMission.lastRunStatus === \"error\""), true);
+  assert.equal(schedulerSource.includes("consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
 });
 
 await run("P19-C3 run log stores and summarizes runKey attempts", async () => {

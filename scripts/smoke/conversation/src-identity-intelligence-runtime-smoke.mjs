@@ -149,6 +149,7 @@ await run("Runtime chat turn keeps stable scoped session and logs identity promp
     ".agent",
     "user-context",
     userContextId,
+    "state",
     "sessions.json",
   );
   const sessions = JSON.parse(await fsp.readFile(sessionsPath, "utf8"));

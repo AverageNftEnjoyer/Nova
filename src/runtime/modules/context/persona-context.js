@@ -95,8 +95,7 @@ export function logUpgradeIndexSummary() {
 
 // ===== Preflight diagnostics =====
 function readIntegrationsConfigSnapshot(userContextId = "") {
-  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
-  const filePath = path.join(USER_CONTEXT_ROOT, normalized, "integrations-config.json");
+  const filePath = resolveScopedIntegrationsConfigPath(userContextId);
   if (!fs.existsSync(filePath)) return { exists: false, parsed: null, parseError: null, filePath };
   try {
     const raw = fs.readFileSync(filePath, "utf8");
@@ -125,7 +124,11 @@ function listScopedIntegrationContextIds() {
     return entries
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
-      .filter((id) => fs.existsSync(path.join(USER_CONTEXT_ROOT, id, "integrations-config.json")));
+      .filter((id) => {
+        const statePath = path.join(USER_CONTEXT_ROOT, id, "state", "integrations-config.json");
+        const legacyPath = path.join(USER_CONTEXT_ROOT, id, "integrations-config.json");
+        return fs.existsSync(statePath) || fs.existsSync(legacyPath);
+      });
   } catch {
     return [];
   }
@@ -208,7 +211,22 @@ const _integrationWatcherKeys = new Set();
 
 function resolveScopedIntegrationsConfigPath(userContextId = "") {
   const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
-  return path.join(USER_CONTEXT_ROOT, normalized, "integrations-config.json");
+  const statePath = path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
+  const legacyPath = path.join(USER_CONTEXT_ROOT, normalized, "integrations-config.json");
+  if (fs.existsSync(statePath)) return statePath;
+  if (!fs.existsSync(legacyPath)) return statePath;
+  try {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.renameSync(legacyPath, statePath);
+    return statePath;
+  } catch {
+    try {
+      fs.copyFileSync(legacyPath, statePath);
+      return statePath;
+    } catch {
+      return legacyPath;
+    }
+  }
 }
 
 function ensureIntegrationsFileWatcher(userContextId = "") {

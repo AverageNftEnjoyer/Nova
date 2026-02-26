@@ -204,7 +204,8 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
   const transcriptPatterns = compileTranscriptPatterns(sessionConversationIds, sessionKeyLookup);
 
   const userContextDir = path.join(workspaceRoot, ".agent", "user-context", userContextId);
-  const sessionStorePath = path.join(userContextDir, "sessions.json");
+  const sessionStorePath = path.join(userContextDir, "state", "sessions.json");
+  const legacyScopedSessionStorePath = path.join(userContextDir, "sessions.json");
   const legacySessionStorePath = path.join(workspaceRoot, ".agent", "sessions.json");
   const scopedTranscriptDir = path.join(userContextDir, "transcripts");
   const legacyTranscriptDir = path.join(workspaceRoot, ".agent", "transcripts");
@@ -220,6 +221,14 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
   );
   removedSessionEntries += scopedSessionPrune.removedSessionEntries;
   for (const sessionId of scopedSessionPrune.sessionIds) sessionIds.add(sessionId);
+
+  const legacyScopedSessionPrune = await pruneSessionStoreByConversationKeys(
+    legacyScopedSessionStorePath,
+    sessionConversationIds,
+    sessionKeyLookup,
+  );
+  removedSessionEntries += legacyScopedSessionPrune.removedSessionEntries;
+  for (const sessionId of legacyScopedSessionPrune.sessionIds) sessionIds.add(sessionId);
 
   const legacySessionPrune = await pruneSessionStoreByConversationKeys(
     legacySessionStorePath,

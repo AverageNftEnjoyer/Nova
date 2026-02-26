@@ -53,7 +53,8 @@ function resolveSmokeUserContextId() {
   if (candidates.length === 1) return candidates[0];
   if (candidates.includes("smoke-user-ctx")) return "smoke-user-ctx";
   const withIntegrationsConfig = candidates.filter((name) =>
-    fs.existsSync(path.join(root, name, "integrations-config.json")));
+    fs.existsSync(path.join(root, name, "state", "integrations-config.json"))
+    || fs.existsSync(path.join(root, name, "integrations-config.json")));
   if (withIntegrationsConfig.length > 0) return withIntegrationsConfig[0];
   if (candidates.length > 0) return candidates[0];
   return "";
@@ -372,8 +373,8 @@ await run("Session/account isolation keeps per-key transcripts separated", async
   assert.notEqual(a.sessionKey, b.sessionKey);
   assert.notEqual(a.sessionEntry.sessionId, b.sessionEntry.sessionId);
   assert.equal(runtime.resolveUserContextId({ source: "hud", sender: "hud-user:user-a" }), "user-a");
-  const aSessionStorePath = path.join(tmpRoot, "user-context", "user-a", "sessions.json");
-  const bSessionStorePath = path.join(tmpRoot, "user-context", "user-b", "sessions.json");
+  const aSessionStorePath = path.join(tmpRoot, "user-context", "user-a", "state", "sessions.json");
+  const bSessionStorePath = path.join(tmpRoot, "user-context", "user-b", "state", "sessions.json");
   const legacySessionStorePath = path.join(tmpRoot, "sessions.json");
   const aStore = JSON.parse(await fsp.readFile(aSessionStorePath, "utf8"));
   const bStore = JSON.parse(await fsp.readFile(bSessionStorePath, "utf8"));

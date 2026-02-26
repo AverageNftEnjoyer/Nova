@@ -4,6 +4,29 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function readIntEnv(name, fallback, { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number.parseInt(String(process.env[name] || "").trim(), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function readFloatEnv(name, fallback, { min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY } = {}) {
+  const parsed = Number.parseFloat(String(process.env[name] || "").trim());
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function readCsvEnv(name, fallbackCsv = "") {
+  return String(process.env[name] || fallbackCsv)
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function readLowerCsvEnv(name, fallbackCsv = "") {
+  return readCsvEnv(name, fallbackCsv).map((value) => value.toLowerCase());
+}
+
 // ===== Base Paths =====
 export const ROOT_DIR = path.join(__dirname, "..");
 export const ROOT_WORKSPACE_DIR = path.join(__dirname, "..", "..", "..");
@@ -25,20 +48,16 @@ export const OPENAI_FALLBACK_MODEL = String(process.env.NOVA_OPENAI_FALLBACK_MOD
 // ===== Tool Loop Config =====
 export const TOOL_LOOP_ENABLED = String(process.env.NOVA_TOOL_LOOP_ENABLED || "1").trim() === "1";
 export const MEMORY_LOOP_ENABLED = String(process.env.NOVA_MEMORY_ENABLED || "1").trim() === "1";
-export const TOOL_LOOP_MAX_STEPS = Number.parseInt(process.env.NOVA_TOOL_LOOP_MAX_STEPS || "6", 10);
-export const TOOL_REGISTRY_ENABLED_TOOLS = String(
+export const TOOL_LOOP_MAX_STEPS = readIntEnv("NOVA_TOOL_LOOP_MAX_STEPS", 6, { min: 1, max: 32 });
+export const TOOL_REGISTRY_ENABLED_TOOLS = readCsvEnv(
+  "NOVA_ENABLED_TOOLS",
   process.env.NOVA_ENABLED_TOOLS ||
-    "read,write,edit,ls,grep,exec,web_search,web_fetch,memory_search,memory_get,coinbase_capabilities,coinbase_spot_price,coinbase_portfolio_snapshot,coinbase_recent_transactions,coinbase_portfolio_report,gmail_capabilities,gmail_list_accounts,gmail_scope_check,gmail_list_messages,gmail_get_message,gmail_daily_summary,gmail_classify_importance,gmail_forward_message,gmail_reply_draft",
-)
-  .split(",")
-  .map((t) => t.trim())
-  .filter(Boolean);
-export const TOOL_SAFE_BINARIES = String(
-  process.env.NOVA_SAFE_BINARIES || "ls,cat,head,tail,grep,find,wc,sort,echo,pwd",
-)
-  .split(",")
-  .map((t) => t.trim())
-  .filter(Boolean);
+    "read,write,edit,ls,grep,exec,browser_agent,web_search,web_fetch,memory_search,memory_get,coinbase_capabilities,coinbase_spot_price,coinbase_portfolio_snapshot,coinbase_recent_transactions,coinbase_portfolio_report,gmail_capabilities,gmail_list_accounts,gmail_scope_check,gmail_list_messages,gmail_get_message,gmail_daily_summary,gmail_classify_importance,gmail_forward_message,gmail_reply_draft",
+);
+export const TOOL_SAFE_BINARIES = readCsvEnv(
+  "NOVA_SAFE_BINARIES",
+  "ls,cat,head,tail,grep,find,wc,sort,echo,pwd",
+);
 export const TOOL_EXEC_APPROVAL_MODE = ["ask", "auto", "off"].includes(
   String(process.env.NOVA_EXEC_APPROVAL_MODE || "ask").trim().toLowerCase(),
 )
@@ -48,32 +67,12 @@ export const TOOL_ALLOW_ELEVATED =
   String(process.env.NOVA_TOOL_ALLOW_ELEVATED || "1").trim() !== "0";
 export const TOOL_ALLOW_DANGEROUS =
   String(process.env.NOVA_TOOL_ALLOW_DANGEROUS || "0").trim() === "1";
-export const TOOL_ELEVATED_ALLOWLIST = String(
-  process.env.NOVA_TOOL_ELEVATED_ALLOWLIST || "",
-)
-  .split(",")
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
-export const TOOL_DANGEROUS_ALLOWLIST = String(
-  process.env.NOVA_TOOL_DANGEROUS_ALLOWLIST || "",
-)
-  .split(",")
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
+export const TOOL_ELEVATED_ALLOWLIST = readLowerCsvEnv("NOVA_TOOL_ELEVATED_ALLOWLIST");
+export const TOOL_DANGEROUS_ALLOWLIST = readLowerCsvEnv("NOVA_TOOL_DANGEROUS_ALLOWLIST");
 export const TOOL_CAPABILITY_ENFORCE =
   String(process.env.NOVA_TOOL_CAPABILITY_ENFORCE || "0").trim() === "1";
-export const TOOL_CAPABILITY_ALLOWLIST = String(
-  process.env.NOVA_TOOL_CAPABILITY_ALLOWLIST || "",
-)
-  .split(",")
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
-export const TOOL_CAPABILITY_DENYLIST = String(
-  process.env.NOVA_TOOL_CAPABILITY_DENYLIST || "",
-)
-  .split(",")
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
+export const TOOL_CAPABILITY_ALLOWLIST = readLowerCsvEnv("NOVA_TOOL_CAPABILITY_ALLOWLIST");
+export const TOOL_CAPABILITY_DENYLIST = readLowerCsvEnv("NOVA_TOOL_CAPABILITY_DENYLIST");
 export const TOOL_WEB_SEARCH_PROVIDER = "brave";
 
 // ===== Memory Paths =====
@@ -83,68 +82,38 @@ export const MEMORY_SOURCE_DIR = path.join(ROOT_WORKSPACE_DIR, "memory");
 // ===== Session Config =====
 export const SESSION_STORE_PATH = path.join(ROOT_WORKSPACE_DIR, ".agent", "sessions.json");
 export const SESSION_TRANSCRIPT_DIR = path.join(ROOT_WORKSPACE_DIR, ".agent", "transcripts");
-export const SESSION_MAX_TURNS = Number.parseInt(process.env.NOVA_SESSION_MAX_TURNS || "20", 10);
-export const SESSION_IDLE_MINUTES = Number.parseInt(process.env.NOVA_SESSION_IDLE_MINUTES || "120", 10);
+export const SESSION_MAX_TURNS = readIntEnv("NOVA_SESSION_MAX_TURNS", 20, { min: 1, max: 1000 });
+export const SESSION_IDLE_MINUTES = readIntEnv("NOVA_SESSION_IDLE_MINUTES", 120, { min: 1, max: 10_080 });
 export const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "main").trim() || "main";
 
 // ===== Request Timeouts =====
 export const OPENAI_REQUEST_TIMEOUT_MS = 45000;
-const parsedToolLoopRequestTimeoutMs = Number.parseInt(
-  process.env.NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS || "14000",
-  10,
-);
 export const TOOL_LOOP_REQUEST_TIMEOUT_MS =
-  Number.isFinite(parsedToolLoopRequestTimeoutMs) && parsedToolLoopRequestTimeoutMs >= 3000
-    ? Math.min(parsedToolLoopRequestTimeoutMs, OPENAI_REQUEST_TIMEOUT_MS)
-    : Math.min(14000, OPENAI_REQUEST_TIMEOUT_MS);
-const parsedToolLoopMaxDurationMs = Number.parseInt(
-  process.env.NOVA_TOOL_LOOP_MAX_DURATION_MS || "32000",
-  10,
-);
+  readIntEnv("NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS", 14000, { min: 3000, max: OPENAI_REQUEST_TIMEOUT_MS });
 export const TOOL_LOOP_MAX_DURATION_MS =
-  Number.isFinite(parsedToolLoopMaxDurationMs) && parsedToolLoopMaxDurationMs >= 5000
-    ? Math.min(parsedToolLoopMaxDurationMs, OPENAI_REQUEST_TIMEOUT_MS)
-    : Math.min(32000, OPENAI_REQUEST_TIMEOUT_MS);
-const parsedToolLoopToolExecTimeoutMs = Number.parseInt(
-  process.env.NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS || "8000",
-  10,
-);
+  readIntEnv("NOVA_TOOL_LOOP_MAX_DURATION_MS", 32000, { min: 5000, max: OPENAI_REQUEST_TIMEOUT_MS });
 export const TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS =
-  Number.isFinite(parsedToolLoopToolExecTimeoutMs) && parsedToolLoopToolExecTimeoutMs >= 1000
-    ? Math.min(parsedToolLoopToolExecTimeoutMs, TOOL_LOOP_MAX_DURATION_MS)
-    : Math.min(8000, TOOL_LOOP_MAX_DURATION_MS);
-const parsedToolLoopRecoveryTimeoutMs = Number.parseInt(
-  process.env.NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS || "6000",
-  10,
-);
+  readIntEnv("NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS", 8000, { min: 1000, max: TOOL_LOOP_MAX_DURATION_MS });
 export const TOOL_LOOP_RECOVERY_TIMEOUT_MS =
-  Number.isFinite(parsedToolLoopRecoveryTimeoutMs) && parsedToolLoopRecoveryTimeoutMs >= 1000
-    ? Math.min(parsedToolLoopRecoveryTimeoutMs, TOOL_LOOP_MAX_DURATION_MS)
-    : Math.min(6000, TOOL_LOOP_MAX_DURATION_MS);
-const parsedToolLoopMaxToolCallsPerStep = Number.parseInt(
-  process.env.NOVA_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP || "6",
-  10,
+  readIntEnv("NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS", 6000, { min: 1000, max: TOOL_LOOP_MAX_DURATION_MS });
+export const TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP = readIntEnv(
+  "NOVA_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP",
+  6,
+  { min: 1, max: 20 },
 );
-export const TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP =
-  Number.isFinite(parsedToolLoopMaxToolCallsPerStep) && parsedToolLoopMaxToolCallsPerStep >= 1
-    ? Math.min(parsedToolLoopMaxToolCallsPerStep, 20)
-    : 6;
 
 // ===== Voice/Mic Config =====
-export const MIC_RECORD_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RECORD_SECONDS || "4");
-export const MIC_RETRY_SECONDS = Number.parseFloat(process.env.NOVA_MIC_RETRY_SECONDS || "2");
-export const MIC_IDLE_DELAY_MS = Number.parseInt(process.env.NOVA_MIC_IDLE_DELAY_MS || "250", 10);
-export const VOICE_WAKE_COOLDOWN_MS = Number.parseInt(process.env.NOVA_WAKE_COOLDOWN_MS || "1800", 10);
-export const VOICE_POST_RESPONSE_GRACE_MS = Number.parseInt(process.env.NOVA_POST_RESPONSE_GRACE_MS || "900", 10);
-export const VOICE_DUPLICATE_TEXT_COOLDOWN_MS = Number.parseInt(process.env.NOVA_DUPLICATE_TEXT_COOLDOWN_MS || "12000", 10);
-export const VOICE_DUPLICATE_COMMAND_COOLDOWN_MS = Number.parseInt(process.env.NOVA_DUPLICATE_COMMAND_COOLDOWN_MS || "120000", 10);
-export const VOICE_AFTER_WAKE_SUPPRESS_MS = Number.parseInt(process.env.NOVA_AFTER_WAKE_SUPPRESS_MS || "2500", 10);
-export const VOICE_AFTER_TTS_SUPPRESS_MS = Number.parseInt(process.env.NOVA_AFTER_TTS_SUPPRESS_MS || "7000", 10);
-export const WAKE_WORD = String(process.env.NOVA_WAKE_WORD || "nova").toLowerCase();
-export const WAKE_WORD_VARIANTS = (process.env.NOVA_WAKE_WORD_VARIANTS || "nova")
-  .split(",")
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
+export const MIC_RECORD_SECONDS = readFloatEnv("NOVA_MIC_RECORD_SECONDS", 4, { min: 0.5, max: 120 });
+export const MIC_RETRY_SECONDS = readFloatEnv("NOVA_MIC_RETRY_SECONDS", 2, { min: 0.1, max: 30 });
+export const MIC_IDLE_DELAY_MS = readIntEnv("NOVA_MIC_IDLE_DELAY_MS", 250, { min: 0, max: 60_000 });
+export const VOICE_WAKE_COOLDOWN_MS = readIntEnv("NOVA_WAKE_COOLDOWN_MS", 1800, { min: 0, max: 600_000 });
+export const VOICE_POST_RESPONSE_GRACE_MS = readIntEnv("NOVA_POST_RESPONSE_GRACE_MS", 900, { min: 0, max: 600_000 });
+export const VOICE_DUPLICATE_TEXT_COOLDOWN_MS = readIntEnv("NOVA_DUPLICATE_TEXT_COOLDOWN_MS", 12000, { min: 0, max: 3_600_000 });
+export const VOICE_DUPLICATE_COMMAND_COOLDOWN_MS = readIntEnv("NOVA_DUPLICATE_COMMAND_COOLDOWN_MS", 120000, { min: 0, max: 3_600_000 });
+export const VOICE_AFTER_WAKE_SUPPRESS_MS = readIntEnv("NOVA_AFTER_WAKE_SUPPRESS_MS", 2500, { min: 0, max: 600_000 });
+export const VOICE_AFTER_TTS_SUPPRESS_MS = readIntEnv("NOVA_AFTER_TTS_SUPPRESS_MS", 7000, { min: 0, max: 600_000 });
+export const WAKE_WORD = String(process.env.NOVA_WAKE_WORD || "nova").trim().toLowerCase();
+export const WAKE_WORD_VARIANTS = readLowerCsvEnv("NOVA_WAKE_WORD_VARIANTS", "nova");
 
 // ===== Prompt Mode =====
 export const AGENT_PROMPT_MODE = String(process.env.NOVA_PROMPT_MODE || "full").trim().toLowerCase();
@@ -169,63 +138,43 @@ export const ROUTING_PREFERENCE = (() => {
 })();
 export const ROUTING_ALLOW_ACTIVE_OVERRIDE =
   String(process.env.NOVA_ROUTING_ALLOW_ACTIVE_OVERRIDE || "0").trim() === "1";
-export const ROUTING_PREFERRED_PROVIDERS = String(
-  process.env.NOVA_ROUTING_PREFERRED_PROVIDERS || "",
-)
-  .split(",")
-  .map((value) => value.trim().toLowerCase())
+export const ROUTING_PREFERRED_PROVIDERS = readLowerCsvEnv("NOVA_ROUTING_PREFERRED_PROVIDERS")
   .filter((value) => value === "openai" || value === "claude" || value === "grok" || value === "gemini");
 
 // ===== Token Limits =====
 const DEFAULT_MAX_PROMPT_TOKENS = 6000;
-const parsedMaxPromptTokens = Number.parseInt(
-  process.env.NOVA_MAX_PROMPT_TOKENS || String(DEFAULT_MAX_PROMPT_TOKENS),
-  10,
-);
-export const MAX_PROMPT_TOKENS =
-  Number.isFinite(parsedMaxPromptTokens) && parsedMaxPromptTokens > 0
-    ? parsedMaxPromptTokens
-    : DEFAULT_MAX_PROMPT_TOKENS;
+export const MAX_PROMPT_TOKENS = readIntEnv("NOVA_MAX_PROMPT_TOKENS", DEFAULT_MAX_PROMPT_TOKENS, {
+  min: 1,
+  max: 1_000_000,
+});
 
 const DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS = 1400;
-const parsedPromptResponseReserveTokens = Number.parseInt(
-  process.env.NOVA_PROMPT_RESPONSE_RESERVE_TOKENS || String(DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS),
-  10,
+export const PROMPT_RESPONSE_RESERVE_TOKENS = readIntEnv(
+  "NOVA_PROMPT_RESPONSE_RESERVE_TOKENS",
+  DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS,
+  { min: 1, max: 1_000_000 },
 );
-export const PROMPT_RESPONSE_RESERVE_TOKENS =
-  Number.isFinite(parsedPromptResponseReserveTokens) && parsedPromptResponseReserveTokens > 0
-    ? parsedPromptResponseReserveTokens
-    : DEFAULT_PROMPT_RESPONSE_RESERVE_TOKENS;
 
 const DEFAULT_PROMPT_HISTORY_TARGET_TOKENS = 1400;
-const parsedPromptHistoryTargetTokens = Number.parseInt(
-  process.env.NOVA_PROMPT_HISTORY_TARGET_TOKENS || String(DEFAULT_PROMPT_HISTORY_TARGET_TOKENS),
-  10,
+export const PROMPT_HISTORY_TARGET_TOKENS = readIntEnv(
+  "NOVA_PROMPT_HISTORY_TARGET_TOKENS",
+  DEFAULT_PROMPT_HISTORY_TARGET_TOKENS,
+  { min: 1, max: 1_000_000 },
 );
-export const PROMPT_HISTORY_TARGET_TOKENS =
-  Number.isFinite(parsedPromptHistoryTargetTokens) && parsedPromptHistoryTargetTokens > 0
-    ? parsedPromptHistoryTargetTokens
-    : DEFAULT_PROMPT_HISTORY_TARGET_TOKENS;
 
 const DEFAULT_PROMPT_MIN_HISTORY_TOKENS = 220;
-const parsedPromptMinHistoryTokens = Number.parseInt(
-  process.env.NOVA_PROMPT_MIN_HISTORY_TOKENS || String(DEFAULT_PROMPT_MIN_HISTORY_TOKENS),
-  10,
+export const PROMPT_MIN_HISTORY_TOKENS = readIntEnv(
+  "NOVA_PROMPT_MIN_HISTORY_TOKENS",
+  DEFAULT_PROMPT_MIN_HISTORY_TOKENS,
+  { min: 0, max: 1_000_000 },
 );
-export const PROMPT_MIN_HISTORY_TOKENS =
-  Number.isFinite(parsedPromptMinHistoryTokens) && parsedPromptMinHistoryTokens >= 0
-    ? parsedPromptMinHistoryTokens
-    : DEFAULT_PROMPT_MIN_HISTORY_TOKENS;
 
 const DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS = 1000;
-const parsedPromptContextSectionMaxTokens = Number.parseInt(
-  process.env.NOVA_PROMPT_CONTEXT_SECTION_MAX_TOKENS || String(DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS),
-  10,
+export const PROMPT_CONTEXT_SECTION_MAX_TOKENS = readIntEnv(
+  "NOVA_PROMPT_CONTEXT_SECTION_MAX_TOKENS",
+  DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+  { min: 1, max: 1_000_000 },
 );
-export const PROMPT_CONTEXT_SECTION_MAX_TOKENS =
-  Number.isFinite(parsedPromptContextSectionMaxTokens) && parsedPromptContextSectionMaxTokens > 0
-    ? parsedPromptContextSectionMaxTokens
-    : DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS;
 
 export const PROMPT_BUDGET_DEBUG =
   String(process.env.NOVA_PROMPT_BUDGET_DEBUG || "").trim() === "1";
@@ -265,42 +214,43 @@ export const COMMAND_ACKS = [
 ];
 
 // ===== Session (extended) =====
-export const SESSION_MAX_HISTORY_TOKENS = Number.parseInt(
-  process.env.NOVA_SESSION_MAX_HISTORY_TOKENS || "3200",
-  10,
-);
+export const SESSION_MAX_HISTORY_TOKENS = readIntEnv("NOVA_SESSION_MAX_HISTORY_TOKENS", 3200, {
+  min: 1,
+  max: 1_000_000,
+});
 export const SESSION_TRANSCRIPTS_ENABLED =
   String(process.env.NOVA_SESSION_TRANSCRIPTS_ENABLED || "1").trim() !== "0";
-export const SESSION_MAX_TRANSCRIPT_LINES = Number.parseInt(
-  process.env.NOVA_SESSION_MAX_TRANSCRIPT_LINES || "400",
-  10,
-);
-export const SESSION_TRANSCRIPT_RETENTION_DAYS = Number.parseInt(
-  process.env.NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS || "30",
-  10,
-);
+export const SESSION_MAX_TRANSCRIPT_LINES = readIntEnv("NOVA_SESSION_MAX_TRANSCRIPT_LINES", 400, {
+  min: 1,
+  max: 1_000_000,
+});
+export const SESSION_TRANSCRIPT_RETENTION_DAYS = readIntEnv("NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS", 30, {
+  min: 1,
+  max: 3650,
+});
 
 // ===== LLM Token Limits =====
-export const CLAUDE_CHAT_MAX_TOKENS = Number.parseInt(
-  process.env.NOVA_CLAUDE_CHAT_MAX_TOKENS || "1200",
-  10,
-);
-export const SPOTIFY_INTENT_MAX_TOKENS = Number.parseInt(
-  process.env.NOVA_SPOTIFY_INTENT_MAX_TOKENS || "480",
-  10,
-);
-export const OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS = Number.parseInt(
-  process.env.NOVA_OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS ||
-    process.env.NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS ||
-    "2048",
-  10,
-);
+export const CLAUDE_CHAT_MAX_TOKENS = readIntEnv("NOVA_CLAUDE_CHAT_MAX_TOKENS", 1200, {
+  min: 1,
+  max: 1_000_000,
+});
+export const SPOTIFY_INTENT_MAX_TOKENS = readIntEnv("NOVA_SPOTIFY_INTENT_MAX_TOKENS", 480, {
+  min: 1,
+  max: 1_000_000,
+});
+export const OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS = (() => {
+  const preferred = String(process.env.NOVA_OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS || "").trim();
+  const legacy = String(process.env.NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS || "").trim();
+  const selected = preferred || legacy || "2048";
+  const parsed = Number.parseInt(selected, 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 1_000_000) : 2048;
+})();
 
 // ===== Memory =====
-export const MEMORY_FACT_MAX_CHARS = Number.parseInt(
-  process.env.NOVA_MEMORY_FACT_MAX_CHARS || "280",
-  10,
-);
+export const MEMORY_FACT_MAX_CHARS = readIntEnv("NOVA_MEMORY_FACT_MAX_CHARS", 280, {
+  min: 1,
+  max: 100_000,
+});
 
 // ===== STT Model (Bug Fix: was hardcoded to gpt-4o-transcribe) =====
 export const STT_MODEL = String(process.env.NOVA_STT_MODEL || "whisper-1").trim();
@@ -322,10 +272,10 @@ export const STARTER_SKILLS = [
 ];
 export const STARTER_SKILL_META_FILE = ".meta.json";
 export const STARTER_SKILL_NAMES = new Set(STARTER_SKILLS.map((s) => String(s.name || "").trim()));
-export const SKILL_DISCOVERY_CACHE_TTL_MS = Number.parseInt(
-  process.env.NOVA_SKILL_DISCOVERY_CACHE_TTL_MS || "15000",
-  10,
-);
+export const SKILL_DISCOVERY_CACHE_TTL_MS = readIntEnv("NOVA_SKILL_DISCOVERY_CACHE_TTL_MS", 15000, {
+  min: 0,
+  max: 3_600_000,
+});
 
 // ===== Upgrade Module Index =====
 export const UPGRADE_MODULE_INDEX = [

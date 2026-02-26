@@ -1,6 +1,6 @@
 import "server-only"
 
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename, writeFile, stat, copyFile, rm, unlink } from "node:fs/promises"
 import path from "node:path"
 import crypto from "node:crypto"
 
@@ -47,6 +47,9 @@ const MAX_FILES_SCANNED = 8
 const MAX_ENTRIES_RETURNED = 8
 const MAX_CONTEXT_CHARS_DEFAULT = 12_000
 const PRUNE_MAX_FILES = 24
+const STATE_DIR_NAME = "state"
+const MISSIONS_DIR_NAME = "missions"
+const ARTIFACTS_DIR_NAME = "coinbase-artifacts"
 
 function sanitizeUserContextId(value: unknown): string {
   const normalized = String(value || "")
@@ -73,14 +76,108 @@ function resolveWorkspaceRoot(): string {
 }
 
 function resolveArtifactDir(userContextId: string): string {
+  const scopedUserId = sanitizeUserContextId(userContextId)
   return path.join(
     resolveWorkspaceRoot(),
     ".agent",
     "user-context",
-    sanitizeUserContextId(userContextId),
-    "missions",
-    "coinbase-artifacts",
+    scopedUserId,
+    STATE_DIR_NAME,
+    MISSIONS_DIR_NAME,
+    ARTIFACTS_DIR_NAME,
   )
+}
+
+function resolveLegacyArtifactDir(userContextId: string): string {
+  const scopedUserId = sanitizeUserContextId(userContextId)
+  return path.join(
+    resolveWorkspaceRoot(),
+    ".agent",
+    "user-context",
+    scopedUserId,
+    MISSIONS_DIR_NAME,
+    ARTIFACTS_DIR_NAME,
+  )
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyArtifactDirIfNeeded(userContextId: string): Promise<void> {
+  const scopedUserId = sanitizeUserContextId(userContextId)
+  if (!scopedUserId) return
+  const targetDir = resolveArtifactDir(scopedUserId)
+  const legacyDir = resolveLegacyArtifactDir(scopedUserId)
+  if (!(await fileExists(legacyDir))) return
+
+  if (!(await fileExists(targetDir))) {
+    await mkdir(path.dirname(targetDir), { recursive: true })
+    try {
+      await rename(legacyDir, targetDir)
+      await pruneLegacyArtifactDirsIfEmpty(scopedUserId)
+      return
+    } catch {
+      // Continue with best-effort per-file merge fallback below.
+    }
+  }
+
+  await mkdir(targetDir, { recursive: true })
+  let legacyFiles: string[] = []
+  try {
+    legacyFiles = (await readdir(legacyDir)).filter((name) => name.endsWith(".jsonl"))
+  } catch {
+    return
+  }
+  for (const fileName of legacyFiles) {
+    const sourcePath = path.join(legacyDir, fileName)
+    const targetPath = path.join(targetDir, fileName)
+    if (await fileExists(targetPath)) continue
+    try {
+      await rename(sourcePath, targetPath)
+    } catch {
+      try {
+        await copyFile(sourcePath, targetPath)
+        try {
+          await unlink(sourcePath)
+        } catch {
+          // Best effort cleanup only.
+        }
+      } catch {
+        // Best effort migration only.
+      }
+    }
+  }
+  await pruneLegacyArtifactDirsIfEmpty(scopedUserId)
+}
+
+async function removeDirIfEmpty(dirPath: string): Promise<void> {
+  let entries: string[] = []
+  try {
+    entries = await readdir(dirPath)
+  } catch {
+    return
+  }
+  if (entries.length > 0) return
+  try {
+    await rm(dirPath, { recursive: false, force: true })
+  } catch {
+    // Best effort cleanup only.
+  }
+}
+
+async function pruneLegacyArtifactDirsIfEmpty(scopedUserId: string): Promise<void> {
+  if (!scopedUserId) return
+  const root = resolveWorkspaceRoot()
+  const legacyArtifactsDir = resolveLegacyArtifactDir(scopedUserId)
+  const legacyMissionsDir = path.join(root, ".agent", "user-context", scopedUserId, MISSIONS_DIR_NAME)
+  await removeDirIfEmpty(legacyArtifactsDir)
+  await removeDirIfEmpty(legacyMissionsDir)
 }
 
 function dayStamp(ts: number): string {
@@ -137,6 +234,7 @@ async function atomicAppendLine(filePath: string, line: string): Promise<void> {
 }
 
 async function pruneExpiredArtifactsForUser(userContextId: string, nowMs: number): Promise<void> {
+  await migrateLegacyArtifactDirIfNeeded(userContextId)
   const dir = resolveArtifactDir(userContextId)
   let files: string[] = []
   try {
@@ -175,6 +273,7 @@ async function pruneExpiredArtifactsForUser(userContextId: string, nowMs: number
 export async function persistCoinbaseStepArtifact(input: PersistCoinbaseStepArtifactInput): Promise<{ artifactRef: string }> {
   const userContextId = sanitizeUserContextId(input.userContextId)
   if (!userContextId) throw new Error("Missing userContextId for Coinbase artifact persistence.")
+  await migrateLegacyArtifactDirIfNeeded(userContextId)
   const nowMs = Date.now()
   const record: CoinbaseStepArtifactRecord = {
     artifactRef: `cbwf_${nowMs}_${crypto.randomBytes(4).toString("hex")}`,
@@ -216,6 +315,7 @@ export async function loadRecentCoinbaseStepArtifacts(input: {
 }): Promise<CoinbaseStepArtifactRecord[]> {
   const userContextId = sanitizeUserContextId(input.userContextId)
   if (!userContextId) return []
+  await migrateLegacyArtifactDirIfNeeded(userContextId)
   const dir = resolveArtifactDir(userContextId)
   const nowMs = Number.isFinite(Number(input.nowMs)) ? Number(input.nowMs) : Date.now()
   const ttlMs = Number.isFinite(Number(input.ttlMs)) && Number(input.ttlMs) > 0 ? Number(input.ttlMs) : DEFAULT_TTL_MS

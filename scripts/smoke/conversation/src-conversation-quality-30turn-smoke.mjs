@@ -21,7 +21,8 @@ function resolveSmokeUserContextId() {
     .filter(Boolean);
   // Priority 1: contexts that have integrations-config.json (real credentials)
   const withIntegrationsConfig = candidates.filter((name) =>
-    fs.existsSync(path.join(root, name, "integrations-config.json")));
+    fs.existsSync(path.join(root, name, "state", "integrations-config.json"))
+    || fs.existsSync(path.join(root, name, "integrations-config.json")));
   if (withIntegrationsConfig.includes("smoke-user-ctx")) return "smoke-user-ctx";
   if (withIntegrationsConfig.length > 0) return withIntegrationsConfig[0];
   // Priority 2: well-known smoke context name (may rely on env-var credentials)
@@ -89,7 +90,7 @@ if (!userContextId) {
   console.error(
     `FAIL: no user context found for latency gate.\n`
     + `  Option 1: set NOVA_SMOKE_USER_CONTEXT_ID=<context-name>\n`
-    + `  Option 2: create ${contextRoot}${path.sep}<name>${path.sep}integrations-config.json with provider credentials\n`
+    + `  Option 2: create ${contextRoot}${path.sep}<name>${path.sep}state${path.sep}integrations-config.json with provider credentials\n`
     + `  Well-known smoke context directory name: smoke-user-ctx`,
   );
   process.exit(1);
@@ -107,7 +108,7 @@ if (!activeApiKey) {
   const contextRoot = path.join(process.cwd(), ".agent", "user-context");
   console.error(
     `FAIL: missing API key for provider "${activeProvider}" in user context "${userContextId}".\n`
-    + `  Expected: ${contextRoot}${path.sep}${userContextId}${path.sep}integrations-config.json with "${activeProvider}.apiKey"\n`
+    + `  Expected: ${contextRoot}${path.sep}${userContextId}${path.sep}state${path.sep}integrations-config.json with "${activeProvider}.apiKey"\n`
     + `  Or set NOVA_SMOKE_USER_CONTEXT_ID to a context that has an integrations-config.json`,
   );
   process.exit(1);

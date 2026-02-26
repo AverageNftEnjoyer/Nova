@@ -6,7 +6,7 @@
 
 import "server-only"
 
-import { mkdir, readdir, readFile, rename, writeFile, copyFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, writeFile, copyFile, stat } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 import type {
@@ -23,6 +23,7 @@ import { defaultMissionSettings } from "./types"
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MISSIONS_FILE_NAME = "missions.json"
+const STATE_DIR_NAME = "state"
 const MISSIONS_SCHEMA_VERSION = 1
 const writesByPath = new Map<string, Promise<void>>()
 // Per-user lock for read-modify-write operations (upsert/delete) — prevents lost updates
@@ -53,7 +54,51 @@ function sanitizeUserId(value: unknown): string {
 }
 
 function resolveMissionsFile(userId: string): string {
+  return path.join(resolveUserContextRoot(), userId, STATE_DIR_NAME, MISSIONS_FILE_NAME)
+}
+
+function resolveLegacyMissionsFile(userId: string): string {
   return path.join(resolveUserContextRoot(), userId, MISSIONS_FILE_NAME)
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyMissionsFileIfNeeded(userId: string): Promise<void> {
+  const target = resolveMissionsFile(userId)
+  const legacy = resolveLegacyMissionsFile(userId)
+  if (await fileExists(target)) return
+  if (!(await fileExists(legacy))) return
+  await mkdir(path.dirname(target), { recursive: true })
+  try {
+    await rename(legacy, target)
+  } catch {
+    try {
+      await copyFile(legacy, target)
+    } catch {
+      // Best effort migration.
+    }
+  }
+
+  const legacyBak = `${legacy}.bak`
+  const targetBak = `${target}.bak`
+  if (await fileExists(targetBak)) return
+  if (!(await fileExists(legacyBak))) return
+  try {
+    await rename(legacyBak, targetBak)
+  } catch {
+    try {
+      await copyFile(legacyBak, targetBak)
+    } catch {
+      // Best effort migration.
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,7 +124,13 @@ async function atomicWriteJson(filePath: string, payload: unknown): Promise<void
       await rename(tmpPath, resolved)
     })
   writesByPath.set(resolved, next)
-  await next
+  try {
+    await next
+  } finally {
+    if (writesByPath.get(resolved) === next) {
+      writesByPath.delete(resolved)
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +202,7 @@ function sortMissions(rows: Mission[]): Mission[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function ensureMissionsFile(userId: string): Promise<void> {
+  await migrateLegacyMissionsFileIfNeeded(userId)
   const file = resolveMissionsFile(userId)
   await mkdir(path.dirname(file), { recursive: true })
   try {
@@ -163,6 +215,7 @@ async function ensureMissionsFile(userId: string): Promise<void> {
 async function readRawStoreFile(userId: string): Promise<MissionsStoreFile | null> {
   const sanitized = sanitizeUserId(userId)
   if (!sanitized) return null
+  await migrateLegacyMissionsFileIfNeeded(sanitized)
   const file = resolveMissionsFile(sanitized)
   try {
     const raw = await readFile(file, "utf8")
@@ -244,11 +297,8 @@ export async function loadMissions(options?: { userId?: string | null; allUsers?
     } catch {
       return []
     }
-    const all: Mission[] = []
-    for (const uid of userIds) {
-      all.push(...(await loadScopedMissions(uid)))
-    }
-    return all
+    const grouped = await Promise.all(userIds.map(async (uid) => loadScopedMissions(uid)))
+    return grouped.flat()
   }
 
   const userId = sanitizeUserId(options?.userId || "")
@@ -269,9 +319,11 @@ export async function saveMissions(
       if (!byUser.has(uid)) byUser.set(uid, [])
       byUser.get(uid)!.push(m)
     }
-    for (const [uid, userMissions] of byUser.entries()) {
-      await saveScopedMissions(uid, userMissions)
-    }
+    await Promise.all(
+      [...byUser.entries()].map(async ([uid, userMissions]) => {
+        await saveScopedMissions(uid, userMissions)
+      }),
+    )
     return
   }
   const uid = sanitizeUserId(options.userId)
@@ -297,7 +349,13 @@ export async function upsertMission(mission: Mission, userId: string): Promise<v
     await saveScopedMissions(uid, existing)
   })
   upsertLocksByUserId.set(uid, next)
-  await next
+  try {
+    await next
+  } finally {
+    if (upsertLocksByUserId.get(uid) === next) {
+      upsertLocksByUserId.delete(uid)
+    }
+  }
 }
 
 export interface MissionDeleteResult {
@@ -326,7 +384,13 @@ export async function deleteMission(missionId: string, userId: string): Promise<
     result = { ok: true, deleted: true, reason: "deleted" }
   })
   upsertLocksByUserId.set(uid, next)
-  await next
+  try {
+    await next
+  } finally {
+    if (upsertLocksByUserId.get(uid) === next) {
+      upsertLocksByUserId.delete(uid)
+    }
+  }
   return result
 }
 

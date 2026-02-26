@@ -7,7 +7,7 @@
 
 import "server-only"
 
-import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, unlink, writeFile, rename, copyFile, stat } from "node:fs/promises"
 import path from "node:path"
 
 export interface PendingNovaChatMessage {
@@ -31,6 +31,7 @@ export interface PendingNovaChatMessage {
 
 const DATA_FILE_NAME = "novachat-pending.json"
 const LOCK_FILE_NAME = "novachat-pending.lock"
+const STATE_DIR_NAME = "state"
 const LEGACY_DATA_DIR = path.join(process.cwd(), "data")
 const LEGACY_DATA_FILE = path.join(LEGACY_DATA_DIR, DATA_FILE_NAME)
 const LEGACY_LOCK_FILE = path.join(LEGACY_DATA_DIR, LOCK_FILE_NAME)
@@ -55,11 +56,60 @@ function sanitizeUserContextId(value: unknown): string {
 }
 
 function resolveScopedDataFile(userId: string): string {
-  return path.join(resolveUserContextRoot(), userId, DATA_FILE_NAME)
+  return path.join(resolveUserContextRoot(), userId, STATE_DIR_NAME, DATA_FILE_NAME)
 }
 
 function resolveScopedLockFile(userId: string): string {
+  return path.join(resolveUserContextRoot(), userId, STATE_DIR_NAME, LOCK_FILE_NAME)
+}
+
+function resolveLegacyScopedDataFile(userId: string): string {
+  return path.join(resolveUserContextRoot(), userId, DATA_FILE_NAME)
+}
+
+function resolveLegacyScopedLockFile(userId: string): string {
   return path.join(resolveUserContextRoot(), userId, LOCK_FILE_NAME)
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyScopedFilesIfNeeded(userId: string): Promise<void> {
+  const scopedDataFile = resolveScopedDataFile(userId)
+  const legacyDataFile = resolveLegacyScopedDataFile(userId)
+  if (!(await fileExists(scopedDataFile)) && (await fileExists(legacyDataFile))) {
+    await mkdir(path.dirname(scopedDataFile), { recursive: true })
+    try {
+      await rename(legacyDataFile, scopedDataFile)
+    } catch {
+      try {
+        await copyFile(legacyDataFile, scopedDataFile)
+      } catch {
+        // Best effort migration.
+      }
+    }
+  }
+
+  const scopedLockFile = resolveScopedLockFile(userId)
+  const legacyLockFile = resolveLegacyScopedLockFile(userId)
+  if (!(await fileExists(scopedLockFile)) && (await fileExists(legacyLockFile))) {
+    await mkdir(path.dirname(scopedLockFile), { recursive: true })
+    try {
+      await rename(legacyLockFile, scopedLockFile)
+    } catch {
+      try {
+        await copyFile(legacyLockFile, scopedLockFile)
+      } catch {
+        // Best effort migration.
+      }
+    }
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -67,6 +117,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function ensureDataFile(userId: string) {
+  await migrateLegacyScopedFilesIfNeeded(userId)
   const dataFile = resolveScopedDataFile(userId)
   await mkdir(path.dirname(dataFile), { recursive: true })
   try {
@@ -143,11 +194,21 @@ async function listScopedUserIdsWithDataFile(): Promise<string[]> {
       const userId = entry.name
       if (!/^[a-z0-9_-]+$/.test(userId)) continue
       const dataFile = resolveScopedDataFile(userId)
+      const legacyDataFile = resolveLegacyScopedDataFile(userId)
+      let found = false
       try {
         await readFile(dataFile, "utf8")
-        userIds.push(userId)
+        found = true
       } catch {
-        // ignore
+        try {
+          await readFile(legacyDataFile, "utf8")
+          found = true
+        } catch {
+          // ignore
+        }
+      }
+      if (found) {
+        userIds.push(userId)
       }
     }
     return userIds

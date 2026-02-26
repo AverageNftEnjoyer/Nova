@@ -1,6 +1,6 @@
 import "server-only"
 
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, writeFile, rename, copyFile, stat } from "node:fs/promises"
 import path from "node:path"
 import { encryptSecret } from "../security/encryption"
 import type { IntegrationsConfig } from "./server-store"
@@ -38,7 +38,38 @@ function wrapSecret(value: unknown): string {
 
 function resolveUserRuntimeConfigPath(workspaceRoot: string, userId: string): string {
   const scopedUserId = sanitizeUserContextId(userId)
+  return path.join(path.resolve(workspaceRoot), ".agent", "user-context", scopedUserId, "state", "integrations-config.json")
+}
+
+function resolveLegacyUserRuntimeConfigPath(workspaceRoot: string, userId: string): string {
+  const scopedUserId = sanitizeUserContextId(userId)
   return path.join(path.resolve(workspaceRoot), ".agent", "user-context", scopedUserId, "integrations-config.json")
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function migrateLegacyRuntimeConfigIfNeeded(workspaceRoot: string, userId: string): Promise<void> {
+  const filePath = resolveUserRuntimeConfigPath(workspaceRoot, userId)
+  const legacyPath = resolveLegacyUserRuntimeConfigPath(workspaceRoot, userId)
+  if (await fileExists(filePath)) return
+  if (!(await fileExists(legacyPath))) return
+  await mkdir(path.dirname(filePath), { recursive: true })
+  try {
+    await rename(legacyPath, filePath)
+  } catch {
+    try {
+      await copyFile(legacyPath, filePath)
+    } catch {
+      // Best effort migration.
+    }
+  }
 }
 
 export async function syncAgentRuntimeIntegrationsSnapshot(
@@ -46,6 +77,7 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
   userId: string,
   config: IntegrationsConfig,
 ): Promise<string> {
+  await migrateLegacyRuntimeConfigIfNeeded(workspaceRoot, userId)
   const filePath = resolveUserRuntimeConfigPath(workspaceRoot, userId)
   await mkdir(path.dirname(filePath), { recursive: true })
 

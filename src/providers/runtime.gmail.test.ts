@@ -22,6 +22,7 @@ function writeIntegrationsConfig(
     ".agent",
     "user-context",
     userContextId,
+    "state",
     "integrations-config.json",
   );
   fs.mkdirSync(path.dirname(target), { recursive: true });

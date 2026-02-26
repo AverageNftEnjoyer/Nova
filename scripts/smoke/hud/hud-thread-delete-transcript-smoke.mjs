@@ -46,7 +46,7 @@ const normalizedUserContextId = normalizeUserContextId(smokeUser);
 const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nova-hud-thread-delete-"));
 const workspaceRoot = path.join(tmpRoot, "workspace");
 const scopedRoot = path.join(workspaceRoot, ".agent", "user-context", normalizedUserContextId);
-const scopedSessionsPath = path.join(scopedRoot, "sessions.json");
+const scopedSessionsPath = path.join(scopedRoot, "state", "sessions.json");
 const scopedTranscriptDir = path.join(scopedRoot, "transcripts");
 
 await run("T1 canonical thread id cleanup removes scoped session and transcript", async () => {

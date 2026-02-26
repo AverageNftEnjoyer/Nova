@@ -250,8 +250,8 @@ await run("SessionStore does not cross-scan user contexts without explicit scope
 
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-session-store-isolation-"));
   const userContextRoot = path.join(root, "user-context");
-  const userAPath = path.join(userContextRoot, "user-a", "sessions.json");
-  const userBPath = path.join(userContextRoot, "user-b", "sessions.json");
+  const userAPath = path.join(userContextRoot, "user-a", "state", "sessions.json");
+  const userBPath = path.join(userContextRoot, "user-b", "state", "sessions.json");
   await fsp.mkdir(path.dirname(userAPath), { recursive: true });
   await fsp.mkdir(path.dirname(userBPath), { recursive: true });
 

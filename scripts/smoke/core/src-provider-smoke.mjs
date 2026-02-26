@@ -44,7 +44,8 @@ function resolveSmokeUserContextId() {
   if (candidates.length === 1) return candidates[0];
   if (candidates.includes("smoke-user-ctx")) return "smoke-user-ctx";
   const withIntegrationsConfig = candidates.filter((name) =>
-    fs.existsSync(path.join(root, name, "integrations-config.json")));
+    fs.existsSync(path.join(root, name, "state", "integrations-config.json"))
+    || fs.existsSync(path.join(root, name, "integrations-config.json")));
   if (withIntegrationsConfig.length > 0) return withIntegrationsConfig[0];
   if (candidates.length > 0) return candidates[0];
   return "smoke-fallback-user";

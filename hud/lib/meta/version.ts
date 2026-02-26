@@ -9,10 +9,17 @@
  *
  * Version History:
  *
+ * - V.31 Alpha: Chat handler modularization + migration overhead cleanup + production safety fixes
+ *     - Refactored runtime chat execution into focused modules (`execute-chat-request`, `prompt-context-builder`, `tool-loop-runner`, `direct-completion`, `response-refinement`, `prompt-fallbacks`) to reduce coupling and improve maintainability.
+ *     - Added fast-lane context-enrichment skip path to reduce avoidable per-turn latency overhead on lightweight chat turns.
+ *     - Fixed Claude streaming delta emission accounting to prevent rare missing final assistant-message delivery in HUD.
+ *     - Added write-queue map cleanup in mission/notification persistence paths to prevent unbounded in-memory growth across many scoped files.
+ *     - Removed repeated legacy fallback overhead by pruning empty legacy `missions` / `notification-runs` directories after migration and reducing legacy read fallbacks post-migration.
+ *
 * - V.30 Alpha: Calendar + Home overhaul with Google Calendar integration
-*     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
-*     - Overhauled Home page visual/system modules for a cleaner Nova OS presentation and improved workflow accessibility.
-*     - Added and hardened Google Calendar integration flow across integrations and calendar surfaces, including synced event rendering.
+ *     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
+ *     - Overhauled Home page visual/system modules for a cleaner Nova OS presentation and improved workflow accessibility.
+ *     - Added and hardened Google Calendar integration flow across integrations and calendar surfaces, including synced event rendering.
  *
  * - V.29 Alpha: Mission workflow reliability + builder/runtime alignment
  *     - Refined mission generation/build flow and mission graph validation to reduce invalid graph states before execution.
@@ -204,4 +211,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.30 Alpha"
+export const NOVA_VERSION = "V.31 Alpha"

@@ -84,6 +84,7 @@ const DEFAULT_GROK_MODEL = "grok-4-0709";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
 
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
+const USER_CONTEXT_STATE_DIR = "state";
 
 function resolveWorkspaceRoot(workspaceRootInput?: string): string {
   if (toNonEmptyString(workspaceRootInput)) return path.resolve(String(workspaceRootInput));
@@ -319,7 +320,27 @@ function normalizeUserContextId(value: unknown): string {
 
 function resolveIntegrationsConfigPath(userContextId: string, paths: RuntimePaths): string {
   const normalized = normalizeUserContextId(userContextId) || "anonymous";
-  return path.join(paths.userContextRoot, normalized, USER_CONTEXT_INTEGRATIONS_FILE);
+  const statePath = path.join(
+    paths.userContextRoot,
+    normalized,
+    USER_CONTEXT_STATE_DIR,
+    USER_CONTEXT_INTEGRATIONS_FILE,
+  );
+  const legacyPath = path.join(paths.userContextRoot, normalized, USER_CONTEXT_INTEGRATIONS_FILE);
+  if (fs.existsSync(statePath)) return statePath;
+  if (!fs.existsSync(legacyPath)) return statePath;
+  try {
+    fs.mkdirSync(path.dirname(statePath), { recursive: true });
+    fs.renameSync(legacyPath, statePath);
+    return statePath;
+  } catch {
+    try {
+      fs.copyFileSync(legacyPath, statePath);
+      return statePath;
+    } catch {
+      return legacyPath;
+    }
+  }
 }
 
 function resolveProviderApiKey(provider: ProviderName, integrationApiKey: unknown, paths: RuntimePaths): string {

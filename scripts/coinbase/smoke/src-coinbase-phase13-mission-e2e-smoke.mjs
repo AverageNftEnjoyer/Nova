@@ -148,6 +148,7 @@ await run("P13-C5 transcript persistence contains mission metadata fields in API
 const userContextId = sanitizeUserContextId(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "");
 const deadLetterCandidates = [];
 if (userContextId) {
+  deadLetterCandidates.push(path.join(process.cwd(), ".agent", "user-context", userContextId, "state", "notification-dead-letter.jsonl"));
   deadLetterCandidates.push(path.join(process.cwd(), ".agent", "user-context", userContextId, "notification-dead-letter.jsonl"));
 }
 deadLetterCandidates.push(path.join(process.cwd(), "data", "notification-dead-letter.jsonl"));

@@ -155,7 +155,15 @@ await run("P26-CB2 coinbase step executes, persists artifact, and re-reads on ne
   assert.equal(second.recentArtifacts.length >= 1, true);
   assert.equal(second.priorArtifactContextSnippet.includes(String(first.artifactRef)), true);
 
-  const artifactDir = path.join(tmpRoot, ".agent", "user-context", "smoke-user-a", "missions", "coinbase-artifacts");
+  const artifactDir = path.join(
+    tmpRoot,
+    ".agent",
+    "user-context",
+    "smoke-user-a",
+    "state",
+    "missions",
+    "coinbase-artifacts",
+  );
   const files = await fsp.readdir(artifactDir);
   assert.equal(files.some((name) => name.endsWith(".jsonl")), true);
 });

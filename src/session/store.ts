@@ -155,8 +155,12 @@ export class SessionStore {
         const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
         for (const contextEntry of contextDirs) {
           if (!contextEntry.isDirectory()) continue;
-          const scopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
-          const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
+          const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
+          let scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
+          if (Object.keys(scopedStore).length === 0) {
+            const legacyScopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
+            scopedStore = this.loadStoreFromPath(legacyScopedPath, { createIfMissing: false });
+          }
           const entry = scopedStore[normalizedKey];
           if (!entry) continue;
           const resolved =
@@ -297,8 +301,12 @@ export class SessionStore {
         const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
         for (const contextEntry of contextDirs) {
           if (!contextEntry.isDirectory()) continue;
-          const scopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
-          const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
+          const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
+          let scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
+          if (Object.keys(scopedStore).length === 0) {
+            const legacyScopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
+            scopedStore = this.loadStoreFromPath(legacyScopedPath, { createIfMissing: false });
+          }
           for (const entry of Object.values(scopedStore)) {
             if (!entry || typeof entry !== "object") continue;
             if (String(entry.sessionId || "").trim() !== normalizedSessionId) continue;
@@ -378,11 +386,31 @@ export class SessionStore {
   private getScopedSessionStorePath(userContextId: string): string {
     const normalized = normalizeUserContextId(userContextId);
     if (!normalized) return "";
-    return path.join(this.userContextRoot, normalized, "sessions.json");
+    return path.join(this.userContextRoot, normalized, "state", "sessions.json");
+  }
+
+  private migrateLegacyScopedStoreIfNeeded(storePath: string): void {
+    if (!storePath || fs.existsSync(storePath)) return;
+    if (path.basename(storePath) !== "sessions.json") return;
+    if (path.basename(path.dirname(storePath)) !== "state") return;
+    const userDir = path.dirname(path.dirname(storePath));
+    const legacyScopedPath = path.join(userDir, "sessions.json");
+    if (!fs.existsSync(legacyScopedPath)) return;
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    try {
+      fs.renameSync(legacyScopedPath, storePath);
+    } catch {
+      try {
+        fs.copyFileSync(legacyScopedPath, storePath);
+      } catch {
+        // Best effort migration.
+      }
+    }
   }
 
   private ensureStoreFile(storePath: string): void {
     if (!storePath) return;
+    this.migrateLegacyScopedStoreIfNeeded(storePath);
     fs.mkdirSync(path.dirname(storePath), { recursive: true });
     if (!fs.existsSync(storePath)) {
       fs.writeFileSync(storePath, "{}", "utf8");
