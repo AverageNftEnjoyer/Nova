@@ -552,9 +552,6 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
       )
 
     // ── Output ───────────────────────────────────────────────────────────────
-    case "novachat-output":
-      return <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
-
     case "telegram-output":
       return (
         <>

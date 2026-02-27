@@ -9,6 +9,8 @@ const DEV_TOOLS_METRICS_STORAGE_KEY_PREFIX = "nova_shell_ui_dev_tools_metrics"
 const DEV_TOOLS_METRICS_TTL_MS = 5 * 60 * 1000
 const DAILY_SCHEDULE_EVENTS_STORAGE_KEY_PREFIX = "nova_shell_ui_daily_schedule_events"
 const DAILY_SCHEDULE_EVENTS_TTL_MS = 5 * 60 * 1000
+const SPOTIFY_NOW_PLAYING_STORAGE_KEY_PREFIX = "nova_shell_ui_spotify_now_playing"
+const SPOTIFY_NOW_PLAYING_TTL_MS = 10 * 60 * 1000
 
 interface ShellUiCache {
   conversations: Conversation[] | null
@@ -19,6 +21,7 @@ interface ShellUiCache {
   missionSchedules: MissionScheduleCacheItem[] | null
   devToolsMetrics: DevToolsMetricsCacheItem | null
   dailyScheduleEvents: DailyScheduleEventCacheItem[] | null
+  spotifyNowPlaying: SpotifyNowPlayingCacheItem | null
 }
 
 export interface MissionScheduleCacheItem {
@@ -63,6 +66,25 @@ interface PersistedDailyScheduleEvents {
   events: DailyScheduleEventCacheItem[]
 }
 
+export interface SpotifyNowPlayingCacheItem {
+  connected: boolean
+  playing: boolean
+  progressMs: number
+  durationMs: number
+  trackId: string
+  trackName: string
+  artistName: string
+  albumName: string
+  albumArtUrl: string
+  deviceId: string
+  deviceName: string
+}
+
+interface PersistedSpotifyNowPlaying {
+  updatedAt: number
+  nowPlaying: SpotifyNowPlayingCacheItem
+}
+
 const cache: ShellUiCache = {
   conversations: null,
   orbColor: null,
@@ -72,6 +94,7 @@ const cache: ShellUiCache = {
   missionSchedules: null,
   devToolsMetrics: null,
   dailyScheduleEvents: null,
+  spotifyNowPlaying: null,
 }
 let cacheUserId: string | null = null
 
@@ -115,6 +138,22 @@ function dailyScheduleEventsStorageKeyForUser(userId: string | null): string | n
 function clearPersistedDailyScheduleEvents(userId: string | null): void {
   if (typeof window === "undefined") return
   const key = dailyScheduleEventsStorageKeyForUser(userId)
+  if (!key) return
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // no-op
+  }
+}
+
+function spotifyNowPlayingStorageKeyForUser(userId: string | null): string | null {
+  if (!userId) return null
+  return `${SPOTIFY_NOW_PLAYING_STORAGE_KEY_PREFIX}:${userId}`
+}
+
+function clearPersistedSpotifyNowPlaying(userId: string | null): void {
+  if (typeof window === "undefined") return
+  const key = spotifyNowPlayingStorageKeyForUser(userId)
   if (!key) return
   try {
     localStorage.removeItem(key)
@@ -214,6 +253,44 @@ function readPersistedDailyScheduleEvents(userId: string | null): DailyScheduleE
   }
 }
 
+function readPersistedSpotifyNowPlaying(userId: string | null): SpotifyNowPlayingCacheItem | null {
+  if (typeof window === "undefined") return null
+  const key = spotifyNowPlayingStorageKeyForUser(userId)
+  if (!key) return null
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PersistedSpotifyNowPlaying
+    if (!parsed || typeof parsed !== "object" || !parsed.nowPlaying || typeof parsed.nowPlaying !== "object") {
+      localStorage.removeItem(key)
+      return null
+    }
+    const updatedAt = Number(parsed.updatedAt)
+    const ageMs = Number.isFinite(updatedAt) ? Date.now() - updatedAt : Number.POSITIVE_INFINITY
+    if (ageMs > SPOTIFY_NOW_PLAYING_TTL_MS) {
+      localStorage.removeItem(key)
+      return null
+    }
+    const nowPlaying = parsed.nowPlaying
+    return {
+      connected: Boolean(nowPlaying.connected),
+      playing: Boolean(nowPlaying.playing),
+      progressMs: Number.isFinite(Number(nowPlaying.progressMs)) ? Math.max(0, Math.floor(Number(nowPlaying.progressMs))) : 0,
+      durationMs: Number.isFinite(Number(nowPlaying.durationMs)) ? Math.max(0, Math.floor(Number(nowPlaying.durationMs))) : 0,
+      trackId: String(nowPlaying.trackId || "").trim(),
+      trackName: String(nowPlaying.trackName || "").trim(),
+      artistName: String(nowPlaying.artistName || "").trim(),
+      albumName: String(nowPlaying.albumName || "").trim(),
+      albumArtUrl: String(nowPlaying.albumArtUrl || "").trim(),
+      deviceId: String(nowPlaying.deviceId || "").trim(),
+      deviceName: String(nowPlaying.deviceName || "").trim(),
+    }
+  } catch {
+    clearPersistedSpotifyNowPlaying(userId)
+    return null
+  }
+}
+
 function writePersistedMissionSchedules(
   userId: string | null,
   schedules: MissionScheduleCacheItem[] | null,
@@ -281,6 +358,37 @@ function writePersistedDailyScheduleEvents(userId: string | null, events: DailyS
   }
 }
 
+function writePersistedSpotifyNowPlaying(userId: string | null, nowPlaying: SpotifyNowPlayingCacheItem | null): void {
+  if (typeof window === "undefined") return
+  const key = spotifyNowPlayingStorageKeyForUser(userId)
+  if (!key) return
+  try {
+    if (!nowPlaying) {
+      localStorage.removeItem(key)
+      return
+    }
+    const payload: PersistedSpotifyNowPlaying = {
+      updatedAt: Date.now(),
+      nowPlaying: {
+        connected: Boolean(nowPlaying.connected),
+        playing: Boolean(nowPlaying.playing),
+        progressMs: Number.isFinite(Number(nowPlaying.progressMs)) ? Math.max(0, Math.floor(Number(nowPlaying.progressMs))) : 0,
+        durationMs: Number.isFinite(Number(nowPlaying.durationMs)) ? Math.max(0, Math.floor(Number(nowPlaying.durationMs))) : 0,
+        trackId: String(nowPlaying.trackId || "").trim(),
+        trackName: String(nowPlaying.trackName || "").trim(),
+        artistName: String(nowPlaying.artistName || "").trim(),
+        albumName: String(nowPlaying.albumName || "").trim(),
+        albumArtUrl: String(nowPlaying.albumArtUrl || "").trim(),
+        deviceId: String(nowPlaying.deviceId || "").trim(),
+        deviceName: String(nowPlaying.deviceName || "").trim(),
+      },
+    }
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch {
+    // no-op
+  }
+}
+
 function ensureScopedCacheUser(): void {
   const currentUserId = getActiveUserId() || null
   if (cacheUserId === currentUserId) return
@@ -288,6 +396,7 @@ function ensureScopedCacheUser(): void {
     clearPersistedMissionSchedules(cacheUserId)
     clearPersistedDevToolsMetrics(cacheUserId)
     clearPersistedDailyScheduleEvents(cacheUserId)
+    clearPersistedSpotifyNowPlaying(cacheUserId)
   }
   cache.conversations = null
   cache.orbColor = null
@@ -297,6 +406,7 @@ function ensureScopedCacheUser(): void {
   cache.missionSchedules = readPersistedMissionSchedules(currentUserId)
   cache.devToolsMetrics = readPersistedDevToolsMetrics(currentUserId)
   cache.dailyScheduleEvents = readPersistedDailyScheduleEvents(currentUserId)
+  cache.spotifyNowPlaying = readPersistedSpotifyNowPlaying(currentUserId)
   cacheUserId = currentUserId
 }
 
@@ -342,5 +452,23 @@ export function writeShellUiCache(next: Partial<ShellUiCache>): void {
   if (Object.prototype.hasOwnProperty.call(next, "dailyScheduleEvents")) {
     cache.dailyScheduleEvents = next.dailyScheduleEvents ? [...next.dailyScheduleEvents] : null
     writePersistedDailyScheduleEvents(cacheUserId, cache.dailyScheduleEvents)
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "spotifyNowPlaying")) {
+    cache.spotifyNowPlaying = next.spotifyNowPlaying
+      ? {
+        connected: Boolean(next.spotifyNowPlaying.connected),
+        playing: Boolean(next.spotifyNowPlaying.playing),
+        progressMs: Number(next.spotifyNowPlaying.progressMs || 0),
+        durationMs: Number(next.spotifyNowPlaying.durationMs || 0),
+        trackId: String(next.spotifyNowPlaying.trackId || ""),
+        trackName: String(next.spotifyNowPlaying.trackName || ""),
+        artistName: String(next.spotifyNowPlaying.artistName || ""),
+        albumName: String(next.spotifyNowPlaying.albumName || ""),
+        albumArtUrl: String(next.spotifyNowPlaying.albumArtUrl || ""),
+        deviceId: String(next.spotifyNowPlaying.deviceId || ""),
+        deviceName: String(next.spotifyNowPlaying.deviceName || ""),
+      }
+      : null
+    writePersistedSpotifyNowPlaying(cacheUserId, cache.spotifyNowPlaying)
   }
 }

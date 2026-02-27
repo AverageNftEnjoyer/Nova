@@ -35,7 +35,7 @@ export interface MissionRunProgress {
   reason?: string
   steps: MissionRunStepTrace[]
   outputResults?: Array<{ ok?: boolean; status?: number; error?: string }>
-  novachatQueued?: boolean
+  telegramQueued?: boolean
 }
 
 export type MissionStatusMessage = null | { type: "success" | "error"; message: string }
@@ -97,7 +97,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any"
   conditionFailureAction?: "skip" | "notify" | "stop"
-  outputChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook"
+  outputChannel?: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook"
   outputTiming?: "immediate" | "scheduled" | "digest"
   outputTime?: string
   outputFrequency?: "once" | "multiple"
@@ -123,7 +123,7 @@ export interface GeneratedMissionSummary {
     thresholdPct?: number
     cadence?: "daily" | "weekly" | string
     timezone?: string
-    deliveryChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+    deliveryChannel?: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook" | string
     quoteCurrency?: string
   }
   workflowSteps?: Array<Partial<WorkflowStep>>

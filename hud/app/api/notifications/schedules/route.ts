@@ -10,7 +10,7 @@ import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-const ALLOWED_INTEGRATIONS = new Set(["telegram", "discord", "email", "novachat", "webhook"])
+const ALLOWED_INTEGRATIONS = new Set(["telegram", "discord", "email", "webhook"])
 const DISCORD_MAX_TARGETS = Math.max(
   1,
   Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
@@ -114,7 +114,7 @@ export async function POST(req: Request) {
 
     const integration = parseIntegration(body?.integration)
     if (!integration) {
-      return NextResponse.json({ error: "integration is required and must be one of: telegram, discord, email, novachat, webhook" }, { status: 400 })
+      return NextResponse.json({ error: "integration is required and must be one of: telegram, discord, email, webhook" }, { status: 400 })
     }
     const normalizedTargets = normalizeRecipients(body?.chatIds)
     if (integration === "discord") {
@@ -243,7 +243,7 @@ export async function PATCH(req: Request) {
 
     const parsedIntegration = typeof body?.integration === "undefined" ? current.integration : parseIntegration(body?.integration)
     if (parsedIntegration === null) {
-      return NextResponse.json({ error: "integration is invalid. Allowed: telegram, discord, email, novachat, webhook" }, { status: 400 })
+      return NextResponse.json({ error: "integration is invalid. Allowed: telegram, discord, email, webhook" }, { status: 400 })
     }
     const normalizedTargets = Array.isArray(body?.chatIds) ? normalizeRecipients(body.chatIds) : current.chatIds
     if (parsedIntegration === "discord") {

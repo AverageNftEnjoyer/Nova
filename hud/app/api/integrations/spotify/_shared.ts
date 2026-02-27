@@ -17,7 +17,7 @@ export const playbackBodySchema = z.object({
     "volume", "shuffle", "repeat",
     "queue", "like", "unlike",
     "list_devices", "transfer",
-    "play_recommended", "save_playlist",
+    "play_recommended", "save_playlist", "set_favorite_playlist", "clear_favorite_playlist", "add_to_playlist",
   ]),
   query: z.string().trim().optional(),
   type: z.enum(["track", "artist", "album", "playlist", "genre"]).optional(),

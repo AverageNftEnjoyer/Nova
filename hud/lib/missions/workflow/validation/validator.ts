@@ -209,7 +209,7 @@ function validateSteps(input: WorkflowValidationInput, issues: WorkflowValidatio
             `${path}.outputChannel`,
             "outputChannel",
             "Output step requires outputChannel.",
-            "Set outputChannel to one of: novachat, telegram, discord, email, push, webhook.",
+            "Set outputChannel to one of: telegram, discord, email, push, webhook.",
           ),
         )
       }

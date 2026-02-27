@@ -155,3 +155,46 @@ export function writeSpotifyFavoritePlaylist(
     return { ok: false, message: msg }
   }
 }
+
+export function clearSpotifyFavoritePlaylist(
+  userId: string,
+): { ok: boolean; message: string } {
+  const filePath = spotifySkillPath(userId)
+  const content = ensureSkillFile(filePath)
+  const lines = content.replace(/\r\n/g, "\n").split("\n")
+
+  const sectionStart = lines.findIndex(
+    (l) => l.trim().toLowerCase() === SECTION_HEADER.toLowerCase(),
+  )
+  if (sectionStart < 0) {
+    return { ok: true, message: "Favorite Spotify playlist cleared." }
+  }
+
+  let sectionEnd = lines.length
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i] ?? "")) { sectionEnd = i; break }
+  }
+
+  const sectionLines: string[] = []
+  for (let i = sectionStart; i < sectionEnd; i++) {
+    const l = lines[i] ?? ""
+    if (/^-?\s*favorite_playlist_uri\s*:/i.test(l.trim())) continue
+    if (/^-?\s*favorite_playlist_name\s*:/i.test(l.trim())) continue
+    sectionLines.push(l)
+  }
+
+  const rebuilt = [
+    ...lines.slice(0, sectionStart),
+    ...sectionLines,
+    ...lines.slice(sectionEnd),
+  ].join("\n").replace(/\r\n/g, "\n").trim() + "\n"
+
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, rebuilt, "utf8")
+    return { ok: true, message: "Favorite Spotify playlist cleared." }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to update Spotify skill."
+    return { ok: false, message: msg }
+  }
+}

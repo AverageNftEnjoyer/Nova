@@ -5,6 +5,7 @@ export {
   controlSpotifyPlayback,
   disconnectSpotify,
   exchangeCodeForSpotifyTokens,
+  findSpotifyPlaylistByQuery,
   getSpotifyCurrentContext,
   getSpotifyNowPlaying,
   parseSpotifyOAuthState,

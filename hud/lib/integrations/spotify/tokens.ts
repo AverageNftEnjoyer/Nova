@@ -23,6 +23,13 @@ export async function getSpotifyClientConfig(scope?: SpotifyScope): Promise<Spot
   }
 }
 
+export async function getSpotifyGrantedScopes(scope?: SpotifyScope): Promise<string[]> {
+  const integrations = await loadIntegrationsConfig(scope)
+  return Array.isArray(integrations.spotify.scopes)
+    ? integrations.spotify.scopes.map((scopeText) => String(scopeText || "").trim()).filter(Boolean)
+    : []
+}
+
 async function refreshSpotifyAccessToken(refreshToken: string, scope?: SpotifyScope): Promise<SpotifyTokenRefreshResult> {
   const { clientId } = await getSpotifyClientConfig(scope)
   if (!clientId) {

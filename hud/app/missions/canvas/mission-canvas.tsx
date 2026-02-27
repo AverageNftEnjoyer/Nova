@@ -172,8 +172,6 @@ function buildDefaultNodeConfig(type: MissionNodeType, label: string, id: string
     case "dedupe":
       return { ...base, field: "" }
 
-    case "novachat-output":
-      return { ...base, messageTemplate: "{{input}}" }
     case "telegram-output":
       return { ...base, chatIds: [], messageTemplate: "{{input}}", parseMode: "markdown" }
     case "discord-output":

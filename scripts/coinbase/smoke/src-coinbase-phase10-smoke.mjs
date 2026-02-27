@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -107,7 +107,7 @@ await run("P10-S1 secure delete purges scoped sensitive Coinbase data and preser
     store.appendReportHistory({
       userContextId: "u10a",
       reportType: "portfolio",
-      deliveredChannel: "novachat",
+      deliveredChannel: "telegram",
       deliveredAtMs: old,
       payload: { p: 1 },
     });

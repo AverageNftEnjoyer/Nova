@@ -64,13 +64,13 @@ interface UseMissionsPageStateInput {
 
 type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
 
-const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["novachat", "telegram", "discord", "email", "push", "webhook"]
-const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "email", "webhook", "novachat"]
+const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["telegram", "telegram", "discord", "email", "push", "webhook"]
+const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "email", "webhook", "telegram"]
 
 function normalizeOutputChannelAlias(value: string): OutputChannel | "" {
   const normalized = String(value || "").trim().toLowerCase()
   if (normalized === "gmail") return "email"
-  if (normalized === "novachat" || normalized === "telegram" || normalized === "discord" || normalized === "email" || normalized === "push" || normalized === "webhook") {
+  if (normalized === "telegram" || normalized === "telegram" || normalized === "discord" || normalized === "email" || normalized === "push" || normalized === "webhook") {
     return normalized
   }
   return ""
@@ -428,8 +428,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         const rawTitle = String(step.title || STEP_TYPE_OPTIONS.find((option) => option.type === step.type)?.label || `Step ${index + 1}`)
         const channel = String(step.outputChannel || "").trim().toLowerCase()
         if (String(step.type || "").toLowerCase() !== "output") return rawTitle
-        if (channel === "novachat" && /telegram/i.test(rawTitle)) return rawTitle.replace(/telegram/ig, "NovaChat")
-        if (channel === "novachat" && /^send notification$/i.test(rawTitle)) return "Send to NovaChat"
+        if (channel === "telegram" && /telegram/i.test(rawTitle)) return rawTitle.replace(/telegram/ig, "Telegram")
+        if (channel === "telegram" && /^send notification$/i.test(rawTitle)) return "Send to Telegram"
         return rawTitle
       })(),
       status: index === 0 ? "running" : "pending",
@@ -504,8 +504,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
             title: (() => {
               const rawTitle = String(next.title || `Step ${index + 1}`)
               const detail = String(next.detail || "")
-              if (String(next.type || "").toLowerCase() === "output" && /via\s+novachat/i.test(detail) && /telegram/i.test(rawTitle)) {
-                return rawTitle.replace(/telegram/ig, "NovaChat")
+              if (String(next.type || "").toLowerCase() === "output" && /via\s+telegram/i.test(detail) && /telegram/i.test(rawTitle)) {
+                return rawTitle.replace(/telegram/ig, "Telegram")
               }
               return rawTitle
             })(),
@@ -1363,7 +1363,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
             applyStreamingStepTrace(runScheduleId, event.trace)
           }
         })
-        immediateRunNovachatQueued = Boolean(triggerData?.novachatQueued)
+        immediateRunNovachatQueued = Boolean(triggerData?.telegramQueued)
         const finalizedSteps = normalizeRunStepTraces(triggerData?.stepTraces, pendingSteps)
         stopRunProgressAnimation()
         if (!triggerData?.ok) {
@@ -1380,7 +1380,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
             reason: triggerData?.error || triggerData?.reason || "Immediate run failed.",
             steps: finalizedSteps,
             outputResults: Array.isArray(triggerData?.results) ? triggerData.results : [],
-            novachatQueued: immediateRunNovachatQueued,
+            telegramQueued: immediateRunNovachatQueued,
           })
           if (Array.isArray(triggerData?.results) && triggerData.results.length > 0) {
             console.debug("[missions] output results", triggerData.results)
@@ -1395,7 +1395,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
           reason: triggerData?.reason,
           steps: finalizedSteps,
           outputResults: Array.isArray(triggerData?.results) ? triggerData.results : [],
-          novachatQueued: immediateRunNovachatQueued,
+          telegramQueued: immediateRunNovachatQueued,
         })
         if (Array.isArray(triggerData?.results) && triggerData.results.length > 0) {
           console.debug("[missions] output results", triggerData.results)
@@ -1431,8 +1431,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         type: "success",
         message: runImmediatelyOnCreate
           ? (isEditing
-            ? (immediateRunNovachatQueued ? "Mission saved, run started, and NovaChat is ready." : "Mission saved and run started.")
-            : (immediateRunNovachatQueued ? "Mission deployed, run started, and NovaChat is ready." : "Mission deployed and run started."))
+            ? (immediateRunNovachatQueued ? "Mission saved, run started, and Telegram is ready." : "Mission saved and run started.")
+            : (immediateRunNovachatQueued ? "Mission deployed, run started, and Telegram is ready." : "Mission deployed and run started."))
           : (isEditing ? "Mission saved." : "Mission deployed."),
       })
       setBuilderOpen(false)
@@ -1638,7 +1638,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         reason: data?.reason,
         steps: finalizedSteps,
         outputResults: Array.isArray(data?.results) ? data.results : [],
-        novachatQueued: Boolean(data?.novachatQueued),
+        telegramQueued: Boolean(data?.telegramQueued),
       })
       if (Array.isArray(data?.results) && data.results.length > 0) {
         console.debug("[missions] output results", data.results)
@@ -1672,8 +1672,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       await refreshSchedules()
       setStatus({
         type: "success",
-        message: data?.novachatQueued
-          ? "Mission run completed. NovaChat message queued - use Open NovaChat in the run trace."
+        message: data?.telegramQueued
+          ? "Mission run completed. Telegram message queued - use Open Telegram in the run trace."
           : "Mission run completed. Review step trace panel for details.",
       })
     } catch (error) {

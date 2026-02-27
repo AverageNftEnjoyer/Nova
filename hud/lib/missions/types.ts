@@ -291,12 +291,6 @@ export interface DedupeNode extends NodeBase {
 // Output Nodes
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface NovaChatOutputNode extends NodeBase {
-  type: "novachat-output"
-  messageTemplate?: string
-  inputExpression?: string
-}
-
 export interface TelegramOutputNode extends NodeBase {
   type: "telegram-output"
   chatIds?: string[]
@@ -393,7 +387,6 @@ export type MissionNode =
   | SortNode
   | DedupeNode
   // Output
-  | NovaChatOutputNode
   | TelegramOutputNode
   | DiscordOutputNode
   | EmailOutputNode
@@ -656,7 +649,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any" | string
   conditionFailureAction?: "skip" | "notify" | "stop" | string
-  outputChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook" | string
   outputTiming?: "immediate" | "scheduled" | "digest" | string
   outputTime?: string
   outputFrequency?: "once" | "multiple" | string
@@ -700,7 +693,7 @@ export interface CoinbaseMissionParams {
   thresholdPct?: number
   cadence?: "daily" | "weekly" | string
   timezone?: string
-  deliveryChannel?: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+  deliveryChannel?: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook" | string
   quoteCurrency?: string
 }
 

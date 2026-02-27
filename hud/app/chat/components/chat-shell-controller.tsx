@@ -197,6 +197,18 @@ export function ChatShellController() {
 
   // Home -> Chat handoff
   useEffect(() => {
+    const opToken = String(pendingBootSendOpTokenRef.current || "").trim()
+    if (!opToken) return
+    if (!hasHudMessageAck(opToken)) return
+    pendingBootSendHandledRef.current = true
+    pendingBootSendOpTokenRef.current = ""
+    pendingBootSendDispatchedAtRef.current = 0
+    try {
+      sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
+    } catch {}
+  }, [hudMessageAckVersion, hasHudMessageAck])
+
+  useEffect(() => {
     if (pendingBootSendHandledRef.current || !agentConnected || !activeConvo) return
 
     const markPendingBootHandled = () => {
@@ -238,7 +250,10 @@ export function ChatShellController() {
       const resolvedPendingConvoId = pendingConvoId
         ? resolveConversationIdForAgent(pendingConvoId) || pendingConvoId
         : ""
-      if (resolvedPendingConvoId && resolvedPendingConvoId !== activeConvo.id) {
+      const targetConvoExists = resolvedPendingConvoId
+        ? conversations.some((entry) => String(entry.id || "").trim() === resolvedPendingConvoId)
+        : false
+      if (resolvedPendingConvoId && resolvedPendingConvoId !== activeConvo.id && targetConvoExists) {
         void handleSelectConvo(resolvedPendingConvoId)
         return
       }
@@ -295,9 +310,8 @@ export function ChatShellController() {
     }
   }, [
     activeConvo,
+    conversations,
     agentConnected,
-    hudMessageAckVersion,
-    hasHudMessageAck,
     sendToAgent,
     handleSelectConvo,
     getSupabaseAccessToken,
@@ -588,7 +602,9 @@ export function ChatShellController() {
                     <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline</h2>
                   </div>
                   <button
-                    onClick={() => router.push("/missions")}
+                    onClick={() => {
+                      window.location.href = "/missions"
+                    }}
                     className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/mission-gear`, subPanelClass)}
                     aria-label="Open mission settings"
                   >

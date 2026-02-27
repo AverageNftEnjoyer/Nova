@@ -8,7 +8,7 @@ import { executeWebSearch, executeHttpRequest, executeRssFeed, executeCoinbase }
 import { executeAiSummarize, executeAiClassify, executeAiExtract, executeAiGenerate, executeAiChat } from "./ai-executors"
 import { executeCondition, executeSwitch, executeLoop, executeMerge, executeSplit, executeWait } from "./logic-executors"
 import { executeSetVariables, executeCode, executeFormat, executeFilter, executeSort, executeDedupe } from "./transform-executors"
-import { executeNovaChatOutput, executeTelegramOutput, executeDiscordOutput, executeEmailOutput, executeWebhookOutput, executeSlackOutput } from "./output-executors"
+import { executeTelegramOutput, executeDiscordOutput, executeEmailOutput, executeWebhookOutput, executeSlackOutput } from "./output-executors"
 
 export type NodeExecutor = (node: MissionNode, ctx: ExecutionContext) => Promise<NodeOutput & { port?: string }>
 
@@ -46,7 +46,6 @@ export const EXECUTOR_REGISTRY: Record<string, NodeExecutor> = {
   "sort": (n, c) => executeSort(n as Parameters<typeof executeSort>[0], c),
   "dedupe": (n, c) => executeDedupe(n as Parameters<typeof executeDedupe>[0], c),
   // Output
-  "novachat-output": (n, c) => executeNovaChatOutput(n as Parameters<typeof executeNovaChatOutput>[0], c),
   "telegram-output": (n, c) => executeTelegramOutput(n as Parameters<typeof executeTelegramOutput>[0], c),
   "discord-output": (n, c) => executeDiscordOutput(n as Parameters<typeof executeDiscordOutput>[0], c),
   "email-output": (n, c) => executeEmailOutput(n as Parameters<typeof executeEmailOutput>[0], c),

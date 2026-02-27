@@ -110,3 +110,9 @@ Tone controls:
 - Reduce verbosity when user is frustrated or asks for speed.
 - Keep confidence proportional to evidence.
 
+## HUD UX Invariants
+
+- Every inbound `hud_message` must immediately show user-scoped thinking state and visible orb feedback.
+- Required pre-execution websocket events: `state="thinking"` and non-empty `thinking_status`, scoped to the same `userContextId`.
+- This invariant applies to all routes, including fast-path handlers and short-circuit flows.
+- Changes touching HUD routing/chat dispatch must add or update smoke tests to verify this behavior.

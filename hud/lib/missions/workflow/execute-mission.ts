@@ -600,7 +600,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     }
 
     // ── Collect output node results ────────────────────────────────────────
-    const outputTypes = new Set(["novachat-output", "telegram-output", "discord-output", "email-output", "webhook-output", "slack-output"])
+    const outputTypes = new Set(["telegram-output", "discord-output", "email-output", "webhook-output", "slack-output"])
     if (outputTypes.has(node.type)) {
       outputs.push({ ok: output.ok, error: output.error, status: undefined })
     }
@@ -626,10 +626,10 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     const lastOutputText = [...nodeOutputs.values()].map((o) => o.text).filter(Boolean).at(-1)
     const fallbackText = String(lastOutputText || "").trim() || `Mission "${mission.label}" completed with upstream errors and no user-ready summary.`
     if (fallbackText) {
-      const primaryChannel = String(mission.integration || "novachat").trim() || "novachat"
+      const primaryChannel = String(mission.integration || "telegram").trim() || "telegram"
       const fallbackChannels = outputs.length === 0
-        ? [primaryChannel, ...(primaryChannel === "novachat" ? [] : ["novachat"])]
-        : ["novachat", ...(primaryChannel === "novachat" ? [] : [primaryChannel])]
+        ? [primaryChannel, ...(primaryChannel === "telegram" ? [] : ["telegram"])]
+        : ["telegram", ...(primaryChannel === "telegram" ? [] : [primaryChannel])]
       const { dispatchOutput } = await import("../output/dispatch")
       const { humanizeMissionOutputText } = await import("../output/formatters")
       const { applyMissionOutputQualityGuardrails } = await import("../output/quality")

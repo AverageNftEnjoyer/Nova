@@ -225,7 +225,8 @@ export function createSessionRuntime({
       return `${agent}:hud:${normalizeToken(sessionMainKey)}`;
     }
     if (source === "voice") {
-      return `${agent}:voice:dm:${sender || "local-mic"}`;
+      const voiceUserContextId = normalizeUserContextId(resolveUserContextId(opts) || "");
+      return `${agent}:voice:dm:${normalizeToken(voiceUserContextId || sender || "anonymous")}`;
     }
     return `${agent}:${source}:dm:${sender || "anonymous"}`;
   }
@@ -242,8 +243,11 @@ export function createSessionRuntime({
 
     const source = normalizeToken(opts.source || "hud");
     if (source === "voice") {
-      const voiceSender = normalizeUserContextId(sender || "local-mic");
-      return voiceSender || "local-mic";
+      const voiceSender = normalizeUserContextId(sender);
+      if (voiceSender) return voiceSender;
+      const hinted = parseSessionKeyUserContext(String(opts.sessionKeyHint || ""));
+      if (hinted) return hinted;
+      return "";
     }
     if (source !== "hud") {
       const senderFallback = normalizeUserContextId(sender);

@@ -11,7 +11,7 @@ const CHANNEL_MAX_CHARS: Record<string, number> = {
   telegram: 3600,
   discord: 3500,
   email: 5000,
-  novachat: 6000,
+  telegram: 6000,
   webhook: 3500,
   slack: 3500,
 }

@@ -402,19 +402,6 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
 
   // ─── OUTPUT ───────────────────────────────────────────────────────────────
   {
-    type: "novachat-output",
-    label: "Nova Chat",
-    description: "Send the result as a message in Nova Chat (in-app).",
-    category: "output",
-    icon: "MessageCircle",
-    color: "bg-pink-500/10",
-    borderColor: "border-pink-400/40",
-    textColor: "text-pink-300",
-    inputs: ["main"],
-    outputs: [],
-    tags: ["nova", "chat", "in-app", "notification", "message"],
-  },
-  {
     type: "telegram-output",
     label: "Telegram",
     description: "Send a message to one or more Telegram chats or channels.",

@@ -100,7 +100,7 @@ await run("P24-S1 scheduler delivery payload includes personality PnL comment li
         return [{ ok: true, status: 200 }];
       },
     },
-    "@/lib/novachat/pending-messages": {
+    "@/lib/telegram/pending-messages": {
       addPendingMessage: async () => {},
     },
     "../text/formatting": {

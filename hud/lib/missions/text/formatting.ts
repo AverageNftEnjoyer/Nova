@@ -78,7 +78,7 @@ export function generateShortTitle(description: string): string {
     "i", "me", "my", "you", "your", "we", "our",
     "hey", "please", "need", "want", "build", "create", "make", "set", "setup", "mission",
     "send", "sends", "that", "this", "every", "daily", "morning", "night", "pm", "am", "est", "edt", "pst", "pdt",
-    "telegram", "discord", "novachat", "chat", "workflow", "task", "report",
+    "telegram", "discord", "telegram", "chat", "workflow", "task", "report",
   ])
 
   // Common topic keywords to extract

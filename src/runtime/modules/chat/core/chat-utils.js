@@ -104,7 +104,7 @@ function missionChannelHint(text) {
   const n = String(text || "").toLowerCase();
   if (/\btelegram\b/.test(n)) return "Telegram";
   if (/\bdiscord\b/.test(n)) return "Discord";
-  if (/\bnovachat\b|\bchat\b/.test(n)) return "NovaChat";
+  if (/\btelegram\b|\bchat\b/.test(n)) return "Telegram";
   if (/\bemail\b/.test(n)) return "Email";
   if (/\bwebhook\b/.test(n)) return "Webhook";
   return "";

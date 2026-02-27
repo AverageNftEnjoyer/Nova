@@ -31,8 +31,8 @@ function nodeTracesToStepTraces(traces: NodeExecutionTrace[]): WorkflowStepTrace
   }))
 }
 
-function detectNovachatQueued(traces: NodeExecutionTrace[]): boolean {
-  return traces.some((t) => t.nodeType === "novachat-output" && t.status === "completed")
+function detectTelegramDelivered(traces: NodeExecutionTrace[]): boolean {
+  return traces.some((t) => t.nodeType === "telegram-output" && t.status === "completed")
 }
 
 function normalizeRecipients(raw: unknown): string[] {
@@ -112,7 +112,7 @@ export async function POST(req: Request) {
 
       const durationMs = Date.now() - startedAtMs
       const stepTraces = nodeTracesToStepTraces(dagResult.nodeTraces)
-      const novachatQueued = detectNovachatQueued(dagResult.nodeTraces)
+      const telegramQueued = detectTelegramDelivered(dagResult.nodeTraces)
       const execution = {
         ok: dagResult.ok,
         skipped: dagResult.skipped,
@@ -192,7 +192,7 @@ export async function POST(req: Request) {
           reason: execution.reason,
           results: execution.outputs,
           stepTraces,
-          novachatQueued,
+          telegramQueued,
           deadLetterId: deadLetterId || undefined,
           durationMs,
         },
@@ -246,7 +246,7 @@ export async function POST(req: Request) {
         skipped: false,
         results,
         stepTraces,
-        novachatQueued: false,
+        telegramQueued: false,
       },
       { status: ok ? 200 : 502 },
     )

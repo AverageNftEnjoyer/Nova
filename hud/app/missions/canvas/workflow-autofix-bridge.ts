@@ -109,7 +109,7 @@ function toWorkflowStep(node: MissionNode): Partial<WorkflowStep> | null {
       conditionLogic: node.logic,
     }
   }
-  if (node.type === "novachat-output" || node.type === "telegram-output" || node.type === "discord-output" || node.type === "email-output" || node.type === "webhook-output" || node.type === "slack-output") {
+  if (node.type === "telegram-output" || node.type === "discord-output" || node.type === "email-output" || node.type === "webhook-output" || node.type === "slack-output") {
     const outputChannel: WorkflowStep["outputChannel"] =
       node.type === "telegram-output"
         ? "telegram"
@@ -119,7 +119,7 @@ function toWorkflowStep(node: MissionNode): Partial<WorkflowStep> | null {
             ? "email"
             : node.type === "webhook-output"
               ? "webhook"
-              : "novachat"
+              : "telegram"
     return {
       ...base,
       type: "output",

@@ -106,11 +106,6 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_THREAD_MESSAGES_WRITE_PER_MIN", 24, 1, 500),
     windowMs: 60_000,
   },
-  novachatPendingPoll: {
-    bucket: "novachat-pending-poll",
-    limit: readIntEnv("NOVA_RATE_LIMIT_NOVACHAT_POLL_PER_MIN", 90, 1, 1000),
-    windowMs: 60_000,
-  },
 } as const satisfies Record<string, RateLimitPolicy>
 
 function maybeCollectGarbage(nowMs: number): void {

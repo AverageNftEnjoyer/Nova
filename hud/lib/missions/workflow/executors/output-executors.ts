@@ -5,7 +5,6 @@
 import "server-only"
 
 import type {
-  NovaChatOutputNode,
   TelegramOutputNode,
   DiscordOutputNode,
   EmailOutputNode,
@@ -138,16 +137,6 @@ async function dispatchToChannel(
   } catch (err) {
     return { ok: false, error: String(err) }
   }
-}
-
-// ─── Nova Chat ────────────────────────────────────────────────────────────────
-
-export async function executeNovaChatOutput(
-  node: NovaChatOutputNode,
-  ctx: ExecutionContext,
-): Promise<NodeOutput> {
-  const text = resolveOutputText(node, ctx)
-  return dispatchToChannel("novachat", text, ctx.mission?.chatIds || [], ctx, { nodeId: node.id, outputIndex: 0 })
 }
 
 // ─── Telegram ─────────────────────────────────────────────────────────────────

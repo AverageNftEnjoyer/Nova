@@ -15,7 +15,7 @@ export function shouldConfirmWorkflowFromPrompt(text) {
 
   const reminderLike = /\b(remind me to|reminder to|set a reminder|remember to|dont let me forget|don't let me forget)\b/.test(n);
   const scheduleLike = /\b(every day|daily|every morning|every night|weekly|at\s+\d{1,2}(:\d{2})?\s*(am|pm)?|tomorrow morning|tomorrow night)\b/.test(n);
-  const deliveryLike = /\b(to telegram|on telegram|to discord|on discord|to novachat|to chat|as a notification)\b/.test(n);
+  const deliveryLike = /\b(to telegram|on telegram|to discord|on discord|to telegram|to chat|as a notification)\b/.test(n);
   const missionTerms = /\b(mission|workflow|automation|schedule|scheduled)\b/.test(n);
   const taskLike = /\b(quote|speech|reminder|bill|loan|payment|pay)\b/.test(n);
   const likelyQuestionOnly = /^(what|why|how|when|where)\b/.test(n) || /\b(explain|difference between)\b/.test(n);

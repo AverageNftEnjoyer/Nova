@@ -30,6 +30,7 @@ let wss = null;
 const wsUserRateWindow = new Map();
 const wsByUserContext = new Map();
 const wsContextBySocket = new WeakMap();
+let voiceRoutingUserContextId = "";
 const wsAuthByToken = new Map();
 const conversationOwnerById = new Map();
 const hudOpTokenStateByKey = new Map();
@@ -106,6 +107,13 @@ const HUD_OP_TOKEN_TTL_MS = Math.max(
   Math.min(
     60 * 60 * 1000,
     Number.parseInt(process.env.NOVA_HUD_OP_TOKEN_TTL_MS || String(10 * 60 * 1000), 10) || 10 * 60 * 1000,
+  ),
+);
+const HUD_MIN_THINKING_PRESENCE_MS = Math.max(
+  0,
+  Math.min(
+    5_000,
+    Number.parseInt(process.env.NOVA_HUD_MIN_THINKING_PRESENCE_MS || "320", 10) || 320,
   ),
 );
 const SCOPED_ONLY_EVENT_TYPES = new Set([
@@ -245,6 +253,7 @@ function bindSocketToUserContext(ws, userContextId) {
   }
   targetSet.add(ws);
   wsContextBySocket.set(ws, nextContextId);
+  voiceRoutingUserContextId = nextContextId;
   return nextContextId;
 }
 
@@ -521,6 +530,10 @@ export function broadcast(payload, opts = {}) {
     return;
   }
   wss.clients.forEach((c) => { if (c.readyState === 1) c.send(msg); });
+}
+
+export function getVoiceRoutingUserContextId() {
+  return normalizeUserContextId(voiceRoutingUserContextId || "");
 }
 
 export function broadcastState(state, userContextId = "") {
@@ -901,17 +914,26 @@ export function startGateway() {
             }
           }
 
-          try {
-            const lane = classifyHudRequestLane(data.content);
-            await hudRequestScheduler.enqueue({
-              lane,
-              userId: incomingUserId,
+	          try {
+	            const lane = classifyHudRequestLane(data.content);
+	            // Global HUD invariant: every inbound HUD message must surface thinking/orb state immediately,
+	            // including fast-path handlers that may resolve quickly.
+	            broadcastState("thinking", incomingUserId);
+	            broadcastThinkingStatus("Analyzing request", incomingUserId);
+	            const thinkingShownAt = Date.now();
+	            await hudRequestScheduler.enqueue({
+	              lane,
+	              userId: incomingUserId,
               conversationId: conversationId || "",
               supersedeKey: conversationId || "",
-              run: async () => {
-                if (opToken && reservedOpTokenKey && !opTokenAccepted) {
-                  markHudOpTokenAccepted(reservedOpTokenKey, conversationId);
-                  opTokenAccepted = true;
+	              run: async () => {
+	                const shownForMs = Date.now() - thinkingShownAt;
+	                if (shownForMs < HUD_MIN_THINKING_PRESENCE_MS) {
+	                  await new Promise((resolve) => setTimeout(resolve, HUD_MIN_THINKING_PRESENCE_MS - shownForMs));
+	                }
+	                if (opToken && reservedOpTokenKey && !opTokenAccepted) {
+	                  markHudOpTokenAccepted(reservedOpTokenKey, conversationId);
+	                  opTokenAccepted = true;
                   sendHudMessageAck(ws, {
                     opToken,
                     conversationId,

@@ -31,6 +31,7 @@ const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway.js";
 const srcVoiceLoopPath = "src/runtime/audio/voice-loop.js";
 const srcEntrypointPath = "src/runtime/core/entrypoint.js";
 const srcChatHandlerPath = "src/runtime/modules/chat/core/chat-handler.js";
+const srcExecuteChatRequestPath = "src/runtime/modules/chat/core/chat-handler/execute-chat-request.js";
 const srcChatSpecialHandlersPath = "src/runtime/modules/chat/core/chat-special-handlers.js";
 const srcConfigPath = "src/runtime/core/config.js";
 const srcVoiceModulePath = "src/runtime/modules/audio/voice.js";
@@ -40,6 +41,7 @@ const srcHudGateway = read(srcHudGatewayPath);
 const srcVoiceLoop = read(srcVoiceLoopPath);
 const srcEntrypoint = read(srcEntrypointPath);
 const srcChatHandler = read(srcChatHandlerPath);
+const srcExecuteChatRequest = read(srcExecuteChatRequestPath);
 const srcChatSpecialHandlers = read(srcChatSpecialHandlersPath);
 const srcConfig = read(srcConfigPath);
 const srcVoiceModule = read(srcVoiceModulePath);
@@ -76,12 +78,12 @@ await run("P14-C3 Voice-loop reliability guard rails remain", async () => {
   const required = [
     "if (getMuted())",
     "if (getBusy())",
-    'broadcastState("listening")',
+    'broadcastState("listening", voiceUserContextId)',
     "wakeWordRuntime.containsWakeWord(text)",
     "VOICE_DUPLICATE_TEXT_COOLDOWN_MS",
     "VOICE_DUPLICATE_COMMAND_COOLDOWN_MS",
     'source: "voice"',
-    'sender: "local-mic"',
+    "sender: voiceUserContextId",
   ];
   for (const token of required) {
     assert.equal(srcVoiceLoop.includes(token), true, `missing voice-loop token: ${token}`);
@@ -89,13 +91,14 @@ await run("P14-C3 Voice-loop reliability guard rails remain", async () => {
 });
 
 await run("P14-C4 Assistant stream framing remains unchanged", async () => {
-  const startIdx = srcChatHandler.indexOf("broadcastAssistantStreamStart(");
-  const doneIdx = srcChatHandler.indexOf("broadcastAssistantStreamDone(");
+  const streamSource = `${srcChatHandler}\n${srcExecuteChatRequest}`;
+  const startIdx = streamSource.indexOf("broadcastAssistantStreamStart(");
+  const doneIdx = streamSource.indexOf("broadcastAssistantStreamDone(");
   assert.equal(startIdx >= 0, true, "assistant stream start missing in src chat-handler");
   assert.equal(doneIdx > startIdx, true, "assistant stream done missing or reordered");
 
-  assert.equal(srcVoiceLoop.includes('broadcast({ type: "transcript", text, ts: Date.now() });'), true);
-  assert.equal(srcVoiceLoop.includes('broadcast({ type: "transcript", text: "", ts: Date.now() });'), true);
+  assert.equal(srcVoiceLoop.includes('{ type: "transcript", text, userContextId: voiceUserContextId, ts: Date.now() }'), true);
+  assert.equal(srcVoiceLoop.includes('{ type: "transcript", text: "", userContextId: voiceUserContextId, ts: Date.now() }'), true);
 });
 
 await run("Manual memory updates emit assistant stream events", async () => {
@@ -160,11 +163,18 @@ await run("P14-C7 wake word follows assistant-name updates and STT hint wiring",
   assert.equal(srcVoiceLoop.includes("getPrimaryWakeWord"), true);
   const hasWakeHintTranscribeCall =
     srcVoiceLoop.includes("transcribe(micCapturePath, wakeWordHint)")
-    || srcVoiceLoop.includes('transcribe(micCapturePath, wakeWordHint, "local-mic")');
+    || srcVoiceLoop.includes("transcribe(micCapturePath, wakeWordHint, voiceUserContextId)");
   assert.equal(hasWakeHintTranscribeCall, true);
   assert.equal(srcVoiceModule.includes("The wake word is"), true);
   assert.equal(srcVoiceModule.includes("wakeWordHint"), true);
   assert.equal(srcHudGateway.includes("wakeWordRuntime.setAssistantName"), true);
+});
+
+await run("P14-C8 voice/session paths do not hardcode local-mic fallback", async () => {
+  assert.equal(srcVoiceLoop.includes('"local-mic"'), false);
+  assert.equal(srcVoiceModule.includes('userContextId = "local-mic"'), false);
+  assert.equal(read("src/session/key.ts").includes("local-mic"), false);
+  assert.equal(read("src/session/runtime-compat.js").includes("local-mic"), false);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

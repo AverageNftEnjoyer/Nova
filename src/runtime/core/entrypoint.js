@@ -28,12 +28,14 @@ import {
   cleanupAudioArtifacts,
   recordMic,
   transcribe,
+  speak,
   stopSpeaking,
 } from "../../compat/voice.js";
 import {
   startGateway,
   broadcast,
   broadcastState,
+  getVoiceRoutingUserContextId,
   registerHandleInput,
 } from "../infrastructure/hud-gateway.js";
 import { handleInput } from "../../compat/chat-handler.js";
@@ -84,11 +86,13 @@ export async function startNovaRuntime() {
     getMuted,
     getCurrentVoice,
     getVoiceEnabled,
+    getVoiceRoutingUserContextId,
     getSuppressVoiceWakeUntilMs,
     setSuppressVoiceWakeUntilMs,
     createMicCapturePath,
     recordMic,
     transcribe,
+    speak,
     stopSpeaking,
     MIC_RECORD_SECONDS,
     MIC_RETRY_SECONDS,

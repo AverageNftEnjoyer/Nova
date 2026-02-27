@@ -78,8 +78,11 @@ export function createWakeWordRuntime({ wakeWord, wakeWordVariants }) {
     let i = 0;
     while (i < tokens.length && filler.has(tokens[i])) i += 1;
     if (i >= tokens.length || !isWakeToken(tokens[i])) return "";
-
-    const rest = tokens.slice(i + 1).join(" ").trim();
+    i += 1;
+    // Some STT passes produce repeated wake words ("nova nova").
+    // Treat repeated wake-token prefixes as wake-only so we don't send "nova" to chat.
+    while (i < tokens.length && (filler.has(tokens[i]) || isWakeToken(tokens[i]))) i += 1;
+    const rest = tokens.slice(i).join(" ").trim();
     return rest;
   }
 

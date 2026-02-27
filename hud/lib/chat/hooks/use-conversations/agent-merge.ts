@@ -41,11 +41,15 @@ export function useAgentMessageMerge(params: {
   // Tracks last-seen content length per assistant id across runs.
   // Used to detect "stabilized" content (stream done) for final merge.
   const assistantSeenLenRef = useRef<Map<string, number>>(new Map())
+  // Guards against repeatedly re-merging the same finalized assistant payload.
+  const assistantStabilizedLenRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     if (agentMessages.length === 0) {
       mergedCountRef.current = 0
       processedAgentMessageKeysRef.current.clear()
+      assistantSeenLenRef.current.clear()
+      assistantStabilizedLenRef.current.clear()
       return
     }
     if (conversations.length === 0) return
@@ -76,6 +80,7 @@ export function useAgentMessageMerge(params: {
     }
 
     const seenLens = assistantSeenLenRef.current
+    const stabilizedLens = assistantStabilizedLenRef.current
 
     const newOnes: Array<{ item: IncomingAgentMessage; key: string }> = []
     for (const item of agentMessages) {
@@ -92,7 +97,14 @@ export function useAgentMessageMerge(params: {
           // Already merged once.  Skip while content is still growing
           // (streaming in progress).  Allow a final re-merge once content
           // has stabilized (length unchanged since last effect run).
-          if (content.length !== prevSeenLen) continue
+          if (content.length !== prevSeenLen) {
+            stabilizedLens.delete(item.id)
+            continue
+          }
+          // Only allow one stabilized re-merge per assistant-id/content-length pair.
+          const lastStabilizedLen = Number(stabilizedLens.get(item.id) || 0)
+          if (lastStabilizedLen === content.length) continue
+          stabilizedLens.set(item.id, content.length)
           processedKeys.delete(stableKey)
         }
         processedKeys.add(stableKey)

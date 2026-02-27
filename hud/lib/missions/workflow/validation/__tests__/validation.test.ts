@@ -24,7 +24,7 @@ function buildTypicalSummary(): Record<string, unknown> {
       { id: "step-3", type: "transform", title: "Normalize data", transformAction: "normalize" },
       { id: "step-4", type: "condition", title: "Check confidence", conditionField: "data.confidence", conditionOperator: "greater_than", conditionValue: "0.6" },
       { id: "step-5", type: "ai", title: "Summarize", aiPrompt: "Write concise summary with risks and confidence.", aiIntegration: "openai" },
-      { id: "step-6", type: "output", title: "Deliver", outputChannel: "novachat" },
+      { id: "step-6", type: "output", title: "Deliver", outputChannel: "telegram" },
     ],
   }
 }
@@ -50,7 +50,7 @@ test("unit: strict profile enforces explicit aiIntegration while runtime does no
   const summary = {
     workflowSteps: [
       { id: "step-1", type: "ai", title: "Summarize", aiPrompt: "Summarize this dataset in plain text." },
-      { id: "step-2", type: "output", title: "Deliver", outputChannel: "novachat" },
+      { id: "step-2", type: "output", title: "Deliver", outputChannel: "telegram" },
     ],
   }
   const strictResult = validateMissionWorkflowMessage({

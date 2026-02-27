@@ -1,7 +1,13 @@
 import { buildSpotifyOAuthUrl as buildOAuthUrl, parseSpotifyOAuthState as parseOAuthState } from "./auth"
 import { assertSpotifyOk, readSpotifyErrorMessage, spotifyFetchWithRetry } from "./client"
 import { spotifyError } from "./errors"
-import { disconnectSpotify, exchangeCodeForSpotifyTokens, getSpotifyClientConfig, getValidSpotifyAccessToken } from "./tokens"
+import {
+  disconnectSpotify,
+  exchangeCodeForSpotifyTokens,
+  getSpotifyClientConfig,
+  getSpotifyGrantedScopes,
+  getValidSpotifyAccessToken,
+} from "./tokens"
 import {
   SPOTIFY_API_BASE,
   type SpotifyNowPlaying,
@@ -13,6 +19,25 @@ import {
 } from "./types"
 
 type PlaybackAction = SpotifyPlaybackAction
+
+async function ensureSpotifyScopeAny(
+  scope: SpotifyScope | undefined,
+  acceptedScopes: string[],
+  operationLabel: string,
+): Promise<void> {
+  const granted = new Set(
+    (await getSpotifyGrantedScopes(scope))
+      .map((scopeText) => String(scopeText || "").trim().toLowerCase())
+      .filter(Boolean),
+  )
+  const hasAny = acceptedScopes.some((required) => granted.has(String(required || "").trim().toLowerCase()))
+  if (hasAny) return
+  throw spotifyError(
+    "spotify.forbidden",
+    `Spotify permissions missing for ${operationLabel}. Reconnect Spotify to grant: ${acceptedScopes.join(", ")}.`,
+    { status: 403 },
+  )
+}
 
 function summarizeNowPlaying(nowPlaying: SpotifyNowPlaying): string {
   if (!nowPlaying.connected) return "Spotify is not connected."
@@ -133,6 +158,155 @@ async function searchSpotifyUri(query: string, searchType: SpotifySearchType = "
   const key = `${apiType}s`
   const uri = String(payload?.[key]?.items?.[0]?.uri || "").trim()
   return uri
+}
+
+type UserPlaylistMatch = { uri: string; id: string; name: string }
+
+function normalizePlaylistName(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function scorePlaylistName(query: string, candidate: string): number {
+  const q = normalizePlaylistName(query)
+  const c = normalizePlaylistName(candidate)
+  if (!q || !c) return 0
+  if (q === c) return 1
+  if (c.includes(q)) return 0.92
+  if (q.includes(c)) return 0.82
+  const qTokens = new Set(q.split(" ").filter(Boolean))
+  const cTokens = new Set(c.split(" ").filter(Boolean))
+  if (qTokens.size === 0 || cTokens.size === 0) return 0
+  let overlap = 0
+  for (const token of qTokens) {
+    if (cTokens.has(token)) overlap += 1
+  }
+  const tokenScore = overlap / Math.max(qTokens.size, cTokens.size)
+  return Math.max(0, Math.min(0.8, tokenScore))
+}
+
+async function listUserSpotifyPlaylists(scope?: SpotifyScope): Promise<UserPlaylistMatch[]> {
+  const collected: UserPlaylistMatch[] = []
+  const seen = new Set<string>()
+  for (let page = 0; page < 3; page += 1) {
+    const limit = 50
+    const offset = page * limit
+    const endpoint = `${SPOTIFY_API_BASE}/me/playlists?${new URLSearchParams({ limit: String(limit), offset: String(offset) }).toString()}`
+    const response = await spotifyApiRequest(endpoint, { method: "GET" }, "spotify_user_playlists", scope)
+    await assertSpotifyOk(response, "Spotify playlists read failed.")
+    const payload = await response.json().catch(() => null) as {
+      items?: Array<{ uri?: string; id?: string; name?: string }>
+      next?: string | null
+    } | null
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    for (const item of items) {
+      const uri = String(item?.uri || "").trim()
+      const id = String(item?.id || "").trim()
+      const name = String(item?.name || "").trim()
+      if (!uri || !id || !name) continue
+      if (seen.has(id)) continue
+      seen.add(id)
+      collected.push({ uri, id, name })
+    }
+    if (!payload?.next) break
+  }
+  return collected
+}
+
+export async function findSpotifyPlaylistByQuery(
+  query: string,
+  scope?: SpotifyScope,
+): Promise<{ match: UserPlaylistMatch | null; suggestions: string[] }> {
+  await ensureSpotifyScopeAny(scope, ["playlist-read-private", "playlist-read-collaborative"], "playlist lookup")
+  const normalizedQuery = String(query || "").trim()
+  if (!normalizedQuery) return { match: null, suggestions: [] }
+  const playlists = await listUserSpotifyPlaylists(scope)
+  if (playlists.length === 0) return { match: null, suggestions: [] }
+  const scored = playlists
+    .map((playlist) => ({
+      playlist,
+      score: scorePlaylistName(normalizedQuery, playlist.name),
+    }))
+    .sort((a, b) => b.score - a.score)
+  const top = scored[0]
+  const match = top && top.score >= 0.9 ? top.playlist : null
+  const suggestions = scored
+    .filter((entry) => entry.score >= 0.35)
+    .slice(0, 3)
+    .map((entry) => entry.playlist.name)
+  return { match, suggestions }
+}
+
+function parseTrackAndArtistQuery(query: string): { track: string; artist: string } | null {
+  const normalized = String(query || "").trim()
+  if (!normalized) return null
+  const match = normalized.match(/^(.+?)\s+\bby\b\s+(.+)$/i)
+  if (!match) return null
+  const track = String(match[1] || "").trim().replace(/^["']|["']$/g, "")
+  const artist = String(match[2] || "").trim().replace(/^["']|["']$/g, "")
+  if (!track || !artist) return null
+  return { track, artist }
+}
+
+function buildStrictTrackArtistQueries(track: string, artist: string): string[] {
+  const normalizedTrack = String(track || "").trim()
+  const normalizedArtist = String(artist || "").trim()
+  if (!normalizedTrack || !normalizedArtist) return []
+  return [
+    `track:${normalizedTrack} artist:${normalizedArtist}`,
+    `track:"${normalizedTrack}" artist:"${normalizedArtist}"`,
+  ]
+}
+
+function normalizeComparableMusicText(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function tokenizeComparableMusicText(value: string): string[] {
+  return normalizeComparableMusicText(value).split(" ").filter((token) => token.length >= 2)
+}
+
+function hasAllNeedleTokens(haystack: string, needles: string[]): boolean {
+  if (needles.length === 0) return false
+  const normalizedHaystack = normalizeComparableMusicText(haystack)
+  if (!normalizedHaystack) return false
+  const haystackTokens = new Set(tokenizeComparableMusicText(normalizedHaystack))
+  for (const token of needles) {
+    if (!haystackTokens.has(token)) return false
+  }
+  return true
+}
+
+async function waitForStrictTrackArtistVerification(
+  input: { track: string; artist: string },
+  scope?: SpotifyScope,
+): Promise<{ matched: boolean; nowPlaying: SpotifyNowPlaying }> {
+  const requiredTrackTokens = tokenizeComparableMusicText(input.track)
+  const requiredArtistTokens = tokenizeComparableMusicText(input.artist)
+  let latest = await getSpotifyNowPlaying(scope)
+  const matchesNowPlaying = (candidate: SpotifyNowPlaying): boolean => {
+    const nowPlaying = candidate
+    const trackMatches = hasAllNeedleTokens(nowPlaying.trackName, requiredTrackTokens)
+    const artistMatches = hasAllNeedleTokens(nowPlaying.artistName, requiredArtistTokens)
+    return trackMatches && artistMatches
+  }
+  if (matchesNowPlaying(latest)) return { matched: true, nowPlaying: latest }
+
+  // Spotify player state can lag briefly after a successful play command.
+  // Retry a few short polls to avoid false not_found responses.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    latest = await getSpotifyNowPlaying(scope)
+    if (matchesNowPlaying(latest)) return { matched: true, nowPlaying: latest }
+  }
+  return { matched: false, nowPlaying: latest }
 }
 
 async function getSpotifyDevices(scope?: SpotifyScope): Promise<Array<{ id: string; name: string; type: string; is_active: boolean; volume_percent: number }>> {
@@ -537,6 +711,57 @@ export async function controlSpotifyPlayback(
     }
   }
 
+  if (action === "add_to_playlist") {
+    await ensureSpotifyScopeAny(scope, ["playlist-modify-private", "playlist-modify-public"], "playlist updates")
+    const nowPlaying = await getSpotifyNowPlaying(scope)
+    const trackId = String(nowPlaying.trackId || "").trim()
+    if (!trackId) {
+      throw spotifyError("spotify.not_found", "No track is currently playing to add.", { status: 404 })
+    }
+
+    let playlistUri = String(options?.playlistUri || "").trim()
+    let playlistName = String(options?.playlistName || "").trim()
+    const playlistQuery = String(options?.query || "").trim()
+    if (!playlistUri && playlistQuery) {
+      const resolved = await findSpotifyPlaylistByQuery(playlistQuery, scope)
+      if (!resolved.match) {
+        const suffix = resolved.suggestions.length > 0
+          ? ` Did you mean: ${resolved.suggestions.join(", ")}?`
+          : ""
+        throw spotifyError("spotify.not_found", `No exact playlist match for "${playlistQuery}".${suffix}`.trim(), { status: 404 })
+      }
+      playlistUri = resolved.match.uri
+      playlistName = resolved.match.name
+    }
+    if (!playlistUri) {
+      throw spotifyError("spotify.not_found", "No playlist selected. Tell me which playlist to use first.", { status: 404 })
+    }
+
+    const playlistId = playlistUri.replace("spotify:playlist:", "").trim()
+    if (!playlistId) {
+      throw spotifyError("spotify.invalid_request", "Invalid playlist URI.", { status: 400 })
+    }
+    const endpoint = `${SPOTIFY_API_BASE}/playlists/${playlistId}/tracks`
+    const trackUri = `spotify:track:${trackId}`
+    const response = await spotifyApiRequest(
+      endpoint,
+      { method: "POST", body: JSON.stringify({ uris: [trackUri] }) },
+      "spotify_add_to_playlist",
+      scope,
+    )
+    if (response.status === 201 || response.status === 200 || response.status === 204 || response.ok) {
+      const trackLabel = nowPlaying.trackName || "Current track"
+      const playlistLabel = playlistName || "your playlist"
+      return {
+        ok: true,
+        action,
+        message: `Added "${trackLabel}" to ${playlistLabel}.`,
+        skipNowPlayingRefresh: true,
+      }
+    }
+    await throwPlaybackError(response, "Failed to add the track to playlist.")
+  }
+
   if (action === "open") {
     return {
       ok: true,
@@ -603,7 +828,20 @@ export async function controlSpotifyPlayback(
   }
 
   const searchType = options?.type ?? "track"
-  const uri = await searchSpotifyUri(query, searchType, scope)
+  const strictTrackArtist = searchType === "track" ? parseTrackAndArtistQuery(query) : null
+  let uri = ""
+  if (searchType === "track") {
+    if (strictTrackArtist) {
+      const strictQueries = buildStrictTrackArtistQueries(strictTrackArtist.track, strictTrackArtist.artist)
+      for (const strictQuery of strictQueries) {
+        uri = await searchSpotifyUri(strictQuery, "track", scope)
+        if (uri) break
+      }
+    }
+  }
+  if (!uri) {
+    uri = await searchSpotifyUri(query, searchType, scope)
+  }
   if (!uri) {
     throw spotifyError("spotify.not_found", `No Spotify results found for "${query}".`, { status: 404 })
   }
@@ -612,7 +850,18 @@ export async function controlSpotifyPlayback(
     ? { context_uri: uri }
     : { uris: [uri] }
   await sendPlayerCommand("play", playBody, scope)
-  const nowPlaying = await getSpotifyNowPlaying(scope)
+  let nowPlaying = await getSpotifyNowPlaying(scope)
+  if (strictTrackArtist) {
+    const verification = await waitForStrictTrackArtistVerification(strictTrackArtist, scope)
+    nowPlaying = verification.nowPlaying
+    if (!verification.matched) {
+      throw spotifyError(
+        "spotify.not_found",
+        `Could not verify exact match for "${strictTrackArtist.track}" by "${strictTrackArtist.artist}".`,
+        { status: 404 },
+      )
+    }
+  }
   return {
     ok: true,
     action: "play",

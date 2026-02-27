@@ -118,13 +118,9 @@ function createHeaders(details: { remaining: number; resetAt: number; retryAfter
 }
 
 function shouldBypassIpRateLimit(req: NextRequest): boolean {
-  const pathname = String(req.nextUrl.pathname || "").trim()
   const method = String(req.method || "").trim().toUpperCase()
   // Skip preflight requests to reduce unnecessary limiter churn and latency.
   if (method === "OPTIONS") return true
-  // Pending queue has its own authenticated per-user limiter and client backoff.
-  // Bypass global IP limiter so unrelated API traffic doesn't starve pending delivery.
-  if (pathname === "/api/novachat/pending" || pathname.startsWith("/api/novachat/pending/")) return true
   return false
 }
 

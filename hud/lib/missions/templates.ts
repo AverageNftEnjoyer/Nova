@@ -75,7 +75,7 @@ const MORNING_BRIEFING: MissionTemplate = makeTemplate(
     { ...n("t1", 100, 200), type: "schedule-trigger", label: "Daily at 8:00 AM", triggerMode: "daily", triggerTime: "08:00", triggerTimezone: "America/New_York" } as MissionNode,
     { ...n("s1", 320, 200), type: "web-search", label: "Search Headlines", query: "top world news headlines today site:reuters.com OR site:apnews.com OR site:bbc.com", includeSources: false, fetchContent: true } as MissionNode,
     { ...n("a1", 540, 200), type: "ai-summarize", label: "Summarize Briefing", prompt: "Write a concise morning briefing with 5-7 bullet points. Include one short 'Watch Today' section.", integration: "claude", detailLevel: "standard" } as MissionNode,
-    { ...n("o1", 760, 200), type: "novachat-output", label: "Send to Nova Chat" } as MissionNode,
+    { ...n("o1", 760, 200), type: "telegram-output", label: "Send to Telegram" } as MissionNode,
   ],
   [conn("c1", "t1", "s1"), conn("c2", "s1", "a1"), conn("c3", "a1", "o1")],
 )
@@ -150,7 +150,7 @@ const CRYPTO_PORTFOLIO: MissionTemplate = makeTemplate(
     { ...n("t1", 100, 200), type: "schedule-trigger", label: "Daily at 9:00 AM", triggerMode: "daily", triggerTime: "09:00" } as MissionNode,
     { ...n("cb", 320, 200), type: "coinbase", label: "Fetch Portfolio", intent: "portfolio", assets: ["BTC", "ETH", "SOL"], quoteCurrency: "USD", format: { style: "standard" } } as MissionNode,
     { ...n("a1", 540, 200), type: "ai-summarize", label: "Summarize Portfolio", prompt: "Summarize the Coinbase portfolio snapshot. Highlight top movers, total value change, and add a brief risk note.", integration: "claude" } as MissionNode,
-    { ...n("o1", 760, 200), type: "novachat-output", label: "Send to Nova Chat" } as MissionNode,
+    { ...n("o1", 760, 200), type: "telegram-output", label: "Send to Telegram" } as MissionNode,
   ],
   [conn("c1", "t1", "cb"), conn("c2", "cb", "a1"), conn("c3", "a1", "o1")],
 )
@@ -185,7 +185,7 @@ const WEEKLY_PNL: MissionTemplate = makeTemplate(
     { ...n("t1", 100, 200), type: "schedule-trigger", label: "Friday at 6:00 PM", triggerMode: "weekly", triggerTime: "18:00", triggerDays: ["fri"] } as MissionNode,
     { ...n("cb", 320, 200), type: "coinbase", label: "Fetch Weekly Snapshot", intent: "report", cadence: "weekly", assets: ["BTC", "ETH", "SOL"], format: { style: "detailed" } } as MissionNode,
     { ...n("a1", 540, 200), type: "ai-generate", label: "Write PnL Summary", prompt: "Write a weekly PnL report with sections: Portfolio Overview, Top Performers, Risk Exposure, and Weekly Outlook. State clearly if PnL inputs are unavailable.", integration: "claude", detailLevel: "detailed" } as MissionNode,
-    { ...n("o1", 760, 200), type: "novachat-output", label: "Send to Nova Chat" } as MissionNode,
+    { ...n("o1", 760, 200), type: "telegram-output", label: "Send to Telegram" } as MissionNode,
   ],
   [conn("c1", "t1", "cb"), conn("c2", "cb", "a1"), conn("c3", "a1", "o1")],
 )
@@ -372,7 +372,7 @@ const CONTENT_IDEAS: MissionTemplate = makeTemplate(
     { ...n("t1", 100, 200), type: "schedule-trigger", label: "Monday at 9:00 AM", triggerMode: "weekly", triggerTime: "09:00", triggerDays: ["mon"] } as MissionNode,
     { ...n("s1", 320, 200), type: "web-search", label: "Trending Topics", query: "{{$vars.niche}} trending topics content ideas this week", fetchContent: true } as MissionNode,
     { ...n("a1", 540, 200), type: "ai-generate", label: "Generate Ideas", prompt: "Generate 10 specific, actionable content ideas for {{$vars.niche}}. For each: title, format (blog/video/thread), hook, and estimated engagement potential.", integration: "claude", detailLevel: "detailed" } as MissionNode,
-    { ...n("o1", 760, 200), type: "novachat-output", label: "Content Planner" } as MissionNode,
+    { ...n("o1", 760, 200), type: "telegram-output", label: "Content Planner" } as MissionNode,
   ],
   [conn("c1", "t1", "s1"), conn("c2", "s1", "a1"), conn("c3", "a1", "o1")],
 )
@@ -390,7 +390,7 @@ const RSS_SUMMARY: MissionTemplate = makeTemplate(
     { ...n("r1", 320, 200), type: "rss-feed", label: "Read Feed", url: "{{$vars.rss_url}}", maxItems: 20 } as MissionNode,
     { ...n("f1", 540, 200), type: "filter", label: "Filter Recent", expression: "new Date($item.pubDate) > new Date(Date.now() - 86400000)" } as MissionNode,
     { ...n("a1", 760, 200), type: "ai-summarize", label: "Curate Digest", prompt: "Curate the top 5 items from today's feed. For each: headline, 1-sentence summary, and why it's worth reading.", integration: "claude" } as MissionNode,
-    { ...n("o1", 980, 200), type: "novachat-output", label: "Daily Digest" } as MissionNode,
+    { ...n("o1", 980, 200), type: "telegram-output", label: "Daily Digest" } as MissionNode,
   ],
   [conn("c1", "t1", "r1"), conn("c2", "r1", "f1"), conn("c3", "f1", "a1"), conn("c4", "a1", "o1")],
 )
@@ -444,7 +444,7 @@ const HABIT_TRACKER: MissionTemplate = makeTemplate(
   [
     { ...n("t1", 100, 200), type: "schedule-trigger", label: "Daily at 9:00 PM", triggerMode: "daily", triggerTime: "21:00" } as MissionNode,
     { ...n("a1", 320, 200), type: "ai-generate", label: "Habit Check Message", prompt: "Write a warm, motivating evening check-in message about habits: {{$vars.habit_list}}. Acknowledge consistency, celebrate small wins, and set tomorrow's intention. Keep it under 100 words.", integration: "claude", detailLevel: "concise" } as MissionNode,
-    { ...n("o1", 540, 200), type: "novachat-output", label: "Evening Check-in" } as MissionNode,
+    { ...n("o1", 540, 200), type: "telegram-output", label: "Evening Check-in" } as MissionNode,
   ],
   [conn("c1", "t1", "a1"), conn("c2", "a1", "o1")],
 )

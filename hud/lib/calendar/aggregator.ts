@@ -65,7 +65,7 @@ export async function aggregateCalendarEvents(
     const missionStatus = "scheduled" as const
 
     const outputNode = mission.nodes?.find((n) =>
-      ["novachat-output", "telegram-output", "discord-output", "email-output", "slack-output", "webhook-output"].includes(n.type),
+      ["telegram-output", "discord-output", "email-output", "slack-output", "webhook-output"].includes(n.type),
     )
     const integration = mission.integration
       ?? (outputNode?.type.replace("-output", "") ?? undefined)

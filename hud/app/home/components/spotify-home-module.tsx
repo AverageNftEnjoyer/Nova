@@ -23,7 +23,7 @@ interface SpotifyHomeModuleProps {
   onTogglePlayPause: () => void
   onNext: () => void
   onPrevious: () => void
-  onPlayLiked: () => void
+  onPlaySmart: () => void
   onSeek: (positionMs: number) => void
 }
 
@@ -37,6 +37,31 @@ function formatTimeFromMs(ms: number): string {
 function progressPercent(nowPlaying: HomeSpotifyNowPlaying | null): number {
   if (!nowPlaying || nowPlaying.durationMs <= 0) return 0
   return Math.max(0, Math.min(100, Math.round((nowPlaying.progressMs / nowPlaying.durationMs) * 100)))
+}
+
+function hashTrackSeed(value: string): number {
+  let h = 0
+  for (let i = 0; i < value.length; i++) h = (Math.imul(31, h) + value.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+function parseRgbFromColor(input: string): { r: number; g: number; b: number } | null {
+  const value = String(input || "").trim()
+  const rgbaMatch = value.match(/^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)/i)
+  if (rgbaMatch) {
+    return {
+      r: Math.max(0, Math.min(255, Number(rgbaMatch[1]))),
+      g: Math.max(0, Math.min(255, Number(rgbaMatch[2]))),
+      b: Math.max(0, Math.min(255, Number(rgbaMatch[3]))),
+    }
+  }
+  return null
+}
+
+function perceivedLuminance(input: string): number {
+  const rgb = parseRgbFromColor(input)
+  if (!rgb) return 0.5
+  return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255
 }
 
 export function SpotifyHomeModule({
@@ -53,37 +78,21 @@ export function SpotifyHomeModule({
   onTogglePlayPause,
   onNext,
   onPrevious,
-  onPlayLiked,
+  onPlaySmart,
   onSeek,
 }: SpotifyHomeModuleProps) {
   const [liveProgressMs, setLiveProgressMs] = useState(() => nowPlaying?.progressMs || 0)
   const [repeatTrack, setRepeatTrack] = useState(false)
   const [seekDragPct, setSeekDragPct] = useState<number | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
+  const [currentArtUrl, setCurrentArtUrl] = useState(() => nowPlaying?.albumArtUrl || "")
+  const [pendingArtUrl, setPendingArtUrl] = useState<string | null>(null)
+  const [pendingArtVisible, setPendingArtVisible] = useState(false)
+  const artTransitionRafRef = useRef<number | null>(null)
   // Track when the last nowPlaying snapshot arrived so we can extrapolate progress
   const lastSnapshotAt = useRef<number>(0)
 
   const albumColors = useAlbumColors(nowPlaying?.albumArtUrl)
-
-  // Per-track random timing — stable across re-renders for the same track
-  const glowTiming = useMemo(() => {
-    const seed = nowPlaying?.trackId || "default"
-    // Deterministic pseudo-random from track ID string
-    let h = 0
-    for (let i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0
-    const rand = (min: number, max: number, offset: number) => {
-      const x = Math.sin(h + offset) * 10000
-      return min + (x - Math.floor(x)) * (max - min)
-    }
-    return {
-      durA:   `${rand(3.4, 5.8, 1).toFixed(2)}s`,
-      durB:   `${rand(4.2, 6.6, 2).toFixed(2)}s`,
-      durC:   `${rand(2.9, 4.5, 3).toFixed(2)}s`,
-      delayA: `${(-rand(0, 2.2, 4)).toFixed(2)}s`,
-      delayB: `${(-rand(0.8, 3.1, 5)).toFixed(2)}s`,
-      delayC: `${(-rand(0.3, 1.9, 6)).toFixed(2)}s`,
-    }
-  }, [nowPlaying?.trackId])
 
   useEffect(() => {
     lastSnapshotAt.current = Date.now()
@@ -99,8 +108,8 @@ export function SpotifyHomeModule({
     const elapsed = Date.now() - lastSnapshotAt.current
     setLiveProgressMs(Math.min(nowPlaying.durationMs, (nowPlaying.progressMs || 0) + elapsed))
     const timer = window.setInterval(() => {
-      setLiveProgressMs((prev) => Math.min(nowPlaying.durationMs, prev + 1000))
-    }, 1000)
+      setLiveProgressMs((prev) => Math.min(nowPlaying.durationMs, prev + 250))
+    }, 250)
     return () => window.clearInterval(timer)
   }, [connected, nowPlaying?.playing, nowPlaying?.durationMs, nowPlaying?.progressMs])
 
@@ -127,6 +136,183 @@ export function SpotifyHomeModule({
         }
       : null,
   )
+  const nowPlayingState = Boolean(connected && nowPlaying?.playing)
+  const beatSync = useMemo(() => {
+    const seedRaw = `${nowPlaying?.trackId || ""}|${nowPlaying?.trackName || ""}|${nowPlaying?.artistName || ""}|${nowPlaying?.durationMs || 0}`
+    const seed = hashTrackSeed(seedRaw || "default")
+    const estBpm = 78 + (seed % 34)
+    const beatMs = Math.max(460, Math.round(60_000 / estBpm))
+    const phase = beatMs > 0 ? (Math.max(0, displayProgressMs) % beatMs) / beatMs : 0
+    const cosine = 0.5 + 0.5 * Math.cos(phase * Math.PI * 2)
+    const smoothPulse = 0.72 + 0.28 * Math.pow(cosine, 1.28)
+    return {
+      seed,
+      pulseA: 0.82 + smoothPulse * 0.26,
+      pulseB: 0.78 + smoothPulse * 0.42,
+      pulseC: 0.80 + smoothPulse * 0.30,
+      pulseLeft: 0.76 + smoothPulse * 0.34,
+      pulseRight: 0.76 + smoothPulse * 0.38,
+      shellPulse: 0.82 + smoothPulse * 0.20,
+    }
+  }, [displayProgressMs, nowPlaying?.artistName, nowPlaying?.durationMs, nowPlaying?.trackId, nowPlaying?.trackName])
+  const glowTiming = useMemo(() => {
+    const seedRaw = `${nowPlaying?.trackId || ""}|${nowPlaying?.trackName || ""}|${nowPlaying?.artistName || ""}|${nowPlaying?.durationMs || 0}`
+    const seed = hashTrackSeed(seedRaw || "default")
+    // Keep music-correlated tempo, but run snappier so glow tracks perceived beat changes faster.
+    const estBpm = 78 + (seed % 34)
+    const beatMs = Math.max(460, Math.round(60_000 / estBpm))
+    const barMs = beatMs * 4
+
+    const jitterA = ((seed >> 3) % 7) / 100
+    const jitterB = ((seed >> 7) % 7) / 100
+    const jitterC = ((seed >> 11) % 7) / 100
+
+    const durASeconds = Math.max(2.4, (barMs / 1000) * 0.74 * (1 + jitterA))
+    const durBSeconds = Math.max(1.25, (barMs / 1000) * 0.36 * (1 + jitterB))
+    const durCSeconds = Math.max(4.4, (barMs / 1000) * 1.08 * (1 + jitterC))
+
+    return {
+      durA: `${durASeconds.toFixed(2)}s`,
+      durB: `${durBSeconds.toFixed(2)}s`,
+      durC: `${durCSeconds.toFixed(2)}s`,
+      // Keep delays stable per track so animations don't phase-jump ("teleport") every poll tick.
+      delayA: `${(-(((seed % 1800) / 1000))).toFixed(2)}s`,
+      delayB: `${(-((((seed >> 5) % 1400) / 1000))).toFixed(2)}s`,
+      delayC: `${(-((((seed >> 9) % 2600) / 1000))).toFixed(2)}s`,
+    }
+  }, [nowPlaying?.artistName, nowPlaying?.durationMs, nowPlaying?.trackId, nowPlaying?.trackName])
+  const glowVariantClass = useMemo(() => {
+    const variant = beatSync.seed % 3
+    if (variant === 0) return "spotify-glow-variant-orbit"
+    if (variant === 1) return "spotify-glow-variant-ribbon"
+    return "spotify-glow-variant-prism"
+  }, [beatSync.seed])
+  const spotifyTheme = useMemo(() => {
+    const c1 = albumColors.primary
+    const c2 = albumColors.secondary
+    const c3 = albumColors.tertiary
+    const lum1 = perceivedLuminance(c1)
+    const lum2 = perceivedLuminance(c2)
+    const controlFg = ((lum1 + lum2) / 2) > 0.48 ? "#0b0f18" : "#f8fbff"
+    return {
+      progressFill: `linear-gradient(90deg, ${c1} 0%, ${c2} 62%, ${c3} 100%)`,
+      playPauseFill: `linear-gradient(135deg, ${c1} 0%, ${c2} 58%, ${c3} 100%)`,
+      controlForeground: controlFg,
+    }
+  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary])
+  const dynamicGlowMotion = useMemo(() => {
+    if (!nowPlayingState) {
+      return {
+        aX: "0px",
+        aY: "0px",
+        aScale: "0",
+        aHue: "0deg",
+        aBlur: "0px",
+        bX: "0px",
+        bY: "0px",
+        bScale: "0",
+        cX: "0px",
+        cY: "0px",
+        cScale: "0",
+        leftX: "0px",
+        leftY: "0px",
+        rightX: "0px",
+        rightY: "0px",
+      }
+    }
+    const t = Math.max(0, displayProgressMs) / 1000
+    const p1 = (beatSync.seed % 23) / 23 * Math.PI * 2
+    const p2 = (beatSync.seed % 31) / 31 * Math.PI * 2
+    const p3 = (beatSync.seed % 41) / 41 * Math.PI * 2
+    const aX = Math.sin(t * 2.25 + p1) * 7 + Math.sin(t * 5.6 + p2) * 2.2
+    const aY = Math.cos(t * 1.85 + p3) * 6.2
+    const bX = Math.sin(t * 3.9 + p2) * 4.4
+    const bY = Math.cos(t * 4.7 + p1) * 3.1
+    const cX = Math.sin(t * 1.35 + p3) * 5.2
+    const cY = Math.cos(t * 2.05 + p2) * 4.8
+    const leftX = Math.sin(t * 3.15 + p1) * 5
+    const leftY = Math.cos(t * 2.7 + p2) * 4
+    const rightX = Math.cos(t * 3.45 + p3) * 5.2
+    const rightY = Math.sin(t * 2.95 + p1) * 4.1
+    return {
+      aX: `${aX.toFixed(2)}px`,
+      aY: `${aY.toFixed(2)}px`,
+      aScale: `${(Math.sin(t * 4.8 + p2) * 0.045).toFixed(4)}`,
+      aHue: `${(Math.sin(t * 1.9 + p3) * 14).toFixed(2)}deg`,
+      aBlur: `${(Math.sin(t * 3.3 + p1) * 2.6).toFixed(2)}px`,
+      bX: `${bX.toFixed(2)}px`,
+      bY: `${bY.toFixed(2)}px`,
+      bScale: `${(Math.sin(t * 6.2 + p1) * 0.055).toFixed(4)}`,
+      cX: `${cX.toFixed(2)}px`,
+      cY: `${cY.toFixed(2)}px`,
+      cScale: `${(Math.cos(t * 2.6 + p2) * 0.05).toFixed(4)}`,
+      leftX: `${leftX.toFixed(2)}px`,
+      leftY: `${leftY.toFixed(2)}px`,
+      rightX: `${rightX.toFixed(2)}px`,
+      rightY: `${rightY.toFixed(2)}px`,
+    }
+  }, [beatSync.seed, displayProgressMs, nowPlayingState])
+  const ambientShellStyle = useMemo<CSSProperties | undefined>(() => {
+    if (!nowPlayingState || !albumColors.primary) return undefined
+    const driftA = Math.sin(displayProgressMs / 1250)
+    const driftB = Math.cos(displayProgressMs / 1500)
+    const leftX = 16 + driftA * 8
+    const rightX = 86 - driftB * 7
+    return {
+      background: `
+        radial-gradient(118% 92% at ${leftX}% -8%, ${albumColors.primary}55 0%, transparent 58%),
+        radial-gradient(92% 88% at ${rightX}% 12%, ${albumColors.secondary}46 0%, transparent 62%),
+        radial-gradient(130% 100% at 50% 110%, ${albumColors.tertiary}24 0%, transparent 72%)
+      `,
+      opacity: beatSync.shellPulse,
+    }
+  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary, beatSync.shellPulse, displayProgressMs, nowPlayingState])
+
+  useEffect(() => {
+    const next = nowPlaying?.albumArtUrl || ""
+    let rafId: number | null = null
+    if (!next) {
+      if (artTransitionRafRef.current !== null) {
+        window.cancelAnimationFrame(artTransitionRafRef.current)
+        artTransitionRafRef.current = null
+      }
+      rafId = window.requestAnimationFrame(() => {
+        setPendingArtUrl(null)
+        setPendingArtVisible(false)
+        setCurrentArtUrl("")
+      })
+      return () => {
+        if (rafId !== null) window.cancelAnimationFrame(rafId)
+      }
+    }
+    if (!currentArtUrl) {
+      rafId = window.requestAnimationFrame(() => {
+        setCurrentArtUrl(next)
+        setPendingArtUrl(null)
+        setPendingArtVisible(false)
+      })
+      return () => {
+        if (rafId !== null) window.cancelAnimationFrame(rafId)
+      }
+    }
+    if (next === currentArtUrl || next === pendingArtUrl) return
+    rafId = window.requestAnimationFrame(() => {
+      setPendingArtUrl(next)
+      setPendingArtVisible(false)
+    })
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId)
+    }
+  }, [currentArtUrl, nowPlaying?.albumArtUrl, pendingArtUrl])
+
+  useEffect(() => {
+    return () => {
+      if (artTransitionRafRef.current !== null) {
+        window.cancelAnimationFrame(artTransitionRafRef.current)
+      }
+    }
+  }, [])
+
   const pctFromEvent = useCallback((e: React.MouseEvent | MouseEvent): number => {
     const bar = progressBarRef.current
     if (!bar) return 0
@@ -154,8 +340,7 @@ export function SpotifyHomeModule({
 
   const trackTitle = nowPlaying?.trackName || "No active track"
   const artistName = nowPlaying?.artistName || (connected ? "Start playback on a Spotify device." : "Connect Spotify in Integrations.")
-  const albumArtUrl = nowPlaying?.albumArtUrl || ""
-  const nowPlayingState = Boolean(connected && nowPlaying?.playing)
+  const albumArtUrl = currentArtUrl || pendingArtUrl || ""
   const isDeviceUnavailable = Boolean(error && /device|playback device/i.test(error))
 
   const handlePlayPause = useCallback(() => {
@@ -170,14 +355,18 @@ export function SpotifyHomeModule({
     >
       <div
         className="relative flex h-full min-h-0 w-full flex-col rounded-[inherit] transition-all duration-700"
-        style={nowPlayingState && albumColors.primary ? { background: `radial-gradient(ellipse at 50% 0%, ${albumColors.primary}22 0%, transparent 70%)` } : undefined}
+        style={ambientShellStyle}
       >
         <div className="relative z-10 flex h-full min-h-0 flex-col px-3 pt-3 pb-4">
           {!connected ? (
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="inline-flex h-7 w-7 items-center justify-center text-accent">
-                  <EqualizerBars isPlaying={nowPlayingState} className="h-4" />
+                  <EqualizerBars
+                    isPlaying={nowPlayingState}
+                    className="h-4"
+                    barStyle={{ "--eq-bar-color": "#f8fafc" } as CSSProperties}
+                  />
                 </span>
               </div>
               <button
@@ -193,51 +382,115 @@ export function SpotifyHomeModule({
             <>
               <div className="flex items-center h-4">
                 <span className="inline-flex items-center justify-center text-accent">
-                  <EqualizerBars isPlaying={nowPlayingState} className="h-4" />
+                  <EqualizerBars
+                    isPlaying={nowPlayingState}
+                    className="h-4"
+                    barStyle={{ "--eq-bar-color": "#f8fafc" } as CSSProperties}
+                  />
                 </span>
               </div>
               <div className="flex shrink-0 flex-col">
                 <div className="relative h-32 w-32 shrink-0 self-center">
-                  {/* 3-layer organic glow — colors sampled from album art */}
-                  <div className="pointer-events-none absolute -inset-5 -z-10 overflow-visible">
-                    <span
-                      className={cn(
-                        "absolute inset-0 rounded-3xl blur-2xl",
-                        nowPlayingState ? "animate-spotify-glow-a" : "opacity-10",
-                      )}
-                      style={{
-                        backgroundColor: albumColors.primary,
-                        "--glow-dur-a": glowTiming.durA,
-                        "--glow-delay-a": glowTiming.delayA,
-                      } as CSSProperties}
-                    />
-                    <span
-                      className={cn(
-                        "absolute inset-2 rounded-3xl blur-xl",
-                        nowPlayingState ? "animate-spotify-glow-b" : "opacity-8",
-                      )}
-                      style={{
-                        backgroundColor: albumColors.secondary,
-                        "--glow-dur-b": glowTiming.durB,
-                        "--glow-delay-b": glowTiming.delayB,
-                      } as CSSProperties}
-                    />
-                    <span
-                      className={cn(
-                        "absolute -inset-2 rounded-3xl blur-3xl",
-                        nowPlayingState ? "animate-spotify-glow-c" : "opacity-6",
-                      )}
-                      style={{
-                        backgroundColor: albumColors.tertiary,
-                        "--glow-dur-c": glowTiming.durC,
-                        "--glow-delay-c": glowTiming.delayC,
-                      } as CSSProperties}
-                    />
-                  </div>
+                  {/* Render glow only while actively playing */}
+                  {nowPlayingState ? (
+                    <div className={cn("pointer-events-none absolute -inset-5 -z-10 overflow-visible", glowVariantClass)}>
+                      <span
+                        className="spotify-glow-layer-a absolute inset-0 rounded-3xl blur-2xl animate-spotify-glow-a"
+                        style={{
+                          backgroundColor: albumColors.primary,
+                          opacity: beatSync.pulseA,
+                          "--glow-dur-a": glowTiming.durA,
+                          "--glow-delay-a": glowTiming.delayA,
+                          "--motion-ax": dynamicGlowMotion.aX,
+                          "--motion-ay": dynamicGlowMotion.aY,
+                          "--motion-as": dynamicGlowMotion.aScale,
+                          "--motion-ahue": dynamicGlowMotion.aHue,
+                          "--motion-ablur": dynamicGlowMotion.aBlur,
+                        } as CSSProperties}
+                      />
+                      <span
+                        className="spotify-glow-layer-b absolute inset-2 rounded-3xl blur-xl animate-spotify-glow-b"
+                        style={{
+                          backgroundColor: albumColors.secondary,
+                          opacity: beatSync.pulseB,
+                          "--glow-dur-b": glowTiming.durB,
+                          "--glow-delay-b": glowTiming.delayB,
+                          "--motion-bx": dynamicGlowMotion.bX,
+                          "--motion-by": dynamicGlowMotion.bY,
+                          "--motion-bs": dynamicGlowMotion.bScale,
+                        } as CSSProperties}
+                      />
+                      <span
+                        className="spotify-glow-layer-c absolute -inset-2 rounded-3xl blur-3xl animate-spotify-glow-c"
+                        style={{
+                          backgroundColor: albumColors.tertiary,
+                          opacity: beatSync.pulseC,
+                          "--glow-dur-c": glowTiming.durC,
+                          "--glow-delay-c": glowTiming.delayC,
+                          "--motion-cx": dynamicGlowMotion.cX,
+                          "--motion-cy": dynamicGlowMotion.cY,
+                          "--motion-cs": dynamicGlowMotion.cScale,
+                        } as CSSProperties}
+                      />
+                      <span
+                        className="spotify-glow-layer-left absolute -left-8 -top-4 h-24 w-24 rounded-full blur-2xl animate-spotify-glow-left"
+                        style={{
+                          backgroundColor: albumColors.secondary,
+                          opacity: beatSync.pulseLeft,
+                          "--motion-lx": dynamicGlowMotion.leftX,
+                          "--motion-ly": dynamicGlowMotion.leftY,
+                        } as CSSProperties}
+                      />
+                      <span
+                        className="spotify-glow-layer-right absolute -right-8 top-8 h-28 w-28 rounded-full blur-2xl animate-spotify-glow-right"
+                        style={{
+                          backgroundColor: albumColors.primary,
+                          opacity: beatSync.pulseRight,
+                          "--motion-rx": dynamicGlowMotion.rightX,
+                          "--motion-ry": dynamicGlowMotion.rightY,
+                        } as CSSProperties}
+                      />
+                    </div>
+                  ) : null}
                   <div className={cn("relative h-full w-full overflow-hidden rounded-xl border", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25")}>
                     {albumArtUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={albumArtUrl} alt="Album art" className="h-full w-full object-cover" />
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={currentArtUrl || albumArtUrl}
+                          alt="Album art"
+                          className={cn(
+                            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+                            pendingArtUrl && pendingArtVisible ? "opacity-0" : "opacity-100",
+                          )}
+                        />
+                        {pendingArtUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={pendingArtUrl}
+                            alt="Album art"
+                            className={cn(
+                              "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+                              pendingArtVisible ? "opacity-100" : "opacity-0",
+                            )}
+                            onLoad={() => {
+                              const loadedUrl = pendingArtUrl
+                              if (!loadedUrl) return
+                              setPendingArtVisible(true)
+                              if (artTransitionRafRef.current !== null) {
+                                window.cancelAnimationFrame(artTransitionRafRef.current)
+                              }
+                              // Finalize on next frame so we commit from the already-loaded pending layer.
+                              artTransitionRafRef.current = window.requestAnimationFrame(() => {
+                                setCurrentArtUrl(loadedUrl)
+                                setPendingArtUrl(null)
+                                setPendingArtVisible(false)
+                                artTransitionRafRef.current = null
+                              })
+                            }}
+                          />
+                        ) : null}
+                      </>
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-slate-300">
                         <SpotifyIcon className="h-9 w-9" />
@@ -268,10 +521,10 @@ export function SpotifyHomeModule({
                   )}
                 >
                   <div
-                    className="h-full rounded-full transition-none"
+                    className="h-full rounded-full transition-[background] duration-300"
                     style={{
                       width: `${seekDragPct !== null ? seekDragPct * 100 : progress}%`,
-                      background: `linear-gradient(to right, rgba(var(--accent-rgb), 0.35), var(--accent-primary) 70%)`,
+                      background: spotifyTheme.progressFill,
                     }}
                   />
                   {/* Thumb — visible on hover/drag */}
@@ -291,7 +544,7 @@ export function SpotifyHomeModule({
 
               <div className="mt-0.5 grid w-full grid-cols-[1fr_auto_1fr] items-center">
                 <button
-                  onClick={onPlayLiked}
+                  onClick={onPlaySmart}
                   disabled={Boolean(busyAction)}
                   className={cn(
                     "inline-flex h-7 w-7 items-center justify-center transition-colors",
@@ -299,8 +552,8 @@ export function SpotifyHomeModule({
                     busyAction ? "opacity-70" : "",
                   )}
                   style={{ justifySelf: "start" }}
-                  aria-label="Play random liked song"
-                  title="Play random liked song"
+                  aria-label="Play from favorite playlist"
+                  title="Play from favorite playlist"
                 >
                   <Shuffle className="h-3.5 w-3.5" />
                 </button>
@@ -324,7 +577,11 @@ export function SpotifyHomeModule({
                       "inline-flex h-9 w-9 items-center justify-center rounded-full text-black transition-transform hover:scale-[1.03] active:scale-[0.98]",
                       busyAction && !isDeviceUnavailable ? "opacity-70" : "",
                     )}
-                    style={{ background: "linear-gradient(135deg, rgba(var(--accent-rgb), 0.55) 0%, var(--accent-primary) 100%)" }}
+                    style={{
+                      background: spotifyTheme.playPauseFill,
+                      color: spotifyTheme.controlForeground,
+                      transition: "background 300ms ease, color 220ms ease",
+                    }}
                     aria-label={isDeviceUnavailable ? "Launch Spotify" : nowPlayingState ? "Pause Spotify" : "Play Spotify"}
                     title={isDeviceUnavailable ? "Launch Spotify" : undefined}
                   >

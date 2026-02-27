@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
-import { controlSpotifyPlayback, getSpotifyCurrentContext } from "@/lib/integrations/spotify"
+import { controlSpotifyPlayback, findSpotifyPlaylistByQuery, getSpotifyCurrentContext } from "@/lib/integrations/spotify"
 import { SpotifyServiceError } from "@/lib/integrations/spotify/errors"
-import { readSpotifySkillPrefs, writeSpotifyFavoritePlaylist } from "@/lib/integrations/spotify/skill-prefs"
+import { clearSpotifyFavoritePlaylist, readSpotifySkillPrefs, writeSpotifyFavoritePlaylist } from "@/lib/integrations/spotify/skill-prefs"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
@@ -151,6 +151,84 @@ export async function POST(req: Request) {
         message: writeResult.message,
         skipNowPlayingRefresh: true,
       })
+    }
+
+    if (payload.action === "set_favorite_playlist") {
+      const query = String(payload.query || "").trim()
+      if (!query) {
+        return NextResponse.json(
+          { ok: false, error: "Tell me the playlist name to set as favorite.", code: "spotify.invalid_request" },
+          { status: 400 },
+        )
+      }
+      const resolved = await findSpotifyPlaylistByQuery(query, verified)
+      if (!resolved.match) {
+        const suffix = resolved.suggestions.length > 0
+          ? ` Did you mean: ${resolved.suggestions.join(", ")}?`
+          : ""
+        return NextResponse.json(
+          { ok: false, error: `No exact playlist match for "${query}".${suffix}`.trim(), code: "spotify.not_found" },
+          { status: 404 },
+        )
+      }
+      const writeResult = writeSpotifyFavoritePlaylist(userId, resolved.match.uri, resolved.match.name || query)
+      if (!writeResult.ok) {
+        return NextResponse.json(
+          { ok: false, error: writeResult.message, code: "spotify.internal" },
+          { status: 500 },
+        )
+      }
+      logSpotifyApi("playback.success", {
+        userContextId: userId,
+        action: "set_favorite_playlist",
+        playlistUri: resolved.match.uri,
+        playlistName: resolved.match.name || query,
+      })
+      return NextResponse.json({
+        ok: true,
+        action: "set_favorite_playlist",
+        message: `Saved "${resolved.match.name || query}" as your favorite Spotify playlist.`,
+        skipNowPlayingRefresh: true,
+      })
+    }
+
+    if (payload.action === "clear_favorite_playlist") {
+      const clearResult = clearSpotifyFavoritePlaylist(userId)
+      if (!clearResult.ok) {
+        return NextResponse.json(
+          { ok: false, error: clearResult.message, code: "spotify.internal" },
+          { status: 500 },
+        )
+      }
+      logSpotifyApi("playback.success", {
+        userContextId: userId,
+        action: "clear_favorite_playlist",
+      })
+      return NextResponse.json({
+        ok: true,
+        action: "clear_favorite_playlist",
+        message: clearResult.message,
+        skipNowPlayingRefresh: true,
+      })
+    }
+
+    if (payload.action === "add_to_playlist") {
+      const prefs = readSpotifySkillPrefs(userId)
+      const result = await controlSpotifyPlayback(
+        "add_to_playlist",
+        {
+          query: payload.query || "",
+          playlistUri: prefs.favoritePlaylistUri,
+          playlistName: prefs.favoritePlaylistName,
+        },
+        verified,
+      )
+      logSpotifyApi("playback.success", {
+        userContextId: userId,
+        action: "add_to_playlist",
+        playlistName: prefs.favoritePlaylistName,
+      })
+      return NextResponse.json(result)
     }
 
     const result = await controlSpotifyPlayback(

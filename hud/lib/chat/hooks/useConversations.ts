@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import {
   type Conversation,
   getActiveId,
@@ -12,14 +12,12 @@ import {
 } from "@/lib/chat/conversations"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user"
-import { computeBackoffDelayMs, defaultPollIntervalMs } from "@/lib/novachat/polling-resilience"
 import {
   OPTIMISTIC_ID_REGEX,
   mergeConversationsPreferLocal,
   isLikelyOptimisticDuplicate,
   type IncomingAgentMessage,
 } from "@/lib/chat/hooks/use-conversations/shared"
-import { usePendingNovaChatPolling } from "@/lib/chat/hooks/use-conversations/pending-poll"
 import { useAgentMessageMerge } from "@/lib/chat/hooks/use-conversations/agent-merge"
 import { useConversationActions } from "@/lib/chat/hooks/use-conversations/conversation-actions"
 
@@ -73,18 +71,14 @@ export function useConversations({
   clearAgentMessages,
 }: UseConversationsOptions): UseConversationsReturn {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const shouldOpenPendingNovaChat = searchParams.get("open") === "novachat"
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [retryNowMs, setRetryNowMs] = useState(0)
 
   const mergedCountRef = useRef(0)
   const syncTimersRef = useRef<Map<string, number>>(new Map())
   const activeUserIdRef = useRef("")
-  const [activeUserScopeVersion, setActiveUserScopeVersion] = useState(0)
   const missionInFlightByScopeRef = useRef<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>(new Map())
   const processedAgentMessageKeysRef = useRef<Set<string>>(new Set())
   const optimisticIdToServerIdRef = useRef<Map<string, string>>(new Map())
@@ -92,6 +86,9 @@ export function useConversations({
   const optimisticEnsureInFlightRef = useRef<Set<string>>(new Set())
   const latestConversationsRef = useRef<Conversation[]>([])
   const latestActiveConvoIdRef = useRef<string>("")
+  const threadsFetchInFlightRef = useRef<Promise<Conversation[]> | null>(null)
+  const threadsFetchCacheRef = useRef<Conversation[] | null>(null)
+  const threadsFetchLastAtRef = useRef(0)
 
   useEffect(() => {
     latestConversationsRef.current = conversations
@@ -103,7 +100,6 @@ export function useConversations({
       const nextUserId = String(getActiveUserId() || "").trim()
       if (activeUserIdRef.current === nextUserId) return
       activeUserIdRef.current = nextUserId
-      setActiveUserScopeVersion((prev) => prev + 1)
     }
     updateActiveUser()
     window.addEventListener(ACTIVE_USER_CHANGED_EVENT, updateActiveUser as EventListener)
@@ -113,10 +109,26 @@ export function useConversations({
   }, [])
 
   const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
-    const res = await fetch("/api/threads", { cache: "no-store" })
-    const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
-    if (!res.ok) throw new Error("Failed to load conversations.")
-    return Array.isArray(data.conversations) ? data.conversations : []
+    const nowMs = Date.now()
+    if (threadsFetchInFlightRef.current) return threadsFetchInFlightRef.current
+    if (threadsFetchCacheRef.current && nowMs - threadsFetchLastAtRef.current < 1_500) {
+      return threadsFetchCacheRef.current
+    }
+    const request = (async () => {
+      const res = await fetch("/api/threads", { cache: "no-store" })
+      const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+      if (!res.ok) throw new Error("Failed to load conversations.")
+      const convos = Array.isArray(data.conversations) ? data.conversations : []
+      threadsFetchCacheRef.current = convos
+      threadsFetchLastAtRef.current = Date.now()
+      return convos
+    })()
+    threadsFetchInFlightRef.current = request
+    try {
+      return await request
+    } finally {
+      threadsFetchInFlightRef.current = null
+    }
   }, [])
 
   const createServerConversation = useCallback(async (title?: string): Promise<Conversation> => {
@@ -281,18 +293,6 @@ export function useConversations({
       queueMicrotask(() => setIsLoaded(true))
       return
     }
-    if (shouldOpenPendingNovaChat) {
-      const activeId = getActiveId()
-      const activeFromCache =
-        (activeId ? cachedConversations.find((c) => c.id === activeId) : null) ?? cachedConversations[0]
-      queueMicrotask(() => {
-        setConversations(cachedConversations)
-        setActiveConvo(activeFromCache || null)
-        if (activeFromCache) setActiveId(activeFromCache.id)
-        setIsLoaded(true)
-      })
-      return
-    }
     const activeId = getActiveId()
     const activeFromCache =
       (activeId ? cachedConversations.find((c) => c.id === activeId) : null) ?? cachedConversations[0]
@@ -302,7 +302,7 @@ export function useConversations({
       if (activeFromCache) setActiveId(activeFromCache.id)
       setIsLoaded(true)
     })
-  }, [shouldOpenPendingNovaChat])
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -317,18 +317,6 @@ export function useConversations({
         const activeId = getActiveId()
         const selectedActiveId = resolveConversationSelectionId(activeId || "", mergedConvos)
         const found = mergedConvos.find((c) => c.id === selectedActiveId)
-        if (shouldOpenPendingNovaChat) {
-          const fallbackActiveId = getActiveId()
-          const fallbackActive =
-            (fallbackActiveId ? mergedConvos.find((c) => c.id === fallbackActiveId) : null) ?? mergedConvos[0] ?? null
-          setConversations(mergedConvos)
-          saveConversations(mergedConvos)
-          writeShellUiCache({ conversations: mergedConvos })
-          setActiveConvo(fallbackActive)
-          if (fallbackActive) setActiveId(fallbackActive.id)
-          setIsLoaded(true)
-          return
-        }
         if (found) {
           setConversations(mergedConvos)
           saveConversations(mergedConvos)
@@ -377,81 +365,7 @@ export function useConversations({
     return () => {
       cancelled = true
     }
-  }, [createServerConversation, fetchConversationsFromServer, reconcileOptimisticConversationMappings, resolveConversationSelectionId, shouldOpenPendingNovaChat])
-
-  const { pendingQueueStatus, processPendingNovaChatMessages, pendingRedirectTimerRef, pendingPollBackoffAttemptsRef } = usePendingNovaChatPolling({
-    isLoaded,
-    shouldOpenPendingNovaChat,
-    activeUserScopeVersion,
-    activeUserIdRef,
-    latestConversationsRef,
-    createServerConversation,
-    syncServerMessages,
-    persist,
-  })
-
-  useEffect(() => {
-    let resetTimer: number | null = null
-    let tickTimer: number | null = null
-
-    if (pendingQueueStatus.mode !== "retrying") {
-      resetTimer = window.setTimeout(() => {
-        setRetryNowMs(0)
-      }, 0)
-      return
-    }
-
-    resetTimer = window.setTimeout(() => {
-      setRetryNowMs(Date.now())
-    }, 0)
-    tickTimer = window.setInterval(() => {
-      setRetryNowMs(Date.now())
-    }, 1000)
-
-    return () => {
-      if (resetTimer !== null) window.clearTimeout(resetTimer)
-      if (tickTimer !== null) window.clearInterval(tickTimer)
-    }
-  }, [pendingQueueStatus.mode, pendingQueueStatus.retryAtMs])
-
-  useEffect(() => {
-    if (!isLoaded) return
-    if (!shouldOpenPendingNovaChat) return
-    let attempts = 0
-    let cancelled = false
-    const maxAttempts = 20
-    const scheduleNext = (delayMs: number) => {
-      if (cancelled) return
-      if (pendingRedirectTimerRef.current !== null) window.clearTimeout(pendingRedirectTimerRef.current)
-      pendingRedirectTimerRef.current = window.setTimeout(() => {
-        pendingRedirectTimerRef.current = null
-        void runPoll()
-      }, delayMs)
-    }
-    const runPoll = async () => {
-      if (cancelled) return
-      const consumed = await processPendingNovaChatMessages()
-      if (cancelled) return
-      if (consumed > 0 || attempts >= maxAttempts) {
-        router.replace("/chat")
-        return
-      }
-      attempts += 1
-      const delayMs = computeBackoffDelayMs({
-        attempt: pendingPollBackoffAttemptsRef.current,
-        baseMs: defaultPollIntervalMs(),
-      })
-      scheduleNext(Math.max(defaultPollIntervalMs(), delayMs))
-    }
-    void runPoll()
-    return () => {
-      cancelled = true
-      if (pendingRedirectTimerRef.current !== null) {
-        window.clearTimeout(pendingRedirectTimerRef.current)
-        pendingRedirectTimerRef.current = null
-      }
-    }
-  }, [isLoaded, pendingPollBackoffAttemptsRef, pendingRedirectTimerRef, processPendingNovaChatMessages, router, shouldOpenPendingNovaChat])
+  }, [createServerConversation, fetchConversationsFromServer, reconcileOptimisticConversationMappings, resolveConversationSelectionId])
 
   useAgentMessageMerge({
     agentMessages,
@@ -534,12 +448,9 @@ export function useConversations({
     resolveConversationIdForAgent,
     resolveSessionConversationIdForAgent,
     pendingQueueStatus: {
-      mode: pendingQueueStatus.mode,
-      message: pendingQueueStatus.message,
-      retryInSeconds:
-        pendingQueueStatus.mode === "retrying"
-          ? Math.max(1, Math.ceil((pendingQueueStatus.retryAtMs - retryNowMs) / 1000))
-          : 0,
+      mode: "idle",
+      message: "",
+      retryInSeconds: 0,
     },
   }
 }

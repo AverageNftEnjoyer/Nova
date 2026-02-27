@@ -25,7 +25,7 @@ function baseMission(): Mission {
       },
       {
         id: "node-2",
-        type: "novachat-output",
+        type: "telegram-output",
         label: "Send",
         position: { x: 340, y: 120 },
       },
@@ -50,7 +50,7 @@ function baseMission(): Mission {
     runCount: 0,
     successCount: 0,
     failureCount: 0,
-    integration: "novachat",
+    integration: "telegram",
     chatIds: [],
   }
 }

@@ -47,7 +47,7 @@ export function hexToRgba(hex: string, alpha: number): string {
 export function formatIntegrationLabel(integration: string): string {
   const value = integration.trim().toLowerCase()
   if (value === "preferred") return "Preferred Channel"
-  if (value === "novachat") return "NovaChat"
+  if (value === "telegram") return "Telegram"
   if (value === "telegram") return "Telegram"
   if (value === "discord") return "Discord"
   if (value === "slack") return "Slack"
@@ -79,7 +79,7 @@ export function renderStepIcon(type: WorkflowStepType, className: string) {
 }
 
 export function getMissionIntegrationIcon(integration: string, className: string) {
-  if (integration === "novachat") return <Sparkles className={className} />
+  if (integration === "telegram") return <Sparkles className={className} />
   if (integration === "telegram") return <Send className={className} />
   if (integration === "discord") return <MessageCircle className={className} />
   if (integration === "email") return <Mail className={className} />
@@ -264,14 +264,14 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       conditionValue: resolvedType === "condition" ? (typeof step.conditionValue === "string" ? step.conditionValue : "") : undefined,
       conditionLogic: resolvedType === "condition" ? (step.conditionLogic === "any" ? "any" : "all") : undefined,
       conditionFailureAction: resolvedType === "condition" ? (step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip") : undefined,
-      outputChannel: resolvedType === "output" ? (step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
+      outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
       outputTiming: resolvedType === "output" ? (step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate") : undefined,
       outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
       outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
       outputRepeatCount: resolvedType === "output" ? (typeof step.outputRepeatCount === "string" && step.outputRepeatCount ? step.outputRepeatCount : "3") : undefined,
       outputRecipients: resolvedType === "output"
         ? sanitizeOutputRecipients(
-          step.outputChannel === "novachat" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+          step.outputChannel === "telegram" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
             ? step.outputChannel
             : "telegram",
           typeof step.outputRecipients === "string" ? step.outputRecipients : "",

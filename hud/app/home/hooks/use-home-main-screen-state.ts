@@ -220,7 +220,7 @@ export function useHomeMainScreenState() {
     toggleSpotifyPlayback: integrations.toggleSpotifyPlayback,
     spotifyNextTrack: integrations.spotifyNextTrack,
     spotifyPreviousTrack: integrations.spotifyPreviousTrack,
-    spotifyPlayLiked: integrations.spotifyPlayLiked,
+    spotifyPlaySmart: integrations.spotifyPlaySmart,
     seekSpotify: integrations.seekSpotify,
     gmailConnected: integrations.gmailConnected,
     gcalendarConnected: integrations.gcalendarConnected,

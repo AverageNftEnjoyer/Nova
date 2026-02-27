@@ -7,7 +7,6 @@
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
 import type { NotificationSchedule } from "@/lib/notifications/store"
 import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
-import { addPendingMessage } from "@/lib/novachat/pending-messages"
 import { fetchWithSsrfGuard } from "../web/safe-fetch"
 import type { OutputResult } from "../types"
 import { enforceMissionOutputContract } from "./contract"
@@ -81,42 +80,6 @@ export async function dispatchOutput(
         ok: false,
         error: `channel_unavailable:${channel}:${error instanceof Error ? error.message : "unknown_error"}`,
       }]
-    }
-  }
-
-  if (channel === "novachat") {
-    // NovaChat: Store the message for the chat UI to pick up
-    const userId = String(schedule.userId || "").trim()
-    if (!userId) {
-      return [{ ok: false, error: "NovaChat output requires a user ID." }]
-    }
-    try {
-      const missionRunId = String(metadata?.missionRunId || "").trim()
-      const runKey = String(metadata?.runKey || "").trim()
-      const nodeId = String(metadata?.nodeId || "output").trim() || "output"
-      const outputIndex = Number.isFinite(Number(metadata?.outputIndex))
-        ? Math.max(0, Number(metadata?.outputIndex))
-        : 0
-      const deliveryKey = String(metadata?.deliveryKey || "").trim()
-        || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
-      await addPendingMessage({
-        userId,
-        title: schedule.label || "Mission Report",
-        content: safeText,
-        missionId: schedule.id,
-        missionLabel: schedule.label,
-        metadata: {
-          missionRunId: missionRunId || undefined,
-          runKey: runKey || undefined,
-          attempt: metadata?.attempt,
-          source: metadata?.source,
-          outputChannel: "novachat",
-          deliveryKey,
-        },
-      })
-      return [{ ok: true }]
-    } catch (error) {
-      return [{ ok: false, error: error instanceof Error ? error.message : "Failed to queue NovaChat message" }]
     }
   }
 

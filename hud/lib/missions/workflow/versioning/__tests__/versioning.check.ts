@@ -74,7 +74,7 @@ await runCheck("graph validation blocks self loops and directed cycles", async (
     label: "Cycle Test",
     nodes: [
       { id: "node-a", type: "manual-trigger", label: "Start", position: { x: 0, y: 0 } },
-      { id: "node-b", type: "novachat-output", label: "Output", position: { x: 220, y: 0 } },
+      { id: "node-b", type: "telegram-output", label: "Output", position: { x: 220, y: 0 } },
     ],
     connections: [
       { id: "conn-1", sourceNodeId: "node-a", sourcePort: "main", targetNodeId: "node-b", targetPort: "main" },

@@ -39,6 +39,9 @@ interface UseHomeConversationsInput {
 export function useHomeConversations({ connected, agentMessages, clearAgentMessages }: UseHomeConversationsInput) {
   const router = useRouter()
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const threadsFetchInFlightRef = useRef<Promise<Conversation[]> | null>(null)
+  const threadsFetchCacheRef = useRef<Conversation[] | null>(null)
+  const threadsFetchLastAtRef = useRef(0)
 
   const persistConversations = useCallback((next: Conversation[]) => {
     setConversations(next)
@@ -47,14 +50,30 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
   }, [])
 
   const fetchConversationsFromServer = useCallback(async (): Promise<Conversation[]> => {
-    const res = await fetch("/api/threads", { cache: "no-store" })
-    if (res.status === 401) {
-      router.replace(`/login?next=${encodeURIComponent("/home")}`)
-      throw new Error("Unauthorized")
+    const nowMs = Date.now()
+    if (threadsFetchInFlightRef.current) return threadsFetchInFlightRef.current
+    if (threadsFetchCacheRef.current && nowMs - threadsFetchLastAtRef.current < 1_500) {
+      return threadsFetchCacheRef.current
     }
-    const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
-    if (!res.ok) throw new Error("Failed to load conversations.")
-    return Array.isArray(data.conversations) ? data.conversations : []
+    const request = (async () => {
+      const res = await fetch("/api/threads", { cache: "no-store" })
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/home")}`)
+        throw new Error("Unauthorized")
+      }
+      const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+      if (!res.ok) throw new Error("Failed to load conversations.")
+      const convos = Array.isArray(data.conversations) ? data.conversations : []
+      threadsFetchCacheRef.current = convos
+      threadsFetchLastAtRef.current = Date.now()
+      return convos
+    })()
+    threadsFetchInFlightRef.current = request
+    try {
+      return await request
+    } finally {
+      threadsFetchInFlightRef.current = null
+    }
   }, [router])
 
   const createServerConversation = useCallback(async (title = DEFAULT_CONVERSATION_TITLE): Promise<Conversation> => {

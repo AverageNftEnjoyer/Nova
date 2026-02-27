@@ -115,7 +115,7 @@ await run("P6-E2E-C7 Thread history reads expose mission run metadata", async ()
   }
 });
 
-await run("P6-E2E-C8 Pending NovaChat hydration carries metadata into conversation state", async () => {
+await run("P6-E2E-C8 Pending Telegram hydration carries metadata into conversation state", async () => {
   const requiredTokens = [
     "missionRunId: msg.metadata?.missionRunId",
     "missionRunKey: msg.metadata?.runKey",

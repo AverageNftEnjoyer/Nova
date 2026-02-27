@@ -4,6 +4,7 @@ const GENERIC_NEW_TOPIC_REGEX = /\b(new\s+topic|switch\s+topic|different\s+topic
 const CRYPTO_CONTINUE_REGEX = /\b(again|same|more\s+detail|more|expand|expanded|drill\s+down|break\s*down|oh\s+wait|wait|also|refresh|rerun|repeat)\b/i;
 const ASSISTANT_CONTINUE_REGEX = /\b(oh\s+wait|wait|also|and|more\s+detail|expand|go\s+on|continue|that\s+one|same\s+thing|clarify)\b/i;
 const MISSION_CONTINUE_REGEX = /\b(also|and|add|change|update|more\s+detail|details|at|am|pm|tomorrow|daily|weekly|weekday|channel|discord|telegram)\b/i;
+const SPOTIFY_CONTINUE_REGEX = /\b(what(?:'s| is)\s+(?:this|that|it)\s+(?:song|track)|what\s+(?:song|track)\s+(?:is\s+)?(?:this|that|it)|what\s+am\s+i\s+listening\s+to|currently\s+playing|playing\s+currently|that\s+(?:song|track)|this\s+(?:song|track)|the\s+song\s+playing|you(?:'| a)?re\s+the\s+one\s+playing\s+it|your\s+the\s+one\s+playing\s+it|playing\s+it)\b/i;
 
 const CODING_ASSISTANT_REGEX = /\b(code|coding|bug|debug|fix|refactor|test|lint|build|deploy|script|function|class|module|typescript|javascript|python|sql|api|endpoint|runtime|stack\s*trace)\b/i;
 const MISSION_TASK_REGEX = /\b(mission|workflow|automation|schedule|scheduled|remind|reminder|task|todo|notification)\b/i;
@@ -44,6 +45,21 @@ const POLICIES = {
     resolveTopicAffinityId: (text, existing = {}) => {
       if (MISSION_TASK_REGEX.test(String(text || ""))) return "mission_task";
       return String(existing.topicAffinityId || "mission_task");
+    },
+  },
+  spotify: {
+    domainId: "spotify",
+    ttlMs: Number.parseInt(process.env.NOVA_STC_TTL_SPOTIFY_MS || "180000", 10),
+    isCancel: (text) => GENERIC_CANCEL_REGEX.test(text),
+    isNewTopic: (text) => GENERIC_NEW_TOPIC_REGEX.test(text),
+    isNonCriticalFollowUp: (text) => SPOTIFY_CONTINUE_REGEX.test(text),
+    resolveTopicAffinityId: (text, existing = {}) => {
+      const normalized = String(text || "").toLowerCase();
+      if (/\b(now playing|what.*playing|what am i listening|song|track)\b/.test(normalized)) return "spotify_now_playing";
+      if (/\b(pause|resume|next|previous|skip|restart|shuffle|repeat|queue|like|unlike|volume)\b/.test(normalized)) {
+        return "spotify_playback_control";
+      }
+      return String(existing.topicAffinityId || "spotify_general");
     },
   },
 };

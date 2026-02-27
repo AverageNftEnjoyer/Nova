@@ -13,7 +13,7 @@ Keep `hud/lib` domain-organized. Avoid adding operational source files directly 
 - `meta/`: version/release metadata.
 - `missions/`: mission runtime, parsing, generation, workflows.
 - `notifications/`: dispatch/schedule/logging for notification channels.
-- `novachat/`: Nova chat runtime support modules.
+- `telegram/`: Nova chat runtime support modules.
 - `security/`: auth hardening, encryption, rate limiting.
 - `settings/`: persistent user/UI settings and caches.
 - `shared/`: small cross-domain utilities.

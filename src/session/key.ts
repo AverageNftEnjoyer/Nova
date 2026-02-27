@@ -79,8 +79,11 @@ export function resolveUserContextId(msg: InboundMessage): string {
 
   const source = normalizeToken(String(msg.source || msg.channel || "hud"));
   if (source === "voice") {
-    const voiceSender = normalizeUserContextId(senderCompat || "local-mic");
-    return voiceSender || "local-mic";
+    const voiceSender = normalizeUserContextId(senderCompat);
+    if (voiceSender) return voiceSender;
+    const hinted = parseSessionKeyUserContext(String(msg.sessionKeyHint || ""));
+    if (hinted) return hinted;
+    return "";
   }
   if (source !== "hud") {
     const senderFallback = normalizeUserContextId(senderCompat);
@@ -119,7 +122,10 @@ export function buildSessionKey(config: SessionConfig, agentName: string, msg: I
     }
     return `${base}:hud:${normalizeToken(config.mainKey || "main")}`;
   }
-  if (source === "voice") return `${base}:voice:dm:${sender || "local-mic"}`;
+  if (source === "voice") {
+    const voiceUserContextId = resolveUserContextId(msg);
+    return `${base}:voice:dm:${normalizeToken(voiceUserContextId || sender || "anonymous")}`;
+  }
 
   return `${base}:${source}:dm:${sender || "anonymous"}`;
 }

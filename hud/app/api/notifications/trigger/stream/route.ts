@@ -166,10 +166,10 @@ export async function GET(req: Request) {
             stepTraces,
           }
 
-          const novachatQueued = stepTraces.some((trace) =>
+          const telegramQueued = stepTraces.some((trace) =>
             String(trace.type || "").toLowerCase() === "output" &&
             String(trace.status || "").toLowerCase() === "completed" &&
-            /\bvia\s+novachat\b/i.test(String(trace.detail || "")),
+            /\bvia\s+telegram\b/i.test(String(trace.detail || "")),
           )
           let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
           let deadLetterId = ""
@@ -221,7 +221,7 @@ export async function GET(req: Request) {
               reason: execution.reason,
               results: execution.outputs,
               stepTraces,
-              novachatQueued,
+              telegramQueued,
               deadLetterId: deadLetterId || undefined,
               schedule: updatedSchedule,
             },

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Nova HUD Version
  *
  * Update this constant whenever making significant changes.
@@ -8,6 +8,12 @@
  * Bump by +.01 on every shipped UI/runtime change.
  *
  * Version History:
+ *
+ * - V.33 Alpha: Mission output spam loop removal + channel model repair
+ *     - Removed the legacy mission-to-chat pending queue pathway that caused repeated chat pending polling and spam behavior.
+ *     - Deleted NovaChat mission notification/output routing from active code paths while preserving normal chat.
+ *     - Repaired duplicated/mutated mission output channel branches introduced by prior broad replacement (`telegram-output` dedupe).
+ *     - Removed stale pending route/proxy/rate-limit wiring and normalized mission output integrations/options.
  *
  * - V.32 Alpha: Spotify playback/device activation + home hydration stability polish
  *     - Hardened Spotify home playback handling for open-but-idle desktop app state by auto-activating an available device before retry.
@@ -53,8 +59,8 @@
  *     - Polished mission node cards, edge/grid styling, and top toolbar density while preserving drag/drop/connect/save/run behavior.
  *     - Added phased implementation tracker artifact: `tasks/mission-builder-ux-overhaul-phases-2026-02-23.md`.
  *
- * - V.25 Alpha: NovaChat pending resiliency + mission idempotency hardening
- *     - Hardened `/api/novachat/pending` polling against spam with single-flight fetch control, 429 recovery backoff+jitter, Retry-After compliance, and stale-request aborts.
+ * - V.25 Alpha: Telegram pending resiliency + mission idempotency hardening
+ *     - Hardened `/api/telegram/pending` polling against spam with single-flight fetch control, 429 recovery backoff+jitter, Retry-After compliance, and stale-request aborts.
  *     - Added cross-tab pending-poll lease coordination so one tab owns user+conversation scoped polling at a time.
  *     - Added durable mission-build idempotency storage (user-scoped locked store) to prevent duplicate mission creation under retries/spam.
  *     - Added end-to-end idempotency key propagation from chat/runtime and missions UI to mission-build API.
@@ -119,7 +125,7 @@
  *     - Upgraded AI mission prompt synthesis to be request-aware and dynamic across domains.
  *     - Replaced hardcoded mission output rewriting with a generic model-first normalizer.
  *     - Removed forced mission title/date wrapper from outputs by default (optional via `NOVA_MISSION_OUTPUT_INCLUDE_HEADER`).
- *     - Simplified mission quality fallback to narrative-first behavior so outputs read like NovaChat responses.
+ *     - Simplified mission quality fallback to narrative-first behavior so outputs read like Telegram responses.
  *
  * - V.16 Alpha: dynamic weather response normalization and runtime resiliency
  *     - Reworked weather summarization to be location-agnostic and query-agnostic (supports "weather in X", "X weather", ZIP-based queries, and result-title fallback extraction).
@@ -187,8 +193,8 @@
  *     - Restored orb animation/hover behavior with live presence indicator.
  *     - Removed container styling around Nova responses for cleaner module blending.
  * 
- * - V.06 Alpha: Consolidated data cleanup, mission run-trace, and NovaChat UX stabilization
- *     - Added NovaChat mission output channel with pending-queue handling and cleanup.
+ * - V.06 Alpha: Consolidated data cleanup, mission run-trace, and Telegram UX stabilization
+ *     - Added Telegram mission output channel with pending-queue handling and cleanup.
  *     - Mission outputs can reliably create/open Nova conversations from run-trace CTA.
  *     - Added per-step real-time run-trace streaming with true start/end timings.
  *     - Fixed run-trace auth/401 stream issues using fetch-based SSE parsing.
@@ -217,4 +223,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.32 Alpha"
+export const NOVA_VERSION = "V.33 Alpha"

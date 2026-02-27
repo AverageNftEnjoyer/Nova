@@ -59,7 +59,7 @@ export type SpotifyPlaybackAction =
   | "volume" | "shuffle" | "repeat"
   | "queue" | "like" | "unlike"
   | "list_devices" | "transfer"
-  | "play_recommended" | "save_playlist"
+  | "play_recommended" | "save_playlist" | "set_favorite_playlist" | "clear_favorite_playlist" | "add_to_playlist"
 
 export type SpotifySearchType = "track" | "artist" | "album" | "playlist" | "genre"
 export type SpotifyRepeatMode = "off" | "track" | "context"
@@ -81,6 +81,8 @@ export const DEFAULT_SPOTIFY_SCOPES = [
   "user-modify-playback-state",
   "user-library-read",
   "playlist-read-private",
+  "playlist-modify-private",
+  "playlist-modify-public",
 ]
 
 export const SPOTIFY_AUTH_BASE = "https://accounts.spotify.com/authorize"

@@ -213,7 +213,7 @@ const VALID_SPOTIFY_ACTIONS = new Set([
   "volume", "shuffle", "repeat",
   "queue", "like", "unlike",
   "list_devices", "transfer",
-  "play_recommended", "save_playlist",
+  "play_recommended", "save_playlist", "set_favorite_playlist", "clear_favorite_playlist", "add_to_playlist",
 ]);
 
 function normalizeSpotifyAction(action) {
@@ -223,8 +223,21 @@ function normalizeSpotifyAction(action) {
 
 function normalizeSpotifyIntentFallback(text) {
   const input = String(text || "").trim().toLowerCase();
-  if (/\b(now playing|what.*playing|what am i listening|what'?s playing)\b/i.test(input)) {
+  const switchToQueryMatch = input.match(/\b(?:switch|change)\s+(?:the\s+)?(?:song|track|music)\s+(?:to|into)\s+(.+)$/i);
+  if (switchToQueryMatch?.[1]) {
+    const query = String(switchToQueryMatch[1]).trim();
+    if (query) return { action: "play", query, response: `Switching to ${query}.` };
+  }
+  const switchArtistQueryMatch = input.match(/\b(?:switch|change)\s+to\s+(.+\s+by\s+.+)$/i);
+  if (switchArtistQueryMatch?.[1]) {
+    const query = String(switchArtistQueryMatch[1]).trim();
+    if (query) return { action: "play", query, response: `Switching to ${query}.` };
+  }
+  if (/\b(now playing|what.*playing|what am i listening|what'?s playing|what song.*playing|song is this.*playing|song.*playing currently)\b/i.test(input)) {
     return { action: "now_playing", query: "", response: "Checking what's playing on Spotify." };
+  }
+  if (/\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(input)) {
+    return { action: "now_playing", query: "", response: "Checking what's playing now." };
   }
   if (/\bplay\b.*\b(i like|from my liked|my liked songs?|my favorites?|one of my favorites?)\b/i.test(input)) {
     return { action: "play_liked", query: "", response: "Playing something you like from Spotify." };
@@ -235,8 +248,11 @@ function normalizeSpotifyIntentFallback(text) {
   if (/\b(next|skip)\b/i.test(input)) {
     return { action: "next", query: "", response: "Skipping to the next track." };
   }
-  if (/\b(restart|replay|start over|from the beginning)\b/i.test(input)) {
+  if (/\b(restart|replay|start over|from the beginning)\b/i.test(input) || (/\bretreat\b/i.test(input) && /\b(song|track|music)\b/i.test(input))) {
     return { action: "restart", query: "", response: "Restarting the track." };
+  }
+  if (/\b(resume|continue|unpause)\b/i.test(input)) {
+    return { action: "play", query: "", response: "Resuming Spotify playback." };
   }
   if (/\b(pause|stop music|stop song)\b/i.test(input)) {
     return { action: "pause", query: "", response: "Pausing Spotify." };
@@ -260,8 +276,24 @@ function normalizeSpotifyIntentFallback(text) {
   if (/\b(list|show|what) (devices?|available)\b/i.test(input)) {
     return { action: "list_devices", query: "", response: "Fetching your Spotify devices." };
   }
+  const setFavoriteNamedMatch = input.match(/\b(?:my\s+favorite\s+playlist\s+is(?:\s+called)?|set\s+(?:my\s+)?favorite\s+playlist\s+to|make)\s+(.+)$/i);
+  if (setFavoriteNamedMatch?.[1]) {
+    const query = String(setFavoriteNamedMatch[1]).trim().replace(/\s+playlist$/i, "").trim();
+    if (query) return { action: "set_favorite_playlist", query, response: `Saved ${query} as your favorite playlist.` };
+  }
+  if (/\b(?:clear|remove|unset|forget)\s+(?:my\s+)?favorite\s+playlist\b/i.test(input) || /\bunfavorite\s+(?:my\s+)?playlist\b/i.test(input)) {
+    return { action: "clear_favorite_playlist", query: "", response: "Cleared your favorite playlist." };
+  }
   if (/\b(favorite|save|remember|bookmark)\s+(this\s+)?(playlist|album|this music)\b/i.test(input) && !/\bsong\b|\btrack\b|\bto\s+(my|a)\s+playlist\b/i.test(input)) {
     return { action: "save_playlist", query: "", response: "Saving this as your favorite playlist." };
+  }
+  const addToPlaylistNamedMatch = input.match(/\badd\s+(?:this|current|this song|this track|song|track)?\s*(?:to|into)\s+(?:my\s+)?playlist\s+(.+)$/i);
+  if (addToPlaylistNamedMatch?.[1]) {
+    const query = String(addToPlaylistNamedMatch[1]).trim();
+    if (query) return { action: "add_to_playlist", query, response: `Adding this track to ${query}.` };
+  }
+  if (/\badd\s+(?:this|current|this song|this track|song|track)\s+(?:to|into)\s+(?:my\s+)?playlist\b/i.test(input)) {
+    return { action: "add_to_playlist", query: "", response: "Adding this track to your favorite playlist." };
   }
   if (/\bplay\s+(my\s+)?(favorite|saved|default)\s+(playlist|music|songs?)\b/i.test(input)) {
     return { action: "play_smart", query: "", response: "Playing your favorite playlist." };
@@ -276,32 +308,43 @@ function normalizeSpotifyIntentFallback(text) {
 }
 
 function runDesktopSpotifyAction(action, query) {
+  const run = (command) => {
+    try {
+      exec(command, (error) => {
+        if (error) {
+          console.warn("[Spotify] Desktop fallback command failed:", error?.message || error);
+        }
+      });
+    } catch (error) {
+      console.warn("[Spotify] Desktop fallback command threw:", error?.message || error);
+    }
+  };
   if (action === "open") {
-    exec("start spotify:");
+    run("start spotify:");
     return;
   }
   if (action === "pause") {
-    exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
+    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
     return;
   }
   if (action === "next") {
-    exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB0)"');
+    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB0)"');
     return;
   }
   if (action === "previous") {
-    exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB1)"');
+    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB1)"');
     return;
   }
   if (action === "play" && query) {
     const encoded = encodeURIComponent(query);
-    exec(`start "spotify" "spotify:search:${encoded}" && timeout /t 2 >nul && powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"`);
+    run(`start "spotify" "spotify:search:${encoded}" && timeout /t 2 >nul && powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"`);
     return;
   }
   if (action === "play") {
-    exec('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
+    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
     return;
   }
-  exec("start spotify:");
+  run("start spotify:");
 }
 
 function buildDesktopSpotifyFallbackReply(action) {
@@ -341,6 +384,34 @@ const SPOTIFY_PLAY_CONFIRMATIONS = [
 
 function pickRandom(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+const SPOTIFY_TTS_DEDUPE_WINDOW_MS = 12_000;
+const SPOTIFY_MIN_THINKING_MS = 650;
+const spotifyLastSpokenByUser = new Map();
+
+function shouldSuppressSpotifyTts(userContextId, replyText) {
+  const userKey = String(userContextId || "").trim().toLowerCase() || "anonymous";
+  const normalizedReply = String(replyText || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  if (!normalizedReply) return false;
+  const now = Date.now();
+  const existing = spotifyLastSpokenByUser.get(userKey);
+  if (existing && existing.reply === normalizedReply && now - Number(existing.ts || 0) <= SPOTIFY_TTS_DEDUPE_WINDOW_MS) {
+    return true;
+  }
+  spotifyLastSpokenByUser.set(userKey, { reply: normalizedReply, ts: now });
+  if (spotifyLastSpokenByUser.size > 500) {
+    for (const [key, value] of spotifyLastSpokenByUser.entries()) {
+      if (now - Number(value?.ts || 0) > SPOTIFY_TTS_DEDUPE_WINDOW_MS * 4) {
+        spotifyLastSpokenByUser.delete(key);
+      }
+    }
+  }
+  return false;
 }
 
 function buildSpotifyLaunchReply() {
@@ -406,6 +477,7 @@ async function runSpotifyViaHudApi(action, intent, ctx) {
         message: String(data?.message || "").trim(),
         code: "",
         fallbackRecommended: data?.fallbackRecommended === true,
+        nowPlaying: data?.nowPlaying || null,
       };
     }
     return {
@@ -414,6 +486,7 @@ async function runSpotifyViaHudApi(action, intent, ctx) {
       message: String(data?.error || "").trim() || `Spotify playback request failed (${res.status}).`,
       code: String(data?.code || "").trim(),
       fallbackRecommended: data?.fallbackRecommended === true,
+      nowPlaying: data?.nowPlaying || null,
     };
   } catch (err) {
     return {
@@ -434,6 +507,7 @@ export async function handleSpotify(text, ctx, llmCtx) {
   broadcastState("thinking", userContextId);
   broadcastThinkingStatus("Controlling Spotify", userContextId);
   broadcastMessage("user", ctx.raw_text || text, source, conversationId, userContextId);
+  const assistantStreamId = createAssistantStreamId();
   const summary = {
     route: "spotify",
     ok: true,
@@ -458,12 +532,42 @@ export async function handleSpotify(text, ctx, llmCtx) {
     latencyMs: 0,
   };
   const startedAt = Date.now();
+  let assistantStreamStarted = false;
+
+  const ensureSpotifyAssistantStreamStarted = () => {
+    if (assistantStreamStarted) return;
+    broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);
+    assistantStreamStarted = true;
+  };
+
+  async function emitSpotifyAssistantReply(replyText) {
+    const normalized = normalizeAssistantReply(String(replyText || ""));
+    if (normalized.skip) {
+      if (assistantStreamStarted) {
+        broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
+        assistantStreamStarted = false;
+      }
+      return "";
+    }
+    ensureSpotifyAssistantStreamStarted();
+    broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source, undefined, conversationId, userContextId);
+    broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
+    assistantStreamStarted = false;
+    if (useVoice && !shouldSuppressSpotifyTts(userContextId, normalized.text)) {
+      await withTimeout(
+        speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice),
+        12_000,
+        "Spotify TTS",
+      ).catch(() => {});
+    }
+    return normalized.text;
+  }
 
   const spotifySystemPrompt = `You are a Spotify command parser. Given user input, respond with ONLY a valid JSON object — no markdown, no explanation.
 
 Schema:
 {
-  "action": one of: "open"|"play"|"pause"|"next"|"previous"|"now_playing"|"play_liked"|"play_smart"|"seek"|"restart"|"volume"|"shuffle"|"repeat"|"queue"|"like"|"unlike"|"list_devices"|"transfer"|"play_recommended"|"save_playlist",
+  "action": one of: "open"|"play"|"pause"|"next"|"previous"|"now_playing"|"play_liked"|"play_smart"|"seek"|"restart"|"volume"|"shuffle"|"repeat"|"queue"|"like"|"unlike"|"list_devices"|"transfer"|"play_recommended"|"save_playlist"|"set_favorite_playlist"|"clear_favorite_playlist"|"add_to_playlist",
   "query": "search string if needed, else empty string",
   "type": "track"|"artist"|"album"|"playlist"|"genre" (only when action=play or queue),
   "positionMs": integer milliseconds (only when action=seek),
@@ -501,6 +605,9 @@ Examples:
 - "go to 2 minutes" -> { "action": "seek", "query": "", "positionMs": 120000, "response": "Jumping to 2 minutes." }
 - "restart the song" -> { "action": "restart", "query": "", "response": "Starting over." }
 - "save this playlist as my favorite" -> { "action": "save_playlist", "query": "", "response": "Saved as your favorite playlist." }
+- "my favorite playlist is called <playlist name>" -> { "action": "set_favorite_playlist", "query": "<playlist name>", "response": "Saved your favorite playlist." }
+- "clear my favorite playlist" -> { "action": "clear_favorite_playlist", "query": "", "response": "Cleared your favorite playlist." }
+- "add this to playlist <playlist name>" -> { "action": "add_to_playlist", "query": "<playlist name>", "response": "Adding this track to that playlist." }
 - "play my favorite playlist" -> { "action": "play_smart", "query": "", "response": "Playing your favorite playlist." }
 Rules for save_playlist: saves the currently playing playlist as the user's favorite for the smart play button.
 Rules for play_smart: plays the user's saved favorite playlist, or falls back to liked songs if none saved.
@@ -509,7 +616,9 @@ Output ONLY valid JSON, nothing else.`;
   let spotifyRaw = "";
 
   try {
+    ensureSpotifyAssistantStreamStarted();
     // Fast path: skip LLM for unambiguous commands — saves 300–800ms on pause/next/prev etc.
+    broadcastThinkingStatus("Parsing Spotify command", userContextId);
     const fastIntent = normalizeSpotifyIntentFallback(text);
     const needsLlm = fastIntent.action === "play" || fastIntent.action === "open";
     let intent = null;
@@ -575,6 +684,7 @@ Output ONLY valid JSON, nothing else.`;
     };
 
     let reply = rawResponse;
+    broadcastThinkingStatus("Applying Spotify command", userContextId);
     const hudResult = await runSpotifyViaHudApi(action, sanitizedIntent, ctx);
       const intentQuery = rawQuery;
 
@@ -584,10 +694,21 @@ Output ONLY valid JSON, nothing else.`;
       }
       if (action === "play" && intentQuery && hudResult.message) {
         reply = buildSpotifyPlayConfirmation(intentQuery);
+      } else if (action === "now_playing" && hudResult?.nowPlaying?.playing) {
+        const base = hudResult.message || "Now playing.";
+        reply = `${base} Want me to add this track to a playlist?`;
       } else {
         reply = hudResult.message || reply || "Done.";
       }
     } else {
+      if (
+        (hudResult.code === "spotify.not_found" || hudResult.code === "spotify.forbidden")
+        && (action === "play" || action === "set_favorite_playlist" || action === "clear_favorite_playlist" || action === "add_to_playlist")
+      ) {
+        summary.ok = false;
+        summary.error = hudResult.message || "Could not verify an exact Spotify match.";
+        reply = summary.error;
+      } else {
       const shouldFallback = !hudResult.attempted || shouldFallbackToDesktopSpotify(hudResult.code);
       if (shouldFallback) {
         runDesktopSpotifyAction(action, intentQuery);
@@ -604,29 +725,25 @@ Output ONLY valid JSON, nothing else.`;
         summary.error = hudResult.message || "Spotify playback failed.";
         reply = reply || summary.error;
       }
+      }
+    }
+
+    // Keep thinking visible briefly so HUD orb/status has time to animate.
+    const thinkingElapsedMs = Date.now() - startedAt;
+    if (thinkingElapsedMs < SPOTIFY_MIN_THINKING_MS) {
+      await new Promise((resolve) => setTimeout(resolve, SPOTIFY_MIN_THINKING_MS - thinkingElapsedMs));
     }
 
     // Final TTS safety: cap spoken reply at 120 chars
+    broadcastThinkingStatus("Finalizing Spotify response", userContextId);
     const safeReply = String(reply || "Done.").replace(/[\r\n]/g, " ").trim().slice(0, 120);
-    const normalized = normalizeAssistantReply(safeReply);
-    summary.reply = normalized.skip ? "" : normalized.text;
-    if (!normalized.skip) {
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice);
-      else broadcastMessage("assistant", normalized.text, source, conversationId, userContextId);
-    }
+    summary.reply = await emitSpotifyAssistantReply(safeReply);
   } catch (e) {
     console.error("[Spotify] Handler error:", e?.message || e);
     summary.ok = false;
     summary.error = String(e instanceof Error ? e.message : describeUnknownError(e));
     const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
-    const normalizedAck = normalizeAssistantReply(ack);
-    summary.reply = normalizedAck.skip ? "" : normalizedAck.text;
-    if (!normalizedAck.skip) {
-      try {
-        if (useVoice) await speak(normalizeAssistantSpeechText(normalizedAck.text) || normalizedAck.text, ttsVoice);
-        else broadcastMessage("assistant", normalizedAck.text, source, conversationId, userContextId);
-      } catch {}
-    }
+    summary.reply = await emitSpotifyAssistantReply(ack);
     runDesktopSpotifyAction("open", "");
   } finally {
     broadcastThinkingStatus("", userContextId);

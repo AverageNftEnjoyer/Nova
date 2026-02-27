@@ -70,7 +70,7 @@ export function HomeMainScreen() {
     toggleSpotifyPlayback,
     spotifyNextTrack,
     spotifyPreviousTrack,
-    spotifyPlayLiked,
+    spotifyPlaySmart,
     seekSpotify,
     gmailConnected,
     gcalendarConnected,
@@ -374,7 +374,7 @@ export function HomeMainScreen() {
               onTogglePlayPause={toggleSpotifyPlayback}
               onNext={spotifyNextTrack}
               onPrevious={spotifyPreviousTrack}
-              onPlayLiked={spotifyPlayLiked}
+              onPlaySmart={spotifyPlaySmart}
               onSeek={seekSpotify}
             />
 

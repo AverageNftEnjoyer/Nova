@@ -142,7 +142,7 @@ export function inferRequestedOutputChannel(
   if (/\btelegram\b/.test(text) && outputSet.has("telegram")) return "telegram"
   if (/\bdiscord\b/.test(text) && outputSet.has("discord")) return "discord"
   if (/\b(webhook|http)\b/.test(text) && outputSet.has("webhook")) return "webhook"
-  if (/\b(chat|nova ?chat|hud)\b/.test(text) && outputSet.has("novachat")) return "novachat"
+  if (/\b(chat|nova ?chat|hud)\b/.test(text) && outputSet.has("telegram")) return "telegram"
   return fallback
 }
 
@@ -238,7 +238,7 @@ function isLowValueFetchQuery(query: string, prompt: string): boolean {
   if (/\b(build|create|make)\b.*\bmission\b/.test(q)) return true
   if (/\b(hey nova|nova|need you to)\b/.test(q)) return true
   const boilerplate =
-    /\b(send me|remind me|every day|daily|every morning|every night|mission|workflow|automation|notification|telegram|discord|novachat|at\s+[01]?\d(?::[0-5]\d)?\s*(am|pm)?)\b/g
+    /\b(send me|remind me|every day|daily|every morning|every night|mission|workflow|automation|notification|telegram|discord|telegram|at\s+[01]?\d(?::[0-5]\d)?\s*(am|pm)?)\b/g
   if (boilerplate.test(q)) {
     const core = q.replace(boilerplate, " ").replace(/\s+/g, " ").trim()
     if (core.length < 18) return true
@@ -257,7 +257,7 @@ function derivePromptSearchQuery(prompt: string): string {
     .replace(/\b(every day|daily|every morning|every night|weekly)\b/gi, " ")
     .replace(/\b(at|around|by)\s+[01]?\d(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)?\b/gi, " ")
     .replace(/\b(EST|EDT|ET|CST|CDT|CT|MST|MDT|MT|PST|PDT|PT|UTC|GMT)\b/gi, " ")
-    .replace(/\b(to|on)\s+(telegram|discord|novachat|chat|email|webhook)\b/gi, " ")
+    .replace(/\b(to|on)\s+(telegram|discord|telegram|chat|email|webhook)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
   return cleanText(core || cleaned).slice(0, 180)
@@ -939,7 +939,7 @@ export async function buildWorkflowFromPrompt(
   const apiIntegrations = catalog
     .filter((item) => item.kind === "api" && item.connected && item.endpoint)
     .map((item) => ({ id: item.id, label: item.label, endpoint: item.endpoint as string }))
-  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["novachat", "telegram", "discord", "email", "webhook"])
+  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["telegram", "telegram", "discord", "email", "webhook"])
   const defaultOutput = outputOptions[0] || "telegram"
   const requestedOutput = inferRequestedOutputChannel(prompt, outputSet, defaultOutput)
   const activeLlmProvider = config.activeLlmProvider
@@ -1104,7 +1104,7 @@ export async function buildWorkflowFromPrompt(
     "When no reliable data is fetched, prefer workflow condition failure action 'skip' or explicit no-data output.",
     "Use 24h HH:mm time and realistic defaults.",
     `Connected AI providers: ${llmOptions.join(", ") || "openai"}.`,
-    `Connected output channels: ${outputOptions.join(", ") || "novachat, telegram, discord, email, webhook"}.`,
+    `Connected output channels: ${outputOptions.join(", ") || "telegram, discord, email, webhook"}.`,
     `Configured API integrations: ${apiIntegrations.length > 0 ? JSON.stringify(apiIntegrations) : "none"}.`,
   ].join(" ")
 

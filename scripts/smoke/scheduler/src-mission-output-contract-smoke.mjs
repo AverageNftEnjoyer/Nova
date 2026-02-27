@@ -185,7 +185,7 @@ await run("P27-C3 integration: Telegram dispatch receives readable bounded Coinb
         return [{ ok: true, status: 200 }];
       },
     },
-    "@/lib/novachat/pending-messages": {
+    "@/lib/telegram/pending-messages": {
       addPendingMessage: async () => undefined,
     },
     "@/lib/integrations/server-store": {},

@@ -300,9 +300,6 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
       return { id, label, position: pos, type: "dedupe", field: asStr(r.field, "") }
 
     // ── Output ────────────────────────────────────────────────────────────
-    case "novachat-output":
-      return { id, label, position: pos, type: "novachat-output", messageTemplate: asStr(r.messageTemplate) || undefined }
-
     case "telegram-output":
       return {
         id, label, position: pos, type: "telegram-output",
@@ -347,8 +344,8 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
       }
 
     default:
-      // Unknown type — treat as a novachat-output so the mission is at least runnable
-      return { id, label, position: pos, type: "novachat-output" }
+      // Unknown type — treat as a telegram-output so the mission is at least runnable
+      return { id, label, position: pos, type: "telegram-output" }
   }
 }
 
@@ -400,8 +397,8 @@ function buildFallbackMission(
     email: "email-output",
     slack: "slack-output",
   }
-  const outputType = (outputTypeMap[requestedOutput] || "novachat-output") as
-    | "telegram-output" | "discord-output" | "email-output" | "slack-output" | "novachat-output"
+  const outputType = (outputTypeMap[requestedOutput] || "telegram-output") as
+    | "telegram-output" | "discord-output" | "email-output" | "slack-output"
 
   const aiId = "n3"
   const nodes: MissionNode[] = [
@@ -467,7 +464,7 @@ export async function buildMissionFromPrompt(
     .filter((item) => item.kind === "channel" && item.connected)
     .map((item) => normalizeOutputChannelId(item.id))
     .filter(Boolean)
-  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["novachat", "telegram", "discord", "email", "webhook"])
+  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["telegram", "discord", "email", "webhook"])
   const defaultOutput = outputOptions[0] || "telegram"
 
   const activeLlmProvider = String(config?.activeLlmProvider || "")
@@ -481,7 +478,7 @@ export async function buildMissionFromPrompt(
 
   const outputNodeType = (() => {
     const m: Record<string, string> = { telegram: "telegram-output", discord: "discord-output", email: "email-output", slack: "slack-output" }
-    return m[requestedOutput] || "novachat-output"
+    return m[requestedOutput] || "telegram-output"
   })()
 
   const systemText = [

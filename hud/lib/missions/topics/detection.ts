@@ -62,7 +62,7 @@ function normalizeMissionIntent(prompt: string): string {
     .replace(/\b(every day|daily|every morning|every night|weekly)\b/gi, " ")
     .replace(/\b(at|around|by)\s+[01]?\d(?::[0-5]\d)?\s*(?:a\.?m\.?|p\.?m\.?)?\b/gi, " ")
     .replace(/\b(EST|EDT|ET|CST|CDT|CT|MST|MDT|MT|PST|PDT|PT|UTC|GMT)\b/gi, " ")
-    .replace(/\b(to|on)\s+(telegram|discord|novachat|chat|email|webhook)\b/gi, " ")
+    .replace(/\b(to|on)\s+(telegram|discord|telegram|chat|email|webhook)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
   return stripped || raw

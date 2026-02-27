@@ -102,7 +102,7 @@ export function RunProgressPanel({ isLight, runProgress, onClose, onOpenChat }: 
         {runProgress.reason && (
           <p className={cn("mt-2 text-[11px] whitespace-normal break-all leading-snug", isLight ? "text-s-60" : "text-slate-300")}>{runProgress.reason}</p>
         )}
-        {runProgress.novachatQueued && onOpenChat && (
+        {runProgress.telegramQueued && onOpenChat && (
           <button
             type="button"
             onClick={onOpenChat}

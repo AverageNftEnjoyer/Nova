@@ -15,11 +15,13 @@ export async function startVoiceLoop(deps) {
     getMuted,
     getCurrentVoice,
     getVoiceEnabled,
+    getVoiceRoutingUserContextId,
     getSuppressVoiceWakeUntilMs,
     setSuppressVoiceWakeUntilMs,
     createMicCapturePath,
     recordMic,
     transcribe,
+    speak,
     stopSpeaking,
     MIC_RECORD_SECONDS,
     MIC_RETRY_SECONDS,
@@ -36,6 +38,14 @@ export async function startVoiceLoop(deps) {
   let lastVoiceTextHandledAt = 0;
   let lastVoiceCommandHandled = "";
   let lastVoiceCommandHandledAt = 0;
+  const resolveVoiceUserContextId = () => {
+    if (typeof getVoiceRoutingUserContextId !== "function") return "";
+    try {
+      return String(getVoiceRoutingUserContextId() || "").trim();
+    } catch {
+      return "";
+    }
+  };
 
   while (true) {
     try {
@@ -55,7 +65,13 @@ export async function startVoiceLoop(deps) {
       }
 
       if (getMuted()) continue;
-      broadcastState("listening");
+      const voiceUserContextId = resolveVoiceUserContextId();
+      if (!voiceUserContextId) {
+        if (!getBusy() && !getMuted()) broadcastState("idle");
+        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        continue;
+      }
+      broadcastState("listening", voiceUserContextId);
 
       const micCapturePath = createMicCapturePath();
       recordMic(micCapturePath, MIC_RECORD_SECONDS);
@@ -69,7 +85,7 @@ export async function startVoiceLoop(deps) {
         typeof wakeWordRuntime?.getPrimaryWakeWord === "function"
           ? wakeWordRuntime.getPrimaryWakeWord()
           : "nova";
-      let text = await transcribe(micCapturePath, wakeWordHint, "local-mic");
+      let text = await transcribe(micCapturePath, wakeWordHint, voiceUserContextId);
       try { fs.unlinkSync(micCapturePath); } catch {}
 
       if (!text || !text.trim()) {
@@ -79,17 +95,25 @@ export async function startVoiceLoop(deps) {
           try { fs.unlinkSync(retryPath); } catch {}
           continue;
         }
-        text = await transcribe(retryPath, wakeWordHint, "local-mic");
+        text = await transcribe(retryPath, wakeWordHint, voiceUserContextId);
         try { fs.unlinkSync(retryPath); } catch {}
       }
 
       if (!text || getBusy() || getMuted()) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
-        if (!getBusy() && !getMuted()) broadcast({ type: "transcript", text: "", ts: Date.now() });
+        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
+        if (!getBusy() && !getMuted()) {
+          broadcast(
+            { type: "transcript", text: "", userContextId: voiceUserContextId, ts: Date.now() },
+            { userContextId: voiceUserContextId },
+          );
+        }
         continue;
       }
 
-      broadcast({ type: "transcript", text, ts: Date.now() });
+      broadcast(
+        { type: "transcript", text, userContextId: voiceUserContextId, ts: Date.now() },
+        { userContextId: voiceUserContextId },
+      );
 
       const normalizedHeard = wakeWordRuntime.normalizeWakeText(text);
       const now = Date.now();
@@ -99,22 +123,28 @@ export async function startVoiceLoop(deps) {
         normalizedHeard === lastVoiceTextHandled &&
         now - lastVoiceTextHandledAt < VOICE_DUPLICATE_TEXT_COOLDOWN_MS
       ) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
-        broadcast({ type: "transcript", text: "", ts: Date.now() });
+        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
+        broadcast(
+          { type: "transcript", text: "", userContextId: voiceUserContextId, ts: Date.now() },
+          { userContextId: voiceUserContextId },
+        );
         continue;
       }
 
       if (!wakeWordRuntime.containsWakeWord(text)) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
+        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
         continue;
       }
 
       if (now - lastWakeHandledAt < VOICE_WAKE_COOLDOWN_MS) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
+        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
         continue;
       }
 
-      broadcast({ type: "transcript", text: "", ts: Date.now() });
+      broadcast(
+        { type: "transcript", text: "", userContextId: voiceUserContextId, ts: Date.now() },
+        { userContextId: voiceUserContextId },
+      );
 
       const cleanedVoiceInput = wakeWordRuntime.stripWakePrompt(text);
       lastWakeHandledAt = now;
@@ -122,7 +152,17 @@ export async function startVoiceLoop(deps) {
       lastVoiceTextHandledAt = now;
 
       if (!cleanedVoiceInput) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
+        if (!getMuted() && getVoiceEnabled() && typeof speak === "function") {
+          setBusy(true);
+          try {
+            await speak("Yes?", getCurrentVoice());
+          } catch {}
+          finally {
+            setBusy(false);
+          }
+        } else if (!getBusy() && !getMuted()) {
+          broadcastState("idle", voiceUserContextId);
+        }
         continue;
       }
 
@@ -130,7 +170,7 @@ export async function startVoiceLoop(deps) {
         cleanedVoiceInput === lastVoiceCommandHandled &&
         now - lastVoiceCommandHandledAt < VOICE_DUPLICATE_COMMAND_COOLDOWN_MS
       ) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
+        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
         continue;
       }
 
@@ -149,7 +189,11 @@ export async function startVoiceLoop(deps) {
           voice: getVoiceEnabled(),
           ttsVoice: getCurrentVoice(),
           source: "voice",
-          sender: "local-mic",
+          sender: voiceUserContextId,
+          userContextId: voiceUserContextId || undefined,
+          sessionKeyHint: voiceUserContextId
+            ? `agent:nova:voice:dm:${voiceUserContextId}`
+            : undefined,
         });
       } finally {
         setBusy(false);
@@ -161,7 +205,7 @@ export async function startVoiceLoop(deps) {
     } catch (e) {
       console.error("Loop error:", e);
       setBusy(false);
-      if (!getMuted()) broadcastState("idle");
+      if (!getMuted()) broadcastState("idle", resolveVoiceUserContextId());
     }
   }
 }

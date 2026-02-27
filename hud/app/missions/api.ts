@@ -64,7 +64,7 @@ export interface TriggerMissionResponse {
   reason?: string
   stepTraces?: unknown
   results?: Array<{ ok?: boolean; status?: number; error?: string }>
-  novachatQueued?: boolean
+  telegramQueued?: boolean
   error?: string
   schedule?: NotificationSchedule
 }

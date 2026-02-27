@@ -63,7 +63,7 @@ export function normalizeWorkflowStep(raw: WorkflowStep, index: number): Workflo
   if (stepType === "output") {
     const channel = String(raw.outputChannel || "").trim().toLowerCase()
     const defaultTitleByChannel: Record<string, string> = {
-      novachat: "Send to NovaChat",
+      telegram: "Send to Telegram",
       telegram: "Send to Telegram",
       discord: "Send to Discord",
       email: "Send to Email",
@@ -73,7 +73,7 @@ export function normalizeWorkflowStep(raw: WorkflowStep, index: number): Workflo
     const fallbackTitle = defaultTitleByChannel[channel] || "Send notification"
     const currentTitle = String(normalized.title || "").trim()
     const isGenericTitle = !currentTitle || /^output$/i.test(currentTitle) || /^send notification$/i.test(currentTitle)
-    const isMismatchedTelegram = channel === "novachat" && /telegram/i.test(currentTitle)
+    const isMismatchedTelegram = channel === "telegram" && /telegram/i.test(currentTitle)
     if (isGenericTitle || isMismatchedTelegram) {
       normalized.title = fallbackTitle
     }

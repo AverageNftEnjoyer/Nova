@@ -16,7 +16,6 @@ import {
 import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
-import { purgePendingMessagesForMission } from "@/lib/novachat/pending-messages"
 import { purgeMissionDerivedData } from "@/lib/missions/purge"
 
 export const runtime = "nodejs"
@@ -424,9 +423,6 @@ export async function DELETE(req: Request) {
       await saveSchedules(nextSchedules, { userId })
       scheduleDeleted = true
     }
-
-    // Purge novachat pending messages
-    await purgePendingMessagesForMission(userId, id).catch(() => {})
 
     // Purge all calendar and derived data for this mission (reschedule overrides,
     // telemetry, version snapshots, run logs). Non-fatal — logged internally.

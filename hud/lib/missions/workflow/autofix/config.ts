@@ -31,7 +31,7 @@ function parseAiIntegration(value: string | undefined): WorkflowAutofixPolicy["d
 function parseOutputChannel(value: string | undefined): WorkflowAutofixPolicy["defaultOutputChannel"] {
   const normalized = String(value || "").trim().toLowerCase()
   if (
-    normalized === "novachat" ||
+    normalized === "telegram" ||
     normalized === "telegram" ||
     normalized === "discord" ||
     normalized === "email" ||
@@ -40,7 +40,7 @@ function parseOutputChannel(value: string | undefined): WorkflowAutofixPolicy["d
   ) {
     return normalized
   }
-  return "novachat"
+  return "telegram"
 }
 
 export const WORKFLOW_AUTOFIX_POLICY: WorkflowAutofixPolicy = {

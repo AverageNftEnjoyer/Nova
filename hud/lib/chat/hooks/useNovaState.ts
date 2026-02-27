@@ -110,6 +110,30 @@ const EVENT_DEDUPE_MS = 2_500
 const ASSISTANT_MESSAGE_DEDUPE_MS = 12_000
 const ASSISTANT_MESSAGE_MERGE_WINDOW_MS = 10_000
 const HUD_MESSAGE_ACK_TTL_MS = 10 * 60 * 1000
+const STREAM_STALL_TIMEOUT_MS = 20_000
+const STREAM_STALL_CHECK_INTERVAL_MS = 2_000
+const THINKING_STALL_TIMEOUT_MS = 30_000
+const INTERACTION_UNLOCK_CHECK_INTERVAL_MS = 2_000
+const INTERACTION_LOCK_LAYER_SELECTOR = [
+  "[aria-modal='true']",
+  "[role='dialog'][data-state='open']",
+  "[role='alertdialog'][data-state='open']",
+  "[data-slot='dropdown-menu-content'][data-state='open']",
+  "[data-slot='dropdown-menu-sub-content'][data-state='open']",
+].join(", ")
+
+function releaseStaleInteractionLock(): void {
+  if (typeof document === "undefined") return
+  const body = document.body
+  const root = document.documentElement
+  if (!body || !root) return
+  const bodyPointerEvents = String(body.style.pointerEvents || "").trim().toLowerCase()
+  const rootPointerEvents = String(root.style.pointerEvents || "").trim().toLowerCase()
+  if (bodyPointerEvents !== "none" && rootPointerEvents !== "none") return
+  if (document.querySelector(INTERACTION_LOCK_LAYER_SELECTOR)) return
+  body.style.removeProperty("pointer-events")
+  root.style.removeProperty("pointer-events")
+}
 
 function normalizeInboundMessageText(content: string): string {
   return String(content || "")
@@ -176,14 +200,30 @@ export function useNovaState() {
   const [latestUsage, setLatestUsage] = useState<AgentUsage | null>(null);
   const [hudMessageAckVersion, setHudMessageAckVersion] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const stateRef = useRef<NovaState>("idle")
+  const streamingAssistantIdRef = useRef<string | null>(null)
   const recentEventRef = useRef<Map<string, number>>(new Map())
   const hudMessageAckRef = useRef<Map<string, number>>(new Map())
   const lastAssistantDeltaRef = useRef<Map<string, { content: string; ts: number }>>(new Map())
   const pendingAssistantDeltasRef = useRef<Map<string, AgentMessage>>(new Map())
   const deltaFlushRafRef = useRef<number | null>(null)
   const streamFloodRef = useRef<{ windowStart: number; count: number }>({ windowStart: 0, count: 0 })
+  const streamActivityByIdRef = useRef<Map<string, number>>(new Map())
+  const lastThinkingActivityAtRef = useRef<number>(0)
   const activeUserIdRef = useRef<string>("")
   const supabaseAccessTokenRef = useRef<string>("")
+
+  const setNovaStateSafely = useCallback((nextState: NovaState) => {
+    setState((prev) => (prev === nextState ? prev : nextState))
+  }, [])
+
+  const setThinkingStatusSafely = useCallback((nextStatus: string) => {
+    setThinkingStatus((prev) => (prev === nextStatus ? prev : nextStatus))
+  }, [])
+
+  const setStreamingAssistantIdSafely = useCallback((nextId: string | null) => {
+    setStreamingAssistantId((prev) => (prev === nextId ? prev : nextId))
+  }, [])
 
   const pruneHudMessageAckMap = useCallback((nowMs = Date.now()) => {
     const ackMap = hudMessageAckRef.current
@@ -200,6 +240,20 @@ export function useNovaState() {
     pruneHudMessageAckMap(Date.now())
     return hudMessageAckRef.current.has(normalizedToken)
   }, [pruneHudMessageAckMap])
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  useEffect(() => {
+    if (lastThinkingActivityAtRef.current <= 0) {
+      lastThinkingActivityAtRef.current = Date.now()
+    }
+  }, [])
+
+  useEffect(() => {
+    streamingAssistantIdRef.current = streamingAssistantId
+  }, [streamingAssistantId])
 
   useEffect(() => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return
@@ -311,9 +365,11 @@ export function useNovaState() {
 
       ws.onclose = () => {
         setConnected(false)
-        setState("idle")
-        setThinkingStatus("")
-        setStreamingAssistantId(null)
+        setNovaStateSafely("idle")
+        setThinkingStatusSafely("")
+        setStreamingAssistantIdSafely(null)
+        lastThinkingActivityAtRef.current = Date.now()
+        releaseStaleInteractionLock()
         if (!isMounted) return
         reconnectTimer = setTimeout(() => {
           reconnectDelay.ms = Math.min(reconnectDelay.ms * 2, 30_000)
@@ -336,14 +392,22 @@ export function useNovaState() {
         }
 
         if (data.type === "state" && data.state) {
-          setState(data.state);
-          if (data.state !== "thinking") {
-            setThinkingStatus("");
+          const nextState = data.state as NovaState
+          setNovaStateSafely(nextState);
+          if (nextState === "thinking") {
+            lastThinkingActivityAtRef.current = Date.now()
+          } else {
+            lastThinkingActivityAtRef.current = Date.now()
+            setThinkingStatusSafely("");
+            releaseStaleInteractionLock()
           }
         }
 
         if (data.type === "thinking_status") {
-          setThinkingStatus(typeof data.status === "string" ? data.status : "");
+          if (typeof data.status === "string" && data.status.trim()) {
+            lastThinkingActivityAtRef.current = Date.now()
+          }
+          setThinkingStatusSafely(typeof data.status === "string" ? data.status : "");
         }
 
         if (data.type === "transcript") {
@@ -352,7 +416,9 @@ export function useNovaState() {
 
         if (data.type === "assistant_stream_start" && typeof data.id === "string") {
           const conversationId = normalizeConversationId(data.conversationId)
-          setStreamingAssistantId(data.id);
+          setStreamingAssistantIdSafely(data.id);
+          streamActivityByIdRef.current.set(data.id, Date.now())
+          lastThinkingActivityAtRef.current = Date.now()
           lastAssistantDeltaRef.current.delete(data.id)
           const msg: AgentMessage = {
             id: data.id,
@@ -367,6 +433,8 @@ export function useNovaState() {
         }
 
         if (data.type === "assistant_stream_done" && typeof data.id === "string") {
+          streamActivityByIdRef.current.delete(data.id)
+          lastThinkingActivityAtRef.current = Date.now()
           const pending = pendingAssistantDeltasRef.current.get(data.id)
           if (pending) pendingAssistantDeltasRef.current.delete(data.id)
 
@@ -403,7 +471,9 @@ export function useNovaState() {
             return next
           })
 
-          setStreamingAssistantId((prev) => (prev === streamId ? null : prev));
+          if (streamingAssistantIdRef.current === streamId) {
+            setStreamingAssistantIdSafely(null)
+          }
           lastAssistantDeltaRef.current.delete(streamId)
         }
 
@@ -429,6 +499,8 @@ export function useNovaState() {
 
           const dedupeContent = normalizeInboundMessageText(normalizedContent)
           const deltaTs = Number(data.ts || Date.now())
+          streamActivityByIdRef.current.set(data.id, Date.now())
+          lastThinkingActivityAtRef.current = Date.now()
           const previousDelta = lastAssistantDeltaRef.current.get(data.id)
           if (
             previousDelta &&
@@ -552,6 +624,17 @@ export function useNovaState() {
             }
             return [...prev, msg]
           });
+          if (data.role === "assistant" && hasAssistantPayload(finalContent)) {
+            lastThinkingActivityAtRef.current = Date.now()
+            const activeStreamId = streamingAssistantIdRef.current
+            if (activeStreamId) {
+              streamActivityByIdRef.current.delete(activeStreamId)
+              setStreamingAssistantIdSafely(null)
+            }
+            setThinkingStatusSafely("")
+            setNovaStateSafely("idle")
+            releaseStaleInteractionLock()
+          }
         }
 
         if (data.type === "usage" && typeof data.model === "string" && (data.provider === "openai" || data.provider === "claude" || data.provider === "grok" || data.provider === "gemini")) {
@@ -572,9 +655,48 @@ export function useNovaState() {
     const pendingAssistantDeltas = pendingAssistantDeltasRef.current
     const hudMessageAckMap = hudMessageAckRef.current
     connect()
+    const watchdogIntervalMs = Math.min(STREAM_STALL_CHECK_INTERVAL_MS, INTERACTION_UNLOCK_CHECK_INTERVAL_MS)
+    const streamWatchdog = window.setInterval(() => {
+      const now = Date.now()
+      const activeId = streamingAssistantIdRef.current
+      if (activeId) {
+        const lastActivityAt = Number(streamActivityByIdRef.current.get(activeId) || 0)
+        if (lastActivityAt && now - lastActivityAt >= STREAM_STALL_TIMEOUT_MS) {
+          pendingAssistantDeltasRef.current.delete(activeId)
+          lastAssistantDeltaRef.current.delete(activeId)
+          streamActivityByIdRef.current.delete(activeId)
+          setStreamingAssistantIdSafely(null)
+          setThinkingStatusSafely("")
+          setNovaStateSafely("idle")
+          releaseStaleInteractionLock()
+        }
+      }
+
+      if (stateRef.current === "thinking") {
+        const lastThinkingActivityAt = Number(lastThinkingActivityAtRef.current || 0)
+        const latestActivityAt = Math.max(
+          lastThinkingActivityAt,
+          activeId ? Number(streamActivityByIdRef.current.get(activeId) || 0) : 0,
+        )
+        if (latestActivityAt > 0 && now - latestActivityAt >= THINKING_STALL_TIMEOUT_MS) {
+          if (activeId) {
+            pendingAssistantDeltasRef.current.delete(activeId)
+            lastAssistantDeltaRef.current.delete(activeId)
+            streamActivityByIdRef.current.delete(activeId)
+          }
+          setStreamingAssistantIdSafely(null)
+          setThinkingStatusSafely("")
+          setNovaStateSafely("idle")
+          releaseStaleInteractionLock()
+        }
+      } else {
+        releaseStaleInteractionLock()
+      }
+    }, watchdogIntervalMs)
     return () => {
       isMounted = false
       if (reconnectTimer !== null) clearTimeout(reconnectTimer)
+      window.clearInterval(streamWatchdog)
       window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, syncActiveUserId as EventListener)
       if (deltaFlushRafRef.current !== null) {
         window.cancelAnimationFrame(deltaFlushRafRef.current)
@@ -582,9 +704,10 @@ export function useNovaState() {
       }
       pendingAssistantDeltas.clear()
       hudMessageAckMap.clear()
+      releaseStaleInteractionLock()
       wsRef.current?.close()
     };
-  }, [pruneHudMessageAckMap]);
+  }, [pruneHudMessageAckMap, setNovaStateSafely, setStreamingAssistantIdSafely, setThinkingStatusSafely]);
 
   const sendToAgent = useCallback((
     text: string,
@@ -651,8 +774,11 @@ export function useNovaState() {
 
   const clearAgentMessages = useCallback(() => {
     setAgentMessages([]);
-    setStreamingAssistantId(null);
-  }, []);
+    setStreamingAssistantIdSafely(null);
+    setThinkingStatusSafely("")
+    setNovaStateSafely("idle")
+    releaseStaleInteractionLock()
+  }, [setNovaStateSafely, setStreamingAssistantIdSafely, setThinkingStatusSafely]);
 
   const sendGreeting = useCallback((
     text: string,

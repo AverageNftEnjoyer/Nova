@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -54,11 +54,11 @@ await run("P8-R2 detailed renderer includes holdings and activity", async () => 
   assert.match(text, /detailed portfolio report/i);
 });
 
-await run("P8-D1 output dispatch supports email/discord/telegram/novachat and typed channel errors", async () => {
+await run("P8-D1 output dispatch supports email/discord/telegram/telegram and typed channel errors", async () => {
   const source = read("hud/lib/missions/output/dispatch.ts");
   assert.equal(source.includes("channel === \"discord\" || channel === \"telegram\" || channel === \"email\""), true);
   assert.equal(source.includes("channel_unavailable:"), true);
-  assert.equal(source.includes("channel === \"novachat\""), true);
+  assert.equal(source.includes("channel === \"telegram\""), true);
 });
 
 await run("P8-D2 notification dispatcher includes email adapter", async () => {
@@ -90,8 +90,8 @@ await run("P8-R3 retention pruning is user-scoped and does not leak", async () =
   const store = new CoinbaseDataStore(dbPath);
   try {
     const old = Date.now() - 120 * 24 * 60 * 60 * 1000;
-    const r1 = store.appendReportHistory({ userContextId: "u1", reportType: "portfolio", deliveredChannel: "novachat", deliveredAtMs: old, payload: { a: 1 } });
-    const r2 = store.appendReportHistory({ userContextId: "u2", reportType: "portfolio", deliveredChannel: "novachat", deliveredAtMs: old, payload: { a: 2 } });
+    const r1 = store.appendReportHistory({ userContextId: "u1", reportType: "portfolio", deliveredChannel: "telegram", deliveredAtMs: old, payload: { a: 1 } });
+    const r2 = store.appendReportHistory({ userContextId: "u2", reportType: "portfolio", deliveredChannel: "telegram", deliveredAtMs: old, payload: { a: 2 } });
     store.db.prepare("UPDATE coinbase_report_history SET created_at = ? WHERE report_run_id = ?").run(old, r1);
     store.db.prepare("UPDATE coinbase_report_history SET created_at = ? WHERE report_run_id = ?").run(old, r2);
     store.setRetentionSettings({ userContextId: "u1", reportRetentionDays: 1, snapshotRetentionDays: 1, transactionRetentionDays: 1 });

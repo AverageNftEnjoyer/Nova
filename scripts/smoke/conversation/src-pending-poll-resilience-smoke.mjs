@@ -37,7 +37,7 @@ const [
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/useConversations.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/use-conversations/pending-poll.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/proxy.ts"), "utf8"),
-  readFile(path.join(process.cwd(), "hud/app/api/novachat/pending/route.ts"), "utf8"),
+  readFile(path.join(process.cwd(), "hud/app/api/telegram/pending/route.ts"), "utf8"),
 ]);
 
 const pendingPollCombinedSource = `${useConversationsSource}\n${pendingPollSource}`;
@@ -71,10 +71,10 @@ await run("P2 pending poll writes/clears shared cooldown around retries and reco
   assertIncludesAll(pendingPollCombinedSource, requiredTokens);
 });
 
-await run("P3 proxy bypasses global IP throttling for novachat pending endpoint", async () => {
+await run("P3 proxy bypasses global IP throttling for telegram pending endpoint", async () => {
   const requiredTokens = [
     "function shouldBypassIpRateLimit(req: NextRequest): boolean {",
-    "pathname === \"/api/novachat/pending\" || pathname.startsWith(\"/api/novachat/pending/\")",
+    "pathname === \"/api/telegram/pending\" || pathname.startsWith(\"/api/telegram/pending/\")",
     "if (shouldBypassIpRateLimit(req)) {",
     "return NextResponse.next()",
   ];
@@ -108,7 +108,7 @@ await run("P5 pending mission group binds to one conversation per poll cycle", a
 await run("P6 pending API leases delivery briefly and returns no-store responses", async () => {
   const routeTokens = [
     "const PENDING_DELIVERY_LEASE_MS = readIntEnv(\"NOVA_PENDING_DELIVERY_LEASE_MS\", 12_000, 1_000, 60_000)",
-    "function leaseDeliverableMessages(userId: string, messages: PendingNovaChatMessage[]): PendingNovaChatMessage[] {",
+    "function leaseDeliverableMessages(userId: string, messages: PendingTelegramMessage[]): PendingTelegramMessage[] {",
     "pendingDeliveryLeaseByKey.set(key, nowMs + PENDING_DELIVERY_LEASE_MS)",
     "function releaseDeliveryLeases(userId: string, messageIds: string[]): void {",
     "releaseDeliveryLeases(verified.user.id, messageIds)",

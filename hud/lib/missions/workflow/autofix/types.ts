@@ -24,7 +24,7 @@ export interface WorkflowAutofixPolicy {
   approvalConfidenceThreshold: number
   maxFixCandidates: number
   defaultAiIntegration: "openai" | "claude" | "grok" | "gemini"
-  defaultOutputChannel: "novachat" | "telegram" | "discord" | "email" | "push" | "webhook"
+  defaultOutputChannel: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook"
   defaultFetchQuery: string
   defaultConditionField: string
 }

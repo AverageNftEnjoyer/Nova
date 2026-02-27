@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
@@ -251,7 +251,7 @@ export default function MissionsPage() {
         setCanvasModalOpen(true)
       }
     } catch {
-      // Silently fail â€” canvas button is optional
+      // Silently fail — canvas button is optional
     }
   }
 
@@ -450,7 +450,7 @@ export default function MissionsPage() {
                 onClose={() => setRunProgress(null)}
                 onOpenChat={() => {
                   setRunProgress(null)
-                  router.push(`/chat?open=novachat&t=${Date.now()}`)
+                  router.push("/chat")
                 }}
               />
             )}

@@ -48,7 +48,7 @@ store.appendSnapshot({
 store.appendReportHistory({
   userContextId: "u1",
   reportType: "daily_portfolio",
-  deliveredChannel: "novachat",
+  deliveredChannel: "telegram",
   payload: { totalUsd: 1234.56 },
 });
 

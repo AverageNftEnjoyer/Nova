@@ -210,6 +210,41 @@ function mergeMissionPrompt(basePrompt, incomingText) {
   return `${base}. ${incoming}`.replace(/\s+/g, " ").trim();
 }
 
+function isBlockedNonMusicPlayIntent(text) {
+  return /\bplay\s+(a |the )?(game|video|clip|movie|film|role|part)\b/i.test(text);
+}
+
+function isSpotifyDirectIntent(text) {
+  const normalized = String(text || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes("spotify")
+    || normalized.includes("play music")
+    || normalized.includes("play some")
+    || normalized.includes("put on ")
+    || /\b(switch|change)\s+(the\s+)?(song|track|music)\s+(to|into)\s+/i.test(normalized)
+    || /\b(switch|change)\s+to\s+.+\s+by\s+/i.test(normalized)
+    || /\bplay\s+(my |one of my |a |the )?(favorite|liked|saved|default|playlist|song|track|album|artist)/i.test(normalized)
+    || /\b(my\s+favorite\s+playlist\s+is(?:\s+called)?|set\s+(?:my\s+)?favorite\s+playlist\s+to|make\s+.+\s+my\s+favorite\s+playlist)\b/i.test(normalized)
+    || /\b(clear|remove|unset|forget|unfavorite)\s+(my\s+)?favorite\s+playlist\b/i.test(normalized)
+    || /\badd\s+(?:this|current|this song|this track|song|track)\b.*\b(?:to|into)\b.*\bplaylist\b/i.test(normalized)
+    || /\b(skip|next track|previous track|next song|last song|go back a song|pause|resume|now playing|what.?s playing|what is playing|what song.*playing|song is this.*playing|what am i listening to|currently playing|playing currently|shuffle|repeat|queue|restart|replay|start over|from the beginning|retsrat|retsart|restat)\b/i.test(normalized)
+    || /\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(normalized)
+    || (/\bretreat\b/i.test(normalized) && /\b(song|track|music)\b/i.test(normalized))
+    || /\bplay\s+.+\s+by\s+/i.test(normalized)
+    || (/\bplay\s+[a-z].{2,}/i.test(normalized) && !isBlockedNonMusicPlayIntent(normalized))
+  );
+}
+
+function isSpotifyContextualFollowUpIntent(text) {
+  const normalized = String(text || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    /\b(what(?:'s| is)\s+it\s+called|what(?:'s| is)\s+that\s+called|who\s+sings\s+(?:it|that|this)|who(?:'s| is)\s+singing|what\s+track\s+is\s+(?:that|this)|that\s+song|this\s+song|that\s+track|this\s+track|playing\s+it)\b/i.test(normalized)
+    || /\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(normalized)
+  );
+}
+
 async function handleInputCore(text, opts = {}) {
   const latencyTelemetry = createChatLatencyTelemetry();
   text = normalizeInboundUserText(text);
@@ -242,7 +277,8 @@ async function handleInputCore(text, opts = {}) {
   const missionPolicy = getShortTermContextPolicy("mission_task");
   const cryptoPolicy = getShortTermContextPolicy("crypto");
   const assistantPolicyForDedupe = getShortTermContextPolicy("assistant");
-  const followUpContinuationCue = [missionPolicy, cryptoPolicy, assistantPolicyForDedupe].some((policy) => {
+  const spotifyPolicy = getShortTermContextPolicy("spotify");
+  const followUpContinuationCue = [missionPolicy, cryptoPolicy, assistantPolicyForDedupe, spotifyPolicy].some((policy) => {
     if (!policy) return false;
     return policy.isNonCriticalFollowUp(normalizedTextForRouting)
       && !policy.isCancel(normalizedTextForRouting)
@@ -252,8 +288,8 @@ async function handleInputCore(text, opts = {}) {
     || (isCryptoRequestText(text) && /\b(report|summary|pnl|daily|weekly)\b/i.test(text));
   const duplicateMayBeMissionRequest = shouldBuildWorkflowFromPrompt(text)
     || shouldConfirmWorkflowFromPrompt(text);
-  const n = text.toLowerCase().trim();
-  if (n === "nova shutdown" || n === "nova shut down" || n === "shutdown nova") {
+  const rawRoutingText = text.toLowerCase().trim();
+  if (rawRoutingText === "nova shutdown" || rawRoutingText === "nova shut down" || rawRoutingText === "shutdown nova") {
     await handleShutdown({ ttsVoice });
     return {
       route: "shutdown",
@@ -453,9 +489,15 @@ async function handleInputCore(text, opts = {}) {
     conversationId,
     domainId: "crypto",
   });
+  const spotifyShortTermContextSnapshot = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: "spotify",
+  });
   const missionContextIsPrimary =
     missionShortTermContext
-    && Number(missionShortTermContext.ts || 0) >= Number(cryptoShortTermContext?.ts || 0);
+    && Number(missionShortTermContext.ts || 0) >= Number(cryptoShortTermContext?.ts || 0)
+    && Number(missionShortTermContext.ts || 0) >= Number(spotifyShortTermContextSnapshot?.ts || 0);
   if (missionContextIsPrimary && missionPolicy.isCancel(normalizedTextForRouting)) {
     clearPendingMissionConfirm(sessionKey);
     clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
@@ -584,7 +626,7 @@ async function handleInputCore(text, opts = {}) {
       return await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
     }
 
-    const detailLikeFollowUp = /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|novachat|daily|every|morning|night|tomorrow)\b/i.test(text);
+    const detailLikeFollowUp = /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|telegram|daily|every|morning|night|tomorrow)\b/i.test(text);
     if (detailLikeFollowUp) {
       const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, text);
       setPendingMissionConfirm(sessionKey, mergedPrompt);
@@ -663,10 +705,29 @@ async function handleInputCore(text, opts = {}) {
     conversationId,
     domainId: "assistant",
   });
+  const spotifyTurnClassification = applyShortTermContextTurnClassification({
+    userContextId,
+    conversationId,
+    domainId: "spotify",
+    text,
+  });
+  const spotifyShortTermContext = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: "spotify",
+  });
+  const spotifyShortTermFollowUp =
+    Boolean(spotifyShortTermContext)
+    && !isSpotifyDirectIntent(text)
+    && (spotifyTurnClassification.isNonCriticalFollowUp || isSpotifyContextualFollowUpIntent(text))
+    && !spotifyTurnClassification.isCancel
+    && !spotifyTurnClassification.isNewTopic;
   const requestHints = {
     fastLaneSimpleChat: turnPolicy.fastLaneSimpleChat === true,
     assistantShortTermFollowUp: false,
     assistantShortTermContextSummary: "",
+    spotifyShortTermFollowUp: false,
+    spotifyShortTermContextSummary: "",
   };
   if (!turnPolicy.weatherIntent && !turnPolicy.cryptoIntent) {
     if ((assistantTurnClassification.isCancel || assistantTurnClassification.isNewTopic) && assistantShortTermContext) {
@@ -675,6 +736,11 @@ async function handleInputCore(text, opts = {}) {
       requestHints.assistantShortTermFollowUp = true;
       requestHints.assistantShortTermContextSummary = summarizeShortTermContextForPrompt(assistantShortTermContext, 520);
       requestHints.assistantTopicAffinityId = String(assistantShortTermContext.topicAffinityId || "");
+    }
+    if (spotifyShortTermFollowUp && spotifyShortTermContext) {
+      requestHints.spotifyShortTermFollowUp = true;
+      requestHints.spotifyShortTermContextSummary = summarizeShortTermContextForPrompt(spotifyShortTermContext, 320);
+      requestHints.spotifyTopicAffinityId = String(spotifyShortTermContext.topicAffinityId || "");
     }
   }
 
@@ -747,19 +813,32 @@ async function handleInputCore(text, opts = {}) {
     executionPolicy,
     latencyTelemetry,
   };
+  const shouldRouteToSpotify = isSpotifyDirectIntent(text) || spotifyShortTermFollowUp;
 
-  // Route to sub-handler — catch any music/playback intent so it never leaks to general chat
-  if (
-    n.includes("spotify") ||
-    n.includes("play music") ||
-    n.includes("play some") ||
-    n.includes("put on ") ||
-    /\bplay\s+(my |one of my |a |the )?(favorite|liked|saved|default|playlist|song|track|album|artist)/i.test(n) ||
-    /\b(skip|next track|previous track|next song|last song|go back a song|pause|resume|now playing|what.?s playing|what is playing|shuffle|repeat|queue)\b/i.test(n) ||
-    /\bplay\s+.+\s+by\s+/i.test(n) ||
-    /\bplay\s+[a-z].{2,}/i.test(n) && !/\bplay\s+(a |the )?(game|video|clip|movie|film|role|part)\b/i.test(n)
-  ) {
-    return await handleSpotify(text, ctx, llmCtx);
+  // Route to Spotify sub-handler for direct intents and scoped follow-ups.
+  if (shouldRouteToSpotify) {
+    const spotifyResult = await handleSpotify(text, ctx, llmCtx);
+    if (spotifyResult?.ok !== false) {
+      const resolvedTopicAffinityId = String(
+        spotifyPolicy.resolveTopicAffinityId?.(text, spotifyShortTermContext || spotifyShortTermContextSnapshot || {})
+        || spotifyShortTermContext?.topicAffinityId
+        || spotifyShortTermContextSnapshot?.topicAffinityId
+        || "spotify_general",
+      ).trim() || "spotify_general";
+      upsertShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "spotify",
+        topicAffinityId: resolvedTopicAffinityId,
+        slots: {
+          lastUserText: String(text || "").trim().slice(0, 320),
+          lastAssistantReply: String(spotifyResult?.reply || "").trim().slice(0, 320),
+          lastRoute: "spotify",
+          followUpResolved: spotifyShortTermFollowUp === true,
+        },
+      });
+    }
+    return spotifyResult;
   }
 
   return await executeChatRequest(text, ctx, llmCtx, requestHints);
@@ -879,6 +958,7 @@ export async function handleInput(text, opts = {}) {
     }).catch(() => {});
   }
 }
+
 
 
 
