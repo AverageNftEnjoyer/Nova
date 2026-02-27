@@ -9,6 +9,12 @@
  *
  * Version History:
  *
+ * - V.32 Alpha: Spotify playback/device activation + home hydration stability polish
+ *     - Hardened Spotify home playback handling for open-but-idle desktop app state by auto-activating an available device before retry.
+ *     - Reduced Spotify boot/control noise by soft-failing expected device-unavailable and token-not-ready states.
+ *     - Added launch warmup/cooldown guards to prevent repeated play/random spam while Spotify is initializing.
+ *     - Stabilized Home module hydration to prevent schedule/orb flash-pop render artifacts on boot and page switches.
+ *
  * - V.31 Alpha: Chat handler modularization + migration overhead cleanup + production safety fixes
  *     - Refactored runtime chat execution into focused modules (`execute-chat-request`, `prompt-context-builder`, `tool-loop-runner`, `direct-completion`, `response-refinement`, `prompt-fallbacks`) to reduce coupling and improve maintainability.
  *     - Added fast-lane context-enrichment skip path to reduce avoidable per-turn latency overhead on lightweight chat turns.
@@ -211,4 +217,4 @@
  * - V.01 Alpha: Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.31 Alpha"
+export const NOVA_VERSION = "V.32 Alpha"

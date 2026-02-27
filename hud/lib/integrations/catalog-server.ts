@@ -70,6 +70,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "spotify",
+      label: "Spotify",
+      kind: "api",
+      connected: config.spotify.connected && (config.spotify.refreshTokenEnc.trim().length > 0 || config.spotify.accessTokenEnc.trim().length > 0),
+      source: "core",
+      capabilities: ["fetch"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "openai",
       label: "OpenAI",
       kind: "llm",

@@ -14,7 +14,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -31,6 +31,7 @@ import {
   GEMINI_DEFAULT_MODEL,
   GEMINI_DEFAULT_BASE_URL,
   GMAIL_DEFAULT_REDIRECT_URI,
+  SPOTIFY_DEFAULT_REDIRECT_URI,
   hexToRgba,
 } from "./constants"
 
@@ -43,6 +44,7 @@ import {
   useGeminiSetup,
   useGmailSetup,
   useGmailCalendarSetup,
+  useSpotifySetup,
   normalizeGmailAccountsForUi,
   type IntegrationsSaveStatus,
   type IntegrationsSaveTarget,
@@ -123,6 +125,7 @@ export default function IntegrationsPage() {
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
   const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
+  const spotifySetupSectionRef = useRef<HTMLElement | null>(null)
   const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
   const gmailCalendarSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
@@ -145,11 +148,18 @@ export default function IntegrationsPage() {
     setIsSavingTarget,
     onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
+  const spotifySetup = useSpotifySetup({
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
+  })
   const hydrateOpenAISetup = openAISetup.hydrate
   const hydrateClaudeSetup = claudeSetup.hydrate
   const hydrateGrokSetup = grokSetup.hydrate
   const hydrateGeminiSetup = geminiSetup.hydrate
   const hydrateGmailSetup = gmailSetup.hydrate
+  const hydrateSpotifySetup = spotifySetup.hydrate
 
   useEffect(() => {
     let cancelled = false
@@ -191,6 +201,7 @@ export default function IntegrationsPage() {
           hydrateClaudeSetup(fallback)
           hydrateGrokSetup(fallback)
           hydrateGeminiSetup(fallback)
+          hydrateSpotifySetup(fallback)
           hydrateGmailSetup(fallback)
           setActiveLlmProvider(fallback.activeLlmProvider || "openai")
           return
@@ -295,6 +306,19 @@ export default function IntegrationsPage() {
             apiKeyConfigured: Boolean(config.gemini?.apiKeyConfigured),
             apiKeyMasked: typeof config.gemini?.apiKeyMasked === "string" ? config.gemini.apiKeyMasked : "",
           },
+          spotify: {
+            connected: Boolean(config.spotify?.connected),
+            spotifyUserId: typeof config.spotify?.spotifyUserId === "string" ? config.spotify.spotifyUserId : "",
+            displayName: typeof config.spotify?.displayName === "string" ? config.spotify.displayName : "",
+            scopes: Array.isArray(config.spotify?.scopes)
+              ? config.spotify.scopes.join(" ")
+              : typeof config.spotify?.scopes === "string"
+                ? config.spotify.scopes
+                : "",
+            oauthClientId: typeof config.spotify?.oauthClientId === "string" ? config.spotify.oauthClientId : "",
+            redirectUri: typeof config.spotify?.redirectUri === "string" ? config.spotify.redirectUri : SPOTIFY_DEFAULT_REDIRECT_URI,
+            tokenConfigured: Boolean(config.spotify?.tokenConfigured),
+          },
           gmail: {
             connected: Boolean(config.gmail?.connected),
             email: typeof config.gmail?.email === "string" ? config.gmail.email : "",
@@ -369,6 +393,7 @@ export default function IntegrationsPage() {
         hydrateClaudeSetup(normalized)
         hydrateGrokSetup(normalized)
         hydrateGeminiSetup(normalized)
+        hydrateSpotifySetup(normalized)
         hydrateGmailSetup(normalized)
         setActiveLlmProvider(normalized.activeLlmProvider || "openai")
         saveIntegrationsSettings(normalized)
@@ -396,6 +421,7 @@ export default function IntegrationsPage() {
         hydrateClaudeSetup(fallback)
         hydrateGrokSetup(fallback)
         hydrateGeminiSetup(fallback)
+        hydrateSpotifySetup(fallback)
         hydrateGmailSetup(fallback)
         setActiveLlmProvider(fallback.activeLlmProvider || "openai")
       })
@@ -403,7 +429,7 @@ export default function IntegrationsPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, router])
+  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydrateSpotifySetup, router])
 
   useEffect(() => {
     const refresh = () => {
@@ -441,6 +467,7 @@ export default function IntegrationsPage() {
       { ref: claudeSetupSectionRef },
       { ref: grokSetupSectionRef },
       { ref: geminiSetupSectionRef },
+      { ref: spotifySetupSectionRef },
       { ref: gmailSetupSectionRef },
       { ref: gmailCalendarSetupSectionRef },
       { ref: activeStatusSectionRef },
@@ -509,6 +536,7 @@ export default function IntegrationsPage() {
     { key: "claude" as const, connected: settings.claude.connected, icon: <ClaudeIcon className="w-4 h-4" />, ariaLabel: "Open Claude setup" },
     { key: "grok" as const, connected: settings.grok.connected, icon: <XAIIcon size={16} />, ariaLabel: "Open Grok setup" },
     { key: "gemini" as const, connected: settings.gemini.connected, icon: <GeminiIcon size={16} />, ariaLabel: "Open Gemini setup" },
+    { key: "spotify" as const, connected: settings.spotify.connected, icon: <SpotifyIcon className="w-4 h-4" />, ariaLabel: "Open Spotify setup" },
     { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
     { key: "gmail-calendar" as const, connected: settings.gcalendar.connected, icon: <GmailCalendarIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Google Calendar setup" },
     { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
@@ -718,6 +746,8 @@ export default function IntegrationsPage() {
             providerDefinition={activeProviderDefinition}
             gmailSetup={gmailSetup}
             gmailCalendarSetup={gmailCalendarSetup}
+            spotifySetup={spotifySetup}
+            spotifySetupSectionRef={spotifySetupSectionRef}
             gmailCalendarSetupSectionRef={gmailCalendarSetupSectionRef}
             telegramSetupSectionRef={telegramSetupSectionRef}
             discordSetupSectionRef={discordSetupSectionRef}
@@ -785,6 +815,7 @@ export default function IntegrationsPage() {
                 { name: "Claude", active: settings.claude.connected },
                 { name: "Grok", active: settings.grok.connected },
                 { name: "Gemini", active: settings.gemini.connected },
+                { name: "Spotify", active: settings.spotify.connected },
                 { name: "Gmail", active: settings.gmail.connected },
                 { name: "Google Calendar", active: settings.gcalendar.connected },
                 { name: "Brave", active: settings.brave.connected },

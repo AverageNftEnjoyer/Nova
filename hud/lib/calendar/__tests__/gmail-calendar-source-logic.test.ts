@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import type { PersonalCalendarEvent } from "../types.js"
-import type { GmailCalendarEventItem } from "../../integrations/gcalendar/types.js"
+import type { GmailCalendarEventItem } from "../../integrations/google-calender/types.js"
 
 // ─── Inline the mapping from gmail-calendar-source ────────────────────────────
 
@@ -169,3 +169,4 @@ test("missing start date falls back to rangeStart", () => {
   assert.ok(result)
   assert.equal(result.startAt, RANGE_START.toISOString())
 })
+

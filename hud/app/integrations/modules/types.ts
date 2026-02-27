@@ -173,6 +173,20 @@ export type IntegrationsMainPanelProps = {
     disconnectGmailCalendar: (accountId?: string) => void
     updateCalendarPermissions: (patch: Partial<IntegrationsSettings["gcalendar"]["permissions"]>) => Promise<void>
   }
+  spotifySetup: {
+    spotifyClientId: string
+    setSpotifyClientId: (value: string) => void
+    spotifyRedirectUri: string
+    setSpotifyRedirectUri: (value: string) => void
+    spotifyUserId: string
+    spotifyDisplayName: string
+    spotifyScopes: string
+    connectSpotify: () => void
+    saveSpotifyConfig: () => Promise<void>
+    disconnectSpotify: () => Promise<void>
+    testSpotifyConnection: () => Promise<void>
+  }
+  spotifySetupSectionRef: MutableRefObject<HTMLElement | null>
   gmailCalendarSetupSectionRef: MutableRefObject<HTMLElement | null>
   telegramSetupSectionRef: MutableRefObject<HTMLElement | null>
   discordSetupSectionRef: MutableRefObject<HTMLElement | null>

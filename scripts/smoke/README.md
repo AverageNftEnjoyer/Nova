@@ -14,6 +14,7 @@ Do not add smoke test files directly in `scripts/smoke/`.
 - `conversation/`: conversation behavior, memory, persona, and output constraints.
 - `routing/`: routing, plugin isolation, transport, and tool-loop smokes.
 - `hud/`: HUD/UI-bound smoke tests.
+- `runtime/`: runtime integration and user-context isolation smoke tests.
 - `verification/`: one-off verification scripts tied to release phases.
 
 ## Naming conventions

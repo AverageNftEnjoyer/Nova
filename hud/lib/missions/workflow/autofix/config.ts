@@ -1,4 +1,4 @@
-import type { WorkflowAutofixPolicy } from "./types"
+import type { WorkflowAutofixPolicy } from "./types.ts"
 
 function parseFloatWithBounds(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseFloat(String(value || ""))

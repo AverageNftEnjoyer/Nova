@@ -4,7 +4,7 @@
  * Functions for normalizing workflow configuration and parsing headers.
  */
 
-import type { WorkflowStep, WorkflowStepType, AiDetailLevel } from "../types"
+import type { WorkflowStep, WorkflowStepType, AiDetailLevel } from "../types.ts"
 
 /**
  * Normalize a workflow step, ensuring required fields are present.

@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises"
 
-import { fromGmailHttpStatus, gmailError, isTransientHttpStatus } from "./errors"
+import { fromGmailHttpStatus, gmailError, isTransientHttpStatus } from "./errors.ts"
 
 interface GmailRequestOptions {
   operation: string

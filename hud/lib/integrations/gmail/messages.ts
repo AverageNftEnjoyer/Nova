@@ -1,6 +1,6 @@
-import { assertGmailOk, gmailFetchWithRetry } from "./client"
-import { getValidGmailAccessToken } from "./tokens"
-import { GMAIL_API_BASE, type GmailMessageSummary, type GmailScope } from "./types"
+import { assertGmailOk, gmailFetchWithRetry } from "./client.ts"
+import { getValidGmailAccessToken } from "./tokens.ts"
+import { GMAIL_API_BASE, type GmailMessageSummary, type GmailScope } from "./types.ts"
 
 function decodeBodyData(data: string | undefined): string {
   const raw = String(data || "")

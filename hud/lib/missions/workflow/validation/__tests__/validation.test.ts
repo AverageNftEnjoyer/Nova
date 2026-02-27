@@ -10,7 +10,7 @@ import {
   validateMissionWorkflowMessage,
   validateWorkflowSummary,
   type WorkflowValidationInput,
-} from "../index"
+} from "../index.ts"
 
 function buildWorkflowMessage(summary: Record<string, unknown>): string {
   return `Mission description\n\n[NOVA WORKFLOW]\n${JSON.stringify(summary)}`

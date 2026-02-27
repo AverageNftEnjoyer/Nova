@@ -6,8 +6,8 @@
  */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
-import { gmailError } from "../gmail/errors"
-import type { GmailClientConfig, GmailOAuthStatePayload } from "../gmail/types"
+import { gmailError } from "../gmail/errors.ts"
+import type { GmailClientConfig, GmailOAuthStatePayload } from "../gmail/types.ts"
 
 export const GMAIL_CALENDAR_EXTRA_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",

@@ -1,4 +1,4 @@
-﻿// ===== Chat Handler =====
+// ===== Chat Handler =====
 // handleInput dispatcher split into focused sub-handlers.
 // Bug Fix 2: Tool loop errors are now caught, logged, and surfaced to HUD.
 
@@ -748,8 +748,17 @@ async function handleInputCore(text, opts = {}) {
     latencyTelemetry,
   };
 
-  // Route to sub-handler
-  if (n.includes("spotify") || n.includes("play music") || n.includes("play some") || n.includes("put on ")) {
+  // Route to sub-handler — catch any music/playback intent so it never leaks to general chat
+  if (
+    n.includes("spotify") ||
+    n.includes("play music") ||
+    n.includes("play some") ||
+    n.includes("put on ") ||
+    /\bplay\s+(my |one of my |a |the )?(favorite|liked|saved|default|playlist|song|track|album|artist)/i.test(n) ||
+    /\b(skip|next track|previous track|next song|last song|go back a song|pause|resume|now playing|what.?s playing|what is playing|shuffle|repeat|queue)\b/i.test(n) ||
+    /\bplay\s+.+\s+by\s+/i.test(n) ||
+    /\bplay\s+[a-z].{2,}/i.test(n) && !/\bplay\s+(a |the )?(game|video|clip|movie|film|role|part)\b/i.test(n)
+  ) {
     return await handleSpotify(text, ctx, llmCtx);
   }
 

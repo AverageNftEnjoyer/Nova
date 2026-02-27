@@ -76,6 +76,18 @@ export interface GeminiIntegrationConfig {
   defaultModel: string
 }
 
+export interface SpotifyIntegrationConfig {
+  connected: boolean
+  spotifyUserId: string
+  displayName: string
+  scopes: string[]
+  oauthClientId: string
+  redirectUri: string
+  accessTokenEnc: string
+  refreshTokenEnc: string
+  tokenExpiry: number
+}
+
 export interface GmailIntegrationConfig {
   connected: boolean
   email: string
@@ -142,6 +154,7 @@ export interface IntegrationsConfig {
   claude: ClaudeIntegrationConfig
   grok: GrokIntegrationConfig
   gemini: GeminiIntegrationConfig
+  spotify: SpotifyIntegrationConfig
   gmail: GmailIntegrationConfig
   gcalendar: GmailCalendarIntegrationConfig
   activeLlmProvider: LlmProvider
@@ -158,7 +171,7 @@ export type IntegrationsStoreScope =
       client?: SupabaseClient | null
       user?: { id?: string | null } | null
       allowServiceRole?: boolean
-      serviceRoleReason?: "scheduler" | "gmail-oauth-callback" | "gmail-calendar-oauth-callback"
+      serviceRoleReason?: "scheduler" | "gmail-oauth-callback" | "gmail-calendar-oauth-callback" | "spotify-oauth-callback"
     }
   | null
   | undefined
@@ -215,6 +228,17 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     apiKey: "",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-2.5-pro",
+  },
+  spotify: {
+    connected: false,
+    spotifyUserId: "",
+    displayName: "",
+    scopes: [],
+    oauthClientId: "",
+    redirectUri: "http://localhost:3000/api/integrations/spotify/callback",
+    accessTokenEnc: "",
+    refreshTokenEnc: "",
+    tokenExpiry: 0,
   },
   gmail: {
     connected: false,
@@ -449,6 +473,25 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       baseUrl: raw?.gemini?.baseUrl?.trim() || DEFAULT_CONFIG.gemini.baseUrl,
       defaultModel: raw?.gemini?.defaultModel?.trim() || DEFAULT_CONFIG.gemini.defaultModel,
     },
+    spotify: {
+      connected:
+        (raw?.spotify?.connected ?? DEFAULT_CONFIG.spotify.connected) &&
+        String(raw?.spotify?.oauthClientId || "").trim().length > 0 &&
+        (
+          wrapStoredSecret(raw?.spotify?.refreshTokenEnc).length > 0 ||
+          wrapStoredSecret(raw?.spotify?.accessTokenEnc).length > 0
+        ),
+      spotifyUserId: String(raw?.spotify?.spotifyUserId || "").trim(),
+      displayName: String(raw?.spotify?.displayName || "").trim(),
+      scopes: Array.isArray(raw?.spotify?.scopes)
+        ? raw!.spotify!.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+        : [],
+      oauthClientId: String(raw?.spotify?.oauthClientId || "").trim(),
+      redirectUri: String(raw?.spotify?.redirectUri || "").trim() || DEFAULT_CONFIG.spotify.redirectUri,
+      accessTokenEnc: wrapStoredSecret(raw?.spotify?.accessTokenEnc),
+      refreshTokenEnc: wrapStoredSecret(raw?.spotify?.refreshTokenEnc),
+      tokenExpiry: typeof raw?.spotify?.tokenExpiry === "number" ? raw.spotify.tokenExpiry : 0,
+    },
     gmail: {
       connected: (raw?.gmail?.connected ?? DEFAULT_CONFIG.gmail.connected) && enabledAccounts.length > 0,
       email: selectedAccount?.email || legacyEmail,
@@ -538,7 +581,12 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
   if (accessToken) return { userId, client: createSupabaseServerClient(accessToken) }
   if (scope?.allowServiceRole) {
     const reason = String(scope.serviceRoleReason || "").trim()
-    if (reason !== "scheduler" && reason !== "gmail-oauth-callback" && reason !== "gmail-calendar-oauth-callback") {
+    if (
+      reason !== "scheduler" &&
+      reason !== "gmail-oauth-callback" &&
+      reason !== "gmail-calendar-oauth-callback" &&
+      reason !== "spotify-oauth-callback"
+    ) {
       throw new Error("Service-role integrations access requires an approved internal reason.")
     }
     return { userId, client: createSupabaseAdminClient() }
@@ -588,6 +636,11 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
     gemini: {
       ...config.gemini,
       apiKey: wrapStoredSecret(config.gemini.apiKey),
+    },
+    spotify: {
+      ...config.spotify,
+      accessTokenEnc: wrapStoredSecret(config.spotify.accessTokenEnc),
+      refreshTokenEnc: wrapStoredSecret(config.spotify.refreshTokenEnc),
     },
     gmail: {
       ...config.gmail,
@@ -655,6 +708,14 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
     gemini: {
       ...current.gemini,
       ...(partial.gemini || {}),
+    },
+    spotify: {
+      ...current.spotify,
+      ...(partial.spotify || {}),
+      scopes: Array.isArray(partial.spotify?.scopes)
+        ? partial.spotify.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+        : current.spotify.scopes,
+      tokenExpiry: typeof partial.spotify?.tokenExpiry === "number" ? partial.spotify.tokenExpiry : current.spotify.tokenExpiry,
     },
     gmail: {
       ...current.gmail,

@@ -7,6 +7,7 @@ export { useGrokSetup } from "./use-grok-setup"
 export { useGeminiSetup } from "./use-gemini-setup"
 export { useGmailSetup } from "./use-gmail-setup"
 export { useGmailCalendarSetup } from "./use-gmail-calendar-setup"
+export { useSpotifySetup } from "./use-spotify-setup"
 export type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 
 // Theme utilities

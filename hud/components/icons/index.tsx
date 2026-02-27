@@ -14,6 +14,10 @@ export function CoinbaseIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/coinbase.svg" alt="Coinbase" width={16} height={16} className={className} unoptimized />
 }
 
+export function SpotifyIcon({ className = "w-4 h-4" }: BraveIconProps) {
+  return <Image src="/images/spotify.svg" alt="Spotify" width={16} height={16} className={className} unoptimized />
+}
+
 export function ClaudeIcon(props: ComponentProps<typeof Claude.Color>) {
   return <Claude.Color {...props} />
 }

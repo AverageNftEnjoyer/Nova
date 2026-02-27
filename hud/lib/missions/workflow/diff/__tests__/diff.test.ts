@@ -1,9 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 
-import { defaultMissionSettings, type Mission } from "../../../types"
-import { applyMissionDiff } from "../engine"
-import { deriveDiffOperationsFromMissionSnapshot } from "../migration"
+import { defaultMissionSettings, type Mission } from "../../../types.ts"
+import { applyMissionDiff } from "../engine.ts"
+import { deriveDiffOperationsFromMissionSnapshot } from "../migration.ts"
 
 function baseMission(): Mission {
   const now = new Date().toISOString()

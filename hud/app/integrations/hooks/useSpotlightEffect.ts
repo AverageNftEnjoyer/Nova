@@ -110,6 +110,13 @@ export function useSpotlightEffect(
       }
 
       const handleMouseLeave = () => {
+        // Cancel any pending RAF so a stale in-flight frame can't re-show the
+        // spotlight after the cursor has already left this section.
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId)
+          rafId = null
+        }
+        pendingEvent = null
         if (spotlight) spotlight.style.opacity = "0"
         cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
       }

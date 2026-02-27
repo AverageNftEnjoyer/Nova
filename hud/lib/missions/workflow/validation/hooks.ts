@@ -1,11 +1,11 @@
-import { parseMissionWorkflow, WORKFLOW_MARKER } from "../parsing"
-import { WORKFLOW_RUN_VALIDATION_POLICY, WORKFLOW_SAVE_VALIDATION_POLICY } from "./config"
+import { parseMissionWorkflow, WORKFLOW_MARKER } from "../parsing.ts"
+import { WORKFLOW_RUN_VALIDATION_POLICY, WORKFLOW_SAVE_VALIDATION_POLICY } from "./config.ts"
 import type {
   WorkflowValidationMode,
   WorkflowValidationProfile,
   WorkflowValidationResult,
-} from "./types"
-import { validateWorkflowSummary } from "./validator"
+} from "./types.ts"
+import { validateWorkflowSummary } from "./validator.ts"
 
 export interface ValidateWorkflowMessageInput {
   message: string

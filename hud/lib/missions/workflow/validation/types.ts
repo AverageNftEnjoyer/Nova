@@ -1,4 +1,4 @@
-import type { WorkflowSummary } from "../../types"
+import type { WorkflowSummary } from "../../types.ts"
 
 export type WorkflowValidationMode = "minimal" | "full"
 

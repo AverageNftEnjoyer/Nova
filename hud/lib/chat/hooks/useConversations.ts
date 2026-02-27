@@ -212,11 +212,12 @@ export function useConversations({
   )
 
   const resolveConversationSelectionId = useCallback(
-    (conversationId: string, availableConversations: Conversation[] = conversations): string => {
+    (conversationId: string, availableConversations?: Conversation[]): string => {
+      const pool = availableConversations ?? latestConversationsRef.current
       const normalized = String(conversationId || "").trim()
       if (!normalized) return ""
 
-      const availableIds = new Set(availableConversations.map((entry) => String(entry.id || "").trim()))
+      const availableIds = new Set(pool.map((entry) => String(entry.id || "").trim()))
       if (availableIds.has(normalized)) return normalized
 
       const mappedServerId = optimisticIdToServerIdRef.current.get(normalized)
@@ -228,7 +229,7 @@ export function useConversations({
 
       return mappedServerId || normalized
     },
-    [conversations],
+    [],
   )
 
   const scheduleServerSync = useCallback((convo: Conversation) => {

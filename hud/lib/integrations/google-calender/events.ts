@@ -4,9 +4,9 @@
  * Calls the Google Calendar API using an access token obtained from
  * getValidGmailCalendarAccessToken (stored under the `gcalendar` config key).
  */
-import { gmailFetchWithRetry, assertGmailOk } from "../gmail/client"
-import { GCALENDAR_API_BASE, type GmailCalendarEventItem, type GmailCalendarScope } from "../gcalendar/types"
-import { getValidGmailCalendarAccessToken } from "./tokens"
+import { gmailFetchWithRetry, assertGmailOk } from "../gmail/client.ts"
+import { GCALENDAR_API_BASE, type GmailCalendarEventItem, type GmailCalendarScope } from "./types.ts"
+import { getValidGmailCalendarAccessToken } from "./tokens.ts"
 
 export async function listGmailCalendarEvents(
   timeMin: Date,
@@ -68,3 +68,4 @@ export async function listGmailCalendarEvents(
     }))
     .filter((ev) => !!ev.id)
 }
+

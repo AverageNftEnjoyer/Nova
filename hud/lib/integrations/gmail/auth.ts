@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
-import { gmailError } from "./errors"
-import { DEFAULT_GMAIL_SCOPES, GOOGLE_OAUTH_BASE, type GmailClientConfig, type GmailOAuthStatePayload } from "./types"
+import { gmailError } from "./errors.ts"
+import { DEFAULT_GMAIL_SCOPES, GOOGLE_OAUTH_BASE, type GmailClientConfig, type GmailOAuthStatePayload } from "./types.ts"
 
 const DEV_FALLBACK_OAUTH_STATE_SECRET = createHash("sha256")
   .update(`nova-dev-gmail-oauth:${process.cwd()}`)

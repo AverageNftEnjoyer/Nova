@@ -1,4 +1,4 @@
-import type { GmailErrorCode } from "./types"
+import type { GmailErrorCode } from "./types.ts"
 
 interface GmailErrorOptions {
   status?: number

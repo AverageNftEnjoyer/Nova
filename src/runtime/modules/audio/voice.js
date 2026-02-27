@@ -144,14 +144,44 @@ export async function speak(text, voiceId = "default") {
   console.log(`[TTS] Using voice: ${voiceId} -> ${referenceId}`);
 
   const audio = await fishAudio.textToSpeech.convert({ text: normalizedText, reference_id: referenceId });
-  fs.writeFileSync(out, Buffer.from(await new Response(audio).arrayBuffer()));
 
+  // Stream audio to mpv stdin for immediate playback while writing to disk for cleanup.
   _broadcastState("speaking");
-  _currentPlayer = spawn(MPV_PATH, [out, "--no-video", "--really-quiet", "--keep-open=no"]);
+  const player = spawn(MPV_PATH, ["-", "--no-video", "--really-quiet", "--keep-open=no"], { stdio: ["pipe", "ignore", "ignore"] });
+  _currentPlayer = player;
 
-  await new Promise((resolve) => { _currentPlayer.on("exit", resolve); });
+  const writeStream = fs.createWriteStream(out);
+  const reader = audio instanceof ReadableStream
+    ? audio.getReader()
+    : null;
 
-  _currentPlayer = null;
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = value instanceof Uint8Array ? Buffer.from(value) : Buffer.from(value);
+        if (player.stdin?.writable) player.stdin.write(chunk);
+        writeStream.write(chunk);
+      }
+    } catch (streamErr) {
+      console.error("[TTS] Stream error:", streamErr?.message || streamErr);
+    } finally {
+      if (player.stdin?.writable) player.stdin.end();
+      writeStream.end();
+    }
+  } else {
+    const buf = Buffer.from(await new Response(audio).arrayBuffer());
+    if (player.stdin?.writable) {
+      player.stdin.write(buf);
+      player.stdin.end();
+    }
+    writeStream.end(buf);
+  }
+
+  await new Promise((resolve) => { player.on("exit", resolve); });
+
+  if (_currentPlayer === player) _currentPlayer = null;
   _broadcastState("idle");
   _suppressVoiceWakeUntilMs = Date.now() + Math.max(0, VOICE_AFTER_TTS_SUPPRESS_MS);
 

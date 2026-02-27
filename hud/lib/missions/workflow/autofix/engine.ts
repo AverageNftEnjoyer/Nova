@@ -1,13 +1,13 @@
-import type { WorkflowStep, WorkflowSummary } from "../../types"
-import { WORKFLOW_VALIDATION_ISSUE_CODES, validateWorkflowSummary, type WorkflowValidationIssue } from "../validation"
-import { WORKFLOW_AUTOFIX_POLICY } from "./config"
+import type { WorkflowStep, WorkflowSummary } from "../../types.ts"
+import { WORKFLOW_VALIDATION_ISSUE_CODES, validateWorkflowSummary, type WorkflowValidationIssue } from "../validation/index.ts"
+import { WORKFLOW_AUTOFIX_POLICY } from "./config.ts"
 import type {
   WorkflowAutofixCandidate,
   WorkflowAutofixDisposition,
   WorkflowAutofixInput,
   WorkflowAutofixPolicy,
   WorkflowAutofixResult,
-} from "./types"
+} from "./types.ts"
 
 interface CandidatePlan extends WorkflowAutofixCandidate {
   apply: (summary: WorkflowSummary) => boolean

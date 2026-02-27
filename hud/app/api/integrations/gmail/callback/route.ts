@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { exchangeCodeForGmailTokens, parseGmailOAuthState } from "@/lib/integrations/gmail"
-import { parseGmailCalendarOAuthState } from "@/lib/integrations/gmail-calendar/service"
+import { parseGmailCalendarOAuthState } from "@/lib/integrations/google-calender/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
 import { logGmailApi } from "@/app/api/integrations/gmail/_shared"
 
@@ -172,3 +172,4 @@ export async function GET(req: Request) {
     )
   }
 }
+

@@ -1,7 +1,7 @@
-import { assertGmailOk, gmailFetchWithRetry } from "./client"
-import { gmailError } from "./errors"
-import { getValidGmailAccessToken } from "./tokens"
-import { GMAIL_API_BASE, type GmailSendMessageInput, type GmailSendMessageResult } from "./types"
+import { assertGmailOk, gmailFetchWithRetry } from "./client.ts"
+import { gmailError } from "./errors.ts"
+import { getValidGmailAccessToken } from "./tokens.ts"
+import { GMAIL_API_BASE, type GmailSendMessageInput, type GmailSendMessageResult } from "./types.ts"
 
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000
 const completedIdempotency = new Map<string, { expiresAt: number; result: GmailSendMessageResult }>()

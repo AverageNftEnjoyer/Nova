@@ -53,6 +53,8 @@ const TextType = ({
   const [isVisible, setIsVisible] = useState(!startOnVisible);
   const cursorRef = useRef<HTMLSpanElement>(null);
   const containerRef = useRef<HTMLSpanElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cursorTweenRef = useRef<gsap.core.Tween | null>(null);
 
   const textArray = useMemo(() => (Array.isArray(text) ? text : [text]), [text]);
 
@@ -66,6 +68,21 @@ const TextType = ({
     if (textColors.length === 0) return;
     return textColors[currentTextIndex % textColors.length];
   };
+
+  const clearTypingTimeout = useCallback(() => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleTypingTimeout = useCallback(
+    (callback: () => void, delay: number) => {
+      clearTypingTimeout();
+      typingTimeoutRef.current = setTimeout(callback, delay);
+    },
+    [clearTypingTimeout]
+  );
 
   useEffect(() => {
     if (!startOnVisible || !containerRef.current) return;
@@ -87,8 +104,9 @@ const TextType = ({
 
   useEffect(() => {
     if (showCursor && cursorRef.current) {
+      cursorTweenRef.current?.kill();
       gsap.set(cursorRef.current, { opacity: 1 });
-      gsap.to(cursorRef.current, {
+      cursorTweenRef.current = gsap.to(cursorRef.current, {
         opacity: 0,
         duration: cursorBlinkDuration,
         repeat: -1,
@@ -96,17 +114,23 @@ const TextType = ({
         ease: 'power2.inOut'
       });
     }
+    return () => {
+      cursorTweenRef.current?.kill();
+      cursorTweenRef.current = null;
+    };
   }, [showCursor, cursorBlinkDuration]);
 
+  useEffect(() => () => clearTypingTimeout(), [clearTypingTimeout]);
+
   useEffect(() => {
-    if (!isVisible) return;
-
-    let timeout: ReturnType<typeof setTimeout>;
-
-    const currentText = textArray[currentTextIndex];
+    if (!isVisible || textArray.length === 0) return;
+    const safeTextIndex = currentTextIndex % textArray.length;
+    const currentText = textArray[safeTextIndex];
     const processedText = reverseMode ? currentText.split('').reverse().join('') : currentText;
+    let cancelled = false;
 
     const executeTypingAnimation = () => {
+      if (cancelled) return;
       if (isDeleting) {
         if (displayedText === '') {
           setIsDeleting(false);
@@ -115,29 +139,31 @@ const TextType = ({
           }
 
           if (onSentenceComplete) {
-            onSentenceComplete(textArray[currentTextIndex], currentTextIndex);
+            onSentenceComplete(textArray[safeTextIndex], safeTextIndex);
           }
 
           setCurrentTextIndex(prev => (prev + 1) % textArray.length);
           setCurrentCharIndex(0);
-          timeout = setTimeout(() => {}, pauseDuration);
         } else {
-          timeout = setTimeout(() => {
+          scheduleTypingTimeout(() => {
+            if (cancelled) return;
             setDisplayedText(prev => prev.slice(0, -1));
           }, deletingSpeed);
         }
       } else {
         if (currentCharIndex < processedText.length) {
-          timeout = setTimeout(
+          scheduleTypingTimeout(
             () => {
+              if (cancelled) return;
               setDisplayedText(prev => prev + processedText[currentCharIndex]);
               setCurrentCharIndex(prev => prev + 1);
             },
             variableSpeed ? getRandomSpeed() : typingSpeed
           );
         } else if (textArray.length >= 1) {
-          if (!loop && currentTextIndex === textArray.length - 1) return;
-          timeout = setTimeout(() => {
+          if (!loop && safeTextIndex === textArray.length - 1) return;
+          scheduleTypingTimeout(() => {
+            if (cancelled) return;
             setIsDeleting(true);
           }, pauseDuration);
         }
@@ -145,12 +171,15 @@ const TextType = ({
     };
 
     if (currentCharIndex === 0 && !isDeleting && displayedText === '') {
-      timeout = setTimeout(executeTypingAnimation, initialDelay);
+      scheduleTypingTimeout(executeTypingAnimation, initialDelay);
     } else {
       executeTypingAnimation();
     }
 
-    return () => clearTimeout(timeout);
+    return () => {
+      cancelled = true;
+      clearTypingTimeout();
+    };
   }, [
     currentCharIndex,
     displayedText,
@@ -166,11 +195,14 @@ const TextType = ({
     reverseMode,
     variableSpeed,
     onSentenceComplete,
-    getRandomSpeed
+    getRandomSpeed,
+    clearTypingTimeout,
+    scheduleTypingTimeout
   ]);
 
+  const currentTextLength = textArray.length > 0 ? textArray[currentTextIndex % textArray.length]?.length ?? 0 : 0;
   const shouldHideCursor =
-    hideCursorWhileTyping && (currentCharIndex < textArray[currentTextIndex].length || isDeleting);
+    hideCursorWhileTyping && (currentCharIndex < currentTextLength || isDeleting);
 
   return createElement(
     Component,

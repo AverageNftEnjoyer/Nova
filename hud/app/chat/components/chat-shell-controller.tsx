@@ -12,7 +12,7 @@ import { cn } from "@/lib/shared/utils"
 import { loadUserSettings } from "@/lib/settings/userSettings"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
 
 // Hooks
@@ -104,6 +104,8 @@ export function ChatShellController() {
     grokConnected,
     geminiConnected,
     gmailConnected,
+    spotifyConnected,
+    gcalendarConnected,
     integrationGuardNotice,
     handleToggleTelegramIntegration,
     handleToggleDiscordIntegration,
@@ -175,7 +177,8 @@ export function ChatShellController() {
     const newMuted = !isMuted
     setIsMuted(newMuted)
     localStorage.setItem("nova-muted", String(newMuted))
-    setMuted(newMuted)
+    const name = !newMuted ? loadUserSettings().personalization.assistantName : undefined
+    setMuted(newMuted, name)
   }, [isMuted, setMuted])
 
   useLayoutEffect(() => {
@@ -187,7 +190,8 @@ export function ChatShellController() {
 
   useEffect(() => {
     if (agentConnected && muteHydrated) {
-      setMuted(isMuted)
+      const name = !isMuted ? loadUserSettings().personalization.assistantName : undefined
+      setMuted(isMuted, name)
     }
   }, [agentConnected, isMuted, muteHydrated, setMuted])
 
@@ -463,7 +467,7 @@ export function ChatShellController() {
   // Convert ChatMessage[] to Message[] for MessageList
   const displayMessages: Message[] = useMemo(() => {
     if (!activeConvo) return []
-    return activeConvo.messages.map((m) => ({
+    const msgs: Message[] = activeConvo.messages.map((m) => ({
       id: m.id,
       role: m.role,
       content: m.content,
@@ -475,7 +479,16 @@ export function ChatShellController() {
       nlpCorrectionCount: m.nlpCorrectionCount,
       nlpBypass: m.nlpBypass,
     }))
-  }, [activeConvo])
+    if (streamingAssistantId && !msgs.some((m) => m.id === streamingAssistantId)) {
+      msgs.push({
+        id: streamingAssistantId,
+        role: "assistant",
+        content: "",
+        createdAt: new Date(),
+      })
+    }
+    return msgs
+  }, [activeConvo, streamingAssistantId])
 
   // UI styling
   const panelClass = isLight
@@ -711,6 +724,20 @@ export function ChatShellController() {
                       <GmailIcon className="w-3.5 h-3.5 -translate-y-0.5" />
                     </button>
                     <button
+                      onClick={() => router.push("/integrations")}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(spotifyConnected))}
+                      title={spotifyConnected ? "Spotify connected" : "Spotify disconnected"}
+                    >
+                      <SpotifyIcon className="w-3.5 h-3.5 -translate-y-0.5" />
+                    </button>
+                    <button
+                      onClick={() => router.push("/integrations")}
+                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(gcalendarConnected))}
+                      title={gcalendarConnected ? "Google Calendar connected" : "Google Calendar disconnected"}
+                    >
+                      <GmailCalendarIcon className="w-3.5 h-3.5 -translate-y-0.5" />
+                    </button>
+                    <button
                       onClick={handleToggleBraveIntegration}
                       className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(braveConnected))}
                       title={braveConnected ? "Brave connected" : braveConfigured ? "Brave disconnected" : "Brave key required"}
@@ -724,7 +751,7 @@ export function ChatShellController() {
                     >
                       <CoinbaseIcon className="w-4 h-4 -translate-y-0.5" />
                     </button>
-                    {Array.from({ length: 15 }).map((_, index) => (
+                    {Array.from({ length: 13 }).map((_, index) => (
                       <div key={index} className={cn("h-9 rounded-sm border home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20")} />
                     ))}
                   </div>

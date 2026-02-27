@@ -12,8 +12,8 @@ process.env.NOVA_GMAIL_OAUTH_STATE_SECRET = "test-secret-abc123"
 import {
   buildGmailCalendarOAuthUrl,
   parseGmailCalendarOAuthState,
-} from "../auth.js"
-import type { GmailClientConfig } from "../../gmail/types.js"
+} from "../auth.ts"
+import type { GmailClientConfig } from "../../gmail/types.ts"
 
 const FAKE_CONFIG: GmailClientConfig = {
   clientId:     "fake-client-id.apps.googleusercontent.com",

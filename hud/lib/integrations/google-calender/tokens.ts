@@ -4,17 +4,17 @@
  * Stores the calendar-scoped token in the `gcalendar` key of IntegrationsConfig.
  * Reuses Gmail's token endpoint, encryption, and client fetch utilities.
  */
-import { decryptSecret, encryptSecret } from "../../security/encryption"
-import { loadIntegrationsConfig, updateIntegrationsConfig } from "../server-store"
-import { assertGmailOk, gmailFetchWithRetry } from "../gmail/client"
-import { gmailError } from "../gmail/errors"
+import { decryptSecret, encryptSecret } from "../../security/encryption.ts"
+import { loadIntegrationsConfig, updateIntegrationsConfig } from "../server-store.ts"
+import { assertGmailOk, gmailFetchWithRetry } from "../gmail/client.ts"
+import { gmailError } from "../gmail/errors.ts"
 import {
   GOOGLE_TOKEN_ENDPOINT,
   GOOGLE_USERINFO_ENDPOINT,
   type GmailClientConfig,
   type GmailScope,
-} from "../gmail/types"
-import type { GmailCalendarScope } from "../gcalendar/types"
+} from "../gmail/types.ts"
+import type { GmailCalendarScope } from "./types.ts"
 
 // GmailCalendar scopes use GmailScope (same IntegrationsStoreScope union)
 export type GmailCalTokenScope = GmailCalendarScope
@@ -219,3 +219,4 @@ export async function disconnectGmailCalendar(accountId?: string, scope?: GmailC
 export type { GmailClientConfig }
 // Re-export GmailScope alias
 export type { GmailScope as GmailCalendarServiceScope }
+

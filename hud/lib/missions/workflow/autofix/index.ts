@@ -1,5 +1,5 @@
-export { WORKFLOW_AUTOFIX_POLICY } from "./config"
-export { executeWorkflowAutofix } from "./engine"
+export { WORKFLOW_AUTOFIX_POLICY } from "./config.ts"
+export { executeWorkflowAutofix } from "./engine.ts"
 export type {
   WorkflowAutofixCandidate,
   WorkflowAutofixDisposition,
@@ -7,4 +7,4 @@ export type {
   WorkflowAutofixPolicy,
   WorkflowAutofixResult,
   WorkflowAutofixRisk,
-} from "./types"
+} from "./types.ts"

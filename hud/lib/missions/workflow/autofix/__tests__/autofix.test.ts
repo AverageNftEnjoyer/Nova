@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { executeWorkflowAutofix } from "../index"
+import { executeWorkflowAutofix } from "../index.ts"
 
 test("unit: low-risk fixes are auto-applied when apply=true", () => {
   const result = executeWorkflowAutofix({

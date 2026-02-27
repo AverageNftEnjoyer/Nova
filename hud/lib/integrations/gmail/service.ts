@@ -1,8 +1,8 @@
-import { buildGmailOAuthUrl as buildOAuthUrl, parseGmailOAuthState as parseOAuthState } from "./auth"
-import { listRecentGmailMessages as listMessages } from "./messages"
-import { sendGmailMessage as sendMessage } from "./send"
-import { disconnectGmail as disconnectTokens, exchangeCodeForGmailTokens, getGmailClientConfig, getValidGmailAccessToken } from "./tokens"
-import type { GmailMessageSummary, GmailScope, GmailSendMessageInput, GmailSendMessageResult } from "./types"
+import { buildGmailOAuthUrl as buildOAuthUrl, parseGmailOAuthState as parseOAuthState } from "./auth.ts"
+import { listRecentGmailMessages as listMessages } from "./messages.ts"
+import { sendGmailMessage as sendMessage } from "./send.ts"
+import { disconnectGmail as disconnectTokens, exchangeCodeForGmailTokens, getGmailClientConfig, getValidGmailAccessToken } from "./tokens.ts"
+import type { GmailMessageSummary, GmailScope, GmailSendMessageInput, GmailSendMessageResult } from "./types.ts"
 
 export async function buildGmailOAuthUrl(returnTo: string, scope?: GmailScope): Promise<string> {
   const config = await getGmailClientConfig(scope)

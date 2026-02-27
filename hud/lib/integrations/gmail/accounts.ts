@@ -1,5 +1,5 @@
 import type { GmailIntegrationConfig } from "../server-store"
-import { gmailError } from "./errors"
+import { gmailError } from "./errors.ts"
 
 function pickActiveAccount(accounts: GmailIntegrationConfig["accounts"], preferredId: string): GmailIntegrationConfig["accounts"][number] | null {
   const enabledAccounts = accounts.filter((account) => account.enabled)

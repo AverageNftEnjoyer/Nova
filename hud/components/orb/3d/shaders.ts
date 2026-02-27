@@ -1,6 +1,6 @@
 /**
  * GLSL shaders for the Nova 3D orb.
- * All shaders support a uSpeaking uniform (0–1) for animated speaking state.
+ * All shaders support uSpeaking (0–1) and uThinking (0–1) uniforms for animated state transitions.
  */
 
 // ─── Particle (filament + spark) shaders ────────────────────────────────────
@@ -10,6 +10,7 @@ export const pointVertexShader = `
   uniform float uIntensity;
   uniform float uRadius;
   uniform float uSpeaking;
+  uniform float uThinking;
   attribute float aScale;
   attribute float aSeed;
   varying float vSeed;
@@ -23,12 +24,20 @@ export const pointVertexShader = `
     float speed  = 1.4 + uSpeaking * 2.6;
     float amp    = (0.034 + uSpeaking * 0.058) * uIntensity;
     float drift  = sin(uTime * speed + aSeed * 20.0) * amp;
+
+    // Thinking: rhythmic contraction-expansion wave — particles breathe inward then out
+    float thinkPhase = sin(uTime * 1.8 + aSeed * 3.14) * 0.5 + 0.5;
+    float thinkDrift = uThinking * (thinkPhase * 0.06 - 0.03) * uIntensity;
+    drift += thinkDrift;
+
     p += normalize(p) * drift;
 
     vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
 
     // Per-particle size pulsing when speaking
     float sizePulse = 1.0 + uSpeaking * 0.38 * sin(uTime * 7.2 + aSeed * 6.28);
+    // Thinking: gentle uniform size breathing
+    sizePulse += uThinking * 0.12 * sin(uTime * 2.4 + aSeed * 1.5);
     float size = (4.5 + aScale * 10.0) * (uRadius / 2.0) * sizePulse;
     gl_PointSize = size * (1.0 / max(0.2, -mvPosition.z));
     gl_Position  = projectionMatrix * mvPosition;
@@ -41,6 +50,7 @@ export const pointFragmentShader = `
   uniform vec3  uColor;
   uniform float uIntensity;
   uniform float uSpeaking;
+  uniform float uThinking;
   varying float vSeed;
   varying float vAlpha;
 
@@ -48,13 +58,13 @@ export const pointFragmentShader = `
     vec2  uv      = gl_PointCoord - vec2(0.5);
     float d       = length(uv);
     float glow    = smoothstep(0.5, 0.0, d);
-    // Tight hotspot at center of each particle for sparkle feel
     float core    = smoothstep(0.16, 0.0, d);
     float sparkle = 0.58 + 0.42 * sin(vSeed * 120.0 + uIntensity * 2.0);
     float surge   = 1.0 + uSpeaking * 0.70;
-    float alpha   = glow * vAlpha * sparkle * uIntensity * 1.18 * surge;
+    // Thinking: soft pulsing glow that sweeps through particles
+    float thinkGlow = 1.0 + uThinking * 0.30 * sin(vSeed * 8.0 + uIntensity * 1.5);
+    float alpha   = glow * vAlpha * sparkle * uIntensity * 1.18 * surge * thinkGlow;
     if (alpha < 0.008) discard;
-    // Lighten the very center of each particle
     vec3 col = uColor + core * 0.36;
     gl_FragColor = vec4(col, alpha);
   }
@@ -83,6 +93,7 @@ export const coreFragmentShader = `
   uniform vec3  uAccentColor;
   uniform float uIntensity;
   uniform float uSpeaking;
+  uniform float uThinking;
   varying vec3  vNormal;
   varying vec3  vWorldPos;
   varying vec3  vViewDir;
@@ -96,24 +107,28 @@ export const coreFragmentShader = `
   void main() {
     vec3  N = normalize(vNormal);
     vec3  V = normalize(vViewDir);
-    // View-space fresnel — rim brightens toward edge
     float fresnel = pow(1.0 - abs(dot(N, V)), 2.4);
 
-    // Breathing pulse + fast speaking pulse layered on top
     float breathe    = 0.84 + 0.24 * sin(uTime * 2.1);
     float speakPulse = 1.0  + uSpeaking * 0.55 * sin(uTime * 8.8);
-    float pulse      = breathe * speakPulse;
+    // Thinking: slow deep breathing pulse
+    float thinkPulse = 1.0  + uThinking * 0.20 * sin(uTime * 1.6);
+    float pulse      = breathe * speakPulse * thinkPulse;
 
-    // Turbulent surface noise
     float noise = hash31(vWorldPos * 2.3 + vec3(uTime * 0.22));
-    // Flow lines — run faster when speaking
     float flowSpeed = 0.8 + uSpeaking * 1.8;
     float flow      = sin((vWorldPos.y + uTime * flowSpeed) * 7.0) * 0.07 + 0.07;
 
-    vec3 color  = mix(uCoreColor, uAccentColor, noise * 0.36 + fresnel * 0.54 + flow);
-    color      *= 1.20 + uSpeaking * 0.20;
+    // Thinking scan band: a bright band that sweeps vertically across the core
+    float scanY     = sin(uTime * 0.9) * 0.8;
+    float scanBand  = uThinking * 0.35 * smoothstep(0.25, 0.0, abs(vWorldPos.y - scanY));
+
+    vec3 color  = mix(uCoreColor, uAccentColor, noise * 0.36 + fresnel * 0.54 + flow + scanBand);
+    color      *= 1.20 + uSpeaking * 0.20 + uThinking * 0.10;
 
     float alpha = (0.60 + fresnel * 0.50) * pulse * uIntensity;
+    // Boost rim glow slightly when thinking for a "processing" look
+    alpha += uThinking * fresnel * 0.15;
     gl_FragColor = vec4(color, alpha);
   }
 `

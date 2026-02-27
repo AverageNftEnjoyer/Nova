@@ -91,6 +91,11 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_INTEGRATION_PROBE_PER_MIN", 18, 1, 500),
     windowMs: 60_000,
   },
+  spotifyPlayback: {
+    bucket: "spotify-playback",
+    limit: readIntEnv("NOVA_RATE_LIMIT_SPOTIFY_PLAYBACK_PER_MIN", 40, 1, 500),
+    windowMs: 60_000,
+  },
   accountDelete: {
     bucket: "account-delete",
     limit: readIntEnv("NOVA_RATE_LIMIT_ACCOUNT_DELETE_PER_10M", 3, 1, 60),

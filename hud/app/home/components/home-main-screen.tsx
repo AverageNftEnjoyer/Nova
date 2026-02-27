@@ -6,11 +6,12 @@ import type { CSSProperties } from "react"
 import { NovaOrb3D, type OrbState } from "@/components/orb/NovaOrb3D"
 import TextType from "@/components/effects/TextType"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
 import { cn } from "@/lib/shared/utils"
 import { formatDailyTime } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
+import { SpotifyHomeModule } from "./spotify-home-module"
 
 export function HomeMainScreen() {
   const {
@@ -39,6 +40,7 @@ export function HomeMainScreen() {
     analyticsSectionRef,
     devToolsSectionRef,
     integrationsSectionRef,
+    spotifyModuleSectionRef,
     panelStyle,
     panelClass,
     subPanelClass,
@@ -61,6 +63,15 @@ export function HomeMainScreen() {
     claudeConnected,
     grokConnected,
     geminiConnected,
+    spotifyConnected,
+    spotifyNowPlaying,
+    spotifyError,
+    spotifyBusyAction,
+    toggleSpotifyPlayback,
+    spotifyNextTrack,
+    spotifyPreviousTrack,
+    spotifyPlayLiked,
+    seekSpotify,
     gmailConnected,
     gcalendarConnected,
   } = useHomeMainScreenState()
@@ -89,6 +100,7 @@ export function HomeMainScreen() {
     if (value.includes("claude")) return <ClaudeIcon className="w-3.5 h-3.5" />
     if (value.includes("grok")) return <XAIIcon size={14} />
     if (value.includes("gemini")) return <GeminiIcon size={14} />
+    if (value.includes("spotify")) return <SpotifyIcon className="w-3.5 h-3.5" />
     if (value.includes("telegram")) return <TelegramIcon className="w-3.5 h-3.5" />
     if (value.includes("discord")) return <DiscordIcon className="w-3.5 h-3.5" />
     if (value.includes("gcalendar") || value.includes("gmail-calendar")) return <GmailCalendarIcon className="w-3.5 h-3.5" />
@@ -97,6 +109,21 @@ export function HomeMainScreen() {
     if (value.includes("coinbase")) return <CoinbaseIcon className="w-3.5 h-3.5" />
     return <Activity className="w-3.5 h-3.5" />
   }
+
+  const integrationNodes = [
+    { icon: <TelegramIcon className="w-4 h-4" />, connected: telegramConnected, label: "Telegram" },
+    { icon: <DiscordIcon className="w-4 h-4" />, connected: discordConnected, label: "Discord" },
+    { icon: <OpenAIIcon className="w-4.5 h-4.5" />, connected: openaiConnected, label: "OpenAI" },
+    { icon: <ClaudeIcon className="w-4.5 h-4.5" />, connected: claudeConnected, label: "Claude" },
+    { icon: <XAIIcon size={16} />, connected: grokConnected, label: "Grok" },
+    { icon: <GeminiIcon size={16} />, connected: geminiConnected, label: "Gemini" },
+    { icon: <SpotifyIcon className="w-4.5 h-4.5" />, connected: spotifyConnected, label: "Spotify" },
+    { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail" },
+    { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar" },
+    { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave" },
+    { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase" },
+  ] as const
+  const fillerSlots = Math.max(0, 25 - integrationNodes.length)
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
@@ -177,6 +204,7 @@ export function HomeMainScreen() {
                   </p>
                   <p className={cn(`mt-3 text-lg ${hasAnimated ? "text-blur-intro-delay" : ""}`, isLight ? "text-s-50" : "text-slate-400")}>
                     <TextType
+                      key={welcomeMessage}
                       as="span"
                       text={welcomeMessage}
                       typingSpeed={75}
@@ -277,7 +305,7 @@ export function HomeMainScreen() {
               <section
                 ref={integrationsSectionRef}
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-64 xl:col-start-2 xl:row-start-2`}
+                className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-72 xl:col-start-2 xl:row-start-2`}
               >
                 <div className="relative flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0 text-s-80">
@@ -299,25 +327,14 @@ export function HomeMainScreen() {
                   <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
                 </div>
 
-                <div className={cn("mt-1 p-1.5 rounded-lg", subPanelClass)}>
-                  <div className="grid grid-cols-5 gap-1">
-                    {([
-                      { icon: <TelegramIcon className="w-3 h-3" />,        connected: telegramConnected,  label: "Telegram"       },
-                      { icon: <DiscordIcon className="w-3 h-3" />,         connected: discordConnected,   label: "Discord"        },
-                      { icon: <OpenAIIcon className="w-3.5 h-3.5" />,      connected: openaiConnected,    label: "OpenAI"         },
-                      { icon: <ClaudeIcon className="w-3.5 h-3.5" />,      connected: claudeConnected,    label: "Claude"         },
-                      { icon: <XAIIcon size={14} />,                       connected: grokConnected,      label: "Grok"           },
-                      { icon: <GeminiIcon size={14} />,                    connected: geminiConnected,    label: "Gemini"         },
-                      { icon: <GmailIcon className="w-3 h-3" />,           connected: gmailConnected,     label: "Gmail"          },
-                      { icon: <GmailCalendarIcon className="w-3 h-3" />,   connected: gcalendarConnected, label: "Google Calendar" },
-                      { icon: <BraveIcon className="w-3.5 h-3.5" />,       connected: braveConnected,     label: "Brave"          },
-                      { icon: <CoinbaseIcon className="w-3.5 h-3.5" />,    connected: coinbaseConnected,  label: "Coinbase"       },
-                    ] as const).map(({ icon, connected, label }) => (
+                <div className={cn("mt-1 flex-1 min-h-0 p-1.5 rounded-lg", subPanelClass)}>
+                  <div className="grid h-full grid-cols-5 grid-rows-5 gap-1">
+                    {integrationNodes.map(({ icon, connected, label }) => (
                       <button
                         key={label}
                         onClick={goToIntegrations}
                         className={cn(
-                          "h-7 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                          "h-full min-h-0 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
                           integrationBadgeClass(connected),
                         )}
                         aria-label={`${label}: ${connected ? "connected" : "not connected"} — manage in integrations`}
@@ -326,11 +343,11 @@ export function HomeMainScreen() {
                         {icon}
                       </button>
                     ))}
-                    {Array.from({ length: 15 }).map((_, index) => (
+                    {Array.from({ length: fillerSlots }).map((_, index) => (
                       <div
                         key={index}
                         className={cn(
-                          "h-7 rounded-sm border home-spotlight-card home-border-glow",
+                          "h-full min-h-0 rounded-sm border home-spotlight-card home-border-glow",
                           isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20",
                         )}
                       />
@@ -343,19 +360,28 @@ export function HomeMainScreen() {
             </aside>
 
             {/* ── Row 2, Col 1: Module Slot 1 ── */}
-            <section
-              style={panelStyle}
-              className={`${panelClass} hidden xl:flex xl:col-start-1 xl:row-start-2 p-4 max-h-64 items-center justify-center`}
-            >
-              <p className={cn("text-[11px] uppercase tracking-[0.18em]", isLight ? "text-s-50" : "text-slate-500")}>
-                Module Slot
-              </p>
-            </section>
+            <SpotifyHomeModule
+              isLight={isLight}
+              panelClass={panelClass}
+              subPanelClass={subPanelClass}
+              panelStyle={panelStyle}
+              sectionRef={spotifyModuleSectionRef}
+              connected={spotifyConnected}
+              nowPlaying={spotifyNowPlaying}
+              error={spotifyError}
+              busyAction={spotifyBusyAction}
+              onOpenIntegrations={openIntegrations}
+              onTogglePlayPause={toggleSpotifyPlayback}
+              onNext={spotifyNextTrack}
+              onPrevious={spotifyPreviousTrack}
+              onPlayLiked={spotifyPlayLiked}
+              onSeek={seekSpotify}
+            />
 
             {/* ── Row 2, Col 2: Module Slot 2 ── */}
             <section
               style={panelStyle}
-              className={`${panelClass} hidden xl:flex xl:col-start-5 xl:row-start-2 p-4 max-h-64 items-center justify-center`}
+              className={`${panelClass} hidden xl:flex xl:col-start-5 xl:row-start-2 p-4 max-h-72 items-center justify-center`}
             >
               <p className={cn("text-[11px] uppercase tracking-[0.18em]", isLight ? "text-s-50" : "text-slate-500")}>
                 Module Slot
@@ -366,7 +392,7 @@ export function HomeMainScreen() {
             <section
               ref={analyticsSectionRef}
               style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-64 xl:col-start-3 xl:row-start-2`}
+              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-72 xl:col-start-3 xl:row-start-2`}
             >
               <div className="relative flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0 text-s-80">
@@ -412,7 +438,7 @@ export function HomeMainScreen() {
             <section
               ref={devToolsSectionRef}
               style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-64 xl:col-start-4 xl:row-start-2`}
+              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-72 xl:col-start-4 xl:row-start-2`}
             >
               <div className="relative flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0 text-s-80">

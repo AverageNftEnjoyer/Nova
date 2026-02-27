@@ -31,6 +31,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const analyticsSectionRef = useRef<HTMLElement | null>(null)
   const devToolsSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
+  const spotifyModuleSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
     const cached = readShellUiCache()
@@ -88,6 +89,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
       { ref: analyticsSectionRef },
       { ref: devToolsSectionRef },
       { ref: integrationsSectionRef },
+      { ref: spotifyModuleSectionRef },
     ],
     [isLight],
   )
@@ -119,5 +121,6 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     analyticsSectionRef,
     devToolsSectionRef,
     integrationsSectionRef,
+    spotifyModuleSectionRef,
   }
 }

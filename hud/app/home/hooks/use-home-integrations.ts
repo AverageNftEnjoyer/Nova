@@ -1,7 +1,6 @@
 "use client"
-/* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   INTEGRATIONS_UPDATED_EVENT,
@@ -15,6 +14,7 @@ import type { MissionSummary, NotificationSchedule } from "./types"
 
 interface UseHomeIntegrationsInput {
   latestUsage?: { provider?: string; model?: string } | null
+  speakTts?: (text: string) => void
 }
 
 interface IntegrationConfigShape {
@@ -22,6 +22,61 @@ interface IntegrationConfigShape {
   claude?: { defaultModel?: unknown }
   grok?: { defaultModel?: unknown }
   gemini?: { defaultModel?: unknown }
+}
+
+type SpotifyPlaybackAction = "play" | "pause" | "next" | "previous" | "play_liked" | "play_smart" | "seek"
+
+type SpotifyPlaybackResponse = {
+  ok?: boolean
+  message?: string
+  error?: string
+  nowPlaying?: unknown
+}
+
+export interface HomeSpotifyNowPlaying {
+  connected: boolean
+  playing: boolean
+  progressMs: number
+  durationMs: number
+  trackId: string
+  trackName: string
+  artistName: string
+  albumName: string
+  albumArtUrl: string
+  deviceId: string
+  deviceName: string
+}
+
+const EMPTY_SPOTIFY_NOW_PLAYING: HomeSpotifyNowPlaying = {
+  connected: false,
+  playing: false,
+  progressMs: 0,
+  durationMs: 0,
+  trackId: "",
+  trackName: "",
+  artistName: "",
+  albumName: "",
+  albumArtUrl: "",
+  deviceId: "",
+  deviceName: "",
+}
+
+function normalizeSpotifyNowPlaying(raw: unknown): HomeSpotifyNowPlaying {
+  if (!raw || typeof raw !== "object") return EMPTY_SPOTIFY_NOW_PLAYING
+  const value = raw as Partial<HomeSpotifyNowPlaying>
+  return {
+    connected: Boolean(value.connected),
+    playing: Boolean(value.playing),
+    progressMs: Number.isFinite(Number(value.progressMs)) ? Math.max(0, Math.floor(Number(value.progressMs))) : 0,
+    durationMs: Number.isFinite(Number(value.durationMs)) ? Math.max(0, Math.floor(Number(value.durationMs))) : 0,
+    trackId: String(value.trackId || "").trim(),
+    trackName: String(value.trackName || "").trim(),
+    artistName: String(value.artistName || "").trim(),
+    albumName: String(value.albumName || "").trim(),
+    albumArtUrl: String(value.albumArtUrl || "").trim(),
+    deviceId: String(value.deviceId || "").trim(),
+    deviceName: String(value.deviceName || "").trim(),
+  }
 }
 
 function modelForProvider(provider: LlmProvider, config: IntegrationConfigShape): string {
@@ -35,7 +90,39 @@ function providerFromValue(value: unknown): LlmProvider {
   return value === "claude" || value === "grok" || value === "gemini" ? value : "openai"
 }
 
-export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
+function launchSpotifyDesktopApp(): void {
+  try {
+    const iframe = document.createElement("iframe")
+    iframe.style.display = "none"
+    iframe.setAttribute("aria-hidden", "true")
+    iframe.src = "spotify:"
+    document.body.appendChild(iframe)
+    window.setTimeout(() => {
+      iframe.remove()
+    }, 1200)
+    return
+  } catch {}
+
+  try {
+    window.location.assign("spotify:")
+  } catch {}
+}
+
+const SPOTIFY_LAUNCH_TTS_LINES = [
+  "Launching Spotify now, what would you like to hear?",
+  "Opening Spotify for you. Just tell me what to play.",
+  "Spotify is starting up. Let me know what you'd like to listen to.",
+  "Absolutely, launching Spotify now. What should I put on?",
+  "On it, Spotify is opening. What are we listening to?",
+]
+const SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS = 20_000
+const SPOTIFY_DEVICE_WARMUP_MS = 12_000
+const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 2_000
+const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 1_000
+const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 15_000
+const SPOTIFY_POLL_INTERVAL_IDLE_MS = 120_000
+
+export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegrationsInput) {
   const router = useRouter()
 
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>(() => {
@@ -51,10 +138,25 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
+  const [spotifyConnected, setSpotifyConnected] = useState(false)
+  const [spotifyNowPlaying, setSpotifyNowPlaying] = useState<HomeSpotifyNowPlaying | null>(null)
+  // Stable ref always pointing at latest nowPlaying — safe to read inside callbacks without deps
+  const spotifyNowPlayingRef = useRef<HomeSpotifyNowPlaying | null>(null)
+  // Stable ref for connected — avoids refreshSpotifyNowPlaying re-creation on connect change
+  const spotifyConnectedRef = useRef(false)
+  const [spotifyLoading, setSpotifyLoading] = useState(false)
+  const [spotifyError, setSpotifyError] = useState<string | null>(null)
+  const [spotifyBusyAction, setSpotifyBusyAction] = useState<SpotifyPlaybackAction | null>(null)
+  const lastSpotifyDesktopLaunchAtRef = useRef(0)
+  const spotifyDeviceWarmupUntilRef = useRef(0)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gcalendarConnected, setGcalendarConnected] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
+
+  // Keep refs in sync
+  useEffect(() => { spotifyNowPlayingRef.current = spotifyNowPlaying }, [spotifyNowPlaying])
+  useEffect(() => { spotifyConnectedRef.current = spotifyConnected }, [spotifyConnected])
 
   const applyLocalSettings = useCallback((settings: IntegrationsSettings) => {
     setTelegramConnected(settings.telegram.connected)
@@ -65,6 +167,12 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     setClaudeConnected(settings.claude.connected)
     setGrokConnected(settings.grok.connected)
     setGeminiConnected(settings.gemini.connected)
+    const spotifyIsConnected = Boolean(settings.spotify?.connected)
+    setSpotifyConnected(spotifyIsConnected)
+    if (!spotifyIsConnected) {
+      setSpotifyNowPlaying(null)
+      setSpotifyError(null)
+    }
     setGmailConnected(settings.gmail.connected)
     setGcalendarConnected(Boolean(settings.gcalendar?.connected))
     setActiveLlmProvider(settings.activeLlmProvider)
@@ -103,6 +211,156 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       })
   }, [router])
 
+  // Stable callback — uses refs so it never needs to be re-created when state changes.
+  // This prevents the polling interval from being torn down on every poll response.
+  const refreshSpotifyNowPlaying = useCallback(async (connectedHint?: boolean) => {
+    const shouldFetch = typeof connectedHint === "boolean" ? connectedHint : spotifyConnectedRef.current
+    if (!shouldFetch) {
+      setSpotifyNowPlaying(null)
+      setSpotifyLoading(false)
+      setSpotifyError(null)
+      return
+    }
+
+    setSpotifyLoading(true)
+    try {
+      const res = await fetch("/api/integrations/spotify/now-playing", {
+        cache: "no-store",
+        credentials: "include",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/home")}`)
+        throw new Error("Unauthorized")
+      }
+      if (!res.ok || !data?.ok) {
+        throw new Error(String(data?.error || "Failed to read Spotify status."))
+      }
+      setSpotifyConnected(Boolean(data?.connected))
+      setSpotifyNowPlaying(normalizeSpotifyNowPlaying(data?.nowPlaying))
+      setSpotifyError(null)
+    } catch (error) {
+      setSpotifyNowPlaying((prev) => prev ?? EMPTY_SPOTIFY_NOW_PLAYING)
+      setSpotifyError(error instanceof Error ? error.message : "Failed to read Spotify status.")
+    } finally {
+      setSpotifyLoading(false)
+    }
+  }, [router])
+
+  const seekSpotify = useCallback(async (positionMs: number): Promise<void> => {
+    setSpotifyNowPlaying((prev) => prev ? { ...prev, progressMs: positionMs } : prev)
+    try {
+      const res = await fetch("/api/integrations/spotify/playback", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "seek", positionMs }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.ok) throw new Error(String(data?.error || "Seek failed."))
+    } catch {
+      void refreshSpotifyNowPlaying(true)
+    }
+  }, [refreshSpotifyNowPlaying])
+
+  const spotifyRetryTimerRef = useRef<number | null>(null)
+
+  const runSpotifyPlayback = useCallback(async (action: SpotifyPlaybackAction, _isRetry = false): Promise<SpotifyPlaybackResponse> => {
+    const isStartAction = action === "play" || action === "play_liked" || action === "play_smart"
+    if (!_isRetry && isStartAction && Date.now() < spotifyDeviceWarmupUntilRef.current) {
+      return { ok: false, error: "Spotify is launching. Please wait a moment." }
+    }
+
+    setSpotifyBusyAction(action)
+    setSpotifyError(null)
+
+    if (action === "pause") {
+      setSpotifyNowPlaying((prev) => prev ? { ...prev, playing: false } : prev)
+    } else if (action === "play") {
+      setSpotifyNowPlaying((prev) => prev ? { ...prev, playing: true } : prev)
+    } else if (action === "next" || action === "previous" || action === "play_liked" || action === "play_smart") {
+      setSpotifyNowPlaying((prev) => prev ? { ...prev, trackName: "", artistName: "", albumArtUrl: "", progressMs: 0 } : prev)
+    }
+
+    try {
+      const res = await fetch("/api/integrations/spotify/playback", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/home")}`)
+        throw new Error("Unauthorized")
+      }
+      if (!res.ok || !data?.ok) {
+        if (data?.code === "spotify.device_unavailable" || data?.fallbackRecommended) {
+          const now = Date.now()
+          const retryAfterMs = Number.isFinite(Number(data?.retryAfterMs))
+            ? Math.max(0, Math.floor(Number(data.retryAfterMs)))
+            : 0
+          if (now - lastSpotifyDesktopLaunchAtRef.current >= SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS) {
+            lastSpotifyDesktopLaunchAtRef.current = now
+            launchSpotifyDesktopApp()
+            if (speakTts) {
+              const line = SPOTIFY_LAUNCH_TTS_LINES[Math.floor(Math.random() * SPOTIFY_LAUNCH_TTS_LINES.length)]
+              speakTts(line)
+            }
+          }
+          spotifyDeviceWarmupUntilRef.current = Math.max(
+            spotifyDeviceWarmupUntilRef.current,
+            now + Math.max(retryAfterMs, SPOTIFY_DEVICE_WARMUP_MS),
+          )
+          if (!_isRetry && action !== "pause") {
+            if (spotifyRetryTimerRef.current !== null) window.clearTimeout(spotifyRetryTimerRef.current)
+            const autoRetryMs = Math.max(2_500, Math.min(8_000, retryAfterMs || 4_000))
+            spotifyRetryTimerRef.current = window.setTimeout(() => {
+              spotifyRetryTimerRef.current = null
+              void runSpotifyPlayback(action, true)
+            }, autoRetryMs)
+            return { ok: false, error: "Launching Spotify — will retry automatically." }
+          }
+        }
+        throw new Error(String(data?.error || data?.message || `Spotify action ${action} failed.`))
+      }
+      spotifyDeviceWarmupUntilRef.current = 0
+      if (data?.nowPlaying) {
+        setSpotifyNowPlaying(normalizeSpotifyNowPlaying(data.nowPlaying))
+      } else if (!data?.skipNowPlayingRefresh) {
+        await refreshSpotifyNowPlaying(true)
+      }
+      // For track-change actions: poll every 600ms until trackId changes or 5 attempts pass.
+      // Read prevTrackId from ref — always accurate, no stale closure issue.
+      // Note: plain "play" (resume) is excluded — trackId won't change, polling is wasteful.
+      if ((action === "next" || action === "previous" || action === "play_liked" || action === "play_smart") && data?.skipNowPlayingRefresh) {
+        const prevTrackId = spotifyNowPlayingRef.current?.trackId || ""
+        let attempts = 0
+        const probe = async () => {
+          attempts++
+          await refreshSpotifyNowPlaying(true)
+          // Check ref directly — no React state timing issues
+          const newTrackId = spotifyNowPlayingRef.current?.trackId || ""
+          if (newTrackId && newTrackId !== prevTrackId) return // track changed, done
+          if (attempts < 5) window.setTimeout(() => { void probe() }, 600)
+        }
+        window.setTimeout(() => { void probe() }, 600)
+      }
+      return {
+        ok: true,
+        message: String(data?.message || ""),
+        nowPlaying: data?.nowPlaying,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Spotify playback failed."
+      setSpotifyError(message)
+      void refreshSpotifyNowPlaying(true)
+      return { ok: false, error: message }
+    } finally {
+      setSpotifyBusyAction(null)
+    }
+  }, [refreshSpotifyNowPlaying, router, speakTts])
+
   useLayoutEffect(() => {
     const local = loadIntegrationsSettings()
     applyLocalSettings(local)
@@ -129,6 +387,14 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         setClaudeConnected(Boolean(config?.claude?.connected))
         setGrokConnected(Boolean(config?.grok?.connected))
         setGeminiConnected(Boolean(config?.gemini?.connected))
+        const spotifyIsConnected = Boolean(config?.spotify?.connected)
+        setSpotifyConnected(spotifyIsConnected)
+        if (!spotifyIsConnected) {
+          setSpotifyNowPlaying(null)
+          setSpotifyError(null)
+        } else {
+          void refreshSpotifyNowPlaying(true)
+        }
         setGmailConnected(Boolean(config?.gmail?.connected))
         setGcalendarConnected(Boolean(config?.gcalendar?.connected))
         setActiveLlmProvider(provider)
@@ -137,17 +403,102 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       .catch(() => {})
 
     refreshNotificationSchedules()
-  }, [refreshNotificationSchedules, router])
+  }, [refreshNotificationSchedules, refreshSpotifyNowPlaying, router])
 
   useEffect(() => {
     const onUpdate = () => {
       const local = loadIntegrationsSettings()
       applyLocalSettings(local)
       refreshNotificationSchedules()
+      if (local.spotify?.connected) {
+        void refreshSpotifyNowPlaying(true)
+      } else {
+        setSpotifyNowPlaying(null)
+        setSpotifyError(null)
+      }
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [applyLocalSettings, refreshNotificationSchedules])
+  }, [applyLocalSettings, refreshNotificationSchedules, refreshSpotifyNowPlaying])
+
+  // Stable polling interval — only restarts when connected state changes, not on every poll.
+  // Playing/paused rate is read from ref inside the interval so no teardown needed.
+  const pollingTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    const clearPollingTimer = () => {
+      if (pollingTimerRef.current !== null) {
+        window.clearTimeout(pollingTimerRef.current)
+        pollingTimerRef.current = null
+      }
+    }
+
+    if (!spotifyConnected) {
+      clearPollingTimer()
+      return
+    }
+
+    let cancelled = false
+
+    const getNextIntervalMs = (): number => {
+      const current = spotifyNowPlayingRef.current
+      if (current?.playing) {
+        const remainingMs = Math.max(0, (current.durationMs || 0) - (current.progressMs || 0))
+        return remainingMs > 0 && remainingMs <= 5_000
+          ? SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS
+          : SPOTIFY_POLL_INTERVAL_PLAYING_MS
+      }
+      return current?.trackId ? SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS : SPOTIFY_POLL_INTERVAL_IDLE_MS
+    }
+
+    const scheduleNextPoll = () => {
+      if (cancelled) return
+      clearPollingTimer()
+      pollingTimerRef.current = window.setTimeout(() => {
+        void runPollCycle()
+      }, getNextIntervalMs())
+    }
+
+    const runPollCycle = async () => {
+      if (cancelled) return
+      await refreshSpotifyNowPlaying(true)
+      scheduleNextPoll()
+    }
+
+    void runPollCycle()
+
+    return () => {
+      cancelled = true
+      clearPollingTimer()
+      if (spotifyRetryTimerRef.current !== null) {
+        window.clearTimeout(spotifyRetryTimerRef.current)
+        spotifyRetryTimerRef.current = null
+      }
+    }
+  }, [spotifyConnected, refreshSpotifyNowPlaying])
+
+  const toggleSpotifyPlayback = useCallback(() => {
+    if (spotifyNowPlaying?.playing) {
+      void runSpotifyPlayback("pause")
+    } else if (spotifyNowPlaying?.trackId) {
+      // There is a known track (paused) — resume it
+      void runSpotifyPlayback("play")
+    } else {
+      // Nothing is playing and no active track — use smart play (favorite playlist or liked songs)
+      void runSpotifyPlayback("play_smart")
+    }
+  }, [runSpotifyPlayback, spotifyNowPlaying?.playing, spotifyNowPlaying?.trackId])
+
+  const spotifyNextTrack = useCallback(() => {
+    void runSpotifyPlayback("next")
+  }, [runSpotifyPlayback])
+
+  const spotifyPreviousTrack = useCallback(() => {
+    void runSpotifyPlayback("previous")
+  }, [runSpotifyPlayback])
+
+  const spotifyPlayLiked = useCallback(() => {
+    void runSpotifyPlayback("play_liked")
+  }, [runSpotifyPlayback])
 
   const goToIntegrations = useCallback(() => router.push("/integrations"), [router])
 
@@ -219,6 +570,17 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     claudeConnected,
     grokConnected,
     geminiConnected,
+    spotifyConnected,
+    spotifyNowPlaying,
+    spotifyLoading,
+    spotifyError,
+    spotifyBusyAction,
+    refreshSpotifyNowPlaying,
+    toggleSpotifyPlayback,
+    spotifyNextTrack,
+    spotifyPreviousTrack,
+    spotifyPlayLiked,
+    seekSpotify,
     gmailConnected,
     gcalendarConnected,
     goToIntegrations,

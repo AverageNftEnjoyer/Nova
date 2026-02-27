@@ -10,6 +10,7 @@ import {
   type DiscordIntegrationConfig,
   type GrokIntegrationConfig,
   type GeminiIntegrationConfig,
+  type SpotifyIntegrationConfig,
   type GmailIntegrationConfig,
   type GmailCalendarIntegrationConfig,
   type LlmProvider,
@@ -319,6 +320,43 @@ function normalizeGeminiInput(raw: unknown, current: GeminiIntegrationConfig): G
   }
 }
 
+function normalizeSpotifyInput(raw: unknown, current: SpotifyIntegrationConfig): SpotifyIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const spotify = raw as Partial<SpotifyIntegrationConfig> & { scopes?: string[] | string }
+  const scopes = typeof spotify.scopes === "string"
+    ? spotify.scopes.split(/\s+/).map((scope) => scope.trim()).filter(Boolean)
+    : Array.isArray(spotify.scopes)
+      ? spotify.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+      : current.scopes
+  const nextOauthClientId =
+    typeof spotify.oauthClientId === "string"
+      ? spotify.oauthClientId.trim()
+      : current.oauthClientId
+  const nextAccess =
+    typeof spotify.accessTokenEnc === "string"
+      ? (spotify.accessTokenEnc.trim().length > 0 ? spotify.accessTokenEnc.trim() : current.accessTokenEnc)
+      : current.accessTokenEnc
+  const nextRefresh =
+    typeof spotify.refreshTokenEnc === "string"
+      ? (spotify.refreshTokenEnc.trim().length > 0 ? spotify.refreshTokenEnc.trim() : current.refreshTokenEnc)
+      : current.refreshTokenEnc
+  return {
+    ...current,
+    connected:
+      (typeof spotify.connected === "boolean" ? spotify.connected : current.connected) &&
+      nextOauthClientId.length > 0 &&
+      (nextAccess.length > 0 || nextRefresh.length > 0),
+    spotifyUserId: typeof spotify.spotifyUserId === "string" ? spotify.spotifyUserId.trim() : current.spotifyUserId,
+    displayName: typeof spotify.displayName === "string" ? spotify.displayName.trim() : current.displayName,
+    scopes,
+    oauthClientId: nextOauthClientId,
+    redirectUri: typeof spotify.redirectUri === "string" && spotify.redirectUri.trim().length > 0 ? spotify.redirectUri.trim() : current.redirectUri,
+    accessTokenEnc: nextAccess,
+    refreshTokenEnc: nextRefresh,
+    tokenExpiry: typeof spotify.tokenExpiry === "number" ? spotify.tokenExpiry : current.tokenExpiry,
+  }
+}
+
 function normalizeGmailInput(raw: unknown, current: GmailIntegrationConfig): GmailIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const gmail = raw as Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
@@ -476,6 +514,17 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.gemini.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.gemini.apiKey),
     },
+    spotify: {
+      connected: config.spotify.connected,
+      spotifyUserId: config.spotify.spotifyUserId,
+      displayName: config.spotify.displayName,
+      scopes: config.spotify.scopes,
+      oauthClientId: config.spotify.oauthClientId,
+      redirectUri: config.spotify.redirectUri,
+      tokenConfigured:
+        config.spotify.refreshTokenEnc.trim().length > 0 ||
+        config.spotify.accessTokenEnc.trim().length > 0,
+    },
     gmail: {
       connected: config.gmail.connected,
       email: config.gmail.email,
@@ -554,6 +603,7 @@ export async function PATCH(req: Request) {
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
       gemini?: Partial<GeminiIntegrationConfig>
+      spotify?: Partial<SpotifyIntegrationConfig> & { scopes?: string[] | string }
       gmail?: Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
       gcalendar?: Partial<GmailCalendarIntegrationConfig>
       activeLlmProvider?: LlmProvider
@@ -568,6 +618,7 @@ export async function PATCH(req: Request) {
     const hasClaudePatch = Object.prototype.hasOwnProperty.call(body, "claude")
     const hasGrokPatch = Object.prototype.hasOwnProperty.call(body, "grok")
     const hasGeminiPatch = Object.prototype.hasOwnProperty.call(body, "gemini")
+    const hasSpotifyPatch = Object.prototype.hasOwnProperty.call(body, "spotify")
     const hasGmailPatch = Object.prototype.hasOwnProperty.call(body, "gmail")
     const hasGcalendarPatch = Object.prototype.hasOwnProperty.call(body, "gcalendar")
     const hasActiveProviderPatch = Object.prototype.hasOwnProperty.call(body, "activeLlmProvider")
@@ -592,6 +643,7 @@ export async function PATCH(req: Request) {
     const claude = hasClaudePatch ? normalizeClaudeInput(body.claude, current.claude) : current.claude
     const grok = hasGrokPatch ? normalizeGrokInput(body.grok, current.grok) : current.grok
     const gemini = hasGeminiPatch ? normalizeGeminiInput(body.gemini, current.gemini) : current.gemini
+    const spotify = hasSpotifyPatch ? normalizeSpotifyInput(body.spotify, current.spotify) : current.spotify
     const gmail = hasGmailPatch ? normalizeGmailInput(body.gmail, current.gmail) : current.gmail
     const gcalendar = hasGcalendarPatch ? normalizeGmailCalendarInput(body.gcalendar, current.gcalendar) : current.gcalendar
     const activeLlmProvider = hasActiveProviderPatch
@@ -606,6 +658,7 @@ export async function PATCH(req: Request) {
       claude,
       grok,
       gemini,
+      spotify,
       gmail,
       gcalendar,
       activeLlmProvider,

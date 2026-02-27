@@ -18,7 +18,15 @@ export interface IntegrationsRuntime {
   claude: ProviderRuntime;
   grok: ProviderRuntime;
   gemini: ProviderRuntime;
+  spotify: SpotifyRuntime;
   gmail: GmailRuntime;
+}
+
+export interface SpotifyRuntime {
+  connected: boolean;
+  spotifyUserId: string;
+  displayName: string;
+  scopes: string[];
 }
 
 export interface GmailAccountRuntime {
@@ -376,6 +384,25 @@ function createDefaultGmailRuntime(): GmailRuntime {
   };
 }
 
+function createDefaultSpotifyRuntime(): SpotifyRuntime {
+  return {
+    connected: false,
+    spotifyUserId: "",
+    displayName: "",
+    scopes: [],
+  };
+}
+
+function parseSpotifyRuntime(value: unknown): SpotifyRuntime {
+  const integration = toRecord(value);
+  return {
+    connected: boolFlag(integration.connected),
+    spotifyUserId: toNonEmptyString(integration.spotifyUserId),
+    displayName: toNonEmptyString(integration.displayName),
+    scopes: toStringArray(integration.scopes),
+  };
+}
+
 function parseGmailRuntime(value: unknown, paths: RuntimePaths): GmailRuntime {
   const integration = toRecord(value);
   const accountsInput = Array.isArray(integration.accounts) ? integration.accounts : [];
@@ -550,6 +577,7 @@ export function loadIntegrationsRuntime(options?: {
     const claudeIntegration = toRecord(parsed.claude);
     const grokIntegration = toRecord(parsed.grok);
     const geminiIntegration = toRecord(parsed.gemini);
+    const spotifyIntegration = parseSpotifyRuntime(parsed.spotify);
     const gmailIntegration = parseGmailRuntime(parsed.gmail, paths);
 
     const activeProvider = parseActiveProvider(parsed.activeLlmProvider);
@@ -585,6 +613,7 @@ export function loadIntegrationsRuntime(options?: {
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
         model: parseProviderModel(geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
       },
+      spotify: spotifyIntegration,
       gmail: gmailIntegration,
     };
   } catch {
@@ -622,6 +651,7 @@ export function loadIntegrationsRuntime(options?: {
         baseURL: DEFAULT_GEMINI_BASE_URL,
         model: DEFAULT_GEMINI_MODEL,
       },
+      spotify: createDefaultSpotifyRuntime(),
       gmail: createDefaultGmailRuntime(),
     };
   }

@@ -1047,9 +1047,13 @@ export function startGateway() {
           }
           setMuted(data.muted === true);
           console.log("[Nova] Muted:", getMuted());
+          if (typeof data.assistantName === "string" && data.assistantName.trim()) {
+            wakeWordRuntime.setAssistantName(data.assistantName);
+          }
           const scopedUserContextId = normalizeUserContextId(wsContextBySocket.get(ws) || "");
           if (!getMuted()) {
-            setSuppressVoiceWakeUntilMs(Date.now() + Math.max(0, VOICE_AFTER_TTS_SUPPRESS_MS));
+            const UNMUTE_SUPPRESS_MS = 1200;
+            setSuppressVoiceWakeUntilMs(Date.now() + UNMUTE_SUPPRESS_MS);
             broadcast(
               {
                 type: "transcript",

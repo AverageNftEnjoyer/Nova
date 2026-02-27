@@ -181,6 +181,7 @@ export function useNovaState() {
   const lastAssistantDeltaRef = useRef<Map<string, { content: string; ts: number }>>(new Map())
   const pendingAssistantDeltasRef = useRef<Map<string, AgentMessage>>(new Map())
   const deltaFlushRafRef = useRef<number | null>(null)
+  const streamFloodRef = useRef<{ windowStart: number; count: number }>({ windowStart: 0, count: 0 })
   const activeUserIdRef = useRef<string>("")
   const supabaseAccessTokenRef = useRef<string>("")
 
@@ -415,6 +416,17 @@ export function useNovaState() {
           if (!hasAssistantPayload(normalizedContent)) {
             return;
           }
+
+          // Flood guard: cap deltas to 120 per 4-second window to prevent runaway spam
+          const flood = streamFloodRef.current
+          const now = Date.now()
+          if (now - flood.windowStart > 4_000) {
+            flood.windowStart = now
+            flood.count = 0
+          }
+          flood.count += 1
+          if (flood.count > 120) return
+
           const dedupeContent = normalizeInboundMessageText(normalizedContent)
           const deltaTs = Number(data.ts || Date.now())
           const previousDelta = lastAssistantDeltaRef.current.get(data.id)
@@ -680,11 +692,17 @@ export function useNovaState() {
     }
   }, []);
 
-  const setMuted = useCallback((muted: boolean) => {
+  const setMuted = useCallback((muted: boolean, assistantName?: string) => {
     const ws = wsRef.current;
     const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "set_mute", muted, userId: getActiveUserId(), ...(token ? { supabaseAccessToken: token } : {}) }));
+      ws.send(JSON.stringify({
+        type: "set_mute",
+        muted,
+        userId: getActiveUserId(),
+        ...(token ? { supabaseAccessToken: token } : {}),
+        ...(assistantName ? { assistantName } : {}),
+      }));
     }
   }, []);
 

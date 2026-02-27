@@ -88,6 +88,16 @@ export interface GeminiIntegrationSettings {
   apiKeyMasked?: string
 }
 
+export interface SpotifyIntegrationSettings {
+  connected: boolean
+  spotifyUserId: string
+  displayName: string
+  scopes: string
+  oauthClientId: string
+  redirectUri: string
+  tokenConfigured?: boolean
+}
+
 export interface GmailIntegrationSettings {
   connected: boolean
   email: string
@@ -142,6 +152,7 @@ export interface IntegrationsSettings {
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
   gemini: GeminiIntegrationSettings
+  spotify: SpotifyIntegrationSettings
   gmail: GmailIntegrationSettings
   gcalendar: GmailCalendarIntegrationSettings
   activeLlmProvider: LlmProvider
@@ -222,6 +233,15 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
+  spotify: {
+    connected: false,
+    spotifyUserId: "",
+    displayName: "",
+    scopes: "",
+    oauthClientId: "",
+    redirectUri: "http://localhost:3000/api/integrations/spotify/callback",
+    tokenConfigured: false,
+  },
   gmail: {
     connected: false,
     email: "",
@@ -268,6 +288,7 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
     const raw = localStorage.getItem(key)
     if (!raw) return DEFAULT_SETTINGS
     const parsed = JSON.parse(raw) as Partial<IntegrationsSettings>
+    const spotifyScopesRaw = (parsed.spotify as { scopes?: unknown } | undefined)?.scopes
     return {
       telegram: {
         ...DEFAULT_SETTINGS.telegram,
@@ -341,6 +362,15 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...DEFAULT_SETTINGS.gemini,
         ...(parsed.gemini || {}),
         apiKey: "",
+      },
+      spotify: {
+        ...DEFAULT_SETTINGS.spotify,
+        ...(parsed.spotify || {}),
+        scopes: typeof spotifyScopesRaw === "string"
+          ? spotifyScopesRaw
+          : Array.isArray(spotifyScopesRaw)
+            ? spotifyScopesRaw.map((scope) => String(scope).trim()).filter(Boolean).join(" ")
+            : DEFAULT_SETTINGS.spotify.scopes,
       },
       gmail: {
         ...DEFAULT_SETTINGS.gmail,
@@ -441,6 +471,9 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     gemini: {
       ...settings.gemini,
       apiKey: "",
+    },
+    spotify: {
+      ...settings.spotify,
     },
     gmail: {
       ...settings.gmail,
@@ -593,6 +626,20 @@ export function updateGmailIntegrationSettings(partial: Partial<GmailIntegration
     ...current,
     gmail: {
       ...current.gmail,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateSpotifyIntegrationSettings(partial: Partial<SpotifyIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    spotify: {
+      ...current.spotify,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

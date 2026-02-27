@@ -33,6 +33,8 @@ type NovaOrb3DProps = {
   orbState?: OrbState
 }
 
+let orbCanvasBooted = false
+
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false)
 
@@ -110,6 +112,7 @@ function OrbScene({
       uAccentColor: { value: new THREE.Color(palette.accent) },
       uIntensity:   { value: intensity },
       uSpeaking:    { value: 0 },
+      uThinking:    { value: 0 },
     }),
     [intensity, palette.accent, palette.core],
   )
@@ -121,6 +124,7 @@ function OrbScene({
       uRadius:    { value: radius },
       uColor:     { value: new THREE.Color(palette.filament) },
       uSpeaking:  { value: 0 },
+      uThinking:  { value: 0 },
     }),
     [intensity, palette.filament, radius],
   )
@@ -132,6 +136,7 @@ function OrbScene({
       uRadius:    { value: radius },
       uColor:     { value: new THREE.Color(palette.spark) },
       uSpeaking:  { value: 0 },
+      uThinking:  { value: 0 },
     }),
     [intensity, palette.spark, radius],
   )
@@ -147,10 +152,12 @@ function OrbScene({
     const sp = speakingRef.current
     const th = thinkingRef.current
 
-    // Rotation: faster when speaking, with richer vocal pulse layering
-    const rotSpeed  = 0.17 + sp * 0.36 + th * 0.10
-    const breathAmp = 0.02 + sp * 0.035 + th * 0.012
-    const baseScale = 1 + Math.sin(t * (0.85 + sp * 2.2)) * breathAmp
+    // ─── Speaking: fast chaotic energy  |  Thinking: slow deliberate wobble ───
+    const rotSpeed  = 0.17 + sp * 0.36 + th * 0.22
+    const breathAmp = 0.02 + sp * 0.035 + th * 0.022
+    const baseScale = 1 + Math.sin(t * (0.85 + sp * 2.2 + th * 0.4)) * breathAmp
+
+    // Speaking vocal beat (fast, layered harmonics)
     const vocalBeat =
       sp * (
         Math.sin(t * 7.4) * 0.55
@@ -160,53 +167,68 @@ function OrbScene({
     const vocalScale = 1 + vocalBeat * 0.026
     const microJitter = sp * 0.014
 
+    // Thinking: slow rhythmic scale pulse — a deep "pondering" breath
+    const thinkBreath = th * Math.sin(t * 1.6) * 0.018
+
     if (groupRef.current) {
       groupRef.current.rotation.y = t * rotSpeed
+      // Thinking: add a slow axis-wandering tilt so the orb looks like it's "considering"
+      const thinkTiltX = th * Math.sin(t * 0.7) * 0.14
+      const thinkTiltZ = th * Math.cos(t * 0.55 + 0.8) * 0.10
       groupRef.current.rotation.x =
         Math.sin(t * (0.24 + sp * 0.3)) * (0.17 + sp * 0.08)
         + Math.sin(t * 5.2) * microJitter
+        + thinkTiltX
       groupRef.current.rotation.z =
         Math.cos(t * (0.20 + sp * 0.2)) * (0.06 + sp * 0.04)
         + Math.cos(t * 6.6 + 0.4) * microJitter * 0.85
-      groupRef.current.scale.setScalar(baseScale * vocalScale)
+        + thinkTiltZ
+      groupRef.current.scale.setScalar(baseScale * vocalScale + thinkBreath)
     }
 
-    // Update shader uniforms
+    // Speaking: vocal intensity flicker  |  Thinking: slow steady glow pulse
     const vocalIntensityBoost =
       1 + sp * (
         Math.max(0, Math.sin(t * 9.3)) * 0.14
         + Math.max(0, Math.sin(t * 15.7 + 0.8)) * 0.08
       )
+    const thinkIntensityBoost = 1 + th * 0.10 * Math.sin(t * 1.4)
+
     if (coreRef.current) {
       coreRef.current.uniforms.uTime.value      = t
-      coreRef.current.uniforms.uIntensity.value  = intensity * vocalIntensityBoost
+      coreRef.current.uniforms.uIntensity.value  = intensity * vocalIntensityBoost * thinkIntensityBoost
       coreRef.current.uniforms.uSpeaking.value   = sp
+      coreRef.current.uniforms.uThinking.value   = th
     }
     if (filamentRef.current) {
       filamentRef.current.uniforms.uTime.value     = t
-      filamentRef.current.uniforms.uIntensity.value = intensity * (0.98 + (vocalIntensityBoost - 1) * 0.9)
+      filamentRef.current.uniforms.uIntensity.value = intensity * (0.98 + (vocalIntensityBoost - 1) * 0.9) * thinkIntensityBoost
       filamentRef.current.uniforms.uSpeaking.value  = sp
+      filamentRef.current.uniforms.uThinking.value  = th
     }
     if (sparkRef.current) {
       sparkRef.current.uniforms.uTime.value      = t * 1.1
-      sparkRef.current.uniforms.uIntensity.value  = intensity * (1.03 + (vocalIntensityBoost - 1) * 1.1)
+      sparkRef.current.uniforms.uIntensity.value  = intensity * (1.03 + (vocalIntensityBoost - 1) * 1.1) * thinkIntensityBoost
       sparkRef.current.uniforms.uSpeaking.value   = sp
+      sparkRef.current.uniforms.uThinking.value   = th
     }
 
-    // Circuit meshes rotate
+    // Circuit meshes: speaking = fast flicker, thinking = slow sweeping glow wave
     if (circuitARef.current) {
-      circuitARef.current.rotation.y = t * (0.27 + sp * 0.25)
-      circuitARef.current.rotation.x = Math.sin(t * 0.33) * 0.25
+      circuitARef.current.rotation.y = t * (0.27 + sp * 0.25 + th * 0.12)
+      circuitARef.current.rotation.x = Math.sin(t * (0.33 + th * 0.15)) * (0.25 + th * 0.10)
     }
     if (circuitBRef.current) {
-      circuitBRef.current.rotation.z = -t * (0.34 + sp * 0.22)
-      circuitBRef.current.rotation.y = Math.cos(t * 0.28) * 0.22
+      circuitBRef.current.rotation.z = -t * (0.34 + sp * 0.22 + th * 0.10)
+      circuitBRef.current.rotation.y = Math.cos(t * (0.28 + th * 0.12)) * (0.22 + th * 0.08)
     }
     if (circuitMatARef.current) {
-      circuitMatARef.current.opacity = 0.50 + sp * 0.28 + Math.max(0, Math.sin(t * 10.1)) * sp * 0.16
+      const thinkWaveA = th * 0.20 * (Math.sin(t * 1.8) * 0.5 + 0.5)
+      circuitMatARef.current.opacity = 0.50 + sp * 0.28 + Math.max(0, Math.sin(t * 10.1)) * sp * 0.16 + thinkWaveA
     }
     if (circuitMatBRef.current) {
-      circuitMatBRef.current.opacity = 0.40 + sp * 0.24 + Math.max(0, Math.cos(t * 9.6 + 0.5)) * sp * 0.13
+      const thinkWaveB = th * 0.18 * (Math.cos(t * 1.5 + 1.0) * 0.5 + 0.5)
+      circuitMatBRef.current.opacity = 0.40 + sp * 0.24 + Math.max(0, Math.cos(t * 9.6 + 0.5)) * sp * 0.13 + thinkWaveB
     }
   })
 
@@ -384,6 +406,7 @@ function OrbFxOverlay({
   ], [])
 
   const speakingRef = useRef(0)
+  const thinkingRef = useRef(0)
 
   useEffect(() => {
     return () => { sparksGeo.dispose() }
@@ -392,16 +415,22 @@ function OrbFxOverlay({
   useFrame((state) => {
     const t = state.clock.elapsedTime
     const targetSpeak = orbState === "speaking" ? 1 : 0
+    const targetThink = orbState === "thinking" ? 1 : 0
     speakingRef.current += (targetSpeak - speakingRef.current) * 0.06
+    thinkingRef.current += (targetThink - thinkingRef.current) * 0.06
     const sp = speakingRef.current
+    const th = thinkingRef.current
 
-    // Update each spark position along its tilted circular orbit
     if (sparksRef.current) {
       const pos = sparksRef.current.geometry.attributes.position as THREE.BufferAttribute
+      const mat = sparksRef.current.material as THREE.PointsMaterial
       for (let i = 0; i < overlaySparkCount; i++) {
         const { rm, speed, tilt, phase } = orbits[i]
-        const r     = radius * rm
-        const angle = t * speed * (1 + sp * 0.4) + phase
+        // Thinking: orbit radius pulses in/out slowly, speed slightly reduced
+        const thinkRadMod = 1 + th * 0.08 * Math.sin(t * 1.2 + i * 0.52)
+        const r     = radius * rm * thinkRadMod
+        const speedMod = 1 + sp * 0.4 - th * 0.25
+        const angle = t * speed * speedMod + phase
         pos.setXYZ(
           i,
           r * Math.cos(angle),
@@ -410,6 +439,8 @@ function OrbFxOverlay({
         )
       }
       pos.needsUpdate = true
+      // Thinking: gentle opacity pulse on the overlay sparks
+      mat.opacity = 0.90 + th * 0.10 * Math.sin(t * 1.8)
     }
 
   })
@@ -446,6 +477,7 @@ export function NovaOrb3D({
   orbState = "idle",
 }: NovaOrb3DProps) {
   const reducedMotion  = usePrefersReducedMotion()
+  const [canvasReady, setCanvasReady] = useState<boolean>(orbCanvasBooted)
   const renderQuality  = reducedMotion ? "low" : quality
   const dpr            = renderQuality === "high" ? [1, 1.35] : renderQuality === "medium" ? [1, 1.2] : [1, 1]
   const overlayDpr     = renderQuality === "high" ? [1, 1.2]  : renderQuality === "medium" ? [1, 1.1] : [1, 1]
@@ -473,16 +505,27 @@ export function NovaOrb3D({
       className={cn(styles.orbRoot, className)}
       style={{ width: size, height: size }}
     >
+      <div
+        className={cn(
+          styles.staticFallback,
+          !reducedMotion && canvasReady ? styles.staticFallbackHidden : "",
+        )}
+        style={staticFallbackStyle}
+      />
       {reducedMotion ? (
-        <div className={styles.staticFallback} style={staticFallbackStyle} />
+        null
       ) : (
         <>
           {/* Main orb — clipped to circle, with CSS glow shadow like the old orb */}
-          <div className={styles.canvasLayer}>
+          <div className={cn(styles.canvasLayer, canvasReady ? styles.canvasLayerReady : "")}>
             <Canvas
               dpr={dpr as [number, number]}
               gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
               camera={{ position: [0, 0, 4.7], fov: 36 }}
+              onCreated={() => {
+                orbCanvasBooted = true
+                setCanvasReady(true)
+              }}
               style={{ background: "transparent", pointerEvents: interactive ? "auto" : "none" }}
             >
               <ambientLight intensity={isLight ? 0.24 : 0.20} />
@@ -500,7 +543,7 @@ export function NovaOrb3D({
           </div>
 
           {/* FX overlay — separate layer outside orb with no clipping */}
-          <div className={styles.overlayLayer}>
+          <div className={cn(styles.overlayLayer, canvasReady ? styles.overlayLayerReady : "")}>
             <Canvas
               dpr={overlayDpr as [number, number]}
               gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}

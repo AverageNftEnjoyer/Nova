@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { buildRuntimeSafeGmailSnapshot } from "../runtime-safe"
+import { buildRuntimeSafeGmailSnapshot } from "../runtime-safe.ts"
 import type { GmailIntegrationConfig } from "../../server-store"
 
 function buildGmailConfig(): GmailIntegrationConfig {
@@ -46,4 +46,3 @@ test("integration: runtime snapshot contract emits token-safe gmail metadata", (
   assert.equal(serialized.includes("legacy-access-secret"), false)
   assert.equal(serialized.includes("legacy-refresh-secret"), false)
 })
-

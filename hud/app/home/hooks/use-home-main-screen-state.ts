@@ -79,7 +79,14 @@ export function useHomeMainScreenState() {
   }, [latestUsage])
 
   const visuals = useHomeVisuals({ isLight })
-  const integrations = useHomeIntegrations({ latestUsage })
+
+  const speakTts = useCallback((text: string) => {
+    const settings = loadUserSettings()
+    if (!settings.app.voiceEnabled) return
+    sendGreeting(text, settings.app.ttsVoice, settings.app.voiceEnabled, settings.personalization.assistantName)
+  }, [sendGreeting])
+
+  const integrations = useHomeIntegrations({ latestUsage, speakTts })
   const devTools = useHomeDevTools()
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
@@ -104,14 +111,14 @@ export function useHomeMainScreenState() {
     const nextMuted = !isMuted
     setIsMuted(nextMuted)
     localStorage.setItem("nova-muted", String(nextMuted))
-    setMuted(nextMuted)
-  }, [isMuted, setMuted])
+    setMuted(nextMuted, !nextMuted ? visuals.assistantName : undefined)
+  }, [isMuted, setMuted, visuals.assistantName])
 
   useEffect(() => {
     if (connected && muteHydrated) {
-      setMuted(isMuted)
+      setMuted(isMuted, !isMuted ? visuals.assistantName : undefined)
     }
-  }, [connected, isMuted, muteHydrated, setMuted])
+  }, [connected, isMuted, muteHydrated, setMuted, visuals.assistantName])
 
   useEffect(() => {
     if (!connected || greetingSentRef.current) return
@@ -181,6 +188,7 @@ export function useHomeMainScreenState() {
     analyticsSectionRef: visuals.analyticsSectionRef,
     devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
+    spotifyModuleSectionRef: visuals.spotifyModuleSectionRef,
     panelStyle: visuals.panelStyle,
     panelClass: visuals.panelClass,
     subPanelClass: visuals.subPanelClass,
@@ -203,6 +211,17 @@ export function useHomeMainScreenState() {
     claudeConnected: integrations.claudeConnected,
     grokConnected: integrations.grokConnected,
     geminiConnected: integrations.geminiConnected,
+    spotifyConnected: integrations.spotifyConnected,
+    spotifyNowPlaying: integrations.spotifyNowPlaying,
+    spotifyLoading: integrations.spotifyLoading,
+    spotifyError: integrations.spotifyError,
+    spotifyBusyAction: integrations.spotifyBusyAction,
+    refreshSpotifyNowPlaying: integrations.refreshSpotifyNowPlaying,
+    toggleSpotifyPlayback: integrations.toggleSpotifyPlayback,
+    spotifyNextTrack: integrations.spotifyNextTrack,
+    spotifyPreviousTrack: integrations.spotifyPreviousTrack,
+    spotifyPlayLiked: integrations.spotifyPlayLiked,
+    seekSpotify: integrations.seekSpotify,
     gmailConnected: integrations.gmailConnected,
     gcalendarConnected: integrations.gcalendarConnected,
   }

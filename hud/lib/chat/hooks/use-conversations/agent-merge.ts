@@ -1,4 +1,4 @@
-import { useEffect, type MutableRefObject } from "react"
+import { useEffect, useRef, type MutableRefObject } from "react"
 import type { Conversation } from "@/lib/chat/conversations"
 import { resolveConversationTitle } from "@/lib/chat/conversations"
 import {
@@ -28,7 +28,6 @@ export function useAgentMessageMerge(params: {
     activeConvo,
     conversations,
     activeUserIdRef,
-    latestConversationsRef,
     optimisticIdToServerIdRef,
     missionInFlightByScopeRef,
     processedAgentMessageKeysRef,
@@ -38,6 +37,10 @@ export function useAgentMessageMerge(params: {
     patchServerConversation,
     resolveSessionConversationIdForAgent,
   } = params
+
+  // Tracks last-seen content length per assistant id across runs.
+  // Used to detect "stabilized" content (stream done) for final merge.
+  const assistantSeenLenRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     if (agentMessages.length === 0) {
@@ -49,34 +52,65 @@ export function useAgentMessageMerge(params: {
 
     const processedKeys = processedAgentMessageKeysRef.current
 
-    const makeMergeKey = (item: IncomingAgentMessage): string => {
-      const normalizedConversationId = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
+    // For user messages: content-aware key (they don't stream)
+    const makeUserMergeKey = (item: IncomingAgentMessage): string => {
+      const cid = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
       const content = String(item.content || "")
-      const head = content.slice(0, 32)
-      const tail = content.slice(-32)
-      return [
-        item.id,
-        item.role,
-        normalizedConversationId,
-        String(item.ts || 0),
-        String(content.length),
-        head,
-        tail,
-      ].join("|")
+      return [item.id, item.role, cid, String(item.ts || 0), String(content.length), content.slice(0, 32), content.slice(-32)].join("|")
     }
+
+    // For assistant messages: stable key by id only. Streaming mutations
+    // must NOT generate new keys or each delta re-merges into the conversation.
+    const makeAssistantStableKey = (item: IncomingAgentMessage): string => {
+      return `asst|${item.id}`
+    }
+
+    // Collect the latest (longest-content) snapshot per assistant id
+    const latestAssistantById = new Map<string, IncomingAgentMessage>()
+    for (const item of agentMessages) {
+      if (item.role !== "assistant") continue
+      const prev = latestAssistantById.get(item.id)
+      if (!prev || String(item.content || "").length >= String(prev.content || "").length) {
+        latestAssistantById.set(item.id, item)
+      }
+    }
+
+    const seenLens = assistantSeenLenRef.current
 
     const newOnes: Array<{ item: IncomingAgentMessage; key: string }> = []
     for (const item of agentMessages) {
-      const key = makeMergeKey(item)
-      if (processedKeys.has(key)) continue
-      processedKeys.add(key)
-      newOnes.push({ item, key })
+      if (item.role === "assistant") {
+        const latest = latestAssistantById.get(item.id)
+        if (latest && latest !== item) continue
+        const content = String(item.content || "").trim()
+        if (!content) continue
+        const stableKey = makeAssistantStableKey(item)
+        const prevSeenLen = seenLens.get(item.id) || 0
+        seenLens.set(item.id, content.length)
+
+        if (processedKeys.has(stableKey)) {
+          // Already merged once.  Skip while content is still growing
+          // (streaming in progress).  Allow a final re-merge once content
+          // has stabilized (length unchanged since last effect run).
+          if (content.length !== prevSeenLen) continue
+          processedKeys.delete(stableKey)
+        }
+        processedKeys.add(stableKey)
+        newOnes.push({ item, key: stableKey })
+      } else {
+        const key = makeUserMergeKey(item)
+        if (processedKeys.has(key)) continue
+        processedKeys.add(key)
+        newOnes.push({ item, key })
+      }
     }
 
     if (processedKeys.size > 8000) {
       const compacted = new Set<string>()
       const recent = agentMessages.slice(-400)
-      for (const item of recent) compacted.add(makeMergeKey(item))
+      for (const item of recent) {
+        compacted.add(item.role === "assistant" ? makeAssistantStableKey(item) : makeUserMergeKey(item))
+      }
       processedAgentMessageKeysRef.current = compacted
     }
 
@@ -86,10 +120,13 @@ export function useAgentMessageMerge(params: {
     const incomingByConversation = new Map<string, IncomingAgentMessage[]>()
     const conversationIds = new Set(conversations.map((c) => c.id))
     const activeConversationId = String(activeConvo?.id || "").trim()
-    const resolveIncomingConversationId = (rawConversationId: string): string => {
+    const resolveIncomingConversationId = (rawConversationId: string, hasExplicitId: boolean, source: string): string => {
       const normalized = String(rawConversationId || "").trim()
       if (!normalized) {
-        if (activeConversationId && conversationIds.has(activeConversationId)) return activeConversationId
+        // Only file into the active conversation for HUD-sourced messages
+        // (the user actually typed in that conversation). Voice/other sources
+        // without a conversationId must not pollute unrelated chats.
+        if (source === "hud" && activeConversationId && conversationIds.has(activeConversationId)) return activeConversationId
         return ""
       }
 
@@ -116,14 +153,24 @@ export function useAgentMessageMerge(params: {
       for (const candidate of equivalentIds) {
         if (conversationIds.has(candidate)) return candidate
       }
-      if (activeConversationId && conversationIds.has(activeConversationId)) return activeConversationId
+      // Only fall back to activeConversationId for HUD-sourced messages that
+      // carried no explicit conversationId.  Messages with an unrecognised
+      // conversationId or from non-HUD sources must not be mis-filed into
+      // whichever chat happens to be open.
+      if (!hasExplicitId && source === "hud" && activeConversationId && conversationIds.has(activeConversationId)) return activeConversationId
       return ""
     }
     for (const entry of newOnes) {
       const item = entry.item
       const explicitConversationId =
         typeof item.conversationId === "string" ? item.conversationId.trim() : ""
-      const targetConversationId = resolveIncomingConversationId(explicitConversationId || activeConversationId)
+      const hasExplicitId = explicitConversationId.length > 0
+      const itemSource = typeof item.source === "string" ? item.source : ""
+      const targetConversationId = resolveIncomingConversationId(
+        explicitConversationId || activeConversationId,
+        hasExplicitId,
+        itemSource,
+      )
       if (!targetConversationId) {
         // Keep it eligible for a future pass once mapping/active conversation resolves.
         processedKeys.delete(entry.key)

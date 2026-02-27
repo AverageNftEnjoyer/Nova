@@ -16,9 +16,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
     coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
     coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
     coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
+    spotifySetup,
     telegramSetupSectionRef,
     discordSetupSectionRef, braveSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
-    gmailCalendarSetupSectionRef, setBotToken,
+    spotifySetupSectionRef, gmailCalendarSetupSectionRef, setBotToken,
     botToken, botTokenConfigured, botTokenMasked, setChatIds, chatIds, setDiscordWebhookUrls, discordWebhookUrls,
     setBraveApiKey, braveApiKey, toggleTelegram, saveTelegramConfig, toggleDiscord, saveDiscordConfig, toggleBrave,
     saveBraveConfig, probeCoinbaseConnection, toggleCoinbase, saveCoinbaseConfig, updateCoinbasePrivacy,
@@ -661,6 +662,153 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       </ol>
                     </div>
                   </div>
+                </div>
+              </div>
+            </section>
+            )}
+
+            {activeSetup === "spotify" && (
+            <section ref={spotifySetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Spotify Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Connect your Spotify account so Nova can use Spotify tools in chat and workflows.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={settings.spotify.connected ? (() => void spotifySetup.disconnectSpotify()) : spotifySetup.connectSpotify}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.spotify.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.spotify.connected ? "Disconnect" : "Connect"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Spotify App Credentials</p>
+                  <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>
+                      1. Open{" "}
+                      <a
+                        href="https://developer.spotify.com/dashboard"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className={cn(
+                          "underline underline-offset-2 transition-colors",
+                          isLight ? "text-s-80 hover:text-s-100" : "text-slate-200 hover:text-white",
+                        )}
+                      >
+                        Spotify Developer Dashboard
+                      </a>{" "}
+                      and create an app.
+                    </li>
+                    <li>2. Copy the app <span className="font-mono">Client ID</span> into Nova.</li>
+                    <li>3. In Spotify app settings, add Nova callback URL as a redirect URI.</li>
+                    <li>4. Save app settings in Spotify before running OAuth connect from Nova.</li>
+                  </ol>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>OAuth Settings</p>
+                  <div className="space-y-2">
+                    <input
+                      value={spotifySetup.spotifyClientId}
+                      onChange={(e) => spotifySetup.setSpotifyClientId(e.target.value)}
+                      placeholder="Spotify Client ID"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                    <input
+                      value={spotifySetup.spotifyRedirectUri}
+                      onChange={(e) => spotifySetup.setSpotifyRedirectUri(e.target.value)}
+                      placeholder="http://localhost:3000/api/integrations/spotify/callback"
+                      spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      data-gramm="false"
+                      data-gramm_editor="false"
+                      data-enable-grammarly="false"
+                      className={cn(
+                        "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                        isLight
+                          ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                          : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => void spotifySetup.saveSpotifyConfig()}
+                      disabled={isSavingTarget !== null}
+                      className={cn(
+                        "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      )}
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {isSavingTarget === "spotify-save" ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      onClick={() => void spotifySetup.testSpotifyConnection()}
+                      disabled={isSavingTarget !== null}
+                      className={cn(
+                        "h-8 px-3 rounded-lg border border-emerald-300/40 bg-emerald-500/15 text-emerald-200 transition-colors hover:bg-emerald-500/20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      )}
+                    >
+                      {isSavingTarget === "spotify-test" ? "Testing..." : "Test"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Connect Flow</p>
+                  <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>1. Enter Client ID and Redirect URI, then click <span className="font-mono">Save</span>.</li>
+                    <li>2. Click <span className="font-mono">Connect</span> and complete Spotify OAuth in the popup.</li>
+                    <li>3. After redirect back to Nova, click <span className="font-mono">Test</span> to verify token and scope.</li>
+                    <li>4. Use the same top button to <span className="font-mono">Disconnect</span> when you want to revoke Nova access.</li>
+                  </ol>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Connection Status</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <p className={cn("text-[12px]", isLight ? "text-s-70" : "text-slate-300")}>
+                      Connected: <span className={cn("font-mono", settings.spotify.connected ? "text-emerald-300" : "text-rose-300")}>{settings.spotify.connected ? "yes" : "no"}</span>
+                    </p>
+                    <p className={cn("text-[12px]", isLight ? "text-s-70" : "text-slate-300")}>
+                      Token: <span className={cn("font-mono", settings.spotify.tokenConfigured ? "text-emerald-300" : "text-rose-300")}>{settings.spotify.tokenConfigured ? "configured" : "missing"}</span>
+                    </p>
+                    <p className={cn("text-[12px] truncate", isLight ? "text-s-70" : "text-slate-300")}>
+                      User ID: <span className="font-mono">{spotifySetup.spotifyUserId || "n/a"}</span>
+                    </p>
+                    <p className={cn("text-[12px] truncate", isLight ? "text-s-70" : "text-slate-300")}>
+                      Name: <span className="font-mono">{spotifySetup.spotifyDisplayName || "n/a"}</span>
+                    </p>
+                  </div>
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+                    Scopes: <span className="font-mono">{spotifySetup.spotifyScopes || "none"}</span>
+                  </p>
                 </div>
               </div>
             </section>

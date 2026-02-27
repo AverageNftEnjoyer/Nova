@@ -10,6 +10,7 @@ export type IntegrationSetupKey =
   | "claude"
   | "grok"
   | "gemini"
+  | "spotify"
   | "gmail"
   | "gmail-calendar"
 
@@ -49,7 +50,7 @@ export function ConnectivityGrid({
           {item.icon}
         </button>
       ))}
-      {Array.from({ length: 21 }).map((_, index) => (
+      {Array.from({ length: 19 }).map((_, index) => (
         <div
           key={index}
           className={cn(

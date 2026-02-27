@@ -1,11 +1,11 @@
-import type { WorkflowStep } from "../../types"
-import { WORKFLOW_VALIDATION_LIMITS } from "./config"
+import type { WorkflowStep } from "../../types.ts"
+import { WORKFLOW_VALIDATION_LIMITS } from "./config.ts"
 import {
   WORKFLOW_VALIDATION_ISSUE_CODES,
   type WorkflowValidationInput,
   type WorkflowValidationIssue,
   type WorkflowValidationResult,
-} from "./types"
+} from "./types.ts"
 
 const KNOWN_STEP_TYPES = new Set(["trigger", "fetch", "coinbase", "ai", "transform", "condition", "output"])
 const STRICT_OUTPUT_CHANNELS_REQUIRING_RECIPIENTS = new Set(["telegram", "discord", "email", "webhook", "push"])

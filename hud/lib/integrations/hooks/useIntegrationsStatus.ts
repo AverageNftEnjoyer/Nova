@@ -27,6 +27,8 @@ export interface IntegrationsStatus {
   grokConnected: boolean
   geminiConnected: boolean
   gmailConnected: boolean
+  spotifyConnected: boolean
+  gcalendarConnected: boolean
   braveConfigured: boolean
   coinbaseConfigured: boolean
   openaiConfigured: boolean
@@ -79,6 +81,8 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   const [grokConnected, setGrokConnected] = useState(Boolean(initialIntegrations.grok.connected))
   const [geminiConnected, setGeminiConnected] = useState(Boolean(initialIntegrations.gemini.connected))
   const [gmailConnected, setGmailConnected] = useState(Boolean(initialIntegrations.gmail?.connected))
+  const [spotifyConnected, setSpotifyConnected] = useState(Boolean(initialIntegrations.spotify?.connected))
+  const [gcalendarConnected, setGcalendarConnected] = useState(Boolean(initialIntegrations.gcalendar?.connected))
   const [braveConfigured, setBraveConfigured] = useState(Boolean(initialIntegrations.brave.apiKeyConfigured))
   const [coinbaseConfigured, setCoinbaseConfigured] = useState(Boolean(initialIntegrations.coinbase?.apiKeyConfigured && initialIntegrations.coinbase?.apiSecretConfigured))
   const [openaiConfigured, setOpenaiConfigured] = useState(Boolean(initialIntegrations.openai.apiKeyConfigured))
@@ -126,6 +130,8 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         const claude = Boolean(data?.config?.claude?.connected)
         const grok = Boolean(data?.config?.grok?.connected)
         const gemini = Boolean(data?.config?.gemini?.connected)
+        const spotify = Boolean(data?.config?.spotify?.connected)
+        const gcalendar = Boolean(data?.config?.gcalendar?.connected)
         const openaiReady = Boolean(data?.config?.openai?.apiKeyConfigured)
         const braveReady = Boolean(data?.config?.brave?.apiKeyConfigured)
         const coinbaseReady = Boolean(data?.config?.coinbase?.apiKeyConfigured && data?.config?.coinbase?.apiSecretConfigured)
@@ -149,6 +155,8 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         setClaudeConnected(claude)
         setGrokConnected(grok)
         setGeminiConnected(gemini)
+        setSpotifyConnected(spotify)
+        setGcalendarConnected(gcalendar)
         setOpenaiConfigured(openaiReady)
         setBraveConfigured(braveReady)
         setCoinbaseConfigured(coinbaseReady)
@@ -195,6 +203,8 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
           setClaudeConnected(Boolean(data?.config?.claude?.connected))
           setGrokConnected(Boolean(data?.config?.grok?.connected))
           setGeminiConnected(Boolean(data?.config?.gemini?.connected))
+          setSpotifyConnected(Boolean(data?.config?.spotify?.connected))
+          setGcalendarConnected(Boolean(data?.config?.gcalendar?.connected))
           setOpenaiConfigured(Boolean(data?.config?.openai?.apiKeyConfigured))
           setBraveConfigured(Boolean(data?.config?.brave?.apiKeyConfigured))
           setCoinbaseConfigured(Boolean(data?.config?.coinbase?.apiKeyConfigured && data?.config?.coinbase?.apiSecretConfigured))
@@ -361,6 +371,8 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
     grokConnected,
     geminiConnected,
     gmailConnected,
+    spotifyConnected,
+    gcalendarConnected,
     braveConfigured,
     coinbaseConfigured,
     openaiConfigured,

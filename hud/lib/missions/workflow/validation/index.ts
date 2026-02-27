@@ -3,7 +3,7 @@ export {
   RUN_WORKFLOW_VALIDATION_POLICY,
   validateMissionWorkflowMessage,
   type ValidateWorkflowMessageInput,
-} from "./hooks"
+} from "./hooks.ts"
 
 export {
   WORKFLOW_VALIDATION_LIMITS,
@@ -11,11 +11,11 @@ export {
   WORKFLOW_RUN_VALIDATION_POLICY,
   type WorkflowValidationLimits,
   type WorkflowValidationPolicy,
-} from "./config"
+} from "./config.ts"
 
 export {
   validateWorkflowSummary,
-} from "./validator"
+} from "./validator.ts"
 
 export {
   WORKFLOW_VALIDATION_ISSUE_CODES,
@@ -26,4 +26,4 @@ export {
   type WorkflowValidationIssue,
   type WorkflowValidationInput,
   type WorkflowValidationResult,
-} from "./types"
+} from "./types.ts"

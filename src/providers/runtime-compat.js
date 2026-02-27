@@ -331,6 +331,16 @@ function parseGmailRuntime(value) {
   };
 }
 
+function parseSpotifyRuntime(value) {
+  const integration = value && typeof value === "object" ? value : {};
+  return {
+    connected: integration.connected === true,
+    spotifyUserId: String(integration.spotifyUserId || "").trim(),
+    displayName: String(integration.displayName || "").trim(),
+    scopes: toStringArray(integration.scopes),
+  };
+}
+
 export function loadIntegrationsRuntime(options = {}) {
   const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
@@ -341,6 +351,7 @@ export function loadIntegrationsRuntime(options = {}) {
     const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
     const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
     const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
+    const spotifyIntegration = parseSpotifyRuntime(parsed?.spotify);
     const gmailIntegration = parseGmailRuntime(parsed?.gmail);
     const activeProvider = parsed?.activeLlmProvider === "claude"
       ? "claude"
@@ -392,6 +403,7 @@ export function loadIntegrationsRuntime(options = {}) {
           ? geminiIntegration.defaultModel.trim()
           : DEFAULT_GEMINI_MODEL
       },
+      spotify: spotifyIntegration,
       gmail: gmailIntegration
     };
   } catch {
@@ -407,6 +419,12 @@ export function loadIntegrationsRuntime(options = {}) {
       claude: { connected: claudeApiKey.length > 0, apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
       grok: { connected: grokApiKey.length > 0, apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
       gemini: { connected: geminiApiKey.length > 0, apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
+      spotify: {
+        connected: false,
+        spotifyUserId: "",
+        displayName: "",
+        scopes: [],
+      },
       gmail: {
         connected: false,
         activeAccountId: "",

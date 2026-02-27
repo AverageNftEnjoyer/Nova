@@ -1,4 +1,4 @@
-import type { WorkflowValidationMode, WorkflowValidationProfile } from "./types"
+import type { WorkflowValidationMode, WorkflowValidationProfile } from "./types.ts"
 
 function parseIntWithBounds(value: string | undefined, fallback: number, min: number, max: number): number {
   const parsed = Number.parseInt(String(value || ""), 10)

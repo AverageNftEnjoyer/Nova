@@ -1,9 +1,9 @@
-import { decryptSecret, encryptSecret } from "../../security/encryption"
-import { loadIntegrationsConfig, updateIntegrationsConfig } from "../server-store"
-import { deriveGmailAfterDisconnect, deriveGmailAfterTokenRefresh } from "./accounts"
-import { assertGmailOk, gmailFetchWithRetry } from "./client"
-import { gmailError } from "./errors"
-import { GOOGLE_TOKEN_ENDPOINT, GOOGLE_USERINFO_ENDPOINT, type GmailAccountRecord, type GmailClientConfig, type GmailScope, type GmailTokenRefreshResult } from "./types"
+import { decryptSecret, encryptSecret } from "../../security/encryption.ts"
+import { loadIntegrationsConfig, updateIntegrationsConfig } from "../server-store.ts"
+import { deriveGmailAfterDisconnect, deriveGmailAfterTokenRefresh } from "./accounts.ts"
+import { assertGmailOk, gmailFetchWithRetry } from "./client.ts"
+import { gmailError } from "./errors.ts"
+import { GOOGLE_TOKEN_ENDPOINT, GOOGLE_USERINFO_ENDPOINT, type GmailAccountRecord, type GmailClientConfig, type GmailScope, type GmailTokenRefreshResult } from "./types.ts"
 
 export async function getGmailClientConfig(scope?: GmailScope): Promise<GmailClientConfig> {
   const integrations = await loadIntegrationsConfig(scope)

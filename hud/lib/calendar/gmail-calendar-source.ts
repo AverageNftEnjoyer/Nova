@@ -7,7 +7,7 @@
 import "server-only"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
-import { listCalendarEvents } from "@/lib/integrations/gmail-calendar/service"
+import { listCalendarEvents } from "@/lib/integrations/google-calender/service"
 import type { PersonalCalendarEvent } from "./types"
 
 export async function loadGmailCalendarEvents(
@@ -74,3 +74,4 @@ export async function loadGmailCalendarEvents(
       }
     })
 }
+

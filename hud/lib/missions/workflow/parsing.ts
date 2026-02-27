@@ -4,8 +4,8 @@
  * Functions for parsing mission workflow definitions.
  */
 
-import { parseJsonObject } from "../text/cleaning"
-import { normalizeWorkflowStep } from "../utils/config"
+import { parseJsonObject } from "../text/cleaning.ts"
+import { normalizeWorkflowStep } from "../utils/config.ts"
 import type { ParsedWorkflow, WorkflowSummary } from "../types"
 
 export const WORKFLOW_MARKER = "[NOVA WORKFLOW]"

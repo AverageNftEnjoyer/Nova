@@ -378,18 +378,37 @@ export function mergeIncomingAgentMessages(
 
   const out = [...dedupedExisting]
   const incomingAssistantByText = new Map<string, number>()
+  const assistantById = new Map<string, number>()
+  const userByNormText = new Map<string, number>()
   for (let i = 0; i < out.length; i += 1) {
     const msg = out[i]
+    if (msg.role === "user") {
+      const key = normalizeMessageComparableText(msg.content)
+      if (key && !userByNormText.has(key)) userByNormText.set(key, i)
+      continue
+    }
     if (msg.role !== "assistant") continue
+    if (msg.id && !assistantById.has(msg.id)) assistantById.set(msg.id, i)
     const key = normalizeMessageComparableText(msg.content)
     if (!key) continue
     if (!incomingAssistantByText.has(key)) incomingAssistantByText.set(key, i)
   }
   for (const incoming of incomingMessages) {
     const incomingTs = coerceIncomingTimestampMs(incoming.ts)
-    if (incoming.role === "assistant") {
+    if (incoming.role === "user") {
       const incomingNorm = normalizeMessageComparableText(incoming.content)
-      const matchIdx = incomingNorm ? incomingAssistantByText.get(incomingNorm) : undefined
+      const existingIdx = incomingNorm ? userByNormText.get(incomingNorm) : undefined
+      if (typeof existingIdx === "number") {
+        const existing = out[existingIdx]
+        const timeDiff = Math.abs(parseIsoTimestamp(existing.createdAt) - incomingTs)
+        if (timeDiff <= USER_ECHO_DEDUP_MS) continue
+      }
+    }
+    if (incoming.role === "assistant") {
+      const idMatchIdx = incoming.id ? assistantById.get(incoming.id) : undefined
+      const incomingNorm = normalizeMessageComparableText(incoming.content)
+      const textMatchIdx = incomingNorm ? incomingAssistantByText.get(incomingNorm) : undefined
+      const matchIdx = idMatchIdx ?? textMatchIdx
       if (typeof matchIdx === "number") {
         const base = out[matchIdx]
         out[matchIdx] = {
@@ -414,6 +433,10 @@ export function mergeIncomingAgentMessages(
       nlpCorrectionCount: incoming.nlpCorrectionCount,
       nlpBypass: incoming.nlpBypass,
     })
+    // Track the newly added entry by id for subsequent incoming matches
+    if (incoming.role === "assistant" && incoming.id) {
+      assistantById.set(incoming.id, out.length - 1)
+    }
   }
   return out
 }

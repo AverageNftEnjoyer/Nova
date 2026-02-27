@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { disconnectGmailCalendar } from "@/lib/integrations/gmail-calendar/service"
+import { disconnectGmailCalendar } from "@/lib/integrations/google-calender/service"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { disconnectBodySchema, gmailCalendarApiErrorResponse, logGmailCalendarApi, safeJson } from "../_shared"
 
@@ -33,3 +33,4 @@ export async function POST(req: Request) {
     return gmailCalendarApiErrorResponse(error, "Failed to disconnect Google Calendar.")
   }
 }
+

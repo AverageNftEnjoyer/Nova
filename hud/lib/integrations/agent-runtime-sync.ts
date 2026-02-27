@@ -5,6 +5,7 @@ import path from "node:path"
 import { encryptSecret } from "../security/encryption"
 import type { IntegrationsConfig } from "./server-store"
 import { buildRuntimeSafeGmailSnapshot } from "./gmail/runtime-safe"
+import { buildRuntimeSafeSpotifySnapshot } from "./spotify/runtime-safe"
 
 function sanitizeUserContextId(value: unknown): string {
   const normalized = String(value ?? "")
@@ -138,6 +139,7 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
       baseUrl: String(config.gemini.baseUrl || "").trim(),
       defaultModel: String(config.gemini.defaultModel || "").trim(),
     },
+    spotify: buildRuntimeSafeSpotifySnapshot(config.spotify),
     gmail: buildRuntimeSafeGmailSnapshot(config.gmail),
     updatedAt: new Date().toISOString(),
     source: "user-scoped-runtime-sync",

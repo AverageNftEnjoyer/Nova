@@ -32,6 +32,13 @@ interface BriefingEvent {
   provider?: string
 }
 
+type ScheduleMemoryState = {
+  dayKey: string
+  events: CalendarEvent[]
+  fetchedAt: number
+  hydrated: boolean
+}
+
 const KIND_COLORS: Record<string, string> = {
   mission:  "#22D3EE",
   agent:    "#A78BFA",
@@ -40,6 +47,9 @@ const KIND_COLORS: Record<string, string> = {
 
 const DAY_START = 0
 const DAY_END = 24
+const SCHEDULE_REVALIDATE_MS = 60_000
+let scheduleMemoryState: ScheduleMemoryState | null = null
+let scheduleFetchInFlight: Promise<CalendarEvent[] | null> | null = null
 
 function fmtTime(h: number, m = 0) {
   const period = h < 12 ? "AM" : "PM"
@@ -80,6 +90,58 @@ function apiToBriefing(ev: CalendarEvent): BriefingEvent | null {
   }
 }
 
+function toLocalDayKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function isEventOnDay(event: CalendarEvent, dayKey: string): boolean {
+  const start = new Date(event.startAt)
+  const end = new Date(event.endAt)
+  return toLocalDayKey(start) === dayKey || toLocalDayKey(end) === dayKey
+}
+
+function readCachedEventsForDay(dayKey: string): CalendarEvent[] {
+  const cached = readShellUiCache().dailyScheduleEvents
+  if (!Array.isArray(cached) || cached.length === 0) return []
+  return (cached as CalendarEvent[]).filter((event) => isEventOnDay(event, dayKey))
+}
+
+function setScheduleMemory(dayKey: string, events: CalendarEvent[]): void {
+  scheduleMemoryState = {
+    dayKey,
+    events: [...events],
+    fetchedAt: Date.now(),
+    hydrated: true,
+  }
+}
+
+async function fetchScheduleEventsForDay(dayKey: string): Promise<CalendarEvent[] | null> {
+  if (scheduleFetchInFlight) return scheduleFetchInFlight
+  const [year, month, day] = dayKey.split("-").map((value) => Number(value))
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0)
+  const end = new Date(year, month - 1, day, 23, 59, 59, 999)
+  const params = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() })
+
+  scheduleFetchInFlight = fetch(`/api/calendar/events?${params}`, { credentials: "include", cache: "no-store" })
+    .then((r) => r.json())
+    .then((data) => {
+      if (!data?.ok) return null
+      const nextEvents = Array.isArray(data.events) ? (data.events as CalendarEvent[]) : []
+      writeShellUiCache({ dailyScheduleEvents: nextEvents })
+      setScheduleMemory(dayKey, nextEvents)
+      return nextEvents
+    })
+    .catch(() => null)
+    .finally(() => {
+      scheduleFetchInFlight = null
+    })
+
+  return scheduleFetchInFlight
+}
+
 export function ScheduleBriefing({
   isLight,
   panelClass,
@@ -88,14 +150,11 @@ export function ScheduleBriefing({
   sectionRef,
   onOpenCalendar,
 }: ScheduleBriefingProps) {
-  const [events, setEvents]     = useState<CalendarEvent[]>(() => {
-    const cached = readShellUiCache().dailyScheduleEvents
-    return Array.isArray(cached) ? (cached as CalendarEvent[]) : []
-  })
-  const [loading, setLoading]   = useState(() => {
-    const cached = readShellUiCache().dailyScheduleEvents
-    return !Array.isArray(cached) || cached.length === 0
-  })
+  const dayKey = toLocalDayKey(new Date())
+  const initialMemory = scheduleMemoryState?.dayKey === dayKey ? scheduleMemoryState : null
+  const initialCached = initialMemory ? initialMemory.events : readCachedEventsForDay(dayKey)
+  const [events, setEvents] = useState<CalendarEvent[]>(() => initialCached)
+  const [loading, setLoading] = useState(() => !initialMemory && initialCached.length === 0)
   const [selected, setSelected] = useState<BriefingEvent | null>(null)
   const [viewportHeight, setViewportHeight] = useState(0)
 
@@ -107,37 +166,25 @@ export function ScheduleBriefing({
   }, [])
 
   useEffect(() => {
-    const now   = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0)
-    const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
-    const params = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() })
+    let cancelled = false
+    const memory = scheduleMemoryState
+    const memoryForToday = memory?.dayKey === dayKey ? memory : null
+    const isFresh = Boolean(memoryForToday && Date.now() - memoryForToday.fetchedAt < SCHEDULE_REVALIDATE_MS)
+    if (isFresh) return () => { cancelled = true }
 
-    fetch(`/api/calendar/events?${params}`, { credentials: "include", cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.ok) {
-          const nextEvents = Array.isArray(data.events) ? (data.events as CalendarEvent[]) : []
-          setEvents(nextEvents)
-          writeShellUiCache({ dailyScheduleEvents: nextEvents })
-          return
-        }
-        const cached = readShellUiCache().dailyScheduleEvents
-        if (Array.isArray(cached)) {
-          setEvents(cached as CalendarEvent[])
-          return
-        }
-        setEvents([])
+    void fetchScheduleEventsForDay(dayKey)
+      .then((nextEvents) => {
+        if (cancelled || !nextEvents) return
+        setEvents(nextEvents)
       })
-      .catch(() => {
-        const cached = readShellUiCache().dailyScheduleEvents
-        if (Array.isArray(cached)) {
-          setEvents(cached as CalendarEvent[])
-          return
-        }
-        setEvents([])
+      .finally(() => {
+        if (!cancelled) setLoading(false)
       })
-      .finally(() => setLoading(false))
-  }, [])
+
+    return () => {
+      cancelled = true
+    }
+  }, [dayKey, initialCached.length])
 
   const briefingEvents = useMemo(() => {
     const mapped = events.map(apiToBriefing).filter((e): e is BriefingEvent => e !== null)
@@ -174,13 +221,13 @@ export function ScheduleBriefing({
     <>
       <section ref={sectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex-1 flex flex-col`}>
         <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-2 text-s-80">
-          <div className="h-7 w-7" aria-hidden="true" />
+          <div className="h-8 w-8" aria-hidden="true" />
           <h2 className={cn("min-w-0 text-center text-sm uppercase tracking-[0.16em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>
             Daily Schedule
           </h2>
           <button
             onClick={onOpenCalendar}
-            className={cn("h-7 w-7 justify-self-end rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/sched-cal", subPanelClass)}
+            className={cn("h-8 w-8 justify-self-end rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/sched-cal", subPanelClass)}
             aria-label="Open calendar"
           >
             <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/sched-cal:text-accent group-hover/sched-cal:rotate-90 transition-transform duration-200" />
@@ -191,7 +238,7 @@ export function ScheduleBriefing({
         </p>
 
         <div
-          className="module-hover-scroll mt-2.5 min-h-0 flex-1 overflow-y-auto"
+          className="module-hover-scroll no-scrollbar mt-2.5 min-h-0 flex-1 overflow-y-auto"
           ref={(el) => {
             if (el && isInRange) {
               const scrollTo = Math.max(0, nowTop - el.clientHeight * 0.35)
@@ -213,7 +260,7 @@ export function ScheduleBriefing({
               {hours.map((h, idx) => (
                 <div key={h} className="absolute left-0 right-0" style={{ top: timelineTopInset + idx * pxPerHour }}>
                   <div className="flex h-[1px] items-center">
-                    <span className={cn("text-[10px] font-mono -ml-2 shrink-0 text-left leading-none", isLight ? "text-s-50" : "text-slate-400")}>
+                    <span className={cn("text-[10px] font-mono shrink-0 text-left leading-none", isLight ? "text-s-50" : "text-slate-400")}>
                       {fmtHourLabel(h)}
                     </span>
                     <div className={cn("flex-1 border-t -mt-px", isLight ? "border-[#c9d7ea]" : "border-white/18")} />

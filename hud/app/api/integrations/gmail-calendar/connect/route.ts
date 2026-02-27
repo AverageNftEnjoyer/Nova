@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { buildGmailCalendarOAuthUrl } from "@/lib/integrations/gmail-calendar/service"
+import { buildGmailCalendarOAuthUrl } from "@/lib/integrations/google-calender/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { connectQuerySchema, gmailCalendarApiErrorResponse, logGmailCalendarApi } from "../_shared"
@@ -38,3 +38,4 @@ export async function GET(req: Request) {
     return gmailCalendarApiErrorResponse(error, "Failed to start GmailCalendar OAuth.")
   }
 }
+

@@ -16,6 +16,12 @@
   border-radius: 9999px;
   overflow: hidden;
   filter: saturate(1.18) contrast(1.1);
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+
+.canvasLayerReady {
+  opacity: 1;
 }
 
 .overlayLayer {
@@ -28,9 +34,17 @@
   pointer-events: none;
   overflow: visible;
   z-index: 2;
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+
+.overlayLayerReady {
+  opacity: 1;
 }
 
 .staticFallback {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border-radius: 9999px;
@@ -45,4 +59,10 @@
     radial-gradient(circle at 72% 68%, var(--orb-fallback-low), transparent 58%),
     var(--orb-fallback-bg);
   backdrop-filter: blur(8px);
+  opacity: 1;
+  transition: opacity 240ms ease;
+}
+
+.staticFallbackHidden {
+  opacity: 0;
 }
