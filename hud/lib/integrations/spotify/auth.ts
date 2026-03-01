@@ -10,7 +10,7 @@ const DEV_FALLBACK_OAUTH_STATE_SECRET = createHash("sha256")
 function getOAuthSecret(): string {
   const configured = String(process.env.NOVA_SPOTIFY_OAUTH_STATE_SECRET || process.env.NOVA_ENCRYPTION_KEY || "").trim()
   if (configured) return configured
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV !== "development") {
     throw spotifyError("spotify.internal", "NOVA_SPOTIFY_OAUTH_STATE_SECRET (or NOVA_ENCRYPTION_KEY) is required in production.")
   }
   return DEV_FALLBACK_OAUTH_STATE_SECRET

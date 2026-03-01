@@ -11,11 +11,13 @@ import "server-only"
 
 import { loadMissions } from "@/lib/missions/store"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { loadRescheduleOverrides } from "./reschedule-store"
 import { loadAgentTaskEvents } from "./agent-task-source"
 import { loadGmailCalendarEvents } from "./gmail-calendar-source"
 import { expandDates, toIsoInTimezone, estimateDurationMs } from "./schedule-utils"
 import type { MissionCalendarEvent, CalendarEvent } from "./types"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 
@@ -23,17 +25,18 @@ export async function aggregateCalendarEvents(
   userId: string,
   rangeStart: Date,
   rangeEnd: Date,
+  integrationScope?: IntegrationsStoreScope,
 ): Promise<CalendarEvent[]> {
   // Load integrations config once and share the connected flag with sources
   // to avoid redundant DB round-trips.
-  const integrationsConfig = await loadIntegrationsConfig({ userId }).catch(() => null)
+  const integrationsConfig = await loadIntegrationsConfig(integrationScope ?? { userId }).catch(() => null)
   const gcalendarConnected = Boolean(integrationsConfig?.gcalendar?.connected)
 
   const [missions, overrides, agentTaskEvents, gmailCalendarEvents] = await Promise.all([
     loadMissions({ userId }),
     loadRescheduleOverrides(userId),
     loadAgentTaskEvents(userId, rangeStart, rangeEnd),
-    loadGmailCalendarEvents(userId, rangeStart, rangeEnd, gcalendarConnected),
+    loadGmailCalendarEvents(userId, rangeStart, rangeEnd, gcalendarConnected, integrationScope),
   ])
 
   const overrideMap = new Map(overrides.map((r) => [r.missionId, r.overriddenTime]))
@@ -54,7 +57,7 @@ export async function aggregateCalendarEvents(
     if (!trigger) continue
 
     const mode = trigger.triggerMode ?? "daily"
-    const tz = trigger.triggerTimezone ?? "America/New_York"
+    const tz = resolveTimezone(trigger.triggerTimezone, mission.settings?.timezone)
     const days = trigger.triggerDays
     const nodeCount = mission.nodes?.length ?? 1
     const durationMs = estimateDurationMs(nodeCount)

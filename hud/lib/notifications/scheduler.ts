@@ -5,6 +5,7 @@ import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { getLocalParts } from "@/lib/missions/workflow/scheduling"
 import type { Mission } from "@/lib/missions/types"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 type SchedulerState = {
   timer: NodeJS.Timeout | null
@@ -108,7 +109,7 @@ async function runScheduleTickInternal() {
           | { triggerMode?: string; triggerTimezone?: string }
           | undefined
         const nativeTriggerMode = String(nativeTriggerNode?.triggerMode || "daily")
-        const nativeTz = String(nativeTriggerNode?.triggerTimezone || liveMission.settings?.timezone || "America/New_York")
+        const nativeTz = resolveTimezone(nativeTriggerNode?.triggerTimezone, liveMission.settings?.timezone)
         const nativeLocal = getLocalParts(now, nativeTz)
         const nativeDayStamp =
           (nativeTriggerMode === "daily" || nativeTriggerMode === "weekly" || nativeTriggerMode === "once") && nativeLocal?.dayStamp
@@ -156,6 +157,18 @@ async function runScheduleTickInternal() {
           if (liveMission.scheduledAtOverride && liveMission.userId) {
             deleteRescheduleOverride(liveMission.userId, liveMission.id).catch(() => {})
           }
+        } else if (nativeDayStamp) {
+          // Execution was skipped. Save day-lock for "done for today" reasons (e.g. missed
+          // the trigger window) so the scheduler doesn't re-fire on every subsequent tick.
+          // Do NOT lock when the reason is "not yet time" — those should retry next tick.
+          const r = String(result.reason || "").toLowerCase()
+          const isNotYetTime = r.includes("not yet time") || r.includes("not yet due") || r.includes("pending")
+          if (!isNotYetTime) {
+            await upsertMission(
+              { ...liveMission, lastSentLocalDate: nativeDayStamp, lastRunAt: now.toISOString() },
+              liveMission.userId || "",
+            ).catch(() => {})
+          }
         }
       } catch (err) {
         console.error(`[Scheduler] Native mission ${mission.id} failed: ${err instanceof Error ? err.message : "unknown"}`)
@@ -168,7 +181,7 @@ async function runScheduleTickInternal() {
               | { triggerMode?: string; triggerTimezone?: string }
               | undefined
             const crashMode = String(crashTriggerNode?.triggerMode || "daily")
-            const crashTz = String(crashTriggerNode?.triggerTimezone || crashedMission.settings?.timezone || "America/New_York")
+            const crashTz = resolveTimezone(crashTriggerNode?.triggerTimezone, crashedMission.settings?.timezone)
             const crashLocal = getLocalParts(now, crashTz)
             const crashDayStamp =
               (crashMode === "daily" || crashMode === "weekly" || crashMode === "once") && crashLocal?.dayStamp

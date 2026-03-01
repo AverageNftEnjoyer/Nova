@@ -1,6 +1,6 @@
 "use client"
 
-import { Blocks, Pin, Settings, Activity, Clock3, CheckCircle2, AlertTriangle } from "lucide-react"
+import { Blocks, Pin, Settings, Activity, Clock3, CheckCircle2, AlertTriangle, Network, Bot } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
 import type { CSSProperties } from "react"
 import { NovaOrb3D, type OrbState } from "@/components/orb/NovaOrb3D"
@@ -9,6 +9,7 @@ import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
 import { cn } from "@/lib/shared/utils"
+import { NOVA_DOMAIN_MANAGERS } from "@/app/agents/agent-chart-data"
 import { formatDailyTime } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
@@ -41,6 +42,7 @@ export function HomeMainScreen() {
     devToolsSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
+    agentModuleSectionRef,
     panelStyle,
     panelClass,
     subPanelClass,
@@ -51,6 +53,7 @@ export function HomeMainScreen() {
     openIntegrations,
     openAnalytics,
     openDevLogs,
+    openAgents,
     liveActivity,
     devToolsMetrics,
     integrationBadgeClass,
@@ -124,6 +127,12 @@ export function HomeMainScreen() {
     { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase" },
   ] as const
   const fillerSlots = Math.max(0, 25 - integrationNodes.length)
+  const previewManagers = NOVA_DOMAIN_MANAGERS.slice(0, 3)
+  const previewWorkerCount = NOVA_DOMAIN_MANAGERS.reduce((sum, manager) => sum + manager.workers.length, 0)
+  const previewOnlineCount = NOVA_DOMAIN_MANAGERS.reduce(
+    (sum, manager) => sum + manager.workers.filter((worker) => worker.status === "online").length,
+    0,
+  )
 
   return (
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
@@ -378,14 +387,63 @@ export function HomeMainScreen() {
               onSeek={seekSpotify}
             />
 
-            {/* ── Row 2, Col 2: Module Slot 2 ── */}
+            {/* ── Row 2, Col 2: Agent Chart ── */}
             <section
+              ref={agentModuleSectionRef}
               style={panelStyle}
-              className={`${panelClass} hidden xl:flex xl:col-start-5 xl:row-start-2 p-4 max-h-72 items-center justify-center`}
+              className={`${panelClass} home-spotlight-shell hidden xl:flex xl:col-start-5 xl:row-start-2 px-3 pb-2 pt-2 max-h-72 flex-col`}
             >
-              <p className={cn("text-[11px] uppercase tracking-[0.18em]", isLight ? "text-s-50" : "text-slate-500")}>
-                Module Slot
-              </p>
+              <div className="relative flex items-center justify-between gap-2 w-full">
+                <div className="flex items-center gap-2 min-w-0 text-s-80">
+                  <Network className="w-4 h-4 text-accent" />
+                </div>
+                <h2 className={cn("absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>Agent Chart</h2>
+                <button
+                  onClick={openAgents}
+                  className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/agents-gear`, subPanelClass)}
+                  aria-label="Open agent chart"
+                  title="Open agent chart"
+                >
+                  <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/agents-gear:text-accent group-hover/agents-gear:rotate-90 transition-transform duration-200" />
+                </button>
+              </div>
+              <p className={cn("text-[11px] mt-0.5 w-full", isLight ? "text-s-50" : "text-slate-400")}>Operator + manager topology</p>
+              <div className={cn("mt-1 w-full flex-1 min-h-0 rounded-lg p-2 border home-spotlight-card home-border-glow", subPanelClass)}>
+                <div className={cn("rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-white/[0.03]")}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="inline-flex items-center gap-1.5">
+                      <Bot className="w-3.5 h-3.5 text-accent" />
+                      <p className={cn("text-[11px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>Nova Operator</p>
+                    </div>
+                    <span className="rounded-full border border-emerald-300/40 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-emerald-200">online</span>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                  {previewManagers.map((manager) => (
+                    <button
+                      key={manager.id}
+                      onClick={openAgents}
+                      className={cn(
+                        "rounded-md border px-1.5 py-1 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-[10px] font-semibold truncate", isLight ? "text-s-80" : "text-slate-200")}>{manager.label}</p>
+                      <p className={cn("text-[9px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>{manager.workers.length} workers</p>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  <div className={cn("rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20")}>
+                    <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Managers</p>
+                    <p className="text-[12px] font-semibold">{NOVA_DOMAIN_MANAGERS.length}</p>
+                  </div>
+                  <div className={cn("rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20")}>
+                    <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Online</p>
+                    <p className="text-[12px] font-semibold">{previewOnlineCount}/{previewWorkerCount}</p>
+                  </div>
+                </div>
+              </div>
             </section>
 
             {/* ── Row 2, Col 3: Analytics ── */}

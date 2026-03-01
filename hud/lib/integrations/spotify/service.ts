@@ -139,7 +139,15 @@ function toNowPlaying(data: unknown, connected = true): SpotifyNowPlaying {
 
 async function throwPlaybackError(response: Response, fallback: string): Promise<never> {
   const message = await readSpotifyErrorMessage(response, fallback)
+  const normalizedMessage = String(message || "").trim().toLowerCase()
+  const deviceUnavailableLike = normalizedMessage.includes("no active device")
+    || normalizedMessage.includes("no active spotify playback device")
+    || normalizedMessage.includes("device not found")
+    || (normalizedMessage.includes("restriction violated") && normalizedMessage.includes("device"))
   if (response.status === 404) {
+    throw spotifyError("spotify.device_unavailable", "No active Spotify playback device is available.", { status: 409 })
+  }
+  if (response.status === 403 && deviceUnavailableLike) {
     throw spotifyError("spotify.device_unavailable", "No active Spotify playback device is available.", { status: 409 })
   }
   if (response.status === 403) {
@@ -373,6 +381,79 @@ async function pickLikedTrackUri(scope?: SpotifyScope): Promise<string> {
   return uri
 }
 
+const PLAY_CONTINUATION_QUEUE_TARGET = Math.max(
+  2,
+  Math.min(12, Number.parseInt(process.env.NOVA_SPOTIFY_CONTINUATION_QUEUE_TARGET || "8", 10) || 8),
+)
+
+function extractTrackIdFromUri(uri: string): string {
+  const normalized = String(uri || "").trim()
+  if (!normalized) return ""
+  if (normalized.startsWith("spotify:track:")) {
+    return normalized.replace("spotify:track:", "").trim()
+  }
+  return ""
+}
+
+async function fetchRecommendationUrisFromSeedTrack(seedTrackId: string, scope?: SpotifyScope): Promise<string[]> {
+  const normalizedSeed = String(seedTrackId || "").trim()
+  if (!normalizedSeed) return []
+  const params = new URLSearchParams({
+    limit: String(Math.max(1, Math.min(20, PLAY_CONTINUATION_QUEUE_TARGET))),
+    seed_tracks: normalizedSeed,
+  })
+  const response = await spotifyApiRequest(
+    `${SPOTIFY_API_BASE}/recommendations?${params.toString()}`,
+    { method: "GET" },
+    "spotify_continuation_recommendations",
+    scope,
+  )
+  if (!response.ok) return []
+  const payload = await response.json().catch(() => null) as {
+    tracks?: Array<{ uri?: string }>
+  } | null
+  const uris = Array.isArray(payload?.tracks)
+    ? payload.tracks.map((track) => String(track?.uri || "").trim()).filter(Boolean)
+    : []
+  return uris
+}
+
+async function enqueueTrackUri(uri: string, scope?: SpotifyScope): Promise<boolean> {
+  const normalized = String(uri || "").trim()
+  if (!normalized) return false
+  const endpoint = `${SPOTIFY_API_BASE}/me/player/queue?uri=${encodeURIComponent(normalized)}`
+  const response = await spotifyApiRequest(endpoint, { method: "POST" }, "spotify_continuation_queue", scope)
+  if (response.status === 204 || response.status === 202 || response.status === 200 || response.ok) return true
+  if (response.status !== 404 && response.status !== 403) return false
+  const activated = await activateSpotifyDevice(scope).catch(() => false)
+  if (!activated) return false
+  await new Promise((resolve) => setTimeout(resolve, 350))
+  const retry = await spotifyApiRequest(endpoint, { method: "POST" }, "spotify_continuation_queue_retry_after_activate", scope)
+  return retry.status === 204 || retry.status === 202 || retry.status === 200 || retry.ok
+}
+
+async function primeContinuationQueueFromTrackUri(trackUri: string, scope?: SpotifyScope): Promise<number> {
+  const seedTrackId = extractTrackIdFromUri(trackUri)
+  if (!seedTrackId) return 0
+  try {
+    // Allow playback to settle before queueing follow-up tracks.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const recommendationUris = await fetchRecommendationUrisFromSeedTrack(seedTrackId, scope)
+    if (recommendationUris.length === 0) return 0
+    let queued = 0
+    for (const uri of recommendationUris) {
+      if (uri === trackUri) continue
+      const ok = await enqueueTrackUri(uri, scope).catch(() => false)
+      if (!ok) continue
+      queued += 1
+      if (queued >= PLAY_CONTINUATION_QUEUE_TARGET) break
+    }
+    return queued
+  } catch {
+    return 0
+  }
+}
+
 async function sendPlayerCommand(
   action: "play" | "pause" | "next" | "previous",
   payload: Record<string, unknown> | null,
@@ -399,7 +480,7 @@ async function sendPlayerCommand(
 
   // Spotify may report "no active device" even when desktop app is open but idle.
   // For play-like actions, auto-activate an available device once and retry.
-  if (action === "play" && response.status === 404) {
+  if (action === "play" && (response.status === 404 || response.status === 403)) {
     const activated = await activateSpotifyDevice(scope)
     if (activated) {
       await new Promise((resolve) => setTimeout(resolve, 350))
@@ -657,6 +738,7 @@ export async function controlSpotifyPlayback(
       const likedUri = await pickLikedTrackUri(scope)
       if (likedUri) {
         await sendPlayerCommand("play", { uris: [likedUri] }, scope)
+        void primeContinuationQueueFromTrackUri(likedUri, scope)
         return { ok: true, action, message: "Playing a song from your liked tracks.", skipNowPlayingRefresh: true }
       }
       throw spotifyError("spotify.not_found", "No liked songs found and nothing is playing to base recommendations on.", { status: 404 })
@@ -669,6 +751,7 @@ export async function controlSpotifyPlayback(
     const recoUri = String(recoTrack?.uri || "").trim()
     if (!recoUri) throw spotifyError("spotify.not_found", "Couldn't find a recommendation right now.", { status: 404 })
     await sendPlayerCommand("play", { uris: [recoUri] }, scope)
+    void primeContinuationQueueFromTrackUri(recoUri, scope)
     const trackName = String(recoTrack?.name || "").trim()
     const artistName = String(recoTrack?.artists?.[0]?.name || "").trim()
     return {
@@ -693,6 +776,7 @@ export async function controlSpotifyPlayback(
       throw spotifyError("spotify.not_found", "No liked songs found. Save a favorite playlist first or add songs to your Liked Songs.", { status: 404 })
     }
     await sendPlayerCommand("play", { uris: [likedUri] }, scope)
+    void primeContinuationQueueFromTrackUri(likedUri, scope)
     return { ok: true, action, message: "Playing a liked song.", skipNowPlayingRefresh: true }
   }
 
@@ -806,6 +890,7 @@ export async function controlSpotifyPlayback(
     // Fire play and return without waiting for now-playing confirmation (~300ms saved).
     // UI will pick up the new track on its next poll cycle (8s when playing).
     await sendPlayerCommand("play", { uris: [uri] }, scope)
+    void primeContinuationQueueFromTrackUri(uri, scope)
     return {
       ok: true,
       action,
@@ -850,6 +935,9 @@ export async function controlSpotifyPlayback(
     ? { context_uri: uri }
     : { uris: [uri] }
   await sendPlayerCommand("play", playBody, scope)
+  if (searchType !== "album" && searchType !== "playlist" && searchType !== "artist") {
+    void primeContinuationQueueFromTrackUri(uri, scope)
+  }
   let nowPlaying = await getSpotifyNowPlaying(scope)
   if (strictTrackArtist) {
     const verification = await waitForStrictTrackArtistVerification(strictTrackArtist, scope)

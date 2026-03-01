@@ -1,5 +1,6 @@
 import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
 import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 export function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "")
@@ -22,7 +23,7 @@ export function formatDailyTime(time: string, timezone: string): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: timezone || "America/New_York",
+    timeZone: resolveTimezone(timezone),
   }).format(date)
 }
 

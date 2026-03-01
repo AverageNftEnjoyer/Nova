@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
 
+import { syncMissionScheduleToGoogleCalendar, syncNotificationScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import { exchangeCodeForGmailCalendarTokens, parseGmailCalendarOAuthState } from "@/lib/integrations/google-calender/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
+import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { loadMissions } from "@/lib/missions/store"
+import { loadSchedules } from "@/lib/notifications/store"
 import { logGmailCalendarApi } from "../_shared"
 
 export const runtime = "nodejs"
@@ -88,6 +92,46 @@ function popupCloseResponse(params: { status: "success" | "error"; message: stri
   })
 }
 
+const BACKFILL_TIMEOUT_MS = 15_000
+
+async function backfillGoogleCalendarMirrorsForUser(userContextId: string): Promise<void> {
+  const scope: IntegrationsStoreScope = {
+    userId: userContextId,
+    allowServiceRole: true,
+    serviceRoleReason: "gmail-calendar-oauth-callback",
+  }
+  const [missions, schedules] = await Promise.all([
+    loadMissions({ userId: userContextId }),
+    loadSchedules({ userId: userContextId }),
+  ])
+
+  let missionFailures = 0
+  for (const mission of missions) {
+    try {
+      await syncMissionScheduleToGoogleCalendar({ mission, scope })
+    } catch {
+      missionFailures += 1
+    }
+  }
+
+  let scheduleFailures = 0
+  for (const schedule of schedules) {
+    try {
+      await syncNotificationScheduleToGoogleCalendar({ schedule, scope })
+    } catch {
+      scheduleFailures += 1
+    }
+  }
+
+  logGmailCalendarApi("callback.mirror_backfill.completed", {
+    userContextId,
+    missionCount: missions.length,
+    missionFailures,
+    scheduleCount: schedules.length,
+    scheduleFailures,
+  })
+}
+
 export async function GET(req: Request) {
   const requestUrl = new URL(req.url)
   const code = String(requestUrl.searchParams.get("code") || "").trim()
@@ -127,6 +171,17 @@ export async function GET(req: Request) {
       userId: parsedState.userId,
       allowServiceRole: true,
       serviceRoleReason: "gmail-calendar-oauth-callback",
+    })
+    await Promise.race([
+      backfillGoogleCalendarMirrorsForUser(parsedState.userId),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Calendar mirror backfill timed out")), BACKFILL_TIMEOUT_MS),
+      ),
+    ]).catch((error) => {
+      logGmailCalendarApi("callback.mirror_backfill.failed", {
+        userContextId: parsedState.userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     })
     logGmailCalendarApi("callback.exchange.success", { userContextId: parsedState.userId, returnTo })
     if (popupFlow) {

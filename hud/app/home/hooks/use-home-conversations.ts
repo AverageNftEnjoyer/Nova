@@ -1,5 +1,4 @@
 "use client"
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"

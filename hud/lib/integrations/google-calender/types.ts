@@ -8,12 +8,13 @@ import type { IntegrationsStoreScope } from "../server-store"
 
 export const GCALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 
-export const GMAIL_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+export const GMAIL_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
 
 export type GmailCalendarScope = IntegrationsStoreScope
 
 export interface GmailCalendarEventItem {
   id: string
+  calendarId?: string
   summary?: string
   description?: string
   start?: { dateTime?: string; date?: string; timeZone?: string }
@@ -22,4 +23,12 @@ export interface GmailCalendarEventItem {
   htmlLink?: string
   organizer?: { email?: string }
   attendees?: Array<{ email?: string; responseStatus?: string; self?: boolean }>
+}
+
+export interface GmailCalendarListItem {
+  id: string
+  summary?: string
+  primary?: boolean
+  selected?: boolean
+  accessRole?: string
 }

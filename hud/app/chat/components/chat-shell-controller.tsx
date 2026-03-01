@@ -38,11 +38,6 @@ export interface Message {
   nlpBypass?: boolean
 }
 
-function hasRenderableAssistantContent(content: string | undefined): boolean {
-  if (!content) return false
-  return content.replace(/[\u200B-\u200D\uFEFF]/g, "").trim().length > 0
-}
-
 export function ChatShellController() {
   const router = useRouter()
 
@@ -51,7 +46,7 @@ export function ChatShellController() {
     state: novaState,
     thinkingStatus,
     connected: agentConnected,
-    agentMessages,
+    chatTransportEvents,
     streamingAssistantId,
     hudMessageAckVersion,
     hasHudMessageAck,
@@ -86,7 +81,7 @@ export function ChatShellController() {
     pendingQueueStatus,
   } = useConversations({
     agentConnected,
-    agentMessages,
+    chatTransportEvents,
     clearAgentMessages,
   })
 
@@ -130,25 +125,12 @@ export function ChatShellController() {
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
 
-  // Single stable thinking signal — computed atomically to prevent inter-render flicker.
-  // Priority: backend novaState → streamingAssistantId (set before activeConvo.messages catches up)
-  // → agentMessages scan. Any one truthy keeps the orb visible.
+  // Single canonical thinking signal from runtime state + active stream id.
   const isThinking = useMemo(() => {
     if (novaState === "thinking") return true
-    // streamingAssistantId is set before the first chunk lands in activeConvo.messages,
-    // so using it directly eliminates the race window that caused the orb to flicker off.
     if (streamingAssistantId) return true
-    const activeConvoId = String(activeConvo?.id || "").trim()
-    if (!activeConvoId) return false
-    for (let i = agentMessages.length - 1; i >= 0; i -= 1) {
-      const item = agentMessages[i]
-      const itemConvoId = typeof item.conversationId === "string" ? item.conversationId.trim() : ""
-      if (!itemConvoId || itemConvoId !== activeConvoId) continue
-      if (item.role === "user") return true
-      if (item.role === "assistant" && hasRenderableAssistantContent(item.content)) return false
-    }
     return false
-  }, [novaState, streamingAssistantId, activeConvo?.id, agentMessages])
+  }, [novaState, streamingAssistantId])
 
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
@@ -312,6 +294,7 @@ export function ChatShellController() {
     activeConvo,
     conversations,
     agentConnected,
+    hasHudMessageAck,
     sendToAgent,
     handleSelectConvo,
     getSupabaseAccessToken,
@@ -372,6 +355,28 @@ export function ChatShellController() {
       cleanups.forEach((cleanup) => cleanup())
     }
   }, [spotlightEnabled])
+
+  useEffect(() => {
+    const lockLayerSelector = [
+      "[aria-modal='true']",
+      "[role='dialog'][data-state='open']",
+      "[role='alertdialog'][data-state='open']",
+      "[data-slot='dropdown-menu-content'][data-state='open']",
+      "[data-slot='dropdown-menu-sub-content'][data-state='open']",
+    ].join(", ")
+    const interval = window.setInterval(() => {
+      const body = document.body
+      const root = document.documentElement
+      if (!body || !root) return
+      const bodyPointer = String(body.style.pointerEvents || "").trim().toLowerCase()
+      const rootPointer = String(root.style.pointerEvents || "").trim().toLowerCase()
+      if (bodyPointer !== "none" && rootPointer !== "none") return
+      if (document.querySelector(lockLayerSelector)) return
+      body.style.removeProperty("pointer-events")
+      root.style.removeProperty("pointer-events")
+    }, 2_000)
+    return () => window.clearInterval(interval)
+  }, [])
 
   // Send message
   const sendMessage = useCallback(
@@ -781,4 +786,6 @@ export function ChatShellController() {
     </div>
   )
 }
+
+
 

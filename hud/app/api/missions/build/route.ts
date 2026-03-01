@@ -9,6 +9,8 @@ import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { finalizeMissionBuildRequest, reserveMissionBuildRequest } from "@/lib/missions/build-idempotency"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
+import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -106,7 +108,7 @@ export async function POST(req: Request) {
     const triggerNode = mission.nodes.find((n) => n.type === "schedule-trigger") as
       | { triggerTime?: string; triggerTimezone?: string } | undefined
     const scheduleTime = triggerNode?.triggerTime || "09:00"
-    const scheduleTimezone = timezoneOverride || triggerNode?.triggerTimezone || "America/New_York"
+    const scheduleTimezone = resolveTimezone(timezoneOverride, triggerNode?.triggerTimezone, mission.settings?.timezone)
 
     // Backward-compat wrapper so existing agent consumers (chat-special-handlers.js)
     // can still read workflow.label and workflow.summary.schedule.*
@@ -157,6 +159,9 @@ export async function POST(req: Request) {
 
     const deployedMission = { ...mission, status: "active" as const, settings: { ...mission.settings, timezone: scheduleTimezone } }
     await upsertMission(deployedMission, userId)
+    await syncMissionScheduleToGoogleCalendar({ mission: deployedMission, scope: verified }).catch((error) => {
+      console.warn("[missions.build][gcalendar_sync] schedule mirror failed:", error instanceof Error ? error.message : String(error))
+    })
 
     const payload = { ...responseBase, deployed: true, mission: deployedMission, idempotencyKey: reservation.key }
     await finalizeMissionBuildRequest({ key: reservation.key, userContextId: userId, ok: true, result: payload })

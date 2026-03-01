@@ -35,8 +35,6 @@ export function useConversationActions(params: {
   latestConversationsRef: MutableRefObject<Conversation[]>
   latestActiveConvoIdRef: MutableRefObject<string>
   missionInFlightByScopeRef: MutableRefObject<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>
-  mergedCountRef: MutableRefObject<number>
-  processedAgentMessageKeysRef: MutableRefObject<Set<string>>
 }) {
   const {
     router,
@@ -60,8 +58,6 @@ export function useConversationActions(params: {
     latestConversationsRef,
     latestActiveConvoIdRef,
     missionInFlightByScopeRef,
-    mergedCountRef,
-    processedAgentMessageKeysRef,
   } = params
 
   const handleNewChat = useCallback(() => {
@@ -107,8 +103,6 @@ export function useConversationActions(params: {
 
       if (activeConvo?.id === normalizedId) {
         clearAgentMessages()
-        mergedCountRef.current = 0
-        processedAgentMessageKeysRef.current.clear()
 
         if (remaining.length > 0) {
           persist(remaining, remaining[0])
@@ -142,7 +136,7 @@ export function useConversationActions(params: {
         sessionMap.delete(linkedId)
       }
     },
-    [conversations, activeConvo, clearAgentMessages, createServerConversation, deleteServerConversation, mergedCountRef, persist, processedAgentMessageKeysRef, optimisticIdToServerIdRef, sessionConversationIdByConversationIdRef],
+    [conversations, activeConvo, clearAgentMessages, createServerConversation, deleteServerConversation, persist, optimisticIdToServerIdRef, sessionConversationIdByConversationIdRef],
   )
 
   const handleRenameConvo = useCallback(
@@ -222,6 +216,7 @@ export function useConversationActions(params: {
 
       const convos = conversations.map((c) => (c.id === updated.id ? updated : c))
       persist(convos, updated)
+      void syncServerMessages(updated).catch(() => {})
       if (updated.title !== activeConvo.title) {
         const mappedId = optimisticIdToServerIdRef.current.get(updated.id)
         const targetId = mappedId || updated.id
@@ -232,7 +227,7 @@ export function useConversationActions(params: {
 
       return updated
     },
-    [activeConvo, conversations, patchServerConversation, persist, optimisticIdToServerIdRef],
+    [activeConvo, conversations, patchServerConversation, persist, optimisticIdToServerIdRef, syncServerMessages],
   )
 
   const addAssistantMessage = useCallback(

@@ -7,6 +7,9 @@
 
 import type { Mission, MissionNode, MissionConnection, MissionCategory, Provider } from "./types"
 import { defaultMissionSettings } from "./types"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
+
+const TEMPLATE_TIMEZONE = getRuntimeTimezone()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Template Builder Helpers
@@ -72,7 +75,7 @@ const MORNING_BRIEFING: MissionTemplate = makeTemplate(
   ["news", "daily", "morning", "briefing"],
   "Newspaper",
   [
-    { ...n("t1", 100, 200), type: "schedule-trigger", label: "Daily at 8:00 AM", triggerMode: "daily", triggerTime: "08:00", triggerTimezone: "America/New_York" } as MissionNode,
+    { ...n("t1", 100, 200), type: "schedule-trigger", label: "Daily at 8:00 AM", triggerMode: "daily", triggerTime: "08:00", triggerTimezone: TEMPLATE_TIMEZONE } as MissionNode,
     { ...n("s1", 320, 200), type: "web-search", label: "Search Headlines", query: "top world news headlines today site:reuters.com OR site:apnews.com OR site:bbc.com", includeSources: false, fetchContent: true } as MissionNode,
     { ...n("a1", 540, 200), type: "ai-summarize", label: "Summarize Briefing", prompt: "Write a concise morning briefing with 5-7 bullet points. Include one short 'Watch Today' section.", integration: "claude", detailLevel: "standard" } as MissionNode,
     { ...n("o1", 760, 200), type: "telegram-output", label: "Send to Telegram" } as MissionNode,
@@ -89,7 +92,7 @@ const COMPETITOR_MONITOR: MissionTemplate = makeTemplate(
   ["competitor", "market", "intelligence", "weekly"],
   "Eye",
   [
-    { ...n("t1", 100, 200), type: "schedule-trigger", label: "Weekly Monday 9:00 AM", triggerMode: "weekly", triggerTime: "09:00", triggerDays: ["mon"], triggerTimezone: "America/New_York" } as MissionNode,
+    { ...n("t1", 100, 200), type: "schedule-trigger", label: "Weekly Monday 9:00 AM", triggerMode: "weekly", triggerTime: "09:00", triggerDays: ["mon"], triggerTimezone: TEMPLATE_TIMEZONE } as MissionNode,
     { ...n("s1", 320, 200), type: "web-search", label: "Search Competitor News", query: "{{$vars.competitor_name}} product launch announcement news this week", includeSources: true, fetchContent: true } as MissionNode,
     { ...n("a1", 540, 200), type: "ai-summarize", label: "Analyze Competitor Activity", prompt: "Summarize key competitor moves this week. Flag any new product launches, pricing changes, or strategic shifts. Include an impact assessment.", integration: "claude", detailLevel: "standard" } as MissionNode,
     { ...n("o1", 760, 200), type: "telegram-output", label: "Send to Telegram" } as MissionNode,

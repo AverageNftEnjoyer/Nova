@@ -107,10 +107,23 @@ export function SpotifyHomeModule({
     // Seed immediately from snapshot + time already elapsed since it arrived
     const elapsed = Date.now() - lastSnapshotAt.current
     setLiveProgressMs(Math.min(nowPlaying.durationMs, (nowPlaying.progressMs || 0) + elapsed))
-    const timer = window.setInterval(() => {
-      setLiveProgressMs((prev) => Math.min(nowPlaying.durationMs, prev + 250))
-    }, 250)
-    return () => window.clearInterval(timer)
+
+    // Use a tighter tick in the final 10s for smooth end-of-track display;
+    // use a coarser tick otherwise to reduce unnecessary re-renders.
+    let timer: number
+    const schedule = () => {
+      const remaining = nowPlaying.durationMs - (Date.now() - lastSnapshotAt.current + (nowPlaying.progressMs || 0))
+      const tick = remaining <= 10_000 ? 250 : 500
+      timer = window.setTimeout(() => {
+        setLiveProgressMs((prev) => {
+          const next = Math.min(nowPlaying.durationMs, prev + tick)
+          return next
+        })
+        schedule()
+      }, tick)
+    }
+    schedule()
+    return () => window.clearTimeout(timer)
   }, [connected, nowPlaying?.playing, nowPlaying?.durationMs, nowPlaying?.progressMs])
 
   // When repeat is on and the track finishes, seek back to the start exactly once.
@@ -348,6 +361,8 @@ export function SpotifyHomeModule({
   }, [onTogglePlayPause])
 
   return (
+    <>
+    <style>{`@keyframes spinRecord { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     <section
       ref={sectionRef}
       style={panelStyle}
@@ -574,13 +589,14 @@ export function SpotifyHomeModule({
                     onClick={handlePlayPause}
                     disabled={Boolean(busyAction) && !isDeviceUnavailable}
                     className={cn(
-                      "inline-flex h-9 w-9 items-center justify-center rounded-full text-black transition-transform hover:scale-[1.03] active:scale-[0.98]",
+                      "inline-flex h-9 w-9 items-center justify-center rounded-full text-black hover:scale-[1.03] active:scale-[0.98]",
                       busyAction && !isDeviceUnavailable ? "opacity-70" : "",
                     )}
                     style={{
                       background: spotifyTheme.playPauseFill,
                       color: spotifyTheme.controlForeground,
-                      transition: "background 300ms ease, color 220ms ease",
+                      transition: "background 300ms ease, color 220ms ease, transform 150ms ease",
+                      animation: nowPlayingState && !isDeviceUnavailable ? "spinRecord 4s linear infinite" : undefined,
                     }}
                     aria-label={isDeviceUnavailable ? "Launch Spotify" : nowPlayingState ? "Pause Spotify" : "Play Spotify"}
                     title={isDeviceUnavailable ? "Launch Spotify" : undefined}
@@ -593,7 +609,7 @@ export function SpotifyHomeModule({
                         <rect x="13.5" y="5" width="4.5" height="14" rx="1" />
                       </svg>
                     ) : (
-                      <svg viewBox="0 0 24 24" className="h-6 w-6 translate-x-[1px] fill-current" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6 translate-x-px fill-current" aria-hidden="true">
                         <path d="M8 5.5v13l10-6.5z" />
                       </svg>
                     )}
@@ -662,5 +678,6 @@ export function SpotifyHomeModule({
         </div>
       </div>
     </section>
+    </>
   )
 }

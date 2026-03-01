@@ -4,7 +4,11 @@
  * All OAuth uses the same Google app as Gmail — no separate client ID/secret.
  */
 import { buildGmailCalendarOAuthUrl as buildOAuthUrl, parseGmailCalendarOAuthState as parseOAuthState } from "./auth.ts"
-import { listGmailCalendarEvents as listEvents } from "./events.ts"
+import {
+  createGmailCalendarEvent as createEvent,
+  deleteGmailCalendarEvent as deleteEvent,
+  listAllGmailCalendarEvents as listAllEvents,
+} from "./events.ts"
 import {
   disconnectGmailCalendar as disconnectTokens,
   exchangeCodeForGmailCalendarTokens,
@@ -38,6 +42,36 @@ export async function listCalendarEvents(
   accountId?: string,
   scope?: GmailCalendarScope,
 ): Promise<GmailCalendarEventItem[]> {
-  return listEvents(timeMin, timeMax, { accountId, scope })
+  return listAllEvents(timeMin, timeMax, { accountId, scope })
+}
+
+export async function createCalendarEvent(
+  event: {
+    summary: string
+    description?: string
+    startAt: Date
+    endAt: Date
+    timeZone?: string
+    eventId?: string
+    recurrence?: string[]
+  },
+  options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: GmailCalendarScope
+  },
+): Promise<GmailCalendarEventItem> {
+  return createEvent(event, options)
+}
+
+export async function deleteCalendarEvent(
+  eventId: string,
+  options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: GmailCalendarScope
+  },
+): Promise<void> {
+  return deleteEvent(eventId, options)
 }
 

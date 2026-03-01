@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import crypto from "node:crypto"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
@@ -26,6 +27,30 @@ type IncomingMessage = {
   missionOutputChannel?: string
 }
 
+function stableUuidFromSeed(seed: string): string {
+  const base = crypto.createHash("sha256").update(seed).digest("hex").slice(0, 32).split("")
+  base[12] = "4"
+  const variantNibble = Number.parseInt(base[16] || "0", 16)
+  base[16] = ((variantNibble & 0x3) | 0x8).toString(16)
+  return `${base.slice(0, 8).join("")}-${base.slice(8, 12).join("")}-${base.slice(12, 16).join("")}-${base.slice(16, 20).join("")}-${base.slice(20, 32).join("")}`
+}
+
+function buildStableMessageRowId(threadId: string, userId: string, message: IncomingMessage, index: number): string {
+  const clientMessageId = typeof message.id === "string" ? message.id.trim() : ""
+  if (clientMessageId) {
+    return stableUuidFromSeed(`thread:${threadId}:user:${userId}:client:${clientMessageId}`)
+  }
+  const fallbackSeed = [
+    `thread:${threadId}`,
+    `user:${userId}`,
+    `idx:${index}`,
+    `role:${message.role === "assistant" ? "assistant" : "user"}`,
+    `created:${String(message.createdAt || "")}`,
+    `content:${String(message.content || "")}`,
+  ].join("|")
+  return stableUuidFromSeed(fallbackSeed)
+}
+
 export async function PUT(
   req: Request,
   context: { params: Promise<{ threadId: string }> },
@@ -51,18 +76,9 @@ export async function PUT(
     return NextResponse.json({ ok: false, error: "Thread not found." }, { status: 404 })
   }
 
-  const { error: deleteError } = await verified.client
-    .from("messages")
-    .delete()
-    .eq("thread_id", threadId)
-    .eq("user_id", verified.user.id)
-
-  if (deleteError) {
-    return NextResponse.json({ ok: false, error: deleteError.message }, { status: 500 })
-  }
-
   if (messages.length > 0) {
-    const rows = messages.map((m) => ({
+    const rows = messages.map((m, index) => ({
+      id: buildStableMessageRowId(threadId, verified.user.id, m, index),
       thread_id: threadId,
       user_id: verified.user.id,
       role: m.role === "assistant" ? "assistant" : "user",
@@ -96,9 +112,11 @@ export async function PUT(
       },
       created_at: String(m.createdAt || new Date().toISOString()),
     }))
-    const { error: insertError } = await verified.client.from("messages").insert(rows)
-    if (insertError) {
-      return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 })
+    const { error: upsertError } = await verified.client
+      .from("messages")
+      .upsert(rows, { onConflict: "id" })
+    if (upsertError) {
+      return NextResponse.json({ ok: false, error: upsertError.message }, { status: 500 })
     }
   }
 

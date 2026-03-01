@@ -210,6 +210,15 @@ function mergeMissionPrompt(basePrompt, incomingText) {
   return `${base}. ${incoming}`.replace(/\s+/g, " ").trim();
 }
 
+function emitSingleChunkAssistantStream(replyText, source, conversationId, userContextId) {
+  const normalizedReply = String(replyText || "").trim();
+  if (!normalizedReply) return;
+  const streamId = createAssistantStreamId();
+  broadcastAssistantStreamStart(streamId, source, undefined, conversationId, userContextId);
+  broadcastAssistantStreamDelta(streamId, normalizedReply, source, undefined, conversationId, userContextId);
+  broadcastAssistantStreamDone(streamId, source, undefined, conversationId, userContextId);
+}
+
 function isBlockedNonMusicPlayIntent(text) {
   return /\bplay\s+(a |the )?(game|video|clip|movie|film|role|part)\b/i.test(text);
 }
@@ -241,6 +250,7 @@ function isSpotifyContextualFollowUpIntent(text) {
   if (!normalized) return false;
   return (
     /\b(what(?:'s| is)\s+it\s+called|what(?:'s| is)\s+that\s+called|who\s+sings\s+(?:it|that|this)|who(?:'s| is)\s+singing|what\s+track\s+is\s+(?:that|this)|that\s+song|this\s+song|that\s+track|this\s+track|playing\s+it)\b/i.test(normalized)
+    || /\b(next|previous|prev|skip|go back|restart|replay|start over|from the beginning)\b/i.test(normalized)
     || /\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(normalized)
   );
 }
@@ -336,7 +346,7 @@ async function handleInputCore(text, opts = {}) {
     if (duplicateRecovery) return duplicateRecovery;
     const duplicateReply =
       "I got that same request again and skipped the duplicate. Say 'run it again' if you want me to execute it again.";
-    broadcastMessage("assistant", duplicateReply, source, conversationId, userContextId);
+    emitSingleChunkAssistantStream(duplicateReply, source, conversationId, userContextId);
     appendRawStream({
       event: "request_duplicate_skipped",
       source,

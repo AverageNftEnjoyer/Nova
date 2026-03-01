@@ -3,9 +3,11 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import {
+  type ChatMessage,
   type Conversation,
   getActiveId,
   loadConversations,
+  resolveConversationTitle,
   saveConversations,
   setActiveId,
   DEFAULT_CONVERSATION_TITLE,
@@ -16,14 +18,15 @@ import {
   OPTIMISTIC_ID_REGEX,
   mergeConversationsPreferLocal,
   isLikelyOptimisticDuplicate,
-  type IncomingAgentMessage,
+  normalizeMessageComparableText,
+  parseIsoTimestamp,
 } from "@/lib/chat/hooks/use-conversations/shared"
-import { useAgentMessageMerge } from "@/lib/chat/hooks/use-conversations/agent-merge"
+import type { ChatTransportEvent } from "@/lib/chat/hooks/useNovaState"
 import { useConversationActions } from "@/lib/chat/hooks/use-conversations/conversation-actions"
 
 export interface UseConversationsOptions {
   agentConnected: boolean
-  agentMessages: IncomingAgentMessage[]
+  chatTransportEvents: ChatTransportEvent[]
   clearAgentMessages: () => void
 }
 
@@ -65,9 +68,56 @@ export interface UseConversationsReturn {
   }
 }
 
+function shouldPreferIncomingAssistantVersion(base: string, incoming: string): boolean {
+  const left = normalizeMessageComparableText(base)
+  const right = normalizeMessageComparableText(incoming)
+  if (!left || !right) return false
+  if (left === right) return true
+
+  const leftCompact = left.replace(/[^a-z0-9]+/g, "")
+  const rightCompact = right.replace(/[^a-z0-9]+/g, "")
+  if (!leftCompact || !rightCompact) return false
+  if (rightCompact.includes(leftCompact)) return true
+  if (leftCompact.includes(rightCompact)) return false
+
+  const leftWords = new Set(left.split(/\s+/g).filter(Boolean))
+  const rightWords = new Set(right.split(/\s+/g).filter(Boolean))
+  if (leftWords.size < 8 || rightWords.size < 8) return false
+  let overlap = 0
+  for (const word of leftWords) {
+    if (rightWords.has(word)) overlap += 1
+  }
+  const smaller = Math.min(leftWords.size, rightWords.size)
+  const overlapRatio = smaller > 0 ? overlap / smaller : 0
+  const lenRatio = Math.min(leftCompact.length, rightCompact.length) / Math.max(leftCompact.length, rightCompact.length)
+  return overlapRatio >= 0.82 && lenRatio >= 0.62
+}
+
+function mergeAssistantStreamContent(base: string, incoming: string): string {
+  const left = String(base || "")
+  const right = String(incoming || "")
+  if (!right) return left
+  if (!left) return right
+  if (shouldPreferIncomingAssistantVersion(left, right)) {
+    return right.length >= left.length ? right : left
+  }
+  if (right.length >= left.length && right.startsWith(left)) return right
+  if (left.length >= right.length && left.startsWith(right)) return left
+  if (left.endsWith(right)) return left
+  if (right.endsWith(left)) return right
+  return `${left}${right}`
+}
+
+function resolveTransportSource(value: unknown): "agent" | "hud" | "voice" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "hud") return "hud"
+  if (normalized === "voice") return "voice"
+  return "agent"
+}
+
 export function useConversations({
   agentConnected,
-  agentMessages,
+  chatTransportEvents,
   clearAgentMessages,
 }: UseConversationsOptions): UseConversationsReturn {
   const router = useRouter()
@@ -77,10 +127,9 @@ export function useConversations({
   const [isLoaded, setIsLoaded] = useState(false)
 
   const mergedCountRef = useRef(0)
-  const syncTimersRef = useRef<Map<string, number>>(new Map())
+  const processedTransportSeqRef = useRef(0)
   const activeUserIdRef = useRef("")
   const missionInFlightByScopeRef = useRef<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>(new Map())
-  const processedAgentMessageKeysRef = useRef<Set<string>>(new Set())
   const optimisticIdToServerIdRef = useRef<Map<string, string>>(new Map())
   const sessionConversationIdByConversationIdRef = useRef<Map<string, string>>(new Map())
   const optimisticEnsureInFlightRef = useRef<Set<string>>(new Set())
@@ -244,31 +293,6 @@ export function useConversations({
     [],
   )
 
-  const scheduleServerSync = useCallback((convo: Conversation) => {
-    const existing = syncTimersRef.current.get(convo.id)
-    if (typeof existing === "number") {
-      window.clearTimeout(existing)
-    }
-    const scheduledConvoId = convo.id
-    const timer = window.setTimeout(() => {
-      syncTimersRef.current.delete(scheduledConvoId)
-      const mappedId = optimisticIdToServerIdRef.current.get(scheduledConvoId)
-      const latestConversations = latestConversationsRef.current
-      const latestMapped = mappedId
-        ? latestConversations.find((entry) => entry.id === mappedId)
-        : null
-      const latestByOriginal = latestConversations.find((entry) => entry.id === scheduledConvoId)
-      const latestToSync = latestMapped || latestByOriginal || convo
-
-      if (mappedId && OPTIMISTIC_ID_REGEX.test(scheduledConvoId) && !latestMapped && !latestByOriginal) {
-        return
-      }
-
-      void syncServerMessages(latestToSync).catch(() => {})
-    }, 280)
-    syncTimersRef.current.set(convo.id, timer)
-  }, [syncServerMessages])
-
   const persist = useCallback(
     (convos: Conversation[], active: Conversation | null) => {
       setConversations(convos)
@@ -277,14 +301,175 @@ export function useConversations({
       if (active) {
         setActiveConvo(active)
         setActiveId(active.id)
-        scheduleServerSync(active)
       }
       if (!active) {
         setActiveConvo(null)
         setActiveId(null)
       }
     },
-    [scheduleServerSync],
+    [],
+  )
+
+  const resolveTransportConversationId = useCallback(
+    (rawConversationId: string, source: string, role: "user" | "assistant", pool: Conversation[]): string => {
+      const activeConversationId = String(latestActiveConvoIdRef.current || "").trim()
+      const availableIds = new Set(pool.map((entry) => String(entry.id || "").trim()))
+      const normalized = String(rawConversationId || "").trim()
+      if (normalized) {
+        const candidates: string[] = [normalized]
+        const mappedServerId = optimisticIdToServerIdRef.current.get(normalized)
+        if (mappedServerId && !candidates.includes(mappedServerId)) candidates.push(mappedServerId)
+        for (const [optimisticId, serverId] of optimisticIdToServerIdRef.current.entries()) {
+          if (serverId !== normalized) continue
+          if (!candidates.includes(optimisticId)) candidates.push(optimisticId)
+        }
+        if (activeConversationId && candidates.includes(activeConversationId) && availableIds.has(activeConversationId)) {
+          return activeConversationId
+        }
+        for (const candidate of candidates) {
+          if (availableIds.has(candidate)) return candidate
+        }
+      }
+
+      if (!activeConversationId || !availableIds.has(activeConversationId)) return ""
+      if (role === "assistant") {
+        // Enforce strict thread isolation: assistant events must include conversationId.
+        // Falling back to the active thread can leak output into the wrong session.
+        return ""
+      }
+      if (source === "hud") return activeConversationId
+      return ""
+    },
+    [],
+  )
+
+  const applyTransportEventToConversation = useCallback(
+    (convo: Conversation, event: ChatTransportEvent, allConversations: Conversation[]) => {
+      let nextMessages = convo.messages
+      let changed = false
+      let titleChanged = false
+      let shouldSync = false
+      const eventTsIso = new Date(Number(event.ts || Date.now())).toISOString()
+
+      const updateConversation = () => {
+        if (!changed) return convo
+        const nextTitle = titleChanged
+          ? resolveConversationTitle({
+              messages: nextMessages,
+              currentTitle: convo.title,
+              conversations: allConversations,
+              conversationId: convo.id,
+            })
+          : convo.title
+        return {
+          ...convo,
+          messages: nextMessages,
+          updatedAt: eventTsIso,
+          title: nextTitle,
+        }
+      }
+
+      if (event.type === "message") {
+        const normalizedContent = String(event.content || "").trim()
+        if (!normalizedContent) return { conversation: convo, changed, shouldSync, titleChanged }
+        const source = String(event.source || "").trim().toLowerCase()
+        const sender = String(event.sender || "").trim().toLowerCase()
+        if (source === "hud" || sender === "hud-user") {
+          return { conversation: convo, changed, shouldSync, titleChanged }
+        }
+        const existsById = convo.messages.some((msg) => String(msg.id || "").trim() === String(event.id || "").trim())
+        const comparableContent = normalizeMessageComparableText(normalizedContent)
+        const eventTs = Number(event.ts || 0)
+        const existsBySemanticWindow = comparableContent
+          ? convo.messages.some((msg) => {
+              if (msg.role !== "user") return false
+              if (normalizeMessageComparableText(String(msg.content || "")) !== comparableContent) return false
+              if (eventTs <= 0) return false
+              return Math.abs(parseIsoTimestamp(msg.createdAt) - eventTs) <= 2_000
+            })
+          : false
+        if (!existsById && !existsBySemanticWindow) {
+          const nextUserMessage: ChatMessage = {
+            id: String(event.id || "").trim() || `evt-${event.seq}`,
+            role: "user",
+            content: normalizedContent,
+            createdAt: eventTsIso,
+            source: resolveTransportSource(event.source),
+            sender: event.sender,
+            ...(event.nlpCleanText ? { nlpCleanText: event.nlpCleanText } : {}),
+            ...(typeof event.nlpConfidence === "number" ? { nlpConfidence: event.nlpConfidence } : {}),
+            ...(typeof event.nlpCorrectionCount === "number" ? { nlpCorrectionCount: event.nlpCorrectionCount } : {}),
+            ...(event.nlpBypass ? { nlpBypass: true } : {}),
+          }
+          nextMessages = [...convo.messages, nextUserMessage]
+          changed = true
+          titleChanged = true
+          shouldSync = true
+        }
+        return { conversation: updateConversation(), changed, shouldSync, titleChanged }
+      }
+
+      const assistantId = String(event.id || "").trim()
+      if (!assistantId) return { conversation: convo, changed, shouldSync, titleChanged }
+      const existingIdx = convo.messages.findIndex((msg) => msg.role === "assistant" && String(msg.id || "").trim() === assistantId)
+
+      if (event.type === "assistant_stream_start") {
+        if (existingIdx === -1) {
+          const nextAssistantMessage: ChatMessage = {
+            id: assistantId,
+            role: "assistant",
+            content: "",
+            createdAt: eventTsIso,
+            source: resolveTransportSource(event.source),
+            sender: event.sender,
+          }
+          nextMessages = [...convo.messages, nextAssistantMessage]
+          changed = true
+        }
+        return { conversation: updateConversation(), changed, shouldSync, titleChanged }
+      }
+
+      if (event.type === "assistant_stream_delta") {
+        const deltaContent = String(event.content || "")
+        if (!deltaContent) return { conversation: convo, changed, shouldSync, titleChanged }
+        if (existingIdx === -1) {
+          const nextAssistantMessage: ChatMessage = {
+            id: assistantId,
+            role: "assistant",
+            content: deltaContent,
+            createdAt: eventTsIso,
+            source: resolveTransportSource(event.source),
+            sender: event.sender,
+          }
+          nextMessages = [...convo.messages, nextAssistantMessage]
+          changed = true
+          return { conversation: updateConversation(), changed, shouldSync, titleChanged }
+        }
+        const existing = convo.messages[existingIdx]
+        const mergedContent = mergeAssistantStreamContent(existing.content, deltaContent)
+        if (mergedContent !== existing.content) {
+          const next = [...convo.messages]
+          next[existingIdx] = {
+            ...existing,
+            content: mergedContent,
+            source: resolveTransportSource(event.source),
+            sender: event.sender || existing.sender,
+            createdAt: parseIsoTimestamp(existing.createdAt) >= Number(event.ts || 0) ? existing.createdAt : eventTsIso,
+          }
+          nextMessages = next
+          changed = true
+        }
+        return { conversation: updateConversation(), changed, shouldSync, titleChanged }
+      }
+
+      if (event.type === "assistant_stream_done") {
+        shouldSync = true
+        return { conversation: updateConversation(), changed, shouldSync, titleChanged }
+      }
+
+      return { conversation: convo, changed, shouldSync, titleChanged }
+    },
+    [],
   )
 
   useLayoutEffect(() => {
@@ -367,31 +552,85 @@ export function useConversations({
     }
   }, [createServerConversation, fetchConversationsFromServer, reconcileOptimisticConversationMappings, resolveConversationSelectionId])
 
-  useAgentMessageMerge({
-    agentMessages,
-    activeConvo,
-    conversations,
-    activeUserIdRef,
-    latestConversationsRef,
-    optimisticIdToServerIdRef,
-    missionInFlightByScopeRef,
-    processedAgentMessageKeysRef,
-    mergedCountRef,
-    persist,
-    scheduleServerSync,
-    patchServerConversation,
-    resolveSessionConversationIdForAgent,
-  })
-
   useEffect(() => {
-    const syncTimers = syncTimersRef.current
-    return () => {
-      for (const timer of syncTimers.values()) {
-        window.clearTimeout(timer)
-      }
-      syncTimers.clear()
+    if (chatTransportEvents.length === 0) {
+      processedTransportSeqRef.current = 0
+      mergedCountRef.current = 0
+      return
     }
-  }, [])
+    const latestSeq = chatTransportEvents[chatTransportEvents.length - 1]?.seq ?? 0
+    if (latestSeq < processedTransportSeqRef.current) {
+      processedTransportSeqRef.current = 0
+    }
+    const pending = chatTransportEvents.filter((event) => event.seq > processedTransportSeqRef.current)
+    if (pending.length === 0) return
+    processedTransportSeqRef.current = pending[pending.length - 1].seq
+    mergedCountRef.current = processedTransportSeqRef.current
+
+    const baseConversations = latestConversationsRef.current
+    if (baseConversations.length === 0) return
+
+    let nextConversations = baseConversations
+    let conversationsChanged = false
+    const changedById = new Map<string, Conversation>()
+    const syncConversationIds = new Set<string>()
+    const titledConversationIds = new Set<string>()
+
+    for (const event of pending) {
+      const targetConversationId = resolveTransportConversationId(
+        typeof event.conversationId === "string" ? event.conversationId : "",
+        typeof event.source === "string" ? event.source : "",
+        event.type === "message" ? "user" : "assistant",
+        nextConversations,
+      )
+      if (!targetConversationId) continue
+      const convoIndex = nextConversations.findIndex((entry) => entry.id === targetConversationId)
+      if (convoIndex < 0) continue
+      const currentConversation = nextConversations[convoIndex]
+      const outcome = applyTransportEventToConversation(currentConversation, event, nextConversations)
+      if (outcome.shouldSync) syncConversationIds.add(targetConversationId)
+      if (!outcome.changed) continue
+
+      if (!conversationsChanged) {
+        nextConversations = [...nextConversations]
+        conversationsChanged = true
+      }
+      nextConversations[convoIndex] = outcome.conversation
+      changedById.set(targetConversationId, outcome.conversation)
+      if (outcome.titleChanged) titledConversationIds.add(targetConversationId)
+    }
+
+    if (conversationsChanged) {
+      const nextActiveId = String(latestActiveConvoIdRef.current || "").trim()
+      const nextActive = nextActiveId ? nextConversations.find((entry) => entry.id === nextActiveId) ?? null : null
+      persist(nextConversations, nextActive)
+    }
+
+    if (titledConversationIds.size > 0) {
+      for (const convoId of titledConversationIds) {
+        const previous = baseConversations.find((entry) => entry.id === convoId)
+        const next = changedById.get(convoId) || nextConversations.find((entry) => entry.id === convoId)
+        if (!previous || !next || next.title === previous.title) continue
+        void patchServerConversation(convoId, { title: next.title }).catch(() => {})
+      }
+    }
+
+    if (syncConversationIds.size > 0) {
+      for (const convoId of syncConversationIds) {
+        const convo = changedById.get(convoId) || nextConversations.find((entry) => entry.id === convoId)
+        if (!convo) continue
+        void syncServerMessages(convo).catch(() => {})
+      }
+    }
+  }, [
+    applyTransportEventToConversation,
+    chatTransportEvents,
+    mergedCountRef,
+    patchServerConversation,
+    persist,
+    resolveTransportConversationId,
+    syncServerMessages,
+  ])
 
   const {
     handleNewChat,
@@ -426,8 +665,6 @@ export function useConversations({
     latestConversationsRef,
     latestActiveConvoIdRef,
     missionInFlightByScopeRef,
-    mergedCountRef,
-    processedAgentMessageKeysRef,
   })
 
   return {

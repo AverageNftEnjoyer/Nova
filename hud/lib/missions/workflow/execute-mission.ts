@@ -20,10 +20,11 @@ import type {
   ScheduleTriggerNode,
 } from "../types"
 import { EXECUTOR_REGISTRY } from "./executors/index"
-import { getLocalParts } from "./scheduling"
+import { getLocalParts, parseTime } from "./scheduling"
 import { acquireMissionExecutionSlot } from "./execution-guard"
 import { emitMissionTelemetryEvent } from "../telemetry"
 import { validateMissionGraphForVersioning } from "./versioning"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Expression Resolver
@@ -177,7 +178,7 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
     return { due: true, reason: "No schedule trigger — assuming manual/webhook.", dayStamp: "" }
   }
 
-  const timezone = triggerNode.triggerTimezone || mission.settings?.timezone || "America/New_York"
+  const timezone = resolveTimezone(triggerNode.triggerTimezone, mission.settings?.timezone)
   const local = getLocalParts(now, timezone)
   if (!local) return { due: false, reason: "Could not determine local time.", dayStamp: "" }
 
@@ -229,7 +230,37 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
     }
   }
 
-  return { due: true, reason: `Schedule gate passed (${mode}).`, dayStamp: local.dayStamp }
+  const target = parseTime(triggerNode.triggerTime)
+  if (!target) {
+    return { due: false, reason: "Invalid schedule trigger time.", dayStamp: local.dayStamp }
+  }
+
+  if (mode === "weekly") {
+    const days = Array.isArray(triggerNode.triggerDays)
+      ? triggerNode.triggerDays.map((day) => String(day || "").trim().toLowerCase()).filter(Boolean)
+      : []
+    if (days.length > 0 && !days.includes(local.weekday)) {
+      return { due: false, reason: `Weekly trigger day mismatch (${local.weekday}).`, dayStamp: local.dayStamp }
+    }
+  }
+
+  const nowMinutes = local.hour * 60 + local.minute
+  const targetMinutes = target.hour * 60 + target.minute
+  if (nowMinutes < targetMinutes) {
+    return { due: false, reason: "Schedule trigger not yet time.", dayStamp: local.dayStamp }
+  }
+
+  const lagMinutes = nowMinutes - targetMinutes
+  const windowMinutes = Math.max(0, Number(triggerNode.triggerWindowMinutes ?? 10))
+  if (lagMinutes > windowMinutes) {
+    return {
+      due: false,
+      reason: `Schedule trigger missed window (${lagMinutes}m lag, ${windowMinutes}m window).`,
+      dayStamp: local.dayStamp,
+    }
+  }
+
+  return { due: true, reason: `Schedule gate passed (${mode}) at ${triggerNode.triggerTime || "unknown"}.`, dayStamp: local.dayStamp }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -314,15 +345,6 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   try {
-  await emitMissionTelemetryEvent({
-    eventType: "mission.run.started",
-    status: "info",
-    userContextId,
-    missionId: mission.id,
-    missionRunId: runId,
-    metadata: { source, attempt: input.attempt ?? 1 },
-  }).catch(() => {})
-
   // ── Schedule Gate ─────────────────────────────────────────────────────────
   if (source === "scheduler") {
     const gate = checkScheduleGate(mission, now)
@@ -343,6 +365,15 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   // ── Validate mission ──────────────────────────────────────────────────────
+  await emitMissionTelemetryEvent({
+    eventType: "mission.run.started",
+    status: "info",
+    userContextId,
+    missionId: mission.id,
+    missionRunId: runId,
+    metadata: { source, attempt: input.attempt ?? 1 },
+  }).catch(() => {})
+
   if (!Array.isArray(mission.nodes) || mission.nodes.length === 0) {
     await emitMissionTelemetryEvent({
       eventType: "mission.run.failed",
@@ -541,6 +572,15 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         }
         nodeTraces.push(trace)
         if (ctx.onNodeTrace) await ctx.onNodeTrace(trace)
+        await emitMissionTelemetryEvent({
+          eventType: "mission.run.completed",
+          status: "success",
+          userContextId,
+          missionId: mission.id,
+          missionRunId: runId,
+          durationMs: Date.now() - startedAtMs,
+          metadata: { source, skipped: true, reason: skipReason, attempt: input.attempt ?? 1 },
+        }).catch(() => {})
         return { ok: true, skipped: true, reason: skipReason, outputs: [], nodeTraces }
       }
     }
@@ -644,7 +684,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
           label: mission.label,
           integration: channel,
           chatIds: mission.chatIds,
-          timezone: mission.settings?.timezone || "America/New_York",
+          timezone: resolveTimezone(mission.settings?.timezone),
           message: "",
           time: "09:00",
           enabled: true,
@@ -670,6 +710,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
               source: source === "scheduler" ? "scheduler" : "trigger",
               nodeId: "fallback-output",
               outputIndex: 0,
+              occurredAt: now.toISOString(),
             },
           )
           const first = fallbackResults[0] ?? { ok: false, error: "No result" }

@@ -1,10 +1,12 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Clock, X, ExternalLink, Settings } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
 import type { CalendarEvent, PersonalCalendarEvent } from "@/lib/calendar/types"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
+import { useAccent } from "@/lib/context/accent-context"
+import { ACCENT_COLORS } from "@/lib/settings/userSettings"
 
 interface ScheduleBriefingProps {
   isLight: boolean
@@ -39,15 +41,13 @@ type ScheduleMemoryState = {
   hydrated: boolean
 }
 
-const KIND_COLORS: Record<string, string> = {
-  mission:  "#22D3EE",
+const KIND_COLORS_BASE: Record<string, string> = {
   agent:    "#A78BFA",
   personal: "#F59E0B",
 }
 
 const DAY_START = 0
 const DAY_END = 24
-const SCHEDULE_REVALIDATE_MS = 60_000
 let scheduleMemoryState: ScheduleMemoryState | null = null
 let scheduleFetchInFlight: Promise<CalendarEvent[] | null> | null = null
 
@@ -58,19 +58,20 @@ function fmtTime(h: number, m = 0) {
   return `${hh}${mm} ${period}`
 }
 
-function fmtHourLabel(h: number) {
-  const period = h < 12 ? "AM" : "PM"
-  const hh = h % 12 === 0 ? 12 : h % 12
-  const padded = hh < 10 ? `\u00A0${hh}` : `${hh}`
-  return `${padded} ${period}`
+function fmtShort(h: number, m = 0) {
+  const period = h < 12 ? "a" : "p"
+  const hh = h > 12 ? h - 12 : h === 0 ? 12 : h
+  const mm = m > 0 ? `:${String(m).padStart(2, "0")}` : ""
+  return `${hh}${mm}${period}`
 }
 
-function apiToBriefing(ev: CalendarEvent): BriefingEvent | null {
+function apiToBriefing(ev: CalendarEvent, missionColor: string): BriefingEvent | null {
   const start = new Date(ev.startAt)
   const end   = new Date(ev.endAt)
   const durMs = end.getTime() - start.getTime()
   const personal = ev.kind === "personal" ? (ev as PersonalCalendarEvent) : null
   const allDay   = personal?.provider === "gcalendar" && durMs >= 20 * 60 * 60 * 1000
+  const kindColors: Record<string, string> = { ...KIND_COLORS_BASE, mission: missionColor }
 
   return {
     id:       ev.id,
@@ -83,11 +84,66 @@ function apiToBriefing(ev: CalendarEvent): BriefingEvent | null {
     durMin:   allDay ? 60 : Math.max(Math.round(durMs / 60000), 15),
     kind:     ev.kind,
     status:   ev.status,
-    color:    KIND_COLORS[ev.kind] ?? "#94A3B8",
+    color:    kindColors[ev.kind] ?? "#94A3B8",
     allDay,
     htmlLink: personal?.htmlLink,
     provider: personal?.provider,
   }
+}
+
+// ─── Event Overlap Layout ─────────────────────────────────────────────────────
+
+/** Same 50/50-split algorithm as the calendar page, but typed for BriefingEvent. */
+function computeBriefingLayout(events: BriefingEvent[]): Map<string, { col: number; numCols: number }> {
+  if (!events.length) return new Map()
+
+  const sorted = [...events].sort((a, b) => {
+    const aStart = a.startH * 60 + a.startM
+    const bStart = b.startH * 60 + b.startM
+    if (aStart !== bStart) return aStart - bStart
+    return (b.startH * 60 + b.startM + b.durMin) - (a.startH * 60 + a.startM + a.durMin)
+  })
+
+  const colEnds: number[] = []
+  const assignment = new Map<string, number>()
+
+  for (const ev of sorted) {
+    const start = ev.startH * 60 + ev.startM
+    const end   = start + ev.durMin
+    let placed  = false
+    for (let i = 0; i < colEnds.length; i++) {
+      if (colEnds[i] <= start) {
+        assignment.set(ev.id, i)
+        colEnds[i] = end
+        placed = true
+        break
+      }
+    }
+    if (!placed) {
+      assignment.set(ev.id, colEnds.length)
+      colEnds.push(end)
+    }
+  }
+
+  const result = new Map<string, { col: number; numCols: number }>()
+  for (const ev of sorted) {
+    const evStart = ev.startH * 60 + ev.startM
+    const evEnd   = evStart + ev.durMin
+    const col     = assignment.get(ev.id) ?? 0
+    let maxCol    = col
+
+    for (const other of sorted) {
+      if (other.id === ev.id) continue
+      const oStart = other.startH * 60 + other.startM
+      const oEnd   = oStart + other.durMin
+      if (evStart < oEnd && oStart < evEnd) {
+        const oCol = assignment.get(other.id) ?? 0
+        if (oCol > maxCol) maxCol = oCol
+      }
+    }
+    result.set(ev.id, { col, numCols: maxCol + 1 })
+  }
+  return result
 }
 
 function toLocalDayKey(date: Date): string {
@@ -150,13 +206,23 @@ export function ScheduleBriefing({
   sectionRef,
   onOpenCalendar,
 }: ScheduleBriefingProps) {
+  const { accentColor } = useAccent()
+  const missionColor = ACCENT_COLORS[accentColor]?.primary ?? "#8b5cf6"
   const dayKey = toLocalDayKey(new Date())
   const initialMemory = scheduleMemoryState?.dayKey === dayKey ? scheduleMemoryState : null
-  const initialCached = initialMemory ? initialMemory.events : readCachedEventsForDay(dayKey)
-  const [events, setEvents] = useState<CalendarEvent[]>(() => initialCached)
-  const [loading, setLoading] = useState(() => !initialMemory && initialCached.length === 0)
+  const hasInitialMemory = Boolean(initialMemory)
+  // Use persisted cache only as a fallback on fetch failure.
+  // Rendering persisted daily cache first can show stale mission times that "jump"
+  // when fresh data arrives from /api/calendar/events.
+  const persistedFallback = useMemo(
+    () => (hasInitialMemory ? [] : readCachedEventsForDay(dayKey)),
+    [dayKey, hasInitialMemory],
+  )
+  const [events, setEvents] = useState<CalendarEvent[]>(() => (initialMemory ? initialMemory.events : []))
+  const [loading, setLoading] = useState(() => !hasInitialMemory)
   const [selected, setSelected] = useState<BriefingEvent | null>(null)
   const [viewportHeight, setViewportHeight] = useState(0)
+  const timelineRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const syncViewport = () => setViewportHeight(window.innerHeight || 0)
@@ -167,15 +233,17 @@ export function ScheduleBriefing({
 
   useEffect(() => {
     let cancelled = false
-    const memory = scheduleMemoryState
-    const memoryForToday = memory?.dayKey === dayKey ? memory : null
-    const isFresh = Boolean(memoryForToday && Date.now() - memoryForToday.fetchedAt < SCHEDULE_REVALIDATE_MS)
-    if (isFresh) return () => { cancelled = true }
 
     void fetchScheduleEventsForDay(dayKey)
       .then((nextEvents) => {
-        if (cancelled || !nextEvents) return
-        setEvents(nextEvents)
+        if (cancelled) return
+        if (nextEvents) {
+          setEvents(nextEvents)
+          return
+        }
+        if (!hasInitialMemory && persistedFallback.length > 0) {
+          setEvents(persistedFallback)
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -184,13 +252,13 @@ export function ScheduleBriefing({
     return () => {
       cancelled = true
     }
-  }, [dayKey, initialCached.length])
+  }, [dayKey, hasInitialMemory, persistedFallback])
 
   const briefingEvents = useMemo(() => {
-    const mapped = events.map(apiToBriefing).filter((e): e is BriefingEvent => e !== null)
+    const mapped = events.map((e) => apiToBriefing(e, missionColor)).filter((e): e is BriefingEvent => e !== null)
     return Array.from(new Map(mapped.map((e) => [e.id, e])).values())
       .sort((a, b) => a.startH * 60 + a.startM - (b.startH * 60 + b.startM))
-  }, [events])
+  }, [events, missionColor])
 
   const hours = useMemo(
     () => Array.from({ length: DAY_END - DAY_START }, (_, i) => i + DAY_START),
@@ -216,6 +284,25 @@ export function ScheduleBriefing({
   const now = new Date()
   const nowTop = evTop(now.getHours(), now.getMinutes())
   const isInRange = now.getHours() >= DAY_START && now.getHours() < DAY_END
+  const nowMinute = now.getHours() * 60 + now.getMinutes()
+  const timelineAnchorTop = (() => {
+    if (briefingEvents.length === 0) return nowTop
+    const nextEvent = briefingEvents.find((event) => {
+      const start = event.startH * 60 + event.startM
+      const end = start + event.durMin
+      return end >= nowMinute
+    })
+    const anchor = nextEvent || briefingEvents[0]
+    return evTop(anchor.startH, anchor.startM)
+  })()
+
+  useEffect(() => {
+    const container = timelineRef.current
+    if (!container) return
+    if (loading) return
+    const scrollTo = Math.max(0, timelineAnchorTop - container.clientHeight * 0.25)
+    container.scrollTop = scrollTo
+  }, [timelineAnchorTop, loading])
 
   return (
     <>
@@ -239,12 +326,7 @@ export function ScheduleBriefing({
 
         <div
           className="module-hover-scroll no-scrollbar mt-2.5 min-h-0 flex-1 overflow-y-auto"
-          ref={(el) => {
-            if (el && isInRange) {
-              const scrollTo = Math.max(0, nowTop - el.clientHeight * 0.35)
-              el.scrollTop = scrollTo
-            }
-          }}
+          ref={timelineRef}
         >
           {loading ? (
             <div className="flex items-center justify-center gap-1.5 py-6">
@@ -254,61 +336,123 @@ export function ScheduleBriefing({
               <style>{`@keyframes calDot { 0%,100%{opacity:0.2;transform:scale(0.8)} 50%{opacity:1;transform:scale(1)} }`}</style>
             </div>
           ) : (
-            <div className="w-full">
-              <div className="relative" style={{ height: totalHeight }}>
-              {/* Hour lines + labels */}
-              {hours.map((h, idx) => (
-                <div key={h} className="absolute left-0 right-0" style={{ top: timelineTopInset + idx * pxPerHour }}>
-                  <div className="flex h-[1px] items-center">
-                    <span className={cn("text-[10px] font-mono shrink-0 text-left leading-none", isLight ? "text-s-50" : "text-slate-400")}>
-                      {fmtHourLabel(h)}
-                    </span>
-                    <div className={cn("flex-1 border-t -mt-px", isLight ? "border-[#c9d7ea]" : "border-white/18")} />
-                  </div>
-                </div>
-              ))}
+            <div className="grid w-full" style={{ gridTemplateColumns: "1.5rem 1fr", columnGap: 4 }}>
 
-              {/* Now indicator */}
-              {isInRange && (
-                <div className="absolute left-8 right-0 z-10 pointer-events-none" style={{ top: nowTop }}>
-                  <div className="relative h-px bg-accent">
-                    <div className="absolute right-[0px] top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-accent" />
-                  </div>
-                </div>
-              )}
-
-              {/* Event bars */}
-              {briefingEvents.map((ev) => {
-                const top = evTop(ev.startH, ev.startM)
-                const ht  = evHeight(ev.durMin)
-                return (
-                  <button
-                    key={ev.id}
-                    onClick={() => setSelected(ev)}
-                    className="absolute left-11 right-0.5 rounded-[3px] text-left overflow-hidden transition-all hover:brightness-110 group/ev"
-                    style={{
-                      top,
-                      height: ht,
-                      background: `${ev.color}18`,
-                      borderLeft: `2px solid ${ev.color}`,
-                    }}
-                  >
-                    <div className="px-1.5 py-0.5 flex items-center gap-1.5 min-w-0">
-                      {ht > 18 && (
-                        <span className="text-[9px] font-mono shrink-0" style={{ color: `${ev.color}AA` }}>
-                          {ev.allDay ? "All Day" : fmtTime(ev.startH, ev.startM)}
-                        </span>
+              {/* ── Time label column ── */}
+              <div className="relative shrink-0" style={{ height: totalHeight }}>
+                {hours.map((h, idx) => {
+                  const period = h < 12 ? "AM" : "PM"
+                  const hh     = h % 12 === 0 ? 12 : h % 12
+                  return (
+                    <div
+                      key={h}
+                      className={cn(
+                        "absolute flex items-baseline gap-0.5 -translate-y-1/2",
+                        isLight ? "text-s-50" : "text-slate-400",
                       )}
-                      <span
-                        className="text-[10px] font-medium truncate leading-tight"
-                        style={{ color: isLight ? "#334155" : "#E2E8F0" }}
-                      >
-                        {ev.title}
-                      </span>
+                      style={{ top: timelineTopInset + idx * pxPerHour, right: 0 }}
+                    >
+                      <span className="text-[11px] font-mono leading-none">{hh}</span>
+                      <span className="text-[9px] font-mono leading-none">{period}</span>
                     </div>
-                  </button>
-                )
-              })}
+                  )
+                })}
+              </div>
+
+              {/* ── Grid lines + now indicator + events ── */}
+              <div className="relative" style={{ height: totalHeight }}>
+                {/* Hour grid lines — flush left, touching the labels */}
+                {hours.map((h, idx) => (
+                  <div
+                    key={h}
+                    className={cn("absolute left-0 right-0 border-t", isLight ? "border-[#c9d7ea]" : "border-white/18")}
+                    style={{ top: timelineTopInset + idx * pxPerHour }}
+                  />
+                ))}
+
+                {/* Now indicator */}
+                {isInRange && (
+                  <div className="absolute left-0 right-0 z-10 pointer-events-none" style={{ top: nowTop }}>
+                    <div className="relative h-px bg-accent">
+                      <div className="absolute right-0 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-accent" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Event bars */}
+                {(() => {
+                  const layout = computeBriefingLayout(briefingEvents)
+                  return briefingEvents.map((ev) => {
+                    const top = evTop(ev.startH, ev.startM)
+                    const ht  = evHeight(ev.durMin)
+                    const { col, numCols } = layout.get(ev.id) ?? { col: 0, numCols: 1 }
+                    const gapRight = col < numCols - 1 ? 2 : 0
+                    return (
+                      <button
+                        key={ev.id}
+                        onClick={() => setSelected(ev)}
+                        className="absolute text-left overflow-hidden transition-all hover:brightness-110 active:scale-[0.99]"
+                        style={{
+                          top,
+                          height: ht,
+                          left:        `${((col / numCols) * 100).toFixed(2)}%`,
+                          width:       `${(100 / numCols).toFixed(2)}%`,
+                          paddingRight: gapRight,
+                          borderRadius: 4,
+                          background:  isLight ? `${ev.color}18` : `${ev.color}22`,
+                          borderTop:    `1px solid ${ev.color}30`,
+                          borderRight:  `1px solid ${ev.color}30`,
+                          borderBottom: `1px solid ${ev.color}30`,
+                          borderLeft:   `3px solid ${ev.color}`,
+                        }}
+                      >
+                        {ht >= 30 ? (
+                          /* Tall: time range on top, title below */
+                          <div className="flex flex-col justify-center h-full px-1.5 py-1 gap-0.5">
+                            <span
+                              className="text-[8px] font-mono leading-none shrink-0 truncate"
+                              style={{ color: ev.color }}
+                            >
+                              {ev.allDay ? "All Day" : `${fmtShort(ev.startH, ev.startM)} – ${fmtShort(ev.endH, ev.endM)}`}
+                            </span>
+                            <span
+                              className="text-[10px] font-semibold leading-tight truncate"
+                              style={{ color: isLight ? "#1e293b" : "#ffffff" }}
+                            >
+                              {ev.title}
+                            </span>
+                          </div>
+                        ) : ht >= 16 ? (
+                          /* Compact: time + title inline */
+                          <div className="flex items-center gap-1 h-full px-1.5 min-w-0">
+                            <span
+                              className="text-[8px] font-mono leading-none shrink-0"
+                              style={{ color: ev.color }}
+                            >
+                              {ev.allDay ? "·" : fmtShort(ev.startH, ev.startM)}
+                            </span>
+                            <span
+                              className="text-[9px] font-semibold leading-none truncate"
+                              style={{ color: isLight ? "#1e293b" : "#ffffff" }}
+                            >
+                              {ev.title}
+                            </span>
+                          </div>
+                        ) : (
+                          /* Tiny: just title */
+                          <div className="flex items-center h-full px-1.5 min-w-0">
+                            <span
+                              className="text-[9px] font-semibold leading-none truncate"
+                              style={{ color: isLight ? "#1e293b" : "#ffffff" }}
+                            >
+                              {ev.title}
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })
+                })()}
               </div>
             </div>
           )}

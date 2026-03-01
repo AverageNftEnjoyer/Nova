@@ -38,10 +38,10 @@ export class SessionStore {
     this.transcriptsEnabled = extended.transcriptsEnabled !== false;
     this.maxTranscriptLines = Number.isFinite(extended.maxTranscriptLines)
       ? Math.trunc(Number(extended.maxTranscriptLines))
-      : 400;
+      : 0;
     this.transcriptRetentionDays = Number.isFinite(extended.transcriptRetentionDays)
       ? Math.trunc(Number(extended.transcriptRetentionDays))
-      : 30;
+      : 0;
     this.allowCrossContextLookup =
       typeof extended.allowCrossContextLookup === "boolean"
         ? extended.allowCrossContextLookup

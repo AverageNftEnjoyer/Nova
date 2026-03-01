@@ -159,6 +159,7 @@ export function useHomeMainScreenState() {
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openAnalytics = useCallback(() => router.push("/analytics"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
+  const openAgents = useCallback(() => router.push("/agents"), [router])
 
   return {
     isLight,
@@ -189,6 +190,7 @@ export function useHomeMainScreenState() {
     devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
     spotifyModuleSectionRef: visuals.spotifyModuleSectionRef,
+    agentModuleSectionRef: visuals.agentModuleSectionRef,
     panelStyle: visuals.panelStyle,
     panelClass: visuals.panelClass,
     subPanelClass: visuals.subPanelClass,
@@ -199,6 +201,7 @@ export function useHomeMainScreenState() {
     openIntegrations,
     openAnalytics,
     openDevLogs,
+    openAgents,
     liveActivity,
     devToolsMetrics: devTools.devToolsMetrics,
     integrationBadgeClass: integrations.integrationBadgeClass,

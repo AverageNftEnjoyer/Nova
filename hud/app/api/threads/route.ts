@@ -36,6 +36,15 @@ type ApiConversation = {
   updatedAt: string
 }
 
+function normalizeMessageFingerprintContent(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 600)
+}
+
 export async function GET(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
@@ -79,6 +88,7 @@ export async function GET(req: Request) {
 
   const grouped = new Map<string, ApiMessage[]>()
   const seenMessageIdsByThread = new Map<string, Set<string>>()
+  const seenMessageFingerprintsByThread = new Map<string, Set<string>>()
   for (const row of messages) {
     const metadata = row.metadata && typeof row.metadata === "object"
       ? (row.metadata as Record<string, unknown>)
@@ -87,15 +97,30 @@ export async function GET(req: Request) {
       ? metadata.clientMessageId.trim()
       : ""
     const threadSeenIds = seenMessageIdsByThread.get(row.thread_id) || new Set<string>()
-    const normalizedRowId = String(row.id)
-    const stableMessageId = metadataMessageId && !threadSeenIds.has(metadataMessageId)
-      ? metadataMessageId
-      : normalizedRowId
+    const threadSeenFingerprints = seenMessageFingerprintsByThread.get(row.thread_id) || new Set<string>()
+    const normalizedRowId = String(row.id || "").trim()
+    if (metadataMessageId && threadSeenIds.has(metadataMessageId)) {
+      // Legacy rows may contain the same client message stored multiple times.
+      // Keep the first canonical row to avoid duplicate UI rendering.
+      continue
+    }
+    const stableMessageId = metadataMessageId || normalizedRowId
+    if (!stableMessageId || threadSeenIds.has(stableMessageId)) {
+      continue
+    }
+    const normalizedRole = row.role === "assistant" ? "assistant" : "user"
+    const normalizedCreatedAt = String(row.created_at || "")
+    const fingerprint = `${normalizedRole}|${normalizedCreatedAt}|${normalizeMessageFingerprintContent(String(row.content || ""))}`
+    if (threadSeenFingerprints.has(fingerprint)) {
+      continue
+    }
     threadSeenIds.add(stableMessageId)
+    threadSeenFingerprints.add(fingerprint)
     seenMessageIdsByThread.set(row.thread_id, threadSeenIds)
+    seenMessageFingerprintsByThread.set(row.thread_id, threadSeenFingerprints)
     const entry: ApiMessage = {
       id: stableMessageId,
-      role: row.role === "assistant" ? "assistant" : "user",
+      role: normalizedRole,
       content: String(row.content || ""),
       createdAt: String(row.created_at),
       source: (metadata.source as ApiMessage["source"]) || undefined,

@@ -4,9 +4,14 @@
  * Functions for sending mission output to various channels.
  */
 
+import "server-only"
+
+import { createHash } from "node:crypto"
+
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
 import type { NotificationSchedule } from "@/lib/notifications/store"
-import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { resolveTimezone } from "@/lib/shared/timezone"
 import { fetchWithSsrfGuard } from "../web/safe-fetch"
 import type { OutputResult } from "../types"
 import { enforceMissionOutputContract } from "./contract"
@@ -22,6 +27,117 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
 const WEBHOOK_TIMEOUT_MS = readIntEnv("NOVA_WORKFLOW_WEBHOOK_TIMEOUT_MS", 15_000, 1_000, 120_000)
 const WEBHOOK_MAX_REDIRECTS = readIntEnv("NOVA_WORKFLOW_WEBHOOK_MAX_REDIRECTS", 0, 0, 5)
 const EMAIL_TIMEOUT_MS = readIntEnv("NOVA_WORKFLOW_EMAIL_TIMEOUT_MS", 12_000, 1_000, 120_000)
+const GCALENDAR_MIRROR_EVENT_DURATION_MS = readIntEnv("NOVA_GCAL_MIRROR_EVENT_DURATION_MS", 30 * 60 * 1000, 5 * 60 * 1000, 8 * 60 * 60 * 1000)
+const GCALENDAR_MIRROR_MAX_DESCRIPTION_CHARS = readIntEnv("NOVA_GCAL_MIRROR_MAX_DESCRIPTION_CHARS", 3200, 200, 7000)
+
+function truncateText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  return `${value.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`
+}
+
+function buildStableCalendarMirrorEventId(seed: string): string {
+  const digest = createHash("sha256").update(seed).digest("hex")
+  // Google Calendar event IDs must be base32hex-safe (a-v, 0-9).
+  return `nova${digest.slice(0, 56)}`
+}
+
+async function mirrorMissionOutputToGoogleCalendar(params: {
+  channel: string
+  text: string
+  userContextId: string
+  schedule: NotificationSchedule
+  scope?: IntegrationsStoreScope
+  metadata?: {
+    missionRunId?: string
+    runKey?: string
+    attempt?: number
+    source?: "scheduler" | "trigger"
+    nodeId?: string
+    outputIndex?: number
+    deliveryKey?: string
+    occurredAt?: string
+  }
+}): Promise<void> {
+  const { channel, text, userContextId, schedule, scope, metadata } = params
+  if (!scope || !userContextId) return
+
+  let config
+  try {
+    config = await loadIntegrationsConfig(scope)
+  } catch {
+    return
+  }
+
+  if (!config.gcalendar.connected) return
+  if (!config.gcalendar.permissions?.allowCreate) return
+
+  const accountId = String(config.gcalendar.activeAccountId || "").trim().toLowerCase()
+  const selectedAccount = config.gcalendar.accounts.find((account) => account.id === accountId && account.enabled)
+    || config.gcalendar.accounts.find((account) => account.enabled)
+  if (!selectedAccount?.id) return
+
+  const occurredAtRaw = String(metadata?.occurredAt || "").trim()
+  const startAt = occurredAtRaw ? new Date(occurredAtRaw) : new Date()
+  if (Number.isNaN(startAt.getTime())) return
+  const endAt = new Date(startAt.getTime() + GCALENDAR_MIRROR_EVENT_DURATION_MS)
+
+  const summary = String(schedule.label || "").trim() || "Nova Automation"
+  const lines = [
+    `Mission output channel: ${channel}`,
+    `Mission id: ${String(schedule.id || "").trim() || "unknown"}`,
+    "",
+    text.trim(),
+  ]
+  const description = truncateText(lines.join("\n"), GCALENDAR_MIRROR_MAX_DESCRIPTION_CHARS)
+
+  const dedupeSeed = [
+    userContextId,
+    String(schedule.id || "").trim(),
+    String(metadata?.missionRunId || "").trim(),
+    String(metadata?.runKey || "").trim(),
+    String(metadata?.nodeId || "").trim(),
+    String(metadata?.outputIndex ?? 0),
+    channel,
+    startAt.toISOString(),
+  ].join("|")
+
+  let createCalendarEventFn: ((event: {
+    summary: string
+    description?: string
+    startAt: Date
+    endAt: Date
+    timeZone?: string
+    eventId?: string
+  }, options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: IntegrationsStoreScope
+  }) => Promise<unknown>) | null = null
+  try {
+    const mod = await import("../../integrations/google-calender/service")
+    if (typeof mod.createCalendarEvent === "function") {
+      createCalendarEventFn = mod.createCalendarEvent
+    }
+  } catch {
+    return
+  }
+  if (!createCalendarEventFn) return
+
+  await createCalendarEventFn(
+    {
+      summary,
+      description,
+      startAt,
+      endAt,
+      timeZone: resolveTimezone(schedule.timezone),
+      eventId: buildStableCalendarMirrorEventId(dedupeSeed),
+    },
+    {
+      accountId: selectedAccount.id,
+      scope,
+    },
+  )
+}
 
 /**
  * Dispatch mission output to a channel.
@@ -40,6 +156,7 @@ export async function dispatchOutput(
     nodeId?: string
     outputIndex?: number
     deliveryKey?: string
+    occurredAt?: string
   },
 ): Promise<OutputResult[]> {
   const userContextId = String(scope?.userId || scope?.user?.id || schedule.userId || "").trim()
@@ -63,7 +180,7 @@ export async function dispatchOutput(
         : 0
       const deliveryKey = String(metadata?.deliveryKey || "").trim()
         || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
-      return await dispatchNotification({
+      const channelResults = await dispatchNotification({
         integration: channel as NotificationIntegration,
         text: safeText,
         targets,
@@ -75,6 +192,21 @@ export async function dispatchOutput(
         label: schedule.label,
         scope,
       })
+      if (channelResults.some((result) => result.ok)) {
+        try {
+          await mirrorMissionOutputToGoogleCalendar({
+            channel,
+            text: safeText,
+            userContextId,
+            schedule,
+            scope,
+            metadata,
+          })
+        } catch (error) {
+          console.warn("[dispatchOutput][gcalendar_mirror] Mirror failed:", error instanceof Error ? error.message : String(error))
+        }
+      }
+      return channelResults
     } catch (error) {
       return [{
         ok: false,
@@ -110,6 +242,20 @@ export async function dispatchOutput(
         return { ok: false, error: error instanceof Error ? error.message : "Webhook send failed" }
       }
     }))
+    if (results.some((result) => result.ok)) {
+      try {
+        await mirrorMissionOutputToGoogleCalendar({
+          channel,
+          text: safeText,
+          userContextId,
+          schedule,
+          scope,
+          metadata,
+        })
+      } catch (error) {
+        console.warn("[dispatchOutput][gcalendar_mirror] Mirror failed:", error instanceof Error ? error.message : String(error))
+      }
+    }
     return results
   }
 
@@ -148,6 +294,20 @@ export async function dispatchOutput(
         return { ok: false, error: error instanceof Error ? error.message : "Slack webhook send failed" }
       }
     }))
+    if (results.some((result) => result.ok)) {
+      try {
+        await mirrorMissionOutputToGoogleCalendar({
+          channel,
+          text: safeText,
+          userContextId,
+          schedule,
+          scope,
+          metadata,
+        })
+      } catch (error) {
+        console.warn("[dispatchOutput][gcalendar_mirror] Mirror failed:", error instanceof Error ? error.message : String(error))
+      }
+    }
     return results
   }
 

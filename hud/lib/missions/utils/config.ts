@@ -64,7 +64,6 @@ export function normalizeWorkflowStep(raw: WorkflowStep, index: number): Workflo
     const channel = String(raw.outputChannel || "").trim().toLowerCase()
     const defaultTitleByChannel: Record<string, string> = {
       telegram: "Send to Telegram",
-      telegram: "Send to Telegram",
       discord: "Send to Discord",
       email: "Send to Email",
       push: "Send Push Notification",

@@ -34,6 +34,57 @@ export interface AgentUsage {
   ts: number;
 }
 
+export type ChatTransportEvent =
+  | {
+      seq: number
+      type: "assistant_stream_start"
+      id: string
+      ts: number
+      source?: "voice" | "hud"
+      sender?: string
+      conversationId?: string
+    }
+  | {
+      seq: number
+      type: "assistant_stream_delta"
+      id: string
+      content: string
+      ts: number
+      source?: "voice" | "hud"
+      sender?: string
+      conversationId?: string
+    }
+  | {
+      seq: number
+      type: "assistant_stream_done"
+      id: string
+      ts: number
+      source?: "voice" | "hud"
+      sender?: string
+      conversationId?: string
+    }
+  | {
+      seq: number
+      type: "message"
+      id: string
+      role: "user"
+      content: string
+      ts: number
+      source?: "voice" | "hud"
+      sender?: string
+      conversationId?: string
+      nlpCleanText?: string
+      nlpConfidence?: number
+      nlpCorrectionCount?: number
+      nlpBypass?: boolean
+    }
+
+type ChatTransportEventInput =
+  | Omit<Extract<ChatTransportEvent, { type: "assistant_stream_start" }>, "seq">
+  | Omit<Extract<ChatTransportEvent, { type: "assistant_stream_delta" }>, "seq">
+  | Omit<Extract<ChatTransportEvent, { type: "assistant_stream_done" }>, "seq">
+  | Omit<Extract<ChatTransportEvent, { type: "message" }>, "seq">
+
 function hasAssistantPayload(content: string): boolean {
   return content.replace(/[\u200B-\u200D\uFEFF]/g, "").length > 0;
 }
@@ -107,8 +158,6 @@ function repairAssistantReadability(value: string): string {
 
 const HUD_USER_ECHO_DEDUPE_MS = 15_000
 const EVENT_DEDUPE_MS = 2_500
-const ASSISTANT_MESSAGE_DEDUPE_MS = 12_000
-const ASSISTANT_MESSAGE_MERGE_WINDOW_MS = 10_000
 const HUD_MESSAGE_ACK_TTL_MS = 10 * 60 * 1000
 const STREAM_STALL_TIMEOUT_MS = 20_000
 const STREAM_STALL_CHECK_INTERVAL_MS = 2_000
@@ -198,6 +247,7 @@ export function useNovaState() {
   const [streamingAssistantId, setStreamingAssistantId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [latestUsage, setLatestUsage] = useState<AgentUsage | null>(null);
+  const [chatTransportEvents, setChatTransportEvents] = useState<ChatTransportEvent[]>([]);
   const [hudMessageAckVersion, setHudMessageAckVersion] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const stateRef = useRef<NovaState>("idle")
@@ -212,6 +262,19 @@ export function useNovaState() {
   const lastThinkingActivityAtRef = useRef<number>(0)
   const activeUserIdRef = useRef<string>("")
   const supabaseAccessTokenRef = useRef<string>("")
+  const chatTransportSeqRef = useRef(0)
+
+  const pushChatTransportEvent = useCallback((event: ChatTransportEventInput) => {
+    const seq = chatTransportSeqRef.current + 1
+    chatTransportSeqRef.current = seq
+    setChatTransportEvents((prev) => {
+      const next = [...prev, { ...event, seq } as ChatTransportEvent]
+      if (next.length > 4_000) {
+        return next.slice(next.length - 4_000)
+      }
+      return next
+    })
+  }, [])
 
   const setNovaStateSafely = useCallback((nextState: NovaState) => {
     setState((prev) => (prev === nextState ? prev : nextState))
@@ -416,6 +479,14 @@ export function useNovaState() {
 
         if (data.type === "assistant_stream_start" && typeof data.id === "string") {
           const conversationId = normalizeConversationId(data.conversationId)
+          pushChatTransportEvent({
+            type: "assistant_stream_start",
+            id: data.id,
+            ts: Number(data.ts || Date.now()),
+            source: data.source === "hud" ? "hud" : "voice",
+            sender: data.sender,
+            ...(conversationId ? { conversationId } : {}),
+          })
           setStreamingAssistantIdSafely(data.id);
           streamActivityByIdRef.current.set(data.id, Date.now())
           lastThinkingActivityAtRef.current = Date.now()
@@ -435,6 +506,15 @@ export function useNovaState() {
         if (data.type === "assistant_stream_done" && typeof data.id === "string") {
           streamActivityByIdRef.current.delete(data.id)
           lastThinkingActivityAtRef.current = Date.now()
+          const conversationId = normalizeConversationId(data.conversationId)
+          pushChatTransportEvent({
+            type: "assistant_stream_done",
+            id: data.id,
+            ts: Number(data.ts || Date.now()),
+            source: data.source === "hud" ? "hud" : "voice",
+            sender: data.sender,
+            ...(conversationId ? { conversationId } : {}),
+          })
           const pending = pendingAssistantDeltasRef.current.get(data.id)
           if (pending) pendingAssistantDeltasRef.current.delete(data.id)
 
@@ -516,6 +596,15 @@ export function useNovaState() {
 
           const conversationId = normalizeConversationId(data.conversationId)
           const ts = deltaTs
+          pushChatTransportEvent({
+            type: "assistant_stream_delta",
+            id: data.id,
+            content: normalizedContent,
+            ts,
+            source: data.source === "hud" ? "hud" : "voice",
+            sender: data.sender,
+            ...(conversationId ? { conversationId } : {}),
+          })
           const pending = pendingAssistantDeltasRef.current.get(data.id)
           if (pending) {
             pendingAssistantDeltasRef.current.set(data.id, {
@@ -561,7 +650,7 @@ export function useNovaState() {
           }
           if (
             data.role === "assistant" &&
-            markRecentEvent(`assistant_msg:${conversationId}:${normalizedForDedupe}`, ASSISTANT_MESSAGE_DEDUPE_MS)
+            markRecentEvent(`assistant_msg:${conversationId}:${normalizedForDedupe}`, HUD_USER_ECHO_DEDUPE_MS)
           ) {
             return
           }
@@ -587,54 +676,26 @@ export function useNovaState() {
             ...(typeof nlpCorrectionCount === "number" ? { nlpCorrectionCount } : {}),
             ...(nlpBypass ? { nlpBypass: true } : {}),
           };
-          setAgentMessages((prev) => {
-            if (msg.role !== "assistant") return [...prev, msg]
-            for (let i = prev.length - 1; i >= 0; i -= 1) {
-              const existing = prev[i]
-              if (existing.role !== "assistant") continue
-              const existingConversationId = normalizeConversationId(existing.conversationId)
-              if (conversationId || existingConversationId) {
-                if (!conversationId || !existingConversationId || conversationId !== existingConversationId) continue
-              }
-              const existingTs = Number(existing.ts || 0)
-              const closeInTime = Math.abs(messageTs - existingTs) <= ASSISTANT_MESSAGE_MERGE_WINDOW_MS
-              if (!closeInTime) continue
-              const sameText = normalizeInboundMessageText(existing.content) === normalizedForDedupe
-              const semanticallySame =
-                shouldPreferIncomingAssistantVersion(existing.content, finalContent)
-                || shouldPreferIncomingAssistantVersion(finalContent, existing.content)
-              if (!sameText && !semanticallySame) continue
-              const mergedContent = repairAssistantReadability(
-                mergeAssistantStreamContent(existing.content, finalContent),
-              )
-              const next = [...prev]
-              next[i] = {
-                ...existing,
-                content: mergedContent,
-                ts: Math.max(existingTs, messageTs),
-                source: msg.source || existing.source,
-                sender: msg.sender || existing.sender,
-                ...(conversationId ? { conversationId } : {}),
-                ...(nlpCleanText ? { nlpCleanText } : {}),
-                ...(typeof nlpConfidence === "number" ? { nlpConfidence } : {}),
-                ...(typeof nlpCorrectionCount === "number" ? { nlpCorrectionCount } : {}),
-                ...(nlpBypass ? { nlpBypass: true } : {}),
-              }
-              return next
-            }
-            return [...prev, msg]
-          });
-          if (data.role === "assistant" && hasAssistantPayload(finalContent)) {
-            lastThinkingActivityAtRef.current = Date.now()
-            const activeStreamId = streamingAssistantIdRef.current
-            if (activeStreamId) {
-              streamActivityByIdRef.current.delete(activeStreamId)
-              setStreamingAssistantIdSafely(null)
-            }
-            setThinkingStatusSafely("")
-            setNovaStateSafely("idle")
-            releaseStaleInteractionLock()
+          if (msg.role === "assistant") {
+            // Assistant plain `message` payloads are non-authoritative for chat rendering.
+            // Stream lifecycle events are the single source of truth.
+            return
           }
+          pushChatTransportEvent({
+            type: "message",
+            id: msg.id,
+            role: "user",
+            content: msg.content,
+            ts: msg.ts,
+            source: msg.source,
+            sender: msg.sender,
+            ...(conversationId ? { conversationId } : {}),
+            ...(nlpCleanText ? { nlpCleanText } : {}),
+            ...(typeof nlpConfidence === "number" ? { nlpConfidence } : {}),
+            ...(typeof nlpCorrectionCount === "number" ? { nlpCorrectionCount } : {}),
+            ...(nlpBypass ? { nlpBypass: true } : {}),
+          })
+          setAgentMessages((prev) => [...prev, msg]);
         }
 
         if (data.type === "usage" && typeof data.model === "string" && (data.provider === "openai" || data.provider === "claude" || data.provider === "grok" || data.provider === "gemini")) {
@@ -704,10 +765,12 @@ export function useNovaState() {
       }
       pendingAssistantDeltas.clear()
       hudMessageAckMap.clear()
+      setChatTransportEvents([])
+      chatTransportSeqRef.current = 0
       releaseStaleInteractionLock()
       wsRef.current?.close()
     };
-  }, [pruneHudMessageAckMap, setNovaStateSafely, setStreamingAssistantIdSafely, setThinkingStatusSafely]);
+  }, [pruneHudMessageAckMap, pushChatTransportEvent, setNovaStateSafely, setStreamingAssistantIdSafely, setThinkingStatusSafely]);
 
   const sendToAgent = useCallback((
     text: string,
@@ -774,6 +837,8 @@ export function useNovaState() {
 
   const clearAgentMessages = useCallback(() => {
     setAgentMessages([]);
+    setChatTransportEvents([])
+    chatTransportSeqRef.current = 0
     setStreamingAssistantIdSafely(null);
     setThinkingStatusSafely("")
     setNovaStateSafely("idle")
@@ -837,6 +902,7 @@ export function useNovaState() {
     thinkingStatus,
     connected,
     agentMessages,
+    chatTransportEvents,
     streamingAssistantId,
     hudMessageAckVersion,
     hasHudMessageAck,

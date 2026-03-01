@@ -22,6 +22,7 @@ import { cn } from "@/lib/shared/utils"
 import type { Mission, MissionConnection, MissionNode, MissionNodeType } from "@/lib/missions/types"
 import { getNodeCatalogEntry, PALETTE_CATEGORIES, NODE_CATALOG, type NodeCatalogEntry } from "@/lib/missions/catalog"
 import { ACCENT_COLORS, loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { BaseNode, type MissionNodeData } from "./nodes/base-node"
 
@@ -114,7 +115,7 @@ function buildDefaultNodeConfig(type: MissionNodeType, label: string, id: string
 
   switch (type) {
     case "schedule-trigger":
-      return { ...base, triggerMode: "daily", triggerTime: "09:00", triggerTimezone: "America/New_York", triggerDays: ["mon", "wed", "fri"] }
+      return { ...base, triggerMode: "daily", triggerTime: "09:00", triggerTimezone: getRuntimeTimezone(), triggerDays: ["mon", "wed", "fri"] }
     case "webhook-trigger":
       return { ...base, method: "POST", path: `/missions/webhook/${id}`, authentication: "none", responseMode: "immediate" }
     case "manual-trigger":

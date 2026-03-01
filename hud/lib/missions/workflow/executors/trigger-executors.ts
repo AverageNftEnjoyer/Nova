@@ -4,6 +4,7 @@
 
 import type { ScheduleTriggerNode, ManualTriggerNode, WebhookTriggerNode, EventTriggerNode, NodeOutput, ExecutionContext } from "../../types"
 import { getLocalParts, parseTime } from "../scheduling"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 const DEFAULT_WINDOW_MINUTES = 10
 
@@ -16,7 +17,7 @@ export async function executeScheduleTrigger(
   }
 
   const now = ctx.now
-  const timezone = node.triggerTimezone || ctx.mission?.settings?.timezone || "America/New_York"
+  const timezone = resolveTimezone(node.triggerTimezone, ctx.mission?.settings?.timezone)
   const local = getLocalParts(now, timezone)
   if (!local) return { ok: false, error: "Could not determine local time.", data: { triggered: false } }
 

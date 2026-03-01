@@ -1,6 +1,7 @@
 import "server-only"
 
 import { decryptSecret, decryptSecretWithMeta, encryptSecret } from "@/lib/security/encryption"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
@@ -201,7 +202,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     lastSyncErrorCode: "none",
     lastSyncErrorMessage: "",
     lastFreshnessMs: 0,
-    reportTimezone: "America/New_York",
+    reportTimezone: getRuntimeTimezone(),
     reportCurrency: "USD",
     reportCadence: "daily",
   },
@@ -264,7 +265,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     },
     accounts: [],
     activeAccountId: "",
-    redirectUri: "http://localhost:3000/api/integrations/gcalendar/callback",
+    redirectUri: "http://localhost:3000/api/integrations/gmail-calendar/callback",
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,

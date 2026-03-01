@@ -5,8 +5,9 @@ import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } fr
 import { loadMissions, upsertMission, deleteMission } from "@/lib/missions/store"
 import { getTemplate, instantiateTemplate } from "@/lib/missions/templates"
 import type { Mission } from "@/lib/missions/types"
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
+import { removeMissionScheduleFromGoogleCalendar, syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import {
   applyMissionDiff,
   appendMissionOperationJournalEntry,
@@ -37,6 +38,23 @@ function hasLegacyMissionPayloadShape(input: unknown): boolean {
     Array.isArray(row.chatIds) ||
     Array.isArray(row.workflowSteps)
   )
+}
+
+async function syncMissionScheduleBestEffort(mission: Mission, scope?: IntegrationsStoreScope): Promise<void> {
+  await syncMissionScheduleToGoogleCalendar({ mission, scope })
+    .catch((error) => {
+      console.warn("[missions.route][gcalendar_sync] schedule mirror failed:", error instanceof Error ? error.message : String(error))
+    })
+}
+
+async function removeMissionScheduleBestEffort(missionId: string, userId: string, scope?: IntegrationsStoreScope): Promise<void> {
+  await removeMissionScheduleFromGoogleCalendar({
+    missionId,
+    userId,
+    scope,
+  }).catch((error) => {
+    console.warn("[missions.route][gcalendar_sync] schedule mirror delete failed:", error instanceof Error ? error.message : String(error))
+  })
 }
 
 /**
@@ -117,6 +135,7 @@ export async function POST(req: Request) {
         aiModel: selected.model,
       })
       await upsertMission(mission, userId)
+      await syncMissionScheduleBestEffort(mission, verified)
       await appendMissionVersionEntry({
         userContextId: userId,
         mission,
@@ -206,6 +225,7 @@ export async function POST(req: Request) {
         },
       }).catch(() => {})
       await upsertMission(diffResult.mission, userId)
+      await syncMissionScheduleBestEffort(diffResult.mission, verified)
       await appendMissionVersionEntry({
         userContextId: userId,
         mission: diffResult.mission,
@@ -347,6 +367,7 @@ export async function POST(req: Request) {
         },
       }).catch(() => {})
       await upsertMission(diffResult.mission, userId)
+      await syncMissionScheduleBestEffort(diffResult.mission, verified)
       await appendMissionVersionEntry({
         userContextId: userId,
         mission: diffResult.mission,
@@ -359,6 +380,7 @@ export async function POST(req: Request) {
     }
     const createdMission = { ...mission, userId }
     await upsertMission(createdMission, userId)
+    await syncMissionScheduleBestEffort(createdMission, verified)
     await appendMissionVersionEntry({
       userContextId: userId,
       mission: createdMission,
@@ -438,6 +460,9 @@ export async function DELETE(req: Request) {
     })
 
     const deleted = missionDelete.deleted || scheduleDeleted
+    if (deleted) {
+      await removeMissionScheduleBestEffort(id, userId, verified)
+    }
     const reason = deleted ? "deleted" : "not_found"
     console.info(
       JSON.stringify({

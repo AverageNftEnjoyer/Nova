@@ -24,6 +24,7 @@ import { hexToRgba } from "./helpers"
 import { useMissionsPageState } from "./hooks/use-missions-page-state"
 import { missionToWorkflowSummaryForAutofix } from "./canvas/workflow-autofix-bridge"
 import type { NotificationSchedule } from "./types"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 const WORKFLOW_MARKER = "[NOVA WORKFLOW]"
 
@@ -166,7 +167,9 @@ export default function MissionsPage() {
           ? trigger.triggerDays
           : ["mon", "tue", "wed", "thu", "fri"],
         time: trigger?.type === "schedule-trigger" ? trigger.triggerTime || "09:00" : "09:00",
-        timezone: trigger?.type === "schedule-trigger" ? trigger.triggerTimezone || (mission.settings?.timezone || detectedTimezone || "America/New_York") : (mission.settings?.timezone || detectedTimezone || "America/New_York"),
+        timezone: trigger?.type === "schedule-trigger"
+          ? resolveTimezone(trigger.triggerTimezone, mission.settings?.timezone, detectedTimezone)
+          : resolveTimezone(mission.settings?.timezone, detectedTimezone),
       },
       missionActive: mission.status === "active" || mission.status === "draft",
       tags: Array.isArray(mission.tags) ? mission.tags : [],

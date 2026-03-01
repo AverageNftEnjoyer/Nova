@@ -5,6 +5,7 @@
  */
 
 import type { NotificationSchedule } from "@/lib/notifications/store"
+import { resolveTimezone } from "@/lib/shared/timezone"
 import { normalizeWorkflowStep } from "../utils/config"
 import { parseMissionWorkflow } from "./parsing"
 import type { WorkflowScheduleGate } from "../types"
@@ -120,12 +121,11 @@ export function shouldWorkflowRunNow(schedule: NotificationSchedule, now: Date):
   const parsed = parseMissionWorkflow(schedule.message)
   const steps = (parsed.summary?.workflowSteps || []).map((s, i) => normalizeWorkflowStep(s, i))
   const trigger = steps.find((s) => String(s.type || "").toLowerCase() === "trigger")
-  const timezone = String(
-    trigger?.triggerTimezone ||
-    parsed.summary?.schedule?.timezone ||
-    schedule.timezone ||
-    "America/New_York",
-  ).trim() || "America/New_York"
+  const timezone = resolveTimezone(
+    trigger?.triggerTimezone,
+    parsed.summary?.schedule?.timezone,
+    schedule.timezone,
+  )
   const local = getLocalParts(now, timezone)
   if (!local) return { due: false, dayStamp: "", mode: "daily", timezone }
 

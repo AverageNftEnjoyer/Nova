@@ -130,7 +130,7 @@ function ScheduleTriggerConfig({ node, update }: { node: ScheduleTriggerNode; up
         </Field>
       )}
       <Field label="Timezone">
-        <TextInput value={node.triggerTimezone || ""} onChange={(v) => update({ triggerTimezone: v } as Partial<MissionNode>)} placeholder="America/New_York" />
+        <TextInput value={node.triggerTimezone || ""} onChange={(v) => update({ triggerTimezone: v } as Partial<MissionNode>)} placeholder="IANA timezone (e.g. Asia/Hong_Kong)" />
       </Field>
     </>
   )

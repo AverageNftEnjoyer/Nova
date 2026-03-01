@@ -263,7 +263,15 @@ function unbindSocketFromUserContext(ws) {
   const targetSet = wsByUserContext.get(currentContextId);
   if (targetSet) {
     targetSet.delete(ws);
-    if (targetSet.size === 0) wsByUserContext.delete(currentContextId);
+    if (targetSet.size === 0) {
+      wsByUserContext.delete(currentContextId);
+      // If the disconnecting user was the active voice-routing target and no sockets
+      // remain for them, hand off to any other still-connected user or clear entirely.
+      if (normalizeUserContextId(voiceRoutingUserContextId) === currentContextId) {
+        const next = wsByUserContext.keys().next();
+        voiceRoutingUserContextId = next.done ? "" : next.value;
+      }
+    }
   }
   wsContextBySocket.delete(ws);
 }

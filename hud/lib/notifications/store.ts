@@ -3,6 +3,7 @@ import "server-only"
 import { mkdir, readdir, readFile, rename, writeFile, copyFile, stat } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 export interface NotificationSchedule {
   id: string
@@ -482,7 +483,7 @@ export function buildSchedule(input: {
     label: input.label?.trim() || "Scheduled notification",
     message: input.message.trim(),
     time: input.time,
-    timezone: input.timezone || "America/New_York",
+    timezone: resolveTimezone(input.timezone),
     enabled: input.enabled ?? true,
     chatIds: (input.chatIds ?? []).map((c) => c.trim()).filter(Boolean),
     createdAt: now,

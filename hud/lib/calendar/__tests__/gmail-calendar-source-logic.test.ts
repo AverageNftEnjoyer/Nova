@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Tests pure mapping logic from gmail-calendar-source without DB/server imports.
  * We inline the mapping function under test to avoid server-only import barriers.
  */
@@ -8,10 +8,16 @@ import test from "node:test"
 import type { PersonalCalendarEvent } from "../types.js"
 import type { GmailCalendarEventItem } from "../../integrations/google-calender/types.js"
 
-// ─── Inline the mapping from gmail-calendar-source ────────────────────────────
+// â”€â”€â”€ Inline the mapping from gmail-calendar-source â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function isNovaMirroredScheduleEventId(eventId: string): boolean {
+  const normalized = String(eventId || "").trim().toLowerCase()
+  if (!normalized) return false
+  return /^(?:novamission|novaschedule|nova)[a-v0-9]{12,}(?:_[0-9]{8}t[0-9]{6}z)?$/i.test(normalized)
+}
 
 function mapGcalEvent(ev: GmailCalendarEventItem, rangeStart: Date): PersonalCalendarEvent | null {
-  if (ev.status === "cancelled" || !ev.id) return null
+  if (ev.status === "cancelled" || !ev.id || isNovaMirroredScheduleEventId(ev.id)) return null
 
   const isAllDay = !ev.start?.dateTime
 
@@ -47,7 +53,7 @@ function mapGcalEvent(ev: GmailCalendarEventItem, rangeStart: Date): PersonalCal
 
 const RANGE_START = new Date("2026-03-10T00:00:00Z")
 
-// ─── Timed events ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Timed events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 test("maps timed event to PersonalCalendarEvent correctly", () => {
   const ev: GmailCalendarEventItem = {
@@ -74,9 +80,9 @@ test("maps timed event to PersonalCalendarEvent correctly", () => {
   assert.equal(durMs, 30 * 60 * 1000)
 })
 
-// ─── All-day events ───────────────────────────────────────────────────────────
+// â”€â”€â”€ All-day events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-test("all-day event: no dateTime — parsed as local noon, duration >= 20h", () => {
+test("all-day event: no dateTime â€” parsed as local noon, duration >= 20h", () => {
   const ev: GmailCalendarEventItem = {
     id: "alldayX",
     summary: "Holiday",
@@ -86,9 +92,9 @@ test("all-day event: no dateTime — parsed as local noon, duration >= 20h", () 
   }
   const result = mapGcalEvent(ev, RANGE_START)
   assert.ok(result)
-  // Start should be 2026-03-15T12:00:00 local → ISO UTC
+  // Start should be 2026-03-15T12:00:00 local â†’ ISO UTC
   assert.match(result.startAt, /2026-03-15/)
-  // End should be 2026-03-16T12:00:00 → 24h later
+  // End should be 2026-03-16T12:00:00 â†’ 24h later
   const durMs = new Date(result.endAt).getTime() - new Date(result.startAt).getTime()
   assert.equal(durMs, 24 * 60 * 60 * 1000, "all-day duration should be 24 hours")
 })
@@ -107,7 +113,7 @@ test("all-day event with no end: fallback is startAt + 1 hour", () => {
   assert.equal(durMs, 60 * 60 * 1000, "fallback duration should be 1 hour")
 })
 
-// ─── Filtering ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Filtering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 test("cancelled event is filtered out", () => {
   const ev: GmailCalendarEventItem = {
@@ -131,6 +137,28 @@ test("event with no id is filtered out", () => {
   assert.equal(mapGcalEvent(ev, RANGE_START), null)
 })
 
+test("Nova-mirrored schedule event ids are filtered out", () => {
+  const ev: GmailCalendarEventItem = {
+    id: "novaschedule68894daed4ea2394feb42793819ab7f45afd2b8477e21097bcc2",
+    summary: "Automation",
+    start: { dateTime: "2026-03-10T10:00:00Z" },
+    end:   { dateTime: "2026-03-10T10:30:00Z" },
+    status: "confirmed",
+  }
+  assert.equal(mapGcalEvent(ev, RANGE_START), null)
+})
+
+test("legacy Nova mirror ids are filtered out", () => {
+  const ev: GmailCalendarEventItem = {
+    id: "nova6e8a0aa7fcbf6f71829e54b70a90f4769de2682c608050be62ef9f59",
+    summary: "Automation",
+    start: { dateTime: "2026-03-10T10:00:00Z" },
+    end:   { dateTime: "2026-03-10T10:30:00Z" },
+    status: "confirmed",
+  }
+  assert.equal(mapGcalEvent(ev, RANGE_START), null)
+})
+
 test("no summary falls back to (No title)", () => {
   const ev: GmailCalendarEventItem = {
     id: "notitle",
@@ -143,7 +171,7 @@ test("no summary falls back to (No title)", () => {
   assert.equal(result.title, "(No title)")
 })
 
-// ─── id prefix ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ id prefix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 test("id is prefixed with gcal::", () => {
   const ev: GmailCalendarEventItem = {
@@ -157,7 +185,7 @@ test("id is prefixed with gcal::", () => {
   assert.equal(result?.id, "gcal::xyz")
 })
 
-// ─── rangeStart fallback ──────────────────────────────────────────────────────
+// â”€â”€â”€ rangeStart fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 test("missing start date falls back to rangeStart", () => {
   const ev: GmailCalendarEventItem = {
@@ -169,4 +197,5 @@ test("missing start date falls back to rangeStart", () => {
   assert.ok(result)
   assert.equal(result.startAt, RANGE_START.toISOString())
 })
+
 

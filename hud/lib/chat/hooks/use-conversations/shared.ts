@@ -104,8 +104,6 @@ function stabilizeServerMessageIds(localMessages: ChatMessage[], serverMessages:
   })
 }
 
-export const USER_ECHO_DEDUP_MS = 15_000
-export const ASSISTANT_ECHO_DEDUP_MS = 60_000
 export const OPTIMISTIC_ID_REGEX = /^\d+-[a-z0-9]+$/
 export const MISSION_SPAM_COOLDOWN_MS = 30_000
 export const MISSION_INFLIGHT_MAX_MS = 90_000
@@ -169,26 +167,6 @@ export function isLikelyOptimisticDuplicate(localConvo: Conversation, remoteConv
   const localUpdated = parseIsoTimestamp(localConvo.updatedAt)
   const remoteUpdated = parseIsoTimestamp(remoteConvo.updatedAt)
   return Math.abs(localUpdated - remoteUpdated) <= 3 * 60 * 1000
-}
-
-export type IncomingAgentMessage = {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  ts: number
-  source?: string
-  sender?: string
-  conversationId?: string
-  nlpCleanText?: string
-  nlpConfidence?: number
-  nlpCorrectionCount?: number
-  nlpBypass?: boolean
-}
-
-function normalizeChatSource(value: unknown): "hud" | "agent" | "voice" | undefined {
-  const source = String(value || "").trim().toLowerCase()
-  if (source === "hud" || source === "agent" || source === "voice") return source
-  return undefined
 }
 
 export type PendingMissionMessage = {
@@ -292,151 +270,4 @@ export function mergeConversationsPreferLocal(
   return [...merged, ...localOnly].sort(
     (a, b) => parseIsoTimestamp(b.updatedAt) - parseIsoTimestamp(a.updatedAt),
   )
-}
-
-export function mergeIncomingAgentMessages(
-  existingMessages: ChatMessage[],
-  incomingMessages: IncomingAgentMessage[],
-): ChatMessage[] {
-  const coerceIncomingTimestampMs = (value: unknown): number => {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : Date.now()
-  }
-
-  const shouldPreferIncomingAssistantVersion = (base: string, incoming: string): boolean => {
-    const left = normalizeMessageComparableText(base)
-    const right = normalizeMessageComparableText(incoming)
-    if (!left || !right) return false
-    if (left === right) return true
-
-    const leftCompact = left.replace(/[^a-z0-9]+/g, "")
-    const rightCompact = right.replace(/[^a-z0-9]+/g, "")
-    if (!leftCompact || !rightCompact) return false
-    if (rightCompact.includes(leftCompact)) return true
-    if (leftCompact.includes(rightCompact)) return false
-
-    const leftWords = new Set(left.split(/\s+/g).filter(Boolean))
-    const rightWords = new Set(right.split(/\s+/g).filter(Boolean))
-    if (leftWords.size < 8 || rightWords.size < 8) return false
-    let overlap = 0
-    for (const word of leftWords) {
-      if (rightWords.has(word)) overlap += 1
-    }
-    const smaller = Math.min(leftWords.size, rightWords.size)
-    const overlapRatio = smaller > 0 ? overlap / smaller : 0
-    const lenRatio = Math.min(leftCompact.length, rightCompact.length) / Math.max(leftCompact.length, rightCompact.length)
-    return overlapRatio >= 0.82 && lenRatio >= 0.62
-  }
-
-  const mergeAssistantContent = (base: string, incoming: string): string => {
-    const left = String(base || "")
-    const right = String(incoming || "")
-    if (!right) return left
-    if (!left) return right
-    if (shouldPreferIncomingAssistantVersion(left, right)) {
-      return right.length >= left.length ? right : left
-    }
-    if (right.length >= left.length && right.startsWith(left)) return right
-    if (left.length >= right.length && left.startsWith(right)) return left
-    if (left.endsWith(right)) return left
-    if (right.endsWith(left)) return right
-    return `${left}${right}`
-  }
-
-  const dedupedExisting: ChatMessage[] = []
-  for (const existing of existingMessages) {
-    if (existing.role !== "assistant") {
-      dedupedExisting.push(existing)
-      continue
-    }
-    const existingText = normalizeMessageComparableText(existing.content)
-    if (!existingText) {
-      dedupedExisting.push(existing)
-      continue
-    }
-    const duplicateIdx = dedupedExisting.findIndex((candidate) => {
-      if (candidate.role !== "assistant") return false
-      if (Math.abs(parseIsoTimestamp(candidate.createdAt) - parseIsoTimestamp(existing.createdAt)) > ASSISTANT_ECHO_DEDUP_MS) {
-        return false
-      }
-      return normalizeMessageComparableText(candidate.content) === existingText
-    })
-    if (duplicateIdx === -1) {
-      dedupedExisting.push(existing)
-      continue
-    }
-    const current = dedupedExisting[duplicateIdx]
-    if (shouldPreferIncomingAssistantVersion(current.content, existing.content)) {
-      dedupedExisting[duplicateIdx] = {
-        ...current,
-        content: mergeAssistantContent(current.content, existing.content),
-        createdAt: parseIsoTimestamp(current.createdAt) >= parseIsoTimestamp(existing.createdAt) ? current.createdAt : existing.createdAt,
-        sender: existing.sender || current.sender,
-      }
-    }
-  }
-
-  const out = [...dedupedExisting]
-  const incomingAssistantByText = new Map<string, number>()
-  const assistantById = new Map<string, number>()
-  const userByNormText = new Map<string, number>()
-  for (let i = 0; i < out.length; i += 1) {
-    const msg = out[i]
-    if (msg.role === "user") {
-      const key = normalizeMessageComparableText(msg.content)
-      if (key && !userByNormText.has(key)) userByNormText.set(key, i)
-      continue
-    }
-    if (msg.role !== "assistant") continue
-    if (msg.id && !assistantById.has(msg.id)) assistantById.set(msg.id, i)
-    const key = normalizeMessageComparableText(msg.content)
-    if (!key) continue
-    if (!incomingAssistantByText.has(key)) incomingAssistantByText.set(key, i)
-  }
-  for (const incoming of incomingMessages) {
-    const incomingTs = coerceIncomingTimestampMs(incoming.ts)
-    if (incoming.role === "user") {
-      const incomingNorm = normalizeMessageComparableText(incoming.content)
-      const existingIdx = incomingNorm ? userByNormText.get(incomingNorm) : undefined
-      if (typeof existingIdx === "number") {
-        const existing = out[existingIdx]
-        const timeDiff = Math.abs(parseIsoTimestamp(existing.createdAt) - incomingTs)
-        if (timeDiff <= USER_ECHO_DEDUP_MS) continue
-      }
-    }
-    if (incoming.role === "assistant") {
-      const idMatchIdx = incoming.id ? assistantById.get(incoming.id) : undefined
-      const incomingNorm = normalizeMessageComparableText(incoming.content)
-      const textMatchIdx = incomingNorm ? incomingAssistantByText.get(incomingNorm) : undefined
-      const matchIdx = idMatchIdx ?? textMatchIdx
-      if (typeof matchIdx === "number") {
-        const base = out[matchIdx]
-        out[matchIdx] = {
-          ...base,
-          content: mergeAssistantContent(base.content, incoming.content),
-          sender: incoming.sender || base.sender,
-          source: normalizeChatSource(incoming.source) || base.source,
-          createdAt: parseIsoTimestamp(base.createdAt) >= incomingTs ? base.createdAt : new Date(incomingTs).toISOString(),
-        }
-        continue
-      }
-    }
-    out.push({
-      id: incoming.id,
-      role: incoming.role,
-      content: incoming.content,
-      createdAt: new Date(incomingTs).toISOString(),
-      source: normalizeChatSource(incoming.source) || "agent",
-      sender: incoming.sender,
-      nlpCleanText: incoming.nlpCleanText,
-      nlpConfidence: incoming.nlpConfidence,
-      nlpCorrectionCount: incoming.nlpCorrectionCount,
-      nlpBypass: incoming.nlpBypass,
-    })
-    // Track the newly added entry by id for subsequent incoming matches
-    if (incoming.role === "assistant" && incoming.id) {
-      assistantById.set(incoming.id, out.length - 1)
-    }
-  }
-  return out
 }

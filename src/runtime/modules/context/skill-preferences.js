@@ -6,7 +6,7 @@ const SKILL_FILE_NAME = "SKILL.md";
 const SKILL_UPDATE_VERBS_REGEX =
   /\b(update|customi(?:s|z)e|change|adjust|modify|set|tweak|refine|tailor|personalize)\b/i;
 const SKILL_PREFERENCE_SIGNAL_REGEX =
-  /\b(my|default|defaults|preference|preferences|from now on|going forward|always|never|only|include|exclude|format|style)\b/i;
+  /\b(skill|skills|preference|preferences|from now on|going forward|always|never|only|include|exclude|format|style|tone|rule|rules|default|defaults)\b/i;
 const SKILL_PREFERENCE_SECTION_HEADER = "## User Preference Overrides";
 const SKILL_PREFERENCE_MAX_RULES = 40;
 const SKILL_DISCOVERY_CACHE_TTL_MS = Math.max(
@@ -373,4 +373,3 @@ export function applySkillPreferenceUpdateFromMessage({
     };
   }
 }
-

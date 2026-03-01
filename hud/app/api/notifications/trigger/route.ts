@@ -13,6 +13,7 @@ import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } fr
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import type { NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
     const scheduleId = typeof body?.scheduleId === "string" ? body.scheduleId.trim() : ""
     const text = typeof body?.message === "string" ? body.message.trim() : ""
     const integration = typeof body?.integration === "string" ? body.integration.trim().toLowerCase() : ""
-    const timezone = typeof body?.timezone === "string" ? body.timezone.trim() : "America/New_York"
+    const timezone = resolveTimezone(typeof body?.timezone === "string" ? body.timezone : undefined)
     const time = typeof body?.time === "string" ? body.time.trim() : "09:00"
     const chatIds = normalizeRecipients(body?.chatIds)
 

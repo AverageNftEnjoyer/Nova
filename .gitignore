@@ -40,6 +40,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# generated audit artifacts
+docs/repo-audit/
+
 # temp scripts (generated at runtime)
 _*.ps1
 

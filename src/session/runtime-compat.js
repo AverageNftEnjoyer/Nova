@@ -39,8 +39,8 @@ export function createSessionRuntime({
   sessionIdleMinutes,
   sessionMainKey,
   transcriptsEnabled = true,
-  maxTranscriptLines = 400,
-  transcriptRetentionDays = 30,
+  maxTranscriptLines = 0,
+  transcriptRetentionDays = 0,
 }) {
   let lastTranscriptPruneAt = 0;
   let legacySessionMigrationDone = false;

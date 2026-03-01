@@ -8,8 +8,10 @@ import { loadMissions } from "@/lib/missions/store"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { syncNotificationScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 import type { NotificationSchedule } from "@/lib/notifications/store"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -41,7 +43,7 @@ function buildScheduleFallbackFromMission(mission: Mission, userId: string): Not
     : "09:00"
   const timezone = trigger?.type === "schedule-trigger" && typeof trigger.triggerTimezone === "string" && trigger.triggerTimezone.trim().length > 0
     ? trigger.triggerTimezone.trim()
-    : (mission.settings?.timezone || "America/New_York")
+    : resolveTimezone(mission.settings?.timezone)
   const nowIso = new Date().toISOString()
   return {
     id: mission.id,
@@ -212,6 +214,14 @@ export async function GET(req: Request) {
             schedules.push(updatedSchedule)
           }
           await saveSchedules(schedules, { userId })
+          if (targetIndex < 0) {
+            await syncNotificationScheduleToGoogleCalendar({ schedule: updatedSchedule, scope: verified }).catch((error) => {
+              console.warn(
+                "[notifications.trigger.stream][gcalendar_sync] fallback schedule mirror failed:",
+                error instanceof Error ? error.message : String(error),
+              )
+            })
+          }
 
           safeStreamPayload({
             type: "done",

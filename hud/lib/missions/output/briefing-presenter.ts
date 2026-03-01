@@ -1,4 +1,5 @@
 import type { Mission, MissionNode, NodeOutput } from "../types"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import {
   clampSectionText,
   extractInspirationalQuote,
@@ -55,7 +56,7 @@ function formatEtTime(iso: string): string {
   const parsed = new Date(String(iso || ""))
   if (Number.isNaN(parsed.getTime())) return "unavailable"
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
+    timeZone: getRuntimeTimezone(),
     hour: "numeric",
     minute: "2-digit",
     month: "short",

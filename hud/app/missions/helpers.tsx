@@ -5,6 +5,7 @@ import type { IntegrationsSettings } from "@/lib/integrations/client-store"
 import { parseMissionWorkflow } from "@/lib/missions/workflow/parsing"
 import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
+import { resolveTimezone } from "@/lib/shared/timezone"
 import { AI_MODEL_OPTIONS, STEP_TYPE_OPTIONS } from "./constants"
 import type { AiIntegrationType, NotificationSchedule, WorkflowStep, WorkflowStepType } from "./types"
 
@@ -48,7 +49,6 @@ export function formatIntegrationLabel(integration: string): string {
   const value = integration.trim().toLowerCase()
   if (value === "preferred") return "Preferred Channel"
   if (value === "telegram") return "Telegram"
-  if (value === "telegram") return "Telegram"
   if (value === "discord") return "Discord"
   if (value === "slack") return "Slack"
   if (value === "email") return "Email"
@@ -79,7 +79,6 @@ export function renderStepIcon(type: WorkflowStepType, className: string) {
 }
 
 export function getMissionIntegrationIcon(integration: string, className: string) {
-  if (integration === "telegram") return <Sparkles className={className} />
   if (integration === "telegram") return <Send className={className} />
   if (integration === "discord") return <MessageCircle className={className} />
   if (integration === "email") return <Mail className={className} />
@@ -207,7 +206,11 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       aiDetailLevel: resolvedType === "ai" ? normalizeAiDetailLevel(step.aiDetailLevel) : undefined,
       triggerMode: resolvedType === "trigger" ? (step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval" ? step.triggerMode : "daily") : undefined,
       triggerTime: resolvedType === "trigger" ? (typeof step.triggerTime === "string" && step.triggerTime ? step.triggerTime : mission.time || "09:00") : undefined,
-      triggerTimezone: resolvedType === "trigger" ? (typeof step.triggerTimezone === "string" && step.triggerTimezone ? step.triggerTimezone : (mission.timezone || detectedTimezone || "America/New_York")) : undefined,
+      triggerTimezone: resolvedType === "trigger"
+        ? (typeof step.triggerTimezone === "string" && step.triggerTimezone
+          ? step.triggerTimezone
+          : resolveTimezone(mission.timezone, detectedTimezone))
+        : undefined,
       triggerDays: resolvedType === "trigger" ? (Array.isArray(step.triggerDays) ? step.triggerDays.map((day) => String(day)) : ["mon", "tue", "wed", "thu", "fri"]) : undefined,
       triggerIntervalMinutes: resolvedType === "trigger" ? (typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes ? step.triggerIntervalMinutes : "30") : undefined,
       fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "coinbase" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "web") : undefined,
@@ -264,14 +267,14 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       conditionValue: resolvedType === "condition" ? (typeof step.conditionValue === "string" ? step.conditionValue : "") : undefined,
       conditionLogic: resolvedType === "condition" ? (step.conditionLogic === "any" ? "any" : "all") : undefined,
       conditionFailureAction: resolvedType === "condition" ? (step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip") : undefined,
-      outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
+      outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
       outputTiming: resolvedType === "output" ? (step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate") : undefined,
       outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
       outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
       outputRepeatCount: resolvedType === "output" ? (typeof step.outputRepeatCount === "string" && step.outputRepeatCount ? step.outputRepeatCount : "3") : undefined,
       outputRecipients: resolvedType === "output"
         ? sanitizeOutputRecipients(
-          step.outputChannel === "telegram" || step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+          step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
             ? step.outputChannel
             : "telegram",
           typeof step.outputRecipients === "string" ? step.outputRecipients : "",

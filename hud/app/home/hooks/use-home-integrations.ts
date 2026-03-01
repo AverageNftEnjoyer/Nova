@@ -8,6 +8,7 @@ import {
   type IntegrationsSettings,
   type LlmProvider,
 } from "@/lib/integrations/client-store"
+import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { compareMissionPriority, parseMissionWorkflowMeta } from "../helpers"
 import type { MissionSummary, NotificationSchedule } from "./types"
@@ -119,7 +120,7 @@ const SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS = 20_000
 const SPOTIFY_DEVICE_WARMUP_MS = 12_000
 const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 2_000
 const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 1_000
-const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 15_000
+const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 5_000
 const SPOTIFY_POLL_INTERVAL_IDLE_MS = 8_000
 const SPOTIFY_REQUEST_TIMEOUT_MS = 12_000
 
@@ -303,6 +304,9 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   }, [refreshSpotifyNowPlaying])
 
   const spotifyRetryTimerRef = useRef<number | null>(null)
+  // After a play/pause command, suppress poll cycles for this many ms to prevent
+  // an in-flight poll from overwriting the optimistic state before Spotify propagates.
+  const spotifyCommandSentAtRef = useRef(0)
 
   const runSpotifyPlayback = useCallback(async (action: SpotifyPlaybackAction, _isRetry = false): Promise<SpotifyPlaybackResponse> => {
     const isStartAction = action === "play" || action === "play_liked" || action === "play_smart"
@@ -364,10 +368,20 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         throw new Error(String(data?.error || data?.message || `Spotify action ${action} failed.`))
       }
       spotifyDeviceWarmupUntilRef.current = 0
+      // Stamp command time BEFORE updating state so the poll suppression window is in place
+      // before any in-flight poll cycle can fire.
+      if (action === "pause" || action === "play") {
+        spotifyCommandSentAtRef.current = Date.now()
+      }
       if (data?.nowPlaying) {
         setSpotifyNowPlaying(normalizeSpotifyNowPlaying(data.nowPlaying))
       } else if (!data?.skipNowPlayingRefresh) {
         await refreshSpotifyNowPlaying(true)
+      }
+      // For plain play (resume): verify Spotify actually started after a short delay.
+      // Catches silent device failures without waiting for the full 2s poll cycle.
+      if (action === "play" && data?.skipNowPlayingRefresh) {
+        window.setTimeout(() => { void refreshSpotifyNowPlaying(true) }, 1_500)
       }
       // For track-change actions: poll every 600ms until trackId changes or 5 attempts pass.
       // Read prevTrackId from ref — always accurate, no stale closure issue.
@@ -471,13 +485,15 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     if (!spotifyConnected) return
 
     const refreshOnForeground = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && Date.now() >= spotifyCommandSentAtRef.current + 2_500) {
         void refreshSpotifyNowPlaying(true)
       }
     }
 
     const onFocus = () => {
-      void refreshSpotifyNowPlaying(true)
+      if (Date.now() >= spotifyCommandSentAtRef.current + 2_500) {
+        void refreshSpotifyNowPlaying(true)
+      }
     }
 
     document.addEventListener("visibilitychange", refreshOnForeground)
@@ -527,6 +543,12 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
 
     const runPollCycle = async () => {
       if (cancelled) return
+      // Suppress this poll if a play/pause command was just sent — prevents an in-flight
+      // poll from reading stale Spotify state and overwriting the optimistic UI update.
+      if (Date.now() < spotifyCommandSentAtRef.current + 2_500) {
+        scheduleNextPoll()
+        return
+      }
       await refreshSpotifyNowPlaying(true)
       scheduleNextPoll()
     }
@@ -588,7 +610,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
           enabledCount: schedule.enabled ? 1 : 0,
           totalCount: 1,
           times: [schedule.time],
-          timezone: schedule.timezone || "America/New_York",
+          timezone: resolveTimezone(schedule.timezone),
         })
         continue
       }

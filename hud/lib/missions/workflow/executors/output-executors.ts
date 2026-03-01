@@ -18,6 +18,7 @@ import { humanizeMissionOutputText } from "../../output/formatters"
 import { applyMissionOutputQualityGuardrails } from "../../output/quality"
 import { aggregateUpstreamNodeText, buildDeterministicMorningBriefing } from "../../output/briefing-presenter"
 import type { NotificationSchedule } from "@/lib/notifications/store"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ async function dispatchToChannel(
     label: ctx.missionLabel,
     integration: channel,
     chatIds,
-    timezone: ctx.mission?.settings?.timezone || "America/New_York",
+    timezone: resolveTimezone(ctx.mission?.settings?.timezone),
     message: "",
     time: "09:00",
     enabled: true,
@@ -125,6 +126,7 @@ async function dispatchToChannel(
         source: ctx.runSource === "scheduler" ? "scheduler" : "trigger",
         nodeId: metadata?.nodeId,
         outputIndex: metadata?.outputIndex,
+        occurredAt: ctx.now.toISOString(),
       },
     )
     const first = results[0] ?? { ok: false, error: "No result returned" }

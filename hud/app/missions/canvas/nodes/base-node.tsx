@@ -5,6 +5,7 @@ import { Handle, Position, type NodeProps, useReactFlow } from "@xyflow/react"
 import { cn } from "@/lib/shared/utils"
 import type { NodeCatalogEntry } from "@/lib/missions/catalog"
 import { FluidSelect } from "@/components/ui/fluid-select"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 
 export interface MissionNodeData extends Record<string, unknown> {
   nodeConfig: Record<string, unknown>
@@ -141,7 +142,7 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
             </FieldWrap>
           )}
           <FieldWrap label="Timezone">
-            <input className={FIELD_INPUT} value={str("triggerTimezone", "America/New_York")} onChange={(e) => upd({ triggerTimezone: e.target.value })} placeholder="America/New_York" />
+            <input className={FIELD_INPUT} value={str("triggerTimezone", getRuntimeTimezone())} onChange={(e) => upd({ triggerTimezone: e.target.value })} placeholder="IANA timezone (e.g. Asia/Hong_Kong)" />
           </FieldWrap>
         </>
       )

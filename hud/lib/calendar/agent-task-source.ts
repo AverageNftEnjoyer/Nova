@@ -2,11 +2,10 @@
  * Calendar Agent Task Source — Phase 3
  *
  * Produces AgentCalendarEvent[] for the calendar aggregator by:
- *   1. Reading past mission execution runs from the telemetry log
- *      (mission.run.started / completed / failed events)
- *   2. Projecting the *next* scheduled run slot for each active mission
- *      that hasn't already fired within the range
+ *   Reading past mission execution runs from the telemetry log
+ *   (mission.run.started / completed / failed events).
  *
+ * Upcoming scheduled mission slots are handled by aggregator.ts as kind:"mission".
  * Read-only — no reschedule support in Phase 3.
  * Scoped strictly to userId; no cross-user reads possible.
  */
@@ -15,7 +14,7 @@ import "server-only"
 
 import { listMissionTelemetryEvents } from "@/lib/missions/telemetry/store"
 import { loadMissions } from "@/lib/missions/store"
-import { expandDates, toIsoInTimezone, estimateDurationMs } from "./schedule-utils"
+import { estimateDurationMs } from "./schedule-utils"
 import type { AgentCalendarEvent } from "./types"
 
 // ─── Status mapping ───────────────────────────────────────────────────────────
@@ -87,15 +86,27 @@ export async function loadAgentTaskEvents(
 
   // Cap: max calendar events per mission from telemetry (prevents scheduler-spam floods)
   const MAX_TELEMETRY_EVENTS_PER_MISSION = 20
+  const STALE_RUNNING_EVENT_MS = 2 * 60 * 1000
   const perMissionCount = new Map<string, number>()
 
   for (const ev of runById.values()) {
+    const metadata = ev.metadata && typeof ev.metadata === "object"
+      ? ev.metadata as Record<string, unknown>
+      : {}
+    const source = String(metadata.source || "system").trim().toLowerCase() || "system"
+    const skipped = metadata.skipped === true
+    if (skipped) continue
+
     const midKey = (ev.missionId ?? ev.scheduleId) ?? "system"
     const count = perMissionCount.get(midKey) ?? 0
     if (count >= MAX_TELEMETRY_EVENTS_PER_MISSION) continue
     perMissionCount.set(midKey, count + 1)
 
     const startMs = Date.parse(ev.ts)
+    if (!Number.isFinite(startMs)) continue
+    if (ev.eventType === "mission.run.started" && Date.now() - startMs > STALE_RUNNING_EVENT_MS) {
+      continue
+    }
     const nodeCount = ev.missionId ? (missionNodeCounts.get(ev.missionId) ?? 1) : 1
     const durMs = Number.isFinite(ev.durationMs) && ev.durationMs! > 0
       ? ev.durationMs!
@@ -111,7 +122,7 @@ export async function loadAgentTaskEvents(
       id: `agent::${ev.missionRunId ?? ev.eventId}`,
       kind: "agent",
       title: label,
-      subtitle: `${ev.eventType.replace("mission.run.", "")} · scheduler`,
+      subtitle: `${ev.eventType.replace("mission.run.", "")} · ${source}`,
       startAt,
       endAt,
       status: telemetryStatusToCalStatus(ev.eventType, ev.status),
@@ -122,62 +133,9 @@ export async function loadAgentTaskEvents(
     })
   }
 
-  // ── 2. Next scheduled run slots for active missions ─────────────────────────
-  // Show upcoming scheduled runs that haven't appeared in telemetry yet.
-  const telemetryMissionDates = new Set(
-    [...runById.values()].map((ev) => {
-      if (!ev.missionId) return null
-      const date = new Date(ev.ts).toISOString().slice(0, 10)
-      return `${ev.missionId}::${date}`
-    }).filter(Boolean),
-  )
-
-  for (const mission of missions) {
-    if (mission.status !== "active") continue
-
-    const trigger = mission.nodes?.find((n) => n.type === "schedule-trigger") as
-      | { type: "schedule-trigger"; triggerMode?: string; triggerTime?: string; triggerTimezone?: string; triggerDays?: string[] }
-      | undefined
-
-    if (!trigger) continue
-
-    const mode = trigger.triggerMode ?? "daily"
-    const timeStr = trigger.triggerTime ?? "09:00"
-    const tz = trigger.triggerTimezone ?? "America/New_York"
-    const days = trigger.triggerDays
-    const nodeCount = mission.nodes?.length ?? 1
-
-    const dates = expandDates(rangeStart, rangeEnd, mode, days)
-
-    for (const dateStr of dates) {
-      const key = `${mission.id}::${dateStr}`
-      // Skip if we already have a telemetry entry for this mission on this date
-      if (telemetryMissionDates.has(key)) continue
-
-      const startAt = toIsoInTimezone(dateStr, timeStr, tz)
-      const startAtMs = Date.parse(startAt)
-      if (!Number.isFinite(startAtMs)) continue
-      // Only show future/upcoming slots (not past ones without a telemetry entry — those ran before telemetry existed)
-      if (startAtMs <= Date.now() - 15 * 60 * 1000) continue
-      if (startAtMs < rangeStartMs || startAtMs >= rangeEndMs) continue
-
-      const durMs = estimateDurationMs(nodeCount)
-      const endAt = new Date(startAtMs + durMs).toISOString()
-
-      events.push({
-        id: `agent::upcoming::${mission.id}::${dateStr}`,
-        kind: "agent",
-        title: mission.label,
-        subtitle: `scheduled · ${mode}`,
-        startAt,
-        endAt,
-        status: "scheduled",
-        agentType: "mission-runner",
-        triggeredBy: mission.id,
-        reschedulable: false,
-      })
-    }
-  }
+  // NOTE: Upcoming scheduled run slots are generated by aggregator.ts as
+  // kind:"mission" events. We do NOT duplicate them here as kind:"agent" —
+  // that would create duplicate pills on the calendar for every active mission.
 
   return events.sort((a, b) => a.startAt.localeCompare(b.startAt))
 }

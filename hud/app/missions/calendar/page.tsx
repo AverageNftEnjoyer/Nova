@@ -6,9 +6,9 @@
  * Layout: mini month picker sidebar + week/month/day views + detail modal
  */
 
-import { useState, useMemo, useCallback, useEffect, useRef } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, ChevronRight, Settings, Plus, X, Clock, CalendarDays, Layers, User } from "lucide-react"
+import { ChevronLeft, ChevronRight, Settings, Plus, X, Clock, CalendarDays, Layers, User, Trash2 } from "lucide-react"
 import Link from "next/link"
 
 import { useTheme } from "@/lib/context/theme-context"
@@ -18,7 +18,8 @@ import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
+import { ORB_COLORS, ACCENT_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
+import { useAccent } from "@/lib/context/accent-context"
 import { hexToRgba } from "@/app/integrations/constants"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { useSpotlightEffect } from "@/app/integrations/hooks/useSpotlightEffect"
@@ -27,6 +28,11 @@ import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings } from "@/lib/inte
 import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/model-label"
 import { loadCalendarCategories, addCalendarCategory, removeCalendarCategory, PRESET_COLORS, type CalendarCategory } from "@/lib/calendar/category-store"
 import type { CalendarEvent, PersonalCalendarEvent } from "@/lib/calendar/types"
+
+// ─── Mission color context (accent-driven, replaces hardcoded cyan) ──────────
+
+const MissionColorCtx = createContext("#8b5cf6")
+function useMissionColor() { return useContext(MissionColorCtx) }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,9 +71,16 @@ const DAY_NAMES  = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Fri
 const MONTHS     = ["January","February","March","April","May","June","July","August","September","October","November","December"]
 
 const CAT: Record<EventKind, { label: string; color: string; bgClass: string; dotClass: string }> = {
-  mission:  { label: "Agent Missions", color: "#22D3EE", bgClass: "bg-cyan-400/20  border-cyan-400/40",   dotClass: "bg-cyan-400"   },
+  mission:  { label: "Agent Missions", color: "#8b5cf6", bgClass: "bg-violet-500/20 border-violet-500/40", dotClass: "bg-violet-500" },
   agent:    { label: "Agent Tasks",    color: "#A78BFA", bgClass: "bg-violet-400/20 border-violet-400/40", dotClass: "bg-violet-400" },
   personal: { label: "Personal",       color: "#F59E0B", bgClass: "bg-amber-400/20  border-amber-400/40",  dotClass: "bg-amber-400"  },
+}
+
+/** Get the live CAT entry for a kind, using the accent color for missions. */
+function useCatEntry(kind: EventKind) {
+  const missionColor = useMissionColor()
+  if (kind !== "mission") return CAT[kind]
+  return { ...CAT.mission, color: missionColor }
 }
 
 const STATUS_DOT: Record<EventStatus, string> = {
@@ -112,6 +125,69 @@ function fmtFullDate(d: Date) {
 
 function evTop(h: number, m: number) { return ((h - GRID_START) + m / 60) * PX_HR }
 function evHt(min: number)           { return Math.max((min / 60) * PX_HR, 22) }
+
+// ─── Event Overlap Layout ─────────────────────────────────────────────────────
+
+/** Computes column assignments for overlapping events in a single day column.
+ *  Returns Map<eventId, { col, numCols }> where col is the zero-based column
+ *  index and numCols is the total columns in the overlap group, so each event
+ *  renders at width 1/numCols and left offset col/numCols — producing the
+ *  standard 50/50 Google-Calendar-style split for simultaneous events.
+ */
+function computeEventLayout(events: CalEvent[]): Map<string, { col: number; numCols: number }> {
+  if (!events.length) return new Map()
+
+  // Sort by start time ascending; ties: longer event gets the lower column
+  const sorted = [...events].sort((a, b) => {
+    const aStart = a.startH * 60 + a.startM
+    const bStart = b.startH * 60 + b.startM
+    if (aStart !== bStart) return aStart - bStart
+    return (b.startH * 60 + b.startM + b.durMin) - (a.startH * 60 + a.startM + a.durMin)
+  })
+
+  // Greedy column assignment: place each event in the first non-overlapping column
+  const colEnds: number[] = []
+  const assignment = new Map<string, number>()
+
+  for (const ev of sorted) {
+    const start = ev.startH * 60 + ev.startM
+    const end   = start + ev.durMin
+    let placed  = false
+    for (let i = 0; i < colEnds.length; i++) {
+      if (colEnds[i] <= start) {
+        assignment.set(ev.id, i)
+        colEnds[i] = end
+        placed = true
+        break
+      }
+    }
+    if (!placed) {
+      assignment.set(ev.id, colEnds.length)
+      colEnds.push(end)
+    }
+  }
+
+  // numCols = (max col index of any event overlapping this one) + 1
+  const result = new Map<string, { col: number; numCols: number }>()
+  for (const ev of sorted) {
+    const evStart = ev.startH * 60 + ev.startM
+    const evEnd   = evStart + ev.durMin
+    const col     = assignment.get(ev.id) ?? 0
+    let maxCol    = col
+
+    for (const other of sorted) {
+      if (other.id === ev.id) continue
+      const oStart = other.startH * 60 + other.startM
+      const oEnd   = oStart + other.durMin
+      if (evStart < oEnd && oStart < evEnd) {
+        const oCol = assignment.get(other.id) ?? 0
+        if (oCol > maxCol) maxCol = oCol
+      }
+    }
+    result.set(ev.id, { col, numCols: maxCol + 1 })
+  }
+  return result
+}
 
 /** Returns an array of Date cells for a mini-calendar (Sun-start, fills out to 6×7). */
 function getMiniCells(year: number, month: number): Date[] {
@@ -159,79 +235,106 @@ function apiEventToCalEvent(ev: CalendarEvent): CalEvent | null {
 
 // ─── Event Pill (week/day view) ───────────────────────────────────────────────
 
-function EventPill({ ev, active, onClick }: { ev: CalEvent; active: boolean; onClick: () => void }) {
-  const cat     = CAT[ev.kind]
-  const top     = evTop(ev.startH, ev.startM)
-  const ht      = evHt(ev.durMin)
-  const running = ev.status === "running"
-  const done    = ev.status === "completed"
+function EventPill({ ev, active, onClick, col = 0, numCols = 1, onDelete }: {
+  ev: CalEvent; active: boolean; onClick: () => void
+  col?: number; numCols?: number; onDelete?: () => void
+}) {
+  const cat      = useCatEntry(ev.kind)
+  const top      = evTop(ev.startH, ev.startM)
+  const ht       = evHt(ev.durMin)
+  const running  = ev.status === "running"
+  const done     = ev.status === "completed"
+  const rightGap = col < numCols - 1 ? 2 : 0
 
   return (
-    <button
-      onClick={onClick}
+    <div
       className={cn(
-        "absolute left-1 right-1 rounded-md text-left overflow-hidden transition-all duration-100",
-        "border-l-2 border border-r-0 border-t-0 border-b-0",
-        active ? "z-10 ring-1 ring-white/20" : "z-1",
-        done && "opacity-40",
+        "absolute group",
+        active ? "z-10" : "z-[1]",
       )}
       style={{
         top,
         height: ht,
-        borderLeftColor: cat.color,
-        background: active
-          ? `${cat.color}22`
-          : done
-          ? "rgba(255,255,255,0.03)"
-          : `${cat.color}12`,
-        borderColor: active ? `${cat.color}44` : "transparent",
-        borderLeftWidth: 3,
+        left:  `${((col / numCols) * 100).toFixed(2)}%`,
+        width: `${(100 / numCols).toFixed(2)}%`,
       }}
     >
-      {/* Running shimmer */}
-      {running && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `linear-gradient(90deg, transparent, ${cat.color}15, transparent)`,
-            backgroundSize: "200% 100%",
-            animation: "calShimmer 2.4s linear infinite",
-          }}
-        />
-      )}
-      <div className="px-1.5 py-1">
-        {ht > 30 && (
-          <div className="text-[9px] font-mono mb-0.5" style={{ color: cat.color, opacity: 0.75 }}>
-            {ev.allDay ? "All Day" : fmtTime(ev.startH, ev.startM)}
+      {/* Main clickable pill */}
+      <button
+        onClick={onClick}
+        className="absolute inset-0 text-left overflow-hidden transition-all duration-100 rounded-[3px]"
+        style={{
+          right: rightGap,
+          background: active
+            ? cat.color
+            : done
+            ? `${cat.color}55`
+            : `${cat.color}CC`,
+        }}
+      >
+        {/* Running shimmer */}
+        {running && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: `linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent)`,
+              backgroundSize: "200% 100%",
+              animation: "calShimmer 2.4s linear infinite",
+            }}
+          />
+        )}
+        <div className="px-1.5" style={{ paddingTop: ht < 28 ? 2 : 4, paddingBottom: ht < 28 ? 2 : 4 }}>
+          {ht > 28 && (
+            <div
+              className="text-[9px] font-mono mb-0.5 truncate"
+              style={{ color: "rgba(255,255,255,0.75)" }}
+            >
+              {ev.allDay ? "All Day" : fmtTime(ev.startH, ev.startM)}
+            </div>
+          )}
+          <div
+            className="font-semibold truncate"
+            style={{
+              fontSize: ht < 32 ? 9 : 11,
+              lineHeight: "1.25",
+              color: done ? "rgba(255,255,255,0.45)" : "#ffffff",
+            }}
+          >
+            {ev.title}
           </div>
-        )}
-        <div
-          className={cn("font-medium leading-tight", ht < 34 ? "text-[9.5px]" : "text-[11px]")}
-          style={{
-            color: done ? "#4A5A7A" : "#E2E8F0",
-            overflow: "hidden",
-            display: "-webkit-box",
-            WebkitLineClamp: ht < 50 ? 1 : 2,
-            WebkitBoxOrient: "vertical",
-          }}
-        >
-          {ev.title}
+          {ht > 50 && ev.sub && (
+            <div
+              className="truncate mt-0.5"
+              style={{ fontSize: 9, color: "rgba(255,255,255,0.6)", fontFamily: "monospace" }}
+            >
+              {ev.sub}
+            </div>
+          )}
         </div>
-        {ht > 54 && ev.sub && (
-          <div className="text-[9px] font-mono mt-0.5 truncate text-slate-500">{ev.sub}</div>
+        {ev.conflict && (
+          <div className="absolute top-0.5 right-1 text-[7px] font-mono text-white/70">⚠</div>
         )}
-      </div>
-      {ev.conflict && (
-        <div className="absolute top-1 right-1 text-[7px] font-mono text-red-400">⚠</div>
+      </button>
+
+      {/* Delete button — hover-visible, only for deletable events */}
+      {onDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          className="absolute bottom-0.5 z-20 opacity-0 group-hover:opacity-100 transition-opacity h-4 w-4 rounded flex items-center justify-center bg-black/40 hover:bg-red-500/80"
+          style={{ right: rightGap + 2 }}
+          title="Delete mission"
+        >
+          <Trash2 className="w-2.5 h-2.5 text-white" />
+        </button>
       )}
-    </button>
+    </div>
   )
 }
 
 // ─── Month event chip ─────────────────────────────────────────────────────────
 
 function MonthChip({ ev, onClick }: { ev: CalEvent; onClick: () => void }) {
-  const cat = CAT[ev.kind]
+  const cat = useCatEntry(ev.kind)
   return (
     <button
       onClick={onClick}
@@ -255,14 +358,16 @@ function DetailModal({
   isLight,
   onReschedule,
   onRemoveOverride,
+  onDelete,
 }: {
   ev: CalEvent
   onClose: () => void
   isLight: boolean
   onReschedule: (missionId: string, newStartAt: string) => Promise<{ ok: boolean; conflict: boolean; error?: string }>
   onRemoveOverride: (missionId: string) => Promise<{ ok: boolean; error?: string }>
+  onDelete?: (ev: CalEvent) => void
 }) {
-  const cat  = CAT[ev.kind]
+  const cat  = useCatEntry(ev.kind)
   const endH = ev.startH + Math.floor((ev.startM + ev.durMin) / 60)
   const endM = (ev.startM + ev.durMin) % 60
 
@@ -524,6 +629,17 @@ function DetailModal({
                 </button>
               )}
             </div>
+
+            {/* Delete mission */}
+            {ev.kind === "mission" && ev.missionId && onDelete && (
+              <button
+                onClick={() => onDelete(ev)}
+                className="w-full h-9 rounded-lg text-[11px] font-mono border transition-colors border-red-500/25 bg-red-500/6 text-red-400 hover:bg-red-500/15 hover:border-red-500/40 flex items-center justify-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Mission
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -642,13 +758,15 @@ function WeekView({
   today,
   selected,
   onSelect,
+  onDeleteMission,
 }: {
-  weekDays: Date[]
-  events:   CalEvent[]
-  filters:  Record<EventKind, boolean>
-  today:    Date
-  selected: string | null
-  onSelect: (ev: CalEvent | null) => void
+  weekDays:        Date[]
+  events:          CalEvent[]
+  filters:         Record<EventKind, boolean>
+  today:           Date
+  selected:        string | null
+  onSelect:        (ev: CalEvent | null) => void
+  onDeleteMission?: (ev: CalEvent) => void
 }) {
   const visible  = events.filter((e) => filters[e.kind])
   const totalH   = HOURS.length * PX_HR
@@ -660,7 +778,7 @@ function WeekView({
       <div className="shrink-0">
         <div
           className="grid border-b border-white/10 bg-black/25 backdrop-blur-md"
-          style={{ gridTemplateColumns: `52px repeat(7, 1fr)` }}
+          style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}
         >
           <div className="border-r border-white/4" />
           {weekDays.map((day, i) => {
@@ -687,23 +805,27 @@ function WeekView({
 
       {/* Scrollable grid */}
       <div className="module-hover-scroll calendar-scroll-hidden flex-1 overflow-auto">
-        <div className="grid" style={{ gridTemplateColumns: `52px repeat(7, 1fr)` }}>
+        <div className="grid" style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}>
           {/* Time axis */}
           <div className="border-r border-white/4 relative" style={{ height: totalH }}>
             {HOURS.map((h) => {
-              const top = (h - GRID_START) * PX_HR
+              const top    = (h - GRID_START) * PX_HR
+              const period = h < 12 ? "AM" : "PM"
+              const hh     = h > 12 ? h - 12 : h === 0 ? 12 : h
+              const active = sameDay(today, today) && h === today.getHours()
               return (
-                <span
+                <div
                   key={h}
-                  style={{ top: h === GRID_START ? top + 6 : top }}
+                  style={{ top: h === GRID_START ? top + 6 : top, right: 10 }}
                   className={cn(
-                    "absolute right-2.5 text-[11px] font-medium leading-none",
+                    "absolute flex items-baseline gap-[2px]",
                     h === GRID_START ? "translate-y-0" : "-translate-y-1/2",
-                    sameDay(today, today) && h === today.getHours() ? "text-accent" : "text-white/90",
+                    active ? "text-accent" : "text-white/90",
                   )}
                 >
-                  {fmtTime(h)}
-                </span>
+                  <span className="text-[11px] font-medium leading-none">{hh}</span>
+                  <span className="text-[9px] font-medium leading-none">{period}</span>
+                </div>
               )
             })}
           </div>
@@ -711,6 +833,7 @@ function WeekView({
           {/* Day columns */}
           {weekDays.map((day, dayIdx) => {
             const dayEvs  = visible.filter((e) => sameDay(e.date, day))
+            const layout  = computeEventLayout(dayEvs)
             const isToday = sameDay(day, today)
 
             return (
@@ -759,14 +882,20 @@ function WeekView({
                 )}
 
                 {/* Events */}
-                {dayEvs.map((ev) => (
-                  <EventPill
-                    key={ev.id}
-                    ev={ev}
-                    active={selected === ev.id}
-                    onClick={() => onSelect(selected === ev.id ? null : ev)}
-                  />
-                ))}
+                {dayEvs.map((ev) => {
+                  const { col, numCols } = layout.get(ev.id) ?? { col: 0, numCols: 1 }
+                  return (
+                    <EventPill
+                      key={ev.id}
+                      ev={ev}
+                      col={col}
+                      numCols={numCols}
+                      active={selected === ev.id}
+                      onClick={() => onSelect(selected === ev.id ? null : ev)}
+                      onDelete={ev.kind === "mission" && onDeleteMission ? () => onDeleteMission(ev) : undefined}
+                    />
+                  )
+                })}
               </div>
             )
           })}
@@ -785,15 +914,18 @@ function DayView({
   today,
   selected,
   onSelect,
+  onDeleteMission,
 }: {
-  day:      Date
-  events:   CalEvent[]
-  filters:  Record<EventKind, boolean>
-  today:    Date
-  selected: string | null
-  onSelect: (ev: CalEvent | null) => void
+  day:              Date
+  events:           CalEvent[]
+  filters:          Record<EventKind, boolean>
+  today:            Date
+  selected:         string | null
+  onSelect:         (ev: CalEvent | null) => void
+  onDeleteMission?: (ev: CalEvent) => void
 }) {
   const visible  = events.filter((e) => filters[e.kind] && sameDay(e.date, day))
+  const layout   = computeEventLayout(visible)
   const totalH   = HOURS.length * PX_HR
   const isToday  = sameDay(day, today)
   const nowTop   = evTop(today.getHours(), today.getMinutes())
@@ -811,22 +943,25 @@ function DayView({
       </div>
 
       <div className="module-hover-scroll calendar-scroll-hidden flex-1 overflow-auto">
-        <div className="grid" style={{ gridTemplateColumns: "52px 1fr" }}>
+        <div className="grid" style={{ gridTemplateColumns: "64px 1fr" }}>
           {/* Time axis */}
           <div className="border-r border-white/4 relative" style={{ height: totalH }}>
             {HOURS.map((h) => {
-              const top = (h - GRID_START) * PX_HR
+              const top    = (h - GRID_START) * PX_HR
+              const period = h < 12 ? "AM" : "PM"
+              const hh     = h > 12 ? h - 12 : h === 0 ? 12 : h
               return (
-                <span
+                <div
                   key={h}
-                  style={{ top: h === GRID_START ? top + 6 : top }}
+                  style={{ top: h === GRID_START ? top + 6 : top, right: 10 }}
                   className={cn(
-                    "absolute right-2.5 text-[11px] font-medium leading-none text-white/90",
+                    "absolute flex items-baseline gap-[2px] text-white/90",
                     h === GRID_START ? "translate-y-0" : "-translate-y-1/2",
                   )}
                 >
-                  {fmtTime(h)}
-                </span>
+                  <span className="text-[11px] font-medium leading-none">{hh}</span>
+                  <span className="text-[9px] font-medium leading-none">{period}</span>
+                </div>
               )
             })}
           </div>
@@ -842,10 +977,20 @@ function DayView({
                 </div>
               </div>
             )}
-            {visible.map((ev) => (
-              <EventPill key={ev.id} ev={ev} active={selected === ev.id}
-                onClick={() => onSelect(selected === ev.id ? null : ev)} />
-            ))}
+            {visible.map((ev) => {
+              const { col, numCols } = layout.get(ev.id) ?? { col: 0, numCols: 1 }
+              return (
+                <EventPill
+                  key={ev.id}
+                  ev={ev}
+                  col={col}
+                  numCols={numCols}
+                  active={selected === ev.id}
+                  onClick={() => onSelect(selected === ev.id ? null : ev)}
+                  onDelete={ev.kind === "mission" && onDeleteMission ? () => onDeleteMission(ev) : undefined}
+                />
+              )
+            })}
           </div>
         </div>
       </div>
@@ -949,6 +1094,8 @@ export default function MissionsCalendarPage() {
   const isLight    = theme === "light"
   const { state: novaState, connected: agentConnected } = useNovaState()
   const presence   = getNovaPresence({ agentConnected, novaState })
+  const { accentColor } = useAccent()
+  const missionColor = ACCENT_COLORS[accentColor]?.primary ?? "#8b5cf6"
 
   const shellRef = useRef<HTMLDivElement | null>(null)
 
@@ -1073,7 +1220,7 @@ export default function MissionsCalendarPage() {
     ? new Date(dayView.getFullYear(), dayView.getMonth(), dayView.getDate(), 23, 59, 59, 999)
     : weekEnd
 
-  const { events: apiEvents, loading, error, reschedule, removeOverride } = useCalendarEvents(fetchStart, fetchEnd)
+  const { events: apiEvents, loading, error, refetch, reschedule, removeOverride } = useCalendarEvents(fetchStart, fetchEnd)
 
   const calEvents = useMemo(() => {
     const mapped = apiEvents.map(apiEventToCalEvent).filter((e): e is CalEvent => e !== null)
@@ -1153,7 +1300,19 @@ export default function MissionsCalendarPage() {
 
   const conflictCount = calEvents.filter((e) => e.conflict).length
 
+  const handleDeleteMission = useCallback(async (ev: CalEvent) => {
+    const missionId = ev.missionId
+    if (!missionId) return
+    setSelected(null)
+    await fetch(`/api/missions?id=${encodeURIComponent(missionId)}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => {})
+    refetch()
+  }, [refetch])
+
   return (
+    <MissionColorCtx.Provider value={missionColor}>
     <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
       {/* Keyframes */}
@@ -1334,7 +1493,7 @@ export default function MissionsCalendarPage() {
 
                   <div className="space-y-0.5">
                     {(["mission", "agent", "personal"] as const).map((kind) => {
-                      const cat = CAT[kind]
+                      const cat = kind === "mission" ? { ...CAT.mission, color: missionColor } : CAT[kind]
                       const on  = filters[kind]
                       const cnt = calEvents.filter((e) => e.kind === kind).length
                       return (
@@ -1540,6 +1699,7 @@ export default function MissionsCalendarPage() {
                     today={now}
                     selected={selected?.id ?? null}
                     onSelect={setSelected}
+                    onDeleteMission={handleDeleteMission}
                   />
                 ) : view === "month" ? (
                   <MonthView
@@ -1558,6 +1718,7 @@ export default function MissionsCalendarPage() {
                     today={now}
                     selected={selected?.id ?? null}
                     onSelect={setSelected}
+                    onDeleteMission={handleDeleteMission}
                   />
                 )}
               </div>
@@ -1574,11 +1735,13 @@ export default function MissionsCalendarPage() {
           isLight={isLight}
           onReschedule={reschedule}
           onRemoveOverride={removeOverride}
+          onDelete={handleDeleteMission}
         />
       )}
 
       {/* Settings */}
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
+    </MissionColorCtx.Provider>
   )
 }

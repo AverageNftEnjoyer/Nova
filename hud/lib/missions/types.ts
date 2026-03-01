@@ -6,6 +6,7 @@
  */
 
 import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Primitive / Shared Types
@@ -433,7 +434,7 @@ export interface MissionSettings {
 
 export function defaultMissionSettings(): MissionSettings {
   return {
-    timezone: "America/New_York",
+    timezone: getRuntimeTimezone(),
     retryOnFail: false,
     retryCount: 2,
     retryIntervalMs: 5000,

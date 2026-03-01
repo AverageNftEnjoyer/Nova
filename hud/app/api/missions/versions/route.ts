@@ -5,6 +5,7 @@ import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
+import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -94,6 +95,9 @@ export async function POST(req: Request) {
     )
   }
   await upsertMission(restored.mission, userId)
+  await syncMissionScheduleToGoogleCalendar({ mission: restored.mission, scope: verified }).catch((error) => {
+    console.warn("[missions.versions][gcalendar_sync] schedule mirror failed:", error instanceof Error ? error.message : String(error))
+  })
   await emitMissionTelemetryEvent({
     eventType: "mission.rollback.completed",
     status: "success",

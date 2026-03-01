@@ -8,6 +8,7 @@ import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/
 import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 
 import {
   AI_PROVIDER_LABELS,
@@ -110,7 +111,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const [newLabel, setNewLabel] = useState("")
   const [newDescription, setNewDescription] = useState("")
   const [newTime, setNewTime] = useState("09:00")
-  const [detectedTimezone, setDetectedTimezone] = useState("America/New_York")
+  const [detectedTimezone, setDetectedTimezone] = useState(getRuntimeTimezone())
   const [newPriority, setNewPriority] = useState("medium")
   const [newScheduleMode, setNewScheduleMode] = useState("daily")
   const [newScheduleDays, setNewScheduleDays] = useState<string[]>(["mon", "tue", "wed", "thu", "fri"])
@@ -255,7 +256,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         title: titleOverride ?? "Mission triggered",
         triggerMode: "daily",
         triggerTime: "09:00",
-        triggerTimezone: detectedTimezone || "America/New_York",
+        triggerTimezone: detectedTimezone || getRuntimeTimezone(),
         triggerDays: ["mon", "tue", "wed", "thu", "fri"],
         triggerIntervalMinutes: "30",
       }
@@ -749,7 +750,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       const response = await buildMissionFromPrompt({
         prompt,
         deploy: false,
-        timezone: (detectedTimezone || "America/New_York").trim(),
+        timezone: (detectedTimezone || getRuntimeTimezone()).trim(),
         enabled: true,
       })
       const data = response.data as BuildMissionResponse
@@ -767,7 +768,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       const generatedTime = typeof summary.schedule?.time === "string" && /^\d{2}:\d{2}$/.test(summary.schedule.time) ? summary.schedule.time : "09:00"
       const generatedTimezone = typeof summary.schedule?.timezone === "string" && summary.schedule.timezone.trim()
         ? summary.schedule.timezone.trim()
-        : (detectedTimezone || "America/New_York")
+        : (detectedTimezone || getRuntimeTimezone())
       const generatedMode = summary.schedule?.mode === "weekly" || summary.schedule?.mode === "once" ? summary.schedule.mode : "daily"
       const generatedDays = Array.isArray(summary.schedule?.days) && summary.schedule?.days.length > 0
         ? summary.schedule.days.map((day) => String(day))
@@ -1076,7 +1077,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const buildWorkflowSummaryDraft = useCallback(() => {
     const description = newDescription.trim()
     const time = newTime.trim()
-    const timezone = (detectedTimezone || "America/New_York").trim()
+    const timezone = (detectedTimezone || getRuntimeTimezone()).trim()
     const workflowStepsForSave = workflowSteps.map((step) => {
       if (step.type !== "output") return step
       const outputChannel = normalizeOutputChannelAlias(String(step.outputChannel || "")) || resolvePreferredOutputChannel()
@@ -1147,7 +1148,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
   const applyAutofixSummaryToBuilder = useCallback((summary: { workflowSteps?: Array<Partial<WorkflowStep>>; description?: string; schedule?: { time?: string; timezone?: string } }) => {
     const resolvedTime = String(summary?.schedule?.time || newTime || "09:00")
-    const resolvedTimezone = String(summary?.schedule?.timezone || detectedTimezone || "America/New_York")
+    const resolvedTimezone = String(summary?.schedule?.timezone || detectedTimezone || getRuntimeTimezone())
     setWorkflowSteps(mapWorkflowStepsForBuilder(summary.workflowSteps, resolvedTime, resolvedTimezone))
     if (typeof summary.description === "string" && summary.description.trim()) {
       setNewDescription(summary.description.trim())
@@ -1270,7 +1271,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     const description = newDescription.trim()
     const message = description
     const time = newTime.trim()
-    const timezone = (detectedTimezone || "America/New_York").trim()
+    const timezone = (detectedTimezone || getRuntimeTimezone()).trim()
     const isEditing = Boolean(editingMissionId)
 
     if (!label) {
@@ -1475,7 +1476,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const saveMission = useCallback(async (mission: NotificationSchedule) => {
     const baseline = baselineById[mission.id]
     const timeChanged = baseline ? baseline.time !== mission.time : true
-    const timezoneChanged = baseline ? baseline.timezone !== (detectedTimezone || "America/New_York").trim() : true
+    const timezoneChanged = baseline ? baseline.timezone !== (detectedTimezone || getRuntimeTimezone()).trim() : true
     const enabledChanged = baseline ? baseline.enabled !== mission.enabled : true
 
     setItemBusy(mission.id, true)
@@ -1487,7 +1488,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         label: mission.label,
         message: mission.message,
         time: mission.time,
-        timezone: (detectedTimezone || "America/New_York").trim(),
+        timezone: (detectedTimezone || getRuntimeTimezone()).trim(),
         enabled: mission.enabled,
         chatIds: [],
         resetLastSent: timeChanged || timezoneChanged || enabledChanged,
@@ -1570,7 +1571,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       mapWorkflowStepsForBuilder(
         meta.workflowSteps,
         mission.time || "09:00",
-        mission.timezone || detectedTimezone || "America/New_York",
+        mission.timezone || detectedTimezone || getRuntimeTimezone(),
       ),
     )
     setCollapsedStepIds({})
@@ -1593,7 +1594,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       mapWorkflowStepsForBuilder(
         meta.workflowSteps,
         mission.time || "09:00",
-        mission.timezone || detectedTimezone || "America/New_York",
+        mission.timezone || detectedTimezone || getRuntimeTimezone(),
       ),
     )
     setCollapsedStepIds({})

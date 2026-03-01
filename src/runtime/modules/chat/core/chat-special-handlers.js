@@ -223,6 +223,13 @@ function normalizeSpotifyAction(action) {
 
 function normalizeSpotifyIntentFallback(text) {
   const input = String(text || "").trim().toLowerCase();
+  const setPlaylistToQueryMatch = input.match(
+    /\b(?:change|set|switch|update|make)\s+(?:my\s+)?(?:spotify\s+)?(?:favorite\s+)?playlist\s+(?:to|as|called)\s+(.+)$/i,
+  );
+  if (setPlaylistToQueryMatch?.[1]) {
+    const query = String(setPlaylistToQueryMatch[1]).trim().replace(/\s+playlist$/i, "").trim();
+    if (query) return { action: "set_favorite_playlist", query, response: `Saved ${query} as your favorite playlist.` };
+  }
   const switchToQueryMatch = input.match(/\b(?:switch|change)\s+(?:the\s+)?(?:song|track|music)\s+(?:to|into)\s+(.+)$/i);
   if (switchToQueryMatch?.[1]) {
     const query = String(switchToQueryMatch[1]).trim();
@@ -238,6 +245,9 @@ function normalizeSpotifyIntentFallback(text) {
   }
   if (/\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(input)) {
     return { action: "now_playing", query: "", response: "Checking what's playing now." };
+  }
+  if (/\bplay\b.*\b(my\s+)?(favorite|saved|default)\s+playlist\b/i.test(input)) {
+    return { action: "play_smart", query: "", response: "Playing your favorite playlist." };
   }
   if (/\bplay\b.*\b(i like|from my liked|my liked songs?|my favorites?|one of my favorites?)\b/i.test(input)) {
     return { action: "play_liked", query: "", response: "Playing something you like from Spotify." };
@@ -295,8 +305,8 @@ function normalizeSpotifyIntentFallback(text) {
   if (/\badd\s+(?:this|current|this song|this track|song|track)\s+(?:to|into)\s+(?:my\s+)?playlist\b/i.test(input)) {
     return { action: "add_to_playlist", query: "", response: "Adding this track to your favorite playlist." };
   }
-  if (/\bplay\s+(my\s+)?(favorite|saved|default)\s+(playlist|music|songs?)\b/i.test(input)) {
-    return { action: "play_smart", query: "", response: "Playing your favorite playlist." };
+  if (/\bplay\b.*\b(random|any)\b.*\b(from|off|on)\b.*\b(my\s+)?(favorite|saved|default)\s+playlist\b/i.test(input)) {
+    return { action: "play_smart", query: "", response: "Playing from your favorite playlist." };
   }
   if (/\bplay\s+(some\s+)?music\b/i.test(input) && !/\bplay\s+\w+\s+music\b/i.test(input)) {
     return { action: "play_smart", query: "", response: "Putting on some music for you." };
@@ -391,7 +401,10 @@ const SPOTIFY_MIN_THINKING_MS = 650;
 const spotifyLastSpokenByUser = new Map();
 
 function shouldSuppressSpotifyTts(userContextId, replyText) {
-  const userKey = String(userContextId || "").trim().toLowerCase() || "anonymous";
+  const userKey = String(userContextId || "").trim().toLowerCase();
+  // Without a valid user scope we cannot safely dedup — skip suppression entirely
+  // rather than collapsing all anonymous users into one shared bucket.
+  if (!userKey) return false;
   const normalizedReply = String(replyText || "")
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .replace(/\s+/g, " ")
@@ -501,12 +514,24 @@ async function runSpotifyViaHudApi(action, intent, ctx) {
 
 // ===== Spotify sub-handler =====
 export async function handleSpotify(text, ctx, llmCtx) {
-  const { source, useVoice, ttsVoice, conversationId, userContextId } = ctx;
+  const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
   const { activeChatRuntime, activeOpenAiCompatibleClient, selectedChatModel } = llmCtx;
   stopSpeaking();
   broadcastState("thinking", userContextId);
   broadcastThinkingStatus("Controlling Spotify", userContextId);
-  broadcastMessage("user", ctx.raw_text || text, source, conversationId, userContextId);
+  const userText = ctx.raw_text || text;
+  broadcastMessage("user", userText, source, conversationId, userContextId);
+  if (sessionId) {
+    sessionRuntime.appendTranscriptTurn(sessionId, "user", userText, {
+      source,
+      sender: sender || null,
+      sessionKey: sessionKey || undefined,
+      conversationId: conversationId || undefined,
+      nlpConfidence: Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : undefined,
+      nlpCorrectionCount: Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : undefined,
+      ...(ctx.nlpBypass ? { nlpBypass: true } : {}),
+    });
+  }
   const assistantStreamId = createAssistantStreamId();
   const summary = {
     route: "spotify",
@@ -553,6 +578,14 @@ export async function handleSpotify(text, ctx, llmCtx) {
     broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source, undefined, conversationId, userContextId);
     broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
     assistantStreamStarted = false;
+    if (sessionId) {
+      sessionRuntime.appendTranscriptTurn(sessionId, "assistant", normalized.text, {
+        source,
+        sender: "nova",
+        sessionKey: sessionKey || undefined,
+        conversationId: conversationId || undefined,
+      });
+    }
     if (useVoice && !shouldSuppressSpotifyTts(userContextId, normalized.text)) {
       await withTimeout(
         speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice),
@@ -684,6 +717,20 @@ Output ONLY valid JSON, nothing else.`;
     };
 
     let reply = rawResponse;
+    const requiresVerifiedSpotifyApiAction = new Set([
+      "set_favorite_playlist",
+      "clear_favorite_playlist",
+      "save_playlist",
+      "add_to_playlist",
+      "play_smart",
+      "play_liked",
+      "now_playing",
+      "list_devices",
+      "transfer",
+      "like",
+      "unlike",
+      "queue",
+    ]);
     broadcastThinkingStatus("Applying Spotify command", userContextId);
     const hudResult = await runSpotifyViaHudApi(action, sanitizedIntent, ctx);
       const intentQuery = rawQuery;
@@ -701,7 +748,11 @@ Output ONLY valid JSON, nothing else.`;
         reply = hudResult.message || reply || "Done.";
       }
     } else {
-      if (
+      if (!hudResult.attempted && requiresVerifiedSpotifyApiAction.has(action)) {
+        summary.ok = false;
+        summary.error = "I need your connected Spotify account for that command. Reconnect Spotify and retry.";
+        reply = summary.error;
+      } else if (
         (hudResult.code === "spotify.not_found" || hudResult.code === "spotify.forbidden")
         && (action === "play" || action === "set_favorite_playlist" || action === "clear_favorite_playlist" || action === "add_to_playlist")
       ) {
@@ -757,6 +808,18 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
   const { source, useVoice, ttsVoice, supabaseAccessToken, conversationId, userContextId } = ctx;
   const engine = String(options.engine || "src").trim().toLowerCase() || "src";
   stopSpeaking();
+  const emitWorkflowAssistantReply = async (replyText) => {
+    const normalizedReply = normalizeAssistantReply(String(replyText || ""));
+    if (normalizedReply.skip) return "";
+    const streamId = createAssistantStreamId();
+    broadcastAssistantStreamStart(streamId, source, undefined, conversationId, userContextId);
+    broadcastAssistantStreamDelta(streamId, normalizedReply.text, source, undefined, conversationId, userContextId);
+    broadcastAssistantStreamDone(streamId, source, undefined, conversationId, userContextId);
+    if (useVoice) {
+      await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
+    }
+    return normalizedReply.text;
+  };
   const summary = {
     route: "workflow_build",
     ok: true,
@@ -821,13 +884,8 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
         ? ` I will keep this in progress and you can retry in about ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`
         : "";
       const pendingReply = `I'm already building that mission for you.${retryAfterNote}`;
-      const normalizedPending = normalizeAssistantReply(pendingReply);
-      summary.reply = normalizedPending.skip ? "" : normalizedPending.text;
+      summary.reply = await emitWorkflowAssistantReply(pendingReply);
       summary.ok = true;
-      if (!normalizedPending.skip) {
-        broadcastMessage("assistant", normalizedPending.text, source, conversationId, userContextId);
-        if (useVoice) await speak(normalizeAssistantSpeechText(normalizedPending.text) || normalizedPending.text, ttsVoice);
-      }
       return summary;
     }
     if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
@@ -858,10 +916,7 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
       model,
       stepCount,
     });
-    if (!normalizedReply.skip) {
-      broadcastMessage("assistant", normalizedReply.text, source, conversationId, userContextId);
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
-    }
+    if (!normalizedReply.skip) summary.reply = await emitWorkflowAssistantReply(normalizedReply.text);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Workflow build failed.";
     summary.ok = false;
@@ -878,12 +933,7 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
     const reply = isUnauthorized
       ? "I could not build that workflow because your session is not authorized for missions yet. Re-open Nova, sign in again, then retry and I will continue from your latest prompt."
       : `I couldn't build that workflow yet: ${msg}`;
-    const normalizedReply = normalizeAssistantReply(reply);
-    summary.reply = normalizedReply.skip ? "" : normalizedReply.text;
-    if (!normalizedReply.skip) {
-      broadcastMessage("assistant", normalizedReply.text, source, conversationId, userContextId);
-      if (useVoice) await speak(normalizeAssistantSpeechText(normalizedReply.text) || normalizedReply.text, ttsVoice);
-    }
+    summary.reply = await emitWorkflowAssistantReply(reply);
   } finally {
     broadcastState("idle", userContextId);
     summary.latencyMs = Date.now() - startedAt;

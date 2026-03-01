@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { INTEGRATIONS_UPDATED_EVENT } from "@/lib/integrations/client-store"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 interface NotificationSchedule {
   id: string
@@ -71,7 +72,7 @@ export function formatDailyTime(time: string, timezone: string): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: timezone || "America/New_York",
+    timeZone: resolveTimezone(timezone),
   }).format(date)
 }
 
@@ -150,7 +151,7 @@ export function useMissions(): UseMissionsReturn {
           enabledCount: schedule.enabled ? 1 : 0,
           totalCount: 1,
           times: [schedule.time],
-          timezone: schedule.timezone || "America/New_York",
+          timezone: resolveTimezone(schedule.timezone),
         })
         continue
       }

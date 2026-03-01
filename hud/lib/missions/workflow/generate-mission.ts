@@ -12,6 +12,7 @@ import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
 import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
 import { loadIntegrationCatalog } from "@/lib/integrations/catalog-server"
 import { parseJsonObject } from "@/lib/missions/text/cleaning"
+import { resolveTimezone } from "@/lib/shared/timezone"
 import type {
   Mission,
   MissionNode,
@@ -80,7 +81,7 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
         id, label, position: pos, type: "schedule-trigger",
         triggerMode: (mode === "once" || mode === "daily" || mode === "weekly" || mode === "interval" ? mode : "daily"),
         triggerTime: asStr(r.triggerTime, "09:00") || "09:00",
-        triggerTimezone: asStr(r.triggerTimezone, "America/New_York") || "America/New_York",
+        triggerTimezone: resolveTimezone(asStr(r.triggerTimezone, "")),
         triggerDays: Array.isArray(r.triggerDays) ? r.triggerDays.map(String) : undefined,
         triggerIntervalMinutes: typeof r.triggerIntervalMinutes === "number" ? r.triggerIntervalMinutes : undefined,
       }
@@ -404,7 +405,7 @@ function buildFallbackMission(
   const nodes: MissionNode[] = [
     {
       id: "n1", type: "schedule-trigger", label: "Daily Trigger", position: positionFor(0),
-      triggerMode: "daily", triggerTime: "09:00", triggerTimezone: "America/New_York",
+      triggerMode: "daily", triggerTime: "09:00", triggerTimezone: resolveTimezone(undefined),
     },
     {
       id: "n2", type: "web-search", label: "Web Search", position: positionFor(1),
@@ -474,7 +475,7 @@ export async function buildMissionFromPrompt(
   const requestedOutput = inferRequestedOutputChannel(prompt, outputSet, defaultOutput)
   const scheduleHint = deriveScheduleFromPrompt(prompt)
   const scheduleTime = scheduleHint.time || "09:00"
-  const scheduleTz = scheduleHint.timezone || "America/New_York"
+  const scheduleTz = resolveTimezone(scheduleHint.timezone)
 
   const outputNodeType = (() => {
     const m: Record<string, string> = { telegram: "telegram-output", discord: "discord-output", email: "email-output", slack: "slack-output" }

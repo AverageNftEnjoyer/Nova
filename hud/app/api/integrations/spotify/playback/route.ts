@@ -6,12 +6,13 @@ import { clearSpotifyFavoritePlaylist, readSpotifySkillPrefs, writeSpotifyFavori
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
-import { logSpotifyApi, playbackBodySchema, safeJson, spotifyApiErrorResponse } from "../_shared"
+import { logSpotifyApi, nowPlayingCacheByUser, playbackBodySchema, safeJson, spotifyApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 const DEVICE_UNAVAILABLE_COOLDOWN_MS = 20_000
+const PLAY_SMART_UNAVAIL_MAX_USERS = 200
 const playSmartUnavailableByUser = new Map<string, { lastAt: number; suppressed: number }>()
 
 function normalizeUserContextId(value: unknown): string {
@@ -60,8 +61,17 @@ export async function POST(req: Request) {
 
     const userId = verifiedUserContextId || verified.user.id
 
+    // Invalidate the server-side now-playing cache so the very next poll after this
+    // command always fetches fresh state from Spotify's API rather than stale cache.
+    nowPlayingCacheByUser.delete(userId)
+
     if (payload.action === "play_smart") {
       const now = Date.now()
+      if (playSmartUnavailableByUser.size > PLAY_SMART_UNAVAIL_MAX_USERS) {
+        for (const [key, entry] of playSmartUnavailableByUser.entries()) {
+          if (now - entry.lastAt > DEVICE_UNAVAILABLE_COOLDOWN_MS * 4) playSmartUnavailableByUser.delete(key)
+        }
+      }
       const recentUnavailable = playSmartUnavailableByUser.get(userId)
       if (recentUnavailable && now - recentUnavailable.lastAt < DEVICE_UNAVAILABLE_COOLDOWN_MS) {
         const suppressed = recentUnavailable.suppressed + 1

@@ -1,7 +1,7 @@
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption"
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "../server-store"
 import { assertSpotifyOk, spotifyFetchWithRetry } from "./client"
-import { spotifyError } from "./errors"
+import { spotifyError, toSpotifyServiceError } from "./errors"
 import {
   SPOTIFY_API_BASE,
   SPOTIFY_TOKEN_ENDPOINT,
@@ -142,6 +142,10 @@ export async function exchangeCodeForSpotifyTokens(
 // In-process token cache — avoids a DB read on every request within the same server process.
 // Keyed by userId so multi-user isolation is preserved.
 const _tokenCache = new Map<string, { token: string; expiry: number }>()
+const TOKEN_CACHE_MAX_USERS = 100
+
+// Per-user in-flight refresh promise — collapses concurrent refresh races into one Spotify call.
+const _tokenRefreshInFlight = new Map<string, Promise<string>>()
 
 function _tokenCacheKey(scope?: SpotifyScope): string {
   return String(scope?.userId || scope?.user?.id || "").trim().toLowerCase()
@@ -172,21 +176,57 @@ export async function getValidSpotifyAccessToken(
   const refreshToken = decryptSecret(config.spotify.refreshTokenEnc)
   if (!refreshToken) throw spotifyError("spotify.token_missing", "No Spotify refresh token available. Reconnect Spotify.", { status: 400 })
 
-  const refreshed = await refreshSpotifyAccessToken(refreshToken, scope)
-  const nextRefresh = refreshed.refreshToken || refreshToken
-  const nextExpiry = now + Math.max(refreshed.expiresIn - 60, 60) * 1000
-  await updateIntegrationsConfig({
-    spotify: {
-      ...config.spotify,
-      accessTokenEnc: encryptSecret(refreshed.accessToken),
-      refreshTokenEnc: encryptSecret(nextRefresh),
-      tokenExpiry: nextExpiry,
-      scopes: refreshed.scopes.length > 0 ? refreshed.scopes : config.spotify.scopes,
-      connected: true,
-    },
-  }, scope)
-  if (cacheKey) _tokenCache.set(cacheKey, { token: refreshed.accessToken, expiry: nextExpiry })
-  return refreshed.accessToken
+  // Dedup: if a refresh is already in-flight for this user, await it instead of racing.
+  if (cacheKey) {
+    const inflight = _tokenRefreshInFlight.get(cacheKey)
+    if (inflight) return inflight
+  }
+
+  const doRefresh = async (): Promise<string> => {
+    let refreshed: SpotifyTokenRefreshResult
+    try {
+      refreshed = await refreshSpotifyAccessToken(refreshToken, scope)
+    } catch (error) {
+      const normalized = toSpotifyServiceError(error, "Spotify token refresh failed.")
+      const normalizedMessage = String(normalized.message || "").toLowerCase()
+      const invalidGrant = normalized.code === "spotify.invalid_request" && normalizedMessage.includes("invalid_grant")
+      if (invalidGrant) {
+        // Keep stored integration config intact; surface reconnect-required state to callers.
+        throw spotifyError("spotify.token_missing", "Spotify authorization expired. Reconnect Spotify.", { status: 409, cause: error })
+      }
+      throw normalized
+    }
+    const nextRefresh = refreshed.refreshToken || refreshToken
+    const refreshNow = Date.now()
+    const nextExpiry = refreshNow + Math.max(refreshed.expiresIn - 60, 60) * 1000
+    await updateIntegrationsConfig({
+      spotify: {
+        ...config.spotify,
+        accessTokenEnc: encryptSecret(refreshed.accessToken),
+        refreshTokenEnc: encryptSecret(nextRefresh),
+        tokenExpiry: nextExpiry,
+        scopes: refreshed.scopes.length > 0 ? refreshed.scopes : config.spotify.scopes,
+        connected: true,
+      },
+    }, scope)
+    if (cacheKey) {
+      // Evict expired entries when the cache grows beyond the user limit.
+      if (_tokenCache.size > TOKEN_CACHE_MAX_USERS) {
+        const evictBefore = Date.now()
+        for (const [k, v] of _tokenCache.entries()) {
+          if (v.expiry <= evictBefore) _tokenCache.delete(k)
+        }
+      }
+      _tokenCache.set(cacheKey, { token: refreshed.accessToken, expiry: nextExpiry })
+    }
+    return refreshed.accessToken
+  }
+
+  const refreshPromise = doRefresh().finally(() => {
+    if (cacheKey) _tokenRefreshInFlight.delete(cacheKey)
+  })
+  if (cacheKey) _tokenRefreshInFlight.set(cacheKey, refreshPromise)
+  return refreshPromise
 }
 
 export async function disconnectSpotify(scope?: SpotifyScope): Promise<void> {

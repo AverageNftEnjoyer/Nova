@@ -17,6 +17,7 @@ import { isSearchLikeUrl } from "../web/quality"
 import { completeWithConfiguredLlm } from "../llm/providers"
 import { detectTopicsInPrompt, type DetectedTopic } from "../topics/detection"
 import type { WorkflowStep, WorkflowSummary, Provider } from "../types"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 function logCoinbaseGeneration(details: Record<string, unknown>) {
   console.info("[MissionWorkflow]", {
@@ -450,7 +451,7 @@ function buildFallbackWorkflowPayload(
   const searchQueryBase = detectedTopic?.searchQuery || description
   const searchQuery = searchQueryBase.length > 180 ? searchQueryBase.slice(0, 180) : searchQueryBase
   const scheduleTime = scheduleHint.time || "09:00"
-  const scheduleTimezone = scheduleHint.timezone || "America/New_York"
+  const scheduleTimezone = resolveTimezone(scheduleHint.timezone)
   return {
     label: generateShortTitle(prompt),
     description,
@@ -682,7 +683,7 @@ function simplifyGeneratedWorkflowSteps(input: {
         title: "Mission triggered",
         triggerMode: "daily",
         triggerTime: input.schedule.time || "09:00",
-        triggerTimezone: input.schedule.timezone || "America/New_York",
+        triggerTimezone: resolveTimezone(input.schedule.timezone),
         triggerDays: input.schedule.days.length > 0 ? input.schedule.days : ["mon", "tue", "wed", "thu", "fri"],
       },
       ordered.length,
@@ -734,7 +735,7 @@ export function buildStableWebSummarySteps(input: {
     title: "Mission triggered",
     triggerMode: "daily",
     triggerTime: input.time || "09:00",
-    triggerTimezone: input.timezone || "America/New_York",
+    triggerTimezone: resolveTimezone(input.timezone),
     triggerDays: ["mon", "tue", "wed", "thu", "fri"],
   }, stepIndex++))
 
@@ -806,7 +807,7 @@ function buildMixedTopicSteps(input: {
     title: "Mission triggered",
     triggerMode: "daily",
     triggerTime: input.time || "09:00",
-    triggerTimezone: input.timezone || "America/New_York",
+    triggerTimezone: resolveTimezone(input.timezone),
     triggerDays: ["mon", "tue", "wed", "thu", "fri"],
   }, stepIndex++))
 
@@ -955,7 +956,7 @@ export async function buildWorkflowFromPrompt(
     mode: "daily",
     days: ["mon", "tue", "wed", "thu", "fri"],
     time: scheduleHint.time || "09:00",
-    timezone: scheduleHint.timezone || "America/New_York",
+    timezone: resolveTimezone(scheduleHint.timezone),
   }
   const topicResult = detectTopicsInPrompt(prompt)
   const hasNonCryptoTopic = topicResult.topics.some((topic) => topic.category !== "crypto")
@@ -1116,10 +1117,10 @@ export async function buildWorkflowFromPrompt(
       description: "",
       integration: requestedOutput,
       priority: "medium",
-      schedule: { mode: "daily", days: ["mon", "tue", "wed", "thu", "fri"], time: "09:00", timezone: "America/New_York" },
+      schedule: { mode: "daily", days: ["mon", "tue", "wed", "thu", "fri"], time: "09:00", timezone: defaultSchedule.timezone },
       tags: ["automation"],
       workflowSteps: [
-        { type: "trigger", title: "Mission triggered", triggerMode: "daily", triggerTime: "09:00", triggerTimezone: "America/New_York", triggerDays: ["mon", "tue", "wed", "thu", "fri"] },
+        { type: "trigger", title: "Mission triggered", triggerMode: "daily", triggerTime: "09:00", triggerTimezone: defaultSchedule.timezone, triggerDays: ["mon", "tue", "wed", "thu", "fri"] },
         { type: "fetch", title: "Fetch web data", fetchSource: "web", fetchMethod: "GET", fetchApiIntegrationId: "", fetchUrl: "", fetchQuery: "", fetchSelector: "a[href]", fetchHeaders: "" },
         { type: "coinbase", title: "Run Coinbase step", coinbaseIntent: "report", coinbaseParams: { assets: ["BTC", "ETH"], quoteCurrency: "USD", includePreviousArtifactContext: true }, coinbaseFormat: { style: "standard", includeRawMetadata: true } },
         { type: "ai", title: "Summarize report", aiPrompt: "Summarize in concise bullets. Include sources only if enabled.", aiIntegration: "openai", aiModel: "", aiDetailLevel: "standard" },

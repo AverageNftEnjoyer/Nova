@@ -86,9 +86,25 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_RELIABILITY_READ_PER_MIN", 30, 1, 500),
     windowMs: 60_000,
   },
+  calendarEventsRead: {
+    bucket: "calendar-events-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_CALENDAR_EVENTS_READ_PER_MIN", 120, 1, 1000),
+    windowMs: 60_000,
+  },
+  calendarRescheduleWrite: {
+    bucket: "calendar-reschedule-write",
+    limit: readIntEnv("NOVA_RATE_LIMIT_CALENDAR_RESCHEDULE_WRITE_PER_MIN", 40, 1, 500),
+    windowMs: 60_000,
+  },
   integrationModelProbe: {
     bucket: "integration-model-probe",
     limit: readIntEnv("NOVA_RATE_LIMIT_INTEGRATION_PROBE_PER_MIN", 18, 1, 500),
+    windowMs: 60_000,
+  },
+  spotifyNowPlaying: {
+    bucket: "spotify-now-playing",
+    // 2s polling = 30/min nominal; 90/min allows 3x burst without blocking normal clients.
+    limit: readIntEnv("NOVA_RATE_LIMIT_SPOTIFY_NOW_PLAYING_PER_MIN", 90, 1, 500),
     windowMs: 60_000,
   },
   spotifyPlayback: {

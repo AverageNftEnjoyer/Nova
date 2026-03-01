@@ -97,7 +97,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any"
   conditionFailureAction?: "skip" | "notify" | "stop"
-  outputChannel?: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook"
+  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook"
   outputTiming?: "immediate" | "scheduled" | "digest"
   outputTime?: string
   outputFrequency?: "once" | "multiple"

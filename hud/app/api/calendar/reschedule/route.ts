@@ -6,6 +6,8 @@ import { loadMissions } from "@/lib/missions/store"
 import { setRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { aggregateCalendarEvents } from "@/lib/calendar/aggregator"
 import { hasConflict } from "@/lib/calendar/conflict-detector"
+import { estimateDurationMs, toIsoInTimezone } from "@/lib/calendar/schedule-utils"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -28,7 +30,7 @@ export async function PATCH(req: Request) {
   }
   const userId = verified.user.id
 
-  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionSave)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.calendarRescheduleWrite)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   let body: unknown
@@ -66,20 +68,22 @@ export async function PATCH(req: Request) {
   // Conflict check against a 24-hour window around the new time
   const windowStart = new Date(newDate.getTime() - 12 * 60 * 60 * 1000)
   const windowEnd   = new Date(newDate.getTime() + 12 * 60 * 60 * 1000)
-  const windowEvents = await aggregateCalendarEvents(userId, windowStart, windowEnd)
+  const windowEvents = await aggregateCalendarEvents(userId, windowStart, windowEnd, verified)
 
   // Estimate duration same way as aggregator
   const nodeCount = mission.nodes?.length ?? 1
-  const durationMs = (30 + nodeCount * 45) * 1000
+  const durationMs = estimateDurationMs(nodeCount)
   const newEndAt = new Date(newDate.getTime() + durationMs).toISOString()
 
   const conflictDetected = hasConflict(windowEvents, newStartAt, newEndAt, missionId)
 
   // Determine the original time for the record
   const trigger = mission.nodes?.find((n) => n.type === "schedule-trigger") as
-    | { triggerTime?: string } | undefined
-  const originalTime = trigger?.triggerTime
-    ? `${newDate.toISOString().slice(0, 10)}T${trigger.triggerTime}:00Z`
+    | { triggerTime?: string; triggerTimezone?: string } | undefined
+  const triggerTime = String(trigger?.triggerTime || "").trim()
+  const triggerTimezone = resolveTimezone(trigger?.triggerTimezone, mission.settings?.timezone)
+  const originalTime = triggerTime
+    ? toIsoInTimezone(newDate.toISOString().slice(0, 10), triggerTime, triggerTimezone)
     : newDate.toISOString()
 
   await setRescheduleOverride(userId, missionId, newStartAt, originalTime)

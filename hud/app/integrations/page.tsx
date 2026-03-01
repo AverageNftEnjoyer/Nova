@@ -7,6 +7,7 @@ import { Blocks, Settings, User } from "lucide-react"
 
 import { useTheme } from "@/lib/context/theme-context"
 import { cn } from "@/lib/shared/utils"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
 import { FluidSelect } from "@/components/ui/fluid-select"
@@ -263,7 +264,7 @@ export default function IntegrationsPage() {
             reportTimezone:
               typeof config.coinbase?.reportTimezone === "string" && config.coinbase.reportTimezone.trim().length > 0
                 ? config.coinbase.reportTimezone
-                : "America/New_York",
+                : getRuntimeTimezone(),
             reportCurrency:
               typeof config.coinbase?.reportCurrency === "string" && config.coinbase.reportCurrency.trim().length > 0
                 ? config.coinbase.reportCurrency.toUpperCase()
