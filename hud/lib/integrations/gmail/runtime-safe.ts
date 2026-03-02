@@ -1,4 +1,4 @@
-import type { GmailIntegrationConfig } from "../server-store"
+import type { GmailIntegrationConfig } from "../store/server-store"
 
 export interface RuntimeSafeGmailSnapshot {
   connected: boolean

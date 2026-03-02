@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"

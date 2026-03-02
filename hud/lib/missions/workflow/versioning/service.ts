@@ -4,7 +4,7 @@ import { appendFile, mkdir, readFile, writeFile, rename, copyFile } from "node:f
 import { randomUUID, randomBytes } from "node:crypto"
 import path from "node:path"
 
-import type { Mission } from "../../types"
+import type { Mission } from "../../types/index"
 import { MISSION_VERSIONING_RETENTION_POLICY } from "./config"
 import type { MissionVersionEntry, MissionVersionEventType, MissionVersionRestoreResult } from "./types"
 

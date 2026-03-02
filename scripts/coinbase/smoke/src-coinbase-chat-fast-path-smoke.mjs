@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { isCryptoRequestText, tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path.js";
-import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/fast-path/coinbase-command-parser.js";
+import { isCryptoRequestText, tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/fast-path/coinbase-command-parser/index.js";
 
 const availableTools = [
   { name: "coinbase_capabilities" },

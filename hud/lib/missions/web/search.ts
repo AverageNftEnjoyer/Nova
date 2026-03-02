@@ -8,8 +8,8 @@ import { cleanText, truncateForModel } from "../text/cleaning"
 import { hasHeader } from "../utils/config"
 import { fetchWebDocument, getWebSearchProviderPreference } from "./fetch"
 import { isLowSignalNavigationPage, isUsableWebResult } from "./quality"
-import type { WebSearchResult, WebSearchResponse } from "../types"
-import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import type { WebSearchResult, WebSearchResponse } from "../types/index"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 
 /**
  * Build search query variants for better coverage.

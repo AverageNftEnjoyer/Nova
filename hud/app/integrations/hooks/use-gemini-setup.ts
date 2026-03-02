@@ -9,7 +9,7 @@ import {
   type IntegrationsSaveStatus,
   type IntegrationsSaveTarget,
 } from "./use-llm-provider-setup"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { Dispatch, SetStateAction } from "react"
 import type { FluidSelectOption } from "@/components/ui/fluid-select"
 

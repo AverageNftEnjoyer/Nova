@@ -1,14 +1,14 @@
-﻿/**
+/**
  * Tests pure mapping logic from gmail-calendar-source without DB/server imports.
  * We inline the mapping function under test to avoid server-only import barriers.
  */
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import type { PersonalCalendarEvent } from "../types.js"
-import type { GmailCalendarEventItem } from "../../integrations/google-calender/types.js"
+import type { PersonalCalendarEvent } from "../types/index.js"
+import type { GmailCalendarEventItem } from "../../integrations/google-calendar/types/index.js"
 
-// â”€â”€â”€ Inline the mapping from gmail-calendar-source â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Inline the mapping from gmail-calendar-source ────────────────────────────
 
 function isNovaMirroredScheduleEventId(eventId: string): boolean {
   const normalized = String(eventId || "").trim().toLowerCase()
@@ -53,7 +53,7 @@ function mapGcalEvent(ev: GmailCalendarEventItem, rangeStart: Date): PersonalCal
 
 const RANGE_START = new Date("2026-03-10T00:00:00Z")
 
-// â”€â”€â”€ Timed events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Timed events ─────────────────────────────────────────────────────────────
 
 test("maps timed event to PersonalCalendarEvent correctly", () => {
   const ev: GmailCalendarEventItem = {
@@ -80,9 +80,9 @@ test("maps timed event to PersonalCalendarEvent correctly", () => {
   assert.equal(durMs, 30 * 60 * 1000)
 })
 
-// â”€â”€â”€ All-day events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── All-day events ───────────────────────────────────────────────────────────
 
-test("all-day event: no dateTime â€” parsed as local noon, duration >= 20h", () => {
+test("all-day event: no dateTime — parsed as local noon, duration >= 20h", () => {
   const ev: GmailCalendarEventItem = {
     id: "alldayX",
     summary: "Holiday",
@@ -92,9 +92,9 @@ test("all-day event: no dateTime â€” parsed as local noon, duration >= 20h"
   }
   const result = mapGcalEvent(ev, RANGE_START)
   assert.ok(result)
-  // Start should be 2026-03-15T12:00:00 local â†’ ISO UTC
+  // Start should be 2026-03-15T12:00:00 local → ISO UTC
   assert.match(result.startAt, /2026-03-15/)
-  // End should be 2026-03-16T12:00:00 â†’ 24h later
+  // End should be 2026-03-16T12:00:00 → 24h later
   const durMs = new Date(result.endAt).getTime() - new Date(result.startAt).getTime()
   assert.equal(durMs, 24 * 60 * 60 * 1000, "all-day duration should be 24 hours")
 })
@@ -113,7 +113,7 @@ test("all-day event with no end: fallback is startAt + 1 hour", () => {
   assert.equal(durMs, 60 * 60 * 1000, "fallback duration should be 1 hour")
 })
 
-// â”€â”€â”€ Filtering â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Filtering ────────────────────────────────────────────────────────────────
 
 test("cancelled event is filtered out", () => {
   const ev: GmailCalendarEventItem = {
@@ -171,7 +171,7 @@ test("no summary falls back to (No title)", () => {
   assert.equal(result.title, "(No title)")
 })
 
-// â”€â”€â”€ id prefix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── id prefix ────────────────────────────────────────────────────────────────
 
 test("id is prefixed with gcal::", () => {
   const ev: GmailCalendarEventItem = {
@@ -185,7 +185,7 @@ test("id is prefixed with gcal::", () => {
   assert.equal(result?.id, "gcal::xyz")
 })
 
-// â”€â”€â”€ rangeStart fallback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── rangeStart fallback ──────────────────────────────────────────────────────
 
 test("missing start date falls back to rangeStart", () => {
   const ev: GmailCalendarEventItem = {

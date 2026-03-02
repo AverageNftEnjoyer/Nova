@@ -1,10 +1,24 @@
 import { createDecipheriv } from "crypto";
 import fs from "fs";
+import path from "path";
 
-const ENCRYPTION_KEY_PATH = "C:/Nova/hud/data/.nova_encryption_key";
-const ROOT_ENV = "C:/Nova/.env";
-const GLOBAL_CONFIG = "C:/Nova/hud/data/integrations-config.json";
-const USER_CONFIG = "C:/Nova/.agent/user-context/dd5ea07a-b92e-4ce8-a5f9-fe229168c80f/integrations-config.json";
+const WORKSPACE_ROOT = path.resolve(process.env.NOVA_ROOT || process.cwd());
+const USER_CONTEXT_ID = String(
+  process.env.NOVA_USER_CONTEXT_ID || process.argv[2] || "",
+).trim();
+if (!USER_CONTEXT_ID) {
+  throw new Error("Missing user context id. Use NOVA_USER_CONTEXT_ID or pass it as the first argument.");
+}
+
+const ROOT_ENV = path.join(WORKSPACE_ROOT, ".env");
+const GLOBAL_CONFIG = path.join(WORKSPACE_ROOT, "hud", "data", "integrations-config.json");
+const USER_CONFIG = path.join(
+  WORKSPACE_ROOT,
+  ".agent",
+  "user-context",
+  USER_CONTEXT_ID,
+  "integrations-config.json",
+);
 
 function readEnvKey(filePath, keyName) {
   try {

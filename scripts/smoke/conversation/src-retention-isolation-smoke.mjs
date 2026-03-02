@@ -47,8 +47,8 @@ const threadsRoute = await read("hud/app/api/threads/route.ts");
 const threadMessagesRoute = await read("hud/app/api/threads/[threadId]/messages/route.ts");
 const accountDeleteRoute = await read("hud/app/api/account/delete/route.ts");
 const conversationsHook = await read("hud/lib/chat/hooks/useConversations.ts");
-const hudGateway = await read("src/runtime/infrastructure/hud-gateway.js");
-const runtimeConstants = await read("src/runtime/core/constants.js");
+const hudGateway = await read("src/runtime/infrastructure/hud-gateway/index.js");
+const runtimeConstants = await read("src/runtime/core/constants/index.js");
 const sessionStore = await read("src/session/store.ts");
 const sessionRuntimeCompat = await read("src/session/runtime-compat.js");
 

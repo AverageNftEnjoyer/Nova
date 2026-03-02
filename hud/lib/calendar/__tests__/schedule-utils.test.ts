@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { expandDates, toIsoInTimezone, estimateDurationMs } from "../schedule-utils.ts"
+import { expandDates, toIsoInTimezone, estimateDurationMs } from "../schedule-utils/index.ts"
 
 // ─── expandDates ──────────────────────────────────────────────────────────────
 

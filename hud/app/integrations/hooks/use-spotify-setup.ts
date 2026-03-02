@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
 
-import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
+import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { SPOTIFY_DEFAULT_REDIRECT_URI } from "../constants"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 

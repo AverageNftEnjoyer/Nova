@@ -1,4 +1,4 @@
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 
 export const COINBASE_TIMEZONE_OPTIONS = [
   { value: "America/New_York", label: "America/New_York" },

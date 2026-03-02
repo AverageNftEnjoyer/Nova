@@ -16,8 +16,8 @@ import {
   type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
-} from "@/lib/integrations/server-store"
-import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
+} from "@/lib/integrations/store/server-store"
+import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"

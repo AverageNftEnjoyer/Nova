@@ -1,4 +1,4 @@
-import type { NodeOutput } from "../types"
+import type { NodeOutput } from "../types/index"
 
 function normalizeWhitespace(value: string): string {
   return String(value || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim()

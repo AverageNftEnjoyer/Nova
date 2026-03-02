@@ -1,4 +1,4 @@
-﻿import type { AnalyticsDateRange, AnalyticsFilters, AnalyticsModuleConfig } from "./types"
+import type { AnalyticsDateRange, AnalyticsFilters, AnalyticsModuleConfig } from "./types"
 
 export const DEFAULT_ANALYTICS_FILTERS: AnalyticsFilters = {
   dateRange: "24h",

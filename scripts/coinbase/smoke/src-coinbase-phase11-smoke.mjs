@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -10,8 +10,8 @@ import {
   createStaticCredentialProvider,
   mapCoinbaseHttpError,
 } from "../../../dist/integrations/coinbase/index.js";
-import { tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path.js";
-import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/fast-path/coinbase-command-parser.js";
+import { tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/fast-path/coinbase-command-parser/index.js";
 
 const results = [];
 

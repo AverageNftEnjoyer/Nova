@@ -27,14 +27,14 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway.js";
-const srcVoiceLoopPath = "src/runtime/audio/voice-loop.js";
-const srcEntrypointPath = "src/runtime/core/entrypoint.js";
-const srcChatHandlerPath = "src/runtime/modules/chat/core/chat-handler.js";
-const srcExecuteChatRequestPath = "src/runtime/modules/chat/core/chat-handler/execute-chat-request.js";
-const srcChatSpecialHandlersPath = "src/runtime/modules/chat/core/chat-special-handlers.js";
-const srcConfigPath = "src/runtime/core/config.js";
-const srcVoiceModulePath = "src/runtime/modules/audio/voice.js";
+const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway/index.js";
+const srcVoiceLoopPath = "src/runtime/audio/voice-loop/index.js";
+const srcEntrypointPath = "src/runtime/core/entrypoint/index.js";
+const srcChatHandlerPath = "src/runtime/modules/chat/core/chat-handler/index.js";
+const srcExecuteChatRequestPath = "src/runtime/modules/chat/core/chat-handler/execute-chat-request/index.js";
+const srcChatSpecialHandlersPath = "src/runtime/modules/chat/core/chat-special-handlers/index.js";
+const srcConfigPath = "src/runtime/core/config/index.js";
+const srcVoiceModulePath = "src/runtime/modules/audio/voice/index.js";
 const rootLauncherPath = "nova.js";
 
 const srcHudGateway = read(srcHudGatewayPath);
@@ -46,9 +46,9 @@ const srcChatSpecialHandlers = read(srcChatSpecialHandlersPath);
 const srcConfig = read(srcConfigPath);
 const srcVoiceModule = read(srcVoiceModulePath);
 const rootLauncher = read(rootLauncherPath);
-const inboundDedupeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/routing/inbound-dedupe.js")).href);
-const replyNormalizerModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/reply-normalizer.js")).href);
-const wakeRuntimeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/audio/wake-runtime-compat.js")).href);
+const inboundDedupeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/routing/inbound-dedupe/index.js")).href);
+const replyNormalizerModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/reply-normalizer/index.js")).href);
+const wakeRuntimeModule = await import(pathToFileURL(path.join(process.cwd(), "src/runtime/audio/wake-runtime-compat/index.js")).href);
 const { shouldSkipDuplicateInbound } = inboundDedupeModule;
 const { normalizeAssistantReply, normalizeAssistantSpeechText } = replyNormalizerModule;
 const { createWakeWordRuntime } = wakeRuntimeModule;
@@ -111,7 +111,7 @@ await run("Manual memory updates emit assistant stream events", async () => {
 });
 
 await run("Runtime launch/import graph is src-owned", async () => {
-  assert.equal(rootLauncher.includes('["src/runtime/core/entrypoint.js"]'), true);
+  assert.equal(rootLauncher.includes('["src/runtime/core/entrypoint/index.js"]'), true);
   assert.equal(srcEntrypoint.includes("agent/"), false, "src entrypoint should not reference agent paths");
   assert.equal(srcHudGateway.includes("agent/"), false, "src hud-gateway should not reference agent paths");
   assert.equal(srcConfig.includes("agent/"), false, "src runtime config should not reference agent paths");

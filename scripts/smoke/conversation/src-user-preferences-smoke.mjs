@@ -25,7 +25,7 @@ function summarize(result) {
 }
 
 const moduleRef = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/context/user-preferences.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/context/user-preferences/index.js")).href
 );
 
 const {

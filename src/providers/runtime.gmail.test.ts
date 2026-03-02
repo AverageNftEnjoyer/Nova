@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { loadIntegrationsRuntime } from "./runtime.js";
+import { loadIntegrationsRuntime } from "./runtime/index.js";
 
 function makeWorkspace(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nova-runtime-gmail-"));

@@ -14,7 +14,7 @@ import {
   updateGeminiIntegrationSettings,
   updateGrokIntegrationSettings,
   type LlmProvider,
-} from "@/lib/integrations/client-store"
+} from "@/lib/integrations/store/client-store"
 
 export interface IntegrationsStatus {
   integrationsHydrated: boolean

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { toSpotifyServiceError } from "@/lib/integrations/spotify/errors"
+import { toSpotifyServiceError } from "@/lib/integrations/spotify/errors/index"
 import { getSpotifyNowPlaying } from "@/lib/integrations/spotify"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"

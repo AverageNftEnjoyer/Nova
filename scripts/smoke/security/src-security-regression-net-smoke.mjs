@@ -60,7 +60,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const constantsSource = read("src/runtime/core/constants.js");
+const constantsSource = read("src/runtime/core/constants/index.js");
 const packageJson = JSON.parse(read("package.json"));
 
 await run("P20-C1 network/security guards remain enforced", async () => {

@@ -30,7 +30,7 @@ async function writeJson(filePath, value) {
 }
 
 const cleanup = await import(
-  pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-transcript-cleanup.js")).href,
+  pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-transcript-cleanup/index.js")).href,
 );
 
 const {

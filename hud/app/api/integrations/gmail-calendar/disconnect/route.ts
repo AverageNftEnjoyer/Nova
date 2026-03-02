@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { disconnectGmailCalendar } from "@/lib/integrations/google-calender/service"
+import { disconnectGmailCalendar } from "@/lib/integrations/google-calendar/service"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { disconnectBodySchema, gmailCalendarApiErrorResponse, logGmailCalendarApi, safeJson } from "../_shared"
 

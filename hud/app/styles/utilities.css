@@ -271,75 +271,81 @@
 /* ── Spotify glow — music-reactive layers ─────────────────────────────────── */
 
 /* Layer A: slow orbit + hue drift — feels like a lava lamp moving around the art */
+/* Blur is fixed at 22px (no longer animated) so the GPU composites it once per frame
+   instead of recalculating the kernel at every keyframe step. Hue-rotate is kept
+   because it is cheap (a matrix multiply on an already-composited layer). */
 @keyframes spotify-glow-a {
-  0%   { transform: translate(calc(-18% + var(--motion-ax, 0px)), calc(-12% + var(--motion-ay, 0px))) scale(calc(1.10 + var(--motion-as, 0))); filter: blur(calc(22px + var(--motion-ablur, 0px))) hue-rotate(calc(0deg + var(--motion-ahue, 0deg)));   opacity: 0.33; }
-  20%  { transform: translate(calc(14% + var(--motion-ax, 0px)),  calc(-8% + var(--motion-ay, 0px)))  scale(calc(0.95 + var(--motion-as, 0))); filter: blur(calc(18px + var(--motion-ablur, 0px))) hue-rotate(calc(28deg + var(--motion-ahue, 0deg)));  opacity: 0.20; }
-  45%  { transform: translate(calc(20% + var(--motion-ax, 0px)),  calc(16% + var(--motion-ay, 0px)))  scale(calc(1.18 + var(--motion-as, 0))); filter: blur(calc(26px + var(--motion-ablur, 0px))) hue-rotate(calc(52deg + var(--motion-ahue, 0deg)));  opacity: 0.40; }
-  65%  { transform: translate(calc(-8% + var(--motion-ax, 0px)),  calc(20% + var(--motion-ay, 0px)))  scale(calc(0.90 + var(--motion-as, 0))); filter: blur(calc(16px + var(--motion-ablur, 0px))) hue-rotate(calc(34deg + var(--motion-ahue, 0deg)));  opacity: 0.24; }
-  80%  { transform: translate(calc(-22% + var(--motion-ax, 0px)), calc(4% + var(--motion-ay, 0px)))   scale(calc(1.14 + var(--motion-as, 0))); filter: blur(calc(24px + var(--motion-ablur, 0px))) hue-rotate(calc(16deg + var(--motion-ahue, 0deg)));  opacity: 0.35; }
-  100% { transform: translate(calc(-18% + var(--motion-ax, 0px)), calc(-12% + var(--motion-ay, 0px))) scale(calc(1.10 + var(--motion-as, 0))); filter: blur(calc(22px + var(--motion-ablur, 0px))) hue-rotate(calc(0deg + var(--motion-ahue, 0deg)));   opacity: 0.33; }
+  0%   { transform: translate(calc(-18% + var(--motion-ax, 0px)), calc(-12% + var(--motion-ay, 0px))) scale(calc(1.10 + var(--motion-as, 0))); filter: blur(22px) hue-rotate(calc(0deg  + var(--motion-ahue, 0deg))); opacity: 0.33; }
+  20%  { transform: translate(calc(14%  + var(--motion-ax, 0px)), calc(-8%  + var(--motion-ay, 0px))) scale(calc(0.95 + var(--motion-as, 0))); filter: blur(22px) hue-rotate(calc(28deg + var(--motion-ahue, 0deg))); opacity: 0.20; }
+  45%  { transform: translate(calc(20%  + var(--motion-ax, 0px)), calc(16%  + var(--motion-ay, 0px))) scale(calc(1.18 + var(--motion-as, 0))); filter: blur(22px) hue-rotate(calc(52deg + var(--motion-ahue, 0deg))); opacity: 0.40; }
+  65%  { transform: translate(calc(-8%  + var(--motion-ax, 0px)), calc(20%  + var(--motion-ay, 0px))) scale(calc(0.90 + var(--motion-as, 0))); filter: blur(22px) hue-rotate(calc(34deg + var(--motion-ahue, 0deg))); opacity: 0.24; }
+  80%  { transform: translate(calc(-22% + var(--motion-ax, 0px)), calc(4%   + var(--motion-ay, 0px))) scale(calc(1.14 + var(--motion-as, 0))); filter: blur(22px) hue-rotate(calc(16deg + var(--motion-ahue, 0deg))); opacity: 0.35; }
+  100% { transform: translate(calc(-18% + var(--motion-ax, 0px)), calc(-12% + var(--motion-ay, 0px))) scale(calc(1.10 + var(--motion-as, 0))); filter: blur(22px) hue-rotate(calc(0deg  + var(--motion-ahue, 0deg))); opacity: 0.33; }
 }
 
-/* Layer B: faster beat-like pump — sharper blur swells that suggest a kick */
+/* Layer B: beat-like pump — opacity/scale vary, blur fixed at 18px */
 @keyframes spotify-glow-b {
-  0%   { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(0.92 + var(--motion-bs, 0))); filter: blur(14px); opacity: 0.22; }
-  35%  { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(1.04 + var(--motion-bs, 0))); filter: blur(20px); opacity: 0.30; }
-  50%  { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(1.10 + var(--motion-bs, 0))); filter: blur(24px); opacity: 0.36; }
+  0%   { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(0.92 + var(--motion-bs, 0))); filter: blur(18px); opacity: 0.22; }
+  35%  { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(1.04 + var(--motion-bs, 0))); filter: blur(18px); opacity: 0.30; }
+  50%  { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(1.10 + var(--motion-bs, 0))); filter: blur(18px); opacity: 0.36; }
   75%  { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(1.02 + var(--motion-bs, 0))); filter: blur(18px); opacity: 0.28; }
-  100% { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(0.92 + var(--motion-bs, 0))); filter: blur(14px); opacity: 0.22; }
+  100% { transform: translate(var(--motion-bx, 0px), var(--motion-by, 0px)) scale(calc(0.92 + var(--motion-bs, 0))); filter: blur(18px); opacity: 0.22; }
 }
 
-/* Layer C: slow rotation sweep — shifts which edge glows brightest */
+/* Layer C: slow rotation sweep — blur fixed at 30px */
 @keyframes spotify-glow-c {
-  0%   { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(0deg)   scale(calc(1.30 + var(--motion-cs, 0))); filter: blur(32px); opacity: 0.20; }
-  25%  { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(90deg)  scale(calc(1.10 + var(--motion-cs, 0))); filter: blur(24px); opacity: 0.31; }
-  50%  { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(180deg) scale(calc(1.35 + var(--motion-cs, 0))); filter: blur(36px); opacity: 0.18; }
-  75%  { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(270deg) scale(calc(1.12 + var(--motion-cs, 0))); filter: blur(26px); opacity: 0.29; }
-  100% { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(360deg) scale(calc(1.30 + var(--motion-cs, 0))); filter: blur(32px); opacity: 0.20; }
+  0%   { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(0deg)   scale(calc(1.30 + var(--motion-cs, 0))); filter: blur(30px); opacity: 0.20; }
+  25%  { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(90deg)  scale(calc(1.10 + var(--motion-cs, 0))); filter: blur(30px); opacity: 0.31; }
+  50%  { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(180deg) scale(calc(1.35 + var(--motion-cs, 0))); filter: blur(30px); opacity: 0.18; }
+  75%  { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(270deg) scale(calc(1.12 + var(--motion-cs, 0))); filter: blur(30px); opacity: 0.29; }
+  100% { transform: translate(var(--motion-cx, 0px), var(--motion-cy, 0px)) rotate(360deg) scale(calc(1.30 + var(--motion-cs, 0))); filter: blur(30px); opacity: 0.20; }
 }
 
 @keyframes spotify-glow-left {
-  0%   { transform: translate(calc(-8px + var(--motion-lx, 0px)), calc(-6px + var(--motion-ly, 0px))) scale(0.92); opacity: 0.20; filter: blur(22px); }
-  35%  { transform: translate(calc(5px + var(--motion-lx, 0px)), calc(-12px + var(--motion-ly, 0px))) scale(1.12); opacity: 0.38; filter: blur(30px); }
-  60%  { transform: translate(calc(-3px + var(--motion-lx, 0px)), calc(2px + var(--motion-ly, 0px))) scale(1.00); opacity: 0.26; filter: blur(24px); }
-  100% { transform: translate(calc(-8px + var(--motion-lx, 0px)), calc(-6px + var(--motion-ly, 0px))) scale(0.92); opacity: 0.20; filter: blur(22px); }
+  0%   { transform: translate(calc(-8px + var(--motion-lx, 0px)), calc(-6px  + var(--motion-ly, 0px))) scale(0.92); opacity: 0.20; filter: blur(26px); }
+  35%  { transform: translate(calc(5px  + var(--motion-lx, 0px)), calc(-12px + var(--motion-ly, 0px))) scale(1.12); opacity: 0.38; filter: blur(26px); }
+  60%  { transform: translate(calc(-3px + var(--motion-lx, 0px)), calc(2px   + var(--motion-ly, 0px))) scale(1.00); opacity: 0.26; filter: blur(26px); }
+  100% { transform: translate(calc(-8px + var(--motion-lx, 0px)), calc(-6px  + var(--motion-ly, 0px))) scale(0.92); opacity: 0.20; filter: blur(26px); }
 }
 
 @keyframes spotify-glow-right {
-  0%   { transform: translate(calc(10px + var(--motion-rx, 0px)), calc(5px + var(--motion-ry, 0px))) scale(1.04); opacity: 0.22; filter: blur(24px); }
-  30%  { transform: translate(calc(-8px + var(--motion-rx, 0px)), calc(0px + var(--motion-ry, 0px))) scale(0.90); opacity: 0.30; filter: blur(18px); }
-  68%  { transform: translate(calc(6px + var(--motion-rx, 0px)), calc(-10px + var(--motion-ry, 0px))) scale(1.18); opacity: 0.40; filter: blur(30px); }
-  100% { transform: translate(calc(10px + var(--motion-rx, 0px)), calc(5px + var(--motion-ry, 0px))) scale(1.04); opacity: 0.22; filter: blur(24px); }
+  0%   { transform: translate(calc(10px + var(--motion-rx, 0px)), calc(5px   + var(--motion-ry, 0px))) scale(1.04); opacity: 0.22; filter: blur(22px); }
+  30%  { transform: translate(calc(-8px + var(--motion-rx, 0px)), calc(0px   + var(--motion-ry, 0px))) scale(0.90); opacity: 0.30; filter: blur(22px); }
+  68%  { transform: translate(calc(6px  + var(--motion-rx, 0px)), calc(-10px + var(--motion-ry, 0px))) scale(1.18); opacity: 0.40; filter: blur(22px); }
+  100% { transform: translate(calc(10px + var(--motion-rx, 0px)), calc(5px   + var(--motion-ry, 0px))) scale(1.04); opacity: 0.22; filter: blur(22px); }
 }
 
+/* Layer A still animates filter (hue-rotate), so keep filter in will-change. */
 .animate-spotify-glow-a {
   animation: spotify-glow-a var(--glow-dur-a, 7.2s) cubic-bezier(0.45, 0, 0.55, 1) infinite;
   animation-delay: var(--glow-delay-a, 0s);
   will-change: transform, filter, opacity;
 }
 
+/* Layers B/C/left/right: blur is now a static constant so filter is no longer
+   animated — drop it from will-change to avoid an unnecessary compositor hint. */
 .animate-spotify-glow-b {
   animation: spotify-glow-b var(--glow-dur-b, 2.8s) ease-in-out infinite;
   animation-delay: var(--glow-delay-b, -0.6s);
-  will-change: transform, filter, opacity;
+  will-change: transform, opacity;
 }
 
 .animate-spotify-glow-c {
   animation: spotify-glow-c var(--glow-dur-c, 11.0s) linear infinite;
   animation-delay: var(--glow-delay-c, -3.0s);
-  will-change: transform, filter, opacity;
+  will-change: transform, opacity;
 }
 
 .animate-spotify-glow-left {
   animation: spotify-glow-left calc(var(--glow-dur-a, 5.2s) * 0.95) ease-in-out infinite;
   animation-delay: calc(var(--glow-delay-a, 0s) * 0.6);
-  will-change: transform, filter, opacity;
+  will-change: transform, opacity;
 }
 
 .animate-spotify-glow-right {
   animation: spotify-glow-right calc(var(--glow-dur-c, 10.2s) * 0.52) cubic-bezier(0.4, 0, 0.2, 1) infinite;
   animation-delay: calc(var(--glow-delay-c, -2.4s) * 0.35);
-  will-change: transform, filter, opacity;
+  will-change: transform, opacity;
 }
 
 .spotify-glow-variant-orbit .spotify-glow-layer-a {

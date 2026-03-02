@@ -9,13 +9,15 @@ import { appendThreadDeleteAuditLog } from "@/lib/server/thread-delete-audit"
 
 export const runtime = "nodejs"
 
+// Serialize concurrent DELETEs for the same thread to prevent double-cleanup.
+const _deleteInFlightByThreadId = new Map<string, Promise<void>>()
+
 export async function PATCH(
   req: Request,
   context: { params: Promise<{ threadId: string }> },
 ) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const { threadId } = await context.params
   const body = (await req.json().catch(() => ({}))) as {
@@ -46,69 +48,91 @@ export async function DELETE(
   context: { params: Promise<{ threadId: string }> },
 ) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const { threadId } = await context.params
   const normalizedThreadId = String(threadId || "").trim()
+
+  // Deduplicate concurrent deletes for the same thread.
+  const inflight = _deleteInFlightByThreadId.get(normalizedThreadId)
+  if (inflight) {
+    await inflight.catch(() => {})
+    return NextResponse.json({ ok: true })
+  }
+
   const workspaceRoot = resolveWorkspaceRoot()
 
-  const { data: messageMetadataRows } = await verified.client
-    .from("messages")
-    .select("metadata")
-    .eq("thread_id", normalizedThreadId)
-    .eq("user_id", verified.user.id)
-  const threadMessageCount = Array.isArray(messageMetadataRows) ? messageMetadataRows.length : 0
-  const cleanupHints = collectThreadCleanupHints(normalizedThreadId, messageMetadataRows ?? [])
+  let deleteResult: { ok: boolean; transcriptCleanup?: { removedSessionEntries: number; removedTranscriptFiles: number }; transcriptCleanupError?: string; error?: string } = { ok: false }
 
-  const { error } = await verified.client
-    .from("threads")
-    .delete()
-    .eq("id", normalizedThreadId)
-    .eq("user_id", verified.user.id)
+  const doDelete = async (): Promise<void> => {
+    const { data: messageMetadataRows } = await verified.client
+      .from("messages")
+      .select("metadata")
+      .eq("thread_id", normalizedThreadId)
+      .eq("user_id", verified.user.id)
+      .limit(10_000)
+    const threadMessageCount = Array.isArray(messageMetadataRows) ? messageMetadataRows.length : 0
+    const cleanupHints = collectThreadCleanupHints(normalizedThreadId, messageMetadataRows ?? [])
 
-  if (error) {
+    const { error } = await verified.client
+      .from("threads")
+      .delete()
+      .eq("id", normalizedThreadId)
+      .eq("user_id", verified.user.id)
+
+    if (error) {
+      await appendThreadDeleteAuditLog({
+        workspaceRoot,
+        threadId: normalizedThreadId,
+        userContextId: verified.user.id,
+        removedSessionEntries: 0,
+        removedTranscriptFiles: 0,
+        cleanupError: error.message || "Thread delete failed.",
+        threadMessageCount,
+      }).catch(() => {})
+      deleteResult = { ok: false, error: error.message }
+      return
+    }
+
+    let transcriptCleanup = { removedSessionEntries: 0, removedTranscriptFiles: 0 }
+    let transcriptCleanupError = ""
+    try {
+      transcriptCleanup = await pruneThreadTranscripts(
+        workspaceRoot,
+        verified.user.id,
+        normalizedThreadId,
+        {
+          sessionConversationIds: cleanupHints.sessionConversationIds,
+          sessionKeys: cleanupHints.sessionKeys,
+        },
+      )
+    } catch (err) {
+      transcriptCleanupError = err instanceof Error ? err.message : "Transcript cleanup failed."
+    }
+
     await appendThreadDeleteAuditLog({
       workspaceRoot,
       threadId: normalizedThreadId,
       userContextId: verified.user.id,
-      removedSessionEntries: 0,
-      removedTranscriptFiles: 0,
-      cleanupError: error.message || "Thread delete failed.",
+      removedSessionEntries: transcriptCleanup.removedSessionEntries,
+      removedTranscriptFiles: transcriptCleanup.removedTranscriptFiles,
+      cleanupError: transcriptCleanupError,
       threadMessageCount,
     }).catch(() => {})
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+
+    deleteResult = { ok: true, transcriptCleanup, ...(transcriptCleanupError ? { transcriptCleanupError } : {}) }
   }
 
-  let transcriptCleanup = { removedSessionEntries: 0, removedTranscriptFiles: 0 }
-  let transcriptCleanupError = ""
-  try {
-    transcriptCleanup = await pruneThreadTranscripts(
-      workspaceRoot,
-      verified.user.id,
-      normalizedThreadId,
-      {
-        sessionConversationIds: cleanupHints.sessionConversationIds,
-        sessionKeys: cleanupHints.sessionKeys,
-      },
-    )
-  } catch (error) {
-    transcriptCleanupError = error instanceof Error ? error.message : "Transcript cleanup failed."
-  }
-
-  await appendThreadDeleteAuditLog({
-    workspaceRoot,
-    threadId: normalizedThreadId,
-    userContextId: verified.user.id,
-    removedSessionEntries: transcriptCleanup.removedSessionEntries,
-    removedTranscriptFiles: transcriptCleanup.removedTranscriptFiles,
-    cleanupError: transcriptCleanupError,
-    threadMessageCount,
-  }).catch(() => {})
-
-  return NextResponse.json({
-    ok: true,
-    transcriptCleanup,
-    ...(transcriptCleanupError ? { transcriptCleanupError } : {}),
+  const op = doDelete().finally(() => {
+    if (_deleteInFlightByThreadId.get(normalizedThreadId) === op) {
+      _deleteInFlightByThreadId.delete(normalizedThreadId)
+    }
   })
+  _deleteInFlightByThreadId.set(normalizedThreadId, op)
+  await op
+
+  if (!deleteResult.ok) {
+    return NextResponse.json({ ok: false, error: deleteResult.error }, { status: 500 })
+  }
+  return NextResponse.json(deleteResult)
 }

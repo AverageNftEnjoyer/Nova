@@ -4,7 +4,7 @@
 
 import "server-only"
 
-import type { WebSearchNode, HttpRequestNode, RssFeedNode, CoinbaseNode, NodeOutput, ExecutionContext } from "../../types"
+import type { WebSearchNode, HttpRequestNode, RssFeedNode, CoinbaseNode, NodeOutput, ExecutionContext } from "../../types/index"
 import { searchWebAndCollect } from "../../web/search"
 import { executeCoinbaseWorkflowStep } from "../coinbase-step"
 import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../../web/safe-fetch"

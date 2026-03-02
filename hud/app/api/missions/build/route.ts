@@ -7,7 +7,7 @@ import { validateMissionGraphForVersioning } from "@/lib/missions/workflow/versi
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
-import { finalizeMissionBuildRequest, reserveMissionBuildRequest } from "@/lib/missions/build-idempotency"
+import { finalizeMissionBuildRequest, reserveMissionBuildRequest } from "@/lib/missions/utils/build-idempotency"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import { resolveTimezone } from "@/lib/shared/timezone"

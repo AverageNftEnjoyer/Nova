@@ -9,7 +9,7 @@ import { cleanText, normalizeSnippetText, normalizeSourceSnippet, parseJsonObjec
 import { extractFactSentences } from "../text/formatting"
 import { toNumberSafe } from "../utils/paths"
 import { collectSourceUrlsFromContextData, formatSourceButtons, normalizeMissionSourcePresentation, uniqueSourceUrls } from "./sources"
-import type { AiDetailLevel } from "../types"
+import type { AiDetailLevel } from "../types/index"
 
 function normalizeMarkdownHeadings(raw: string): string {
   return String(raw || "").replace(/^#{1,6}\s+(.+)$/gm, "**$1**")

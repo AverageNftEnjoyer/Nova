@@ -10,10 +10,10 @@ import { createHash } from "node:crypto"
 
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
 import type { NotificationSchedule } from "@/lib/notifications/store"
-import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { fetchWithSsrfGuard } from "../web/safe-fetch"
-import type { OutputResult } from "../types"
+import type { OutputResult } from "../types/index"
 import { enforceMissionOutputContract } from "./contract"
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
@@ -64,7 +64,8 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
   let config
   try {
     config = await loadIntegrationsConfig(scope)
-  } catch {
+  } catch (err) {
+    console.warn("[dispatchOutput][gcalendar_mirror] Failed to load integrations config:", err instanceof Error ? err.message : String(err))
     return
   }
 
@@ -114,7 +115,7 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
     scope?: IntegrationsStoreScope
   }) => Promise<unknown>) | null = null
   try {
-    const mod = await import("../../integrations/google-calender/service")
+    const mod = await import("../../integrations/google-calendar/service")
     if (typeof mod.createCalendarEvent === "function") {
       createCalendarEventFn = mod.createCalendarEvent
     }

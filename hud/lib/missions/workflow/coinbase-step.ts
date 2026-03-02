@@ -1,8 +1,8 @@
 import "server-only"
 
-import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { fetchCoinbaseMissionData, parseCoinbaseFetchQuery } from "../coinbase/fetch"
-import type { WorkflowStep } from "../types"
+import type { WorkflowStep } from "../types/index"
 import {
   buildCoinbaseArtifactContextSnippet,
   loadRecentCoinbaseStepArtifacts,

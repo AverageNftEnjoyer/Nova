@@ -1,17 +1,6 @@
 import "server-only"
 
-type InflightEntry = {
-  startedAtMs: number
-  userContextId: string
-}
-
-type ExecutionGuardState = typeof globalThis & {
-  __novaMissionExecutionInflight?: Map<string, InflightEntry>
-}
-
-const state = globalThis as ExecutionGuardState
-const inflight = state.__novaMissionExecutionInflight ?? new Map<string, InflightEntry>()
-state.__novaMissionExecutionInflight = inflight
+import { jobLedger } from "../job-ledger/store"
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = String(process.env[name] || "").trim()
@@ -21,24 +10,25 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
   return Math.max(min, Math.min(max, parsed))
 }
 
-function sanitizeScopeId(value: string): string {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 96)
-}
-
 export const MISSION_EXECUTION_GUARD_POLICY = {
-  perUserInflightLimit: readIntEnv("NOVA_MISSION_EXECUTION_MAX_INFLIGHT_PER_USER", 3, 1, 100),
-  globalInflightLimit: readIntEnv("NOVA_MISSION_EXECUTION_MAX_INFLIGHT_GLOBAL", 200, 1, 5000),
-  slotTtlMs: readIntEnv("NOVA_MISSION_EXECUTION_SLOT_TTL_MS", 15 * 60_000, 30_000, 24 * 60 * 60_000),
+  get perUserInflightLimit() {
+    return readIntEnv("NOVA_MISSION_EXECUTION_MAX_INFLIGHT_PER_USER", 3, 1, 100)
+  },
+  get globalInflightLimit() {
+    return readIntEnv("NOVA_MISSION_EXECUTION_MAX_INFLIGHT_GLOBAL", 200, 1, 5000)
+  },
+  get slotTtlMs() {
+    return readIntEnv("NOVA_MISSION_EXECUTION_SLOT_TTL_MS", 15 * 60_000, 30_000, 24 * 60 * 60_000)
+  },
 } as const
 
 export type MissionExecutionSlot = {
-  release: () => void
+  jobRunId: string
+  leaseToken: string
+  /** Call before returning from the execution engine so release() knows the outcome. */
+  reportOutcome: (success: boolean, errorDetail?: string) => void
+  /** Must be called in finally — marks the job run terminal in Supabase. */
+  release: () => Promise<void>
 }
 
 export type MissionExecutionGuardDecision = {
@@ -47,54 +37,99 @@ export type MissionExecutionGuardDecision = {
   slot?: MissionExecutionSlot
 }
 
-function pruneExpiredSlots(nowMs: number): void {
-  for (const [key, entry] of inflight.entries()) {
-    if (!entry || nowMs - entry.startedAtMs > MISSION_EXECUTION_GUARD_POLICY.slotTtlMs) {
-      inflight.delete(key)
-    }
-  }
-}
-
-export function acquireMissionExecutionSlot(input: {
+/**
+ * Enqueue + atomically claim a job run in Supabase.
+ * Replaces the former globalThis.__novaMissionExecutionInflight in-memory map.
+ *
+ * Concurrency caps (per-user and global) are enforced by the job ledger
+ * via DB COUNT queries against status IN ('claimed','running').
+ */
+export async function acquireMissionExecutionSlot(input: {
   userContextId: string
+  missionId: string
   missionRunId: string
-}): MissionExecutionGuardDecision {
-  const userContextId = sanitizeScopeId(input.userContextId)
-  const missionRunId = sanitizeScopeId(input.missionRunId)
-  if (!userContextId || !missionRunId) {
-    return { ok: true, slot: { release: () => undefined } }
+}): Promise<MissionExecutionGuardDecision> {
+  const { userContextId, missionId, missionRunId } = input
+
+  if (!userContextId || !missionId || !missionRunId) {
+    // Missing context — allow execution but skip ledger tracking
+    return { ok: true, slot: makeNoopSlot() }
   }
 
-  const nowMs = Date.now()
-  pruneExpiredSlots(nowMs)
+  // 1. Enqueue the run record
+  const enqueueResult = await jobLedger.enqueue({
+    id: missionRunId,
+    user_id: userContextId,
+    mission_id: missionId,
+    source: "scheduler",
+    max_attempts: 1,
+  })
 
-  const globalInflight = inflight.size
-  if (globalInflight >= MISSION_EXECUTION_GUARD_POLICY.globalInflightLimit) {
-    return {
-      ok: false,
-      reason: `Mission execution concurrency exceeded global in-flight cap (${MISSION_EXECUTION_GUARD_POLICY.globalInflightLimit}).`,
+  if (!enqueueResult.ok) {
+    if (enqueueResult.error === "duplicate_idempotency_key") {
+      return { ok: false, reason: "Duplicate run — already enqueued with this ID." }
     }
+    // Supabase unavailable — fail open so we don't block all missions during DB outage
+    console.warn("[ExecutionGuard] Failed to enqueue job run, proceeding without ledger:", enqueueResult.error)
+    return { ok: true, slot: makeNoopSlot() }
   }
 
-  let userInflight = 0
-  for (const entry of inflight.values()) {
-    if (entry.userContextId === userContextId) userInflight += 1
-  }
-  if (userInflight >= MISSION_EXECUTION_GUARD_POLICY.perUserInflightLimit) {
-    return {
-      ok: false,
-      reason: `Mission execution concurrency exceeded per-user cap (${MISSION_EXECUTION_GUARD_POLICY.perUserInflightLimit}).`,
-    }
+  // 2. Claim the run (checks concurrency caps atomically)
+  const claimResult = await jobLedger.claimRun({
+    jobRunId: missionRunId,
+    leaseDurationMs: MISSION_EXECUTION_GUARD_POLICY.slotTtlMs,
+  })
+
+  if (!claimResult.ok) {
+    // Cancel the pending run we just enqueued since we won't execute it
+    void jobLedger.cancelRun({ jobRunId: missionRunId, userId: userContextId }).catch((err) => {
+      console.warn("[ExecutionGuard] Failed to cancel pending run after concurrency rejection:", err)
+    })
+    return { ok: false, reason: claimResult.reason }
   }
 
-  const key = `${userContextId}:${missionRunId}`
-  inflight.set(key, { userContextId, startedAtMs: nowMs })
+  // 3. Transition claimed → running
+  await jobLedger.startRun({ jobRunId: missionRunId, leaseToken: claimResult.leaseToken }).catch((err) => {
+    console.warn("[ExecutionGuard] Failed to transition job run to running:", err)
+  })
+
+  // Fail-safe default: if release() is called without reportOutcome(), mark failed
+  let outcomeSuccess = false
+  let outcomeErrorDetail: string | undefined
+
   return {
     ok: true,
     slot: {
-      release: () => {
-        inflight.delete(key)
+      jobRunId: missionRunId,
+      leaseToken: claimResult.leaseToken,
+      reportOutcome(success: boolean, errorDetail?: string) {
+        outcomeSuccess = success
+        outcomeErrorDetail = errorDetail
+      },
+      async release() {
+        if (outcomeSuccess) {
+          await jobLedger.completeRun({
+            jobRunId: missionRunId,
+            leaseToken: claimResult.leaseToken,
+          }).catch(() => {})
+        } else {
+          await jobLedger.failRun({
+            jobRunId: missionRunId,
+            leaseToken: claimResult.leaseToken,
+            errorDetail: outcomeErrorDetail,
+          }).catch(() => {})
+        }
       },
     },
+  }
+}
+
+/** Noop slot used when ledger tracking is skipped (missing context, DB outage). */
+function makeNoopSlot(): MissionExecutionSlot {
+  return {
+    jobRunId: "",
+    leaseToken: "",
+    reportOutcome: () => undefined,
+    release: async () => undefined,
   }
 }

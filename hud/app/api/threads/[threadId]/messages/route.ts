@@ -56,8 +56,7 @@ export async function PUT(
   context: { params: Promise<{ threadId: string }> },
 ) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.threadMessagesWrite)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 

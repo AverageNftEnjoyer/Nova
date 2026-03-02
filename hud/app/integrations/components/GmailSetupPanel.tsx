@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { Save } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { SecretInput } from "./SecretInput"
 import { TextInput } from "./TextInput"
 import { SetupInstructions } from "./SetupInstructions"

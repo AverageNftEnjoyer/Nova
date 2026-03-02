@@ -3,6 +3,9 @@ export interface NotificationSchedule {
   integration: string
   label: string
   message: string
+  description?: string
+  priority?: "low" | "medium" | "high" | "critical"
+  mode?: "once" | "daily" | "weekly" | "interval"
   time: string
   timezone: string
   enabled: boolean

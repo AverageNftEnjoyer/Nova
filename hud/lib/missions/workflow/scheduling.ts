@@ -8,7 +8,7 @@ import type { NotificationSchedule } from "@/lib/notifications/store"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { normalizeWorkflowStep } from "../utils/config"
 import { parseMissionWorkflow } from "./parsing"
-import type { WorkflowScheduleGate } from "../types"
+import type { WorkflowScheduleGate } from "../types/index"
 
 const DEFAULT_SCHEDULE_WINDOW_MINUTES = 10
 

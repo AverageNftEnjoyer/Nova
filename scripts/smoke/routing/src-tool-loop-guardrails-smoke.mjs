@@ -9,12 +9,12 @@ import {
   TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS,
   TOOL_LOOP_RECOVERY_TIMEOUT_MS,
   TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP,
-} from "../../../src/runtime/core/constants.js";
+} from "../../../src/runtime/core/constants/index.js";
 import {
   createToolLoopBudget,
   capToolCallsPerStep,
   isLikelyTimeoutError,
-} from "../../../src/runtime/modules/chat/core/tool-loop-guardrails.js";
+} from "../../../src/runtime/modules/chat/core/tool-loop-guardrails/index.js";
 
 const results = [];
 

@@ -6,8 +6,8 @@
 
 import "server-only"
 
-import { loadIntegrationCatalog } from "@/lib/integrations/catalog-server"
-import { loadIntegrationsConfig, type IntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { loadIntegrationCatalog } from "@/lib/integrations/catalog/server"
+import { loadIntegrationsConfig, type IntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { cleanText, parseJsonObject } from "../text/cleaning"
 import { generateShortTitle } from "../text/formatting"
 import { normalizeWorkflowStep, normalizeOutputRecipientsForChannel } from "../utils/config"
@@ -16,7 +16,7 @@ import { extractSearchQueryFromUrl } from "../web/fetch"
 import { isSearchLikeUrl } from "../web/quality"
 import { completeWithConfiguredLlm } from "../llm/providers"
 import { detectTopicsInPrompt, type DetectedTopic } from "../topics/detection"
-import type { WorkflowStep, WorkflowSummary, Provider } from "../types"
+import type { WorkflowStep, WorkflowSummary, Provider } from "../types/index"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
 function logCoinbaseGeneration(details: Record<string, unknown>) {

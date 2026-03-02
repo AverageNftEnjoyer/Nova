@@ -4,7 +4,7 @@ import type { CSSProperties, RefObject } from "react"
 import { LayoutGrid, List, MoreVertical, Network, Pin, Search, Sparkles, Trash2, WandSparkles } from "lucide-react"
 
 import { FluidSelect } from "@/components/ui/fluid-select"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { MissionTemplate } from "@/lib/missions/templates"
 import { cn } from "@/lib/shared/utils"
 import {
@@ -15,7 +15,6 @@ import {
   formatIntegrationLabel,
   getMissionIntegrationIcon,
   normalizePriority,
-  parseMissionWorkflowPayload,
 } from "../helpers"
 import type {
   MissionRunProgress,
@@ -227,12 +226,16 @@ export function MissionsMainPanels({
           <div className={cn(missionBoardView === "grid" ? "grid grid-cols-1 gap-3 xl:grid-cols-3" : "space-y-3")}>
             {filteredSchedules.map((mission) => {
               const busy = Boolean(busyById[mission.id])
-              const details = parseMissionWorkflowPayload(mission.message)
-              const priority = normalizePriority(details.priority)
+              const workflowStepTypes = Array.isArray(mission.workflowSteps)
+                ? mission.workflowSteps.map((step) => String(step?.type || "").trim().toLowerCase()).filter(Boolean)
+                : []
+              const priority = normalizePriority(mission.priority)
               const runs = Number.isFinite(mission.runCount) ? Number(mission.runCount) : 0
               const successes = Number.isFinite(mission.successCount) ? Number(mission.successCount) : 0
               const successRate = runs > 0 ? Math.round((successes / runs) * 100) : 100
-              const processChips = details.process.slice(0, 4)
+              const processChips = (workflowStepTypes.length > 0 ? workflowStepTypes : ["trigger", "output"]).slice(0, 4)
+              const missionDescription = String(mission.description || mission.message || "").trim()
+              const missionMode = String(mission.mode || "daily").trim().toLowerCase() || "daily"
               const runState = runProgress && runProgress.missionId === mission.id ? runProgress : null
               const runtimeStatus = missionRuntimeStatusById[mission.id]
               const dynamicRunningTotal = runState?.running ? Math.max(runState.steps.length, 1) : null
@@ -349,7 +352,9 @@ export function MissionsMainPanels({
                     </div>
                   </div>
 
-                  <p className={cn("mt-3 text-sm line-clamp-2", isLight ? "text-s-70" : "text-slate-300")}>{details.description}</p>
+                  <p className={cn("mt-3 text-sm line-clamp-2", isLight ? "text-s-70" : "text-slate-300")}>
+                    {missionDescription || "Mission automation flow"}
+                  </p>
 
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     {processChips.map((stepType, index) => (
@@ -363,7 +368,7 @@ export function MissionsMainPanels({
                     <div>
                       <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-500")}>Schedule</p>
                       <p className={cn("text-2xl font-semibold leading-none mt-1", isLight ? "text-s-90" : "text-slate-100")}>{mission.time}</p>
-                      <p className={cn("text-[11px] mt-1", isLight ? "text-s-50" : "text-slate-500")}>{details.mode || "daily"}</p>
+                      <p className={cn("text-[11px] mt-1", isLight ? "text-s-50" : "text-slate-500")}>{missionMode}</p>
                     </div>
                     <div>
                       <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-500")}>Runs</p>

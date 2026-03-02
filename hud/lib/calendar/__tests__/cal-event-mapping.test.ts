@@ -7,7 +7,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import type { CalendarEvent, PersonalCalendarEvent, MissionCalendarEvent } from "../types.js"
+import type { CalendarEvent, PersonalCalendarEvent, MissionCalendarEvent } from "../types/index.js"
 
 // ─── Constants (mirrored from page.tsx) ──────────────────────────────────────
 

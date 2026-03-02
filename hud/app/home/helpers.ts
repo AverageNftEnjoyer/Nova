@@ -34,31 +34,6 @@ function priorityRank(priority: "low" | "medium" | "high" | "critical"): number 
   return 3
 }
 
-function normalizePriority(value: string | undefined): "low" | "medium" | "high" | "critical" {
-  const normalized = String(value || "").trim().toLowerCase()
-  if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "critical") return normalized
-  return "medium"
-}
-
-export function parseMissionWorkflowMeta(message: string | undefined): {
-  description: string
-  priority: "low" | "medium" | "high" | "critical"
-} {
-  const raw = typeof message === "string" ? message : ""
-  const marker = "[NOVA WORKFLOW]"
-  const idx = raw.indexOf(marker)
-  const description = (idx < 0 ? raw : raw.slice(0, idx)).trim()
-  if (idx < 0) return { description, priority: "medium" }
-
-  const jsonText = raw.slice(idx + marker.length).trim()
-  try {
-    const parsed = JSON.parse(jsonText) as { priority?: string }
-    return { description, priority: normalizePriority(parsed.priority) }
-  } catch {
-    return { description, priority: "medium" }
-  }
-}
-
 export function compareMissionPriority(left: "low" | "medium" | "high" | "critical", right: "low" | "medium" | "high" | "critical"): number {
   return priorityRank(left) - priorityRank(right)
 }

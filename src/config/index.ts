@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Config } from "./types.js";
+import type { Config } from "./types/index.js";
 
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".myagent", "config.json");
 

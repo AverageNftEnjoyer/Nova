@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation"
 
 import { type FluidSelectOption } from "@/components/ui/fluid-select"
 import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/integrations/catalog"
-import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
+import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
-import { getRuntimeTimezone } from "@/lib/shared/timezone"
+import { getRuntimeTimezone, resolveTimezone } from "@/lib/shared/timezone"
 
 import {
   AI_PROVIDER_LABELS,
@@ -19,10 +19,11 @@ import {
   applyMissionWorkflowAutofix,
   buildMissionFromPrompt,
   createMissionSchedule,
+  fetchMissionById,
   deleteMissionById,
   fetchIntegrationCatalog as fetchIntegrationCatalogApi,
+  fetchMissions as fetchMissionsApi,
   fetchMissionReliability as fetchMissionReliabilityApi,
-  fetchSchedules as fetchSchedulesApi,
   previewMissionWorkflowAutofix,
   requestNovaSuggest,
   triggerMissionScheduleStream,
@@ -34,6 +35,7 @@ import {
   type WorkflowAutofixResponse,
   type NovaSuggestResponse,
 } from "../api"
+import { missionToWorkflowSummaryForAutofix } from "../canvas/workflow-autofix-bridge"
 import {
   getDefaultModelForProvider,
   hexToRgba,
@@ -41,11 +43,11 @@ import {
   normalizeAiDetailLevel,
   normalizeFetchIncludeSources,
   normalizePriority,
-  parseMissionWorkflowMeta,
   sanitizeOutputRecipients,
 } from "../helpers"
 import { useMissionsSpotlight } from "./use-missions-spotlight"
 import { useAutoClearStatus, useAutoDismissRunProgress, useMissionActionMenuDismiss } from "./use-missions-transient-effects"
+import type { Mission as NativeMission } from "@/lib/missions/types"
 import type {
   AiIntegrationType,
   MissionActionMenuState,
@@ -90,6 +92,36 @@ function buildBaselineById(schedules: NotificationSchedule[]): Record<string, No
   const baseline: Record<string, NotificationSchedule> = {}
   for (const item of schedules) baseline[item.id] = item
   return baseline
+}
+
+function mapMissionToScheduleView(mission: NativeMission): NotificationSchedule {
+  const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
+  const triggerMode = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerMode : "daily"
+  const triggerTime = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTime : undefined
+  const triggerTimezone = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTimezone : undefined
+  const summary = missionToWorkflowSummaryForAutofix(mission)
+  const description = String(summary.description || mission.description || mission.label || "").trim()
+  return {
+    id: mission.id,
+    integration: String(mission.integration || "telegram").trim() || "telegram",
+    label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
+    message: description,
+    description,
+    priority: "medium",
+    workflowSteps: Array.isArray(summary.workflowSteps) ? summary.workflowSteps : [],
+    mode: triggerMode === "once" || triggerMode === "daily" || triggerMode === "weekly" || triggerMode === "interval"
+      ? triggerMode
+      : "daily",
+    time: String(triggerTime || "09:00").trim() || "09:00",
+    timezone: resolveTimezone(triggerTimezone, mission.settings?.timezone, getRuntimeTimezone()),
+    enabled: mission.status === "active",
+    chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
+    updatedAt: mission.updatedAt || mission.createdAt || new Date().toISOString(),
+    runCount: Number.isFinite(mission.runCount) ? mission.runCount : 0,
+    successCount: Number.isFinite(mission.successCount) ? mission.successCount : 0,
+    failureCount: Number.isFinite(mission.failureCount) ? mission.failureCount : 0,
+    lastRunAt: mission.lastRunAt,
+  }
 }
 
 export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageStateInput) {
@@ -904,13 +936,19 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const refreshSchedules = useCallback(async () => {
     if (schedules.length === 0) setLoading(true)
     try {
-      const response = await fetchSchedulesApi()
+      const response = await fetchMissionsApi()
       if (response.status === 401) {
         router.replace(`/login?next=${encodeURIComponent("/missions")}`)
         throw new Error("Unauthorized")
       }
       const data = response.data
-      const next = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
+      if (!response.ok || data?.ok === false) {
+        throw new Error(String(data?.error || "Failed to load missions."))
+      }
+      const next = (Array.isArray(data?.missions) ? data.missions : [])
+        .map((row) => row as NativeMission)
+        .filter((row) => row && typeof row.id === "string" && Array.isArray(row.nodes))
+        .map((row) => mapMissionToScheduleView(row))
       setSchedules(next)
       setBaselineById(buildBaselineById(next))
       writeShellUiCache({ missionSchedules: next })
@@ -1554,62 +1592,110 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setPendingDeleteMission(null)
   }, [deleteMission, pendingDeleteMission])
 
-  const editMissionFromActions = useCallback((mission: NotificationSchedule) => {
-    const meta = parseMissionWorkflowMeta(mission.message)
-    setEditingMissionId(mission.id)
+  const applyNativeMissionToBuilder = useCallback((nativeMission: NativeMission, fallbackMission: NotificationSchedule, duplicate: boolean) => {
+    const triggerNode = nativeMission.nodes.find((node) => node.type === "schedule-trigger")
+    const resolvedMode =
+      triggerNode?.type === "schedule-trigger" &&
+      (triggerNode.triggerMode === "daily" || triggerNode.triggerMode === "weekly" || triggerNode.triggerMode === "once" || triggerNode.triggerMode === "interval")
+        ? triggerNode.triggerMode
+        : "daily"
+    const resolvedTime =
+      triggerNode?.type === "schedule-trigger" && typeof triggerNode.triggerTime === "string" && triggerNode.triggerTime.trim().length > 0
+        ? triggerNode.triggerTime.trim()
+        : (fallbackMission.time || "09:00")
+    const resolvedTimezone = resolveTimezone(
+      triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTimezone : undefined,
+      nativeMission.settings?.timezone,
+      fallbackMission.timezone,
+      detectedTimezone,
+      getRuntimeTimezone(),
+    )
+    const resolvedDays =
+      triggerNode?.type === "schedule-trigger" && Array.isArray(triggerNode.triggerDays) && triggerNode.triggerDays.length > 0
+        ? triggerNode.triggerDays
+        : ["mon", "tue", "wed", "thu", "fri"]
+    const workflowSummary = missionToWorkflowSummaryForAutofix(nativeMission)
+
+    setEditingMissionId(duplicate ? null : nativeMission.id)
     setRunImmediatelyOnCreate(false)
-    setNewLabel(mission.label || "")
-    setNewDescription(meta.description || mission.message || "")
-    setNewTime(mission.time || "09:00")
-    if (mission.timezone) setDetectedTimezone(mission.timezone)
-    setMissionActive(Boolean(mission.enabled))
-    if (meta.priority) setNewPriority(meta.priority)
-    if (meta.mode) setNewScheduleMode(meta.mode)
-    if (Array.isArray(meta.days) && meta.days.length > 0) setNewScheduleDays(meta.days)
-    setMissionTags(Array.isArray(meta.tags) ? meta.tags : [])
+    setNewLabel(duplicate ? `${nativeMission.label || "Mission"} (Copy)` : (nativeMission.label || ""))
+    setNewDescription(
+      String(workflowSummary.description || nativeMission.description || fallbackMission.message || "").trim(),
+    )
+    setNewTime(resolvedTime)
+    setDetectedTimezone(resolvedTimezone)
+    setMissionActive(nativeMission.status === "active" || nativeMission.status === "draft")
+    setNewPriority("medium")
+    setNewScheduleMode(resolvedMode)
+    setNewScheduleDays(resolvedDays)
+    setMissionTags(Array.isArray(nativeMission.tags) ? nativeMission.tags : [])
     setWorkflowSteps(
       mapWorkflowStepsForBuilder(
-        meta.workflowSteps,
-        mission.time || "09:00",
-        mission.timezone || detectedTimezone || getRuntimeTimezone(),
+        workflowSummary.workflowSteps,
+        resolvedTime,
+        resolvedTimezone,
       ),
     )
     setCollapsedStepIds({})
     setBuilderOpen(true)
+    if (duplicate) {
+      setStatus({ type: "success", message: "Mission duplicated into builder. Configure and deploy." })
+    }
   }, [detectedTimezone, mapWorkflowStepsForBuilder])
 
+  const editMissionFromActions = useCallback(async (mission: NotificationSchedule) => {
+    try {
+      const response = await fetchMissionById(mission.id)
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
+      const payload = response.data as { mission?: unknown }
+      const candidate = payload?.mission as NativeMission | undefined
+      if (response.ok && candidate && typeof candidate.id === "string" && Array.isArray(candidate.nodes)) {
+        applyNativeMissionToBuilder(candidate, mission, false)
+        return
+      }
+      throw new Error("Mission details are unavailable.")
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to load mission for editing.",
+      })
+      return
+    }
+  }, [applyNativeMissionToBuilder, router])
+
   const duplicateMission = useCallback(async (mission: NotificationSchedule) => {
-    const meta = parseMissionWorkflowMeta(mission.message)
-    setEditingMissionId(null)
-    setNewLabel(`${mission.label || "Mission"} (Copy)`)
-    setNewDescription(meta.description || mission.message || "")
-    setNewTime(mission.time || "09:00")
-    if (mission.timezone) setDetectedTimezone(mission.timezone)
-    setMissionActive(Boolean(mission.enabled))
-    if (meta.priority) setNewPriority(meta.priority)
-    if (meta.mode) setNewScheduleMode(meta.mode)
-    if (Array.isArray(meta.days) && meta.days.length > 0) setNewScheduleDays(meta.days)
-    setMissionTags(Array.isArray(meta.tags) ? meta.tags : [])
-    setWorkflowSteps(
-      mapWorkflowStepsForBuilder(
-        meta.workflowSteps,
-        mission.time || "09:00",
-        mission.timezone || detectedTimezone || getRuntimeTimezone(),
-      ),
-    )
-    setCollapsedStepIds({})
-    setRunImmediatelyOnCreate(false)
-    setBuilderOpen(true)
-    setStatus({ type: "success", message: "Mission duplicated into builder. Configure and deploy." })
-  }, [detectedTimezone, mapWorkflowStepsForBuilder])
+    try {
+      const response = await fetchMissionById(mission.id)
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
+      const payload = response.data as { mission?: unknown }
+      const candidate = payload?.mission as NativeMission | undefined
+      if (response.ok && candidate && typeof candidate.id === "string" && Array.isArray(candidate.nodes)) {
+        applyNativeMissionToBuilder(candidate, mission, true)
+        return
+      }
+      throw new Error("Mission details are unavailable.")
+    } catch (error) {
+      setStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to duplicate mission.",
+      })
+      return
+    }
+  }, [applyNativeMissionToBuilder, router])
 
   const runMissionNow = useCallback(async (
     mission: NotificationSchedule,
     options?: { workflowSteps?: Array<Partial<WorkflowStep>> },
   ) => {
     setStatus(null)
-    const meta = parseMissionWorkflowMeta(mission.message)
-    const pendingSteps = toPendingRunSteps(options?.workflowSteps ?? meta.workflowSteps)
+    const scheduleWorkflowSteps = (mission as { workflowSteps?: Array<Partial<WorkflowStep>> }).workflowSteps
+    const pendingSteps = toPendingRunSteps(options?.workflowSteps ?? scheduleWorkflowSteps)
     const runningTotal = Math.max(pendingSteps.length, 1)
     setMissionRuntimeStatusById((prev) => ({
       ...prev,

@@ -8,7 +8,7 @@
 import { cleanText, normalizeSnippetText } from "../text/cleaning"
 import { extractFactSentences } from "../text/formatting"
 import { collectSourceUrlsFromContextData, formatSourceButtons, uniqueSourceUrls } from "./sources"
-import type { AiDetailLevel } from "../types"
+import type { AiDetailLevel } from "../types/index"
 
 const LOW_SIGNAL_PATTERNS: RegExp[] = [
   /\bno reliable (?:fetched )?data\b/i,

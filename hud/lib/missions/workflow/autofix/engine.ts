@@ -1,4 +1,4 @@
-import type { WorkflowStep, WorkflowSummary } from "../../types.ts"
+import type { WorkflowStep, WorkflowSummary } from "../../types/index"
 import { WORKFLOW_VALIDATION_ISSUE_CODES, validateWorkflowSummary, type WorkflowValidationIssue } from "../validation/index.ts"
 import { WORKFLOW_AUTOFIX_POLICY } from "./config.ts"
 import type {

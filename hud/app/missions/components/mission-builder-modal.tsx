@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Clock3, GitBranch, GripVertical, Sparkles, X
 
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { NovaSwitch } from "@/components/ui/nova-switch"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { cn } from "@/lib/shared/utils"
 import {
   AI_DETAIL_LEVEL_OPTIONS,
@@ -1057,7 +1057,7 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                   <span className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-100")}>{candidate.title}</span>
-                                  <span className={cn("text-[10px] uppercase tracking-[0.1em]", candidate.risk === "low" ? "text-emerald-400" : candidate.risk === "medium" ? "text-amber-400" : "text-rose-400")}>{candidate.risk}</span>
+                                  <span className={cn("text-[10px] uppercase tracking-widest", candidate.risk === "low" ? "text-emerald-400" : candidate.risk === "medium" ? "text-amber-400" : "text-rose-400")}>{candidate.risk}</span>
                                   <span className={cn("text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>{Math.round(candidate.confidence * 100)}%</span>
                                 </div>
                                 <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>{candidate.changePreview}</p>

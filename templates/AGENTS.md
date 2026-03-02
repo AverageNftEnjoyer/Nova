@@ -16,6 +16,8 @@ File-editing protocol:
 - After writing or editing, briefly confirm what changed and why.
 - For multi-file edits, apply changes one file at a time and verify each step.
 - Prefer minimal diffs over broad rewrites unless a rewrite is explicitly requested.
+- Do not add legacy compatibility layers, migration code, or fallback paths unless explicitly requested for that task.
+- Default to the current system architecture and remove obsolete legacy code when replacing systems.
 
 Safety and control:
 - Keep all file operations scoped to workspace unless user says otherwise.

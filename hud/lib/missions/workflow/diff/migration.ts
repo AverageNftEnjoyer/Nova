@@ -1,4 +1,4 @@
-import type { Mission } from "../../types"
+import type { Mission } from "../../types/index"
 import type { MissionDiffOperation } from "./types"
 
 function equalJson(a: unknown, b: unknown): boolean {

@@ -7,11 +7,8 @@ import type { NotificationSchedule } from "@/lib/notifications/store"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
-import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
-import {
-  removeNotificationScheduleFromGoogleCalendar,
-  syncNotificationScheduleToGoogleCalendar,
-} from "@/lib/calendar/google-schedule-mirror"
+import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
+import { removeMissionScheduleFromGoogleCalendar, syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import { deleteMissionForNotificationSchedule, syncMissionFromNotificationSchedule } from "@/lib/notifications/mission-sync"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
@@ -23,10 +20,6 @@ const DISCORD_MAX_TARGETS = Math.max(
   1,
   Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
 )
-const RECENT_MIRROR_BACKFILL_WINDOW_MS = 48 * 60 * 60 * 1000
-const MIRROR_BACKFILL_THROTTLE_MS = 15 * 60 * 1000
-const mirrorBackfillAttemptByScheduleId = new Map<string, number>()
-
 function normalizeRecipients(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   return Array.from(new Set(raw.map((value) => String(value || "").trim()).filter(Boolean)))
@@ -56,34 +49,16 @@ async function runScheduleReadBackfill(
   schedules: NotificationSchedule[],
   scope: NonNullable<IntegrationsStoreScope>,
 ): Promise<void> {
-  const now = Date.now()
   await Promise.allSettled(
     schedules.map((schedule) =>
-      syncMissionFromNotificationSchedule(schedule).catch((error) => {
+      syncMissionFromNotificationSchedule(schedule)
+        .then((mission) => syncMissionScheduleToGoogleCalendar({ mission, scope }))
+        .catch((error) => {
         console.warn(
           "[notifications.schedules][mission_sync] reconcile failed:",
           error instanceof Error ? error.message : String(error),
         )
       })),
-  )
-  await Promise.allSettled(
-    schedules.map((schedule) => {
-      const scheduleId = String(schedule.id || "").trim()
-      if (!scheduleId || !schedule.enabled) return Promise.resolve()
-      const updatedAtMs = Date.parse(String(schedule.updatedAt || ""))
-      if (Number.isFinite(updatedAtMs) && now - updatedAtMs > RECENT_MIRROR_BACKFILL_WINDOW_MS) return Promise.resolve()
-      const scopeUserId = String(scope.userId || scope.user?.id || "").trim()
-      const throttleKey = `${scopeUserId}:${scheduleId}`
-      const lastAttempt = mirrorBackfillAttemptByScheduleId.get(throttleKey) || 0
-      if (now - lastAttempt < MIRROR_BACKFILL_THROTTLE_MS) return Promise.resolve()
-      mirrorBackfillAttemptByScheduleId.set(throttleKey, now)
-      return syncNotificationScheduleToGoogleCalendar({ schedule, scope }).catch((error) => {
-        console.warn(
-          "[notifications.schedules][gcalendar_sync] backfill mirror failed:",
-          error instanceof Error ? error.message : String(error),
-        )
-      })
-    }),
   )
 }
 
@@ -212,9 +187,9 @@ export async function POST(req: Request) {
     const saved = explicitId
       ? schedules.find((item) => item.id === explicitId) || schedule
       : schedule
-    await syncMissionFromNotificationSchedule(saved)
+    const mission = await syncMissionFromNotificationSchedule(saved)
     await saveSchedules(schedules, { userId })
-    await syncNotificationScheduleToGoogleCalendar({ schedule: saved, scope: verified }).catch((error) => {
+    await syncMissionScheduleToGoogleCalendar({ mission, scope: verified }).catch((error) => {
       console.warn("[notifications.schedules][gcalendar_sync] schedule mirror failed:", error instanceof Error ? error.message : String(error))
     })
     return NextResponse.json({ schedule: saved }, { status: 201 })
@@ -321,9 +296,9 @@ export async function PATCH(req: Request) {
     }
 
     schedules[targetIndex] = updated
-    await syncMissionFromNotificationSchedule(updated)
+    const mission = await syncMissionFromNotificationSchedule(updated)
     await saveSchedules(schedules, { userId })
-    await syncNotificationScheduleToGoogleCalendar({ schedule: updated, scope: verified }).catch((error) => {
+    await syncMissionScheduleToGoogleCalendar({ mission, scope: verified }).catch((error) => {
       console.warn("[notifications.schedules][gcalendar_sync] schedule mirror failed:", error instanceof Error ? error.message : String(error))
     })
 
@@ -362,7 +337,7 @@ export async function DELETE(req: Request) {
 
     await saveSchedules(next, { userId })
     await deleteMissionForNotificationSchedule({ scheduleId: id, userId })
-    await removeNotificationScheduleFromGoogleCalendar({ scheduleId: id, userId, scope: verified }).catch((error) => {
+    await removeMissionScheduleFromGoogleCalendar({ missionId: id, userId, scope: verified }).catch((error) => {
       console.warn("[notifications.schedules][gcalendar_sync] schedule mirror delete failed:", error instanceof Error ? error.message : String(error))
     })
     return NextResponse.json({ ok: true })

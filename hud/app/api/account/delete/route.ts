@@ -90,8 +90,7 @@ async function pruneLocalUserArtifacts(workspaceRoot: string, userId: string): P
 
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.accountDelete)
   if (!limit.allowed) return rateLimitExceededResponse(limit, "Too many delete-account attempts. Try again later.")
 

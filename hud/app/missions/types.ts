@@ -3,6 +3,10 @@ export interface NotificationSchedule {
   integration: string
   label: string
   message: string
+  description?: string
+  priority?: "low" | "medium" | "high" | "critical"
+  workflowSteps?: Array<Partial<WorkflowStep>>
+  mode?: "once" | "daily" | "weekly" | "interval"
   time: string
   timezone: string
   enabled: boolean

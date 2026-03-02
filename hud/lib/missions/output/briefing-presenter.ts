@@ -1,4 +1,4 @@
-import type { Mission, MissionNode, NodeOutput } from "../types"
+import type { Mission, MissionNode, NodeOutput } from "../types/index"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import {
   clampSectionText,

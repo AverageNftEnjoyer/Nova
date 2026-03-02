@@ -9,7 +9,7 @@ import { useTheme } from "@/lib/context/theme-context"
 import { cn } from "@/lib/shared/utils"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
-import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
+import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
@@ -19,7 +19,7 @@ import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCale
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
-import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/model-label"
+import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/llm/model-label"
 
 // Constants
 import {

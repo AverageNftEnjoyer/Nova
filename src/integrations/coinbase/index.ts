@@ -15,37 +15,37 @@ export type {
   CoinbaseSpotPriceParams,
   CoinbaseTransactionEvent,
   CoinbaseTransactionsParams,
-} from "./types.js";
+} from "./types/index.js";
 
 export {
   CoinbaseError,
   asCoinbaseError,
   isCoinbaseError,
   isRateLimitedCoinbaseError,
-} from "./errors.js";
+} from "./errors/index.js";
 
-export { MemoryTtlCache } from "./cache.js";
-export { CoinbaseRateLimitAdapter } from "./rate-limit.js";
-export { CoinbaseHttpClient, computeCoinbaseRetryDelayMs, mapCoinbaseHttpError } from "./client.js";
-export { CoinbaseCircuitBreaker } from "./circuit-breaker.js";
-export { CoinbaseService, createStaticCredentialProvider } from "./service.js";
-export { FileBackedCoinbaseCredentialProvider } from "./credentials.js";
-export { createCoinbaseAutoAuthStrategy } from "./auth-strategy.js";
-export { renderCoinbasePortfolioReport, type CoinbaseRenderInput, type CoinbaseReportMode } from "./report-renderer.js";
-export { buildCoinbasePnlPersonalityComment, type CoinbasePnlPersonalityCommentInput } from "./pnl-personality-comment.js";
+export { MemoryTtlCache } from "./cache/index.js";
+export { CoinbaseRateLimitAdapter } from "./rate-limit/index.js";
+export { CoinbaseHttpClient, computeCoinbaseRetryDelayMs, mapCoinbaseHttpError } from "./client/index.js";
+export { CoinbaseCircuitBreaker } from "./circuit-breaker/index.js";
+export { CoinbaseService, createStaticCredentialProvider } from "./service/index.js";
+export { FileBackedCoinbaseCredentialProvider } from "./credentials/index.js";
+export { createCoinbaseAutoAuthStrategy } from "./auth-strategy/index.js";
+export { renderCoinbasePortfolioReport, type CoinbaseRenderInput, type CoinbaseReportMode } from "./report-renderer/index.js";
+export { buildCoinbasePnlPersonalityComment, type CoinbasePnlPersonalityCommentInput } from "./pnl-personality-comment/index.js";
 export {
   recordCoinbaseMetric,
   recordCoinbaseStructuredLog,
   getCoinbaseMetricsSnapshot,
   resetCoinbaseObservabilityForTests,
-} from "./observability.js";
+} from "./observability/index.js";
 export {
   resolveCoinbaseRolloutAccess,
   evaluateCoinbaseRolloutHealth,
   type CoinbaseRolloutStage,
   type CoinbaseRolloutAccess,
   type CoinbaseRolloutHealthSnapshot,
-} from "./rollout.js";
+} from "./rollout/index.js";
 export {
   CoinbaseDataStore,
   coinbaseDbPathForUserContext,
@@ -64,5 +64,5 @@ export {
   type CoinbaseSnapshotRow,
   type CoinbaseRetentionSettings,
   type CoinbasePrivacySettings,
-} from "./store.js";
-export { encryptTokenForStorage, decryptTokenFromStorage, type EncryptedTokenEnvelope } from "./crypto.js";
+} from "./store/index.js";
+export { encryptTokenForStorage, decryptTokenFromStorage, type EncryptedTokenEnvelope } from "./crypto/index.js";

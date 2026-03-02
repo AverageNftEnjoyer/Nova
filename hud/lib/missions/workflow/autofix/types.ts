@@ -1,4 +1,4 @@
-import type { WorkflowSummary } from "../../types.ts"
+import type { WorkflowSummary } from "../../types/index"
 import type { WorkflowValidationIssue, WorkflowValidationMode, WorkflowValidationProfile, WorkflowValidationResult } from "../validation/index.ts"
 
 export type WorkflowAutofixRisk = "low" | "medium" | "high"

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import { buildRuntimeSafeGmailSnapshot } from "../runtime-safe.ts"
-import type { GmailIntegrationConfig } from "../../server-store"
+import type { GmailIntegrationConfig } from "../../store/server-store"
 
 function buildGmailConfig(): GmailIntegrationConfig {
   return {

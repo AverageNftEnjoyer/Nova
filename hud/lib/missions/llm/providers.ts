@@ -6,10 +6,10 @@
 
 import "server-only"
 
-import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
-import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
+import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { toOpenAiLikeBase, toClaudeBase } from "../utils/config"
-import type { Provider, CompletionResult, CompletionOverride } from "../types"
+import type { Provider, CompletionResult, CompletionOverride } from "../types/index"
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = String(process.env[name] || "").trim()

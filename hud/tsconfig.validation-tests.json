@@ -22,8 +22,8 @@
     "lib/missions/workflow/parsing.ts",
     "lib/missions/text/cleaning.ts",
     "lib/missions/utils/config.ts",
-    "lib/missions/types.ts",
-    "lib/notifications/store.ts"
+    "lib/missions/types/index.ts",
+    "lib/notifications/store/index.ts"
   ],
   "exclude": [
     "node_modules"

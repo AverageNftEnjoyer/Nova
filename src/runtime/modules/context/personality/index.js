@@ -94,4 +94,4 @@ export function syncPersonalityFromTurn({
 // Re-export for tests and tooling
 export { createEmptyPersonalityProfile } from "./engine.js";
 export { buildPersonalityPromptSection } from "./prompt.js";
-export { PERSONALITY_DIMENSIONS, CONTEXT_OVERLAYS, FEEDBACK_PATTERNS } from "./constants.js";
+export { PERSONALITY_DIMENSIONS, CONTEXT_OVERLAYS, FEEDBACK_PATTERNS } from "../constants/index.js";

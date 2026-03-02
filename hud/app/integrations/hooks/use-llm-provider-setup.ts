@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
-import { saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
+import { saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
 import type { FluidSelectOption } from "@/components/ui/fluid-select"
 
 export type IntegrationsSaveTarget =

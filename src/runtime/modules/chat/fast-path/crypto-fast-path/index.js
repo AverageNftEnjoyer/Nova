@@ -1,4 +1,4 @@
-﻿import {
+import {
   applyShortTermContextTurnClassification,
   readShortTermContextState,
 } from "../../core/short-term-context-engine.js";
@@ -13,7 +13,7 @@ import {
   CONTEXTUAL_REPORT_FOLLOWUP_REGEX,
   FOLLOW_UP_DETAIL_REGEX,
   FOLLOW_UP_REMOVE_RECALL_REGEX,
-} from "./constants.js";
+} from "../constants/index.js";
 import {
   buildCryptoConciergeReply,
   buildMissingPriceTargetReply,

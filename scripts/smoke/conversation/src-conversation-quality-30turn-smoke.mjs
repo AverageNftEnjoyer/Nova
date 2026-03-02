@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -97,7 +97,7 @@ if (!userContextId) {
 }
 
 const providerRuntimeModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/providers/runtime-compat.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/providers/runtime-compat/index.js")).href,
 );
 const { loadIntegrationsRuntime } = providerRuntimeModule;
 const providerRuntime = loadIntegrationsRuntime({ userContextId });
@@ -115,7 +115,7 @@ if (!activeApiKey) {
 }
 
 const chatHandlerModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js")).href,
 );
 const { handleInput } = chatHandlerModule;
 

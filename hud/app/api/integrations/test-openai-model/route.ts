@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 

@@ -6,7 +6,7 @@ import { loadMissions, upsertMission } from "@/lib/missions/store"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
-import { buildSchedule, loadSchedules, saveSchedules } from "@/lib/notifications/store"
+import { buildSchedule } from "@/lib/notifications/store"
 import { dispatchOutput } from "@/lib/missions/output/dispatch"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
@@ -84,16 +84,29 @@ export async function POST(req: Request) {
 
     // ── Run a saved mission by ID via the DAG engine ───────────────────────────
     if (scheduleId) {
-      const [allMissions, schedules] = await Promise.all([
-        loadMissions({ userId }),
-        loadSchedules({ userId }),
-      ])
+      const allMissions = await loadMissions({ userId })
       const mission = allMissions.find((m) => m.id === scheduleId)
       if (!mission) {
         return NextResponse.json({ error: "Mission not found." }, { status: 404 })
       }
-      const targetIndex = schedules.findIndex((row) => row.id === scheduleId)
-      const target = targetIndex >= 0 ? schedules[targetIndex] : null
+      const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
+      const scheduleTime = triggerNode?.type === "schedule-trigger" && typeof triggerNode.triggerTime === "string"
+        ? triggerNode.triggerTime
+        : "09:00"
+      const scheduleTimezone = triggerNode?.type === "schedule-trigger" && typeof triggerNode.triggerTimezone === "string"
+        ? triggerNode.triggerTimezone
+        : resolveTimezone(mission.settings?.timezone)
+      const target = buildSchedule({
+        id: mission.id,
+        userId,
+        integration: mission.integration || "telegram",
+        label: mission.label || "Untitled mission",
+        message: mission.description || mission.label || "Mission run",
+        time: scheduleTime,
+        timezone: scheduleTimezone,
+        enabled: mission.status !== "archived",
+        chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
+      })
 
       const missionRunId = crypto.randomUUID()
       const runKey = `manual-trigger:${mission.id}:${Date.now()}`
@@ -143,48 +156,40 @@ export async function POST(req: Request) {
       }
 
       let deadLetterId = ""
-      if (target) {
-        let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
-        try {
-          const logResult = await appendRunLogForExecution({
-            schedule: target,
+      let logStatus: "success" | "error" | "skipped" = execution.ok ? "success" : execution.skipped ? "skipped" : "error"
+      try {
+        const logResult = await appendRunLogForExecution({
+          schedule: target,
+          source: "trigger",
+          execution,
+          durationMs,
+          mode: "manual-trigger",
+          runKey,
+          attempt: 1,
+        })
+        logStatus = logResult.status
+        if (logStatus === "error") {
+          deadLetterId = await appendNotificationDeadLetter({
+            scheduleId: target.id,
+            userId: target.userId,
+            label: target.label,
             source: "trigger",
-            execution,
-            durationMs,
-            mode: "manual-trigger",
             runKey,
             attempt: 1,
+            reason: logResult.errorMessage || execution.reason || "Manual trigger execution failed.",
+            outputOkCount: execution.outputs.filter((item) => item.ok).length,
+            outputFailCount: execution.outputs.filter((item) => !item.ok).length,
+            metadata: { mode: "manual-trigger" },
           })
-          logStatus = logResult.status
-          if (logStatus === "error") {
-            deadLetterId = await appendNotificationDeadLetter({
-              scheduleId: target.id,
-              userId: target.userId,
-              label: target.label,
-              source: "trigger",
-              runKey,
-              attempt: 1,
-              reason: logResult.errorMessage || execution.reason || "Manual trigger execution failed.",
-              outputOkCount: execution.outputs.filter((item) => item.ok).length,
-              outputFailCount: execution.outputs.filter((item) => !item.ok).length,
-              metadata: { mode: "manual-trigger" },
-            })
-          }
-        } catch {
-          // Logging failures should not block trigger response.
         }
-        const updatedSchedule = applyScheduleRunOutcome(target, {
-          status: logStatus,
-          now: new Date(),
-          mode: "manual-trigger",
-        })
-        schedules[targetIndex] = updatedSchedule
-        try {
-          await saveSchedules(schedules, { userId })
-        } catch {
-          // Schedule persistence is best-effort for mission-first execution.
-        }
+      } catch {
+        // Logging failures should not block trigger response.
       }
+      void applyScheduleRunOutcome(target, {
+        status: logStatus,
+        now: new Date(),
+        mode: "manual-trigger",
+      })
 
       return NextResponse.json(
         {

@@ -1,4 +1,4 @@
-import { spawn, exec, execSync, execFileSync } from "child_process";
+import { spawn, exec, execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -45,7 +45,11 @@ process.on("SIGTERM", () => cleanup(0));
 // Single netstat call covers all ports — avoids spawning the command once per port.
 function getListeningPids(ports) {
   try {
-    const raw = execSync("netstat -ano -p tcp", { encoding: "utf-8" });
+    const raw = execFileSync("netstat", ["-ano", "-p", "tcp"], {
+      encoding: "utf-8",
+      shell: false,
+      windowsHide: true,
+    });
     const portSet = new Set(ports.map(Number));
     const pids = new Map(); // port -> Set<pid>
 
@@ -152,8 +156,10 @@ function getMonitors() {
     ].join("\n");
 
     const encoded = Buffer.from(script, "utf16le").toString("base64");
-    const raw = execSync(`powershell -NoProfile -EncodedCommand ${encoded}`, {
+    const raw = execFileSync("powershell", ["-NoProfile", "-EncodedCommand", encoded], {
       encoding: "utf-8",
+      shell: false,
+      windowsHide: true,
     }).trim();
 
     const monitors = raw
@@ -219,8 +225,24 @@ if (-not $found) { Write-Output "Window with title *${titleMatch}* not found" }
 `.trim();
 
   const encoded = Buffer.from(script, "utf16le").toString("base64");
-  exec(`powershell -NoProfile -EncodedCommand ${encoded}`, (err, stdout) => {
-    if (stdout && stdout.trim()) console.log(`[Nova] Window move: ${stdout.trim()}`);
+  const child = spawn("powershell", ["-NoProfile", "-EncodedCommand", encoded], {
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: false,
+    windowsHide: true,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  child.on("close", (code) => {
+    if (stdout.trim()) console.log(`[Nova] Window move: ${stdout.trim()}`);
+    if (code !== 0 && stderr.trim()) {
+      console.log(`[Nova] Window move failed (${code}): ${stderr.trim()}`);
+    }
   });
 }
 
@@ -251,7 +273,7 @@ const monitors = getMonitors();
 const primaryMonitor = monitors[0];
 
 // Start the AI runtime shell and HUD concurrently.
-launch("Agent", process.execPath, ["src/runtime/core/entrypoint.js"], __dirname);
+launch("Agent", process.execPath, ["src/runtime/core/entrypoint/index.js"], __dirname);
 
 const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
 const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR);

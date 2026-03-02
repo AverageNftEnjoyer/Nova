@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server"
 
-import { syncMissionScheduleToGoogleCalendar, syncNotificationScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
-import { exchangeCodeForGmailCalendarTokens, parseGmailCalendarOAuthState } from "@/lib/integrations/google-calender/service"
+import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
+import { exchangeCodeForGmailCalendarTokens, parseGmailCalendarOAuthState } from "@/lib/integrations/google-calendar/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
-import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { loadMissions } from "@/lib/missions/store"
-import { loadSchedules } from "@/lib/notifications/store"
 import { logGmailCalendarApi } from "../_shared"
 
 export const runtime = "nodejs"
@@ -100,10 +99,7 @@ async function backfillGoogleCalendarMirrorsForUser(userContextId: string): Prom
     allowServiceRole: true,
     serviceRoleReason: "gmail-calendar-oauth-callback",
   }
-  const [missions, schedules] = await Promise.all([
-    loadMissions({ userId: userContextId }),
-    loadSchedules({ userId: userContextId }),
-  ])
+  const missions = await loadMissions({ userId: userContextId })
 
   let missionFailures = 0
   for (const mission of missions) {
@@ -114,21 +110,10 @@ async function backfillGoogleCalendarMirrorsForUser(userContextId: string): Prom
     }
   }
 
-  let scheduleFailures = 0
-  for (const schedule of schedules) {
-    try {
-      await syncNotificationScheduleToGoogleCalendar({ schedule, scope })
-    } catch {
-      scheduleFailures += 1
-    }
-  }
-
   logGmailCalendarApi("callback.mirror_backfill.completed", {
     userContextId,
     missionCount: missions.length,
     missionFailures,
-    scheduleCount: schedules.length,
-    scheduleFailures,
   })
 }
 
@@ -203,4 +188,3 @@ export async function GET(req: Request) {
     )
   }
 }
-

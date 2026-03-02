@@ -7,7 +7,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import type { CalendarEvent, MissionCalendarEvent, PersonalCalendarEvent, AgentCalendarEvent } from "../types.js"
+import type { CalendarEvent, MissionCalendarEvent, PersonalCalendarEvent, AgentCalendarEvent } from "../types/index.js"
 
 // ─── Inline the logic under test so we don't need server-only imports ─────────
 

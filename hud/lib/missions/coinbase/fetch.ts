@@ -1,7 +1,7 @@
 import "server-only"
 
 import crypto from "node:crypto"
-import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 
 type CoinbasePrimitive = "daily_portfolio_summary" | "price_alert_digest" | "weekly_pnl_summary"
 

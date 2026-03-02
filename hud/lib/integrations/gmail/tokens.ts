@@ -1,5 +1,5 @@
-import { decryptSecret, encryptSecret } from "../../security/encryption.ts"
-import { loadIntegrationsConfig, updateIntegrationsConfig } from "../server-store.ts"
+import { decryptSecret, encryptSecret } from "../../security/encryption/index.ts"
+import { loadIntegrationsConfig, updateIntegrationsConfig } from "../store/server-store.ts"
 import { deriveGmailAfterDisconnect, deriveGmailAfterTokenRefresh } from "./accounts.ts"
 import { assertGmailOk, gmailFetchWithRetry } from "./client.ts"
 import { gmailError } from "./errors.ts"

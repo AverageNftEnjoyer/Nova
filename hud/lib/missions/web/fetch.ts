@@ -6,7 +6,7 @@
 
 import { fetchAndExtractContent } from "@/lib/missions/content/extraction"
 import { cleanText, stripHtmlToText } from "../text/cleaning"
-import type { WebDocumentResult } from "../types"
+import type { WebDocumentResult } from "../types/index"
 
 /**
  * Fetch a web document and extract content using Readability.

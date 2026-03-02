@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react"
 
-import { saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/client-store"
+import { saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
 import type { CoinbasePrivacySettings } from "../coinbase/meta"
 import { makeCoinbaseSnapshot, normalizeCoinbasePrivacy } from "../coinbase/meta"
 import type { UseIntegrationsActionsParams } from "../types"

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { disconnectGmail } from "@/lib/integrations/gmail"
 import { deriveGmailAfterSetEnabled, deriveGmailAfterSetPrimary } from "@/lib/integrations/gmail/accounts"
-import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/server-store"
+import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { accountsBodySchema, gmailApiErrorResponse, logGmailApi, safeJson } from "@/app/api/integrations/gmail/_shared"
 

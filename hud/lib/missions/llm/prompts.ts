@@ -7,7 +7,7 @@
 import { cleanText, isRawTableData, extractReadableSentences, cleanScrapedText, extractSingleQuote } from "../text/cleaning"
 import { extractFactSentences } from "../text/formatting"
 import { getByPath, toNumberSafe } from "../utils/paths"
-import type { AiDetailLevel } from "../types"
+import type { AiDetailLevel } from "../types/index"
 
 /**
  * Build web evidence context for AI prompts.

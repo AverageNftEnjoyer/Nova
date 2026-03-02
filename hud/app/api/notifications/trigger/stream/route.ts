@@ -3,12 +3,10 @@ import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
-import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
 import { loadMissions } from "@/lib/missions/store"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
-import { syncNotificationScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 import type { NotificationSchedule } from "@/lib/notifications/store"
 import { resolveTimezone } from "@/lib/shared/timezone"
@@ -120,18 +118,13 @@ export async function GET(req: Request) {
       }
       void (async () => {
         try {
-          const [schedules, missions] = await Promise.all([
-            loadSchedules({ userId }),
-            loadMissions({ userId }),
-          ])
-          const targetIndex = schedules.findIndex((item) => item.id === scheduleId)
-          const existingSchedule = targetIndex >= 0 ? schedules[targetIndex] : undefined
+          const missions = await loadMissions({ userId })
           const mission = missions.find((row) => row.id === scheduleId) || null
           if (!mission) {
             safeStreamPayload({ type: "error", error: "schedule not found" })
             return
           }
-          const target = existingSchedule || buildScheduleFallbackFromMission(mission, userId)
+          const target = buildScheduleFallbackFromMission(mission, userId)
 
           safeStreamPayload({
             type: "started",
@@ -208,20 +201,6 @@ export async function GET(req: Request) {
             now: new Date(),
             mode: "manual-trigger-stream",
           })
-          if (targetIndex >= 0) {
-            schedules[targetIndex] = updatedSchedule
-          } else {
-            schedules.push(updatedSchedule)
-          }
-          await saveSchedules(schedules, { userId })
-          if (targetIndex < 0) {
-            await syncNotificationScheduleToGoogleCalendar({ schedule: updatedSchedule, scope: verified }).catch((error) => {
-              console.warn(
-                "[notifications.trigger.stream][gcalendar_sync] fallback schedule mirror failed:",
-                error instanceof Error ? error.message : String(error),
-              )
-            })
-          }
 
           safeStreamPayload({
             type: "done",

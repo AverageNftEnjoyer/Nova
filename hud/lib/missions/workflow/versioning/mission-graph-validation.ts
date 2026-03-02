@@ -1,4 +1,4 @@
-import type { Mission, MissionConnection, MissionNode } from "../../types"
+import type { Mission, MissionConnection, MissionNode } from "../../types/index"
 
 export interface MissionGraphValidationIssue {
   code: string

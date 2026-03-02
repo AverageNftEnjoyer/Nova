@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { createToolRuntime } from "../../../src/tools/runtime/runtime-compat.js";
-import { describeUnknownError } from "../../../src/providers/runtime-compat.js";
+import { createToolRuntime } from "../../../src/tools/runtime/runtime-compat/index.js";
+import { describeUnknownError } from "../../../src/providers/runtime-compat/index.js";
 
 const results = [];
 

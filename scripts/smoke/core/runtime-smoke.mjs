@@ -12,11 +12,11 @@ import {
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
   withTimeout,
-} from "../../../src/providers/runtime-compat.js";
-import { extractAutoMemoryFacts } from "../../../src/memory/runtime-compat.js";
+} from "../../../src/providers/runtime-compat/index.js";
+import { extractAutoMemoryFacts } from "../../../src/memory/runtime-compat/index.js";
 import { createSessionRuntime } from "../../../src/session/runtime-compat.js";
-import { createToolRuntime } from "../../../src/tools/runtime/runtime-compat.js";
-import { createWakeWordRuntime } from "../../../src/runtime/audio/wake-runtime-compat.js";
+import { createToolRuntime } from "../../../src/tools/runtime/runtime-compat/index.js";
+import { createWakeWordRuntime } from "../../../src/runtime/audio/wake-runtime-compat/index.js";
 
 const results = [];
 const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { controlSpotifyPlayback, findSpotifyPlaylistByQuery, getSpotifyCurrentContext } from "@/lib/integrations/spotify"
-import { SpotifyServiceError } from "@/lib/integrations/spotify/errors"
-import { clearSpotifyFavoritePlaylist, readSpotifySkillPrefs, writeSpotifyFavoritePlaylist } from "@/lib/integrations/spotify/skill-prefs"
+import { SpotifyServiceError } from "@/lib/integrations/spotify/errors/index"
+import { clearSpotifyFavoritePlaylist, readSpotifySkillPrefs, writeSpotifyFavoritePlaylist } from "@/lib/integrations/spotify/skill-prefs/index"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"

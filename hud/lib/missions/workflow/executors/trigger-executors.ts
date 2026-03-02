@@ -2,7 +2,7 @@
  * Trigger Node Executors
  */
 
-import type { ScheduleTriggerNode, ManualTriggerNode, WebhookTriggerNode, EventTriggerNode, NodeOutput, ExecutionContext } from "../../types"
+import type { ScheduleTriggerNode, ManualTriggerNode, WebhookTriggerNode, EventTriggerNode, NodeOutput, ExecutionContext } from "../../types/index"
 import { getLocalParts, parseTime } from "../scheduling"
 import { resolveTimezone } from "@/lib/shared/timezone"
 

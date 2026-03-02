@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { discoverRuntimeSkillsWithCache } from "../../../../src/runtime/modules/context/skills.js";
+import { discoverRuntimeSkillsWithCache } from "../../../../src/runtime/modules/context/skills/index.js";
 
 const DEEP_SKILL_CONTENT = `---
 name: deep-skill

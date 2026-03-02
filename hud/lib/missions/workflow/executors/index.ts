@@ -2,7 +2,7 @@
  * Executor Registry — maps each MissionNodeType to its executor function
  */
 
-import type { MissionNode, NodeOutput, ExecutionContext } from "../../types"
+import type { MissionNode, NodeOutput, ExecutionContext } from "../../types/index"
 import { executeScheduleTrigger, executeManualTrigger, executeWebhookTrigger, executeEventTrigger } from "./trigger-executors"
 import { executeWebSearch, executeHttpRequest, executeRssFeed, executeCoinbase } from "./data-executors"
 import { executeAiSummarize, executeAiClassify, executeAiExtract, executeAiGenerate, executeAiChat } from "./ai-executors"

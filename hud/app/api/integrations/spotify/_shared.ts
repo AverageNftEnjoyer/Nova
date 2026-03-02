@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import type { SpotifyNowPlaying } from "@/lib/integrations/spotify/types"
-import { toApiErrorBody, toSpotifyServiceError } from "@/lib/integrations/spotify/errors"
+import type { SpotifyNowPlaying } from "@/lib/integrations/spotify/types/index"
+import { toApiErrorBody, toSpotifyServiceError } from "@/lib/integrations/spotify/errors/index"
 
 // ─── Server-side now-playing cache ───────────────────────────────────────────
 // Shared across now-playing GET and playback POST so the playback route can

@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ensureStarterSkillsForUser } from "../../../../src/runtime/modules/context/skills.js";
+import { ensureStarterSkillsForUser } from "../../../../src/runtime/modules/context/skills/index.js";
 
 async function run() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nova-audit-seeding-"));

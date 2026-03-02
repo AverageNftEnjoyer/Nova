@@ -1,0 +1,143 @@
+import type { BootstrapFile } from "../bootstrap/index.js";
+import { formatToolSummaries } from "../tool-summaries/index.js";
+import type { Tool } from "../../tools/core/types/index.js";
+import type { Skill } from "../../skills/types/index.js";
+import { formatSkillsForPrompt } from "../../skills/formatter/index.js";
+
+export type PromptMode = "full" | "minimal" | "none";
+
+export interface BuildSystemPromptParams {
+  mode: PromptMode;
+  workspacePath: string;
+  tools: Tool[];
+  skills: Skill[];
+  bootstrapFiles: BootstrapFile[];
+  memoryEnabled: boolean;
+  timezone?: string;
+  identityLayer?: string;
+  identityLayerMaxTokens?: number;
+}
+
+function getBootstrapContent(files: BootstrapFile[], name: string): string {
+  const found = files.find((file) => file.name.toLowerCase() === name.toLowerCase());
+  if (!found || found.missing) return "";
+  return found?.content?.trim() ?? "";
+}
+
+function renderProjectContext(files: BootstrapFile[]): string {
+  const visible = files.filter(
+    (file) => ["AGENTS.md", "MEMORY.md", "IDENTITY.md"].includes(file.name) && !file.missing && file.content.trim(),
+  );
+  if (visible.length === 0) return "";
+  return visible
+    .map((file) => `## ${file.name}\n${file.content}`)
+    .join("\n\n");
+}
+
+function countApproxTokens(text: string): number {
+  if (!text) return 0;
+  return Math.ceil(text.length / 3.5);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function compactIdentityLayer(raw: string, maxTokens: number): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const budget = clamp(Number(maxTokens || 220), 80, 640);
+  if (countApproxTokens(text) <= budget) return text;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const line of lines) {
+    const candidate = [...out, line].join("\n");
+    if (countApproxTokens(candidate) > budget) break;
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+export function buildSystemPrompt(params: BuildSystemPromptParams): string {
+  if (params.mode === "none") {
+    return "You are a personal assistant.";
+  }
+
+  const soul = getBootstrapContent(params.bootstrapFiles, "SOUL.md");
+  const userIdentity = getBootstrapContent(params.bootstrapFiles, "USER.md");
+  const identitySection = soul || "You are a helpful personal assistant that works inside a local workspace.";
+
+  const tooling = formatToolSummaries(params.tools);
+  const skillsPrompt = formatSkillsForPrompt(params.skills);
+
+  if (params.mode === "minimal") {
+    const identityLayer = compactIdentityLayer(params.identityLayer || "", params.identityLayerMaxTokens || 220);
+    return [
+      "## Identity",
+      identitySection,
+      "",
+      "## Safety",
+      "Do not attempt to bypass oversight or acquire resources beyond what's needed for the current task.",
+      "Reply in English by default unless the user explicitly asks for another language.",
+      "",
+      "## Tooling",
+      tooling,
+      "",
+      "## Workspace",
+      `Your working directory is: ${params.workspacePath}`,
+      ...(identityLayer ? ["", "## Identity Intelligence", identityLayer] : []),
+    ].join("\n");
+  }
+
+  const lines = [
+    "## Identity",
+    identitySection,
+    "",
+    "## Safety",
+    "Do not attempt to bypass oversight or acquire resources beyond what's needed for the current task.",
+    "Reply in English by default unless the user explicitly asks for another language.",
+    "",
+    "## Tooling",
+    tooling,
+    "",
+  ];
+
+  if (skillsPrompt) {
+    lines.push("## Skills", skillsPrompt, "");
+  }
+
+  if (params.memoryEnabled) {
+    lines.push(
+      "## Memory Recall",
+      "You have access to memory_search for recalling past context. Use it when the user references past conversations or assumes shared knowledge.",
+      "",
+    );
+  }
+
+  lines.push(
+    "## Workspace",
+    `Your working directory is: ${params.workspacePath}`,
+    "",
+    "## Current Date/Time",
+    `Time zone: ${params.timezone || "UTC"}`,
+    "Use session_status for exact current time if needed.",
+    "",
+  );
+
+  if (userIdentity) {
+    lines.push("## User Identity", userIdentity, "");
+  }
+
+  const identityLayer = compactIdentityLayer(params.identityLayer || "", params.identityLayerMaxTokens || 220);
+  if (identityLayer) {
+    lines.push("## Identity Intelligence", identityLayer, "");
+  }
+
+  const projectContext = renderProjectContext(params.bootstrapFiles);
+  if (projectContext) {
+    lines.push("## Project Context", projectContext, "");
+  }
+
+  return lines.join("\n");
+}

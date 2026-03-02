@@ -69,7 +69,7 @@ if (!userContextId) {
 }
 
 const { handleInput } = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js")).href,
 );
 
 const nowMs = Date.now();

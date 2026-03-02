@@ -3,11 +3,11 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createRequestScheduler } from "../../../src/runtime/infrastructure/request-scheduler.js";
+import { createRequestScheduler } from "../../../src/runtime/infrastructure/request-scheduler/index.js";
 import {
   loadIdentityIntelligenceSnapshot,
   syncIdentityIntelligenceFromTurn,
-} from "../../../src/runtime/modules/context/identity/engine.js";
+} from "../../../src/runtime/modules/context/identity/engine/index.js";
 
 const results = [];
 

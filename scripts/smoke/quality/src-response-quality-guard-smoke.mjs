@@ -23,10 +23,10 @@ function summarize(result) {
 }
 
 const guardModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/response-quality-guard.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/response-quality-guard/index.js")).href
 );
 const replyNormalizerModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/reply-normalizer.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/reply-normalizer/index.js")).href
 );
 
 const {

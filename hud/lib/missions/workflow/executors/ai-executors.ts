@@ -4,7 +4,7 @@
 
 import "server-only"
 
-import type { AiSummarizeNode, AiClassifyNode, AiExtractNode, AiGenerateNode, AiChatNode, NodeOutput, ExecutionContext } from "../../types"
+import type { AiSummarizeNode, AiClassifyNode, AiExtractNode, AiGenerateNode, AiChatNode, NodeOutput, ExecutionContext } from "../../types/index"
 import { completeWithConfiguredLlm } from "../../llm/providers"
 import { truncateForModel } from "../../text/cleaning"
 import { aggregateUpstreamNodeText } from "../../output/briefing-presenter"

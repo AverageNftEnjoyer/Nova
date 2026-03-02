@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { buildGmailCalendarOAuthUrl } from "@/lib/integrations/google-calender/service"
+import { buildGmailCalendarOAuthUrl } from "@/lib/integrations/google-calendar/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { connectQuerySchema, gmailCalendarApiErrorResponse, logGmailCalendarApi } from "../_shared"

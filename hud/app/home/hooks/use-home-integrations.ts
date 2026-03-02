@@ -7,11 +7,12 @@ import {
   loadIntegrationsSettings,
   type IntegrationsSettings,
   type LlmProvider,
-} from "@/lib/integrations/client-store"
+} from "@/lib/integrations/store/client-store"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
-import { compareMissionPriority, parseMissionWorkflowMeta } from "../helpers"
+import { compareMissionPriority } from "../helpers"
 import type { MissionSummary, NotificationSchedule } from "./types"
+import type { Mission as NativeMission } from "@/lib/missions/types"
 
 interface UseHomeIntegrationsInput {
   latestUsage?: { provider?: string; model?: string } | null
@@ -89,6 +90,30 @@ function modelForProvider(provider: LlmProvider, config: IntegrationConfigShape)
 
 function providerFromValue(value: unknown): LlmProvider {
   return value === "claude" || value === "grok" || value === "gemini" ? value : "openai"
+}
+
+function missionToNotificationSchedule(mission: NativeMission): NotificationSchedule {
+  const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
+  const triggerMode = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerMode : "daily"
+  const triggerTime = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTime : undefined
+  const triggerTimezone = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTimezone : undefined
+  const description = String(mission.description || mission.label || "").trim()
+  return {
+    id: mission.id,
+    integration: String(mission.integration || "telegram").trim() || "telegram",
+    label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
+    message: description,
+    description,
+    priority: "medium",
+    mode: triggerMode === "once" || triggerMode === "daily" || triggerMode === "weekly" || triggerMode === "interval"
+      ? triggerMode
+      : "daily",
+    time: String(triggerTime || "09:00").trim() || "09:00",
+    timezone: resolveTimezone(triggerTimezone, mission.settings?.timezone),
+    enabled: mission.status === "active",
+    chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
+    updatedAt: mission.updatedAt || mission.createdAt || new Date().toISOString(),
+  }
 }
 
 function launchSpotifyDesktopApp(): void {
@@ -230,7 +255,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   }, [])
 
   const refreshNotificationSchedules = useCallback(() => {
-    void fetch("/api/notifications/schedules", { cache: "no-store" })
+    void fetch("/api/missions", { cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
           router.replace(`/login?next=${encodeURIComponent("/home")}`)
@@ -239,7 +264,10 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         return res.json()
       })
       .then((data) => {
-        const schedules = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
+        const schedules = (Array.isArray(data?.missions) ? data.missions : [])
+          .map((row: unknown) => row as NativeMission)
+          .filter((row: NativeMission) => row && typeof row.id === "string" && Array.isArray(row.nodes))
+          .map((row: NativeMission) => missionToNotificationSchedule(row))
         setNotificationSchedules(schedules)
         writeShellUiCache({ missionSchedules: schedules })
       })
@@ -595,7 +623,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     const grouped = new Map<string, MissionSummary>()
 
     for (const schedule of notificationSchedules) {
-      const meta = parseMissionWorkflowMeta(schedule.message)
+      const description = String(schedule.description || schedule.message || "").trim()
+      const priority = schedule.priority || "medium"
       const title = schedule.label?.trim() || "Scheduled notification"
       const integration = schedule.integration?.trim().toLowerCase() || "unknown"
       const key = `${integration}:${title.toLowerCase()}`
@@ -605,8 +634,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
           id: schedule.id,
           integration,
           title,
-          description: meta.description,
-          priority: meta.priority,
+          description,
+          priority,
           enabledCount: schedule.enabled ? 1 : 0,
           totalCount: 1,
           times: [schedule.time],
@@ -618,8 +647,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
       existing.totalCount += 1
       if (schedule.enabled) existing.enabledCount += 1
       existing.times.push(schedule.time)
-      if (!existing.description && meta.description) existing.description = meta.description
-      if (compareMissionPriority(meta.priority, existing.priority) > 0) existing.priority = meta.priority
+      if (!existing.description && description) existing.description = description
+      if (compareMissionPriority(priority, existing.priority) > 0) existing.priority = priority
     }
 
     return Array.from(grouped.values())

@@ -26,8 +26,6 @@ import { missionToWorkflowSummaryForAutofix } from "./canvas/workflow-autofix-br
 import type { NotificationSchedule } from "./types"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
-const WORKFLOW_MARKER = "[NOVA WORKFLOW]"
-
 export default function MissionsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -158,33 +156,24 @@ export default function MissionsPage() {
   const buildPipelineScheduleFromMission = (mission: Mission): NotificationSchedule => {
     const trigger = mission.nodes.find((node) => node.type === "schedule-trigger")
     const summary = missionToWorkflowSummaryForAutofix(mission)
-    const workflowSummary = {
-      description: String(mission.description || "").trim(),
-      priority: "medium",
-      schedule: {
-        mode: trigger?.type === "schedule-trigger" ? trigger.triggerMode || "daily" : "daily",
-        days: trigger?.type === "schedule-trigger" && Array.isArray(trigger.triggerDays) && trigger.triggerDays.length > 0
-          ? trigger.triggerDays
-          : ["mon", "tue", "wed", "thu", "fri"],
-        time: trigger?.type === "schedule-trigger" ? trigger.triggerTime || "09:00" : "09:00",
-        timezone: trigger?.type === "schedule-trigger"
-          ? resolveTimezone(trigger.triggerTimezone, mission.settings?.timezone, detectedTimezone)
-          : resolveTimezone(mission.settings?.timezone, detectedTimezone),
-      },
-      missionActive: mission.status === "active" || mission.status === "draft",
-      tags: Array.isArray(mission.tags) ? mission.tags : [],
-      workflowSteps: summary.workflowSteps || [],
-    }
-    const description = workflowSummary.description || mission.label || "Mission run"
-    const message = `${description}\n\n${WORKFLOW_MARKER}\n${JSON.stringify(workflowSummary)}`
+    const description = String(mission.description || mission.label || "Mission run").trim()
+    const time = trigger?.type === "schedule-trigger" ? trigger.triggerTime || "09:00" : "09:00"
+    const timezone = trigger?.type === "schedule-trigger"
+      ? resolveTimezone(trigger.triggerTimezone, mission.settings?.timezone, detectedTimezone)
+      : resolveTimezone(mission.settings?.timezone, detectedTimezone)
+    const mode = trigger?.type === "schedule-trigger" ? trigger.triggerMode || "daily" : "daily"
     return {
       id: mission.id,
       integration: mission.integration || "telegram",
       label: mission.label || "Untitled mission",
-      message,
-      time: workflowSummary.schedule.time,
-      timezone: workflowSummary.schedule.timezone,
-      enabled: workflowSummary.missionActive !== false,
+      message: description,
+      description,
+      priority: "medium",
+      workflowSteps: summary.workflowSteps || [],
+      mode,
+      time,
+      timezone,
+      enabled: mission.status === "active" || mission.status === "draft",
       chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
       updatedAt: mission.updatedAt || new Date().toISOString(),
       runCount: Number.isFinite(mission.runCount) ? mission.runCount : 0,
@@ -203,29 +192,6 @@ export default function MissionsPage() {
       return next
     })
     setBaselineById((prev) => ({ ...prev, [schedule.id]: schedule }))
-  }
-
-  const upsertNotificationSchedule = async (schedule: NotificationSchedule): Promise<NotificationSchedule> => {
-    const payload = {
-      id: schedule.id,
-      integration: schedule.integration,
-      label: schedule.label,
-      message: schedule.message,
-      time: schedule.time,
-      timezone: schedule.timezone,
-      enabled: schedule.enabled,
-      chatIds: Array.isArray(schedule.chatIds) ? schedule.chatIds : [],
-    }
-    const response = await fetch("/api/notifications/schedules", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-    const data = await response.json().catch(() => ({})) as { schedule?: NotificationSchedule; error?: string }
-    if (!response.ok) {
-      throw new Error(data.error || "Failed to save mission pipeline schedule.")
-    }
-    return data.schedule || schedule
   }
 
   const handleApplyTemplate = async (templateId: string) => {
@@ -271,8 +237,7 @@ export default function MissionsPage() {
         throw new Error(data?.error || "Failed to save mission.")
       }
       const savedMission = data?.mission || mission
-      const persistedSchedule = await upsertNotificationSchedule(buildPipelineScheduleFromMission(savedMission))
-      upsertMissionInPipeline(persistedSchedule)
+      upsertMissionInPipeline(buildPipelineScheduleFromMission(savedMission))
       setCanvasMission(savedMission)
       setCanvasModalOpen(false)
       setStatus({ type: "success", message: `Mission "${savedMission.label || "Untitled mission"}" saved to Mission Pipeline Settings.` })
@@ -298,11 +263,11 @@ export default function MissionsPage() {
         throw new Error(data?.error || "Failed to save mission before run.")
       }
       const savedMission = data?.mission || mission
-      const persistedSchedule = await upsertNotificationSchedule(buildPipelineScheduleFromMission(savedMission))
-      upsertMissionInPipeline(persistedSchedule)
+      const missionSchedule = buildPipelineScheduleFromMission(savedMission)
+      upsertMissionInPipeline(missionSchedule)
       setCanvasMission(savedMission)
       setCanvasModalOpen(false)
-      await runMissionNow(persistedSchedule, {
+      await runMissionNow(missionSchedule, {
         workflowSteps: missionToWorkflowSummaryForAutofix(savedMission).workflowSteps,
       })
     } catch (error) {

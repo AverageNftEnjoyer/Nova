@@ -21,9 +21,9 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const srcEntrypointPath = "src/runtime/core/entrypoint.js";
-const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway.js";
-const srcVoiceLoopPath = "src/runtime/audio/voice-loop.js";
+const srcEntrypointPath = "src/runtime/core/entrypoint/index.js";
+const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway/index.js";
+const srcVoiceLoopPath = "src/runtime/audio/voice-loop/index.js";
 const novaLauncherPath = "nova.js";
 
 await run("src runtime shell files exist", async () => {
@@ -42,7 +42,7 @@ await run("src runtime entrypoint owns startup lifecycle", async () => {
 
 await run("launcher defaults to src runtime entrypoint", async () => {
   const launcher = read(novaLauncherPath);
-  assert.equal(launcher.includes('["src/runtime/core/entrypoint.js"]'), true);
+  assert.equal(launcher.includes('["src/runtime/core/entrypoint/index.js"]'), true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

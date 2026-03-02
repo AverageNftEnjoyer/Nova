@@ -1,30 +1,12 @@
 import { Activity, Database, GitBranch, Mail, MessageCircle, Send, SlidersHorizontal, Sparkles, WandSparkles, Zap } from "lucide-react"
 
 import type { FluidSelectOption } from "@/components/ui/fluid-select"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
-import { parseMissionWorkflow } from "@/lib/missions/workflow/parsing"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { AI_MODEL_OPTIONS, STEP_TYPE_OPTIONS } from "./constants"
 import type { AiIntegrationType, NotificationSchedule, WorkflowStep, WorkflowStepType } from "./types"
-
-interface MissionWorkflowPayload {
-  description: string
-  priority?: string
-  process: string[]
-  mode?: string
-}
-
-interface MissionWorkflowMeta {
-  description: string
-  priority?: string
-  mode?: string
-  days?: string[]
-  tags?: string[]
-  apiCalls?: string[]
-  workflowSteps?: Array<Partial<WorkflowStep>>
-}
 
 interface BuildBuilderWorkflowStepsInput {
   mission: NotificationSchedule
@@ -86,36 +68,6 @@ export function getMissionIntegrationIcon(integration: string, className: string
     return <Sparkles className={className} />
   }
   return <Activity className={className} />
-}
-
-export function parseMissionWorkflowPayload(message: string): MissionWorkflowPayload {
-  const parsed = parseMissionWorkflow(message)
-  const summary = parsed.summary
-  const process = Array.isArray(summary?.workflowSteps)
-    ? summary.workflowSteps.map((step) => String(step.type || "").trim()).filter(Boolean)
-    : []
-  return {
-    description: parsed.description || String(message || "").trim(),
-    priority: summary?.priority,
-    process: process.length > 0 ? process : ["trigger", "send"],
-    mode: summary?.schedule?.mode,
-  }
-}
-
-export function parseMissionWorkflowMeta(message: string): MissionWorkflowMeta {
-  const parsed = parseMissionWorkflow(message)
-  const summary = parsed.summary
-  return {
-    description: parsed.description || String(message || "").trim(),
-    priority: summary?.priority,
-    mode: summary?.schedule?.mode,
-    days: Array.isArray(summary?.schedule?.days) ? summary.schedule.days.map((day) => String(day)) : undefined,
-    tags: Array.isArray(summary?.tags) ? summary.tags.map((tag) => String(tag)) : undefined,
-    apiCalls: Array.isArray(summary?.apiCalls) ? summary.apiCalls.map((call) => String(call)) : undefined,
-    workflowSteps: Array.isArray(summary?.workflowSteps)
-      ? (summary.workflowSteps as Array<Partial<WorkflowStep>>)
-      : undefined,
-  }
 }
 
 export function isWorkflowStepType(value: string): value is WorkflowStepType {

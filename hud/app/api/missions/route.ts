@@ -5,8 +5,8 @@ import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } fr
 import { loadMissions, upsertMission, deleteMission } from "@/lib/missions/store"
 import { getTemplate, instantiateTemplate } from "@/lib/missions/templates"
 import type { Mission } from "@/lib/missions/types"
-import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/server-store"
-import { resolveConfiguredLlmProvider } from "@/lib/integrations/provider-selection"
+import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
+import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { removeMissionScheduleFromGoogleCalendar, syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
 import {
   applyMissionDiff,
@@ -16,7 +16,6 @@ import {
 } from "@/lib/missions/workflow/diff"
 import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
-import { loadSchedules, saveSchedules } from "@/lib/notifications/store"
 import { purgeMissionDerivedData } from "@/lib/missions/purge"
 
 export const runtime = "nodejs"
@@ -60,7 +59,6 @@ async function removeMissionScheduleBestEffort(missionId: string, userId: string
 /**
  * GET /api/missions
  * Returns all missions for the authenticated user.
- * Auto-migrates legacy NotificationSchedule records on first access.
  */
 export async function GET(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
@@ -438,14 +436,6 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: false, deleted: false, reason: "invalid_user" }, { status: 400 })
     }
 
-    let scheduleDeleted = false
-    const schedules = await loadSchedules({ userId })
-    const nextSchedules = schedules.filter((schedule) => schedule.id !== id)
-    if (nextSchedules.length !== schedules.length) {
-      await saveSchedules(nextSchedules, { userId })
-      scheduleDeleted = true
-    }
-
     // Purge all calendar and derived data for this mission (reschedule overrides,
     // telemetry, version snapshots, run logs). Non-fatal — logged internally.
     purgeMissionDerivedData(userId, id).catch((err) => {
@@ -459,7 +449,7 @@ export async function DELETE(req: Request) {
       )
     })
 
-    const deleted = missionDelete.deleted || scheduleDeleted
+    const deleted = missionDelete.deleted
     if (deleted) {
       await removeMissionScheduleBestEffort(id, userId, verified)
     }

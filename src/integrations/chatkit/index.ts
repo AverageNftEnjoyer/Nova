@@ -6,11 +6,11 @@ export type {
   ChatKitRuntimeConfig,
   ChatKitValidationIssue,
   ChatKitValidationResult,
-} from "./types.js";
+} from "./types/index.js";
 
-export { resolveChatKitRuntimeConfig, validateChatKitRuntimeConfig } from "./config.js";
-export { appendChatKitEvent } from "./observability.js";
-export { runChatKitWorkflow } from "./runner.js";
+export { resolveChatKitRuntimeConfig, validateChatKitRuntimeConfig } from "./config/index.js";
+export { appendChatKitEvent } from "./observability/index.js";
+export { runChatKitWorkflow } from "./runner/index.js";
 export {
   buildMissionWorkflowInput,
   buildStructuredWorkflowPlan,
@@ -19,4 +19,4 @@ export {
   type ChatKitStructuredWorkflowResult,
   type ChatKitWorkflowStep,
   type ChatKitWorkflowStepKind,
-} from "./workflows.js";
+} from "./workflows/index.js";

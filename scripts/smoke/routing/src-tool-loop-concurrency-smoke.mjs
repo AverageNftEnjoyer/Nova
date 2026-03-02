@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 
-import { createToolLoopBudget, capToolCallsPerStep } from "../../../src/runtime/modules/chat/core/tool-loop-guardrails.js";
+import { createToolLoopBudget, capToolCallsPerStep } from "../../../src/runtime/modules/chat/core/tool-loop-guardrails/index.js";
 
 const results = [];
 

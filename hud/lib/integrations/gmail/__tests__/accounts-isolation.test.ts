@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import { deriveGmailAfterDisconnect, deriveGmailAfterSetEnabled, deriveGmailAfterSetPrimary } from "../accounts.ts"
-import type { GmailIntegrationConfig } from "../../server-store"
+import type { GmailIntegrationConfig } from "../../store/server-store"
 
 function sampleGmailConfig(): GmailIntegrationConfig {
   return {

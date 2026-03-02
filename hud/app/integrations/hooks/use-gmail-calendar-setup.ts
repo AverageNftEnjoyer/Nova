@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react"
-import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/client-store"
+import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 
 interface UseGmailCalendarSetupParams {

@@ -46,6 +46,12 @@ export interface SchedulesListResponse {
   error?: string
 }
 
+export interface MissionsListResponse {
+  ok?: boolean
+  missions?: unknown[]
+  error?: string
+}
+
 export interface ScheduleMutationResponse {
   schedule?: NotificationSchedule
   error?: string
@@ -55,6 +61,12 @@ export interface MissionDeleteResponse {
   ok?: boolean
   deleted?: boolean
   reason?: "deleted" | "not_found" | "invalid_user"
+  error?: string
+}
+
+export interface MissionRecordResponse {
+  ok?: boolean
+  mission?: unknown
   error?: string
 }
 
@@ -184,6 +196,10 @@ export function fetchSchedules() {
   return requestJson<SchedulesListResponse>("/api/notifications/schedules", { cache: "no-store" })
 }
 
+export function fetchMissions() {
+  return requestJson<MissionsListResponse>("/api/missions", { cache: "no-store" })
+}
+
 export function fetchIntegrationCatalog() {
   return requestJson<IntegrationCatalogResponse>("/api/integrations/catalog", { cache: "no-store" })
 }
@@ -218,6 +234,10 @@ export function deleteMissionById(id: string) {
   return requestJson<MissionDeleteResponse>(`/api/missions?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
   })
+}
+
+export function fetchMissionById(id: string) {
+  return requestJson<MissionRecordResponse>(`/api/missions?id=${encodeURIComponent(id)}`, { cache: "no-store" })
 }
 
 export function triggerMissionSchedule(scheduleId: string) {

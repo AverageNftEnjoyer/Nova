@@ -2,15 +2,19 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { INTEGRATIONS_UPDATED_EVENT } from "@/lib/integrations/client-store"
-import { resolveTimezone } from "@/lib/shared/timezone"
+import { INTEGRATIONS_UPDATED_EVENT } from "@/lib/integrations/store/client-store"
+import { getRuntimeTimezone, resolveTimezone } from "@/lib/shared/timezone"
+import type { Mission as NativeMission, MissionNode } from "@/lib/missions/types"
 
 interface NotificationSchedule {
   id: string
   integration: string
   label: string
   message: string
+  description?: string
+  priority?: "low" | "medium" | "high" | "critical"
   time: string
+  times?: string[]
   timezone: string
   enabled: boolean
   chatIds: string[]
@@ -29,35 +33,50 @@ export interface Mission {
   timezone: string
 }
 
-function priorityRank(priority: "low" | "medium" | "high" | "critical"): number {
-  if (priority === "low") return 0
-  if (priority === "medium") return 1
-  if (priority === "high") return 2
-  return 3
-}
-
 function normalizePriority(value: string | undefined): "low" | "medium" | "high" | "critical" {
   const normalized = String(value || "").trim().toLowerCase()
   if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "critical") return normalized
   return "medium"
 }
 
-function parseMissionWorkflowMeta(message: string | undefined): {
-  description: string
-  priority: "low" | "medium" | "high" | "critical"
-} {
-  const raw = typeof message === "string" ? message : ""
-  const marker = "[NOVA WORKFLOW]"
-  const idx = raw.indexOf(marker)
-  const description = (idx < 0 ? raw : raw.slice(0, idx)).trim()
-  if (idx < 0) return { description, priority: "medium" }
+function isScheduleTriggerNode(node: MissionNode): node is Extract<MissionNode, { type: "schedule-trigger" }> {
+  return node.type === "schedule-trigger"
+}
 
-  const jsonText = raw.slice(idx + marker.length).trim()
-  try {
-    const parsed = JSON.parse(jsonText) as { priority?: string }
-    return { description, priority: normalizePriority(parsed.priority) }
-  } catch {
-    return { description, priority: "medium" }
+function toMissionRecord(value: unknown): NativeMission | null {
+  if (!value || typeof value !== "object") return null
+  const row = value as Partial<NativeMission>
+  if (typeof row.id !== "string" || !row.id.trim()) return null
+  if (!Array.isArray(row.nodes) || !Array.isArray(row.connections)) return null
+  if (typeof row.label !== "string") return null
+  return row as NativeMission
+}
+
+function missionToNotificationSchedule(mission: NativeMission): NotificationSchedule {
+  const scheduleNodes = mission.nodes.filter(isScheduleTriggerNode)
+  const times = Array.from(
+    new Set(
+      scheduleNodes
+        .map((node) => String(node.triggerTime || "").trim())
+        .filter((value) => /^\d{2}:\d{2}$/.test(value)),
+    ),
+  ).sort((left, right) => left.localeCompare(right))
+  const firstTriggerTimezone = scheduleNodes.find((node) => String(node.triggerTimezone || "").trim())?.triggerTimezone
+  const timezone = resolveTimezone(firstTriggerTimezone, mission.settings?.timezone, getRuntimeTimezone())
+  const description = String(mission.description || "").trim()
+  return {
+    id: mission.id,
+    integration: String(mission.integration || "telegram").trim().toLowerCase() || "telegram",
+    label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
+    message: description,
+    description,
+    priority: normalizePriority(undefined),
+    time: times[0] || "09:00",
+    times,
+    timezone,
+    enabled: mission.status === "active",
+    chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
+    updatedAt: String(mission.updatedAt || mission.createdAt || ""),
   }
 }
 
@@ -87,7 +106,7 @@ export function useMissions(): UseMissionsReturn {
   const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
 
   const refreshNotificationSchedules = useCallback(() => {
-    void fetch("/api/notifications/schedules", { cache: "no-store" })
+    void fetch("/api/missions?limit=500", { cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
           router.replace(`/login?next=${encodeURIComponent("/chat")}`)
@@ -96,7 +115,11 @@ export function useMissions(): UseMissionsReturn {
         return res.json()
       })
       .then((data) => {
-        const schedules = Array.isArray(data?.schedules) ? (data.schedules as NotificationSchedule[]) : []
+        const missions: unknown[] = Array.isArray(data?.missions) ? data.missions : []
+        const schedules = missions
+          .map((row: unknown) => toMissionRecord(row))
+          .filter((row: NativeMission | null): row is NativeMission => row !== null)
+          .map((row: NativeMission) => missionToNotificationSchedule(row))
         setNotificationSchedules(schedules)
       })
       .catch(() => {
@@ -120,62 +143,25 @@ export function useMissions(): UseMissionsReturn {
 
   // Transform schedules into missions
   const missions = useMemo(() => {
-    const grouped = new Map<
-      string,
-      {
-        id: string
-        integration: string
-        title: string
-        description: string
-        priority: "low" | "medium" | "high" | "critical"
-        enabledCount: number
-        totalCount: number
-        times: string[]
-        timezone: string
-      }
-    >()
-
-    for (const schedule of notificationSchedules) {
-      const meta = parseMissionWorkflowMeta(schedule.message)
-      const title = schedule.label?.trim() || "Scheduled notification"
-      const integration = schedule.integration?.trim().toLowerCase() || "unknown"
-      const key = `${integration}:${title.toLowerCase()}`
-      const existing = grouped.get(key)
-      if (!existing) {
-        grouped.set(key, {
-          id: schedule.id,
-          integration,
-          title,
-          description: meta.description,
-          priority: meta.priority,
-          enabledCount: schedule.enabled ? 1 : 0,
-          totalCount: 1,
-          times: [schedule.time],
-          timezone: resolveTimezone(schedule.timezone),
-        })
-        continue
-      }
-      existing.totalCount += 1
-      if (schedule.enabled) existing.enabledCount += 1
-      existing.times.push(schedule.time)
-      if (!existing.description && meta.description) {
-        existing.description = meta.description
-      }
-      if (priorityRank(meta.priority) > priorityRank(existing.priority)) {
-        existing.priority = meta.priority
-      }
-    }
-
-    return Array.from(grouped.values())
-      .map((mission) => ({
-        ...mission,
-        times: mission.times.sort((a, b) => a.localeCompare(b)),
-      }))
-      .sort((a, b) => {
-        const activeDelta = Number(b.enabledCount > 0) - Number(a.enabledCount > 0)
+    return [...notificationSchedules]
+      .sort((left, right) => {
+        const activeDelta = Number(right.enabled) - Number(left.enabled)
         if (activeDelta !== 0) return activeDelta
-        return b.totalCount - a.totalCount
+        const updatedDelta = (Date.parse(String(right.updatedAt || "")) || 0) - (Date.parse(String(left.updatedAt || "")) || 0)
+        if (updatedDelta !== 0) return updatedDelta
+        return String(left.label || "").localeCompare(String(right.label || ""))
       })
+      .map((schedule) => ({
+        id: schedule.id,
+        integration: schedule.integration?.trim().toLowerCase() || "unknown",
+        title: schedule.label?.trim() || "Untitled mission",
+        description: String(schedule.description || schedule.message || "").trim(),
+        priority: normalizePriority(schedule.priority),
+        enabledCount: schedule.enabled ? 1 : 0,
+        totalCount: 1,
+        times: (Array.isArray(schedule.times) && schedule.times.length > 0 ? schedule.times : [schedule.time]).sort((a, b) => a.localeCompare(b)),
+        timezone: resolveTimezone(schedule.timezone, getRuntimeTimezone()),
+      }))
   }, [notificationSchedules])
 
   return {

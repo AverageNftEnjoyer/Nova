@@ -3,7 +3,7 @@
  */
 
 import { runInNewContext } from "node:vm"
-import type { SetVariablesNode, CodeNode, FormatNode, FilterNode, SortNode, DedupeNode, NodeOutput, ExecutionContext } from "../../types"
+import type { SetVariablesNode, CodeNode, FormatNode, FilterNode, SortNode, DedupeNode, NodeOutput, ExecutionContext } from "../../types/index"
 
 const CODE_EXEC_TIMEOUT_MS = 500
 const FILTER_EXEC_TIMEOUT_MS = 100

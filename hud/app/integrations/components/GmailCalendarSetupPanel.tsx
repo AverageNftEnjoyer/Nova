@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react"
 import { cn } from "@/lib/shared/utils"
 import { NovaSwitch } from "@/components/ui/nova-switch"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 
 interface GmailCalendarSetupPanelProps {
   sectionRef: React.RefObject<HTMLElement | null>

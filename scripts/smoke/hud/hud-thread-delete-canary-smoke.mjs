@@ -57,13 +57,13 @@ if (!userContextId) {
 }
 
 const { handleInput } = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js")).href,
 );
 const cleanup = await import(
-  pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-transcript-cleanup.js")).href,
+  pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-transcript-cleanup/index.js")).href,
 );
 const audit = await import(
-  pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-delete-audit.js")).href,
+  pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-delete-audit/index.js")).href,
 );
 
 const { collectThreadCleanupHints, pruneThreadTranscripts } = cleanup;

@@ -5,10 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { createRequestScheduler } from "../../../src/runtime/infrastructure/request-scheduler.js";
+import { createRequestScheduler } from "../../../src/runtime/infrastructure/request-scheduler/index.js";
 import { createSessionRuntime } from "../../../src/session/runtime-compat.js";
-import { applyMemoryFactsToWorkspace } from "../../../src/runtime/modules/chat/core/chat-utils.js";
-import { extractAutoMemoryFacts } from "../../../src/memory/runtime-compat.js";
+import { applyMemoryFactsToWorkspace } from "../../../src/runtime/modules/chat/core/chat-utils/index.js";
+import { extractAutoMemoryFacts } from "../../../src/memory/runtime-compat/index.js";
 
 const results = [];
 
@@ -321,7 +321,7 @@ await run("SessionStore does not cross-scan user contexts without explicit scope
 
 await run("Gateway enforces scoped conversation ownership and scoped-only broadcast guards", async () => {
   const hudGatewaySource = fs.readFileSync(
-    path.join(process.cwd(), "src/runtime/infrastructure/hud-gateway.js"),
+    path.join(process.cwd(), "src/runtime/infrastructure/hud-gateway/index.js"),
     "utf8",
   );
   assert.equal(hudGatewaySource.includes("SCOPED_ONLY_EVENT_TYPES"), true);

@@ -34,10 +34,10 @@ if (!userContextId) {
 }
 
 const chatHandlerModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js")).href
 );
 const constraintsModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/output-constraints.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/output-constraints/index.js")).href
 );
 
 const { handleInput } = chatHandlerModule;

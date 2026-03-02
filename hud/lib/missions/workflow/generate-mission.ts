@@ -8,9 +8,9 @@
 
 import "server-only"
 
-import type { IntegrationsStoreScope } from "@/lib/integrations/server-store"
-import { loadIntegrationsConfig } from "@/lib/integrations/server-store"
-import { loadIntegrationCatalog } from "@/lib/integrations/catalog-server"
+import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
+import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import { loadIntegrationCatalog } from "@/lib/integrations/catalog/server"
 import { parseJsonObject } from "@/lib/missions/text/cleaning"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import type {
@@ -21,7 +21,7 @@ import type {
   Provider,
   AiDetailLevel,
   NodePosition,
-} from "../types"
+} from "../types/index"
 import { buildMission } from "../store"
 import { completeWithConfiguredLlm } from "../llm/providers"
 import {

@@ -105,9 +105,17 @@ async function loadCoinbaseRuntimeModule(): Promise<{
   coinbaseDbPathForUserContext: (userContextId: string, workspaceRootInput?: string) => string
 }> {
   const modulePath = await resolveCoinbaseDistModulePath()
-  // Turbopack cannot statically resolve import(<expression>) in server chunks.
-  const runtimeImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>
-  const loaded = await runtimeImport(pathToFileURL(modulePath).href)
+  const moduleUrl = pathToFileURL(modulePath).href
+  // Keep runtime module loading dynamic without using eval/new Function.
+  const loaded = await import(/* webpackIgnore: true */ moduleUrl)
+  if (
+    !loaded ||
+    typeof loaded !== "object" ||
+    typeof (loaded as { CoinbaseDataStore?: unknown }).CoinbaseDataStore !== "function" ||
+    typeof (loaded as { coinbaseDbPathForUserContext?: unknown }).coinbaseDbPathForUserContext !== "function"
+  ) {
+    throw new Error("Invalid Coinbase runtime module shape in dist/integrations/coinbase/index.js.")
+  }
   return loaded as {
     CoinbaseDataStore: new (dbPath: string) => CoinbaseStore
     coinbaseDbPathForUserContext: (userContextId: string, workspaceRootInput?: string) => string
@@ -115,9 +123,15 @@ async function loadCoinbaseRuntimeModule(): Promise<{
 }
 
 export async function createCoinbaseStore(userContextId: string): Promise<CoinbaseStore> {
+  const normalizedUserContextId = String(userContextId || "").trim()
+  if (!normalizedUserContextId) {
+    throw new Error("createCoinbaseStore requires a non-empty userContextId.")
+  }
   const workspaceRoot = path.resolve(process.cwd(), "..")
   const runtime = await loadCoinbaseRuntimeModule()
-  return new runtime.CoinbaseDataStore(runtime.coinbaseDbPathForUserContext(userContextId, workspaceRoot))
+  return new runtime.CoinbaseDataStore(
+    runtime.coinbaseDbPathForUserContext(normalizedUserContextId, workspaceRoot),
+  )
 }
 
 export function reportsToCsv(rows: CoinbaseReportHistoryRow[]): string {

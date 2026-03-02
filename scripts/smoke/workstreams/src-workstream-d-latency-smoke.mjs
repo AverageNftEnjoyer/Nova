@@ -28,20 +28,20 @@ function read(relativePath) {
 }
 
 const latencyPolicyModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/telemetry/latency-policy.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/telemetry/latency-policy/index.js")).href,
 );
 const latencyTelemetryModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/telemetry/latency-telemetry.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/telemetry/latency-telemetry/index.js")).href,
 );
 const promptBudgetModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt/prompt-budget.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt/prompt-budget/index.js")).href,
 );
 const providersRuntimeCompatModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/providers/runtime-compat.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/providers/runtime-compat/index.js")).href,
 );
 
-const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler.js");
-const devConversationLogSource = read("src/runtime/modules/chat/telemetry/dev-conversation-log.js");
+const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler/index.js");
+const devConversationLogSource = read("src/runtime/modules/chat/telemetry/dev-conversation-log/index.js");
 
 const {
   buildLatencyTurnPolicy,

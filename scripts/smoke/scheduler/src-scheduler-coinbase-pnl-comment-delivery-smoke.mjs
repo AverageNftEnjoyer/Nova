@@ -55,8 +55,8 @@ function loadTsModule(relativePath, requireMap = {}) {
   return module.exports;
 }
 
-const { buildCoinbasePnlPersonalityComment } = loadTsModule("src/integrations/coinbase/pnl-personality-comment.ts");
-const { renderCoinbasePortfolioReport } = loadTsModule("src/integrations/coinbase/report-renderer.ts");
+const { buildCoinbasePnlPersonalityComment } = loadTsModule("src/integrations/coinbase/pnl-personality-comment/index.ts");
+const { renderCoinbasePortfolioReport } = loadTsModule("src/integrations/coinbase/report-renderer/index.ts");
 
 await run("P24-S1 scheduler delivery payload includes personality PnL comment line", async () => {
   const comment = buildCoinbasePnlPersonalityComment({

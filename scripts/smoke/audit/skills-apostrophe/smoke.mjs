@@ -21,7 +21,7 @@
  */
 
 import assert from "node:assert/strict";
-import { extractSkillMetadata } from "../../../../src/runtime/modules/context/skills.js";
+import { extractSkillMetadata } from "../../../../src/runtime/modules/context/skills/index.js";
 
 const SKILL_WITH_APOSTROPHE_READWHEN = `---
 name: test-skill

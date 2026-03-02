@@ -3,7 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const mod = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/telemetry/chatkit-shadow.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/telemetry/chatkit-shadow/index.js")).href
 );
 
 const originalEnv = { ...process.env };

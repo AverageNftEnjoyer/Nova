@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { tryCryptoFastPathReply } from "../../../../src/runtime/modules/chat/fast-path/crypto-fast-path.js";
+import { tryCryptoFastPathReply } from "../../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
 
 const availableTools = [
   { name: "coinbase_portfolio_report" },

@@ -57,8 +57,7 @@ async function readOrInitMemoryFile(memoryFilePath: string): Promise<string> {
 
 export async function GET(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const workspaceRoot = resolveWorkspaceRoot()
@@ -75,8 +74,7 @@ export async function GET(req: Request) {
 
 export async function PUT(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
     const raw = (await req.json().catch(() => ({}))) as { content?: unknown }

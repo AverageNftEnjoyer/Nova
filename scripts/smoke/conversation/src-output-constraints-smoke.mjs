@@ -23,7 +23,7 @@ function summarize(result) {
 }
 
 const moduleRef = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/output-constraints.js")).href
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/quality/output-constraints/index.js")).href
 );
 
 const {

@@ -6,7 +6,7 @@
 
 import { parseJsonObject } from "../text/cleaning.ts"
 import { normalizeWorkflowStep } from "../utils/config.ts"
-import type { ParsedWorkflow, WorkflowSummary } from "../types"
+import type { ParsedWorkflow, WorkflowSummary } from "../types/index"
 
 export const WORKFLOW_MARKER = "[NOVA WORKFLOW]"
 

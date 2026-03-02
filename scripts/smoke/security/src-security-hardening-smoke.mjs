@@ -5,7 +5,7 @@ import path from "node:path";
 const projectRoot = process.cwd();
 const netGuardModule = await import(pathToFileURL(path.join(projectRoot, "dist/tools/net-guard.js")).href);
 const externalContentModule = await import(
-  pathToFileURL(path.join(projectRoot, "src/runtime/modules/context/external-content.js")).href
+  pathToFileURL(path.join(projectRoot, "src/runtime/modules/context/external-content/index.js")).href
 );
 
 const { fetchWithSsrfGuard, isPrivateIpAddress } = netGuardModule;

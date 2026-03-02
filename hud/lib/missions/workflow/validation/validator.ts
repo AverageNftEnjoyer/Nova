@@ -1,4 +1,4 @@
-import type { WorkflowStep } from "../../types.ts"
+import type { WorkflowStep } from "../../types/index"
 import { WORKFLOW_VALIDATION_LIMITS } from "./config.ts"
 import {
   WORKFLOW_VALIDATION_ISSUE_CODES,

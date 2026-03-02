@@ -19,10 +19,10 @@
   },
   "include": [
     "lib/integrations/gmail/**/*.ts",
-    "lib/integrations/agent-runtime-sync.ts",
-    "lib/integrations/server-store.ts",
-    "lib/security/encryption.ts",
-    "lib/supabase/server.ts"
+    "lib/integrations/runtime/agent-sync.ts",
+    "lib/integrations/store/server-store.ts",
+    "lib/security/encryption/index.ts",
+    "lib/supabase/server/index.ts"
   ],
   "exclude": [
     "node_modules"

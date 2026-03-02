@@ -1,4 +1,4 @@
-import type { GmailIntegrationConfig } from "../server-store"
+import type { GmailIntegrationConfig } from "../store/server-store"
 import { gmailError } from "./errors.ts"
 
 function pickActiveAccount(accounts: GmailIntegrationConfig["accounts"], preferredId: string): GmailIntegrationConfig["accounts"][number] | null {

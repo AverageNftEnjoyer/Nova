@@ -12,7 +12,7 @@ import type {
   SlackOutputNode,
   NodeOutput,
   ExecutionContext,
-} from "../../types"
+} from "../../types/index"
 import { dispatchOutput } from "../../output/dispatch"
 import { humanizeMissionOutputText } from "../../output/formatters"
 import { applyMissionOutputQualityGuardrails } from "../../output/quality"

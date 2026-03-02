@@ -18,13 +18,14 @@ import type {
   NodeOutput,
   NodeExecutionTrace,
   ScheduleTriggerNode,
-} from "../types"
+} from "../types/index"
 import { EXECUTOR_REGISTRY } from "./executors/index"
 import { getLocalParts, parseTime } from "./scheduling"
 import { acquireMissionExecutionSlot } from "./execution-guard"
 import { emitMissionTelemetryEvent } from "../telemetry"
 import { validateMissionGraphForVersioning } from "./versioning"
 import { resolveTimezone } from "@/lib/shared/timezone"
+import { computeRetryDelayMs, shouldRetry } from "../retry-policy"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Expression Resolver
@@ -270,11 +271,22 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
 const MISSION_MAX_DURATION_MS = Number(process.env.NOVA_MISSION_MAX_DURATION_MS) || 5 * 60 * 1000 // default 5 minutes
 
 /**
- * Public entry point — wraps the core execution with a global 5-minute timeout.
- * If the mission takes longer, the caller receives a failure result immediately
- * while any in-flight network/AI work completes in the background (slot released).
+ * Public entry point — wraps core execution with a global timeout and retry loop.
+ *
+ * Retry behaviour is driven by MissionSettings:
+ *   - retryOnFail:     must be true to enable retries
+ *   - retryCount:      number of retries after the initial failure (default 2)
+ *   - retryIntervalMs: base delay before first retry; subsequent delays are
+ *                      exponentially backed off with ±10% jitter (default 5 000 ms)
+ *
+ * Each retry creates a new job_runs row (new missionRunId, incremented attempt).
+ * The phase 1 gate: retryCount=2 → up to 3 total attempts, last failure → status=dead.
  */
-export function executeMission(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
+export async function executeMission(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
+  const attempt = input.attempt ?? 1
+  const settings = input.mission.settings
+
+  // ── Single-attempt timeout race ─────────────────────────────────────────────
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null
 
   const timeoutPromise = new Promise<ExecuteMissionResult>((resolve) => {
@@ -291,16 +303,33 @@ export function executeMission(input: ExecuteMissionInput): Promise<ExecuteMissi
     )
   })
 
-  return Promise.race([executeMissionCore(input), timeoutPromise]).then(
-    (result) => {
+  const result = await Promise.race([executeMissionCore(input), timeoutPromise]).then(
+    (r) => {
       if (timeoutHandle !== null) clearTimeout(timeoutHandle)
-      return result
+      return r
     },
     (err: unknown) => {
       if (timeoutHandle !== null) clearTimeout(timeoutHandle)
       throw err
     },
   )
+
+  // ── Retry logic ─────────────────────────────────────────────────────────────
+  if (
+    !result.ok &&
+    !result.skipped &&
+    shouldRetry(settings?.retryOnFail ?? false, settings?.retryCount ?? 2, attempt)
+  ) {
+    const delayMs = computeRetryDelayMs(attempt, settings?.retryIntervalMs ?? 5_000)
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+    return executeMission({
+      ...input,
+      attempt: attempt + 1,
+      missionRunId: crypto.randomUUID(),
+    })
+  }
+
+  return result
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -320,8 +349,9 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   const userContextId = String(input.scope?.userId || input.scope?.user?.id || mission.userId || "").trim()
-  const executionSlot = acquireMissionExecutionSlot({
+  const executionSlot = await acquireMissionExecutionSlot({
     userContextId,
+    missionId: mission.id,
     missionRunId: runId,
   })
   if (!executionSlot.ok) {
@@ -359,6 +389,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         durationMs: Date.now() - startedAtMs,
         metadata: { source, skipped: true, reason: gate.reason },
       }).catch(() => {})
+      executionSlot.slot?.reportOutcome(true)
       return { ok: true, skipped: true, reason: gate.reason, outputs: [], nodeTraces: [] }
     }
     log("gate.passed", { reason: gate.reason })
@@ -581,6 +612,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
           durationMs: Date.now() - startedAtMs,
           metadata: { source, skipped: true, reason: skipReason, attempt: input.attempt ?? 1 },
         }).catch(() => {})
+        executionSlot.slot?.reportOutcome(true)
         return { ok: true, skipped: true, reason: skipReason, outputs: [], nodeTraces }
       }
     }
@@ -742,8 +774,13 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     },
   }).catch(() => {})
 
+  executionSlot.slot?.reportOutcome(ok)
   return { ok, skipped: false, outputs, nodeTraces }
+  } catch (err) {
+    // Unexpected exception: report failure so job ledger transitions to failed/dead
+    executionSlot.slot?.reportOutcome(false, err instanceof Error ? err.message : String(err))
+    throw err
   } finally {
-    executionSlot.slot?.release()
+    await executionSlot.slot?.release()
   }
 }

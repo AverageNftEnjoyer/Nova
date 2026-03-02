@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { createHmac, createPrivateKey, createSign, randomUUID } from "node:crypto"
 
-import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/agent-runtime-sync"
-import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseIntegrationConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/server-store"
+import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
+import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseIntegrationConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"

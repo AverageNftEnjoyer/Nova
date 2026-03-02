@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { buildSpotifyOAuthUrl } from "@/lib/integrations/spotify"
-import { spotifyError } from "@/lib/integrations/spotify/errors"
+import { spotifyError } from "@/lib/integrations/spotify/errors/index"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { connectQuerySchema, logSpotifyApi, spotifyApiErrorResponse } from "@/app/api/integrations/spotify/_shared"
 

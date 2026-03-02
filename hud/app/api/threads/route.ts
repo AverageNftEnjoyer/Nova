@@ -47,15 +47,14 @@ function normalizeMessageFingerprintContent(value: string): string {
 
 export async function GET(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const userId = verified.user.id
   const client = verified.client
 
   const { data: threads, error: threadsError } = await client
     .from("threads")
-    .select("*")
+    .select("id,title,pinned,archived,created_at,updated_at")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
 
@@ -123,7 +122,7 @@ export async function GET(req: Request) {
       role: normalizedRole,
       content: String(row.content || ""),
       createdAt: String(row.created_at),
-      source: (metadata.source as ApiMessage["source"]) || undefined,
+      source: (metadata.source === "hud" || metadata.source === "agent" || metadata.source === "voice") ? metadata.source : undefined,
       sender: (metadata.sender as string | undefined) || undefined,
       sessionConversationId: (metadata.sessionConversationId as string | undefined) || undefined,
       sessionKey: (metadata.sessionKey as string | undefined) || undefined,
@@ -162,8 +161,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const body = (await req.json().catch(() => ({}))) as { title?: string }
   const title = String(body.title || DEFAULT_THREAD_TITLE).trim() || DEFAULT_THREAD_TITLE
@@ -176,7 +174,7 @@ export async function POST(req: Request) {
       pinned: false,
       archived: false,
     })
-    .select("*")
+    .select("id,title,pinned,archived,created_at,updated_at")
     .single()
 
   if (error || !data) {

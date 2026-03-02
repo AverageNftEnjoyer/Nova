@@ -1,4 +1,4 @@
-import type { Mission } from "../../types"
+import type { Mission } from "../../types/index"
 
 export type MissionVersionEventType = "snapshot" | "pre_restore_backup" | "restore"
 

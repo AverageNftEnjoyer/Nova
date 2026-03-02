@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { CoinbaseDataStore } from "../../../dist/integrations/coinbase/index.js";
-import { renderCoinbasePortfolioReport } from "../../../dist/integrations/coinbase/report-renderer.js";
+import { renderCoinbasePortfolioReport } from "../../../dist/integrations/coinbase/report-renderer/index.js";
 
 const results = [];
 function run(name, fn) {

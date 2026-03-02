@@ -22,13 +22,13 @@ function read(relPath) {
 }
 
 await run("DCLR-1 Dev conversation global log keeps append path", async () => {
-  const src = read("src/runtime/modules/chat/telemetry/dev-conversation-log.js");
+  const src = read("src/runtime/modules/chat/telemetry/dev-conversation-log/index.js");
   assert.equal(src.includes("conversation-dev-all.jsonl"), true);
   assert.equal(src.includes("fs.appendFileSync(DEV_CONVERSATION_GLOBAL_LOG_PATH"), true);
 });
 
 await run("DCLR-2 Dev conversation global archive mirror appends daily file", async () => {
-  const src = read("src/runtime/modules/chat/telemetry/dev-conversation-log.js");
+  const src = read("src/runtime/modules/chat/telemetry/dev-conversation-log/index.js");
   assert.equal(src.includes("DEV_CONVERSATION_GLOBAL_ARCHIVE_MIRROR_ENABLED"), true);
   assert.equal(src.includes("resolveGlobalArchiveMirrorPath"), true);
   assert.equal(src.includes("conversation-dev-all-"), true);

@@ -22,7 +22,7 @@ function read(relPath) {
 }
 
 await run("SIR-1 Chat handler routes switch/change song phrasing to Spotify sub-handler", async () => {
-  const handlerSource = read("src/runtime/modules/chat/core/chat-handler.js");
+  const handlerSource = read("src/runtime/modules/chat/core/chat-handler/index.js");
   assert.equal(handlerSource.includes(String.raw`\b(switch|change)\s+(the\s+)?(song|track|music)\s+(to|into)\s+`), true);
   assert.equal(handlerSource.includes(String.raw`\b(switch|change)\s+to\s+.+\s+by\s+`), true);
   assert.equal(handlerSource.includes("restart|replay|start over|from the beginning|retsrat|retsart|restat"), true);
@@ -32,7 +32,7 @@ await run("SIR-1 Chat handler routes switch/change song phrasing to Spotify sub-
 });
 
 await run("SIR-2 Spotify fast fallback maps switch/change song phrasing to play action with query", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers.js");
+  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
   assert.equal(spotifyHandlerSource.includes("const switchToQueryMatch = input.match("), true);
   assert.equal(spotifyHandlerSource.includes("const switchArtistQueryMatch = input.match("), true);
   assert.equal(spotifyHandlerSource.includes("/\\bretreat\\b/i.test(input) && /\\b(song|track|music)\\b/i.test(input)"), true);
@@ -44,20 +44,20 @@ await run("SIR-2 Spotify fast fallback maps switch/change song phrasing to play 
 });
 
 await run("SIR-3 Spotify TTS dedupe guard exists to prevent repeated spoken spam", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers.js");
+  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
   assert.equal(spotifyHandlerSource.includes("SPOTIFY_TTS_DEDUPE_WINDOW_MS"), true);
   assert.equal(spotifyHandlerSource.includes("shouldSuppressSpotifyTts(userContextId, normalized.text)"), true);
 });
 
 await run("SIR-4 Desktop Spotify fallback wraps exec errors without crashing runtime", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers.js");
+  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
   assert.equal(spotifyHandlerSource.includes("exec(command, (error) => {"), true);
   assert.equal(spotifyHandlerSource.includes("Desktop fallback command failed"), true);
   assert.equal(spotifyHandlerSource.includes("Desktop fallback command threw"), true);
 });
 
 await run("SIR-5 Spotify runtime prompt contains no hardcoded user playlist literals", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers.js");
+  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
   assert.equal(spotifyHandlerSource.toLowerCase().includes("demon time"), false);
 });
 

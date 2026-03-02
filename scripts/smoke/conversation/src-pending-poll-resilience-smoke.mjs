@@ -40,8 +40,8 @@ const [
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/useConversations.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/use-conversations/conversation-actions.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/app/api/threads/[threadId]/messages/route.ts"), "utf8"),
-  readFile(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler.js"), "utf8"),
-  readFile(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-special-handlers.js"), "utf8"),
+  readFile(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js"), "utf8"),
+  readFile(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-special-handlers/index.js"), "utf8"),
 ]);
 
 await run("P1 chat hook removed legacy merge hook pipeline", async () => {

@@ -7,7 +7,7 @@ import {
   describeUnknownError as describeCompatError,
   loadIntegrationsRuntime as loadCompatIntegrationsRuntime,
   resolveConfiguredChatRuntime as resolveCompatConfiguredChatRuntime,
-} from "../../../src/providers/runtime-compat.js";
+} from "../../../src/providers/runtime-compat/index.js";
 
 const results = [];
 const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();

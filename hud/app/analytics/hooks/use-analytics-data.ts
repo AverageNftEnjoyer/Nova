@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 
-import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings } from "@/lib/integrations/client-store"
-import type { IntegrationsSettings } from "@/lib/integrations/client-store"
+import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings } from "@/lib/integrations/store/client-store"
+import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 
 import { MOCK_REQUEST_VOLUME_BY_RANGE } from "../data/mock-analytics-data"
 import { getIntegrationMetadata } from "../data/integration-metadata"

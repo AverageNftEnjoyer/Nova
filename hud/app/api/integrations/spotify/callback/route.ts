@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { exchangeCodeForSpotifyTokens, parseSpotifyOAuthState } from "@/lib/integrations/spotify"
-import { spotifyError } from "@/lib/integrations/spotify/errors"
+import { spotifyError } from "@/lib/integrations/spotify/errors/index"
 import { logSpotifyApi } from "@/app/api/integrations/spotify/_shared"
 
 export const runtime = "nodejs"

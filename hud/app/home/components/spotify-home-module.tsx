@@ -213,6 +213,11 @@ export function SpotifyHomeModule({
       controlForeground: controlFg,
     }
   }, [albumColors.primary, albumColors.secondary, albumColors.tertiary])
+  // Motion offsets use the server-polled progressMs (2 s cadence) rather than the
+  // interpolated displayProgressMs (250–500 ms cadence).  The CSS animation already
+  // provides smooth 60 fps movement; these JS offsets are tiny nudges (±7 px) whose
+  // exact value at any given millisecond is imperceptible.  Switching to the poll
+  // cadence drops React re-renders for this memo from ~4×/s to ~0.5×/s.
   const dynamicGlowMotion = useMemo(() => {
     if (!nowPlayingState) {
       return {
@@ -220,7 +225,6 @@ export function SpotifyHomeModule({
         aY: "0px",
         aScale: "0",
         aHue: "0deg",
-        aBlur: "0px",
         bX: "0px",
         bY: "0px",
         bScale: "0",
@@ -233,7 +237,8 @@ export function SpotifyHomeModule({
         rightY: "0px",
       }
     }
-    const t = Math.max(0, displayProgressMs) / 1000
+    // Use the raw poll snapshot — changes every ~2 s instead of every 250–500 ms.
+    const t = Math.max(0, nowPlaying?.progressMs ?? 0) / 1000
     const p1 = (beatSync.seed % 23) / 23 * Math.PI * 2
     const p2 = (beatSync.seed % 31) / 31 * Math.PI * 2
     const p3 = (beatSync.seed % 41) / 41 * Math.PI * 2
@@ -252,7 +257,6 @@ export function SpotifyHomeModule({
       aY: `${aY.toFixed(2)}px`,
       aScale: `${(Math.sin(t * 4.8 + p2) * 0.045).toFixed(4)}`,
       aHue: `${(Math.sin(t * 1.9 + p3) * 14).toFixed(2)}deg`,
-      aBlur: `${(Math.sin(t * 3.3 + p1) * 2.6).toFixed(2)}px`,
       bX: `${bX.toFixed(2)}px`,
       bY: `${bY.toFixed(2)}px`,
       bScale: `${(Math.sin(t * 6.2 + p1) * 0.055).toFixed(4)}`,
@@ -264,11 +268,17 @@ export function SpotifyHomeModule({
       rightX: `${rightX.toFixed(2)}px`,
       rightY: `${rightY.toFixed(2)}px`,
     }
-  }, [beatSync.seed, displayProgressMs, nowPlayingState])
+  }, [beatSync.seed, nowPlaying?.progressMs, nowPlayingState])
+  // Same poll-cadence throttle as dynamicGlowMotion: use the server snapshot
+  // (progressMs, ~2 s) for the drift positions instead of displayProgressMs
+  // (~250–500 ms).  The parent div already has `transition-all duration-700`
+  // which smoothly interpolates the background change across 700 ms, so the
+  // 2 s update cadence produces fluid motion with zero extra JS work.
   const ambientShellStyle = useMemo<CSSProperties | undefined>(() => {
     if (!nowPlayingState || !albumColors.primary) return undefined
-    const driftA = Math.sin(displayProgressMs / 1250)
-    const driftB = Math.cos(displayProgressMs / 1500)
+    const pollMs = nowPlaying?.progressMs ?? 0
+    const driftA = Math.sin(pollMs / 1250)
+    const driftB = Math.cos(pollMs / 1500)
     const leftX = 16 + driftA * 8
     const rightX = 86 - driftB * 7
     return {
@@ -279,7 +289,7 @@ export function SpotifyHomeModule({
       `,
       opacity: beatSync.shellPulse,
     }
-  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary, beatSync.shellPulse, displayProgressMs, nowPlayingState])
+  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary, beatSync.shellPulse, nowPlaying?.progressMs, nowPlayingState])
 
   useEffect(() => {
     const next = nowPlaying?.albumArtUrl || ""
@@ -420,7 +430,6 @@ export function SpotifyHomeModule({
                           "--motion-ay": dynamicGlowMotion.aY,
                           "--motion-as": dynamicGlowMotion.aScale,
                           "--motion-ahue": dynamicGlowMotion.aHue,
-                          "--motion-ablur": dynamicGlowMotion.aBlur,
                         } as CSSProperties}
                       />
                       <span

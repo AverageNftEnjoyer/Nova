@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 
 const results = [];
 const engine = await import(
-  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/context/identity/engine.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/runtime/modules/context/identity/engine/index.js")).href,
 );
 
 function record(status, name, detail = "") {

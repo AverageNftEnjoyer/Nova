@@ -1,6 +1,6 @@
 import type { CSSProperties, Dispatch, MutableRefObject, SetStateAction } from "react"
 
-import type { IntegrationsSettings, LlmProvider } from "@/lib/integrations/client-store"
+import type { IntegrationsSettings, LlmProvider } from "@/lib/integrations/store/client-store"
 import type { IntegrationSetupKey } from "../components"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "../hooks"
 import type { CoinbasePendingAction, CoinbasePersistedSnapshot, CoinbasePrivacySettings } from "./coinbase/meta"
