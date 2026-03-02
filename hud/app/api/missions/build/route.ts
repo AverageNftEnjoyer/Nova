@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { buildMissionFromPrompt } from "@/lib/missions/runtime"
-import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { upsertMission } from "@/lib/missions/store"
 import { validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   if (!limit.allowed) return rateLimitExceededResponse(limit)
   const userId = verified.user.id
 
-  ensureNotificationSchedulerStarted()
+  ensureMissionSchedulerStarted()
   const startedAtMs = Date.now()
 
   let debugSelected = "server_llm=unknown model=unknown"

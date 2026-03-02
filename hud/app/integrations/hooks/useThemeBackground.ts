@@ -7,8 +7,8 @@ import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
   if (isLight) return settings.app.lightModeBackground ?? "none"
-  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
-  return settings.app.darkModeBackground ?? legacyDark
+  const fallbackDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? fallbackDark
 }
 
 /**

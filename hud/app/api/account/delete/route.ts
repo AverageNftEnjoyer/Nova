@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import path from "node:path"
-import { readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { createClient } from "@supabase/supabase-js"
 import { createSupabaseAdminClient, requireSupabaseApiUser } from "@/lib/supabase/server"
 import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env"
@@ -29,63 +29,11 @@ function normalizeUserContextId(value: unknown): string {
     .slice(0, 96)
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-async function pruneLegacySessionArtifacts(workspaceRoot: string, userContextId: string): Promise<void> {
-  const sessionsPath = path.join(workspaceRoot, ".agent", "sessions.json")
-  const legacyTranscriptsDir = path.join(workspaceRoot, ".agent", "transcripts")
-  const keyPattern = new RegExp(`:hud:user:${escapeRegExp(userContextId)}:`, "i")
-
-  const raw = await readFile(sessionsPath, "utf8").catch(() => "")
-  if (!raw) return
-
-  let parsed: Record<string, { sessionId?: unknown }> = {}
-  try {
-    const candidate = JSON.parse(raw) as Record<string, { sessionId?: unknown }>
-    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
-      parsed = candidate
-    }
-  } catch {
-    return
-  }
-
-  const sessionIdsToDelete = new Set<string>()
-  let changed = false
-  for (const [sessionKey, entry] of Object.entries(parsed)) {
-    if (!keyPattern.test(sessionKey)) continue
-    const sessionId = String(entry?.sessionId || "").trim()
-    if (sessionId) sessionIdsToDelete.add(sessionId)
-    delete parsed[sessionKey]
-    changed = true
-  }
-
-  if (changed) {
-    await writeFile(sessionsPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8").catch(() => {})
-  }
-
-  for (const sessionId of sessionIdsToDelete) {
-    const filePath = path.join(legacyTranscriptsDir, `${sessionId}.jsonl`)
-    await rm(filePath, { force: true }).catch(() => {})
-  }
-
-  const legacyEntries = await readdir(legacyTranscriptsDir, { withFileTypes: true }).catch(() => [])
-  for (const entry of legacyEntries) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".jsonl")) continue
-    const filePath = path.join(legacyTranscriptsDir, entry.name)
-    const transcript = await readFile(filePath, "utf8").catch(() => "")
-    if (!transcript || !keyPattern.test(transcript)) continue
-    await rm(filePath, { force: true }).catch(() => {})
-  }
-}
-
 async function pruneLocalUserArtifacts(workspaceRoot: string, userId: string): Promise<void> {
   const userContextId = normalizeUserContextId(userId)
   if (!userContextId) return
   const userContextPath = path.join(workspaceRoot, ".agent", "user-context", userContextId)
   await rm(userContextPath, { recursive: true, force: true }).catch(() => {})
-  await pruneLegacySessionArtifacts(workspaceRoot, userContextId)
 }
 
 export async function POST(req: Request) {

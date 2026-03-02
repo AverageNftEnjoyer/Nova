@@ -18,7 +18,6 @@ export class SessionStore {
   private readonly allowCrossContextLookup: boolean;
 
   private lastTranscriptPruneAt = 0;
-  private legacySessionMigrationDone = false;
   private readonly sessionUserContextCache = new Map<string, string>();
 
   public constructor(config: SessionConfig) {
@@ -72,9 +71,9 @@ export class SessionStore {
     if (!normalizedSessionId) return;
 
     const scopedUserContextId = this.resolveUserContextIdForSessionId(normalizedSessionId);
-    const transcriptFile = scopedUserContextId
-      ? this.getScopedTranscriptPath(normalizedSessionId, scopedUserContextId)
-      : this.getLegacyTranscriptPath(normalizedSessionId);
+    const effectiveContextId =
+      normalizeUserContextId(scopedUserContextId) || fallbackUserContextIdFromSessionKey(normalizedSessionId);
+    const transcriptFile = this.getScopedTranscriptPath(normalizedSessionId, effectiveContextId);
     if (!transcriptFile) return;
 
     const entry: TranscriptTurn = {
@@ -94,34 +93,15 @@ export class SessionStore {
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId) return [];
 
-    const legacyTurns = this.readTranscriptFile(this.getLegacyTranscriptPath(normalizedSessionId));
-
     const scopedUserContextId =
       normalizeUserContextId(userContextId) || this.resolveUserContextIdForSessionId(normalizedSessionId);
-    if (scopedUserContextId) {
-      const scopedPath = this.getScopedTranscriptPath(normalizedSessionId, scopedUserContextId);
-      if (scopedPath) {
-        const scopedTurns = this.readTranscriptFile(scopedPath);
-        if (legacyTurns.length > 0 && scopedTurns.length > 0) {
-          const seen = new Set<string>();
-          const merged: TranscriptTurn[] = [];
-          for (const turn of [...legacyTurns, ...scopedTurns]) {
-            const key = `${String(turn?.timestamp || "")}|${String(turn?.role || "")}|${String(turn?.content || "")}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            merged.push(turn);
-          }
-          return merged;
-        }
-        if (scopedTurns.length > 0) return scopedTurns;
-      }
-    }
-
-    return legacyTurns;
+    if (!scopedUserContextId) return [];
+    const scopedPath = this.getScopedTranscriptPath(normalizedSessionId, scopedUserContextId);
+    if (!scopedPath) return [];
+    return this.readTranscriptFile(scopedPath);
   }
 
   public getEntry(sessionKey: string, userContextId = ""): SessionEntry | null {
-    this.migrateLegacySessionStoreIfNeeded();
     const normalizedKey = String(sessionKey || "").trim();
     if (!normalizedKey) return null;
 
@@ -140,27 +120,13 @@ export class SessionStore {
       }
     }
 
-    const legacyStore = this.loadStoreFromPath(this.storePath, { createIfMissing: false });
-    const legacyEntry = legacyStore[normalizedKey] ?? null;
-    if (legacyEntry) {
-      const resolved =
-        normalizeUserContextId(legacyEntry.userContextId || "") ||
-        parseSessionKeyUserContext(legacyEntry.sessionKey || normalizedKey);
-      if (resolved && legacyEntry.sessionId) this.sessionUserContextCache.set(String(legacyEntry.sessionId), resolved);
-      return legacyEntry;
-    }
-
     if (this.allowCrossContextLookup) {
       try {
         const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
         for (const contextEntry of contextDirs) {
           if (!contextEntry.isDirectory()) continue;
           const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
-          let scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
-          if (Object.keys(scopedStore).length === 0) {
-            const legacyScopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
-            scopedStore = this.loadStoreFromPath(legacyScopedPath, { createIfMissing: false });
-          }
+          const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
           const entry = scopedStore[normalizedKey];
           if (!entry) continue;
           const resolved =
@@ -179,7 +145,6 @@ export class SessionStore {
   }
 
   public setEntry(sessionKey: string, entry: SessionEntry, userContextId = ""): void {
-    this.migrateLegacySessionStoreIfNeeded();
     const normalizedKey = String(sessionKey || "").trim();
     if (!normalizedKey) return;
 
@@ -234,51 +199,6 @@ export class SessionStore {
     fs.mkdirSync(this.userContextRoot, { recursive: true });
   }
 
-  public migrateLegacySessionStoreIfNeeded(): void {
-    if (this.legacySessionMigrationDone) return;
-    this.legacySessionMigrationDone = true;
-
-    const legacyStore = this.loadStoreFromPath(this.storePath, { createIfMissing: false });
-    const legacyKeys = Object.keys(legacyStore || {});
-    if (legacyKeys.length === 0) return;
-
-    const scopedStores = new Map<string, Record<string, SessionEntry>>();
-    let mutated = false;
-
-    for (const key of legacyKeys) {
-      const entry = legacyStore[key];
-      if (!entry || typeof entry !== "object") continue;
-
-      const contextId =
-        normalizeUserContextId(entry.userContextId || "") ||
-        parseSessionKeyUserContext(entry.sessionKey || key);
-      if (!contextId) continue;
-
-      const scopedPath = this.getScopedSessionStorePath(contextId);
-      if (!scopedPath) continue;
-
-      if (!scopedStores.has(scopedPath)) {
-        scopedStores.set(scopedPath, this.loadStoreFromPath(scopedPath));
-      }
-      const scopedStore = scopedStores.get(scopedPath);
-      if (!scopedStore) continue;
-
-      if (!scopedStore[key]) {
-        scopedStore[key] = {
-          ...entry,
-          userContextId: contextId,
-        };
-        mutated = true;
-      }
-    }
-
-    if (!mutated) return;
-
-    for (const [scopedPath, scopedStore] of scopedStores.entries()) {
-      this.saveStoreToPath(scopedPath, scopedStore);
-    }
-  }
-
   public resolveUserContextIdForSessionId(sessionId: string): string {
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId) return "";
@@ -288,39 +208,24 @@ export class SessionStore {
 
     let resolved = "";
     try {
-      const legacyStore = this.loadStoreFromPath(this.storePath, { createIfMissing: false });
-      for (const entry of Object.values(legacyStore)) {
-        if (!entry || typeof entry !== "object") continue;
-        if (String(entry.sessionId || "").trim() !== normalizedSessionId) continue;
-        resolved = normalizeUserContextId(entry.userContextId || "");
-        if (!resolved) resolved = parseSessionKeyUserContext(entry.sessionKey || "");
-        break;
-      }
-
-      if (!resolved) {
-        const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
-        for (const contextEntry of contextDirs) {
-          if (!contextEntry.isDirectory()) continue;
-          const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
-          let scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
-          if (Object.keys(scopedStore).length === 0) {
-            const legacyScopedPath = path.join(this.userContextRoot, contextEntry.name, "sessions.json");
-            scopedStore = this.loadStoreFromPath(legacyScopedPath, { createIfMissing: false });
-          }
-          for (const entry of Object.values(scopedStore)) {
-            if (!entry || typeof entry !== "object") continue;
-            if (String(entry.sessionId || "").trim() !== normalizedSessionId) continue;
-            resolved =
-              normalizeUserContextId(entry.userContextId || "") ||
-              normalizeUserContextId(contextEntry.name) ||
-              parseSessionKeyUserContext(entry.sessionKey || "");
-            break;
-          }
-          if (resolved) break;
+      const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
+      for (const contextEntry of contextDirs) {
+        if (!contextEntry.isDirectory()) continue;
+        const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
+        const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
+        for (const entry of Object.values(scopedStore)) {
+          if (!entry || typeof entry !== "object") continue;
+          if (String(entry.sessionId || "").trim() !== normalizedSessionId) continue;
+          resolved =
+            normalizeUserContextId(entry.userContextId || "") ||
+            normalizeUserContextId(contextEntry.name) ||
+            parseSessionKeyUserContext(entry.sessionKey || "");
+          break;
         }
+        if (resolved) break;
       }
     } catch {
-      // Ignore and fallback to legacy transcript path.
+      // Ignore lookup failures.
     }
 
     if (resolved) this.sessionUserContextCache.set(normalizedSessionId, resolved);
@@ -373,10 +278,6 @@ export class SessionStore {
     }
   }
 
-  private getLegacyTranscriptPath(sessionId: string): string {
-    return path.join(this.transcriptDir, `${sessionId}.jsonl`);
-  }
-
   private getScopedTranscriptPath(sessionId: string, userContextId: string): string {
     const normalized = normalizeUserContextId(userContextId);
     if (!normalized) return "";
@@ -389,28 +290,8 @@ export class SessionStore {
     return path.join(this.userContextRoot, normalized, "state", "sessions.json");
   }
 
-  private migrateLegacyScopedStoreIfNeeded(storePath: string): void {
-    if (!storePath || fs.existsSync(storePath)) return;
-    if (path.basename(storePath) !== "sessions.json") return;
-    if (path.basename(path.dirname(storePath)) !== "state") return;
-    const userDir = path.dirname(path.dirname(storePath));
-    const legacyScopedPath = path.join(userDir, "sessions.json");
-    if (!fs.existsSync(legacyScopedPath)) return;
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    try {
-      fs.renameSync(legacyScopedPath, storePath);
-    } catch {
-      try {
-        fs.copyFileSync(legacyScopedPath, storePath);
-      } catch {
-        // Best effort migration.
-      }
-    }
-  }
-
   private ensureStoreFile(storePath: string): void {
     if (!storePath) return;
-    this.migrateLegacyScopedStoreIfNeeded(storePath);
     fs.mkdirSync(path.dirname(storePath), { recursive: true });
     if (!fs.existsSync(storePath)) {
       fs.writeFileSync(storePath, "{}", "utf8");
@@ -460,17 +341,6 @@ export class SessionStore {
       fallbackUserContextIdFromSessionKey(sessionKey);
     const scopedPath = this.getScopedSessionStorePath(normalized);
     const scopedStore = this.loadStoreFromPath(scopedPath);
-    if (sessionKey && !scopedStore[sessionKey]) {
-      const legacyStore = this.loadStoreFromPath(this.storePath, { createIfMissing: false });
-      const legacyEntry = legacyStore[sessionKey];
-      if (legacyEntry && typeof legacyEntry === "object") {
-        scopedStore[sessionKey] = {
-          ...legacyEntry,
-          userContextId: normalized,
-        };
-        this.saveStoreToPath(scopedPath, scopedStore);
-      }
-    }
 
     return {
       userContextId: normalized,

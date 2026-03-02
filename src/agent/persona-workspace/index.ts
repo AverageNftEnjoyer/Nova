@@ -23,7 +23,7 @@ export function resolvePersonaWorkspaceDir(params: ResolvePersonaWorkspaceParams
     return userDir;
   }
 
-  // Preserve legacy behavior: seed from templates only for explicit user contexts.
+  // Seed from templates only for explicit user contexts.
   if (!normalized) return userDir;
 
   const templatesDir = path.join(workspaceRoot, "templates");

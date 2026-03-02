@@ -1,4 +1,4 @@
-export interface NotificationSchedule {
+export interface MissionListItem {
   id: string
   integration: string
   label: string
@@ -50,7 +50,7 @@ export type MissionRuntimeStatus =
   | { kind: "failed"; at: number }
 
 export interface MissionActionMenuState {
-  mission: NotificationSchedule
+  mission: MissionListItem
   left: number
   top: number
 }
@@ -132,3 +132,4 @@ export interface GeneratedMissionSummary {
   }
   workflowSteps?: Array<Partial<WorkflowStep>>
 }
+

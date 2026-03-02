@@ -47,7 +47,6 @@ export function resolveSession(params: {
 }): ResolveSessionResult {
   const now = params.now ?? Date.now();
   params.store.pruneOldTranscriptsIfNeeded();
-  params.store.migrateLegacySessionStoreIfNeeded();
 
   const sessionKey = buildSessionKey(params.config, params.agentName, params.inboundMessage);
   const resolvedUserContextId =

@@ -6,7 +6,7 @@ export type AccessTier = string
 export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
 export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
 export type SpotlightColor = OrbColor
-export type BackgroundType = "default" | "none" // legacy
+export type BackgroundType = "default" | "none" // compatibility background mode
 export type DarkBackgroundType = "floatingLines" | "space" | "none" | "customVideo"
 export type LightBackgroundType = "none"
 export type ThemeBackgroundType = DarkBackgroundType | LightBackgroundType
@@ -56,7 +56,7 @@ export interface AppSettings {
   accentColor: AccentColor
   orbColor: OrbColor
   spotlightColor: SpotlightColor
-  background: BackgroundType // legacy fallback for older installs
+  background: BackgroundType // compatibility fallback for older installs
   darkModeBackground: DarkBackgroundType
   lightModeBackground: LightBackgroundType
   spotlightEnabled: boolean

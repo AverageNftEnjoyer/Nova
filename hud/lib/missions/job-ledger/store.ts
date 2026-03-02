@@ -2,12 +2,13 @@ import "server-only"
 
 import { createSupabaseAdminClient } from "@/lib/supabase/server"
 import type {
-  ClaimResult,
   EnqueueJobInput,
   FinishJobInput,
+  GetPendingRunsInput,
   JobAuditEvent,
   JobLedgerStore,
   JobRun,
+  SchedulerLeaseResult,
 } from "./types"
 
 // ─── env helpers ────────────────────────────────────────────────────────────
@@ -288,32 +289,17 @@ export const jobLedger: JobLedgerStore = {
 
   async reclaimExpiredLeases() {
     const db = createSupabaseAdminClient()
-    const now = new Date().toISOString()
 
-    // Find all claimed rows whose lease has expired
-    const { data: expired, error } = await db
-      .from("job_runs")
-      .select("id")
-      .eq("status", "claimed")
-      .lt("lease_expires_at", now)
+    // Use server-side RPC so the expiry comparison uses Postgres now(),
+    // not JavaScript Date.now() which can skew vs. the DB clock.
+    const { data, error } = await db.rpc("reclaim_expired_job_leases")
 
-    if (error || !expired || expired.length === 0) return 0
+    if (error) {
+      console.warn("[JobLedger] reclaimExpiredLeases RPC error:", error.message)
+      return 0
+    }
 
-    const ids = expired.map((r: { id: string }) => r.id)
-
-    const { error: updateErr } = await db
-      .from("job_runs")
-      .update({
-        status: "pending",
-        lease_token: null,
-        lease_expires_at: null,
-        heartbeat_at: null,
-      })
-      .in("id", ids)
-      .eq("status", "claimed") // guard against concurrent update
-
-    if (updateErr) return 0
-    return ids.length
+    return (data as number) ?? 0
   },
 
   async cancelPendingForMission(input: { userId: string; missionId: string }) {
@@ -351,5 +337,123 @@ export const jobLedger: JobLedgerStore = {
     }
 
     await db.from("job_audit_events").insert(row)
+  },
+
+  // ─── Scheduler leader-election (Phase 2) ──────────────────────────────────
+
+  async acquireSchedulerLease(input: {
+    scope: string
+    holderId: string
+    ttlMs: number
+  }): Promise<SchedulerLeaseResult> {
+    const db = createSupabaseAdminClient()
+
+    const { data, error } = await db.rpc("acquire_scheduler_lease", {
+      p_scope: input.scope,
+      p_holder_id: input.holderId,
+      p_ttl_ms: input.ttlMs,
+    })
+
+    if (error || !data) {
+      console.warn("[JobLedger] acquireSchedulerLease RPC error:", error?.message)
+      return { acquired: false, reason: "db_error" }
+    }
+
+    // The SQL function always returns exactly 1 row (the current lease state).
+    const row = (data as Array<{
+      scope: string
+      holder_id: string
+      acquired_at: string
+      expires_at: string
+      acquired: boolean
+    }>)[0]
+
+    if (!row) {
+      console.warn("[JobLedger] acquireSchedulerLease: unexpected empty result")
+      return { acquired: false, reason: "db_error" }
+    }
+
+    if (!row.acquired) {
+      return { acquired: false, reason: "already_held" }
+    }
+
+    return {
+      acquired: true,
+      scope: row.scope,
+      holderId: row.holder_id,
+      expiresAt: row.expires_at,
+    }
+  },
+
+  async renewSchedulerLease(input: {
+    scope: string
+    holderId: string
+    ttlMs: number
+  }): Promise<{ ok: boolean }> {
+    const db = createSupabaseAdminClient()
+
+    // Use server-side RPC so expiry uses Postgres now() (no JS clock skew).
+    // Returns TRUE if this holderId still owns the lease; FALSE if stolen.
+    const { data, error } = await db.rpc("renew_scheduler_lease", {
+      p_scope: input.scope,
+      p_holder_id: input.holderId,
+      p_ttl_ms: input.ttlMs,
+    })
+
+    if (error) {
+      console.warn("[JobLedger] renewSchedulerLease RPC error:", error.message)
+      return { ok: false }
+    }
+
+    return { ok: data === true }
+  },
+
+  async releaseSchedulerLease(input: {
+    scope: string
+    holderId: string
+  }): Promise<{ ok: boolean }> {
+    const db = createSupabaseAdminClient()
+
+    const { error } = await db
+      .from("scheduler_leases")
+      .delete()
+      .eq("scope", input.scope)
+      .eq("holder_id", input.holderId)
+
+    if (error) {
+      console.warn("[JobLedger] releaseSchedulerLease error:", error.message)
+      return { ok: false }
+    }
+
+    return { ok: true }
+  },
+
+  // ─── Job-driven tick (Phase 2) ────────────────────────────────────────────
+
+  async getPendingRuns(input: GetPendingRunsInput): Promise<JobRun[]> {
+    const db = createSupabaseAdminClient()
+    const cutoff = (input.now ?? new Date()).toISOString()
+
+    let query = db
+      .from("job_runs")
+      .select("*")
+      .eq("status", "pending")
+      .lte("scheduled_for", cutoff)
+      .order("priority", { ascending: false })
+      .order("scheduled_for", { ascending: true })
+      .limit(input.limit)
+
+    if (input.userIds && input.userIds.length > 0) {
+      query = query.in("user_id", input.userIds)
+    }
+
+    const { data, error } = await query
+
+    if (error || !data) {
+      console.warn("[JobLedger] getPendingRuns error:", error?.message)
+      return []
+    }
+
+    return data as JobRun[]
   },
 }

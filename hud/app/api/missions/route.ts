@@ -23,10 +23,10 @@ export const dynamic = "force-dynamic"
 const NATIVE_MISSIONS_API_ENFORCED = String(process.env.NOVA_MISSIONS_NATIVE_API_ENFORCED || "1").trim().toLowerCase() !== "0"
 
 
-function hasLegacyMissionPayloadShape(input: unknown): boolean {
+function hasDeprecatedMissionPayloadShape(input: unknown): boolean {
   if (!input || typeof input !== "object") return false
   const row = input as Record<string, unknown>
-  // Native mission payloads always include graph fields; do not classify those as legacy.
+  // Native mission payloads always include graph fields; do not classify those as deprecated.
   if (Array.isArray(row.nodes) || Array.isArray(row.connections)) return false
   return (
     typeof row.message === "string" ||
@@ -244,11 +244,11 @@ export async function POST(req: Request) {
   if (!mission || !mission.id) {
     return NextResponse.json({ ok: false, error: "Mission with id is required." }, { status: 400 })
   }
-  if (NATIVE_MISSIONS_API_ENFORCED && hasLegacyMissionPayloadShape(mission)) {
+  if (NATIVE_MISSIONS_API_ENFORCED && hasDeprecatedMissionPayloadShape(mission)) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Legacy workflow payloads are blocked. Submit native mission graph payloads only (nodes + connections).",
+        error: "Deprecated workflow payloads are blocked. Submit native mission graph payloads only (nodes + connections).",
       },
       { status: 400 },
     )

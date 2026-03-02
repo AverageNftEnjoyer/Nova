@@ -2,7 +2,7 @@ import { streamText } from "ai"
 import { NextResponse } from "next/server"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
-import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.chat)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
-  ensureNotificationSchedulerStarted()
+  ensureMissionSchedulerStarted()
 
   try {
     const { messages, model } = await req.json()

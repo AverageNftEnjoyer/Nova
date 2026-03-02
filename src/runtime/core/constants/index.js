@@ -89,16 +89,16 @@ export const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "mai
 // ===== Request Timeouts =====
 export const OPENAI_REQUEST_TIMEOUT_MS = 45000;
 export const TOOL_LOOP_REQUEST_TIMEOUT_MS =
-  readIntEnv("NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS", 14000, { min: 3000, max: OPENAI_REQUEST_TIMEOUT_MS });
+  readIntEnv("NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS", 12000, { min: 3000, max: OPENAI_REQUEST_TIMEOUT_MS });
 export const TOOL_LOOP_MAX_DURATION_MS =
   readIntEnv("NOVA_TOOL_LOOP_MAX_DURATION_MS", 32000, { min: 5000, max: OPENAI_REQUEST_TIMEOUT_MS });
 export const TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS =
-  readIntEnv("NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS", 8000, { min: 1000, max: TOOL_LOOP_MAX_DURATION_MS });
+  readIntEnv("NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS", 7000, { min: 1000, max: TOOL_LOOP_MAX_DURATION_MS });
 export const TOOL_LOOP_RECOVERY_TIMEOUT_MS =
-  readIntEnv("NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS", 6000, { min: 1000, max: TOOL_LOOP_MAX_DURATION_MS });
+  readIntEnv("NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS", 5000, { min: 1000, max: TOOL_LOOP_MAX_DURATION_MS });
 export const TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP = readIntEnv(
   "NOVA_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP",
-  6,
+  4,
   { min: 1, max: 20 },
 );
 
@@ -239,9 +239,7 @@ export const SPOTIFY_INTENT_MAX_TOKENS = readIntEnv("NOVA_SPOTIFY_INTENT_MAX_TOK
   max: 1_000_000,
 });
 export const OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS = (() => {
-  const preferred = String(process.env.NOVA_OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS || "").trim();
-  const legacy = String(process.env.NOVA_OPENAI_TOOL_MAX_COMPLETION_TOKENS || "").trim();
-  const selected = preferred || legacy || "2048";
+  const selected = String(process.env.NOVA_OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS || "").trim() || "2048";
   const parsed = Number.parseInt(selected, 10);
   return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 1_000_000) : 2048;
 })();

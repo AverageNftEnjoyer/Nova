@@ -12,6 +12,13 @@ function assertPathExists(filePath, label) {
   assert.equal(fs.existsSync(filePath), true, `${label} missing: ${filePath}`);
 }
 
+function resolveExistingPath(candidates, label) {
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(`${label} moved; checked: ${candidates.join(", ")}`);
+}
+
 function record(status, name, detail = "") {
   results.push({ status, name, detail });
 }
@@ -44,19 +51,29 @@ assertPathExists(distWebSearchPath, "tool web search module");
 const coreRegistryModule = await import(pathToFileURL(distCoreRegistryPath).href);
 const coreExecutorModule = await import(pathToFileURL(distCoreExecutorPath).href);
 const coreProtocolModule = await import(pathToFileURL(distCoreProtocolPath).href);
-const linkUnderstandingPath = path.join(
-  process.cwd(),
-  "src",
-  "runtime",
-  "modules",
-  "chat",
-  "analysis",
-  "link-understanding.js",
-);
-assert.equal(
-  fs.existsSync(linkUnderstandingPath),
-  true,
-  `link understanding module moved; update smoke import path: ${linkUnderstandingPath}`,
+const linkUnderstandingPath = resolveExistingPath(
+  [
+    path.join(
+      process.cwd(),
+      "src",
+      "runtime",
+      "modules",
+      "chat",
+      "analysis",
+      "link-understanding",
+      "index.js",
+    ),
+    path.join(
+      process.cwd(),
+      "src",
+      "runtime",
+      "modules",
+      "chat",
+      "analysis",
+      "link-understanding.js",
+    ),
+  ],
+  "link understanding module",
 );
 const linkUnderstandingModule = await import(
   pathToFileURL(linkUnderstandingPath).href,

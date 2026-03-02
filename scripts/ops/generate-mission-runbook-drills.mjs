@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { MISSION_RELIABILITY_ACTIONS, renderMissionReliabilityGuidanceMarkdown } from "./mission-reliability-guidance.mjs";
 
 function parseArgs(argv) {
   const out = { days: 7, staleRunMinutes: 20, strict: false };
@@ -80,14 +81,13 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const userContextId = String(
     process.env.NOVA_REVIEW_USER_CONTEXT_ID ||
-      process.env.NOVA_SMOKE_USER_CONTEXT_ID ||
       process.env.NOVA_MISSION_REVIEW_USER_CONTEXT_ID ||
       "",
   )
     .trim()
     .toLowerCase();
   if (!userContextId) {
-    console.error("Missing user context. Set NOVA_REVIEW_USER_CONTEXT_ID or NOVA_SMOKE_USER_CONTEXT_ID.");
+    console.error("Missing user context. Set NOVA_REVIEW_USER_CONTEXT_ID or NOVA_MISSION_REVIEW_USER_CONTEXT_ID.");
     process.exit(1);
   }
 
@@ -121,19 +121,19 @@ async function main() {
       name: "failed-run drill",
       status: failedRunCount > 0 ? "pass" : "not_observed",
       evidence: `mission.run.failed count=${failedRunCount}`,
-      action: "Run failed mission triage from tasks/runbooks/mission-reliability-runbook.md (Run success regression).",
+      action: MISSION_RELIABILITY_ACTIONS.failedRun,
     },
     {
       name: "stuck-queue drill",
       status: stuckRunCount === 0 ? "pass" : "fail",
       evidence: `stale mission.run.started without terminal event count=${stuckRunCount}`,
-      action: "Run stuck queue triage from tasks/runbooks/mission-reliability-runbook.md (Run p95 breach / queue pressure).",
+      action: MISSION_RELIABILITY_ACTIONS.stuckQueue,
     },
     {
       name: "restore-failure drill",
       status: rollbackFailureCount > 0 ? "pass" : "not_observed",
       evidence: `mission.rollback.failed count=${rollbackFailureCount}`,
-      action: "Run rollback failure triage from tasks/runbooks/mission-reliability-runbook.md (restore path).",
+      action: MISSION_RELIABILITY_ACTIONS.restoreFailure,
     },
   ];
 
@@ -167,6 +167,8 @@ async function main() {
     "",
     "## Required Actions",
     ...drills.map((row) => `- ${row.name}: ${row.action}`),
+    "",
+    ...renderMissionReliabilityGuidanceMarkdown(),
   ];
   fs.writeFileSync(reportPath, `${lines.join("\n")}\n`, "utf8");
 

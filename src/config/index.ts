@@ -138,23 +138,23 @@ function pickEnum<T extends string>(value: string | undefined, allowed: readonly
 
 function resolveEnvOverrides(base: Config): Partial<Config> {
   const env = process.env;
-  // Support both NOVA_* (primary) and MYAGENT_* (legacy) env vars
+  // Nova-only environment overrides.
   return {
     agent: {
       ...base.agent,
-      name: env.NOVA_AGENT_NAME ?? env.MYAGENT_NAME ?? base.agent.name,
-      workspace: env.NOVA_WORKSPACE ?? env.MYAGENT_WORKSPACE ?? base.agent.workspace,
-      model: env.NOVA_MODEL ?? env.MYAGENT_MODEL ?? base.agent.model,
-      maxTokens: toIntInRange(env.NOVA_MAX_TOKENS ?? env.MYAGENT_MAX_TOKENS, base.agent.maxTokens, 1, 1_000_000),
-      apiKey: env.ANTHROPIC_API_KEY ?? env.NOVA_API_KEY ?? env.MYAGENT_API_KEY ?? base.agent.apiKey,
+      name: env.NOVA_AGENT_NAME ?? base.agent.name,
+      workspace: env.NOVA_WORKSPACE ?? base.agent.workspace,
+      model: env.NOVA_MODEL ?? base.agent.model,
+      maxTokens: toIntInRange(env.NOVA_MAX_TOKENS, base.agent.maxTokens, 1, 1_000_000),
+      apiKey: env.ANTHROPIC_API_KEY ?? env.NOVA_API_KEY ?? base.agent.apiKey,
       bootstrapMaxChars: toIntInRange(
-        env.NOVA_BOOTSTRAP_MAX_CHARS ?? env.MYAGENT_BOOTSTRAP_MAX_CHARS,
+        env.NOVA_BOOTSTRAP_MAX_CHARS,
         base.agent.bootstrapMaxChars,
         1_000,
         5_000_000,
       ),
       bootstrapTotalMaxChars: toIntInRange(
-        env.NOVA_BOOTSTRAP_TOTAL_MAX_CHARS ?? env.MYAGENT_BOOTSTRAP_TOTAL_MAX_CHARS,
+        env.NOVA_BOOTSTRAP_TOTAL_MAX_CHARS,
         base.agent.bootstrapTotalMaxChars,
         1_000,
         5_000_000,
@@ -163,50 +163,50 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
     session: {
       ...base.session,
       scope: pickEnum(
-        env.NOVA_SESSION_SCOPE ?? env.MYAGENT_SESSION_SCOPE,
+        env.NOVA_SESSION_SCOPE,
         ["per-sender", "per-channel", "per-channel-peer"],
         base.session.scope,
       ),
       dmScope: pickEnum(
-        env.NOVA_DM_SCOPE ?? env.MYAGENT_DM_SCOPE,
+        env.NOVA_DM_SCOPE,
         ["main", "per-channel-peer"],
         base.session.dmScope,
       ),
-      storePath: env.NOVA_SESSION_STORE_PATH ?? env.MYAGENT_SESSION_STORE_PATH ?? base.session.storePath,
-      transcriptDir: env.NOVA_TRANSCRIPT_DIR ?? env.MYAGENT_TRANSCRIPT_DIR ?? base.session.transcriptDir,
-      userContextRoot: env.NOVA_USER_CONTEXT_ROOT ?? env.MYAGENT_USER_CONTEXT_ROOT ?? base.session.userContextRoot,
-      mainKey: env.NOVA_SESSION_MAIN_KEY ?? env.MYAGENT_MAIN_KEY ?? base.session.mainKey,
+      storePath: env.NOVA_SESSION_STORE_PATH ?? base.session.storePath,
+      transcriptDir: env.NOVA_TRANSCRIPT_DIR ?? base.session.transcriptDir,
+      userContextRoot: env.NOVA_USER_CONTEXT_ROOT ?? base.session.userContextRoot,
+      mainKey: env.NOVA_SESSION_MAIN_KEY ?? base.session.mainKey,
       resetMode: pickEnum(
-        env.NOVA_RESET_MODE ?? env.MYAGENT_RESET_MODE,
+        env.NOVA_RESET_MODE,
         ["daily", "idle", "manual"],
         base.session.resetMode,
       ),
-      resetAtHour: toIntInRange(env.NOVA_RESET_AT_HOUR ?? env.MYAGENT_RESET_AT_HOUR, base.session.resetAtHour, 0, 23),
-      idleMinutes: toIntInRange(env.NOVA_SESSION_IDLE_MINUTES ?? env.MYAGENT_IDLE_MINUTES, base.session.idleMinutes, 1, 10_080),
+      resetAtHour: toIntInRange(env.NOVA_RESET_AT_HOUR, base.session.resetAtHour, 0, 23),
+      idleMinutes: toIntInRange(env.NOVA_SESSION_IDLE_MINUTES, base.session.idleMinutes, 1, 10_080),
       maxHistoryTurns: toIntInRange(
-        env.NOVA_SESSION_MAX_TURNS ?? env.MYAGENT_MAX_HISTORY_TURNS,
+        env.NOVA_SESSION_MAX_TURNS,
         base.session.maxHistoryTurns,
         1,
         10_000,
       ),
       dmHistoryTurns: toIntInRange(
-        env.NOVA_DM_HISTORY_TURNS ?? env.MYAGENT_DM_HISTORY_TURNS,
+        env.NOVA_DM_HISTORY_TURNS,
         base.session.dmHistoryTurns,
         1,
         10_000,
       ),
       transcriptsEnabled: toBoolean(
-        env.NOVA_SESSION_TRANSCRIPTS_ENABLED ?? env.MYAGENT_SESSION_TRANSCRIPTS_ENABLED,
+        env.NOVA_SESSION_TRANSCRIPTS_ENABLED,
         base.session.transcriptsEnabled,
       ),
       maxTranscriptLines: toIntInRange(
-        env.NOVA_SESSION_MAX_TRANSCRIPT_LINES ?? env.MYAGENT_SESSION_MAX_TRANSCRIPT_LINES,
+        env.NOVA_SESSION_MAX_TRANSCRIPT_LINES,
         base.session.maxTranscriptLines,
         1,
         1_000_000,
       ),
       transcriptRetentionDays: toIntInRange(
-        env.NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS ?? env.MYAGENT_SESSION_TRANSCRIPT_RETENTION_DAYS,
+        env.NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS,
         base.session.transcriptRetentionDays,
         1,
         3_650,
@@ -214,44 +214,44 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
     },
     memory: {
       ...base.memory,
-      enabled: toBoolean(env.NOVA_MEMORY_ENABLED ?? env.MYAGENT_MEMORY_ENABLED, base.memory.enabled),
-      dbPath: env.NOVA_MEMORY_DB_PATH ?? env.MYAGENT_MEMORY_DB_PATH ?? base.memory.dbPath,
+      enabled: toBoolean(env.NOVA_MEMORY_ENABLED, base.memory.enabled),
+      dbPath: env.NOVA_MEMORY_DB_PATH ?? base.memory.dbPath,
       embeddingProvider: pickEnum(
-        env.NOVA_EMBEDDING_PROVIDER ?? env.MYAGENT_EMBEDDING_PROVIDER,
+        env.NOVA_EMBEDDING_PROVIDER,
         ["openai", "local"],
         base.memory.embeddingProvider,
       ),
-      embeddingModel: env.NOVA_EMBEDDING_MODEL ?? env.MYAGENT_EMBEDDING_MODEL ?? base.memory.embeddingModel,
-      embeddingApiKey: env.OPENAI_API_KEY ?? env.NOVA_EMBEDDING_API_KEY ?? env.MYAGENT_EMBEDDING_API_KEY ?? base.memory.embeddingApiKey,
-      chunkSize: toIntInRange(env.NOVA_MEMORY_CHUNK_SIZE ?? env.MYAGENT_CHUNK_SIZE, base.memory.chunkSize, 1, 100_000),
-      chunkOverlap: toIntInRange(env.NOVA_MEMORY_CHUNK_OVERLAP ?? env.MYAGENT_CHUNK_OVERLAP, base.memory.chunkOverlap, 0, 50_000),
+      embeddingModel: env.NOVA_EMBEDDING_MODEL ?? base.memory.embeddingModel,
+      embeddingApiKey: env.OPENAI_API_KEY ?? env.NOVA_EMBEDDING_API_KEY ?? base.memory.embeddingApiKey,
+      chunkSize: toIntInRange(env.NOVA_MEMORY_CHUNK_SIZE, base.memory.chunkSize, 1, 100_000),
+      chunkOverlap: toIntInRange(env.NOVA_MEMORY_CHUNK_OVERLAP, base.memory.chunkOverlap, 0, 50_000),
       hybridVectorWeight: toFloatInRange(
-        env.NOVA_MEMORY_VECTOR_WEIGHT ?? env.MYAGENT_HYBRID_VECTOR_WEIGHT,
+        env.NOVA_MEMORY_VECTOR_WEIGHT,
         base.memory.hybridVectorWeight,
         0,
         1,
       ),
       hybridBm25Weight: toFloatInRange(
-        env.NOVA_MEMORY_BM25_WEIGHT ?? env.MYAGENT_HYBRID_BM25_WEIGHT,
+        env.NOVA_MEMORY_BM25_WEIGHT,
         base.memory.hybridBm25Weight,
         0,
         1,
       ),
-      topK: toIntInRange(env.NOVA_MEMORY_TOP_K ?? env.MYAGENT_MEMORY_TOP_K, base.memory.topK, 1, 1_000),
-      syncOnSessionStart: toBoolean(env.NOVA_MEMORY_SYNC_ON_START ?? env.MYAGENT_MEMORY_SYNC_ON_START, base.memory.syncOnSessionStart),
-      sourceDirs: splitCsv(env.NOVA_MEMORY_SOURCE_DIRS ?? env.MYAGENT_MEMORY_SOURCE_DIRS, base.memory.sourceDirs),
+      topK: toIntInRange(env.NOVA_MEMORY_TOP_K, base.memory.topK, 1, 1_000),
+      syncOnSessionStart: toBoolean(env.NOVA_MEMORY_SYNC_ON_START, base.memory.syncOnSessionStart),
+      sourceDirs: splitCsv(env.NOVA_MEMORY_SOURCE_DIRS, base.memory.sourceDirs),
     },
     tools: {
       ...base.tools,
-      enabledTools: splitCsv(env.NOVA_ENABLED_TOOLS ?? env.MYAGENT_ENABLED_TOOLS, base.tools.enabledTools),
+      enabledTools: splitCsv(env.NOVA_ENABLED_TOOLS, base.tools.enabledTools),
       execApprovalMode: pickEnum(
-        env.NOVA_EXEC_APPROVAL_MODE ?? env.MYAGENT_EXEC_APPROVAL_MODE,
+        env.NOVA_EXEC_APPROVAL_MODE,
         ["ask", "auto", "off"],
         base.tools.execApprovalMode,
       ),
-      safeBinaries: splitCsv(env.NOVA_SAFE_BINARIES ?? env.MYAGENT_SAFE_BINARIES, base.tools.safeBinaries),
+      safeBinaries: splitCsv(env.NOVA_SAFE_BINARIES, base.tools.safeBinaries),
       webSearchProvider: "brave",
-      webSearchApiKey: env.BRAVE_API_KEY ?? env.NOVA_WEB_SEARCH_API_KEY ?? env.MYAGENT_WEB_SEARCH_API_KEY ?? base.tools.webSearchApiKey,
+      webSearchApiKey: env.BRAVE_API_KEY ?? env.NOVA_WEB_SEARCH_API_KEY ?? base.tools.webSearchApiKey,
     },
   };
 }
@@ -293,3 +293,4 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): Config {
 }
 
 export { DEFAULT_CONFIG_PATH };
+

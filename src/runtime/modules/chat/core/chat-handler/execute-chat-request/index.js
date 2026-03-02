@@ -41,7 +41,7 @@ import {
   syncIdentityIntelligenceFromTurn,
 } from "../../../context/identity/engine/index.js";
 import { syncPersonalityFromTurn } from "../../../context/personality/index.js";
-import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../../context/memory/index.js";
+import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../../../../../memory/runtime-compat/index.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../../context/skill-preferences/index.js";
 import { buildRuntimeSkillsPrompt } from "../../../context/skills/index.js";
 import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../routing/intent-router.js";

@@ -13,11 +13,10 @@ import type {
   NodeOutput,
   ExecutionContext,
 } from "../../types/index"
-import { dispatchOutput } from "../../output/dispatch"
+import { dispatchOutput, type MissionOutputDispatchTarget } from "../../output/dispatch"
 import { humanizeMissionOutputText } from "../../output/formatters"
 import { applyMissionOutputQualityGuardrails } from "../../output/quality"
 import { aggregateUpstreamNodeText, buildDeterministicMorningBriefing } from "../../output/briefing-presenter"
-import type { NotificationSchedule } from "@/lib/notifications/store"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,21 +94,11 @@ async function dispatchToChannel(
   const guardrailContext = fetchResults.length > 0 ? { fetchResults } : undefined
   const { text: guarded } = applyMissionOutputQualityGuardrails(humanized, guardrailContext)
 
-  const legacySchedule: NotificationSchedule = {
-    id: ctx.missionId || "",
-    userId: String(ctx.scope?.userId || ctx.scope?.user?.id || ""),
-    label: ctx.missionLabel,
-    integration: channel,
-    chatIds,
+  const dispatchTarget: MissionOutputDispatchTarget = {
+    missionId: ctx.missionId || "",
+    userContextId: String(ctx.scope?.userId || ctx.scope?.user?.id || ""),
+    missionLabel: ctx.missionLabel,
     timezone: resolveTimezone(ctx.mission?.settings?.timezone),
-    message: "",
-    time: "09:00",
-    enabled: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    runCount: 0,
-    successCount: 0,
-    failureCount: 0,
   }
 
   try {
@@ -117,7 +106,7 @@ async function dispatchToChannel(
       channel,
       guarded,
       chatIds,
-      legacySchedule,
+      dispatchTarget,
       ctx.scope,
       {
         missionRunId: ctx.runId,

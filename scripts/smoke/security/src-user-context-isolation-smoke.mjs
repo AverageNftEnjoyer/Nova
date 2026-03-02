@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { createRequestScheduler } from "../../../src/runtime/infrastructure/request-scheduler/index.js";
-import { createSessionRuntime } from "../../../src/session/runtime-compat.js";
+import { createSessionRuntime } from "../../../src/session/runtime-compat/index.js";
 import { applyMemoryFactsToWorkspace } from "../../../src/runtime/modules/chat/core/chat-utils/index.js";
 import { extractAutoMemoryFacts } from "../../../src/memory/runtime-compat/index.js";
 

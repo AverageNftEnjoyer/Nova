@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
-import { ensureMemoryTemplate, upsertMemoryFactInMarkdown } from "../../context/memory/index.js";
+import { ensureMemoryTemplate, upsertMemoryFactInMarkdown } from "../../../../../memory/runtime-compat/index.js";
 
 const MISSION_CONFIRM_TTL_MS = Number.parseInt(process.env.NOVA_MISSION_CONFIRM_TTL_MS || "600000", 10);
 const missionConfirmBySession = new Map();

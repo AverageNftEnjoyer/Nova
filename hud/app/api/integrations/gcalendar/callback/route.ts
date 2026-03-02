@@ -1,7 +1,7 @@
 /**
- * Legacy Google Calendar OAuth callback alias.
+ * Deprecated Google Calendar OAuth callback alias.
  *
- * Backward compatibility for configurations still pointing to:
+ * Compatibility for configurations still pointing to:
  * /api/integrations/gcalendar/callback
  */
 import { GET as gmailCalendarCallbackGet } from "@/app/api/integrations/gmail-calendar/callback/route"

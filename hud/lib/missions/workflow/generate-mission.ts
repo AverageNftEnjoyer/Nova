@@ -2,7 +2,7 @@
  * Mission Generation — V.29 Native
  *
  * Generates Missions directly as native MissionNode[] + MissionConnection[].
- * The LLM outputs the new graph format directly — no legacy WorkflowStep
+ * The LLM outputs the new graph format directly — no WorkflowStep
  * conversion path needed.
  */
 

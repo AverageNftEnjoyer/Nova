@@ -291,7 +291,7 @@ function unwrapStoredSecret(value: unknown): string {
       const looksEncryptedEnvelope = iv.length === 12 && tag.length === 16 && enc.length > 0
       if (looksEncryptedEnvelope) return ""
     } catch {
-      // fall through to legacy plaintext handling
+      // fall through to plaintext handling
     }
   }
   return raw
@@ -364,26 +364,6 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       }
     })
     .filter((account): account is NonNullable<typeof account> => Boolean(account))
-
-  const legacyEmail = raw?.gmail?.email?.trim() ?? ""
-  const legacyRefresh = wrapStoredSecret(raw?.gmail?.refreshTokenEnc)
-  const legacyAccess = wrapStoredSecret(raw?.gmail?.accessTokenEnc)
-  const hasLegacyTokens = legacyRefresh.length > 0 || legacyAccess.length > 0
-  const hasLegacyAccount = legacyEmail.length > 0 || hasLegacyTokens
-  if (normalizedGmailAccounts.length === 0 && hasLegacyAccount) {
-    normalizedGmailAccounts.push({
-      id: legacyEmail.toLowerCase() || "gmail-primary",
-      email: legacyEmail || "primary@gmail.local",
-      scopes: Array.isArray(raw?.gmail?.scopes)
-        ? raw!.gmail!.scopes.map((scope) => String(scope).trim()).filter(Boolean)
-        : [],
-      enabled: true,
-      accessTokenEnc: legacyAccess,
-      refreshTokenEnc: legacyRefresh,
-      tokenExpiry: typeof raw?.gmail?.tokenExpiry === "number" ? raw.gmail.tokenExpiry : 0,
-      connectedAt: new Date().toISOString(),
-    })
-  }
 
   const enabledAccounts = normalizedGmailAccounts.filter((account) => account.enabled)
   const activeAccountId = String(raw?.gmail?.activeAccountId || "").trim()
@@ -495,20 +475,16 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
     },
     gmail: {
       connected: (raw?.gmail?.connected ?? DEFAULT_CONFIG.gmail.connected) && enabledAccounts.length > 0,
-      email: selectedAccount?.email || legacyEmail,
-      scopes: selectedAccount?.scopes || (
-        Array.isArray(raw?.gmail?.scopes)
-          ? raw!.gmail!.scopes.map((scope) => String(scope).trim()).filter(Boolean)
-          : []
-      ),
+      email: selectedAccount?.email || "",
+      scopes: selectedAccount?.scopes || [],
       accounts: normalizedGmailAccounts,
       activeAccountId: selectedAccount?.id || "",
       oauthClientId: raw?.gmail?.oauthClientId?.trim() ?? "",
       oauthClientSecret: unwrapStoredSecret(raw?.gmail?.oauthClientSecret),
       redirectUri: raw?.gmail?.redirectUri?.trim() || DEFAULT_CONFIG.gmail.redirectUri,
-      accessTokenEnc: selectedAccount?.accessTokenEnc || legacyAccess,
-      refreshTokenEnc: selectedAccount?.refreshTokenEnc || legacyRefresh,
-      tokenExpiry: selectedAccount?.tokenExpiry || (typeof raw?.gmail?.tokenExpiry === "number" ? raw.gmail.tokenExpiry : 0),
+      accessTokenEnc: selectedAccount?.accessTokenEnc || "",
+      refreshTokenEnc: selectedAccount?.refreshTokenEnc || "",
+      tokenExpiry: selectedAccount?.tokenExpiry || 0,
     },
     gcalendar: (() => {
       const rawGcalAccounts = Array.isArray(raw?.gcalendar?.accounts) ? raw!.gcalendar!.accounts : []

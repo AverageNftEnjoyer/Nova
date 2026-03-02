@@ -15,7 +15,6 @@ import {
 // Module-internal cache — not exported
 const SKILL_DISCOVERY_CACHE = new Map();
 const STARTER_SKILLS_SEEDED_DIRS = new Set();
-const LEGACY_STARTER_SKILLS_PRUNED_DIRS = new Set();
 const BINARY_AVAILABILITY_CACHE = new Map();
 const RUNTIME_SKILLS_PROMPT_CACHE = new Map();
 const RUNTIME_SKILLS_PROMPT_CACHE_TTL_MS = Math.max(
@@ -349,7 +348,7 @@ function parseMetadataReadWhenInline(value) {
   }
 }
 
-function normalizeLegacyReadWhenList(frontmatter, initialHints = []) {
+function normalizeReadWhenList(frontmatter, initialHints = []) {
   const lines = String(frontmatter || "").split("\n");
   const readWhen = [...initialHints];
   for (let i = 0; i < lines.length; i += 1) {
@@ -426,7 +425,7 @@ export function extractSkillMetadata(content) {
           continue;
         }
       }
-      return { description, readWhen: normalizeLegacyReadWhenList(frontmatter, readWhen) };
+      return { description, readWhen: normalizeReadWhenList(frontmatter, readWhen) };
     }
   }
 
@@ -658,42 +657,6 @@ export function ensureStarterSkillsForUser(personaWorkspaceDir) {
     STARTER_SKILLS_SEEDED_DIRS.add(userSkillsDir);
   } catch (e) {
     console.error("[Skills] ensureStarterSkillsForUser failed:", e?.message, "dir:", userSkillsDir);
-  }
-}
-
-function pruneLegacyStarterSkills(personaWorkspaceDir) {
-  if (!personaWorkspaceDir) return;
-  const legacySkillsDir = path.join(personaWorkspaceDir, "skills");
-  if (LEGACY_STARTER_SKILLS_PRUNED_DIRS.has(legacySkillsDir)) return;
-  LEGACY_STARTER_SKILLS_PRUNED_DIRS.add(legacySkillsDir);
-  if (!fs.existsSync(legacySkillsDir)) return;
-
-  let entries = [];
-  try {
-    entries = fs.readdirSync(legacySkillsDir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  let removed = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillName = String(entry.name || "").trim();
-    if (!skillName || !STARTER_SKILL_NAMES.has(skillName)) continue;
-    const skillDir = path.join(legacySkillsDir, skillName);
-    try {
-      fs.rmSync(skillDir, { recursive: true, force: true });
-      removed += 1;
-    } catch {}
-  }
-
-  const metaPath = path.join(legacySkillsDir, STARTER_SKILL_META_FILE);
-  try {
-    if (fs.existsSync(metaPath)) fs.rmSync(metaPath, { force: true });
-  } catch {}
-
-  if (removed > 0) {
-    console.log(`[Skills] Pruned ${removed} legacy starter skill folder(s) from user context.`);
   }
 }
 

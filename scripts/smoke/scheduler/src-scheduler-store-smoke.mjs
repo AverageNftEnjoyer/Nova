@@ -26,17 +26,17 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const storeSource = read("hud/lib/notifications/store.ts");
-const schedulerSource = read("hud/lib/notifications/scheduler.ts");
+const storeSource = read("hud/lib/missions/store/index.ts");
+const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
 
-await run("P18-C1 notification store uses schema versioned payloads", async () => {
-  assert.equal(storeSource.includes("STORE_SCHEMA_VERSION"), true);
-  assert.equal(storeSource.includes("interface NotificationScheduleStoreFile"), true);
-  assert.equal(storeSource.includes("normalizeStorePayload"), true);
-  assert.equal(storeSource.includes("migratedAt"), true);
+await run("P18-C1 mission store uses schema versioned payloads", async () => {
+  assert.equal(storeSource.includes("MISSIONS_SCHEMA_VERSION"), true);
+  assert.equal(storeSource.includes("interface MissionsStoreFile"), true);
+  assert.equal(storeSource.includes("normalizeMission"), true);
+  assert.equal(storeSource.includes("defaultStorePayload"), true);
 });
 
-await run("P18-C2 notification store writes atomically with backup fallback", async () => {
+await run("P18-C2 mission store writes atomically with backup fallback", async () => {
   assert.equal(storeSource.includes("atomicWriteJson"), true);
   assert.equal(storeSource.includes("randomBytes"), true);
   assert.equal(storeSource.includes("rename(tmpPath, resolved)"), true);
@@ -44,14 +44,16 @@ await run("P18-C2 notification store writes atomically with backup fallback", as
   assert.equal(storeSource.includes("writesByPath"), true);
 });
 
-await run("P18-C3 notification store recovers from primary-file corruption", async () => {
-  assert.equal(storeSource.includes("readFile(`${dataFile}.bak`, \"utf8\")"), true);
+await run("P18-C3 mission store recovers from primary-file corruption", async () => {
+  assert.equal(storeSource.includes("readFile(`${file}.bak`, \"utf8\")"), true);
   assert.equal(storeSource.includes("defaultStorePayload()"), true);
 });
 
-await run("P18-C4 scheduler still persists post-run state through store", async () => {
-  assert.equal(schedulerSource.includes("await saveSchedules(nextSchedules, { allUsers: true })"), true);
+await run("P18-C4 scheduler persists post-run state via mission store", async () => {
+  assert.equal(schedulerSource.includes("upsertMission"), true);
   assert.equal(schedulerSource.includes("runScheduleTickInternal"), true);
+  assert.equal(schedulerSource.includes("lastRunAt"), true);
+  assert.equal(schedulerSource.includes("lastSentLocalDate"), true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

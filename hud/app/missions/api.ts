@@ -1,4 +1,4 @@
-import type { GeneratedMissionSummary, NotificationSchedule } from "./types"
+import type { GeneratedMissionSummary, MissionListItem } from "./types"
 
 export interface ApiResult<T> {
   ok: boolean
@@ -41,19 +41,9 @@ function hashMissionBuildSeed(seed: string): string {
 
 const missionBuildInFlight = new Map<string, Promise<ApiResult<BuildMissionResponse>>>()
 
-export interface SchedulesListResponse {
-  schedules?: NotificationSchedule[]
-  error?: string
-}
-
 export interface MissionsListResponse {
   ok?: boolean
   missions?: unknown[]
-  error?: string
-}
-
-export interface ScheduleMutationResponse {
-  schedule?: NotificationSchedule
   error?: string
 }
 
@@ -78,7 +68,7 @@ export interface TriggerMissionResponse {
   results?: Array<{ ok?: boolean; status?: number; error?: string }>
   telegramQueued?: boolean
   error?: string
-  schedule?: NotificationSchedule
+  schedule?: MissionListItem
 }
 
 export interface BuildMissionResponse {
@@ -97,6 +87,12 @@ export interface BuildMissionResponse {
     integration?: string
     summary?: GeneratedMissionSummary
   }
+}
+
+export interface MissionMutationResponse {
+  ok?: boolean
+  mission?: unknown
+  error?: string
 }
 
 export interface NovaSuggestResponse {
@@ -192,10 +188,6 @@ export interface MissionReliabilityResponse {
   totalEvents?: number
 }
 
-export function fetchSchedules() {
-  return requestJson<SchedulesListResponse>("/api/notifications/schedules", { cache: "no-store" })
-}
-
 export function fetchMissions() {
   return requestJson<MissionsListResponse>("/api/missions", { cache: "no-store" })
 }
@@ -204,29 +196,11 @@ export function fetchIntegrationCatalog() {
   return requestJson<IntegrationCatalogResponse>("/api/integrations/catalog", { cache: "no-store" })
 }
 
-export function createMissionSchedule(payload: Record<string, unknown>) {
-  return requestJson<ScheduleMutationResponse>("/api/notifications/schedules", {
+export function saveMissionRecord(mission: unknown) {
+  return requestJson<MissionMutationResponse>("/api/missions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-}
-
-export function updateMissionSchedule(payload: Record<string, unknown>) {
-  return requestJson<ScheduleMutationResponse>("/api/notifications/schedules", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).then(async (result) => {
-    if (result.status !== 404) return result
-    // Upsert fallback: some mission graph saves do not have a legacy schedule row yet.
-    return createMissionSchedule(payload)
-  })
-}
-
-export function deleteMissionSchedule(id: string) {
-  return requestJson<ScheduleMutationResponse>(`/api/notifications/schedules?id=${encodeURIComponent(id)}`, {
-    method: "DELETE",
+    body: JSON.stringify({ mission }),
   })
 }
 
@@ -240,11 +214,11 @@ export function fetchMissionById(id: string) {
   return requestJson<MissionRecordResponse>(`/api/missions?id=${encodeURIComponent(id)}`, { cache: "no-store" })
 }
 
-export function triggerMissionSchedule(scheduleId: string) {
-  return requestJson<TriggerMissionResponse>("/api/notifications/trigger", {
+export function triggerMissionSchedule(missionId: string) {
+  return requestJson<TriggerMissionResponse>("/api/missions/trigger", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ scheduleId }),
+    body: JSON.stringify({ missionId }),
   })
 }
 
@@ -267,25 +241,25 @@ export interface TriggerMissionStreamEvent {
 }
 
 export function triggerMissionScheduleStream(
-  scheduleId: string,
+  missionId: string,
   onEvent?: (event: TriggerMissionStreamEvent) => void,
 ) {
   return new Promise<TriggerMissionResponse>((resolve, reject) => {
     if (typeof window === "undefined") {
-      void triggerMissionSchedule(scheduleId)
+      void triggerMissionSchedule(missionId)
         .then((res) => resolve(res.data as TriggerMissionResponse))
         .catch((error) => reject(error))
       return
     }
     void (async () => {
       try {
-        const res = await fetch(`/api/notifications/trigger/stream?scheduleId=${encodeURIComponent(scheduleId)}`, {
+        const res = await fetch(`/api/missions/trigger/stream?missionId=${encodeURIComponent(missionId)}`, {
           method: "GET",
           headers: { Accept: "text/event-stream" },
           cache: "no-store",
         })
         if (!res.ok || !res.body) {
-          const fallback = await triggerMissionSchedule(scheduleId)
+          const fallback = await triggerMissionSchedule(missionId)
           resolve(fallback.data as TriggerMissionResponse)
           return
         }
@@ -328,12 +302,12 @@ export function triggerMissionScheduleStream(
         }
 
         if (!settled) {
-          const fallback = await triggerMissionSchedule(scheduleId)
+          const fallback = await triggerMissionSchedule(missionId)
           resolve(fallback.data as TriggerMissionResponse)
         }
       } catch (error) {
         try {
-          const fallback = await triggerMissionSchedule(scheduleId)
+          const fallback = await triggerMissionSchedule(missionId)
           resolve(fallback.data as TriggerMissionResponse)
         } catch {
           reject(error instanceof Error ? error : new Error("Mission progress stream failed."))
@@ -439,3 +413,4 @@ export function fetchMissionReliability(payload?: { days?: number }) {
     cache: "no-store",
   })
 }
+

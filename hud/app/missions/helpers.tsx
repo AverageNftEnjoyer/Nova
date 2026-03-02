@@ -6,10 +6,10 @@ import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { AI_MODEL_OPTIONS, STEP_TYPE_OPTIONS } from "./constants"
-import type { AiIntegrationType, NotificationSchedule, WorkflowStep, WorkflowStepType } from "./types"
+import type { AiIntegrationType, MissionListItem, WorkflowStep, WorkflowStepType } from "./types"
 
 interface BuildBuilderWorkflowStepsInput {
-  mission: NotificationSchedule
+  mission: MissionListItem
   rawSteps?: Array<Partial<WorkflowStep>>
   idPrefix: string
   detectedTimezone: string
@@ -83,8 +83,8 @@ export function normalizePriority(value: string | undefined): "low" | "medium" |
 export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
   if (isLight) return settings.app.lightModeBackground ?? "none"
-  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
-  return settings.app.darkModeBackground ?? legacyDark
+  const fallbackDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? fallbackDark
 }
 
 export function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
@@ -236,3 +236,4 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
     }
   })
 }
+

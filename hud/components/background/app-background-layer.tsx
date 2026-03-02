@@ -33,8 +33,8 @@ const PERSISTENT_BACKGROUND_PATHS = ["/home", "/chat", "/missions", "/integratio
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
   if (isLight) return settings.app.lightModeBackground ?? "none"
-  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
-  return settings.app.darkModeBackground ?? legacyDark
+  const fallbackDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? fallbackDark
 }
 
 function supportsPersistentBackground(pathname: string | null): boolean {

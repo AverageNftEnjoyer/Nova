@@ -1,6 +1,6 @@
 ﻿import "server-only"
 
-import { appendFile, mkdir, readFile, writeFile, rename, copyFile, stat } from "node:fs/promises"
+import { appendFile, mkdir, readFile, writeFile, rename } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 
@@ -36,41 +36,8 @@ function sanitizeUserContextId(value: unknown): string {
     .slice(0, 96)
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath)
-    return true
-  } catch {
-    return false
-  }
-}
-
 function resolveScopedDeadLetterPath(root: string, scopedUserId: string): string {
   return path.join(root, ".agent", "user-context", scopedUserId, "state", "notification-dead-letter.jsonl")
-}
-
-function resolveLegacyScopedDeadLetterPath(root: string, scopedUserId: string): string {
-  return path.join(root, ".agent", "user-context", scopedUserId, "notification-dead-letter.jsonl")
-}
-
-async function migrateLegacyDeadLetterFileIfNeeded(userId?: string): Promise<void> {
-  const scoped = sanitizeUserContextId(userId)
-  if (!scoped) return
-  const root = resolveWorkspaceRoot()
-  const targetPath = resolveScopedDeadLetterPath(root, scoped)
-  const legacyPath = resolveLegacyScopedDeadLetterPath(root, scoped)
-  if (await fileExists(targetPath)) return
-  if (!(await fileExists(legacyPath))) return
-  await mkdir(path.dirname(targetPath), { recursive: true })
-  try {
-    await rename(legacyPath, targetPath)
-  } catch {
-    try {
-      await copyFile(legacyPath, targetPath)
-    } catch {
-      // Best effort migration.
-    }
-  }
 }
 
 function resolveDeadLetterPath(userId?: string): string {
@@ -88,7 +55,6 @@ export async function purgeDeadLetterForMission(
 ): Promise<void> {
   const mid = String(scheduleId || "").trim()
   if (!mid) return
-  await migrateLegacyDeadLetterFileIfNeeded(userId)
   const filePath = resolveDeadLetterPath(userId)
   const resolved = path.resolve(filePath)
   const previous = writesByPath.get(resolved) ?? Promise.resolve()
@@ -124,7 +90,6 @@ export async function purgeDeadLetterForMission(
 }
 
 export async function appendNotificationDeadLetter(entry: Omit<NotificationDeadLetterEntry, "id" | "ts">): Promise<string> {
-  await migrateLegacyDeadLetterFileIfNeeded(entry.userId)
   const id = crypto.randomUUID()
   const row: NotificationDeadLetterEntry = {
     ...entry,

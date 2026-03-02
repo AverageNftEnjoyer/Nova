@@ -1,5 +1,5 @@
 import type { WorkflowStep } from "../../types/index"
-import { WORKFLOW_VALIDATION_LIMITS } from "./config.ts"
+import { WORKFLOW_VALIDATION_LIMITS } from "./limits.ts"
 import {
   WORKFLOW_VALIDATION_ISSUE_CODES,
   type WorkflowValidationInput,
@@ -253,7 +253,7 @@ export function validateWorkflowSummary(input: WorkflowValidationInput): Workflo
         "summary",
         "summary",
         "Workflow marker is present but workflow JSON could not be parsed.",
-        "Fix [NOVA WORKFLOW] JSON payload format.",
+        "Fix mission workflow JSON payload format.",
       ),
     )
   }

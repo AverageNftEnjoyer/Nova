@@ -93,9 +93,12 @@ export async function acquireMissionExecutionSlot(input: {
     console.warn("[ExecutionGuard] Failed to transition job run to running:", err)
   })
 
-  // Fail-safe default: if release() is called without reportOutcome(), mark failed
+  // Fail-safe default: if release() is called without reportOutcome(), mark failed.
+  // outcomeReported guards against the catch-block in execute-mission overwriting
+  // a prior reportOutcome(true) call (e.g. schedule gate skip) with false.
   let outcomeSuccess = false
   let outcomeErrorDetail: string | undefined
+  let outcomeReported = false
 
   return {
     ok: true,
@@ -103,8 +106,10 @@ export async function acquireMissionExecutionSlot(input: {
       jobRunId: missionRunId,
       leaseToken: claimResult.leaseToken,
       reportOutcome(success: boolean, errorDetail?: string) {
+        if (outcomeReported) return // first caller wins
         outcomeSuccess = success
         outcomeErrorDetail = errorDetail
+        outcomeReported = true
       },
       async release() {
         if (outcomeSuccess) {

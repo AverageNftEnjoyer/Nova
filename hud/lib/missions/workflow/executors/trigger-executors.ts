@@ -3,7 +3,7 @@
  */
 
 import type { ScheduleTriggerNode, ManualTriggerNode, WebhookTriggerNode, EventTriggerNode, NodeOutput, ExecutionContext } from "../../types/index"
-import { getLocalParts, parseTime } from "../scheduling"
+import { getLocalParts, parseTime } from "../time"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
 const DEFAULT_WINDOW_MINUTES = 10

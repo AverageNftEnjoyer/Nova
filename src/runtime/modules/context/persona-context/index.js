@@ -105,15 +105,15 @@ function readIntegrationsConfigSnapshot(userContextId = "") {
   }
 }
 
-function extractIntegrationMiskeys(parsed) {
+function extractIntegrationConfigHints(parsed) {
   if (!parsed || typeof parsed !== "object") return [];
   const hints = [];
   if (Object.prototype.hasOwnProperty.call(parsed, "activeProvider"))
-    hints.push('Found legacy "activeProvider". Expected "activeLlmProvider".');
+    hints.push('Found deprecated "activeProvider". Expected "activeLlmProvider".');
   if (Object.prototype.hasOwnProperty.call(parsed, "defaultModel"))
     hints.push('Found top-level "defaultModel". Expected provider-specific defaultModel fields.');
   if (Object.prototype.hasOwnProperty.call(parsed, "openaiApiKey"))
-    hints.push('Found legacy "openaiApiKey". Expected "openai.apiKey".');
+    hints.push('Found deprecated "openaiApiKey". Expected "openai.apiKey".');
   return hints;
 }
 
@@ -126,8 +126,7 @@ function listScopedIntegrationContextIds() {
       .map((e) => e.name)
       .filter((id) => {
         const statePath = path.join(USER_CONTEXT_ROOT, id, "state", "integrations-config.json");
-        const legacyPath = path.join(USER_CONTEXT_ROOT, id, "integrations-config.json");
-        return fs.existsSync(statePath) || fs.existsSync(legacyPath);
+        return fs.existsSync(statePath);
       });
   } catch {
     return [];
@@ -156,7 +155,7 @@ export function logAgentRuntimePreflight() {
     if (snapshot.parseError) {
       console.error(`[Preflight] Invalid scoped integrations config JSON (${contextId}): ${snapshot.parseError}`);
     }
-    const miskeys = extractIntegrationMiskeys(snapshot.parsed);
+    const miskeys = extractIntegrationConfigHints(snapshot.parsed);
     for (const hint of miskeys) console.warn(`[Preflight] (${contextId}) ${hint}`);
 
     const scopedRuntime = loadIntegrationsRuntime({ userContextId: contextId });
@@ -211,22 +210,7 @@ const _integrationWatcherKeys = new Set();
 
 function resolveScopedIntegrationsConfigPath(userContextId = "") {
   const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
-  const statePath = path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
-  const legacyPath = path.join(USER_CONTEXT_ROOT, normalized, "integrations-config.json");
-  if (fs.existsSync(statePath)) return statePath;
-  if (!fs.existsSync(legacyPath)) return statePath;
-  try {
-    fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.renameSync(legacyPath, statePath);
-    return statePath;
-  } catch {
-    try {
-      fs.copyFileSync(legacyPath, statePath);
-      return statePath;
-    } catch {
-      return legacyPath;
-    }
-  }
+  return path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
 }
 
 function ensureIntegrationsFileWatcher(userContextId = "") {

@@ -6,7 +6,7 @@ import type { Mission, ScheduleTriggerNode } from "@/lib/missions/types"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { createCalendarEvent, deleteCalendarEvent } from "@/lib/integrations/google-calendar/service"
 import { estimateDurationMs, toIsoInTimezone } from "@/lib/calendar/schedule-utils"
-import { getLocalParts } from "@/lib/missions/workflow/scheduling"
+import { getLocalParts } from "@/lib/missions/workflow/time"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
 const DEFAULT_TIME = "09:00"
@@ -139,9 +139,7 @@ function toReadableTime(value: string): string {
 }
 
 function toHumanSummary(value: string | undefined, fallback: string): string {
-  const raw = String(value || "")
-  const markerSplit = raw.split(/\[?\s*NOVA WORKFLOW\s*\]?/i)[0] || ""
-  const candidate = normalizeWhitespace(markerSplit)
+  const candidate = normalizeWhitespace(String(value || ""))
   const safeFallback = normalizeWhitespace(fallback)
   return truncateText(candidate || safeFallback || "Automation", 260)
 }

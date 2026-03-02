@@ -40,8 +40,8 @@ export function compareMissionPriority(left: "low" | "medium" | "high" | "critic
 
 export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
-  const legacyDark = settings.app.background === "none" ? "none" : "floatingLines"
-  return settings.app.darkModeBackground ?? (isLight ? "none" : legacyDark)
+  const fallbackDark = settings.app.background === "none" ? "none" : "floatingLines"
+  return settings.app.darkModeBackground ?? (isLight ? "none" : fallbackDark)
 }
 
 export function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {

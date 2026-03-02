@@ -11,7 +11,7 @@ import { sessionRuntime } from "../../infrastructure/config.js";
 import { resolvePersonaWorkspaceDir, appendRawStream } from "../../context/persona-context/index.js";
 import { captureUserPreferencesFromMessage } from "../../context/user-preferences/index.js";
 import { recordIdentityMemoryUpdate } from "../../context/identity/engine/index.js";
-import { extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate } from "../../context/memory/index.js";
+import { extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate } from "../../../../../memory/runtime-compat/index.js";
 import { shouldDraftOnlyWorkflow } from "../routing/intent-router.js";
 import { speak, stopSpeaking } from "../../audio/voice.js";
 import {

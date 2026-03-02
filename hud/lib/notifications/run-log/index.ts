@@ -1,6 +1,6 @@
 import "server-only"
 
-import { mkdir, readFile, stat, writeFile, appendFile, rename, unlink, copyFile, readdir, rm } from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile, appendFile, rename, unlink } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 
@@ -47,12 +47,6 @@ function resolveScopedNotificationRunLogPath(scheduleId: string, userId: string)
   return path.join(root, ".agent", "user-context", userId, STATE_DIR_NAME, RUN_LOG_DIR_NAME, `${cleanId}.jsonl`)
 }
 
-function resolveLegacyScopedNotificationRunLogPath(scheduleId: string, userId: string): string {
-  const root = resolveWorkspaceRoot()
-  const cleanId = String(scheduleId || "").trim() || "unknown"
-  return path.join(root, ".agent", "user-context", userId, RUN_LOG_DIR_NAME, `${cleanId}.jsonl`)
-}
-
 function resolveUnscopedNotificationRunLogPath(scheduleId: string): string {
   const root = resolveWorkspaceRoot()
   const cleanId = String(scheduleId || "").trim() || "unknown"
@@ -65,65 +59,6 @@ export function resolveNotificationRunLogPath(scheduleId: string, userId?: strin
     return resolveScopedNotificationRunLogPath(scheduleId, scopedUserId)
   }
   return resolveUnscopedNotificationRunLogPath(scheduleId)
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function migrateLegacyScopedRunLogIfNeeded(scheduleId: string, userId: string | undefined): Promise<void> {
-  const scopedUserId = sanitizeUserContextId(userId)
-  if (!scopedUserId) return
-  const target = resolveScopedNotificationRunLogPath(scheduleId, scopedUserId)
-  const legacy = resolveLegacyScopedNotificationRunLogPath(scheduleId, scopedUserId)
-  if (await fileExists(target)) {
-    await pruneLegacyScopedRunLogDirIfEmpty(scopedUserId)
-    return
-  }
-  if (!(await fileExists(legacy))) return
-  await mkdir(path.dirname(target), { recursive: true })
-  try {
-    await rename(legacy, target)
-  } catch {
-    try {
-      await copyFile(legacy, target)
-      try {
-        await unlink(legacy)
-      } catch {
-        // Best effort cleanup only.
-      }
-    } catch {
-      // Best effort migration only.
-    }
-  }
-  await pruneLegacyScopedRunLogDirIfEmpty(scopedUserId)
-}
-
-async function removeDirIfEmpty(dirPath: string): Promise<void> {
-  let entries: string[] = []
-  try {
-    entries = await readdir(dirPath)
-  } catch {
-    return
-  }
-  if (entries.length > 0) return
-  try {
-    await rm(dirPath, { recursive: false, force: true })
-  } catch {
-    // Best effort cleanup only.
-  }
-}
-
-async function pruneLegacyScopedRunLogDirIfEmpty(scopedUserId: string): Promise<void> {
-  if (!scopedUserId) return
-  const root = resolveWorkspaceRoot()
-  const legacyDir = path.join(root, ".agent", "user-context", scopedUserId, RUN_LOG_DIR_NAME)
-  await removeDirIfEmpty(legacyDir)
 }
 
 async function pruneIfNeeded(filePath: string, opts: { maxBytes: number; keepLines: number }) {
@@ -148,7 +83,6 @@ export async function appendNotificationRunLog(
   userId: string | undefined,
   entry: NotificationRunLogEntry,
 ): Promise<void> {
-  await migrateLegacyScopedRunLogIfNeeded(scheduleId, userId)
   const filePath = resolveNotificationRunLogPath(scheduleId, userId)
   const resolved = path.resolve(filePath)
   const previous = writesByPath.get(resolved) ?? Promise.resolve()
@@ -168,7 +102,6 @@ export async function readNotificationRunLogEntries(
   userId: string | undefined,
   opts?: { maxLines?: number },
 ): Promise<NotificationRunLogEntry[]> {
-  await migrateLegacyScopedRunLogIfNeeded(scheduleId, userId)
   const filePath = resolveNotificationRunLogPath(scheduleId, userId)
   const raw = await readFile(filePath, "utf8").catch(() => "")
   if (!raw) return []
@@ -218,7 +151,7 @@ export async function readNotificationRunLogEntries(
             : undefined,
       })
     } catch {
-      // ignore malformed legacy rows
+      // ignore malformed rows
     }
   }
   return entries
@@ -232,24 +165,12 @@ export async function purgeNotificationRunLog(
   scheduleId: string,
   userId: string | undefined,
 ): Promise<void> {
-  await migrateLegacyScopedRunLogIfNeeded(scheduleId, userId)
   const filePath = resolveNotificationRunLogPath(scheduleId, userId)
-  const scopedUserId = sanitizeUserContextId(userId)
-  const legacyFilePath = scopedUserId
-    ? resolveLegacyScopedNotificationRunLogPath(scheduleId, scopedUserId)
-    : ""
   try {
     await unlink(filePath)
   } catch {
     // File may not exist - that's fine.
   }
-  if (!legacyFilePath) return
-  try {
-    await unlink(legacyFilePath)
-  } catch {
-    // Legacy file may not exist - that's fine.
-  }
-  await pruneLegacyScopedRunLogDirIfEmpty(scopedUserId)
 }
 
 export async function getRunKeyHistory(params: {

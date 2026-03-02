@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 
 import {
-  ensureNotificationSchedulerStarted,
-  getNotificationSchedulerState,
-  stopNotificationScheduler,
+  ensureMissionSchedulerStarted,
+  getMissionSchedulerState,
+  stopMissionScheduler,
 } from "@/lib/notifications/scheduler"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
@@ -16,24 +16,24 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   if (url.searchParams.get("ensure") === "1") {
-    ensureNotificationSchedulerStarted()
+    ensureMissionSchedulerStarted()
   }
-  return NextResponse.json(getNotificationSchedulerState())
+  return NextResponse.json(getMissionSchedulerState())
 }
 
 export async function POST(req: Request) {
   const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
-  ensureNotificationSchedulerStarted()
-  return NextResponse.json(getNotificationSchedulerState())
+  ensureMissionSchedulerStarted()
+  return NextResponse.json(getMissionSchedulerState())
 }
 
 export async function DELETE(req: Request) {
   const { unauthorized } = await requireSupabaseApiUser(req)
   if (unauthorized) return unauthorized
 
-  stopNotificationScheduler()
-  return NextResponse.json(getNotificationSchedulerState())
+  stopMissionScheduler()
+  return NextResponse.json(getMissionSchedulerState())
 }
 

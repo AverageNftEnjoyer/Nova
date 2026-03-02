@@ -2,6 +2,7 @@
  * Nova Job Ledger — Types
  * Durable execution record types for the Supabase-backed job runner backbone.
  * Phase 0: replaces in-memory execution-guard.ts
+ * Phase 2: adds scheduler lease types for leader election
  */
 
 export type JobRunStatus =
@@ -86,6 +87,23 @@ export type FinishJobInput = {
   errorDetail?: string
 }
 
+// ─── Scheduler lease types (Phase 2) ────────────────────────────────────────
+
+/** Result of an atomic scheduler lease acquisition attempt */
+export type SchedulerLeaseResult =
+  | { acquired: true; scope: string; holderId: string; expiresAt: string }
+  | { acquired: false; reason: "already_held" | "db_error" }
+
+/** Query options for fetching pending runs */
+export type GetPendingRunsInput = {
+  /** Max rows to return (maps to per-tick cap) */
+  limit: number
+  /** Cutoff time — only runs scheduled_for <= now are returned (default: now) */
+  now?: Date
+  /** Optional: filter to specific user IDs */
+  userIds?: string[]
+}
+
 /** The main interface the execution-guard delegates to */
 export interface JobLedgerStore {
   /**
@@ -166,4 +184,46 @@ export interface JobLedgerStore {
     actor: string
     metadata?: Record<string, unknown>
   }): Promise<void>
+
+  // ─── Scheduler leader-election (Phase 2) ──────────────────────────────────
+
+  /**
+   * Atomically acquire the scheduler lease for `scope`.
+   * Uses a PostgreSQL stored procedure (`acquire_scheduler_lease`) to do a
+   * conditional INSERT ON CONFLICT ... WHERE expires_at < now().
+   * Returns `acquired: true` only if this holderId now owns the lease.
+   */
+  acquireSchedulerLease(input: {
+    scope: string
+    holderId: string
+    ttlMs: number
+  }): Promise<SchedulerLeaseResult>
+
+  /**
+   * Renew an already-held lease. No-op if holderId doesn't match the current holder.
+   * Returns ok: false if the lease was stolen by another instance.
+   */
+  renewSchedulerLease(input: {
+    scope: string
+    holderId: string
+    ttlMs: number
+  }): Promise<{ ok: boolean }>
+
+  /**
+   * Release the lease explicitly (e.g. on graceful shutdown).
+   * Only deletes if holderId matches.
+   */
+  releaseSchedulerLease(input: {
+    scope: string
+    holderId: string
+  }): Promise<{ ok: boolean }>
+
+  // ─── Job-driven tick (Phase 2) ────────────────────────────────────────────
+
+  /**
+   * Fetch pending job runs due for execution.
+   * Ordered by priority DESC, scheduled_for ASC.
+   * Does NOT claim them — call claimRun() per item.
+   */
+  getPendingRuns(input: GetPendingRunsInput): Promise<JobRun[]>
 }

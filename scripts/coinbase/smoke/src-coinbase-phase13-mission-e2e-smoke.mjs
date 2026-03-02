@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -43,8 +43,8 @@ const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts"
 const dataExecutorsSource = read("hud/lib/missions/workflow/executors/data-executors.ts");
 const coinbaseFetchSource = read("hud/lib/missions/coinbase/fetch.ts");
 const schedulerSource = read("hud/lib/notifications/scheduler.ts");
-const triggerRouteSource = read("hud/app/api/notifications/trigger/route.ts");
-const triggerStreamSource = read("hud/app/api/notifications/trigger/stream/route.ts");
+const triggerRouteSource = read("hud/app/api/missions/trigger/route.ts");
+const triggerStreamSource = read("hud/app/api/missions/trigger/stream/route.ts");
 const threadMessagesRouteSource = read("hud/app/api/threads/[threadId]/messages/route.ts");
 const threadsRouteSource = read("hud/app/api/threads/route.ts");
 const conversationsHookSource = read("hud/lib/chat/hooks/useConversations.ts");

@@ -124,6 +124,14 @@ const SCOPED_ONLY_EVENT_TYPES = new Set([
   "assistant_stream_delta",
   "assistant_stream_done",
   "usage",
+  "calendar:event:updated",
+  "calendar:rescheduled",
+  "calendar:conflict",
+]);
+const CALENDAR_EMIT_EVENT_TYPES = new Set([
+  "calendar:event:updated",
+  "calendar:rescheduled",
+  "calendar:conflict",
 ]);
 
 let lastHudOpTokenGcAt = 0;
@@ -672,6 +680,101 @@ export function broadcastAssistantStreamDone(id, source = "hud", sender = undefi
   );
 }
 
+function sanitizeCalendarEventId(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  return normalized.slice(0, 256);
+}
+
+function sanitizeCalendarPatch(value) {
+  if (!value || typeof value !== "object") return {};
+  const source = value;
+  const patch = {};
+  if (typeof source.status === "string") patch.status = String(source.status).trim().slice(0, 48);
+  if (typeof source.startAt === "string") patch.startAt = String(source.startAt).trim().slice(0, 64);
+  if (typeof source.endAt === "string") patch.endAt = String(source.endAt).trim().slice(0, 64);
+  if (typeof source.title === "string") patch.title = String(source.title).trim().slice(0, 200);
+  if (typeof source.subtitle === "string") patch.subtitle = String(source.subtitle).trim().slice(0, 200);
+  if (typeof source.conflict === "boolean") patch.conflict = source.conflict;
+  return patch;
+}
+
+function sanitizeCalendarConflicts(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of value) {
+    const id = sanitizeCalendarEventId(raw);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= 200) break;
+  }
+  return out;
+}
+
+export function broadcastCalendarEventUpdated({
+  userContextId = "",
+  eventId = "",
+  patch = {},
+} = {}) {
+  const resolvedUserContextId = resolveEventUserContextId(userContextId);
+  const normalizedEventId = sanitizeCalendarEventId(eventId);
+  if (!resolvedUserContextId || !normalizedEventId) return;
+  const safePatch = sanitizeCalendarPatch(patch);
+  broadcast(
+    {
+      type: "calendar:event:updated",
+      eventId: normalizedEventId,
+      patch: safePatch,
+      userContextId: resolvedUserContextId,
+      ts: Date.now(),
+    },
+    { userContextId: resolvedUserContextId },
+  );
+}
+
+export function broadcastCalendarRescheduled({
+  userContextId = "",
+  missionId = "",
+  newStartAt = "",
+  conflict = false,
+} = {}) {
+  const resolvedUserContextId = resolveEventUserContextId(userContextId);
+  const normalizedMissionId = sanitizeCalendarEventId(missionId);
+  const normalizedNewStartAt = typeof newStartAt === "string" ? String(newStartAt).trim().slice(0, 64) : "";
+  if (!resolvedUserContextId || !normalizedMissionId || !normalizedNewStartAt) return;
+  broadcast(
+    {
+      type: "calendar:rescheduled",
+      missionId: normalizedMissionId,
+      newStartAt: normalizedNewStartAt,
+      conflict: conflict === true,
+      userContextId: resolvedUserContextId,
+      ts: Date.now(),
+    },
+    { userContextId: resolvedUserContextId },
+  );
+}
+
+export function broadcastCalendarConflict({
+  userContextId = "",
+  conflicts = [],
+} = {}) {
+  const resolvedUserContextId = resolveEventUserContextId(userContextId);
+  if (!resolvedUserContextId) return;
+  const normalizedConflicts = sanitizeCalendarConflicts(conflicts);
+  broadcast(
+    {
+      type: "calendar:conflict",
+      conflicts: normalizedConflicts,
+      userContextId: resolvedUserContextId,
+      ts: Date.now(),
+    },
+    { userContextId: resolvedUserContextId },
+  );
+}
+
 function sendHudStreamError(conversationId, text, ws = null, retryAfterMs = 0, userContextId = "") {
   const resolvedUserContextId = resolveEventUserContextId(userContextId, conversationId);
   if (!resolvedUserContextId && ws && ws.readyState === 1) {
@@ -778,6 +881,76 @@ export function startGateway() {
               type: "system_metrics",
               metrics,
               scheduler: hudRequestScheduler.getSnapshot(),
+              ts: Date.now(),
+            }));
+          }
+          return;
+        }
+
+        if (data.type === "calendar_emit") {
+          const requestedUserContextId = typeof data.userId === "string" ? data.userId : "";
+          const emitBind = await ensureSocketUserContextBinding(ws, {
+            requestedUserContextId,
+            supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
+          });
+          if (!emitBind.ok) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: "auth_error",
+                code: emitBind.code,
+                message: emitBind.message,
+                ts: Date.now(),
+              }));
+            }
+            return;
+          }
+
+          const eventType = String(data.eventType || "").trim().toLowerCase();
+          if (!CALENDAR_EMIT_EVENT_TYPES.has(eventType)) {
+            if (ws.readyState === 1) {
+              ws.send(JSON.stringify({
+                type: "calendar_emit_ack",
+                ok: false,
+                error: "unsupported_event_type",
+                eventType,
+                userContextId: emitBind.userContextId,
+                ts: Date.now(),
+              }));
+            }
+            return;
+          }
+
+          if (eventType === "calendar:event:updated") {
+            const eventId = sanitizeCalendarEventId(data.eventId);
+            if (!eventId) return;
+            broadcastCalendarEventUpdated({
+              userContextId: emitBind.userContextId,
+              eventId,
+              patch: sanitizeCalendarPatch(data.patch),
+            });
+          } else if (eventType === "calendar:rescheduled") {
+            const missionId = sanitizeCalendarEventId(data.missionId);
+            const newStartAt = typeof data.newStartAt === "string" ? String(data.newStartAt).trim() : "";
+            if (!missionId || !newStartAt) return;
+            broadcastCalendarRescheduled({
+              userContextId: emitBind.userContextId,
+              missionId,
+              newStartAt,
+              conflict: data.conflict === true,
+            });
+          } else if (eventType === "calendar:conflict") {
+            broadcastCalendarConflict({
+              userContextId: emitBind.userContextId,
+              conflicts: sanitizeCalendarConflicts(data.conflicts),
+            });
+          }
+
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({
+              type: "calendar_emit_ack",
+              ok: true,
+              eventType,
+              userContextId: emitBind.userContextId,
               ts: Date.now(),
             }));
           }

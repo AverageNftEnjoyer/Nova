@@ -468,10 +468,10 @@ export interface Mission {
   successCount: number
   failureCount: number
   lastRunStatus?: "success" | "error" | "skipped"
-  // calendar reschedule override — set by drag-drop in Calendar Hub
-  // scheduler reads this in preference to the schedule-trigger node's triggerTime
+  // runtime-only calendar override injected from reschedule-store for execution gating
+  // (not persisted in the mission graph as a primary source of truth)
   scheduledAtOverride?: string  // ISO8601 UTC
-  // legacy / routing
+  // delivery routing metadata
   integration: string
   chatIds: string[]
 }
@@ -600,7 +600,7 @@ export interface OutputResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Legacy Backward Compat — kept for existing code that hasn't been migrated yet
+// Builder compatibility types used by the mission editor and autofix flows
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** @deprecated Use MissionNodeType instead */
@@ -714,7 +714,7 @@ export interface CompletionOverride {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Legacy Execution Types — kept for scheduler.ts compatibility during migration
+// Execution trace compatibility types used by trigger/scheduler APIs
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** @deprecated Use NodeExecutionTrace instead */

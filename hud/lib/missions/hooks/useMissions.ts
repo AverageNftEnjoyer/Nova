@@ -6,7 +6,7 @@ import { INTEGRATIONS_UPDATED_EVENT } from "@/lib/integrations/store/client-stor
 import { getRuntimeTimezone, resolveTimezone } from "@/lib/shared/timezone"
 import type { Mission as NativeMission, MissionNode } from "@/lib/missions/types"
 
-interface NotificationSchedule {
+interface MissionListItem {
   id: string
   integration: string
   label: string
@@ -43,7 +43,7 @@ function isScheduleTriggerNode(node: MissionNode): node is Extract<MissionNode, 
   return node.type === "schedule-trigger"
 }
 
-function toMissionRecord(value: unknown): NativeMission | null {
+function toNativeMission(value: unknown): NativeMission | null {
   if (!value || typeof value !== "object") return null
   const row = value as Partial<NativeMission>
   if (typeof row.id !== "string" || !row.id.trim()) return null
@@ -52,7 +52,7 @@ function toMissionRecord(value: unknown): NativeMission | null {
   return row as NativeMission
 }
 
-function missionToNotificationSchedule(mission: NativeMission): NotificationSchedule {
+function mapMissionToListItem(mission: NativeMission): MissionListItem {
   const scheduleNodes = mission.nodes.filter(isScheduleTriggerNode)
   const times = Array.from(
     new Set(
@@ -97,15 +97,15 @@ export function formatDailyTime(time: string, timezone: string): string {
 
 export interface UseMissionsReturn {
   missions: Mission[]
-  notificationSchedules: NotificationSchedule[]
-  refreshNotificationSchedules: () => void
+  missionItems: MissionListItem[]
+  refreshMissionItems: () => void
 }
 
 export function useMissions(): UseMissionsReturn {
   const router = useRouter()
-  const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>([])
+  const [missionItems, setMissionItems] = useState<MissionListItem[]>([])
 
-  const refreshNotificationSchedules = useCallback(() => {
+  const refreshMissionItems = useCallback(() => {
     void fetch("/api/missions?limit=500", { cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
@@ -116,34 +116,34 @@ export function useMissions(): UseMissionsReturn {
       })
       .then((data) => {
         const missions: unknown[] = Array.isArray(data?.missions) ? data.missions : []
-        const schedules = missions
-          .map((row: unknown) => toMissionRecord(row))
+        const items = missions
+          .map((row: unknown) => toNativeMission(row))
           .filter((row: NativeMission | null): row is NativeMission => row !== null)
-          .map((row: NativeMission) => missionToNotificationSchedule(row))
-        setNotificationSchedules(schedules)
+          .map((row: NativeMission) => mapMissionToListItem(row))
+        setMissionItems(items)
       })
       .catch(() => {
-        setNotificationSchedules([])
+        setMissionItems([])
       })
   }, [router])
 
   // Initial load
   useEffect(() => {
-    refreshNotificationSchedules()
-  }, [refreshNotificationSchedules])
+    refreshMissionItems()
+  }, [refreshMissionItems])
 
   // Listen for integration updates
   useEffect(() => {
     const onUpdate = () => {
-      refreshNotificationSchedules()
+      refreshMissionItems()
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [refreshNotificationSchedules])
+  }, [refreshMissionItems])
 
   // Transform schedules into missions
   const missions = useMemo(() => {
-    return [...notificationSchedules]
+    return [...missionItems]
       .sort((left, right) => {
         const activeDelta = Number(right.enabled) - Number(left.enabled)
         if (activeDelta !== 0) return activeDelta
@@ -162,11 +162,12 @@ export function useMissions(): UseMissionsReturn {
         times: (Array.isArray(schedule.times) && schedule.times.length > 0 ? schedule.times : [schedule.time]).sort((a, b) => a.localeCompare(b)),
         timezone: resolveTimezone(schedule.timezone, getRuntimeTimezone()),
       }))
-  }, [notificationSchedules])
+  }, [missionItems])
 
   return {
     missions,
-    notificationSchedules,
-    refreshNotificationSchedules,
+    missionItems,
+    refreshMissionItems,
   }
 }
+

@@ -6,7 +6,7 @@
 
 import "server-only"
 
-import { mkdir, readdir, readFile, rename, writeFile, copyFile, stat } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, writeFile, copyFile } from "node:fs/promises"
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 import type {
@@ -55,50 +55,6 @@ function sanitizeUserId(value: unknown): string {
 
 function resolveMissionsFile(userId: string): string {
   return path.join(resolveUserContextRoot(), userId, STATE_DIR_NAME, MISSIONS_FILE_NAME)
-}
-
-function resolveLegacyMissionsFile(userId: string): string {
-  return path.join(resolveUserContextRoot(), userId, MISSIONS_FILE_NAME)
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await stat(filePath)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function migrateLegacyMissionsFileIfNeeded(userId: string): Promise<void> {
-  const target = resolveMissionsFile(userId)
-  const legacy = resolveLegacyMissionsFile(userId)
-  if (await fileExists(target)) return
-  if (!(await fileExists(legacy))) return
-  await mkdir(path.dirname(target), { recursive: true })
-  try {
-    await rename(legacy, target)
-  } catch {
-    try {
-      await copyFile(legacy, target)
-    } catch {
-      // Best effort migration.
-    }
-  }
-
-  const legacyBak = `${legacy}.bak`
-  const targetBak = `${target}.bak`
-  if (await fileExists(targetBak)) return
-  if (!(await fileExists(legacyBak))) return
-  try {
-    await rename(legacyBak, targetBak)
-  } catch {
-    try {
-      await copyFile(legacyBak, targetBak)
-    } catch {
-      // Best effort migration.
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,7 +158,6 @@ function sortMissions(rows: Mission[]): Mission[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function ensureMissionsFile(userId: string): Promise<void> {
-  await migrateLegacyMissionsFileIfNeeded(userId)
   const file = resolveMissionsFile(userId)
   await mkdir(path.dirname(file), { recursive: true })
   try {
@@ -215,7 +170,6 @@ async function ensureMissionsFile(userId: string): Promise<void> {
 async function readRawStoreFile(userId: string): Promise<MissionsStoreFile | null> {
   const sanitized = sanitizeUserId(userId)
   if (!sanitized) return null
-  await migrateLegacyMissionsFileIfNeeded(sanitized)
   const file = resolveMissionsFile(sanitized)
   try {
     const raw = await readFile(file, "utf8")

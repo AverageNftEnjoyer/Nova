@@ -18,7 +18,6 @@ import {
 import {
   applyMissionWorkflowAutofix,
   buildMissionFromPrompt,
-  createMissionSchedule,
   fetchMissionById,
   deleteMissionById,
   fetchIntegrationCatalog as fetchIntegrationCatalogApi,
@@ -26,8 +25,8 @@ import {
   fetchMissionReliability as fetchMissionReliabilityApi,
   previewMissionWorkflowAutofix,
   requestNovaSuggest,
+  saveMissionRecord,
   triggerMissionScheduleStream,
-  updateMissionSchedule,
   type BuildMissionResponse,
   type MissionReliabilitySloStatus,
   type MissionReliabilitySummary,
@@ -47,7 +46,8 @@ import {
 } from "../helpers"
 import { useMissionsSpotlight } from "./use-missions-spotlight"
 import { useAutoClearStatus, useAutoDismissRunProgress, useMissionActionMenuDismiss } from "./use-missions-transient-effects"
-import type { Mission as NativeMission } from "@/lib/missions/types"
+import { defaultMissionSettings } from "@/lib/missions/types"
+import type { Mission as NativeMission, MissionConnection, MissionNode } from "@/lib/missions/types"
 import type {
   AiIntegrationType,
   MissionActionMenuState,
@@ -55,7 +55,7 @@ import type {
   MissionRunStepTrace,
   MissionRuntimeStatus,
   MissionStatusMessage,
-  NotificationSchedule,
+  MissionListItem,
   WorkflowStep,
   WorkflowStepType,
 } from "../types"
@@ -83,18 +83,18 @@ function isOutputChannel(value: string): value is OutputChannel {
   return OUTPUT_CHANNEL_VALUES.includes(value as OutputChannel)
 }
 
-function getCachedMissionSchedules(): NotificationSchedule[] {
+function getCachedMissionSchedules(): MissionListItem[] {
   const cached = readShellUiCache().missionSchedules
-  return Array.isArray(cached) ? (cached as NotificationSchedule[]) : []
+  return Array.isArray(cached) ? (cached as MissionListItem[]) : []
 }
 
-function buildBaselineById(schedules: NotificationSchedule[]): Record<string, NotificationSchedule> {
-  const baseline: Record<string, NotificationSchedule> = {}
+function buildBaselineById(schedules: MissionListItem[]): Record<string, MissionListItem> {
+  const baseline: Record<string, MissionListItem> = {}
   for (const item of schedules) baseline[item.id] = item
   return baseline
 }
 
-function mapMissionToScheduleView(mission: NativeMission): NotificationSchedule {
+function mapMissionToScheduleView(mission: NativeMission): MissionListItem {
   const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
   const triggerMode = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerMode : "daily"
   const triggerTime = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTime : undefined
@@ -124,6 +124,377 @@ function mapMissionToScheduleView(mission: NativeMission): NotificationSchedule 
   }
 }
 
+function normalizeMissionRecord(value: unknown): NativeMission | null {
+  if (!value || typeof value !== "object") return null
+  const row = value as Partial<NativeMission>
+  if (typeof row.id !== "string" || !row.id.trim()) return null
+  if (!Array.isArray(row.nodes) || !Array.isArray(row.connections)) return null
+  return row as NativeMission
+}
+
+function normalizeTriggerMode(
+  value: unknown,
+  fallback: "once" | "daily" | "weekly" | "interval" = "daily",
+): "once" | "daily" | "weekly" | "interval" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "once" || normalized === "daily" || normalized === "weekly" || normalized === "interval") return normalized
+  return fallback
+}
+
+function normalizeTime(value: unknown, fallback = "09:00"): string {
+  const normalized = String(value || "").trim()
+  return /^\d{2}:\d{2}$/.test(normalized) ? normalized : fallback
+}
+
+function normalizeWorkflowTriggerDays(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const allowed = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
+  const days = value
+    .map((day) => String(day || "").trim().toLowerCase())
+    .filter((day) => allowed.has(day))
+  return days.length > 0 ? Array.from(new Set(days)) : undefined
+}
+
+function parseRecipientTargets(value: unknown): string[] {
+  const raw = String(value || "").trim()
+  if (!raw) return []
+  return Array.from(
+    new Set(
+      raw
+        .split(/[\n,;\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+function buildNativeMissionNodesFromWorkflow(params: {
+  steps: WorkflowStep[]
+  fallbackMode: string
+  fallbackTime: string
+  fallbackTimezone: string
+  fallbackDays: string[]
+  fallbackIntegration: string
+  fallbackChatIds: string[]
+}): MissionNode[] {
+  const usedIds = new Set<string>()
+  const fallbackTime = normalizeTime(params.fallbackTime, "09:00")
+  const fallbackTimezone = resolveTimezone(params.fallbackTimezone, getRuntimeTimezone())
+  const fallbackMode = normalizeTriggerMode(params.fallbackMode, "daily")
+  const fallbackDays = normalizeWorkflowTriggerDays(params.fallbackDays) || ["mon", "tue", "wed", "thu", "fri"]
+
+  const nextNodeId = (preferred: unknown, index: number, prefix: string) => {
+    const base = String(preferred || "").trim() || `${prefix}-${index + 1}`
+    let candidate = base
+    let suffix = 1
+    while (usedIds.has(candidate)) {
+      suffix += 1
+      candidate = `${base}-${suffix}`
+    }
+    usedIds.add(candidate)
+    return candidate
+  }
+
+  const toPosition = (index: number) => ({ x: 160 + index * 260, y: 220 })
+
+  const mapStepToNode = (step: WorkflowStep, index: number): MissionNode => {
+    const stepType = String(step.type || "").trim().toLowerCase()
+    const nodeId = nextNodeId(step.id, index, stepType || "node")
+    const label = String(step.title || `Step ${index + 1}`).trim() || `Step ${index + 1}`
+    const position = toPosition(index)
+
+    if (stepType === "trigger") {
+      const mode = normalizeTriggerMode(step.triggerMode, fallbackMode)
+      const intervalMinutes = Number.parseInt(String(step.triggerIntervalMinutes || ""), 10)
+      return {
+        id: nodeId,
+        type: "schedule-trigger",
+        label,
+        position,
+        triggerMode: mode,
+        triggerTime: normalizeTime(step.triggerTime, fallbackTime),
+        triggerTimezone: resolveTimezone(step.triggerTimezone, fallbackTimezone),
+        triggerDays: mode === "weekly" || mode === "once"
+          ? (normalizeWorkflowTriggerDays(step.triggerDays) || fallbackDays)
+          : undefined,
+        triggerIntervalMinutes: mode === "interval" && Number.isFinite(intervalMinutes)
+          ? Math.max(1, Math.min(1440, intervalMinutes))
+          : undefined,
+      } satisfies MissionNode
+    }
+
+    if (stepType === "fetch") {
+      const source = String(step.fetchSource || "").trim().toLowerCase()
+      const method = String(step.fetchMethod || "GET").trim().toUpperCase()
+      if (source === "rss") {
+        return {
+          id: nodeId,
+          type: "rss-feed",
+          label,
+          position,
+          url: String(step.fetchUrl || step.fetchQuery || "").trim(),
+          maxItems: 10,
+        } satisfies MissionNode
+      }
+      if (source === "api" || method === "POST" || (typeof step.fetchUrl === "string" && step.fetchUrl.trim().length > 0)) {
+        return {
+          id: nodeId,
+          type: "http-request",
+          label,
+          position,
+          method: method === "POST" ? "POST" : "GET",
+          url: String(step.fetchUrl || "").trim() || "https://example.com/api",
+          selector: String(step.fetchSelector || "").trim() || undefined,
+        } satisfies MissionNode
+      }
+      return {
+        id: nodeId,
+        type: "web-search",
+        label,
+        position,
+        query: String(step.fetchQuery || step.fetchUrl || label).trim(),
+        maxResults: 5,
+        includeSources: normalizeFetchIncludeSources(step.fetchIncludeSources),
+        fetchContent: true,
+      } satisfies MissionNode
+    }
+
+    if (stepType === "coinbase") {
+      return {
+        id: nodeId,
+        type: "coinbase",
+        label,
+        position,
+        intent:
+          step.coinbaseIntent === "status" ||
+          step.coinbaseIntent === "price" ||
+          step.coinbaseIntent === "portfolio" ||
+          step.coinbaseIntent === "transactions" ||
+          step.coinbaseIntent === "report"
+            ? step.coinbaseIntent
+            : "report",
+        assets: Array.isArray(step.coinbaseParams?.assets)
+          ? step.coinbaseParams.assets.map((asset) => String(asset || "").trim()).filter(Boolean).slice(0, 8)
+          : undefined,
+        quoteCurrency: typeof step.coinbaseParams?.quoteCurrency === "string" ? step.coinbaseParams.quoteCurrency : undefined,
+        thresholdPct: Number.isFinite(Number(step.coinbaseParams?.thresholdPct)) ? Number(step.coinbaseParams?.thresholdPct) : undefined,
+        cadence: typeof step.coinbaseParams?.cadence === "string" ? step.coinbaseParams.cadence : undefined,
+        transactionLimit: Number.isFinite(Number(step.coinbaseParams?.transactionLimit)) ? Number(step.coinbaseParams?.transactionLimit) : undefined,
+        includePreviousArtifactContext: typeof step.coinbaseParams?.includePreviousArtifactContext === "boolean"
+          ? step.coinbaseParams.includePreviousArtifactContext
+          : undefined,
+        format: {
+          style:
+            step.coinbaseFormat?.style === "concise" || step.coinbaseFormat?.style === "detailed"
+              ? step.coinbaseFormat.style
+              : "standard",
+          includeRawMetadata: typeof step.coinbaseFormat?.includeRawMetadata === "boolean"
+            ? step.coinbaseFormat.includeRawMetadata
+            : true,
+        },
+      } satisfies MissionNode
+    }
+
+    if (stepType === "ai") {
+      return {
+        id: nodeId,
+        type: "ai-generate",
+        label,
+        position,
+        prompt: String(step.aiPrompt || "Generate output from the mission input.").trim(),
+        integration: step.aiIntegration || "openai",
+        model: typeof step.aiModel === "string" && step.aiModel.trim().length > 0 ? step.aiModel.trim() : undefined,
+        detailLevel: normalizeAiDetailLevel(step.aiDetailLevel),
+      } satisfies MissionNode
+    }
+
+    if (stepType === "transform") {
+      const action = String(step.transformAction || "").trim().toLowerCase()
+      if (action === "dedupe") {
+        return {
+          id: nodeId,
+          type: "dedupe",
+          label,
+          position,
+          field: String(step.transformInstruction || "id").trim() || "id",
+        } satisfies MissionNode
+      }
+      const outputFormat = String(step.transformFormat || "markdown").trim().toLowerCase()
+      return {
+        id: nodeId,
+        type: "format",
+        label,
+        position,
+        template: String(step.transformInstruction || "{{input}}").trim() || "{{input}}",
+        outputFormat:
+          outputFormat === "text" || outputFormat === "json" || outputFormat === "html" || outputFormat === "markdown"
+            ? outputFormat
+            : "markdown",
+      } satisfies MissionNode
+    }
+
+    if (stepType === "condition") {
+      const conditionOperator = step.conditionOperator
+      return {
+        id: nodeId,
+        type: "condition",
+        label,
+        position,
+        logic: step.conditionLogic === "any" ? "any" : "all",
+        rules: [
+          {
+            field: String(step.conditionField || "").trim(),
+            operator:
+              conditionOperator === "contains" ||
+              conditionOperator === "equals" ||
+              conditionOperator === "not_equals" ||
+              conditionOperator === "greater_than" ||
+              conditionOperator === "less_than" ||
+              conditionOperator === "regex" ||
+              conditionOperator === "exists"
+                ? conditionOperator
+                : "exists",
+            value: typeof step.conditionValue === "string" ? step.conditionValue : undefined,
+          },
+        ],
+      } satisfies MissionNode
+    }
+
+    const outputChannel = normalizeOutputChannelAlias(String(step.outputChannel || params.fallbackIntegration || "").trim())
+      || normalizeOutputChannelAlias(params.fallbackIntegration)
+      || "telegram"
+    const recipientTargets = parseRecipientTargets(step.outputRecipients)
+    if (outputChannel === "discord") {
+      return {
+        id: nodeId,
+        type: "discord-output",
+        label,
+        position,
+        webhookUrls: recipientTargets,
+      } satisfies MissionNode
+    }
+    if (outputChannel === "email") {
+      return {
+        id: nodeId,
+        type: "email-output",
+        label,
+        position,
+        recipients: recipientTargets,
+        subject: label,
+      } satisfies MissionNode
+    }
+    if (outputChannel === "webhook") {
+      return {
+        id: nodeId,
+        type: "webhook-output",
+        label,
+        position,
+        url: recipientTargets[0] || "https://example.com/webhook",
+        method: "POST",
+      } satisfies MissionNode
+    }
+    return {
+      id: nodeId,
+      type: "telegram-output",
+      label,
+      position,
+      chatIds: params.fallbackChatIds,
+      messageTemplate: typeof step.outputTemplate === "string" ? step.outputTemplate : undefined,
+    } satisfies MissionNode
+  }
+
+  const nodes = params.steps.map((step, index) => mapStepToNode(step, index))
+  if (nodes.some((node) => node.type === "schedule-trigger")) return nodes
+
+  const triggerId = nextNodeId("trigger-auto", 0, "trigger")
+  const triggerNode: MissionNode = {
+    id: triggerId,
+    type: "schedule-trigger",
+    label: "Schedule Trigger",
+    position: { x: 80, y: 220 },
+    triggerMode: fallbackMode,
+    triggerTime: fallbackTime,
+    triggerTimezone: fallbackTimezone,
+    triggerDays: fallbackMode === "weekly" || fallbackMode === "once" ? fallbackDays : undefined,
+  }
+  return [triggerNode, ...nodes.map((node, index) => ({ ...node, position: toPosition(index + 1) }))]
+}
+
+function buildLinearMissionConnections(nodes: MissionNode[]): MissionConnection[] {
+  const connections: MissionConnection[] = []
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    const source = nodes[index]
+    const target = nodes[index + 1]
+    connections.push({
+      id: `c-${source.id}-${target.id}`,
+      sourceNodeId: source.id,
+      sourcePort: "main",
+      targetNodeId: target.id,
+      targetPort: "main",
+    })
+  }
+  return connections
+}
+
+function applyScheduleViewToMission(params: {
+  mission: NativeMission
+  schedule: MissionListItem
+  timezone: string
+}): NativeMission {
+  const { mission, schedule, timezone } = params
+  const nextNodes = [...mission.nodes]
+  const fallbackTime = normalizeTime(schedule.time, "09:00")
+  const fallbackMode = normalizeTriggerMode(schedule.mode, "daily")
+  const fallbackDays = normalizeWorkflowTriggerDays(schedule.workflowSteps?.find((step) => step.type === "trigger")?.triggerDays)
+    || ["mon", "tue", "wed", "thu", "fri"]
+  const triggerIndex = nextNodes.findIndex((node) => node.type === "schedule-trigger")
+  if (triggerIndex >= 0) {
+    const triggerNode = nextNodes[triggerIndex]
+    if (triggerNode.type === "schedule-trigger") {
+      nextNodes[triggerIndex] = {
+        ...triggerNode,
+        triggerMode: fallbackMode,
+        triggerTime: fallbackTime,
+        triggerTimezone: resolveTimezone(timezone, triggerNode.triggerTimezone, mission.settings?.timezone),
+        triggerDays: fallbackMode === "weekly" || fallbackMode === "once"
+          ? (normalizeWorkflowTriggerDays(triggerNode.triggerDays) || fallbackDays)
+          : undefined,
+      }
+    }
+  } else {
+    const triggerNode: MissionNode = {
+      id: `trigger-${mission.id}`,
+      type: "schedule-trigger",
+      label: "Schedule Trigger",
+      position: { x: 80, y: 220 },
+      triggerMode: fallbackMode,
+      triggerTime: fallbackTime,
+      triggerTimezone: resolveTimezone(timezone, mission.settings?.timezone),
+      triggerDays: fallbackMode === "weekly" || fallbackMode === "once" ? fallbackDays : undefined,
+    }
+    nextNodes.unshift(triggerNode)
+  }
+
+  const normalizedChatIds = Array.isArray(schedule.chatIds)
+    ? schedule.chatIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : mission.chatIds
+  const nextNow = new Date().toISOString()
+  return {
+    ...mission,
+    label: String(schedule.label || mission.label || "Untitled mission").trim() || "Untitled mission",
+    description: String(schedule.description || schedule.message || mission.description || "").trim(),
+    status: schedule.enabled ? "active" : "paused",
+    integration: String(schedule.integration || mission.integration || "telegram").trim() || "telegram",
+    chatIds: normalizedChatIds,
+    nodes: nextNodes,
+    settings: {
+      ...mission.settings,
+      timezone: resolveTimezone(timezone, mission.settings?.timezone),
+    },
+    updatedAt: nextNow,
+  }
+}
+
 export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageStateInput) {
   const router = useRouter()
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
@@ -131,13 +502,13 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)
 
-  const [schedules, setSchedules] = useState<NotificationSchedule[]>(() => getCachedMissionSchedules())
-  const [baselineById, setBaselineById] = useState<Record<string, NotificationSchedule>>(() => buildBaselineById(getCachedMissionSchedules()))
+  const [schedules, setSchedules] = useState<MissionListItem[]>(() => getCachedMissionSchedules())
+  const [baselineById, setBaselineById] = useState<Record<string, MissionListItem>>(() => buildBaselineById(getCachedMissionSchedules()))
   const [loading, setLoading] = useState(() => getCachedMissionSchedules().length === 0)
   const [status, setStatus] = useState<MissionStatusMessage>(null)
   const [busyById, setBusyById] = useState<Record<string, boolean>>({})
   const [deployingMission, setDeployingMission] = useState(false)
-  const [pendingDeleteMission, setPendingDeleteMission] = useState<NotificationSchedule | null>(null)
+  const [pendingDeleteMission, setPendingDeleteMission] = useState<MissionListItem | null>(null)
   const [missionActionMenu, setMissionActionMenu] = useState<MissionActionMenuState | null>(null)
 
   const [newLabel, setNewLabel] = useState("")
@@ -1108,7 +1479,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     loading,
   })
 
-  const updateLocalSchedule = useCallback((id: string, patch: Partial<NotificationSchedule>) => {
+  const updateLocalSchedule = useCallback((id: string, patch: Partial<MissionListItem>) => {
     setSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
   }, [])
 
@@ -1333,7 +1704,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       return
     }
 
-    const { workflowStepsForSave, summary: workflowSummary } = buildWorkflowSummaryDraft()
+    const { workflowStepsForSave } = buildWorkflowSummaryDraft()
 
     const derivedIntegration = (
       normalizeOutputChannelAlias(workflowStepsForSave.find((step) => step.type === "output")?.outputChannel?.trim().toLowerCase() || "") || resolvePreferredOutputChannel()
@@ -1342,40 +1713,82 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setDeployingMission(true)
     setStatus(null)
     try {
-      const payload = {
-        integration: derivedIntegration,
-        label,
-        message: `${message}\n\n[NOVA WORKFLOW]\n${JSON.stringify(workflowSummary)}`,
-        time,
-        timezone,
-        enabled: missionActive,
-        chatIds: [],
+      let existingMission: NativeMission | null = null
+      if (isEditing && editingMissionId) {
+        const existingResponse = await fetchMissionById(editingMissionId)
+        if (existingResponse.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+          throw new Error("Session expired. Please sign in again.")
+        }
+        const existingPayload = existingResponse.data as { mission?: unknown; error?: string }
+        if (!existingResponse.ok) {
+          throw new Error(existingPayload?.error || "Failed to load mission before save.")
+        }
+        existingMission = normalizeMissionRecord(existingPayload?.mission)
+        if (!existingMission) {
+          throw new Error("Mission details are unavailable.")
+        }
       }
-      const response = isEditing
-        ? await updateMissionSchedule({
-          id: editingMissionId,
-          ...payload,
-          resetLastSent: true,
-        })
-        : await createMissionSchedule(payload)
-      const data = response.data as { schedule?: NotificationSchedule; error?: string }
+
+      const missionNodes = buildNativeMissionNodesFromWorkflow({
+        steps: workflowStepsForSave as WorkflowStep[],
+        fallbackMode: newScheduleMode,
+        fallbackTime: time,
+        fallbackTimezone: timezone,
+        fallbackDays: newScheduleDays,
+        fallbackIntegration: derivedIntegration,
+        fallbackChatIds: existingMission?.chatIds || [],
+      })
+      const nextNow = new Date().toISOString()
+      const missionPayload: NativeMission = {
+        id: existingMission?.id || (isEditing && editingMissionId ? editingMissionId : crypto.randomUUID()),
+        userId: existingMission?.userId || "",
+        label,
+        description: message,
+        category: existingMission?.category || "research",
+        tags: missionTags,
+        status: missionActive ? "active" : "paused",
+        version: existingMission?.version || 1,
+        nodes: missionNodes,
+        connections: buildLinearMissionConnections(missionNodes),
+        variables: existingMission?.variables || [],
+        settings: {
+          ...(existingMission?.settings || defaultMissionSettings()),
+          timezone: resolveTimezone(timezone, existingMission?.settings?.timezone),
+        },
+        createdAt: existingMission?.createdAt || nextNow,
+        updatedAt: nextNow,
+        lastRunAt: existingMission?.lastRunAt,
+        lastSentLocalDate: existingMission?.lastSentLocalDate,
+        runCount: Number.isFinite(existingMission?.runCount) ? Number(existingMission?.runCount) : 0,
+        successCount: Number.isFinite(existingMission?.successCount) ? Number(existingMission?.successCount) : 0,
+        failureCount: Number.isFinite(existingMission?.failureCount) ? Number(existingMission?.failureCount) : 0,
+        lastRunStatus: existingMission?.lastRunStatus,
+        integration: derivedIntegration,
+        chatIds: existingMission?.chatIds || [],
+      }
+
+      const response = await saveMissionRecord(missionPayload)
+      const data = response.data as { ok?: boolean; mission?: unknown; error?: string }
       if (response.status === 401) {
         router.replace(`/login?next=${encodeURIComponent("/missions")}`)
         throw new Error("Session expired. Please sign in again.")
       }
-      if (!response.ok) throw new Error(data?.error || (isEditing ? "Failed to save mission" : "Failed to create mission"))
-
-      const createdSchedule = data?.schedule
-      // Immediately add the new mission to the list so it shows up right away
-      if (!isEditing && createdSchedule) {
-        setSchedules((prev) => [createdSchedule, ...prev])
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(data?.error || (isEditing ? "Failed to save mission." : "Failed to create mission."))
       }
+      const savedMission = normalizeMissionRecord(data?.mission)
+      if (!savedMission) {
+        throw new Error("Saved mission response was invalid.")
+      }
+      const createdSchedule = mapMissionToScheduleView(savedMission)
+      if (!isEditing) setSchedules((prev) => [createdSchedule, ...prev])
+      else updateLocalSchedule(savedMission.id, createdSchedule)
+      setBaselineById((prev) => ({ ...prev, [savedMission.id]: createdSchedule }))
 
       let immediateRunNovachatQueued = false
       if (runImmediatelyOnCreate) {
-        const runScheduleId = isEditing
-          ? (typeof editingMissionId === "string" ? editingMissionId.trim() : "")
-          : (typeof data?.schedule?.id === "string" ? data.schedule.id.trim() : "")
+        const runScheduleId = savedMission.id
         if (!runScheduleId) {
           throw new Error(
             isEditing
@@ -1441,7 +1854,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         }
         if (triggerData?.schedule) {
           updateLocalSchedule(runScheduleId, triggerData.schedule)
-          setBaselineById((prev) => ({ ...prev, [runScheduleId]: triggerData.schedule as NotificationSchedule }))
+          setBaselineById((prev) => ({ ...prev, [runScheduleId]: triggerData.schedule as MissionListItem }))
         } else {
           setSchedules((prev) =>
             prev.map((item) =>
@@ -1491,6 +1904,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     detectedTimezone,
     editingMissionId,
     missionActive,
+    missionTags,
     newDescription,
     newLabel,
     newScheduleDays,
@@ -1511,37 +1925,49 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     workflowSteps,
   ])
 
-  const saveMission = useCallback(async (mission: NotificationSchedule) => {
+  const saveMission = useCallback(async (mission: MissionListItem) => {
     const baseline = baselineById[mission.id]
     const timeChanged = baseline ? baseline.time !== mission.time : true
     const timezoneChanged = baseline ? baseline.timezone !== (detectedTimezone || getRuntimeTimezone()).trim() : true
     const enabledChanged = baseline ? baseline.enabled !== mission.enabled : true
+    const resolvedTimezone = (detectedTimezone || getRuntimeTimezone()).trim()
 
     setItemBusy(mission.id, true)
     setStatus(null)
     try {
-      const response = await updateMissionSchedule({
-        id: mission.id,
-        integration: mission.integration,
-        label: mission.label,
-        message: mission.message,
-        time: mission.time,
-        timezone: (detectedTimezone || getRuntimeTimezone()).trim(),
-        enabled: mission.enabled,
-        chatIds: [],
-        resetLastSent: timeChanged || timezoneChanged || enabledChanged,
-      })
-      const data = response.data as { schedule?: NotificationSchedule; error?: string }
-      if (response.status === 401) {
+      const fetchResponse = await fetchMissionById(mission.id)
+      if (fetchResponse.status === 401) {
         router.replace(`/login?next=${encodeURIComponent("/missions")}`)
         throw new Error("Session expired. Please sign in again.")
       }
-      if (!response.ok) throw new Error(data?.error || "Failed to save mission")
-      const updated = data?.schedule as NotificationSchedule | undefined
-      if (updated) {
-        updateLocalSchedule(mission.id, updated)
-        setBaselineById((prev) => ({ ...prev, [mission.id]: updated }))
+      const fetchData = fetchResponse.data as { mission?: unknown; error?: string }
+      if (!fetchResponse.ok) throw new Error(fetchData?.error || "Failed to load mission.")
+      const existingMission = normalizeMissionRecord(fetchData?.mission)
+      if (!existingMission) throw new Error("Mission details are unavailable.")
+
+      const nextMission = applyScheduleViewToMission({
+        mission: existingMission,
+        schedule: mission,
+        timezone: resolvedTimezone,
+      })
+      if (timeChanged || timezoneChanged || enabledChanged) {
+        nextMission.lastSentLocalDate = undefined
       }
+
+      const saveResponse = await saveMissionRecord(nextMission)
+      if (saveResponse.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        throw new Error("Session expired. Please sign in again.")
+      }
+      const saveData = saveResponse.data as { ok?: boolean; mission?: unknown; error?: string }
+      if (!saveResponse.ok || saveData?.ok !== true) {
+        throw new Error(saveData?.error || "Failed to save mission.")
+      }
+      const savedMission = normalizeMissionRecord(saveData?.mission)
+      if (!savedMission) throw new Error("Saved mission response was invalid.")
+      const updated = mapMissionToScheduleView(savedMission)
+      updateLocalSchedule(mission.id, updated)
+      setBaselineById((prev) => ({ ...prev, [mission.id]: updated }))
       setStatus({ type: "success", message: `Mission \"${mission.label}\" saved.` })
     } catch (error) {
       setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to save mission." })
@@ -1592,7 +2018,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setPendingDeleteMission(null)
   }, [deleteMission, pendingDeleteMission])
 
-  const applyNativeMissionToBuilder = useCallback((nativeMission: NativeMission, fallbackMission: NotificationSchedule, duplicate: boolean) => {
+  const applyNativeMissionToBuilder = useCallback((nativeMission: NativeMission, fallbackMission: MissionListItem, duplicate: boolean) => {
     const triggerNode = nativeMission.nodes.find((node) => node.type === "schedule-trigger")
     const resolvedMode =
       triggerNode?.type === "schedule-trigger" &&
@@ -1643,7 +2069,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     }
   }, [detectedTimezone, mapWorkflowStepsForBuilder])
 
-  const editMissionFromActions = useCallback(async (mission: NotificationSchedule) => {
+  const editMissionFromActions = useCallback(async (mission: MissionListItem) => {
     try {
       const response = await fetchMissionById(mission.id)
       if (response.status === 401) {
@@ -1666,7 +2092,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     }
   }, [applyNativeMissionToBuilder, router])
 
-  const duplicateMission = useCallback(async (mission: NotificationSchedule) => {
+  const duplicateMission = useCallback(async (mission: MissionListItem) => {
     try {
       const response = await fetchMissionById(mission.id)
       if (response.status === 401) {
@@ -1690,7 +2116,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   }, [applyNativeMissionToBuilder, router])
 
   const runMissionNow = useCallback(async (
-    mission: NotificationSchedule,
+    mission: MissionListItem,
     options?: { workflowSteps?: Array<Partial<WorkflowStep>> },
   ) => {
     setStatus(null)
@@ -1732,7 +2158,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       }
       if (data?.schedule) {
         updateLocalSchedule(mission.id, data.schedule)
-        setBaselineById((prev) => ({ ...prev, [mission.id]: data.schedule as NotificationSchedule }))
+        setBaselineById((prev) => ({ ...prev, [mission.id]: data.schedule as MissionListItem }))
       } else {
         setSchedules((prev) =>
           prev.map((item) =>
@@ -1977,3 +2403,4 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     missionStats,
   }
 }
+

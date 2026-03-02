@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { renderMissionReliabilityGuidanceMarkdown } from "./mission-reliability-guidance.mjs";
 
 function parseArgs(argv) {
   const out = { days: 7, failOnBreach: false };
@@ -82,7 +83,6 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const userContextId = String(
     process.env.NOVA_REVIEW_USER_CONTEXT_ID ||
-      process.env.NOVA_SMOKE_USER_CONTEXT_ID ||
       process.env.NOVA_MISSION_REVIEW_USER_CONTEXT_ID ||
       "",
   )
@@ -90,7 +90,7 @@ async function main() {
     .toLowerCase();
 
   if (!userContextId) {
-    console.error("Missing user context. Set NOVA_REVIEW_USER_CONTEXT_ID or NOVA_SMOKE_USER_CONTEXT_ID.");
+    console.error("Missing user context. Set NOVA_REVIEW_USER_CONTEXT_ID or NOVA_MISSION_REVIEW_USER_CONTEXT_ID.");
     process.exit(1);
   }
 
@@ -187,7 +187,9 @@ async function main() {
     "## Actions",
     breached.length === 0
       ? "- No immediate mitigation required."
-      : "- Follow tasks/runbooks/mission-reliability-runbook.md for breached metrics.",
+      : "- Apply steps in the embedded Mission Reliability Guidance section for breached metrics.",
+    "",
+    ...renderMissionReliabilityGuidanceMarkdown(),
   ];
   fs.writeFileSync(reportPath, `${lines.join("\n")}\n`, "utf8");
 

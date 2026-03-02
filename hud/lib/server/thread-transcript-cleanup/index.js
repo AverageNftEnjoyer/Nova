@@ -205,10 +205,7 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
 
   const userContextDir = path.join(workspaceRoot, ".agent", "user-context", userContextId);
   const sessionStorePath = path.join(userContextDir, "state", "sessions.json");
-  const legacyScopedSessionStorePath = path.join(userContextDir, "sessions.json");
-  const legacySessionStorePath = path.join(workspaceRoot, ".agent", "sessions.json");
   const scopedTranscriptDir = path.join(userContextDir, "transcripts");
-  const legacyTranscriptDir = path.join(workspaceRoot, ".agent", "transcripts");
 
   let removedSessionEntries = 0;
   let removedTranscriptFiles = 0;
@@ -222,33 +219,11 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
   removedSessionEntries += scopedSessionPrune.removedSessionEntries;
   for (const sessionId of scopedSessionPrune.sessionIds) sessionIds.add(sessionId);
 
-  const legacyScopedSessionPrune = await pruneSessionStoreByConversationKeys(
-    legacyScopedSessionStorePath,
-    sessionConversationIds,
-    sessionKeyLookup,
-  );
-  removedSessionEntries += legacyScopedSessionPrune.removedSessionEntries;
-  for (const sessionId of legacyScopedSessionPrune.sessionIds) sessionIds.add(sessionId);
-
-  const legacySessionPrune = await pruneSessionStoreByConversationKeys(
-    legacySessionStorePath,
-    sessionConversationIds,
-    sessionKeyLookup,
-  );
-  removedSessionEntries += legacySessionPrune.removedSessionEntries;
-  for (const sessionId of legacySessionPrune.sessionIds) sessionIds.add(sessionId);
-
   for (const sessionId of sessionIds) {
     const scopedPath = path.join(scopedTranscriptDir, `${sessionId}.jsonl`);
-    const legacyPath = path.join(legacyTranscriptDir, `${sessionId}.jsonl`);
     const scopedExists = await readFile(scopedPath, "utf8").then(() => true).catch(() => false);
     if (scopedExists) {
       await rm(scopedPath, { force: true }).catch(() => {});
-      removedTranscriptFiles += 1;
-    }
-    const legacyExists = await readFile(legacyPath, "utf8").then(() => true).catch(() => false);
-    if (legacyExists) {
-      await rm(legacyPath, { force: true }).catch(() => {});
       removedTranscriptFiles += 1;
     }
   }
@@ -267,7 +242,6 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
   };
 
   await scanAndPrune(scopedTranscriptDir);
-  await scanAndPrune(legacyTranscriptDir);
 
   return { removedSessionEntries, removedTranscriptFiles };
 }

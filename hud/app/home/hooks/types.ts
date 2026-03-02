@@ -1,4 +1,4 @@
-export interface NotificationSchedule {
+export interface MissionListItem {
   id: string
   integration: string
   label: string
@@ -24,3 +24,4 @@ export interface MissionSummary {
   times: string[]
   timezone: string
 }
+

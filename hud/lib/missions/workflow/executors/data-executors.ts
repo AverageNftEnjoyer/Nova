@@ -6,7 +6,7 @@ import "server-only"
 
 import type { WebSearchNode, HttpRequestNode, RssFeedNode, CoinbaseNode, NodeOutput, ExecutionContext } from "../../types/index"
 import { searchWebAndCollect } from "../../web/search"
-import { executeCoinbaseWorkflowStep } from "../coinbase-step"
+import { executeCoinbaseNode } from "../coinbase-step"
 import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../../web/safe-fetch"
 import { formatCoinbasePriceAlertTextFromObject } from "../../output/contract"
 
@@ -157,31 +157,12 @@ export async function executeCoinbase(
   node: CoinbaseNode,
   ctx: ExecutionContext,
 ): Promise<NodeOutput> {
-  // Map new CoinbaseNode to the legacy WorkflowStep format expected by executeCoinbaseWorkflowStep
-  const legacyStep = {
-    id: node.id,
-    type: "coinbase" as const,
-    title: node.label,
-    coinbaseIntent: node.intent,
-    coinbaseParams: {
-      assets: node.assets,
-      quoteCurrency: node.quoteCurrency || "USD",
-      thresholdPct: node.thresholdPct,
-      cadence: node.cadence,
-      transactionLimit: node.transactionLimit,
-      includePreviousArtifactContext: node.includePreviousArtifactContext ?? true,
-    },
-    coinbaseFormat: node.format
-      ? { style: node.format.style, includeRawMetadata: node.format.includeRawMetadata }
-      : { style: "standard" as const, includeRawMetadata: true },
-  }
-
   const userContextId = String(ctx.scope?.userId || ctx.scope?.user?.id || "").slice(0, 96)
   const conversationId = ctx.missionId
 
   try {
-    const result = await executeCoinbaseWorkflowStep({
-      step: legacyStep,
+    const result = await executeCoinbaseNode({
+      node,
       userContextId,
       conversationId,
       missionId: ctx.missionId,

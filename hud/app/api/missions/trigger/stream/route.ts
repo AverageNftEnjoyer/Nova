@@ -1,15 +1,13 @@
-import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
-import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
+import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { loadMissions } from "@/lib/missions/store"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
-import type { NotificationSchedule } from "@/lib/notifications/store"
-import { resolveTimezone } from "@/lib/shared/timezone"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -34,30 +32,16 @@ function nodeTracesToStepTraces(traces: NodeExecutionTrace[]): WorkflowStepTrace
   }))
 }
 
-function buildScheduleFallbackFromMission(mission: Mission, userId: string): NotificationSchedule {
-  const trigger = mission.nodes.find((node) => node.type === "schedule-trigger")
-  const time = trigger?.type === "schedule-trigger" && typeof trigger.triggerTime === "string" && trigger.triggerTime.trim().length > 0
-    ? trigger.triggerTime.trim()
-    : "09:00"
-  const timezone = trigger?.type === "schedule-trigger" && typeof trigger.triggerTimezone === "string" && trigger.triggerTimezone.trim().length > 0
-    ? trigger.triggerTimezone.trim()
-    : resolveTimezone(mission.settings?.timezone)
-  const nowIso = new Date().toISOString()
+function buildRunRecordFromMission(mission: Mission, userId: string): MissionRunRecord {
   return {
     id: mission.id,
     userId,
-    integration: String(mission.integration || "telegram").trim() || "telegram",
     label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
-    message: String(mission.description || mission.label || "Mission run"),
-    time,
-    timezone,
-    enabled: mission.status !== "archived",
-    chatIds: Array.isArray(mission.chatIds) ? mission.chatIds.map((id) => String(id).trim()).filter(Boolean) : [],
-    createdAt: mission.createdAt || nowIso,
-    updatedAt: mission.updatedAt || nowIso,
-    runCount: Number.isFinite(mission.runCount) ? mission.runCount : 0,
-    successCount: Number.isFinite(mission.successCount) ? mission.successCount : 0,
-    failureCount: Number.isFinite(mission.failureCount) ? mission.failureCount : 0,
+    updatedAt: mission.updatedAt || mission.createdAt || new Date().toISOString(),
+    lastSentLocalDate: mission.lastSentLocalDate,
+    runCount: Number.isFinite(Number(mission.runCount)) ? Number(mission.runCount) : 0,
+    successCount: Number.isFinite(Number(mission.successCount)) ? Number(mission.successCount) : 0,
+    failureCount: Number.isFinite(Number(mission.failureCount)) ? Number(mission.failureCount) : 0,
     lastRunAt: mission.lastRunAt,
     lastRunStatus: mission.lastRunStatus,
   }
@@ -87,12 +71,12 @@ export async function GET(req: Request) {
   }
   const userId = verified.user.id
   const url = new URL(req.url)
-  const scheduleId = String(url.searchParams.get("scheduleId") || "").trim()
-  if (!scheduleId) {
-    return new Response("Missing scheduleId", { status: 400 })
+  const missionId = String(url.searchParams.get("missionId") || "").trim()
+  if (!missionId) {
+    return new Response("Missing missionId", { status: 400 })
   }
 
-  ensureNotificationSchedulerStarted()
+  ensureMissionSchedulerStarted()
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -119,16 +103,16 @@ export async function GET(req: Request) {
       void (async () => {
         try {
           const missions = await loadMissions({ userId })
-          const mission = missions.find((row) => row.id === scheduleId) || null
+          const mission = missions.find((row) => row.id === missionId) || null
           if (!mission) {
-            safeStreamPayload({ type: "error", error: "schedule not found" })
+            safeStreamPayload({ type: "error", error: "mission not found" })
             return
           }
-          const target = buildScheduleFallbackFromMission(mission, userId)
+          const target = buildRunRecordFromMission(mission, userId)
 
           safeStreamPayload({
             type: "started",
-            missionId: scheduleId,
+            missionId,
             missionLabel: target.label || "Untitled mission",
             startedAt: new Date().toISOString(),
           })
@@ -196,12 +180,6 @@ export async function GET(req: Request) {
           } catch {
             // Logging failures should not block stream responses.
           }
-          const updatedSchedule = applyScheduleRunOutcome(target, {
-            status: logStatus,
-            now: new Date(),
-            mode: "manual-trigger-stream",
-          })
-
           safeStreamPayload({
             type: "done",
             data: {
@@ -212,7 +190,6 @@ export async function GET(req: Request) {
               stepTraces,
               telegramQueued,
               deadLetterId: deadLetterId || undefined,
-              schedule: updatedSchedule,
             },
           })
         } catch (error) {

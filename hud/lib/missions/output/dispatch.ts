@@ -9,12 +9,18 @@ import "server-only"
 import { createHash } from "node:crypto"
 
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
-import type { NotificationSchedule } from "@/lib/notifications/store"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { fetchWithSsrfGuard } from "../web/safe-fetch"
 import type { OutputResult } from "../types/index"
 import { enforceMissionOutputContract } from "./contract"
+
+export interface MissionOutputDispatchTarget {
+  missionId: string
+  missionLabel: string
+  userContextId?: string
+  timezone?: string
+}
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = String(process.env[name] || "").trim()
@@ -45,7 +51,7 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
   channel: string
   text: string
   userContextId: string
-  schedule: NotificationSchedule
+  target: MissionOutputDispatchTarget
   scope?: IntegrationsStoreScope
   metadata?: {
     missionRunId?: string
@@ -58,7 +64,7 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
     occurredAt?: string
   }
 }): Promise<void> {
-  const { channel, text, userContextId, schedule, scope, metadata } = params
+  const { channel, text, userContextId, target, scope, metadata } = params
   if (!scope || !userContextId) return
 
   let config
@@ -82,10 +88,10 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
   if (Number.isNaN(startAt.getTime())) return
   const endAt = new Date(startAt.getTime() + GCALENDAR_MIRROR_EVENT_DURATION_MS)
 
-  const summary = String(schedule.label || "").trim() || "Nova Automation"
+  const summary = String(target.missionLabel || "").trim() || "Nova Automation"
   const lines = [
     `Mission output channel: ${channel}`,
-    `Mission id: ${String(schedule.id || "").trim() || "unknown"}`,
+    `Mission id: ${String(target.missionId || "").trim() || "unknown"}`,
     "",
     text.trim(),
   ]
@@ -93,7 +99,7 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
 
   const dedupeSeed = [
     userContextId,
-    String(schedule.id || "").trim(),
+    String(target.missionId || "").trim(),
     String(metadata?.missionRunId || "").trim(),
     String(metadata?.runKey || "").trim(),
     String(metadata?.nodeId || "").trim(),
@@ -130,7 +136,7 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
       description,
       startAt,
       endAt,
-      timeZone: resolveTimezone(schedule.timezone),
+      timeZone: resolveTimezone(target.timezone),
       eventId: buildStableCalendarMirrorEventId(dedupeSeed),
     },
     {
@@ -147,7 +153,7 @@ export async function dispatchOutput(
   channel: string,
   text: string,
   targets: string[] | undefined,
-  schedule: NotificationSchedule,
+  target: MissionOutputDispatchTarget,
   scope?: IntegrationsStoreScope,
   metadata?: {
     missionRunId?: string
@@ -160,12 +166,12 @@ export async function dispatchOutput(
     occurredAt?: string
   },
 ): Promise<OutputResult[]> {
-  const userContextId = String(scope?.userId || scope?.user?.id || schedule.userId || "").trim()
+  const userContextId = String(scope?.userId || scope?.user?.id || target.userContextId || "").trim()
   const contracted = enforceMissionOutputContract({
     channel,
     text,
     userContextId,
-    missionId: String(schedule.id || "").trim(),
+    missionId: String(target.missionId || "").trim(),
     missionRunId: String(metadata?.missionRunId || "").trim(),
     nodeId: String(metadata?.nodeId || "").trim(),
   })
@@ -180,7 +186,7 @@ export async function dispatchOutput(
         ? Math.max(0, Number(metadata?.outputIndex))
         : 0
       const deliveryKey = String(metadata?.deliveryKey || "").trim()
-        || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
+        || `${String(target.missionId || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
       const channelResults = await dispatchNotification({
         integration: channel as NotificationIntegration,
         text: safeText,
@@ -189,8 +195,8 @@ export async function dispatchOutput(
         timeoutMs: channel === "email" ? EMAIL_TIMEOUT_MS : undefined,
         parseMode: channel === "telegram" ? "HTML" : undefined,
         source: "workflow",
-        scheduleId: schedule.id,
-        label: schedule.label,
+        scheduleId: target.missionId,
+        label: target.missionLabel,
         scope,
       })
       if (channelResults.some((result) => result.ok)) {
@@ -199,7 +205,7 @@ export async function dispatchOutput(
             channel,
             text: safeText,
             userContextId,
-            schedule,
+            target,
             scope,
             metadata,
           })
@@ -232,8 +238,8 @@ export async function dispatchOutput(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               text: safeText,
-              scheduleId: schedule.id,
-              label: schedule.label,
+              scheduleId: target.missionId,
+              label: target.missionLabel,
               ts: new Date().toISOString(),
             }),
           },
@@ -249,7 +255,7 @@ export async function dispatchOutput(
           channel,
           text: safeText,
           userContextId,
-          schedule,
+          target,
           scope,
           metadata,
         })
@@ -272,7 +278,7 @@ export async function dispatchOutput(
       ? Math.max(0, Number(metadata?.outputIndex))
       : 0
     const deliveryKey = String(metadata?.deliveryKey || "").trim()
-      || `${String(schedule.id || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
+      || `${String(target.missionId || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
     const results = await Promise.all(urls.map(async (url) => {
       try {
         const { response } = await fetchWithSsrfGuard({
@@ -284,8 +290,8 @@ export async function dispatchOutput(
             headers: { "Content-Type": "application/json", "X-Mission-Delivery-Key": deliveryKey },
             body: JSON.stringify({
               text: safeText,
-              scheduleId: schedule.id,
-              label: schedule.label,
+              scheduleId: target.missionId,
+              label: target.missionLabel,
               ts: new Date().toISOString(),
             }),
           },
@@ -301,7 +307,7 @@ export async function dispatchOutput(
           channel,
           text: safeText,
           userContextId,
-          schedule,
+          target,
           scope,
           metadata,
         })

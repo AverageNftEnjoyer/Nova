@@ -23,7 +23,7 @@ import { MISSION_TEMPLATES } from "@/lib/missions/templates"
 import { hexToRgba } from "./helpers"
 import { useMissionsPageState } from "./hooks/use-missions-page-state"
 import { missionToWorkflowSummaryForAutofix } from "./canvas/workflow-autofix-bridge"
-import type { NotificationSchedule } from "./types"
+import type { MissionListItem } from "./types"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
 export default function MissionsPage() {
@@ -153,7 +153,7 @@ export default function MissionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId, loading])
 
-  const buildPipelineScheduleFromMission = (mission: Mission): NotificationSchedule => {
+  const buildPipelineScheduleFromMission = (mission: Mission): MissionListItem => {
     const trigger = mission.nodes.find((node) => node.type === "schedule-trigger")
     const summary = missionToWorkflowSummaryForAutofix(mission)
     const description = String(mission.description || mission.label || "Mission run").trim()
@@ -183,7 +183,7 @@ export default function MissionsPage() {
     }
   }
 
-  const upsertMissionInPipeline = (schedule: NotificationSchedule) => {
+  const upsertMissionInPipeline = (schedule: MissionListItem) => {
     setSchedules((prev) => {
       const idx = prev.findIndex((row) => row.id === schedule.id)
       if (idx < 0) return [schedule, ...prev]
@@ -583,4 +583,5 @@ export default function MissionsPage() {
     </div>
   )
 }
+
 

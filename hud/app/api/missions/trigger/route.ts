@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server"
 
-import { ensureNotificationSchedulerStarted } from "@/lib/notifications/scheduler"
+import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { loadMissions, upsertMission } from "@/lib/missions/store"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
-import { appendRunLogForExecution, applyScheduleRunOutcome } from "@/lib/notifications/run-metrics"
+import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
-import { buildSchedule } from "@/lib/notifications/store"
-import { dispatchOutput } from "@/lib/missions/output/dispatch"
+import { dispatchOutput, type MissionOutputDispatchTarget } from "@/lib/missions/output/dispatch"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
@@ -41,6 +40,32 @@ function normalizeRecipients(raw: unknown): string[] {
   return Array.from(new Set(raw.map((value) => String(value || "").trim()).filter(Boolean)))
 }
 
+function buildRunRecordFromMission(mission: {
+  id: string
+  label?: string
+  createdAt?: string
+  updatedAt?: string
+  runCount?: number
+  successCount?: number
+  failureCount?: number
+  lastRunAt?: string
+  lastRunStatus?: "success" | "error" | "skipped"
+  lastSentLocalDate?: string
+}, userId: string): MissionRunRecord {
+  return {
+    id: mission.id,
+    userId,
+    label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
+    updatedAt: mission.updatedAt || mission.createdAt || new Date().toISOString(),
+    runCount: Number.isFinite(Number(mission.runCount)) ? Number(mission.runCount) : 0,
+    successCount: Number.isFinite(Number(mission.successCount)) ? Number(mission.successCount) : 0,
+    failureCount: Number.isFinite(Number(mission.failureCount)) ? Number(mission.failureCount) : 0,
+    lastRunAt: mission.lastRunAt,
+    lastRunStatus: mission.lastRunStatus,
+    lastSentLocalDate: mission.lastSentLocalDate,
+  }
+}
+
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -71,42 +96,24 @@ export async function POST(req: Request) {
   if (!limit.allowed) return rateLimitExceededResponse(limit)
   const userId = verified.user.id
 
-  ensureNotificationSchedulerStarted()
+  ensureMissionSchedulerStarted()
 
   try {
     const body = await req.json()
-    const scheduleId = typeof body?.scheduleId === "string" ? body.scheduleId.trim() : ""
+    const missionId = typeof body?.missionId === "string" ? body.missionId.trim() : ""
     const text = typeof body?.message === "string" ? body.message.trim() : ""
     const integration = typeof body?.integration === "string" ? body.integration.trim().toLowerCase() : ""
     const timezone = resolveTimezone(typeof body?.timezone === "string" ? body.timezone : undefined)
-    const time = typeof body?.time === "string" ? body.time.trim() : "09:00"
     const chatIds = normalizeRecipients(body?.chatIds)
 
     // ── Run a saved mission by ID via the DAG engine ───────────────────────────
-    if (scheduleId) {
+    if (missionId) {
       const allMissions = await loadMissions({ userId })
-      const mission = allMissions.find((m) => m.id === scheduleId)
+      const mission = allMissions.find((m) => m.id === missionId)
       if (!mission) {
         return NextResponse.json({ error: "Mission not found." }, { status: 404 })
       }
-      const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
-      const scheduleTime = triggerNode?.type === "schedule-trigger" && typeof triggerNode.triggerTime === "string"
-        ? triggerNode.triggerTime
-        : "09:00"
-      const scheduleTimezone = triggerNode?.type === "schedule-trigger" && typeof triggerNode.triggerTimezone === "string"
-        ? triggerNode.triggerTimezone
-        : resolveTimezone(mission.settings?.timezone)
-      const target = buildSchedule({
-        id: mission.id,
-        userId,
-        integration: mission.integration || "telegram",
-        label: mission.label || "Untitled mission",
-        message: mission.description || mission.label || "Mission run",
-        time: scheduleTime,
-        timezone: scheduleTimezone,
-        enabled: mission.status !== "archived",
-        chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
-      })
+      const target = buildRunRecordFromMission(mission, userId)
 
       const missionRunId = crypto.randomUUID()
       const runKey = `manual-trigger:${mission.id}:${Date.now()}`
@@ -185,11 +192,6 @@ export async function POST(req: Request) {
       } catch {
         // Logging failures should not block trigger response.
       }
-      void applyScheduleRunOutcome(target, {
-        status: logStatus,
-        now: new Date(),
-        mode: "manual-trigger",
-      })
 
       return NextResponse.json(
         {
@@ -218,25 +220,32 @@ export async function POST(req: Request) {
       if (!validation.ok) return NextResponse.json({ error: validation.message }, { status: 400 })
     }
 
-    const adHocSchedule = buildSchedule({
+    const adHocId = crypto.randomUUID()
+    const adHocLabel = String(typeof body?.label === "string" ? body.label : "Manual trigger").trim() || "Manual trigger"
+    const adHocSchedule: MissionRunRecord = {
+      id: adHocId,
       userId,
-      integration,
-      label: typeof body?.label === "string" ? body.label : "Manual trigger",
-      message: text,
-      time,
+      label: adHocLabel,
+      updatedAt: new Date().toISOString(),
+      runCount: 0,
+      successCount: 0,
+      failureCount: 0,
+    }
+    const adHocTarget: MissionOutputDispatchTarget = {
+      missionId: adHocId,
+      missionLabel: adHocSchedule.label,
+      userContextId: userId,
       timezone,
-      enabled: true,
-      chatIds,
-    })
+    }
 
     const startedAt = new Date().toISOString()
-    const results = await dispatchOutput(integration, text, chatIds, adHocSchedule, verified)
+    const results = await dispatchOutput(integration, text, chatIds, adHocTarget, verified)
     const endedAt = new Date().toISOString()
     const ok = results.some((r) => r.ok)
 
     const stepTraces: WorkflowStepTrace[] = [
       {
-        stepId: adHocSchedule.id,
+        stepId: adHocId,
         type: `${integration}-output`,
         title: `Send via ${integration}`,
         status: ok ? "completed" : "failed",

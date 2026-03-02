@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// context/ lives one level deeper than the legacy modules root.
+// context/ lives one level deeper than the modules root.
 const ROOT_DIR = path.join(__dirname, "../../..");
 
 const BOOTSTRAP_FILES = ["SOUL.md", "USER.md", "MEMORY.md", "IDENTITY.md", "AGENTS.md"];

@@ -409,6 +409,14 @@ export function useConversations({
         return { conversation: updateConversation(), changed, shouldSync, titleChanged }
       }
 
+      if (
+        event.type === "calendar:event:updated" ||
+        event.type === "calendar:rescheduled" ||
+        event.type === "calendar:conflict"
+      ) {
+        return { conversation: convo, changed, shouldSync, titleChanged }
+      }
+
       const assistantId = String(event.id || "").trim()
       if (!assistantId) return { conversation: convo, changed, shouldSync, titleChanged }
       const existingIdx = convo.messages.findIndex((msg) => msg.role === "assistant" && String(msg.id || "").trim() === assistantId)
@@ -577,9 +585,19 @@ export function useConversations({
     const titledConversationIds = new Set<string>()
 
     for (const event of pending) {
+      if (
+        event.type === "calendar:event:updated" ||
+        event.type === "calendar:rescheduled" ||
+        event.type === "calendar:conflict"
+      ) {
+        continue
+      }
+      const rawConversationId =
+        "conversationId" in event && typeof event.conversationId === "string" ? event.conversationId : ""
+      const eventSource = "source" in event && typeof event.source === "string" ? event.source : ""
       const targetConversationId = resolveTransportConversationId(
-        typeof event.conversationId === "string" ? event.conversationId : "",
-        typeof event.source === "string" ? event.source : "",
+        rawConversationId,
+        eventSource,
         event.type === "message" ? "user" : "assistant",
         nextConversations,
       )

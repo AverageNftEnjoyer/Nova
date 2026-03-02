@@ -14,7 +14,7 @@ import Link from "next/link"
 import { useTheme } from "@/lib/context/theme-context"
 import { cn } from "@/lib/shared/utils"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
-import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { useNovaState, type CalendarEmitPayload } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
@@ -359,6 +359,7 @@ function DetailModal({
   onReschedule,
   onRemoveOverride,
   onDelete,
+  onPublishCalendarEvent,
 }: {
   ev: CalEvent
   onClose: () => void
@@ -366,6 +367,7 @@ function DetailModal({
   onReschedule: (missionId: string, newStartAt: string) => Promise<{ ok: boolean; conflict: boolean; error?: string }>
   onRemoveOverride: (missionId: string) => Promise<{ ok: boolean; error?: string }>
   onDelete?: (ev: CalEvent) => void
+  onPublishCalendarEvent?: (payload: CalendarEmitPayload) => void
 }) {
   const cat  = useCatEntry(ev.kind)
   const endH = ev.startH + Math.floor((ev.startM + ev.durMin) / 60)
@@ -402,7 +404,22 @@ function DetailModal({
     const result = await onReschedule(ev.missionId, iso)
     setSaving(false)
     if (result.ok) {
+      onPublishCalendarEvent?.({
+        eventType: "calendar:rescheduled",
+        missionId: ev.missionId,
+        newStartAt: iso,
+        conflict: result.conflict,
+      })
+      onPublishCalendarEvent?.({
+        eventType: "calendar:event:updated",
+        eventId: ev.id,
+        patch: { startAt: iso, conflict: result.conflict === true },
+      })
       if (result.conflict) {
+        onPublishCalendarEvent?.({
+          eventType: "calendar:conflict",
+          conflicts: [ev.id],
+        })
         setConflict(true)
       } else {
         onClose()
@@ -417,8 +434,14 @@ function DetailModal({
     setSaving(true)
     const result = await onRemoveOverride(ev.missionId)
     setSaving(false)
-    if (result.ok) onClose()
-    else setSaveError(result.error ?? "Failed to remove override.")
+    if (result.ok) {
+      onPublishCalendarEvent?.({
+        eventType: "calendar:event:updated",
+        eventId: ev.id,
+        patch: { overrideCleared: true },
+      })
+      onClose()
+    } else setSaveError(result.error ?? "Failed to remove override.")
   }
 
   return (
@@ -1092,7 +1115,12 @@ export default function MissionsCalendarPage() {
   const pageActive = usePageActive()
   const { theme }  = useTheme()
   const isLight    = theme === "light"
-  const { state: novaState, connected: agentConnected } = useNovaState()
+  const {
+    state: novaState,
+    connected: agentConnected,
+    chatTransportEvents,
+    publishCalendarEvent,
+  } = useNovaState()
   const presence   = getNovaPresence({ agentConnected, novaState })
   const { accentColor } = useAccent()
   const missionColor = ACCENT_COLORS[accentColor]?.primary ?? "#8b5cf6"
@@ -1221,6 +1249,26 @@ export default function MissionsCalendarPage() {
     : weekEnd
 
   const { events: apiEvents, loading, error, refetch, reschedule, removeOverride } = useCalendarEvents(fetchStart, fetchEnd)
+  const latestCalendarTransportSeq = useMemo(() => {
+    for (let i = chatTransportEvents.length - 1; i >= 0; i -= 1) {
+      const event = chatTransportEvents[i]
+      if (
+        event.type === "calendar:event:updated" ||
+        event.type === "calendar:rescheduled" ||
+        event.type === "calendar:conflict"
+      ) {
+        return event.seq
+      }
+    }
+    return 0
+  }, [chatTransportEvents])
+  const lastHandledCalendarSeqRef = useRef(0)
+  useEffect(() => {
+    if (latestCalendarTransportSeq <= 0) return
+    if (latestCalendarTransportSeq === lastHandledCalendarSeqRef.current) return
+    lastHandledCalendarSeqRef.current = latestCalendarTransportSeq
+    refetch()
+  }, [latestCalendarTransportSeq, refetch])
 
   const calEvents = useMemo(() => {
     const mapped = apiEvents.map(apiEventToCalEvent).filter((e): e is CalEvent => e !== null)
@@ -1736,6 +1784,7 @@ export default function MissionsCalendarPage() {
           onReschedule={reschedule}
           onRemoveOverride={removeOverride}
           onDelete={handleDeleteMission}
+          onPublishCalendarEvent={publishCalendarEvent}
         />
       )}
 

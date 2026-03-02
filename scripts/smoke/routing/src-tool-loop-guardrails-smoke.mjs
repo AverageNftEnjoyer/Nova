@@ -31,6 +31,13 @@ async function run(name, fn) {
   }
 }
 
+function resolveExistingPath(candidates, label) {
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error(`Missing ${label}. Checked: ${candidates.join(", ")}`);
+}
+
 await run("Guardrail constants remain within provider timeout bounds", () => {
   assert.ok(Number.isFinite(OPENAI_REQUEST_TIMEOUT_MS) && OPENAI_REQUEST_TIMEOUT_MS > 0);
   assert.ok(TOOL_LOOP_REQUEST_TIMEOUT_MS > 0 && TOOL_LOOP_REQUEST_TIMEOUT_MS <= OPENAI_REQUEST_TIMEOUT_MS);
@@ -73,21 +80,66 @@ await run("Timeout classifier recognizes timeout/abort errors", () => {
 });
 
 await run("Runtime files contain configured tool-loop guardrail hooks", () => {
+  const toolLoopRunnerPath = resolveExistingPath(
+    [
+      path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler", "tool-loop-runner", "index.js"),
+      path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler", "tool-loop-runner.js"),
+    ],
+    "tool-loop runner source",
+  );
+  const toolLoopRunner = fs.readFileSync(toolLoopRunnerPath, "utf8");
+  assert.equal(toolLoopRunner.includes("tool_loop_budget_exhausted"), true);
+  assert.equal(toolLoopRunner.includes("tool_loop_step_timeouts"), true);
+  assert.equal(toolLoopRunner.includes("tool_loop_tool_exec_timeouts"), true);
+  assert.equal(toolLoopRunner.includes("tool_loop_recovery_budget_exhausted"), true);
+  assert.equal(toolLoopRunner.includes("tool_loop_tool_call_caps"), true);
+
+  const chatHandlerPath = resolveExistingPath(
+    [
+      path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler", "index.js"),
+      path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler.js"),
+    ],
+    "chat handler source",
+  );
   const chatHandler = fs.readFileSync(
-    path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler.js"),
+    chatHandlerPath,
     "utf8",
   );
   assert.equal(chatHandler.includes("toolLoopGuardrails"), true);
-  assert.equal(chatHandler.includes("tool_loop_budget_exhausted"), true);
-  assert.equal(chatHandler.includes("tool_loop_tool_exec_timeouts"), true);
 
-  const agentRunner = fs.readFileSync(
-    path.join(process.cwd(), "src", "agent", "runner.ts"),
-    "utf8",
+  const agentRunnerPath = resolveExistingPath(
+    [
+      path.join(process.cwd(), "src", "agent", "runner", "index.ts"),
+      path.join(process.cwd(), "src", "agent", "runner.ts"),
+    ],
+    "agent runner source",
   );
+  const agentRunner = fs.readFileSync(agentRunnerPath, "utf8");
   assert.equal(agentRunner.includes("NOVA_AGENT_TOOL_LOOP_MAX_STEPS"), true);
   assert.equal(agentRunner.includes("NOVA_AGENT_TOOL_LOOP_MAX_DURATION_MS"), true);
   assert.equal(agentRunner.includes("NOVA_AGENT_TOOL_EXEC_TIMEOUT_MS"), true);
+  assert.equal(agentRunner.includes("NOVA_AGENT_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP"), true);
+});
+
+await run("Runbook production defaults are encoded in source", () => {
+  const constantsSource = fs.readFileSync(
+    path.join(process.cwd(), "src", "runtime", "core", "constants", "index.js"),
+    "utf8",
+  );
+  assert.equal(constantsSource.includes('readIntEnv("NOVA_TOOL_LOOP_MAX_DURATION_MS", 32000'), true);
+  assert.equal(constantsSource.includes('readIntEnv("NOVA_TOOL_LOOP_REQUEST_TIMEOUT_MS", 12000'), true);
+  assert.equal(constantsSource.includes('readIntEnv("NOVA_TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS", 7000'), true);
+  assert.equal(constantsSource.includes('readIntEnv("NOVA_TOOL_LOOP_RECOVERY_TIMEOUT_MS", 5000'), true);
+  assert.equal(constantsSource.includes('"NOVA_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP",\n  4,'), true);
+
+  const agentRunnerSource = fs.readFileSync(
+    path.join(process.cwd(), "src", "agent", "runner", "index.ts"),
+    "utf8",
+  );
+  assert.equal(agentRunnerSource.includes('envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_STEPS", 8, 1)'), true);
+  assert.equal(agentRunnerSource.includes('envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_DURATION_MS", 32000, 1000)'), true);
+  assert.equal(agentRunnerSource.includes('envPositiveInt("NOVA_AGENT_TOOL_EXEC_TIMEOUT_MS", 7000, 1000)'), true);
+  assert.equal(agentRunnerSource.includes('envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP", 4, 1)'), true);
 });
 
 const pass = results.filter((entry) => entry.status === "PASS").length;

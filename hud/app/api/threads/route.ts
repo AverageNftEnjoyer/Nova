@@ -99,7 +99,7 @@ export async function GET(req: Request) {
     const threadSeenFingerprints = seenMessageFingerprintsByThread.get(row.thread_id) || new Set<string>()
     const normalizedRowId = String(row.id || "").trim()
     if (metadataMessageId && threadSeenIds.has(metadataMessageId)) {
-      // Legacy rows may contain the same client message stored multiple times.
+      // Older rows may contain the same client message stored multiple times.
       // Keep the first canonical row to avoid duplicate UI rendering.
       continue
     }

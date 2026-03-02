@@ -2,11 +2,11 @@
 
 import { cn } from "@/lib/shared/utils"
 import type { CSSProperties } from "react"
-import type { NotificationSchedule } from "../types"
+import type { MissionListItem } from "../types"
 
 interface DeleteMissionDialogProps {
   isLight: boolean
-  mission: NotificationSchedule
+  mission: MissionListItem
   busy: boolean
   panelStyle?: CSSProperties
   onCancel: () => void
@@ -75,3 +75,4 @@ export function DeleteMissionDialog({
     </div>
   )
 }
+

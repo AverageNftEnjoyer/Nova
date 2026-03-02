@@ -78,12 +78,36 @@ export type ChatTransportEvent =
       nlpCorrectionCount?: number
       nlpBypass?: boolean
     }
+  | {
+      seq: number
+      type: "calendar:event:updated"
+      eventId: string
+      patch?: Record<string, unknown>
+      ts: number
+    }
+  | {
+      seq: number
+      type: "calendar:rescheduled"
+      missionId: string
+      newStartAt: string
+      conflict?: boolean
+      ts: number
+    }
+  | {
+      seq: number
+      type: "calendar:conflict"
+      conflicts: string[]
+      ts: number
+    }
 
 type ChatTransportEventInput =
   | Omit<Extract<ChatTransportEvent, { type: "assistant_stream_start" }>, "seq">
   | Omit<Extract<ChatTransportEvent, { type: "assistant_stream_delta" }>, "seq">
   | Omit<Extract<ChatTransportEvent, { type: "assistant_stream_done" }>, "seq">
   | Omit<Extract<ChatTransportEvent, { type: "message" }>, "seq">
+  | Omit<Extract<ChatTransportEvent, { type: "calendar:event:updated" }>, "seq">
+  | Omit<Extract<ChatTransportEvent, { type: "calendar:rescheduled" }>, "seq">
+  | Omit<Extract<ChatTransportEvent, { type: "calendar:conflict" }>, "seq">
 
 function hasAssistantPayload(content: string): boolean {
   return content.replace(/[\u200B-\u200D\uFEFF]/g, "").length > 0;
@@ -239,6 +263,11 @@ function normalizeUserContextId(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
+export type CalendarEmitPayload =
+  | { eventType: "calendar:event:updated"; eventId: string; patch?: Record<string, unknown> }
+  | { eventType: "calendar:rescheduled"; missionId: string; newStartAt: string; conflict?: boolean }
+  | { eventType: "calendar:conflict"; conflicts: string[] }
+
 export function useNovaState() {
   const [state, setState] = useState<NovaState>("idle");
   const [thinkingStatus, setThinkingStatus] = useState("");
@@ -353,6 +382,9 @@ export function useNovaState() {
       "assistant_stream_done",
       "hud_message_ack",
       "usage",
+      "calendar:event:updated",
+      "calendar:rescheduled",
+      "calendar:conflict",
     ])
 
     const isScopedEventForOtherUser = (payload: Record<string, unknown>): boolean => {
@@ -471,6 +503,40 @@ export function useNovaState() {
             lastThinkingActivityAtRef.current = Date.now()
           }
           setThinkingStatusSafely(typeof data.status === "string" ? data.status : "");
+        }
+
+        if (data.type === "calendar:event:updated" && typeof data.eventId === "string") {
+          pushChatTransportEvent({
+            type: "calendar:event:updated",
+            eventId: String(data.eventId || "").trim(),
+            patch: data.patch && typeof data.patch === "object" ? data.patch as Record<string, unknown> : {},
+            ts: Number(data.ts || Date.now()),
+          })
+          return
+        }
+
+        if (
+          data.type === "calendar:rescheduled" &&
+          typeof data.missionId === "string" &&
+          typeof data.newStartAt === "string"
+        ) {
+          pushChatTransportEvent({
+            type: "calendar:rescheduled",
+            missionId: String(data.missionId || "").trim(),
+            newStartAt: String(data.newStartAt || "").trim(),
+            conflict: data.conflict === true,
+            ts: Number(data.ts || Date.now()),
+          })
+          return
+        }
+
+        if (data.type === "calendar:conflict" && Array.isArray(data.conflicts)) {
+          pushChatTransportEvent({
+            type: "calendar:conflict",
+            conflicts: data.conflicts.map((item: unknown) => String(item || "").trim()).filter(Boolean),
+            ts: Number(data.ts || Date.now()),
+          })
+          return
         }
 
         if (data.type === "transcript") {
@@ -897,6 +963,34 @@ export function useNovaState() {
     }
   }, []);
 
+  const publishCalendarEvent = useCallback((payload: CalendarEmitPayload) => {
+    const ws = wsRef.current
+    const token = supabaseAccessTokenRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN || !payload) return
+    const userId = getActiveUserId()
+    if (!userId) return
+    ws.send(JSON.stringify({
+      type: "calendar_emit",
+      eventType: payload.eventType,
+      ...(payload.eventType === "calendar:event:updated"
+        ? {
+            eventId: payload.eventId,
+            patch: payload.patch && typeof payload.patch === "object" ? payload.patch : {},
+          }
+        : payload.eventType === "calendar:rescheduled"
+          ? {
+              missionId: payload.missionId,
+              newStartAt: payload.newStartAt,
+              conflict: payload.conflict === true,
+            }
+          : {
+              conflicts: Array.isArray(payload.conflicts) ? payload.conflicts : [],
+            }),
+      userId,
+      ...(token ? { supabaseAccessToken: token } : {}),
+    }))
+  }, [])
+
   return {
     state,
     thinkingStatus,
@@ -914,5 +1008,6 @@ export function useNovaState() {
     sendGreeting,
     setVoicePreference,
     setMuted,
+    publishCalendarEvent,
   };
 }

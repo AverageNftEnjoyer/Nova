@@ -15,7 +15,7 @@ import {
   OPENAI_REQUEST_TIMEOUT_MS,
   OPENAI_MODEL_PRICING_USD_PER_1M,
   CLAUDE_MODEL_PRICING_USD_PER_1M
-} from "../../runtime/core/constants.js";
+} from "../../runtime/core/constants/index.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
@@ -239,31 +239,12 @@ function normalizeUserContextId(value) {
 
 function resolveIntegrationsConfigPath(userContextId) {
   const normalized = normalizeUserContextId(userContextId) || "anonymous";
-  const statePath = path.join(
+  return path.join(
     USER_CONTEXT_INTEGRATIONS_ROOT,
     normalized,
     USER_CONTEXT_STATE_DIR,
     USER_CONTEXT_INTEGRATIONS_FILE,
   );
-  const legacyPath = path.join(
-    USER_CONTEXT_INTEGRATIONS_ROOT,
-    normalized,
-    USER_CONTEXT_INTEGRATIONS_FILE,
-  );
-  if (fs.existsSync(statePath)) return statePath;
-  if (!fs.existsSync(legacyPath)) return statePath;
-  try {
-    fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.renameSync(legacyPath, statePath);
-    return statePath;
-  } catch {
-    try {
-      fs.copyFileSync(legacyPath, statePath);
-      return statePath;
-    } catch {
-      return legacyPath;
-    }
-  }
 }
 
 function resolveProviderApiKey(provider, integrationApiKey) {

@@ -20,7 +20,7 @@ import type {
   ScheduleTriggerNode,
 } from "../types/index"
 import { EXECUTOR_REGISTRY } from "./executors/index"
-import { getLocalParts, parseTime } from "./scheduling"
+import { getLocalParts, parseTime } from "./time"
 import { acquireMissionExecutionSlot } from "./execution-guard"
 import { emitMissionTelemetryEvent } from "../telemetry"
 import { validateMissionGraphForVersioning } from "./versioning"
@@ -708,32 +708,20 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
 
       const humanized = humanizeMissionOutputText(fallbackText, undefined, { includeSources: true, detailLevel: "standard" })
       const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)
+      const fallbackTarget = {
+        missionId: mission.id,
+        userContextId: String(input.scope?.userId || input.scope?.user?.id || ""),
+        missionLabel: mission.label,
+        timezone: resolveTimezone(mission.settings?.timezone),
+      }
 
       for (const channel of fallbackChannels) {
-        const fallbackSchedule: import("@/lib/notifications/store").NotificationSchedule = {
-          id: mission.id,
-          userId: String(input.scope?.userId || input.scope?.user?.id || ""),
-          label: mission.label,
-          integration: channel,
-          chatIds: mission.chatIds,
-          timezone: resolveTimezone(mission.settings?.timezone),
-          message: "",
-          time: "09:00",
-          enabled: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          // Preserve existing counters so fallback dispatch doesn't inflate metrics
-          runCount: mission.runCount ?? 0,
-          successCount: mission.successCount ?? 0,
-          failureCount: mission.failureCount ?? 0,
-        }
-
         try {
           const fallbackResults = await dispatchOutput(
             channel,
             guarded,
             mission.chatIds,
-            fallbackSchedule,
+            fallbackTarget,
             input.scope,
             {
               missionRunId: runId,

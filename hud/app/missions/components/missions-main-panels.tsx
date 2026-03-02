@@ -19,7 +19,7 @@ import {
 import type {
   MissionRunProgress,
   MissionRuntimeStatus,
-  NotificationSchedule,
+  MissionListItem,
 } from "../types"
 
 interface MissionsMainPanelsProps {
@@ -38,7 +38,7 @@ interface MissionsMainPanelsProps {
   statusFilter: string
   missionBoardView: "grid" | "list"
   loading: boolean
-  filteredSchedules: NotificationSchedule[]
+  filteredSchedules: MissionListItem[]
   busyById: Record<string, boolean>
   runProgress: MissionRunProgress | null
   missionRuntimeStatusById: Record<string, MissionRuntimeStatus>
@@ -50,9 +50,9 @@ interface MissionsMainPanelsProps {
   onGenerateMissionDraft: () => void
   onPlayClickSound: () => void
   formatStatusTime: (value: number) => string
-  onMissionActionMenu: (mission: NotificationSchedule, left: number, top: number) => void
-  onToggleMissionEnabled: (mission: NotificationSchedule) => void
-  onRequestDeleteMission: (mission: NotificationSchedule) => void
+  onMissionActionMenu: (mission: MissionListItem, left: number, top: number) => void
+  onToggleMissionEnabled: (mission: MissionListItem) => void
+  onRequestDeleteMission: (mission: MissionListItem) => void
   onViewInCanvas?: (missionId: string) => void
 }
 
@@ -431,3 +431,4 @@ export function MissionsMainPanels({
     </div>
   )
 }
+

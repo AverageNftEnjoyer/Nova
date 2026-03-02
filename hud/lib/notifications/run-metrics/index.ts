@@ -2,7 +2,19 @@ import "server-only"
 
 import type { WorkflowStepTrace } from "@/lib/missions/types"
 import { appendNotificationRunLog, type NotificationRunStatus } from "@/lib/notifications/run-log"
-import type { NotificationSchedule } from "@/lib/notifications/store"
+
+export interface MissionRunRecord {
+  id: string
+  userId: string
+  label: string
+  runCount: number
+  successCount: number
+  failureCount: number
+  updatedAt: string
+  lastSentLocalDate?: string
+  lastRunAt?: string
+  lastRunStatus?: NotificationRunStatus
+}
 
 interface RunExecutionSummary {
   ok: boolean
@@ -46,29 +58,29 @@ export function resolveRunStatus(params: {
   }
 }
 
-export function applyScheduleRunOutcome(
-  schedule: NotificationSchedule,
+export function applyMissionRunOutcome(
+  missionRun: MissionRunRecord,
   params: {
     status: NotificationRunStatus
     now?: Date
     dayStamp?: string
     mode?: string
   },
-): NotificationSchedule {
+): MissionRunRecord {
   const nowIso = (params.now || new Date()).toISOString()
   const status = params.status
   const mode = String(params.mode || "").trim().toLowerCase()
   const requiresDayLock = mode !== "interval"
 
   return {
-    ...schedule,
+    ...missionRun,
     lastSentLocalDate:
       status === "success" && requiresDayLock && params.dayStamp
         ? params.dayStamp
-        : schedule.lastSentLocalDate,
-    runCount: (Number.isFinite(schedule.runCount) ? schedule.runCount : 0) + 1,
-    successCount: (Number.isFinite(schedule.successCount) ? schedule.successCount : 0) + (status === "success" ? 1 : 0),
-    failureCount: (Number.isFinite(schedule.failureCount) ? schedule.failureCount : 0) + (status === "error" ? 1 : 0),
+        : missionRun.lastSentLocalDate,
+    runCount: (Number.isFinite(missionRun.runCount) ? missionRun.runCount : 0) + 1,
+    successCount: (Number.isFinite(missionRun.successCount) ? missionRun.successCount : 0) + (status === "success" ? 1 : 0),
+    failureCount: (Number.isFinite(missionRun.failureCount) ? missionRun.failureCount : 0) + (status === "error" ? 1 : 0),
     lastRunAt: nowIso,
     lastRunStatus: status,
     updatedAt: nowIso,
@@ -76,7 +88,7 @@ export function applyScheduleRunOutcome(
 }
 
 export async function appendRunLogForExecution(params: {
-  schedule: NotificationSchedule
+  schedule: MissionRunRecord
   source: "scheduler" | "trigger"
   execution?: RunExecutionSummary | null
   fallbackError?: string

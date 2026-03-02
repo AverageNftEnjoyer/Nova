@@ -25,8 +25,8 @@ function buildGmailConfig(): GmailIntegrationConfig {
     oauthClientId: "",
     oauthClientSecret: "",
     redirectUri: "http://localhost:3000/api/integrations/gmail/callback",
-    accessTokenEnc: "legacy-access-secret",
-    refreshTokenEnc: "legacy-refresh-secret",
+    accessTokenEnc: "deprecated-access-secret",
+    refreshTokenEnc: "deprecated-refresh-secret",
     tokenExpiry: Date.now() + 60_000,
   }
 }
@@ -43,6 +43,6 @@ test("integration: runtime snapshot contract emits token-safe gmail metadata", (
   const serialized = JSON.stringify(snapshot)
   assert.equal(serialized.includes("access-secret"), false)
   assert.equal(serialized.includes("refresh-secret"), false)
-  assert.equal(serialized.includes("legacy-access-secret"), false)
-  assert.equal(serialized.includes("legacy-refresh-secret"), false)
+  assert.equal(serialized.includes("deprecated-access-secret"), false)
+  assert.equal(serialized.includes("deprecated-refresh-secret"), false)
 })

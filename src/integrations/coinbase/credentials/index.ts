@@ -30,13 +30,10 @@ export class FileBackedCoinbaseCredentialProvider implements CoinbaseCredentialP
 
     const paths = resolveRuntimePaths(this.workspaceRoot);
     const scopedConfigPath = path.join(paths.userContextRoot, normalizedUser, "state", "integrations-config.json");
-    const scopedLegacyConfigPath = path.join(paths.userContextRoot, normalizedUser, "integrations-config.json");
     const globalConfigPath = paths.integrationsConfigPath;
 
-    for (const candidatePath of [scopedConfigPath, scopedLegacyConfigPath]) {
-      const scopedResult = this.resolveFromPath(normalizedUser, candidatePath, paths.workspaceRoot);
-      if (scopedResult) return scopedResult;
-    }
+    const scopedResult = this.resolveFromPath(normalizedUser, scopedConfigPath, paths.workspaceRoot);
+    if (scopedResult) return scopedResult;
     return this.resolveFromPath(normalizedUser, globalConfigPath, paths.workspaceRoot);
   }
 

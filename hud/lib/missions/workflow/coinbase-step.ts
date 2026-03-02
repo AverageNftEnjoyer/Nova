@@ -1,8 +1,8 @@
 import "server-only"
 
 import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
-import { fetchCoinbaseMissionData, parseCoinbaseFetchQuery } from "../coinbase/fetch"
-import type { WorkflowStep } from "../types/index"
+import { fetchCoinbaseMissionData } from "../coinbase/fetch"
+import type { CoinbaseNode } from "../types/index"
 import {
   buildCoinbaseArtifactContextSnippet,
   loadRecentCoinbaseStepArtifacts,
@@ -19,8 +19,8 @@ type CoinbaseErrorCode =
   | "CB_STEP_ABORTED"
   | "CB_STEP_UNKNOWN"
 
-export interface ExecuteCoinbaseStepInput {
-  step: WorkflowStep
+export interface ExecuteCoinbaseNodeInput {
+  node: CoinbaseNode
   userContextId: string
   conversationId: string
   missionId: string
@@ -101,7 +101,7 @@ function summarizeOutput(intent: CoinbaseIntent, output: unknown): string {
 }
 
 function logCoinbaseStep(
-  logger: ExecuteCoinbaseStepInput["logger"],
+  logger: ExecuteCoinbaseNodeInput["logger"],
   event: string,
   payload: Record<string, unknown>,
 ) {
@@ -129,7 +129,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-export function deriveCoinbaseStepPayload(step: WorkflowStep): {
+export function deriveCoinbaseNodePayload(node: CoinbaseNode): {
   intent: CoinbaseIntent
   params: {
     assets?: string[]
@@ -139,38 +139,28 @@ export function deriveCoinbaseStepPayload(step: WorkflowStep): {
     transactionLimit?: number
   }
 } {
-  const query = parseCoinbaseFetchQuery(String(step.fetchQuery || ""))
-  const intentFromPrimitive = (() => {
-    if (query.primitive === "price_alert_digest") return "price"
-    if (query.primitive === "weekly_pnl_summary") return "transactions"
-    if (query.primitive === "daily_portfolio_summary") return "report"
-    return ""
-  })()
-  const intent = normalizeIntent(step.coinbaseIntent || intentFromPrimitive || "report")
+  const intent = normalizeIntent(node.intent || "report")
   const params = {
-    assets: Array.isArray(step.coinbaseParams?.assets)
-      ? step.coinbaseParams.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
-      : query.assets,
-    quoteCurrency:
-      (typeof step.coinbaseParams?.quoteCurrency === "string" && step.coinbaseParams.quoteCurrency.trim()) ||
-      (typeof query.quoteCurrency === "string" ? query.quoteCurrency : "USD"),
-    thresholdPct:
-      Number.isFinite(Number(step.coinbaseParams?.thresholdPct))
-        ? Number(step.coinbaseParams?.thresholdPct)
-        : Number.isFinite(Number(query.thresholdPct))
-          ? Number(query.thresholdPct)
-          : undefined,
-    cadence:
-      (typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence.trim()) ||
-      (typeof query.cadence === "string" ? query.cadence : undefined),
-    transactionLimit: Number.isFinite(Number(step.coinbaseParams?.transactionLimit))
-      ? Number(step.coinbaseParams?.transactionLimit)
+    assets: Array.isArray(node.assets)
+      ? node.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
+      : undefined,
+    quoteCurrency: typeof node.quoteCurrency === "string" && node.quoteCurrency.trim()
+      ? node.quoteCurrency.trim()
+      : "USD",
+    thresholdPct: Number.isFinite(Number(node.thresholdPct))
+      ? Number(node.thresholdPct)
+      : undefined,
+    cadence: typeof node.cadence === "string" && node.cadence.trim()
+      ? node.cadence.trim()
+      : undefined,
+    transactionLimit: Number.isFinite(Number(node.transactionLimit))
+      ? Number(node.transactionLimit)
       : undefined,
   }
   return { intent, params }
 }
 
-export async function executeCoinbaseWorkflowStep(input: ExecuteCoinbaseStepInput): Promise<ExecuteCoinbaseStepResult> {
+export async function executeCoinbaseNode(input: ExecuteCoinbaseNodeInput): Promise<ExecuteCoinbaseStepResult> {
   const nowMs = Number.isFinite(Number(input.contextNowMs)) ? Number(input.contextNowMs) : Date.now()
   const userContextId = sanitizeUserContextId(input.userContextId)
   if (!userContextId) {
@@ -184,7 +174,7 @@ export async function executeCoinbaseWorkflowStep(input: ExecuteCoinbaseStepInpu
       priorArtifactContextSnippet: "",
     }
   }
-  const stepId = String(input.step.id || "coinbase-step").trim() || "coinbase-step"
+  const stepId = String(input.node.id || "coinbase-step").trim() || "coinbase-step"
   const missionId = String(input.missionId || "").trim() || "mission"
   const conversationId = String(input.conversationId || "").trim() || missionId
   const missionRunId = String(input.missionRunId || "").trim() || "run"
@@ -201,7 +191,7 @@ export async function executeCoinbaseWorkflowStep(input: ExecuteCoinbaseStepInpu
     }
   }
 
-  const includePreviousArtifactContext = input.step.coinbaseParams?.includePreviousArtifactContext !== false
+  const includePreviousArtifactContext = input.node.includePreviousArtifactContext !== false
   const priorArtifacts = includePreviousArtifactContext
     ? await loadRecentCoinbaseStepArtifacts({
       userContextId,
@@ -223,7 +213,7 @@ export async function executeCoinbaseWorkflowStep(input: ExecuteCoinbaseStepInpu
     })
   }
   const priorArtifactContextSnippet = buildCoinbaseArtifactContextSnippet({ artifacts: priorArtifacts, maxChars: 6000 })
-  const { intent, params } = deriveCoinbaseStepPayload(input.step)
+  const { intent, params } = deriveCoinbaseNodePayload(input.node)
 
   logCoinbaseStep(input.logger, "coinbase.step.generated", {
     userContextId,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { renderMissionReliabilityGuidanceMarkdown } from "../../ops/mission-reliability-guidance.mjs";
 
 const results = [];
 
@@ -39,7 +40,7 @@ const versionsRouteSource = read("hud/app/api/missions/versions/route.ts");
 const reliabilityRouteSource = read("hud/app/api/missions/reliability/route.ts");
 const missionsRouteSource = read("hud/app/api/missions/route.ts");
 const rateLimitSource = read("hud/lib/security/rate-limit.ts");
-const runbookSource = read("tasks/runbooks/mission-reliability-runbook.md");
+const reliabilityGuidanceSource = renderMissionReliabilityGuidanceMarkdown().join("\n");
 
 await run("P6-C1 telemetry module defines lifecycle event model", async () => {
   const requiredTokens = [
@@ -130,10 +131,10 @@ await run("P6-C7 reliability API and rate limit policy exist", async () => {
   }
 });
 
-await run("P6-C8 runbook includes SLO and triage guidance", async () => {
-  const requiredTokens = ["Mission Reliability Runbook", "SLO Targets", "Triage Steps", "Immediate Mitigations", "Escalation"];
+await run("P6-C8 reliability guidance includes SLO and triage guidance", async () => {
+  const requiredTokens = ["Mission Reliability Guidance", "SLO Targets", "Triage Steps", "Immediate Mitigations", "Escalation"];
   for (const token of requiredTokens) {
-    assert.equal(runbookSource.includes(token), true, `runbook missing token: ${token}`);
+    assert.equal(reliabilityGuidanceSource.includes(token), true, `guidance missing token: ${token}`);
   }
 });
 

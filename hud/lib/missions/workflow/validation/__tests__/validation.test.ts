@@ -3,20 +3,13 @@ import assert from "node:assert/strict"
 import { performance } from "node:perf_hooks"
 
 import {
-  RUN_WORKFLOW_VALIDATION_POLICY,
-  SAVE_WORKFLOW_VALIDATION_POLICY,
   WORKFLOW_VALIDATION_ISSUE_CODES,
   WORKFLOW_VALIDATION_LIMITS,
-  validateMissionWorkflowMessage,
   validateWorkflowSummary,
   type WorkflowValidationInput,
 } from "../index.ts"
 
-function buildWorkflowMessage(summary: Record<string, unknown>): string {
-  return `Mission description\n\n[NOVA WORKFLOW]\n${JSON.stringify(summary)}`
-}
-
-function buildTypicalSummary(): Record<string, unknown> {
+function buildTypicalSummary() {
   return {
     workflowSteps: [
       { id: "step-1", type: "trigger", title: "Start" },
@@ -30,11 +23,12 @@ function buildTypicalSummary(): Record<string, unknown> {
 }
 
 test("unit: malformed workflow payload is blocked with stable issue format", () => {
-  const result = validateMissionWorkflowMessage({
-    message: "Hello\n[NOVA WORKFLOW]\n{not valid json}",
+  const result = validateWorkflowSummary({
     stage: "save",
     mode: "full",
     profile: "strict",
+    hasWorkflowMarker: true,
+    summary: null,
     userContextId: "u-test",
     scheduleId: "mission-1",
   })
@@ -53,17 +47,19 @@ test("unit: strict profile enforces explicit aiIntegration while runtime does no
       { id: "step-2", type: "output", title: "Deliver", outputChannel: "telegram" },
     ],
   }
-  const strictResult = validateMissionWorkflowMessage({
-    message: buildWorkflowMessage(summary),
+  const strictResult = validateWorkflowSummary({
     stage: "save",
     mode: "full",
     profile: "strict",
+    hasWorkflowMarker: true,
+    summary,
   })
-  const runtimeResult = validateMissionWorkflowMessage({
-    message: buildWorkflowMessage(summary),
+  const runtimeResult = validateWorkflowSummary({
     stage: "run",
     mode: "full",
     profile: "runtime",
+    hasWorkflowMarker: true,
+    summary,
   })
   assert.equal(strictResult.blocked, true)
   assert.ok(strictResult.issues.some((issue) => issue.code === WORKFLOW_VALIDATION_ISSUE_CODES.AI_INTEGRATION_MISSING))
@@ -87,16 +83,17 @@ test("unit: minimal mode returns error-only payload", () => {
   assert.equal(result.issues.some((issue) => issue.severity === "warning"), false)
 })
 
-test("integration: pre-save blocks invalid workflow", () => {
-  const result = validateMissionWorkflowMessage({
-    message: buildWorkflowMessage({
+test("integration: save validation blocks invalid workflow summary", () => {
+  const result = validateWorkflowSummary({
+    stage: "save",
+    mode: "full",
+    profile: "strict",
+    hasWorkflowMarker: true,
+    summary: {
       workflowSteps: [
         { id: "step-1", type: "fetch", title: "Fetch missing inputs" },
       ],
-    }),
-    stage: "save",
-    mode: SAVE_WORKFLOW_VALIDATION_POLICY.mode,
-    profile: SAVE_WORKFLOW_VALIDATION_POLICY.profile,
+    },
     userContextId: "tenant-alpha",
     scheduleId: "sched-1",
   })
@@ -104,12 +101,13 @@ test("integration: pre-save blocks invalid workflow", () => {
   assert.ok(result.issues.some((issue) => issue.code === WORKFLOW_VALIDATION_ISSUE_CODES.FETCH_INPUT_MISSING))
 })
 
-test("integration: pre-run allows plain message schedules without workflow marker", () => {
-  const result = validateMissionWorkflowMessage({
-    message: "Send this plain notification to my channel.",
+test("integration: run validation allows schedules without workflow marker", () => {
+  const result = validateWorkflowSummary({
     stage: "run",
-    mode: RUN_WORKFLOW_VALIDATION_POLICY.mode,
-    profile: RUN_WORKFLOW_VALIDATION_POLICY.profile,
+    mode: "full",
+    profile: "runtime",
+    hasWorkflowMarker: false,
+    summary: null,
     userContextId: "tenant-alpha",
     scheduleId: "sched-2",
   })
@@ -118,11 +116,12 @@ test("integration: pre-run allows plain message schedules without workflow marke
 })
 
 test("integration: pre-run blocks malformed workflow payload", () => {
-  const result = validateMissionWorkflowMessage({
-    message: "Broken payload\n[NOVA WORKFLOW]\n{\"workflowSteps\":[",
+  const result = validateWorkflowSummary({
     stage: "run",
-    mode: RUN_WORKFLOW_VALIDATION_POLICY.mode,
-    profile: RUN_WORKFLOW_VALIDATION_POLICY.profile,
+    mode: "full",
+    profile: "runtime",
+    hasWorkflowMarker: true,
+    summary: null,
     userContextId: "tenant-alpha",
     scheduleId: "sched-3",
   })
@@ -135,11 +134,12 @@ test("performance: minimal validation p95 is under configured target", () => {
   const samples: number[] = []
   for (let i = 0; i < 400; i += 1) {
     const started = performance.now()
-    const result = validateMissionWorkflowMessage({
-      message: buildWorkflowMessage(summary),
+    const result = validateWorkflowSummary({
       stage: "run",
       mode: "minimal",
       profile: "runtime",
+      hasWorkflowMarker: true,
+      summary,
     })
     const ended = performance.now()
     samples.push(ended - started)

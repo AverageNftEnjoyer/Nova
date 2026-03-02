@@ -65,7 +65,7 @@ function classifyIpv4Part(part: string): "decimal" | "hex" | "invalid-hex" | "no
   return "non-numeric";
 }
 
-function isUnsupportedLegacyIpv4Literal(address: string): boolean {
+function isUnsupportedNonDecimalIpv4Literal(address: string): boolean {
   const parts = address.split(".");
   if (parts.length === 0 || parts.length > 4) {
     return false;
@@ -267,7 +267,7 @@ export function isPrivateIpAddress(address: string): boolean {
   if (ipv4) {
     return isPrivateIpv4Parts(ipv4);
   }
-  if (isUnsupportedLegacyIpv4Literal(normalized)) {
+  if (isUnsupportedNonDecimalIpv4Literal(normalized)) {
     return true;
   }
   return false;

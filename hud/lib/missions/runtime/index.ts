@@ -1,8 +1,8 @@
 /**
  * Mission Runtime
  *
- * This file maintains backward compatibility by re-exporting all public APIs
- * from the modular structure. The actual implementations are in the subdirectories.
+ * This file re-exports mission runtime public APIs from the modular structure.
+ * The actual implementations are in the subdirectories.
  *
  * Module Structure:
  * - types.ts: All type definitions
@@ -41,9 +41,6 @@ export type {
 // Workflow Exports (Main Public APIs)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { WORKFLOW_MARKER, parseMissionWorkflow } from "../workflow/parsing"
-export { shouldWorkflowRunNow } from "../workflow/scheduling"
-export { buildWorkflowFromPrompt } from "../workflow/generation"
 export { buildMissionFromPrompt } from "../workflow/generate-mission"
 
 // ─────────────────────────────────────────────────────────────────────────────

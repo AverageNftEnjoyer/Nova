@@ -11,7 +11,7 @@ import {
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { compareMissionPriority } from "../helpers"
-import type { MissionSummary, NotificationSchedule } from "./types"
+import type { MissionSummary, MissionListItem } from "./types"
 import type { Mission as NativeMission } from "@/lib/missions/types"
 
 interface UseHomeIntegrationsInput {
@@ -92,7 +92,7 @@ function providerFromValue(value: unknown): LlmProvider {
   return value === "claude" || value === "grok" || value === "gemini" ? value : "openai"
 }
 
-function missionToNotificationSchedule(mission: NativeMission): NotificationSchedule {
+function mapMissionToListItem(mission: NativeMission): MissionListItem {
   const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
   const triggerMode = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerMode : "daily"
   const triggerTime = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTime : undefined
@@ -182,9 +182,9 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const initialSpotifyConnectedFromCache = Boolean(initialSpotifyNowPlaying.connected || hasInitialSpotifySnapshot)
   const initialIntegrations = loadIntegrationsSettings()
 
-  const [notificationSchedules, setNotificationSchedules] = useState<NotificationSchedule[]>(() => {
+  const [missionItems, setMissionItems] = useState<MissionListItem[]>(() => {
     const cached = readShellUiCache().missionSchedules
-    return Array.isArray(cached) ? (cached as NotificationSchedule[]) : []
+    return Array.isArray(cached) ? (cached as MissionListItem[]) : []
   })
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
@@ -254,7 +254,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     )
   }, [])
 
-  const refreshNotificationSchedules = useCallback(() => {
+  const refreshMissionItems = useCallback(() => {
     void fetch("/api/missions", { cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
@@ -264,20 +264,20 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         return res.json()
       })
       .then((data) => {
-        const schedules = (Array.isArray(data?.missions) ? data.missions : [])
+        const items = (Array.isArray(data?.missions) ? data.missions : [])
           .map((row: unknown) => row as NativeMission)
           .filter((row: NativeMission) => row && typeof row.id === "string" && Array.isArray(row.nodes))
-          .map((row: NativeMission) => missionToNotificationSchedule(row))
-        setNotificationSchedules(schedules)
-        writeShellUiCache({ missionSchedules: schedules })
+          .map((row: NativeMission) => mapMissionToListItem(row))
+        setMissionItems(items)
+        writeShellUiCache({ missionSchedules: items })
       })
       .catch(() => {
         const cached = readShellUiCache().missionSchedules
         if (Array.isArray(cached) && cached.length > 0) {
-          setNotificationSchedules(cached as NotificationSchedule[])
+          setMissionItems(cached as MissionListItem[])
           return
         }
-        setNotificationSchedules([])
+        setMissionItems([])
       })
   }, [router])
 
@@ -489,15 +489,15 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         preserveSpotifyCacheUntilServerSyncRef.current = false
       })
 
-    refreshNotificationSchedules()
-  }, [refreshNotificationSchedules, refreshSpotifyNowPlaying, router])
+    refreshMissionItems()
+  }, [refreshMissionItems, refreshSpotifyNowPlaying, router])
 
   useEffect(() => {
     const onUpdate = () => {
       preserveSpotifyCacheUntilServerSyncRef.current = false
       const local = loadIntegrationsSettings()
       applyLocalSettings(local)
-      refreshNotificationSchedules()
+      refreshMissionItems()
       if (local.spotify?.connected) {
         void refreshSpotifyNowPlaying(true)
       } else {
@@ -507,7 +507,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [applyLocalSettings, refreshNotificationSchedules, refreshSpotifyNowPlaying])
+  }, [applyLocalSettings, refreshMissionItems, refreshSpotifyNowPlaying])
 
   useEffect(() => {
     if (!spotifyConnected) return
@@ -622,7 +622,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const missions = useMemo<MissionSummary[]>(() => {
     const grouped = new Map<string, MissionSummary>()
 
-    for (const schedule of notificationSchedules) {
+    for (const schedule of missionItems) {
       const description = String(schedule.description || schedule.message || "").trim()
       const priority = schedule.priority || "medium"
       const title = schedule.label?.trim() || "Scheduled notification"
@@ -658,7 +658,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         if (activeDelta !== 0) return activeDelta
         return b.totalCount - a.totalCount
       })
-  }, [notificationSchedules])
+  }, [missionItems])
 
   const integrationBadgeClass = (connected: boolean) =>
     !integrationsHydrated
@@ -704,3 +704,4 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     goToIntegrations,
   }
 }
+

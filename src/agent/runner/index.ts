@@ -303,8 +303,8 @@ export async function runAgentTurn(
     let compactedThisTurn = false;
     const toolLoopMaxSteps = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_STEPS", 8, 1);
     const toolLoopMaxDurationMs = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_DURATION_MS", 32000, 1000);
-    const toolExecTimeoutMs = envPositiveInt("NOVA_AGENT_TOOL_EXEC_TIMEOUT_MS", 8000, 1000);
-    const toolLoopMaxToolCallsPerStep = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP", 6, 1);
+    const toolExecTimeoutMs = envPositiveInt("NOVA_AGENT_TOOL_EXEC_TIMEOUT_MS", 7000, 1000);
+    const toolLoopMaxToolCallsPerStep = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP", 4, 1);
     const toolLoopStartedAt = Date.now();
     let toolLoopStep = 0;
     let loopTerminationReason = "";

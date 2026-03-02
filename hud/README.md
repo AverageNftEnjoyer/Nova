@@ -48,16 +48,14 @@ Set these in your environment:
 
 ### API
 
-- `POST /api/notifications/trigger`
+- `POST /api/missions/trigger`
   - body: `{ "message": "Hello from Nova", "chatIds": ["123456"] }`
-- `GET /api/notifications/schedules`
-- `POST /api/notifications/schedules`
-  - body: `{ "label": "Daily Standup", "message": "Standup time", "time": "09:30", "timezone": "America/New_York", "enabled": true }`
-- `PATCH /api/notifications/schedules`
-  - body includes `id`, e.g. `{ "id": "schedule-id", "enabled": false }`
-- `DELETE /api/notifications/schedules?id=schedule-id`
-- `POST /api/notifications/scheduler` to start scheduler loop
-- `DELETE /api/notifications/scheduler` to stop scheduler loop
+- `GET /api/missions`
+- `POST /api/missions`
+  - body: `{ "mission": { ...nativeMissionGraph } }`
+- `DELETE /api/missions?id=mission-id`
+- `POST /api/missions/scheduler` to start scheduler loop
+- `DELETE /api/missions/scheduler` to stop scheduler loop
 
 Scheduler checks every 30 seconds and sends once per local day per schedule.
 

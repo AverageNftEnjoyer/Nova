@@ -27,11 +27,11 @@ function read(relativePath) {
 }
 
 const snapshotSource = read("hud/lib/missions/skills/snapshot.ts");
-const schedulerSource = read("hud/lib/notifications/scheduler.ts");
-const triggerRouteSource = read("hud/app/api/notifications/trigger/route.ts");
-const triggerStreamRouteSource = read("hud/app/api/notifications/trigger/stream/route.ts");
+const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
+const triggerRouteSource = read("hud/app/api/missions/trigger/route.ts");
+const triggerStreamRouteSource = read("hud/app/api/missions/trigger/stream/route.ts");
 const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
-const missionTypesSource = read("hud/lib/missions/types.ts");
+const missionTypesSource = read("hud/lib/missions/types/index.ts");
 const coinbaseSkillSource = read("skills/coinbase/SKILL.md");
 
 await run("P20-C1 mission skill snapshot module exists and fingerprints skills", async () => {
@@ -40,10 +40,10 @@ await run("P20-C1 mission skill snapshot module exists and fingerprints skills",
   assert.equal(snapshotSource.includes("createHash(\"sha256\")"), true);
 });
 
-await run("P20-C2 scheduler loads per-user snapshot and injects into execution", async () => {
-  assert.equal(schedulerSource.includes("loadMissionSkillSnapshot"), true);
-  assert.equal(schedulerSource.includes("skillSnapshotsByUser"), true);
-  assert.equal(schedulerSource.includes("skillSnapshot,"), true);
+await run("P20-C2 scheduler executes missions through runtime engine", async () => {
+  assert.equal(schedulerSource.includes("executeMission({"), true);
+  assert.equal(schedulerSource.includes('source: "scheduler"'), true);
+  assert.equal(schedulerSource.includes("scope"), true);
 });
 
 await run("P20-C3 manual trigger routes also use skill snapshots", async () => {

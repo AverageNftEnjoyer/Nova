@@ -296,20 +296,14 @@ export function upsertCryptoReportPreferences({ userContextId, workspaceDir, dir
     "coinbase",
     "SKILL.md",
   );
-  const legacyUserPath = path.join(workspaceRoot, ".agent", "user-context", uid, "skills.md");
   const baselinePath = path.join(workspaceRoot, "skills", "coinbase", "SKILL.md");
-  const legacyBaselinePath = path.join(workspaceRoot, ".agent", "skills.md");
   const sectionHeader = "## Crypto Report Preferences";
   let content = "";
   try {
     if (fs.existsSync(userSkillPath)) {
       content = fs.readFileSync(userSkillPath, "utf8");
-    } else if (fs.existsSync(legacyUserPath)) {
-      content = fs.readFileSync(legacyUserPath, "utf8");
     } else if (fs.existsSync(baselinePath)) {
       content = fs.readFileSync(baselinePath, "utf8");
-    } else if (fs.existsSync(legacyBaselinePath)) {
-      content = fs.readFileSync(legacyBaselinePath, "utf8");
     } else {
       content = "# Nova Skills\n\n";
     }

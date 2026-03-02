@@ -3,7 +3,6 @@ import { getActiveUserId } from "@/lib/auth/active-user"
 const DB_NAME = "nova-assets"
 const DB_VERSION = 3
 const STORE_NAME = "background-video"
-const LEGACY_BACKGROUND_VIDEO_KEY = "custom-background-video"
 const ACTIVE_ASSET_ID_KEY = "active-id"
 const ASSET_KEY_PREFIX = "asset:"
 const REQUIRED_STORES = ["boot-audio", "background-video"] as const
@@ -101,55 +100,6 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-async function migrateLegacyBlobIfNeeded(db: IDBDatabase): Promise<void> {
-  const tx = db.transaction(STORE_NAME, "readwrite")
-  const store = tx.objectStore(STORE_NAME)
-  const prefix = getUserScopePrefix()
-  if (!prefix) return
-  const keys = await requestAsPromise<IDBValidKey[]>(store.getAllKeys())
-  const scopedAssetPrefix = `${prefix}${ASSET_KEY_PREFIX}`
-  const hasAsset = keys.some((k) => typeof k === "string" && k.startsWith(scopedAssetPrefix))
-  if (hasAsset) return
-
-  const legacyBlob = (await requestAsPromise<Blob | undefined>(store.get(`${prefix}${LEGACY_BACKGROUND_VIDEO_KEY}`))) ?? null
-  if (legacyBlob) {
-    const id = makeAssetId()
-    const meta: BackgroundVideoAssetMeta = {
-      id,
-      fileName: "Imported Background Video.mp4",
-      mimeType: legacyBlob.type || guessBackgroundMediaMimeType("Imported Background Video.mp4") || "video/mp4",
-      sizeBytes: legacyBlob.size,
-      createdAt: new Date().toISOString(),
-    }
-    const record: BackgroundVideoAssetRecord = { meta, blob: legacyBlob }
-    await requestAsPromise(store.put(record, toScopedAssetKey(id)))
-    await requestAsPromise(store.put(id, toScopedActiveKey()))
-    await requestAsPromise(store.delete(`${prefix}${LEGACY_BACKGROUND_VIDEO_KEY}`))
-    return
-  }
-
-  // One-time migration from legacy unscoped keys to current user's scoped keys.
-  const unscopedAssetKeys = keys
-    .filter((k): k is string => typeof k === "string" && k.startsWith(ASSET_KEY_PREFIX))
-  if (unscopedAssetKeys.length === 0) return
-
-  let migratedAny = false
-  for (const key of unscopedAssetKeys) {
-    const value = await requestAsPromise<BackgroundVideoAssetRecord | undefined>(store.get(key))
-    if (!value?.meta || !(value.blob instanceof Blob)) continue
-    await requestAsPromise(store.put(value, `${prefix}${key}`))
-    await requestAsPromise(store.delete(key))
-    migratedAny = true
-  }
-  if (!migratedAny) return
-
-  const unscopedActive = await requestAsPromise<string | undefined>(store.get(ACTIVE_ASSET_ID_KEY))
-  if (typeof unscopedActive === "string" && unscopedActive) {
-    await requestAsPromise(store.put(unscopedActive, toScopedActiveKey()))
-    await requestAsPromise(store.delete(ACTIVE_ASSET_ID_KEY))
-  }
-}
-
 async function readAssetRecords(db: IDBDatabase): Promise<BackgroundVideoAssetRecord[]> {
   const tx = db.transaction(STORE_NAME, "readonly")
   const store = tx.objectStore(STORE_NAME)
@@ -172,7 +122,6 @@ export async function listBackgroundVideoAssets(): Promise<BackgroundVideoAssetM
   if (!hasActiveUserScope()) return []
   const db = await openDb()
   try {
-    await migrateLegacyBlobIfNeeded(db)
     const records = await readAssetRecords(db)
     return records.map((r) => r.meta)
   } finally {
@@ -184,7 +133,6 @@ export async function getActiveBackgroundVideoAssetId(): Promise<string | null> 
   if (!hasActiveUserScope()) return null
   const db = await openDb()
   try {
-    await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readonly")
     const store = tx.objectStore(STORE_NAME)
     const active = await requestAsPromise<string | undefined>(store.get(toScopedActiveKey()))
@@ -198,7 +146,6 @@ export async function setActiveBackgroundVideoAsset(assetId: string | null): Pro
   if (!hasActiveUserScope()) return
   const db = await openDb()
   try {
-    await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readwrite")
     const store = tx.objectStore(STORE_NAME)
     const activeKey = toScopedActiveKey()
@@ -216,7 +163,6 @@ export async function saveBackgroundVideoBlob(blob: Blob, fileName = "Background
   if (!hasActiveUserScope()) throw new Error("Cannot save background video without an active user session.")
   const db = await openDb()
   try {
-    await migrateLegacyBlobIfNeeded(db)
     const id = makeAssetId()
     const meta: BackgroundVideoAssetMeta = {
       id,
@@ -239,7 +185,6 @@ export async function loadBackgroundVideoBlob(assetId?: string | null): Promise<
   if (!hasActiveUserScope()) return null
   const db = await openDb()
   try {
-    await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readonly")
     const store = tx.objectStore(STORE_NAME)
     const id = assetId || ((await requestAsPromise<string | undefined>(store.get(toScopedActiveKey()))) ?? null)
@@ -281,7 +226,6 @@ export async function removeBackgroundVideoAsset(assetId: string): Promise<void>
   if (!hasActiveUserScope()) return
   const db = await openDb()
   try {
-    await migrateLegacyBlobIfNeeded(db)
     const tx = db.transaction(STORE_NAME, "readwrite")
     const store = tx.objectStore(STORE_NAME)
     await requestAsPromise(store.delete(toScopedAssetKey(assetId)))

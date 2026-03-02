@@ -10,9 +10,15 @@
  *
  * Version History:
  *
+ * - V.37 Alpha (2026-03-02): Legacy hard-cut completion + runbook source migration
+ *     - Removed remaining legacy runtime migration/fallback paths across HUD/session/integration cleanup flows.
+ *     - Migrated mission reliability runbook guidance from `tasks/runbooks` into code-owned ops guidance under `scripts/ops/`.
+ *     - Updated Phase 6 ops and smoke tooling to use embedded guidance and removed `NOVA_SMOKE_USER_CONTEXT_ID` fallback from reliability ops generators.
+ *     - Deleted `tasks/runbooks` after dependency rewiring and validation.
+ *
  * - V.36 Alpha (2026-03-02): Hybrid repo tree normalization + naming consistency pass
  *     - Adopted hybrid module structure conventions: domain folders use entry barrels where useful, while stable leaf modules keep explicit descriptive filenames.
- *     - Standardized integration naming to `google-calendar` (replacing legacy `google-calender`) and rewired dependent imports/tests.
+ *     - Standardized integration naming to `google-calendar` (replacing prior `google-calender`) and rewired dependent imports/tests.
  *     - Continued large-scale runtime/HUD folder cleanup to reduce root-level clutter and improve monorepo navigability.
  *     - Preserved behavior while tightening module boundaries to make ongoing refactors safer and easier to review.
  *
@@ -30,7 +36,7 @@
  *     - Extended persistent app background support to include `/agents` so floating-lines/space/custom backgrounds carry over consistently.
  *
  * - V.33 Alpha (2026-02-27): Mission output spam loop removal + channel model repair
- *     - Removed the legacy mission-to-chat pending queue pathway that caused repeated chat pending polling and spam behavior.
+ *     - Removed the prior mission-to-chat pending queue pathway that caused repeated chat pending polling and spam behavior.
  *     - Deleted NovaChat mission notification/output routing from active code paths while preserving normal chat.
  *     - Repaired duplicated/mutated mission output channel branches introduced by prior broad replacement (`telegram-output` dedupe).
  *     - Removed stale pending route/proxy/rate-limit wiring and normalized mission output integrations/options.
@@ -46,7 +52,7 @@
  *     - Added fast-lane context-enrichment skip path to reduce avoidable per-turn latency overhead on lightweight chat turns.
  *     - Fixed Claude streaming delta emission accounting to prevent rare missing final assistant-message delivery in HUD.
  *     - Added write-queue map cleanup in mission/notification persistence paths to prevent unbounded in-memory growth across many scoped files.
- *     - Removed repeated legacy fallback overhead by pruning empty legacy `missions` / `notification-runs` directories after migration and reducing legacy read fallbacks post-migration.
+ *     - Removed repeated fallback overhead by pruning empty prior `missions` / `notification-runs` directories after migration and reducing stale read fallbacks post-migration.
  *
  * - V.30 Alpha (2026-02-25): Calendar + Home overhaul with Google Calendar integration
  *     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
@@ -136,7 +142,7 @@
  *     - Added memory-recall guardrails (intent gating + timeout) to prevent memory embedding work from delaying lightweight requests.
  *     - Parallelized optional enrichment tasks (web preload, link preload, memory recall) with bounded latency budgets.
  *     - Added session/transcript in-process caches with file-change invalidation to reduce sync disk churn while preserving session semantics.
- *     - Added persona/skills prompt caching and one-time legacy pruning to avoid repeated per-turn filesystem scans.
+ *     - Added persona/skills prompt caching and one-time stale-path pruning to avoid repeated per-turn filesystem scans.
  *     - Coalesced HUD assistant stream deltas per animation frame to reduce render-state churn during streaming responses.
  *
  * - V.17 Alpha (2026-02-20): mission generation + output engine generalization
@@ -167,7 +173,7 @@
  *     - Added final release notes artifact: `tasks/novaos-phase10-release-notes.md` with rollout checklist and rollback plan.
  *
  * - V.13 Alpha (2026-02-19): `src/` runtime cutover + stability patch set
- *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/core/entrypoint/index.js` (replacing legacy `agent/` launch flow).
+ *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/core/entrypoint/index.js` (replacing prior `agent/` launch flow).
  *     - Expanded `src/` runtime parity and smoke coverage for provider, session, transport, tools, memory, and shell wiring.
  *     - Removed stale `src/index.ts` one-off harness and cleaned upgrade module index references.
  *     - Fixed Home -> Chat first-send duplication by tightening pending message dedupe (message id + content checks).
@@ -243,5 +249,5 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.36 Alpha"
+export const NOVA_VERSION = "V.37 Alpha"
 

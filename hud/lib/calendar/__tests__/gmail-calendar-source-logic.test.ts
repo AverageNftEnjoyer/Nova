@@ -148,7 +148,7 @@ test("Nova-mirrored schedule event ids are filtered out", () => {
   assert.equal(mapGcalEvent(ev, RANGE_START), null)
 })
 
-test("legacy Nova mirror ids are filtered out", () => {
+test("older Nova mirror ids are filtered out", () => {
   const ev: GmailCalendarEventItem = {
     id: "nova6e8a0aa7fcbf6f71829e54b70a90f4769de2682c608050be62ef9f59",
     summary: "Automation",
