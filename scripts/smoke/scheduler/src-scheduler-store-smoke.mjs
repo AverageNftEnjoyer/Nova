@@ -49,11 +49,15 @@ await run("P18-C3 mission store recovers from primary-file corruption", async ()
   assert.equal(storeSource.includes("defaultStorePayload()"), true);
 });
 
-await run("P18-C4 scheduler persists post-run state via mission store", async () => {
-  assert.equal(schedulerSource.includes("upsertMission"), true);
+await run("P18-C4 scheduler uses enqueue-only mode (Phase 3)", async () => {
+  // Scheduler now enqueues job_runs; execution-tick handles actual execution.
+  assert.equal(schedulerSource.includes("jobLedger.enqueue"), true);
+  assert.equal(schedulerSource.includes("idempotency_key"), true);
   assert.equal(schedulerSource.includes("runScheduleTickInternal"), true);
-  assert.equal(schedulerSource.includes("lastRunAt"), true);
-  assert.equal(schedulerSource.includes("lastSentLocalDate"), true);
+  // executeMission no longer called directly in the scheduler
+  assert.equal(schedulerSource.includes("executeMission("), false);
+  // upsertMission no longer called in the scheduler (execution-tick does it)
+  assert.equal(schedulerSource.includes("upsertMission"), false);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

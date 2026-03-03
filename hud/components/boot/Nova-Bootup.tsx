@@ -207,6 +207,7 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
   const [onlineSystems, setOnlineSystems] = useState<string[]>([])
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const interactiveBgRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const orbPalette = ORB_COLORS[bootOrbColor]
   const accentPalette = ACCENT_COLORS[bootAccentColor]
@@ -530,6 +531,58 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
     return () => cancelAnimationFrame(raf)
   }, [accentPalette])
 
+  useEffect(() => {
+    const target = interactiveBgRef.current
+    if (!target) return
+    target.style.setProperty("--boot-mx", "50%")
+    target.style.setProperty("--boot-my", "50%")
+    target.style.setProperty("--boot-dx", "0px")
+    target.style.setProperty("--boot-dy", "0px")
+
+    let raf = 0
+    let px = window.innerWidth * 0.5
+    let py = window.innerHeight * 0.5
+
+    const apply = () => {
+      raf = 0
+      const nx = Math.max(0, Math.min(1, px / Math.max(1, window.innerWidth)))
+      const ny = Math.max(0, Math.min(1, py / Math.max(1, window.innerHeight)))
+      const dx = (nx - 0.5) * 40
+      const dy = (ny - 0.5) * 28
+      target.style.setProperty("--boot-mx", `${(nx * 100).toFixed(2)}%`)
+      target.style.setProperty("--boot-my", `${(ny * 100).toFixed(2)}%`)
+      target.style.setProperty("--boot-dx", `${dx.toFixed(2)}px`)
+      target.style.setProperty("--boot-dy", `${dy.toFixed(2)}px`)
+    }
+
+    const queue = () => {
+      if (raf) return
+      raf = window.requestAnimationFrame(apply)
+    }
+
+    const onMove = (event: PointerEvent) => {
+      px = event.clientX
+      py = event.clientY
+      queue()
+    }
+
+    const onLeave = () => {
+      px = window.innerWidth * 0.5
+      py = window.innerHeight * 0.5
+      queue()
+    }
+
+    window.addEventListener("pointermove", onMove, { passive: true })
+    window.addEventListener("pointerleave", onLeave)
+    apply()
+
+    return () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerleave", onLeave)
+      if (raf) window.cancelAnimationFrame(raf)
+    }
+  }, [])
+
   const visibleLines = FLYING_LINES.slice(0, flyingIdx + 1)
   const displayLines = visibleLines.slice(-18)
   const allSystemsOnline = onlineSystems.length === SUBSYSTEMS.length
@@ -546,15 +599,60 @@ export function NovaBootup({ onComplete }: NovaBootupProps) {
       {/* Scanline canvas overlay */}
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-1" />
 
-      {/* Blueprint command deck background (kept subtle behind modules) */}
-      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+      {/* Background deck */}
+      <div ref={interactiveBgRef} className="absolute inset-0 pointer-events-none z-0 overflow-hidden boot3-bg-shell">
         <div
           className="absolute inset-0"
           style={{
             background: `
-              radial-gradient(ellipse at 50% 55%, ${hexToRgba(accentPalette.primary, 0.08)} 0%, transparent 62%),
-              radial-gradient(ellipse at 18% 22%, ${hexToRgba(accentPalette.secondary, 0.05)} 0%, transparent 55%),
-              radial-gradient(ellipse at 84% 80%, ${hexToRgba(accentPalette.primary, 0.04)} 0%, transparent 58%)
+              radial-gradient(120% 95% at 50% 58%, rgba(8, 14, 26, 0.72) 0%, rgba(3, 4, 9, 0.95) 54%, #020205 100%),
+              linear-gradient(175deg, rgba(255,255,255,0.015) 0%, rgba(0,0,0,0) 34%)
+            `,
+          }}
+        />
+        <div
+          className="absolute inset-0 boot3-bg-focus"
+          style={{
+            background: `
+              radial-gradient(42% 34% at var(--boot-mx) var(--boot-my), ${hexToRgba(accentPalette.secondary, 0.22)} 0%, transparent 74%),
+              radial-gradient(52% 44% at calc(var(--boot-mx) - 8%) calc(var(--boot-my) + 6%), ${hexToRgba(accentPalette.primary, 0.15)} 0%, transparent 78%)
+            `,
+          }}
+        />
+        <div
+          className="absolute inset-0 boot3-bg-vignette"
+          style={{
+            background: "radial-gradient(ellipse at center, rgba(0,0,0,0) 42%, rgba(0,0,0,0.54) 100%)",
+          }}
+        />
+        <div
+          className="absolute inset-0 boot3-bg-noise"
+          style={{
+            backgroundImage: `
+              radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 0.7px, transparent 0.8px),
+              radial-gradient(circle at 1px 1px, rgba(255,255,255,0.02) 0.7px, transparent 0.8px)
+            `,
+            backgroundSize: "4px 4px, 6px 6px",
+            backgroundPosition: "0 0, 2px 2px",
+          }}
+        />
+        <div
+          className="absolute inset-0 boot3-bg-dotfield"
+          style={{
+            background: `
+              radial-gradient(circle at 50% 56%, ${hexToRgba(accentPalette.secondary, 0.16)} 0%, transparent 30%),
+              radial-gradient(circle at 50% 56%, rgba(255,255,255,0.1) 0.8px, transparent 1.05px)
+            `,
+            backgroundSize: "100% 100%, 7px 7px",
+          }}
+        />
+        <div
+          className="absolute inset-0 boot3-bg-aura"
+          style={{
+            background: `
+              radial-gradient(ellipse at 22% 24%, ${hexToRgba(accentPalette.primary, 0.14)} 0%, transparent 60%),
+              radial-gradient(ellipse at 84% 76%, ${hexToRgba(accentPalette.secondary, 0.12)} 0%, transparent 63%),
+              radial-gradient(ellipse at 54% 88%, ${hexToRgba(accentPalette.primary, 0.09)} 0%, transparent 58%)
             `,
           }}
         />

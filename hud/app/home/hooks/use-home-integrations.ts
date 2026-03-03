@@ -258,7 +258,6 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     void fetch("/api/missions", { cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent("/home")}`)
           throw new Error("Unauthorized")
         }
         return res.json()
@@ -279,7 +278,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         }
         setMissionItems([])
       })
-  }, [router])
+  }, [])
 
   // Stable callback — uses refs so it never needs to be re-created when state changes.
   // This prevents the polling interval from being torn down on every poll response.
@@ -299,7 +298,6 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         credentials: "include",
       })
       if (res.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/home")}`)
         throw new Error("Unauthorized")
       }
       if (!res.ok || !data?.ok) {
@@ -314,7 +312,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     } finally {
       setSpotifyLoading(false)
     }
-  }, [router])
+  }, [])
 
   const seekSpotify = useCallback(async (positionMs: number): Promise<void> => {
     setSpotifyNowPlaying((prev) => prev ? { ...prev, progressMs: positionMs } : prev)
@@ -362,7 +360,6 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         body: JSON.stringify({ action }),
       })
       if (res.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/home")}`)
         throw new Error("Unauthorized")
       }
       if (!res.ok || !data?.ok) {
@@ -440,7 +437,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     } finally {
       setSpotifyBusyAction(null)
     }
-  }, [refreshSpotifyNowPlaying, router, speakTts])
+  }, [refreshSpotifyNowPlaying, speakTts])
 
   useLayoutEffect(() => {
     const local = loadIntegrationsSettings()
@@ -452,7 +449,6 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     void fetch("/api/integrations/config", { cache: "no-store" })
       .then(async (res) => {
         if (res.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent("/home")}`)
           throw new Error("Unauthorized")
         }
         return res.json()
@@ -490,7 +486,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
       })
 
     refreshMissionItems()
-  }, [refreshMissionItems, refreshSpotifyNowPlaying, router])
+  }, [refreshMissionItems, refreshSpotifyNowPlaying])
 
   useEffect(() => {
     const onUpdate = () => {

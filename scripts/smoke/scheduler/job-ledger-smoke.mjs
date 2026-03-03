@@ -30,11 +30,15 @@ const typesSource = read("hud/lib/missions/job-ledger/types.ts")
 const storeSource = read("hud/lib/missions/job-ledger/store.ts")
 const guardSource = read("hud/lib/missions/workflow/execution-guard.ts")
 const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts")
+const executionTickSource = read("hud/lib/missions/workflow/execution-tick.ts")
+const missionTypesSource = read("hud/lib/missions/types/index.ts")
 const purgeSource = read("hud/lib/missions/purge/index.ts")
 const schedulerSource = read("hud/lib/notifications/scheduler/index.ts")
 const retryPolicySource = read("hud/lib/missions/retry-policy.ts")
 const migrationV1 = read("hud/supabase/migrations/20260301_job_runner.sql")
 const migrationV2 = read("hud/supabase/migrations/20260302_scheduler_lease_procedures.sql")
+const migrationV3 = read("hud/supabase/migrations/20260303_execution_tick_running_reclaim.sql")
+const executionTickRouteSource = read("hud/app/api/missions/execution-tick/route.ts")
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -237,18 +241,19 @@ await run("JL-W6 scheduler calls reclaimExpiredLeases at top of tick", () => {
   assert.ok(reclaimIdx < loadMissionsIdx, "reclaimExpiredLeases must be called before loadMissions in tick body")
 })
 
-await run("JL-W7 scheduler has per-mission in-flight guard (watchdog race fix)", () => {
-  assert.ok(schedulerSource.includes("inflightMissions"))
-  assert.ok(schedulerSource.includes("inflightMissions.has("))
-  assert.ok(schedulerSource.includes("inflightMissions.add("))
-  assert.ok(schedulerSource.includes("inflightMissions.delete("))
-  // Must clean up in finally
-  assert.ok(schedulerSource.includes("} finally {"))
+await run("JL-W7 scheduler uses idempotency key for dedup (Phase 3 — replaced inflightMissions)", () => {
+  // Phase 3: idempotency_key on enqueue provides dedup across ticks/workers
+  assert.ok(schedulerSource.includes("idempotency_key"))
+  assert.ok(schedulerSource.includes("idempotencyKey"))
+  assert.ok(schedulerSource.includes("nativeDayStamp"))
+  // inflightMissions removed — idempotency_key handles cross-tick dedup
+  assert.ok(!schedulerSource.includes("inflightMissions.has("), "inflightMissions.has should be gone in Phase 3")
 })
 
-await run("JL-W8 inflightMissions persists across ticks via globalThis", () => {
-  assert.ok(schedulerSource.includes("__novaInflightMissions"))
-  assert.ok(schedulerSource.includes("globalThis"))
+await run("JL-W8 scheduler enqueues with source=scheduler and priority", () => {
+  assert.ok(schedulerSource.includes("jobLedger.enqueue("))
+  assert.ok(schedulerSource.includes('source: "scheduler"'))
+  assert.ok(schedulerSource.includes("priority: 5"))
 })
 
 await run("JL-W9 scheduler leader election wired into runScheduleTick", () => {
@@ -311,6 +316,280 @@ await run("JL-W14 renew/reclaim use server-side RPCs (no JS clock)", () => {
   assert.ok(reclaimIdx !== -1, "reclaimExpiredLeases not found in store")
   const reclaimBody = storeSource.slice(reclaimIdx, reclaimIdx + 300)
   assert.ok(reclaimBody.includes('rpc("reclaim_expired_job_leases"'), "reclaimExpiredLeases must use RPC")
+})
+
+// ─── Phase 3: Job-Driven Execution Tick ──────────────────────────────────────
+
+await run("JL-P3-1 execution-tick exports runExecutionTick", () => {
+  assert.ok(executionTickSource.includes("export async function runExecutionTick("))
+  assert.ok(executionTickSource.includes("export type ExecutionTickResult ="))
+})
+
+await run("JL-P3-2 execution-tick uses getPendingRuns + claimRun + startRun pipeline", () => {
+  assert.ok(executionTickSource.includes("jobLedger.getPendingRuns("))
+  assert.ok(executionTickSource.includes("jobLedger.claimRun("))
+  assert.ok(executionTickSource.includes("jobLedger.startRun("))
+})
+
+await run("JL-P3-3 execution-tick builds pre-claimed slot via makePreClaimedSlot", () => {
+  assert.ok(executionTickSource.includes("makePreClaimedSlot("))
+  assert.ok(executionTickSource.includes('import { makePreClaimedSlot }'))
+})
+
+await run("JL-P3-4 execution-tick calls executeMission with preClaimedSlot", () => {
+  assert.ok(executionTickSource.includes("executeMission("))
+  assert.ok(executionTickSource.includes("preClaimedSlot: slot"))
+})
+
+await run("JL-P3-5 execution-tick updates mission metadata after run", () => {
+  assert.ok(executionTickSource.includes("upsertMission("))
+  assert.ok(executionTickSource.includes("lastRunAt:"))
+  assert.ok(executionTickSource.includes("lastSentLocalDate:"))
+  assert.ok(executionTickSource.includes("lastRunStatus:"))
+})
+
+await run("JL-P3-6 execution-tick handles MISSION_NOT_FOUND by failing the run", () => {
+  assert.ok(executionTickSource.includes("MISSION_NOT_FOUND"))
+  assert.ok(executionTickSource.includes("jobLedger.failRun("))
+})
+
+await run("JL-P3-7 execution-tick propagates scheduledAtOverride via input_snapshot", () => {
+  assert.ok(executionTickSource.includes("input_snapshot"))
+  assert.ok(executionTickSource.includes("scheduledAtOverride"))
+  assert.ok(executionTickSource.includes("deleteRescheduleOverride("))
+})
+
+await run("JL-P3-8 types exports PreClaimedSlot + preClaimedSlot on ExecuteMissionInput", () => {
+  assert.ok(missionTypesSource.includes("export interface PreClaimedSlot {"))
+  assert.ok(missionTypesSource.includes("preClaimedSlot?: PreClaimedSlot"))
+})
+
+await run("JL-P3-9 execution-guard exports makePreClaimedSlot", () => {
+  assert.ok(guardSource.includes("export function makePreClaimedSlot("))
+  // Must use outcomeReported guard (first caller wins — same pattern as acquireMissionExecutionSlot)
+  assert.ok(guardSource.includes("outcomeReported"))
+})
+
+await run("JL-P3-10 execute-mission skips acquireMissionExecutionSlot when preClaimedSlot provided", () => {
+  assert.ok(executeMissionSource.includes("input.preClaimedSlot"))
+  assert.ok(executeMissionSource.includes("MissionExecutionGuardDecision"))
+  // Retry loop must be skipped when preClaimedSlot is set
+  assert.ok(executeMissionSource.includes("!input.preClaimedSlot &&"))
+})
+
+// ─── Phase 4: Execution-Tick Own Loop ────────────────────────────────────────
+
+await run("JL-P4-1 execution-tick defines ExecutionTickState type with timer loop fields", () => {
+  assert.ok(executionTickSource.includes("type ExecutionTickState ="))
+  assert.ok(executionTickSource.includes("timer: NodeJS.Timeout | null"))
+  assert.ok(executionTickSource.includes("running: boolean"))
+  assert.ok(executionTickSource.includes("tickInFlight: boolean"))
+  assert.ok(executionTickSource.includes("tickIntervalMs: number"))
+  assert.ok(executionTickSource.includes("totalTickCount: number"))
+  assert.ok(executionTickSource.includes("overlapSkipCount: number"))
+  assert.ok(executionTickSource.includes("lastTickClaimedCount"))
+  assert.ok(executionTickSource.includes("lastTickCompletedCount"))
+  assert.ok(executionTickSource.includes("lastTickFailedCount"))
+  assert.ok(executionTickSource.includes("lastTickSkippedCount"))
+})
+
+await run("JL-P4-2 execution-tick uses globalThis singleton (__novaExecutionTick)", () => {
+  assert.ok(executionTickSource.includes("__novaExecutionTick"), "__novaExecutionTick key not found")
+  // Must assign back (two-step pattern)
+  const assignIdx = executionTickSource.indexOf("__novaExecutionTick = ")
+  assert.ok(assignIdx !== -1, "globalThis singleton must be assigned back")
+})
+
+await run("JL-P4-3 execution-tick has own timer loop with EXECUTION_TICK_INTERVAL_MS and watchdog", () => {
+  assert.ok(executionTickSource.includes("EXECUTION_TICK_INTERVAL_MS"))
+  assert.ok(executionTickSource.includes("EXECUTION_TICK_WATCHDOG_MS"))
+  assert.ok(executionTickSource.includes("etState.tickInFlight = true"))
+  assert.ok(executionTickSource.includes("etState.tickInFlight = false"))
+  assert.ok(executionTickSource.includes("etState.overlapSkipCount += 1"))
+})
+
+await run("JL-P4-4 execution-tick calls reclaimExpiredLeases before getPendingRuns in runExecutionTickInternal", () => {
+  const fnStart = executionTickSource.indexOf("async function runExecutionTickInternal(")
+  assert.ok(fnStart !== -1, "runExecutionTickInternal not found")
+  const fnBody = executionTickSource.slice(fnStart)
+  const reclaimIdx = fnBody.indexOf("reclaimExpiredLeases()")
+  const pendingRunsIdx = fnBody.indexOf("getPendingRuns(")
+  assert.ok(reclaimIdx !== -1, "reclaimExpiredLeases not called in runExecutionTickInternal")
+  assert.ok(reclaimIdx < pendingRunsIdx, "reclaimExpiredLeases must precede getPendingRuns")
+})
+
+await run("JL-P4-5 executeRun spawns setInterval heartbeat after startRun with clearInterval in finally", () => {
+  const fnStart = executionTickSource.indexOf("async function executeRun(")
+  assert.ok(fnStart !== -1, "executeRun not found")
+  const fnBody = executionTickSource.slice(fnStart)
+  assert.ok(fnBody.includes("setInterval("), "setInterval not found in executeRun")
+  assert.ok(fnBody.includes("jobLedger.heartbeat("), "jobLedger.heartbeat not called in executeRun")
+  assert.ok(fnBody.includes("heartbeatTimer"), "heartbeatTimer variable not found")
+  assert.ok(fnBody.includes("clearInterval("), "clearInterval not found")
+  // clearInterval must be inside a finally block
+  const finallyIdx = fnBody.lastIndexOf("} finally {")
+  const clearIdx = fnBody.lastIndexOf("clearInterval(")
+  assert.ok(clearIdx > finallyIdx, "clearInterval must be inside the finally block of executeRun")
+})
+
+await run("JL-P4-6 heartbeat interval is Math.floor(EXECUTION_TICK_LEASE_MS / 3)", () => {
+  assert.ok(
+    executionTickSource.includes("Math.floor(EXECUTION_TICK_LEASE_MS / 3)"),
+    "Heartbeat interval must be Math.floor(EXECUTION_TICK_LEASE_MS / 3)",
+  )
+})
+
+await run("JL-P4-7 execution-tick exports ensureExecutionTickStarted, stopExecutionTick, getExecutionTickState", () => {
+  assert.ok(executionTickSource.includes("export function ensureExecutionTickStarted("))
+  assert.ok(executionTickSource.includes("export function stopExecutionTick("))
+  assert.ok(executionTickSource.includes("export function getExecutionTickState("))
+})
+
+await run("JL-P4-8 ensureExecutionTickStarted guards on etState.running && etState.timer and uses setInterval", () => {
+  const fnStart = executionTickSource.indexOf("export function ensureExecutionTickStarted(")
+  assert.ok(fnStart !== -1)
+  const fnBody = executionTickSource.slice(fnStart, fnStart + 600)
+  assert.ok(fnBody.includes("etState.running && etState.timer"), "Guard must check both running and timer")
+  assert.ok(fnBody.includes("setInterval("), "setInterval not found in ensureExecutionTickStarted")
+  assert.ok(fnBody.includes("etState.timer = setInterval"), "etState.timer must be assigned")
+  assert.ok(fnBody.includes("etState.running = true"))
+})
+
+await run("JL-P4-9 stopExecutionTick clears timer with no scheduler lease release", () => {
+  const fnStart = executionTickSource.indexOf("export function stopExecutionTick(")
+  assert.ok(fnStart !== -1)
+  const fnBody = executionTickSource.slice(fnStart, fnStart + 400)
+  assert.ok(fnBody.includes("clearInterval("), "clearInterval not found in stopExecutionTick")
+  assert.ok(fnBody.includes("etState.running = false"))
+  // No leader election — must NOT call releaseSchedulerLease
+  assert.ok(!fnBody.includes("releaseSchedulerLease"), "stopExecutionTick must not touch scheduler leases")
+})
+
+await run("JL-P4-10 scheduler no longer calls runExecutionTick inline", () => {
+  assert.ok(
+    !schedulerSource.includes("runExecutionTick"),
+    "scheduler must not call runExecutionTick — execution-tick has its own loop in Phase 4",
+  )
+  assert.ok(schedulerSource.includes("ensureExecutionTickStarted"), "scheduler must import ensureExecutionTickStarted")
+})
+
+await run("JL-P4-11 ensureMissionSchedulerStarted calls ensureExecutionTickStarted()", () => {
+  const fnStart = schedulerSource.indexOf("export function ensureMissionSchedulerStarted(")
+  assert.ok(fnStart !== -1)
+  const fnBody = schedulerSource.slice(fnStart, fnStart + 800)
+  assert.ok(fnBody.includes("ensureExecutionTickStarted()"), "ensureMissionSchedulerStarted must call ensureExecutionTickStarted()")
+})
+
+await run("JL-P4-12 execution-tick route exports GET POST DELETE with requireSupabaseApiUser", () => {
+  assert.ok(executionTickRouteSource.includes("export async function GET("))
+  assert.ok(executionTickRouteSource.includes("export async function POST("))
+  assert.ok(executionTickRouteSource.includes("export async function DELETE("))
+  assert.ok(executionTickRouteSource.includes("requireSupabaseApiUser"))
+  assert.ok(executionTickRouteSource.includes("ensureExecutionTickStarted"))
+  assert.ok(executionTickRouteSource.includes("getExecutionTickState"))
+  assert.ok(executionTickRouteSource.includes("stopExecutionTick"))
+  assert.ok(executionTickRouteSource.includes('runtime = "nodejs"'))
+  assert.ok(executionTickRouteSource.includes('dynamic = "force-dynamic"'))
+})
+
+await run("JL-P4-13 execution-tick route GET supports ?ensure=1 to start the loop", () => {
+  const getStart = executionTickRouteSource.indexOf("export async function GET(")
+  assert.ok(getStart !== -1)
+  const getBody = executionTickRouteSource.slice(getStart, getStart + 400)
+  assert.ok(getBody.includes('"ensure"'))
+  assert.ok(getBody.includes('"1"'))
+  assert.ok(getBody.includes("ensureExecutionTickStarted()"))
+})
+
+await run("JL-P4-14 migration V3 extends reclaim_expired_job_leases to include running status", () => {
+  assert.ok(migrationV3.includes("CREATE OR REPLACE FUNCTION reclaim_expired_job_leases"))
+  assert.ok(
+    migrationV3.includes("IN ('claimed', 'running')"),
+    "Migration must use IN ('claimed', 'running') in WHERE clause",
+  )
+  assert.ok(migrationV3.includes("SECURITY DEFINER"))
+  assert.ok(migrationV3.includes("GRANT EXECUTE"))
+  assert.ok(migrationV3.includes("idx_job_runs_lease_expiry"))
+  assert.ok(migrationV3.includes("DROP INDEX IF EXISTS idx_job_runs_lease_expiry"))
+})
+
+// ─── Post-Phase-4 Cleanup Fixes ──────────────────────────────────────────────
+
+const schedulerRouteSource = read("hud/app/api/missions/scheduler/route.ts")
+
+await run("JL-W1-A execution-guard accepts source param and maps trigger→webhook", () => {
+  assert.ok(guardSource.includes("source?: "), "source param must be optional in input type")
+  // Must map trigger → webhook and manual → manual
+  assert.ok(guardSource.includes('"trigger" ? "webhook"') || guardSource.includes('"trigger"') && guardSource.includes('"webhook"'), "must map trigger to webhook")
+  assert.ok(guardSource.includes('"manual"'), "must handle manual source")
+  // ledgerSource variable used in enqueue (not hardcoded "scheduler")
+  const enqueueIdx = guardSource.indexOf("jobLedger.enqueue(")
+  assert.ok(enqueueIdx !== -1)
+  const enqueueBody = guardSource.slice(enqueueIdx, enqueueIdx + 200)
+  assert.ok(!enqueueBody.includes('source: "scheduler"'), "enqueue source must not be hardcoded to scheduler")
+})
+
+await run("JL-W1-B cancelPendingForMission includes running status", () => {
+  const fnStart = storeSource.indexOf("async cancelPendingForMission(")
+  assert.ok(fnStart !== -1)
+  const fnBody = storeSource.slice(fnStart, fnStart + 400)
+  assert.ok(fnBody.includes('"running"'), 'cancelPendingForMission must include "running" in status filter')
+  assert.ok(fnBody.includes('"pending"'))
+  assert.ok(fnBody.includes('"claimed"'))
+})
+
+await run("JL-W3-A execute-mission computes maxAttempts from mission.settings (no optional chain)", () => {
+  // mission.settings is required on Mission — no ?. needed
+  assert.ok(
+    executeMissionSource.includes("mission.settings.retryOnFail"),
+    "must use mission.settings.retryOnFail (not optional chain)",
+  )
+  assert.ok(
+    executeMissionSource.includes("mission.settings.retryCount + 1"),
+    "must use retryCount + 1 (no dead ?? 2 fallback)",
+  )
+})
+
+await run("JL-W8-A scheduler max_attempts formula uses retryCount+1 with no dead fallback", () => {
+  assert.ok(
+    schedulerSource.includes("liveMission.settings.retryOnFail"),
+    "must use liveMission.settings.retryOnFail (no ?.)",
+  )
+  assert.ok(
+    schedulerSource.includes("liveMission.settings.retryCount + 1"),
+    "must use retryCount + 1 (no ?? 2)",
+  )
+})
+
+await run("JL-W9-A ensureMissionSchedulerStarted calls timer.unref()", () => {
+  const fnStart = schedulerSource.indexOf("export function ensureMissionSchedulerStarted(")
+  assert.ok(fnStart !== -1)
+  const fnBody = schedulerSource.slice(fnStart, fnStart + 800)
+  assert.ok(fnBody.includes("state.timer.unref()"), "state.timer.unref() must be called")
+})
+
+await run("JL-P4-8-A ensureExecutionTickStarted calls timer.unref()", () => {
+  const fnStart = executionTickSource.indexOf("export function ensureExecutionTickStarted(")
+  assert.ok(fnStart !== -1)
+  const fnBody = executionTickSource.slice(fnStart, fnStart + 600)
+  assert.ok(fnBody.includes("etState.timer.unref()"), "etState.timer.unref() must be called")
+})
+
+await run("JL-W13-A stopMissionScheduler calls stopExecutionTick for symmetric lifecycle", () => {
+  const fnStart = schedulerSource.indexOf("export function stopMissionScheduler(")
+  assert.ok(fnStart !== -1)
+  const fnBody = schedulerSource.slice(fnStart, fnStart + 600)
+  assert.ok(fnBody.includes("stopExecutionTick()"), "stopMissionScheduler must call stopExecutionTick()")
+})
+
+await run("JL-W13-B scheduler imports stopExecutionTick", () => {
+  assert.ok(schedulerSource.includes("stopExecutionTick"), "scheduler must import stopExecutionTick")
+})
+
+await run("JL-P16-C2-A scheduler route returns combinedState with executionTick key", () => {
+  assert.ok(schedulerRouteSource.includes("combinedState"), "schedulerRouteSource must define combinedState")
+  assert.ok(schedulerRouteSource.includes("getExecutionTickState"), "must import getExecutionTickState")
+  assert.ok(schedulerRouteSource.includes("executionTick:"), "combinedState must include executionTick key")
 })
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import {
   OPENAI_FALLBACK_MODEL,
   OPENAI_REQUEST_TIMEOUT_MS,
   CLAUDE_CHAT_MAX_TOKENS,
-} from "../../../../core/constants/index.js";
+} from "../../../../../core/constants/index.js";
 import {
   claudeMessagesCreate,
   claudeMessagesStream,
@@ -11,13 +11,13 @@ import {
   describeUnknownError,
   toErrorDetails,
   withTimeout,
-} from "../../../llm/providers.js";
+} from "../../../../llm/providers/index.js";
 import {
   attemptOpenAiEmptyReplyRecovery,
   buildConstraintSafeFallback,
   buildEmptyReplyFailureReason,
   shouldAttemptOpenAiEmptyReplyRecovery,
-} from "./prompt-fallbacks.js";
+} from "../prompt-fallbacks/index.js";
 
 export async function runClaudeDirectCompletion({
   activeChatRuntime,

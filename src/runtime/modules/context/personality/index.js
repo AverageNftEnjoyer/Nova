@@ -10,10 +10,10 @@ import {
   loadPersonalityProfile,
   persistPersonalityProfile,
   appendPersonalityAuditEvent,
-} from "./storage.js";
-import { createEmptyPersonalityProfile, applySignalsToProfile, applyContextOverlay } from "./engine.js";
-import { extractFeedbackSignals, extractSettingsSignals, extractMemorySignals } from "./signals.js";
-import { buildPersonalityPromptSection } from "./prompt.js";
+} from "./storage/index.js";
+import { createEmptyPersonalityProfile, applySignalsToProfile, applyContextOverlay } from "./engine/index.js";
+import { extractFeedbackSignals, extractSettingsSignals, extractMemorySignals } from "./signals/index.js";
+import { buildPersonalityPromptSection } from "./prompt/index.js";
 
 /**
  * Sync the personality profile for one conversation turn and return a prompt section.
@@ -92,6 +92,6 @@ export function syncPersonalityFromTurn({
 }
 
 // Re-export for tests and tooling
-export { createEmptyPersonalityProfile } from "./engine.js";
-export { buildPersonalityPromptSection } from "./prompt.js";
-export { PERSONALITY_DIMENSIONS, CONTEXT_OVERLAYS, FEEDBACK_PATTERNS } from "../constants/index.js";
+export { createEmptyPersonalityProfile } from "./engine/index.js";
+export { buildPersonalityPromptSection } from "./prompt/index.js";
+export { PERSONALITY_DIMENSIONS, CONTEXT_OVERLAYS, FEEDBACK_PATTERNS } from "./constants/index.js";

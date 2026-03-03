@@ -5,10 +5,10 @@
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createSessionRuntime } from "../../session/runtime-compat/index.js";
-import { createToolRuntime } from "../../tools/runtime/runtime-compat/index.js";
+import { createSessionRuntime } from "../../../session/runtime-compat/index.js";
+import { createToolRuntime } from "../../../tools/runtime/runtime-compat/index.js";
 import { createWakeWordRuntime } from "../../audio/wake-runtime-compat/index.js";
-import { describeUnknownError } from "../../providers/runtime-compat/index.js";
+import { describeUnknownError } from "../../../providers/runtime-compat/index.js";
 import {
   SESSION_STORE_PATH,
   SESSION_TRANSCRIPT_DIR,

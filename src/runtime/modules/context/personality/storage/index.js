@@ -8,7 +8,7 @@
 import fs from "fs";
 import path from "path";
 import { PERSONALITY_FILE_NAME, PERSONALITY_AUDIT_FILE_NAME } from "../constants/index.js";
-import { USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
+import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 
 function normalizeUserContextId(value) {
   return String(value || "")

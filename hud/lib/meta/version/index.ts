@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.38 Alpha (2026-03-03): HUD navigation churn reduction + websocket cleanup hardening
+ *     - Replaced hard document navigations (`window.location.*`) in root/login/chat mission entrypoints with Next router navigation to reduce full-page reload churn.
+ *     - Removed background Home-hook `401` redirect side effects that could trigger repeated route bouncing during transient auth/session states.
+ *     - Hardened `useNovaState` websocket cleanup for CONNECTING sockets and unmount timing to prevent noisy close-before-open lifecycle errors.
+ *     - Performed quick dependency/security sweep (`npm audit --omit=dev`, high-level token/secret pattern scan) with no high vulnerabilities reported.
+ *
  * - V.37 Alpha (2026-03-02): Legacy hard-cut completion + runbook source migration
  *     - Removed remaining legacy runtime migration/fallback paths across HUD/session/integration cleanup flows.
  *     - Migrated mission reliability runbook guidance from `tasks/runbooks` into code-owned ops guidance under `scripts/ops/`.
@@ -249,5 +255,5 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.37 Alpha"
+export const NOVA_VERSION = "V.38 Alpha"
 

@@ -57,7 +57,6 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     const request = (async () => {
       const res = await fetch("/api/threads", { cache: "no-store" })
       if (res.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/home")}`)
         throw new Error("Unauthorized")
       }
       const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
@@ -73,7 +72,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     } finally {
       threadsFetchInFlightRef.current = null
     }
-  }, [router])
+  }, [])
 
   const createServerConversation = useCallback(async (title = DEFAULT_CONVERSATION_TITLE): Promise<Conversation> => {
     const res = await fetch("/api/threads", {
@@ -82,13 +81,12 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
       body: JSON.stringify({ title }),
     })
     if (res.status === 401) {
-      router.replace(`/login?next=${encodeURIComponent("/home")}`)
       throw new Error("Unauthorized")
     }
     const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
     if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
     return data.conversation
-  }, [router])
+  }, [])
 
   const syncServerMessages = useCallback(async (convo: Conversation) => {
     const res = await fetch(`/api/threads/${encodeURIComponent(convo.id)}/messages`, {
@@ -97,22 +95,20 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
       body: JSON.stringify({ messages: convo.messages }),
     })
     if (res.status === 401) {
-      router.replace(`/login?next=${encodeURIComponent("/home")}`)
       throw new Error("Unauthorized")
     }
     if (!res.ok) throw new Error("Failed to sync conversation messages.")
-  }, [router])
+  }, [])
 
   const deleteServerConversation = useCallback(async (id: string) => {
     const res = await fetch(`/api/threads/${encodeURIComponent(id)}`, {
       method: "DELETE",
     })
     if (res.status === 401) {
-      router.replace(`/login?next=${encodeURIComponent("/home")}`)
       throw new Error("Unauthorized")
     }
     if (!res.ok) throw new Error("Failed to delete conversation.")
-  }, [router])
+  }, [])
 
   const ensureServerConversation = useCallback(async (convo: Conversation): Promise<Conversation> => {
     const remoteConversations = await fetchConversationsFromServer().catch(() => [])

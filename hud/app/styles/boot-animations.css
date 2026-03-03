@@ -636,3 +636,105 @@
   opacity: 0;
 }
 
+@keyframes boot3-focus-breathe {
+  0% {
+    opacity: 0.42;
+    filter: blur(18px);
+  }
+  50% {
+    opacity: 0.7;
+    filter: blur(14px);
+  }
+  100% {
+    opacity: 0.42;
+    filter: blur(18px);
+  }
+}
+
+@keyframes boot3-aura-shift {
+  0% {
+    transform: translate3d(calc(var(--boot-dx, 0px) * -0.2), calc(var(--boot-dy, 0px) * -0.2), 0) scale(1);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translate3d(calc(var(--boot-dx, 0px) * 0.25), calc(var(--boot-dy, 0px) * 0.18), 0) scale(1.04);
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate3d(calc(var(--boot-dx, 0px) * -0.2), calc(var(--boot-dy, 0px) * -0.2), 0) scale(1);
+    opacity: 0.72;
+  }
+}
+
+@keyframes boot3-dotfield-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(calc(var(--boot-dx, 0px) * 0.22), calc(var(--boot-dy, 0px) * 0.22), 0);
+  }
+}
+
+@keyframes boot3-noise-flicker {
+  0% {
+    opacity: 0.2;
+  }
+  18% {
+    opacity: 0.17;
+  }
+  36% {
+    opacity: 0.24;
+  }
+  55% {
+    opacity: 0.19;
+  }
+  72% {
+    opacity: 0.23;
+  }
+  100% {
+    opacity: 0.2;
+  }
+}
+
+@keyframes boot3-vignette-pulse {
+  0% {
+    opacity: 0.78;
+  }
+  50% {
+    opacity: 0.92;
+  }
+  100% {
+    opacity: 0.78;
+  }
+}
+
+.boot3-bg-shell {
+  --boot-mx: 50%;
+  --boot-my: 50%;
+  --boot-dx: 0px;
+  --boot-dy: 0px;
+}
+
+.boot3-bg-focus {
+  mix-blend-mode: screen;
+  animation: boot3-focus-breathe 7.5s ease-in-out infinite;
+}
+
+.boot3-bg-aura {
+  animation: boot3-aura-shift 16s ease-in-out infinite;
+}
+
+.boot3-bg-dotfield {
+  opacity: 0.36;
+  animation: boot3-dotfield-drift 12s linear infinite alternate;
+}
+
+.boot3-bg-noise {
+  opacity: 0.2;
+  animation: boot3-noise-flicker 1.9s steps(6, end) infinite;
+}
+
+.boot3-bg-vignette {
+  animation: boot3-vignette-pulse 10s ease-in-out infinite;
+}
+

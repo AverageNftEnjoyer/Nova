@@ -13,14 +13,14 @@ import {
   ENABLE_PROVIDER_FALLBACK,
   RAW_STREAM_ENABLED,
   RAW_STREAM_PATH,
-} from "../../core/constants/index.js";
-import { sessionRuntime } from "../infrastructure/config.js";
+} from "../../../core/constants/index.js";
+import { sessionRuntime } from "../../infrastructure/config/index.js";
 import {
   describeUnknownError,
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
-} from "../llm/providers.js";
-import { countApproxTokens } from "../../core/context-prompt.js";
+} from "../../llm/providers/index.js";
+import { countApproxTokens } from "../../../core/context-prompt/index.js";
 
 // ===== Persona workspace =====
 export function resolvePersonaWorkspaceDir(userContextId) {

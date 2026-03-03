@@ -21,4 +21,4 @@ export {
   playThinking,
   normalizeRuntimeTone,
   runtimeToneDirective,
-} from "../runtime/modules/audio/voice/index.js";
+} from "../../runtime/modules/audio/voice/index.js";

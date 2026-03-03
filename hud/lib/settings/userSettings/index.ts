@@ -3,11 +3,11 @@ import { getActiveUserId } from "@/lib/auth/active-user"
 
 export type AccessTier = string
 
-export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
-export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white"
+export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white" | "black"
+export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white" | "black"
 export type SpotlightColor = OrbColor
 export type BackgroundType = "default" | "none" // compatibility background mode
-export type DarkBackgroundType = "floatingLines" | "space" | "none" | "customVideo"
+export type DarkBackgroundType = "floatingLines" | "black" | "none" | "customVideo"
 export type LightBackgroundType = "none"
 export type ThemeBackgroundType = DarkBackgroundType | LightBackgroundType
 
@@ -114,7 +114,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     orbColor: "violet",
     spotlightColor: "violet",
     background: "default",
-    darkModeBackground: "floatingLines",
+    darkModeBackground: "black",
     lightModeBackground: "none",
     spotlightEnabled: true,
     soundEnabled: true,
@@ -311,6 +311,7 @@ export const ACCENT_COLORS: Record<AccentColor, { primary: string; secondary: st
   rose: { primary: "#f43f5e", secondary: "#fb7185", name: "Rose" },
   pastelPink: { primary: "#f9a8d4", secondary: "#fbcfe8", name: "Pastel Pink" },
   white: { primary: "#cbd5e1", secondary: "#f8fafc", name: "White" },
+  black: { primary: "#0b0b0d", secondary: "#2a2a30", name: "Black" },
 }
 
 export const ORB_COLORS: Record<
@@ -398,6 +399,15 @@ export const ORB_COLORS: Record<
     circle4: "#cbd5e1",
     circle5: "#94a3b8",
   },
+  black: {
+    name: "Black",
+    bg: "#020204",
+    circle1: "#0b0b0d",
+    circle2: "#1a1a1f",
+    circle3: "#24242b",
+    circle4: "#34343c",
+    circle5: "#4a4a55",
+  },
 }
 
 // Available TTS voices
@@ -416,7 +426,7 @@ export const BACKGROUNDS: Record<BackgroundType, { name: string; description: st
 
 export const DARK_BACKGROUNDS: Record<DarkBackgroundType, { name: string; description: string }> = {
   floatingLines: { name: "Floating Lines", description: "Interactive wave lines" },
-  space: { name: "Space", description: "Futuristic starfield with planets and Nova orbit rings" },
+  black: { name: "Default", description: "Subtle dark background with clean depth and texture" },
   customVideo: { name: "Custom Media", description: "Use an uploaded MP4 or image as the background" },
   none: { name: "None", description: "No background animation" },
 }

@@ -31,21 +31,21 @@ import {
   ROUTING_PREFERENCE,
   ROUTING_ALLOW_ACTIVE_OVERRIDE,
   ROUTING_PREFERRED_PROVIDERS,
-} from "../../../../core/constants/index.js";
-import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../../infrastructure/config.js";
-import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../../context/persona-context/index.js";
-import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../../context/user-preferences/index.js";
+} from "../../../../../core/constants/index.js";
+import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../../../infrastructure/config/index.js";
+import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../../../context/persona-context/index.js";
+import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../../../context/user-preferences/index.js";
 import {
   recordIdentitySkillPreferenceUpdate,
   recordIdentityToolUsage,
   syncIdentityIntelligenceFromTurn,
-} from "../../../context/identity/engine/index.js";
-import { syncPersonalityFromTurn } from "../../../context/personality/index.js";
+} from "../../../../context/identity/engine/index.js";
+import { syncPersonalityFromTurn } from "../../../../context/personality/index.js";
 import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../../../../../memory/runtime-compat/index.js";
-import { applySkillPreferenceUpdateFromMessage } from "../../../context/skill-preferences/index.js";
-import { buildRuntimeSkillsPrompt } from "../../../context/skills/index.js";
-import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../routing/intent-router.js";
-import { speak, playThinking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../../../audio/voice.js";
+import { applySkillPreferenceUpdateFromMessage } from "../../../../context/skill-preferences/index.js";
+import { buildRuntimeSkillsPrompt } from "../../../../context/skills/index.js";
+import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../../routing/intent-router/index.js";
+import { speak, playThinking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../../../../audio/voice/index.js";
 import {
   broadcast,
   broadcastState,
@@ -68,25 +68,25 @@ import {
   streamOpenAiChatCompletion,
   toErrorDetails,
   withTimeout,
-} from "../../../llm/providers.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../core/context-prompt.js";
-import { buildAgentSystemPrompt, PromptMode } from "../../../context/system-prompt/index.js";
-import { buildPersonaPrompt } from "../../../context/bootstrap/index.js";
-import { shouldSkipDuplicateInbound } from "../../routing/inbound-dedupe.js";
-import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../quality/reply-normalizer.js";
-import { normalizeInboundUserText } from "../../quality/response-quality-guard.js";
-import { appendDevConversationLog } from "../../telemetry/dev-conversation-log.js";
-import { runChatKitShadowEvaluation } from "../../telemetry/chatkit-shadow.js";
-import { runChatKitServeAttempt } from "../../telemetry/chatkit-serving.js";
-import { parseOutputConstraints, validateOutputConstraints } from "../../quality/output-constraints.js";
-import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../analysis/link-understanding.js";
-import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../prompt/prompt-budget.js";
+} from "../../../../llm/providers/index.js";
+import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../../core/context-prompt/index.js";
+import { buildAgentSystemPrompt, PromptMode } from "../../../../context/system-prompt/index.js";
+import { buildPersonaPrompt } from "../../../../context/bootstrap/index.js";
+import { shouldSkipDuplicateInbound } from "../../../routing/inbound-dedupe/index.js";
+import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
+import { normalizeInboundUserText } from "../../../quality/response-quality-guard/index.js";
+import { appendDevConversationLog } from "../../../telemetry/dev-conversation-log/index.js";
+import { runChatKitShadowEvaluation } from "../../../telemetry/chatkit-shadow/index.js";
+import { runChatKitServeAttempt } from "../../../telemetry/chatkit-serving/index.js";
+import { parseOutputConstraints, validateOutputConstraints } from "../../../quality/output-constraints/index.js";
+import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../../analysis/link-understanding/index.js";
+import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../../prompt/prompt-budget/index.js";
 import {
   buildLatencyTurnPolicy,
   resolveToolExecutionPolicy,
-} from "../../telemetry/latency-policy.js";
-import { createChatLatencyTelemetry } from "../../telemetry/latency-telemetry.js";
-import { detectSuspiciousPatterns, wrapWebContent } from "../../../context/external-content/index.js";
+} from "../../../telemetry/latency-policy/index.js";
+import { createChatLatencyTelemetry } from "../../../telemetry/latency-telemetry/index.js";
+import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
 import {
   applyMemoryFactsToWorkspace,
   buildMissionConfirmReply,
@@ -100,15 +100,15 @@ import {
   stripAssistantInvocation,
   stripMissionConfirmPrefix,
   summarizeToolResultPreview,
-} from "../chat-utils.js";
-import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../tool-loop-guardrails.js";
+} from "../../chat-utils/index.js";
+import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
 import {
   sendDirectAssistantReply,
   handleMemoryUpdate,
   handleShutdown,
   handleSpotify,
   handleWorkflowBuild,
-} from "../chat-special-handlers.js";
+} from "../../chat-special-handlers/index.js";
 import {
   isWeatherRequestText,
   tryWeatherFastPathReply,
@@ -117,24 +117,24 @@ import {
   clearPendingWeatherConfirm,
   isWeatherConfirmYes,
   isWeatherConfirmNo,
-} from "../../fast-path/weather-fast-path.js";
+} from "../../../fast-path/weather-fast-path/index.js";
 import {
   isCryptoRequestText,
   isExplicitCryptoReportRequest,
   tryCryptoFastPathReply,
-} from "../../fast-path/crypto-fast-path.js";
+} from "../../../fast-path/crypto-fast-path/index.js";
 import {
   cacheRecentCryptoReport,
   handleDuplicateCryptoReportRequest,
-} from "../crypto-report-dedupe.js";
+} from "../../crypto-report-dedupe/index.js";
 import {
   applyShortTermContextTurnClassification,
   readShortTermContextState,
   summarizeShortTermContextForPrompt,
   upsertShortTermContextState,
   clearShortTermContextState,
-} from "../short-term-context-engine.js";
-import { getShortTermContextPolicy } from "../short-term-context-policies.js";
+} from "../../short-term-context-engine/index.js";
+import { getShortTermContextPolicy } from "../../short-term-context-policies/index.js";
 import {
   OPENAI_DEFAULT_MAX_COMPLETION_TOKENS,
   OPENAI_FAST_LANE_MAX_COMPLETION_TOKENS,
@@ -146,11 +146,11 @@ import {
   shouldAttemptOpenAiEmptyReplyRecovery,
   attemptOpenAiEmptyReplyRecovery,
   buildConstraintSafeFallback,
-} from "./prompt-fallbacks.js";
-import { runToolLoop } from "./tool-loop-runner.js";
-import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "./direct-completion.js";
-import { buildPromptContextForTurn } from "./prompt-context-builder.js";
-import { refineAssistantReply } from "./response-refinement.js";
+} from "../prompt-fallbacks/index.js";
+import { runToolLoop } from "../tool-loop-runner/index.js";
+import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "../direct-completion/index.js";
+import { buildPromptContextForTurn } from "../prompt-context-builder/index.js";
+import { refineAssistantReply } from "../response-refinement/index.js";
 
 
 

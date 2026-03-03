@@ -529,7 +529,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
         customBackgroundVideoAssetId: nextActive?.id ?? null,
         darkModeBackground: (
           settings.app.darkModeBackground === "customVideo" && !nextActive
-            ? "floatingLines"
+            ? "black"
             : settings.app.darkModeBackground
         ) as DarkBackgroundType,
       },
@@ -554,7 +554,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
           selected
             ? "customVideo"
             : settings.app.darkModeBackground === "customVideo"
-              ? "floatingLines"
+              ? "black"
               : settings.app.darkModeBackground
         ) as DarkBackgroundType,
       },

@@ -526,6 +526,17 @@ export interface NodeExecutionTrace {
   endedAt?: string
 }
 
+/**
+ * Pre-claimed execution slot from execution-tick.
+ * When provided, executeMissionCore skips enqueue+claim (already done by the tick).
+ */
+export interface PreClaimedSlot {
+  jobRunId: string
+  leaseToken: string
+  reportOutcome: (success: boolean, errorDetail?: string) => void
+  release: () => Promise<void>
+}
+
 export interface ExecuteMissionInput {
   mission: Mission
   source: "scheduler" | "trigger" | "manual"
@@ -542,6 +553,8 @@ export interface ExecuteMissionInput {
     guidance: string
   }
   onNodeTrace?: (trace: NodeExecutionTrace) => void | Promise<void>
+  /** When set, executeMissionCore bypasses acquireMissionExecutionSlot — slot pre-claimed by execution-tick. */
+  preClaimedSlot?: PreClaimedSlot
 }
 
 export interface ExecuteMissionResult {

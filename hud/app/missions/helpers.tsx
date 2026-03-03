@@ -83,13 +83,13 @@ export function normalizePriority(value: string | undefined): "low" | "medium" |
 export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
   if (isLight) return settings.app.lightModeBackground ?? "none"
-  const fallbackDark = settings.app.background === "none" ? "none" : "floatingLines"
+  const fallbackDark = settings.app.background === "none" ? "none" : "black"
   return settings.app.darkModeBackground ?? fallbackDark
 }
 
 export function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
-  if (value === "floatingLines" || value === "space" || value === "none" || value === "customVideo") return value
-  if (value === "default") return "floatingLines"
+  if (value === "floatingLines" || value === "black" || value === "none" || value === "customVideo") return value
+  if (value === "default") return "black"
   return null
 }
 

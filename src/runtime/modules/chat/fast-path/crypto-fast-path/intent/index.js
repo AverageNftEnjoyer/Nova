@@ -20,7 +20,7 @@ import {
 import {
   normalizeCoinbaseCommandText,
   parseCoinbaseCommand,
-} from "../coinbase-command-parser.js";
+} from "../../coinbase-command-parser/index.js";
 
 export function hasDirectCryptoSymbolMention(text) {
   const tokens = String(text || "")

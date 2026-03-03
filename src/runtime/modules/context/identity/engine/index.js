@@ -20,8 +20,8 @@ import {
   persistIdentitySnapshot,
   recoverOrCreateIdentitySnapshot,
   resolveIdentityPaths,
-} from "./storage.js";
-import { buildIdentityPromptSection } from "./prompt.js";
+} from "../storage/index.js";
+import { buildIdentityPromptSection } from "../prompt/index.js";
 
 const HALF_LIFE_DAY_MS = 24 * 60 * 60 * 1000;
 

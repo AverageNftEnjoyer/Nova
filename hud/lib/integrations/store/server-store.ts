@@ -172,7 +172,7 @@ export type IntegrationsStoreScope =
       client?: SupabaseClient | null
       user?: { id?: string | null } | null
       allowServiceRole?: boolean
-      serviceRoleReason?: "scheduler" | "gmail-oauth-callback" | "gmail-calendar-oauth-callback" | "spotify-oauth-callback"
+      serviceRoleReason?: "scheduler" | "execution-tick" | "gmail-oauth-callback" | "gmail-calendar-oauth-callback" | "spotify-oauth-callback"
     }
   | null
   | undefined
@@ -560,6 +560,7 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
     const reason = String(scope.serviceRoleReason || "").trim()
     if (
       reason !== "scheduler" &&
+      reason !== "execution-tick" &&
       reason !== "gmail-oauth-callback" &&
       reason !== "gmail-calendar-oauth-callback" &&
       reason !== "spotify-oauth-callback"

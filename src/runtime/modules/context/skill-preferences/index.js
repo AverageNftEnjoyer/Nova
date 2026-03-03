@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { ROOT_WORKSPACE_DIR, USER_CONTEXT_ROOT } from "../../core/constants/index.js";
+import { ROOT_WORKSPACE_DIR, USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
 
 const SKILL_FILE_NAME = "SKILL.md";
 const SKILL_UPDATE_VERBS_REGEX =

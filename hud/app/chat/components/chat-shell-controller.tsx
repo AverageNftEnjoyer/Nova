@@ -608,7 +608,7 @@ export function ChatShellController() {
                   </div>
                   <button
                     onClick={() => {
-                      window.location.href = "/missions"
+                      router.push("/missions")
                     }}
                     className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/mission-gear`, subPanelClass)}
                     aria-label="Open mission settings"

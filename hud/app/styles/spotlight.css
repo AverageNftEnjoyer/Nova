@@ -45,6 +45,41 @@
   border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha));
 }
 
+.home-module-surface {
+  background-image:
+    radial-gradient(
+      120% 95% at 20% 0%,
+      rgba(var(--accent-rgb), 0.14) 0%,
+      rgba(var(--accent-rgb), 0.06) 36%,
+      transparent 72%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.012) 28%,
+      rgba(var(--accent-rgb), 0.08) 100%
+    );
+  background-repeat: no-repeat, no-repeat;
+  background-size: 100% 100%, 100% 100%;
+  background-position: 0 0, 0 0;
+}
+
+.home-module-surface--light {
+  background-image:
+    radial-gradient(
+    120% 95% at 20% 0%,
+    rgba(var(--accent-rgb), 0.09) 0%,
+    rgba(var(--accent-rgb), 0.03) 40%,
+    transparent 72%
+    ),
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.76) 0%,
+      rgba(255, 255, 255, 0.12) 32%,
+      rgba(var(--accent-rgb), 0.04) 100%
+    );
+}
+
 .hide-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;

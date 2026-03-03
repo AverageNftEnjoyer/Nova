@@ -5,6 +5,8 @@ import { RefreshCw, Shuffle, SkipBack, SkipForward } from "lucide-react"
 
 import { SpotifyIcon } from "@/components/icons"
 import { EqualizerBars } from "@/components/equalizer-bars"
+import { useAccent } from "@/lib/context/accent-context"
+import { ACCENT_COLORS } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
 import type { HomeSpotifyNowPlaying } from "../hooks/use-home-integrations"
 import { useAlbumColors } from "../hooks/use-album-colors"
@@ -81,6 +83,7 @@ export function SpotifyHomeModule({
   onPlaySmart,
   onSeek,
 }: SpotifyHomeModuleProps) {
+  const { accentColor } = useAccent()
   const [liveProgressMs, setLiveProgressMs] = useState(() => nowPlaying?.progressMs || 0)
   const [repeatTrack, setRepeatTrack] = useState(false)
   const [seekDragPct, setSeekDragPct] = useState<number | null>(null)
@@ -201,9 +204,10 @@ export function SpotifyHomeModule({
     return "spotify-glow-variant-prism"
   }, [beatSync.seed])
   const spotifyTheme = useMemo(() => {
-    const c1 = albumColors.primary
-    const c2 = albumColors.secondary
-    const c3 = albumColors.tertiary
+    const accent = ACCENT_COLORS[accentColor]
+    const c1 = nowPlayingState ? albumColors.primary : accent.primary
+    const c2 = nowPlayingState ? albumColors.secondary : accent.secondary
+    const c3 = nowPlayingState ? albumColors.tertiary : accent.primary
     const lum1 = perceivedLuminance(c1)
     const lum2 = perceivedLuminance(c2)
     const controlFg = ((lum1 + lum2) / 2) > 0.48 ? "#0b0f18" : "#f8fbff"
@@ -212,7 +216,7 @@ export function SpotifyHomeModule({
       playPauseFill: `linear-gradient(135deg, ${c1} 0%, ${c2} 58%, ${c3} 100%)`,
       controlForeground: controlFg,
     }
-  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary])
+  }, [accentColor, albumColors.primary, albumColors.secondary, albumColors.tertiary, nowPlayingState])
   // Motion offsets use the server-polled progressMs (2 s cadence) rather than the
   // interpolated displayProgressMs (250–500 ms cadence).  The CSS animation already
   // provides smooth 60 fps movement; these JS offsets are tiny nudges (±7 px) whose

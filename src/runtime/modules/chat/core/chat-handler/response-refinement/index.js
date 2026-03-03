@@ -1,19 +1,19 @@
 import {
   OPENAI_REQUEST_TIMEOUT_MS,
   CLAUDE_CHAT_MAX_TOKENS,
-} from "../../../../core/constants/index.js";
+} from "../../../../../core/constants/index.js";
 import {
   claudeMessagesCreate,
   describeUnknownError,
   extractOpenAIChatText,
   withTimeout,
-} from "../../../llm/providers.js";
-import { replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../routing/intent-router.js";
-import { isWeatherRequestText } from "../../fast-path/weather-fast-path.js";
-import { validateOutputConstraints } from "../../quality/output-constraints.js";
-import { normalizeAssistantReply } from "../../quality/reply-normalizer.js";
-import { summarizeToolResultPreview } from "../chat-utils.js";
-import { buildConstraintSafeFallback } from "./prompt-fallbacks.js";
+} from "../../../../llm/providers/index.js";
+import { replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../../routing/intent-router/index.js";
+import { isWeatherRequestText } from "../../../fast-path/weather-fast-path/index.js";
+import { validateOutputConstraints } from "../../../quality/output-constraints/index.js";
+import { normalizeAssistantReply } from "../../../quality/reply-normalizer/index.js";
+import { summarizeToolResultPreview } from "../../chat-utils/index.js";
+import { buildConstraintSafeFallback } from "../prompt-fallbacks/index.js";
 
 export async function refineAssistantReply({
   reply,

@@ -10,23 +10,23 @@ import {
   PROMPT_BUDGET_DEBUG,
   AGENT_PROMPT_MODE,
   ROOT_WORKSPACE_DIR,
-} from "../../../../core/constants/index.js";
-import { sessionRuntime } from "../../../infrastructure/config.js";
-import { trimHistoryMessagesByTokenBudget } from "../../../context/persona-context/index.js";
-import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../../context/user-preferences/index.js";
-import { syncIdentityIntelligenceFromTurn } from "../../../context/identity/engine/index.js";
-import { syncPersonalityFromTurn } from "../../../context/personality/index.js";
-import { buildRuntimeSkillsPrompt } from "../../../context/skills/index.js";
-import { shouldPreloadWebSearch } from "../../routing/intent-router.js";
-import { runtimeToneDirective } from "../../../audio/voice.js";
-import { describeUnknownError, withTimeout } from "../../../llm/providers.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../core/context-prompt.js";
-import { buildAgentSystemPrompt, PromptMode } from "../../../context/system-prompt/index.js";
-import { buildPersonaPrompt } from "../../../context/bootstrap/index.js";
-import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../analysis/link-understanding.js";
-import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../prompt/prompt-budget.js";
-import { detectSuspiciousPatterns, wrapWebContent } from "../../../context/external-content/index.js";
-import { hashShadowPayload } from "../chat-utils.js";
+} from "../../../../../core/constants/index.js";
+import { sessionRuntime } from "../../../../infrastructure/config/index.js";
+import { trimHistoryMessagesByTokenBudget } from "../../../../context/persona-context/index.js";
+import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../../../context/user-preferences/index.js";
+import { syncIdentityIntelligenceFromTurn } from "../../../../context/identity/engine/index.js";
+import { syncPersonalityFromTurn } from "../../../../context/personality/index.js";
+import { buildRuntimeSkillsPrompt } from "../../../../context/skills/index.js";
+import { shouldPreloadWebSearch } from "../../../routing/intent-router/index.js";
+import { runtimeToneDirective } from "../../../../audio/voice/index.js";
+import { describeUnknownError, withTimeout } from "../../../../llm/providers/index.js";
+import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../../core/context-prompt/index.js";
+import { buildAgentSystemPrompt, PromptMode } from "../../../../context/system-prompt/index.js";
+import { buildPersonaPrompt } from "../../../../context/bootstrap/index.js";
+import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../../analysis/link-understanding/index.js";
+import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../../prompt/prompt-budget/index.js";
+import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
+import { hashShadowPayload } from "../../chat-utils/index.js";
 
 const MEMORY_RECALL_TIMEOUT_MS = readIntEnv("NOVA_MEMORY_RECALL_TIMEOUT_MS", 450, 50, 10_000);
 const WEB_PRELOAD_TIMEOUT_MS = readIntEnv("NOVA_WEB_PRELOAD_TIMEOUT_MS", 900, 50, 30_000);

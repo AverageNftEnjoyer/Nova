@@ -48,8 +48,10 @@ export async function acquireMissionExecutionSlot(input: {
   userContextId: string
   missionId: string
   missionRunId: string
+  maxAttempts?: number
+  source?: "scheduler" | "manual" | "trigger"
 }): Promise<MissionExecutionGuardDecision> {
-  const { userContextId, missionId, missionRunId } = input
+  const { userContextId, missionId, missionRunId, maxAttempts } = input
 
   if (!userContextId || !missionId || !missionRunId) {
     // Missing context — allow execution but skip ledger tracking
@@ -57,12 +59,13 @@ export async function acquireMissionExecutionSlot(input: {
   }
 
   // 1. Enqueue the run record
+  const ledgerSource = input.source === "manual" ? "manual" : input.source === "trigger" ? "webhook" : "scheduler"
   const enqueueResult = await jobLedger.enqueue({
     id: missionRunId,
     user_id: userContextId,
     mission_id: missionId,
-    source: "scheduler",
-    max_attempts: 1,
+    source: ledgerSource,
+    max_attempts: maxAttempts ?? 1,
   })
 
   if (!enqueueResult.ok) {
@@ -136,5 +139,34 @@ function makeNoopSlot(): MissionExecutionSlot {
     leaseToken: "",
     reportOutcome: () => undefined,
     release: async () => undefined,
+  }
+}
+
+/**
+ * Build a MissionExecutionSlot from an already-claimed job run.
+ * Used by execution-tick to inject a pre-claimed slot into executeMission
+ * so executeMissionCore bypasses the enqueue+claim step.
+ */
+export function makePreClaimedSlot(jobRunId: string, leaseToken: string): MissionExecutionSlot {
+  let outcomeSuccess = false
+  let outcomeErrorDetail: string | undefined
+  let outcomeReported = false
+
+  return {
+    jobRunId,
+    leaseToken,
+    reportOutcome(success: boolean, errorDetail?: string) {
+      if (outcomeReported) return
+      outcomeSuccess = success
+      outcomeErrorDetail = errorDetail
+      outcomeReported = true
+    },
+    async release() {
+      if (outcomeSuccess) {
+        await jobLedger.completeRun({ jobRunId, leaseToken }).catch(() => {})
+      } else {
+        await jobLedger.failRun({ jobRunId, leaseToken, errorDetail: outcomeErrorDetail }).catch(() => {})
+      }
+    },
   }
 }

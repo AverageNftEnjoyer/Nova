@@ -3,7 +3,7 @@
 
 import path from "path";
 import { fileURLToPath } from "url";
-import { startMetricsBroadcast } from "../../compat/metrics/index.js";
+import { startMetricsBroadcast } from "../../../compat/metrics/index.js";
 import { sessionRuntime, wakeWordRuntime } from "../config/index.js";
 import {
   MIC_RECORD_SECONDS,
@@ -30,7 +30,7 @@ import {
   transcribe,
   speak,
   stopSpeaking,
-} from "../../compat/voice/index.js";
+} from "../../../compat/voice/index.js";
 import {
   startGateway,
   broadcast,
@@ -38,8 +38,6 @@ import {
   getVoiceRoutingUserContextId,
   registerHandleInput,
 } from "../../infrastructure/hud-gateway/index.js";
-import { handleInput } from "../../compat/chat-handler/index.js";
-import { logUpgradeIndexSummary, logAgentRuntimePreflight } from "../../compat/persona-context/index.js";
 import { startVoiceLoop } from "../../audio/voice-loop/index.js";
 import { createRequire } from "module";
 
@@ -61,7 +59,17 @@ const __filename = fileURLToPath(import.meta.url);
 
 export async function startNovaRuntime() {
   initVoiceBroadcast(broadcastState);
-  registerHandleInput(handleInput);
+
+  let runtimeHandleInput = async () => "Nova runtime is starting. Chat handler unavailable.";
+  try {
+    const chatModule = await import("../../../compat/chat-handler/index.js");
+    if (typeof chatModule?.handleInput === "function") {
+      runtimeHandleInput = chatModule.handleInput;
+    }
+  } catch (err) {
+    console.error(`[CoreEngine] Chat handler load failed: ${String(err?.message || err)}`);
+  }
+  registerHandleInput(runtimeHandleInput);
 
   startGateway();
   // Metrics events are intentionally global (empty userContextId) because payloads are host-level telemetry.
@@ -73,8 +81,13 @@ export async function startNovaRuntime() {
   );
 
   sessionRuntime.ensureSessionStorePaths();
-  logUpgradeIndexSummary();
-  logAgentRuntimePreflight();
+  try {
+    const personaModule = await import("../../../compat/persona-context/index.js");
+    if (typeof personaModule?.logUpgradeIndexSummary === "function") personaModule.logUpgradeIndexSummary();
+    if (typeof personaModule?.logAgentRuntimePreflight === "function") personaModule.logAgentRuntimePreflight();
+  } catch (err) {
+    console.warn(`[CoreEngine] Persona preflight skipped: ${String(err?.message || err)}`);
+  }
   console.log("[CoreEngine] mode=src");
 
   await new Promise((r) => setTimeout(r, 15000));
@@ -83,7 +96,7 @@ export async function startNovaRuntime() {
   broadcastState(getMuted() ? "muted" : "idle");
 
   await startVoiceLoop({
-    handleInput,
+    handleInput: runtimeHandleInput,
     wakeWordRuntime,
     broadcast,
     broadcastState,

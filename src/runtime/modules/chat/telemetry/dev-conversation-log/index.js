@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { createHash, randomUUID } from "crypto";
-import { ROOT_WORKSPACE_DIR, USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
-import { sessionRuntime } from "../../infrastructure/config.js";
-import { describeUnknownError } from "../../llm/providers.js";
+import { ROOT_WORKSPACE_DIR, USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
+import { sessionRuntime } from "../../../infrastructure/config/index.js";
+import { describeUnknownError } from "../../../llm/providers/index.js";
 
 const DEV_CONVERSATION_LOG_ENABLED =
   String(process.env.NOVA_DEV_CONVERSATION_LOG_ENABLED || "1").trim() !== "0";

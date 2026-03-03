@@ -1,4 +1,4 @@
-import { buildWeatherWebSummary } from "../routing/intent-router.js";
+import { buildWeatherWebSummary } from "../../routing/intent-router/index.js";
 export function isWeatherRequestText(text) {
   return /\b(weather|forecast|temperature|rain|snow|precipitation)\b/i.test(String(text || ""));
 }

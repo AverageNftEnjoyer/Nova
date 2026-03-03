@@ -6,15 +6,15 @@ import {
   TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS,
   TOOL_LOOP_RECOVERY_TIMEOUT_MS,
   TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP,
-} from "../../../../core/constants/index.js";
+} from "../../../../../core/constants/index.js";
 import { consumeHudOpTokenForSensitiveAction, broadcastThinkingStatus, broadcastAssistantStreamDelta } from "../../../../infrastructure/hud-gateway/index.js";
-import { describeUnknownError, extractOpenAIChatText, withTimeout } from "../../../llm/providers.js";
-import { detectSuspiciousPatterns, wrapWebContent } from "../../../context/external-content/index.js";
-import { isWeatherRequestText } from "../../fast-path/weather-fast-path.js";
-import { buildWebSearchReadableReply, buildWeatherWebSummary } from "../../routing/intent-router.js";
-import { summarizeToolResultPreview } from "../chat-utils.js";
-import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../tool-loop-guardrails.js";
-import { resolveGmailToolFallbackReply, buildConstraintSafeFallback } from "./prompt-fallbacks.js";
+import { describeUnknownError, extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
+import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
+import { isWeatherRequestText } from "../../../fast-path/weather-fast-path/index.js";
+import { buildWebSearchReadableReply, buildWeatherWebSummary } from "../../../routing/intent-router/index.js";
+import { summarizeToolResultPreview } from "../../chat-utils/index.js";
+import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
+import { resolveGmailToolFallbackReply, buildConstraintSafeFallback } from "../prompt-fallbacks/index.js";
 
 export async function runToolLoop({
   activeOpenAiCompatibleClient,

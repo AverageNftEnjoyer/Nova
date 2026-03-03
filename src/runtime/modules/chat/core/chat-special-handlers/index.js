@@ -6,14 +6,14 @@ import {
   COMMAND_ACKS,
   OPENAI_REQUEST_TIMEOUT_MS,
   SPOTIFY_INTENT_MAX_TOKENS,
-} from "../../../core/constants/index.js";
-import { sessionRuntime } from "../../infrastructure/config.js";
-import { resolvePersonaWorkspaceDir, appendRawStream } from "../../context/persona-context/index.js";
-import { captureUserPreferencesFromMessage } from "../../context/user-preferences/index.js";
-import { recordIdentityMemoryUpdate } from "../../context/identity/engine/index.js";
+} from "../../../../core/constants/index.js";
+import { sessionRuntime } from "../../../infrastructure/config/index.js";
+import { resolvePersonaWorkspaceDir, appendRawStream } from "../../../context/persona-context/index.js";
+import { captureUserPreferencesFromMessage } from "../../../context/user-preferences/index.js";
+import { recordIdentityMemoryUpdate } from "../../../context/identity/engine/index.js";
 import { extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMarkdown, ensureMemoryTemplate } from "../../../../../memory/runtime-compat/index.js";
-import { shouldDraftOnlyWorkflow } from "../routing/intent-router.js";
-import { speak, stopSpeaking } from "../../audio/voice.js";
+import { shouldDraftOnlyWorkflow } from "../../routing/intent-router/index.js";
+import { speak, stopSpeaking } from "../../../audio/voice/index.js";
 import {
   broadcastState,
   broadcastThinkingStatus,
@@ -28,8 +28,8 @@ import {
   describeUnknownError,
   extractOpenAIChatText,
   withTimeout,
-} from "../../llm/providers.js";
-import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../quality/reply-normalizer.js";
+} from "../../../llm/providers/index.js";
+import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../quality/reply-normalizer/index.js";
 
 const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
   .trim()

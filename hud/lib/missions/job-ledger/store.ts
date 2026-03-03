@@ -310,7 +310,7 @@ export const jobLedger: JobLedgerStore = {
       .update({ status: "cancelled", finished_at: new Date().toISOString() })
       .eq("user_id", input.userId)
       .eq("mission_id", input.missionId)
-      .in("status", ["pending", "claimed"])
+      .in("status", ["pending", "claimed", "running"])
       .select("id")
 
     if (error || !data) return 0

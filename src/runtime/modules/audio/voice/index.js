@@ -13,14 +13,25 @@ import {
   THINK_SOUND_PATH,
   VOICE_AFTER_TTS_SUPPRESS_MS,
   STT_MODEL,
-} from "../../core/constants/index.js";
-import { loadOpenAIIntegrationRuntime, getOpenAIClient } from "../llm/providers.js";
+} from "../../../core/constants/index.js";
+import { loadOpenAIIntegrationRuntime, getOpenAIClient } from "../../llm/providers/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.join(__dirname, "../..");
 
-const fishAudio = new FishAudioClient({ apiKey: process.env.FISH_API_KEY });
+let fishAudioClient = null;
+function getFishAudioClient() {
+  const apiKey = String(process.env.FISH_API_KEY || "").trim();
+  if (!apiKey) return null;
+  if (fishAudioClient) return fishAudioClient;
+  try {
+    fishAudioClient = new FishAudioClient({ apiKey });
+  } catch {
+    fishAudioClient = null;
+  }
+  return fishAudioClient;
+}
 
 const REFERENCE_ID = process.env.REFERENCE_ID;
 const PETER_ID = process.env.PETER_ID;
@@ -148,6 +159,10 @@ function normalizeTtsText(input) {
 }
 
 export async function speak(text, voiceId = "default") {
+  const fishAudio = getFishAudioClient();
+  if (!fishAudio) {
+    throw new Error("Voice TTS unavailable: missing or invalid FISH_API_KEY.");
+  }
   const out = path.join(ROOT, `speech_${Date.now()}.mp3`);
   const referenceId = VOICE_MAP[voiceId] || REFERENCE_ID;
   const normalizedText = normalizeTtsText(text) || String(text || "");

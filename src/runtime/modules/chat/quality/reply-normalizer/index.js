@@ -1,5 +1,5 @@
 const SILENT_REPLY_TOKEN = "__SILENT__";
-import { repairBrokenReadability, sanitizeTransportArtifacts, stripSourceMetadata } from "./response-quality-guard.js";
+import { repairBrokenReadability, sanitizeTransportArtifacts, stripSourceMetadata } from "../response-quality-guard/index.js";
 
 function normalizeWhitespace(value) {
   return String(value || "")

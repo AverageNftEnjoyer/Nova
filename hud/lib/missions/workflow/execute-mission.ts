@@ -21,7 +21,7 @@ import type {
 } from "../types/index"
 import { EXECUTOR_REGISTRY } from "./executors/index"
 import { getLocalParts, parseTime } from "./time"
-import { acquireMissionExecutionSlot } from "./execution-guard"
+import { acquireMissionExecutionSlot, type MissionExecutionGuardDecision, type MissionExecutionSlot } from "./execution-guard"
 import { emitMissionTelemetryEvent } from "../telemetry"
 import { validateMissionGraphForVersioning } from "./versioning"
 import { resolveTimezone } from "@/lib/shared/timezone"
@@ -315,9 +315,12 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
   )
 
   // ── Retry logic ─────────────────────────────────────────────────────────────
+  // Skip in-process retry when a pre-claimed slot is provided — the job ledger's
+  // failRun() re-enqueues a new pending run so the execution-tick handles retries.
   if (
     !result.ok &&
     !result.skipped &&
+    !input.preClaimedSlot &&
     shouldRetry(settings?.retryOnFail ?? false, settings?.retryCount ?? 2, attempt)
   ) {
     const delayMs = computeRetryDelayMs(attempt, settings?.retryIntervalMs ?? 5_000)
@@ -349,11 +352,11 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   const userContextId = String(input.scope?.userId || input.scope?.user?.id || mission.userId || "").trim()
-  const executionSlot = await acquireMissionExecutionSlot({
-    userContextId,
-    missionId: mission.id,
-    missionRunId: runId,
-  })
+  const maxAttempts = mission.settings.retryOnFail ? mission.settings.retryCount + 1 : 1
+  // When execution-tick pre-claims a slot, skip enqueue+claim — use the slot directly.
+  const executionSlot: MissionExecutionGuardDecision = input.preClaimedSlot
+    ? { ok: true, slot: input.preClaimedSlot as MissionExecutionSlot }
+    : await acquireMissionExecutionSlot({ userContextId, missionId: mission.id, missionRunId: runId, maxAttempts, source })
   if (!executionSlot.ok) {
     await emitMissionTelemetryEvent({
       eventType: "mission.run.failed",

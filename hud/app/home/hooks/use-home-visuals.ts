@@ -98,9 +98,9 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
 
   const panelClass =
     isLight
-      ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-      : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
-  const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
+      ? "home-module-surface home-module-surface--light rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
+      : "home-module-surface rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
+  const panelStyle = undefined
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
     : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"

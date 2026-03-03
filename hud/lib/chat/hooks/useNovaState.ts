@@ -459,13 +459,13 @@ export function useNovaState() {
       }
 
       ws.onclose = () => {
+        if (!isMounted) return
         setConnected(false)
         setNovaStateSafely("idle")
         setThinkingStatusSafely("")
         setStreamingAssistantIdSafely(null)
         lastThinkingActivityAtRef.current = Date.now()
         releaseStaleInteractionLock()
-        if (!isMounted) return
         reconnectTimer = setTimeout(() => {
           reconnectDelay.ms = Math.min(reconnectDelay.ms * 2, 30_000)
           connect()
@@ -834,7 +834,15 @@ export function useNovaState() {
       setChatTransportEvents([])
       chatTransportSeqRef.current = 0
       releaseStaleInteractionLock()
-      wsRef.current?.close()
+      const ws = wsRef.current
+      wsRef.current = null
+      if (ws) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close()
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          ws.addEventListener("open", () => ws.close(), { once: true })
+        }
+      }
     };
   }, [pruneHudMessageAckMap, pushChatTransportEvent, setNovaStateSafely, setStreamingAssistantIdSafely, setThinkingStatusSafely]);
 

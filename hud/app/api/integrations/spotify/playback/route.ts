@@ -53,10 +53,12 @@ export async function POST(req: Request) {
     const requestedUserContextId = normalizeUserContextId(payload.userContextId)
     const verifiedUserContextId = normalizeUserContextId(verified.user.id)
     if (requestedUserContextId && requestedUserContextId !== verifiedUserContextId) {
-      return NextResponse.json(
-        { ok: false, error: "Spotify playback user scope mismatch.", code: "FORBIDDEN_USER_SCOPE" },
-        { status: 403 },
-      )
+      // Treat userContextId in payload as a client hint only; authenticated user scope
+      // is always derived from verified Supabase identity.
+      logSpotifyApi("playback.user_scope_hint_mismatch", {
+        requestedUserContextId,
+        verifiedUserContextId,
+      })
     }
 
     const userId = verifiedUserContextId || verified.user.id

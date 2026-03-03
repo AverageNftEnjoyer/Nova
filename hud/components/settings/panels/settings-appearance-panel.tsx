@@ -59,6 +59,14 @@ export function SettingsAppearancePanel({
   const activeBackgroundVideo =
     backgroundVideoAssets.find((a) => a.id === (activeBackgroundVideoAssetId || settings.app.customBackgroundVideoAssetId)) ?? null
 
+  const darkBackgroundOptions = (Object.entries(DARK_BACKGROUNDS) as [DarkBackgroundType, { name: string; description: string }][])
+    .filter(([value]) => value !== "none")
+    .map(([value, info]) => ({
+      value,
+      label: info.name,
+    }))
+  const darkBackgroundValue: DarkBackgroundType = settings.app.darkModeBackground === "none" ? "black" : settings.app.darkModeBackground
+
   const backgroundVideoOptions = [
     { value: NONE_OPTION, label: "None" },
     ...backgroundVideoAssets.map((a) => ({ value: a.id, label: a.fileName })),
@@ -157,11 +165,8 @@ export function SettingsAppearancePanel({
         label="Background"
         description="Choose the app background"
         isLight={isLight}
-        value={settings.app.darkModeBackground}
-        options={(Object.entries(DARK_BACKGROUNDS) as [DarkBackgroundType, { name: string; description: string }][]).map(([value, info]) => ({
-          value,
-          label: info.name,
-        }))}
+        value={darkBackgroundValue}
+        options={darkBackgroundOptions}
         onChange={(v) => updateApp("darkModeBackground", v)}
       />
 

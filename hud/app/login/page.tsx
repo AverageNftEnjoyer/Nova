@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useRef, useState } from "react"
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { Eye, EyeOff } from "lucide-react"
@@ -14,11 +14,6 @@ function sanitizeNextPath(raw: string | null): string {
   if (!value.startsWith("/")) return "/boot-right"
   if (value.startsWith("//")) return "/boot-right"
   return value
-}
-
-function navigatePostAuth(nextPath: string): void {
-  const target = `/boot-right?next=${encodeURIComponent(nextPath || "/home")}`
-  window.location.assign(target)
 }
 
 async function ensureSupabaseSessionPersisted() {
@@ -45,6 +40,11 @@ export default function LoginPage() {
   const [nextPath, setNextPath] = useState("/boot-right")
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const navigatePostAuth = useCallback((next: string) => {
+    const target = `/boot-right?next=${encodeURIComponent(next || "/home")}`
+    // Keep navigation internal to avoid full reload and repeated preload churn.
+    router.replace(target)
+  }, [router])
 
   function switchMode(nextMode: "signin" | "signup" | "forgot" | "reset") {
     setMode(nextMode)
@@ -155,7 +155,7 @@ export default function LoginPage() {
 
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [nextPath])
+  }, [navigatePostAuth, nextPath])
 
   useEffect(() => {
     return () => {

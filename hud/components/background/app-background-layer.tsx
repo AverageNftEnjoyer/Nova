@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import FloatingLines from "@/components/effects/FloatingLines"
-import { SpaceBackground } from "@/components/background/space-background"
 import { useTheme } from "@/lib/context/theme-context"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -33,7 +32,7 @@ const PERSISTENT_BACKGROUND_PATHS = ["/home", "/chat", "/missions", "/integratio
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
   if (isLight) return settings.app.lightModeBackground ?? "none"
-  const fallbackDark = settings.app.background === "none" ? "none" : "floatingLines"
+  const fallbackDark = settings.app.background === "none" ? "none" : "black"
   return settings.app.darkModeBackground ?? fallbackDark
 }
 
@@ -147,14 +146,6 @@ export function AppBackgroundLayer() {
     }
   }, [background, customBackgroundAssetId, isLight, showForPath])
 
-  useEffect(() => {
-    const active = mounted && showForPath && !isLight && background === "space"
-    document.documentElement.classList.toggle("nova-bg-space-active", active)
-    return () => {
-      document.documentElement.classList.remove("nova-bg-space-active")
-    }
-  }, [background, isLight, mounted, showForPath])
-
   const orbPalette = ORB_COLORS[orbColor]
   const floatingLinesGradient = useMemo<[string, string]>(
     () => [orbPalette.circle1, orbPalette.circle2],
@@ -200,7 +191,45 @@ export function AppBackgroundLayer() {
           </div>
         </div>
       )}
-      {background === "space" && <SpaceBackground />}
+      {background === "black" && (
+        <div className="absolute inset-0 overflow-hidden">
+          <div
+            className="absolute inset-0"
+            style={{
+              background: `
+                radial-gradient(120% 95% at 50% 58%, rgba(11, 11, 13, 0.82) 0%, rgba(5, 5, 7, 0.96) 56%, #020204 100%),
+                linear-gradient(175deg, rgba(255,255,255,0.012) 0%, rgba(0,0,0,0) 36%)
+              `,
+            }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `
+                linear-gradient(0deg, rgba(255,255,255,0.018) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.016) 1px, transparent 1px)
+              `,
+              backgroundSize: "44px 44px, 44px 44px",
+              backgroundPosition: "0 0, 0 0",
+              opacity: 0.22,
+            }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `
+                linear-gradient(0deg, rgba(255,255,255,0.022) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)
+              `,
+              backgroundSize: "5px 5px, 5px 5px",
+              backgroundRepeat: "repeat, repeat",
+              backgroundPosition: "0 0, 0 0",
+              opacity: 0.16,
+            }}
+          />
+          <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0.08) 36%, rgba(0,0,0,0.58) 100%)" }} />
+        </div>
+      )}
       {background === "customVideo" && !!backgroundVideoUrl && (
         <div className="absolute inset-0 overflow-hidden">
           {backgroundMediaIsImage ? (

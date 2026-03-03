@@ -1,4 +1,4 @@
-import { classifyShortTermContextTurn, getShortTermContextPolicy } from "./short-term-context-policies.js";
+import { classifyShortTermContextTurn, getShortTermContextPolicy } from "../short-term-context-policies/index.js";
 
 const stateByScopedDomain = new Map();
 

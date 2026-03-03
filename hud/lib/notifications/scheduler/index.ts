@@ -1,12 +1,12 @@
 import "server-only"
 
-import { loadMissions, upsertMission } from "@/lib/missions/store"
-import { executeMission } from "@/lib/missions/workflow/execute-mission"
-import { deleteRescheduleOverride, getRescheduleOverride } from "@/lib/calendar/reschedule-store"
+import { loadMissions } from "@/lib/missions/store"
+import { getRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { getLocalParts } from "@/lib/missions/workflow/time"
 import type { Mission } from "@/lib/missions/types"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { jobLedger } from "@/lib/missions/job-ledger/store"
+import { ensureExecutionTickStarted, stopExecutionTick } from "@/lib/missions/workflow/execution-tick"
 
 type SchedulerState = {
   timer: NodeJS.Timeout | null
@@ -73,11 +73,6 @@ const state = (globalThis as { __novaMissionScheduler?: SchedulerState }).__nova
 
 ;(globalThis as { __novaMissionScheduler?: SchedulerState }).__novaMissionScheduler = state
 
-// Per-mission in-flight guard: prevents a watchdog-reset tick from re-triggering a mission
-// that is still executing (e.g. awaiting retries). Keyed by mission ID, persists across ticks.
-const inflightMissions: Set<string> = ((globalThis as Record<string, unknown>).__novaInflightMissions ??=
-  new Set<string>()) as Set<string>
-
 function sanitizeSchedulerUserId(value: unknown): string {
   return String(value ?? "")
     .trim()
@@ -112,148 +107,108 @@ async function runScheduleTickInternal() {
   const allMissions = await loadMissions({ allUsers: true })
 
   const now = new Date()
-  let runCount = 0
-  const runCountByUser = new Map<string, number>()
+  let enqueueCount = 0
+  const enqueueCountByUser = new Map<string, number>()
 
   const activeMissions = allMissions.filter((m) => m.status === "active")
   const dueCount = activeMissions.length
+
   try {
     for (const mission of activeMissions) {
-      if (runCount >= SCHEDULER_MAX_RUNS_PER_TICK) break
+      if (enqueueCount >= SCHEDULER_MAX_RUNS_PER_TICK) break
       const userKey = sanitizeSchedulerUserId(mission.userId || "") || "__global__"
-      const perUserRuns = runCountByUser.get(userKey) || 0
-      if (perUserRuns >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) continue
+      const perUserEnqueues = enqueueCountByUser.get(userKey) || 0
+      if (perUserEnqueues >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) continue
+
       try {
         const liveMission = await loadLiveMissionForUser({ missionId: mission.id, userId: mission.userId })
         if (!liveMission || liveMission.status !== "active") continue
+
+        // Check for a calendar reschedule override to pass through to execution-tick.
         const rescheduleOverride = liveMission.userId
           ? await getRescheduleOverride(liveMission.userId, liveMission.id).catch(() => null)
           : null
-        const missionForRun =
-          rescheduleOverride && rescheduleOverride.overriddenTime
-            ? {
-                ...liveMission,
-                scheduledAtOverride: rescheduleOverride.overriddenTime,
-              }
+
+        // Use overridden mission snapshot for gate checks only (actual execution
+        // applies the override via job_run.input_snapshot in execution-tick).
+        const missionForGate =
+          rescheduleOverride?.overriddenTime
+            ? { ...liveMission, scheduledAtOverride: rescheduleOverride.overriddenTime }
             : liveMission
 
-        // Day-lock guard: prevent re-running a mission that already ran today.
-        // Without this, a failing executeMission() throw bypasses dayStamp
-        // persistence and every 30s tick re-triggers the same mission forever.
-        const nativeTriggerNode = missionForRun.nodes.find((n) => n.type === "schedule-trigger") as
-          | { triggerMode?: string; triggerTimezone?: string }
+        // ── Day-lock guard ─────────────────────────────────────────────────
+        // Prevents re-enqueuing a mission that already ran today.
+        const nativeTriggerNode = missionForGate.nodes.find((n) => n.type === "schedule-trigger") as
+          | { triggerMode?: string; triggerTimezone?: string; triggerIntervalMinutes?: number }
           | undefined
         const nativeTriggerMode = String(nativeTriggerNode?.triggerMode || "daily")
-        const nativeTz = resolveTimezone(nativeTriggerNode?.triggerTimezone, missionForRun.settings?.timezone)
+        const nativeTz = resolveTimezone(nativeTriggerNode?.triggerTimezone, missionForGate.settings?.timezone)
         const nativeLocal = getLocalParts(now, nativeTz)
         const nativeDayStamp =
-          (nativeTriggerMode === "daily" || nativeTriggerMode === "weekly" || nativeTriggerMode === "once") && nativeLocal?.dayStamp
+          (nativeTriggerMode === "daily" || nativeTriggerMode === "weekly" || nativeTriggerMode === "once") &&
+          nativeLocal?.dayStamp
             ? nativeLocal.dayStamp
             : undefined
 
-        if (nativeDayStamp && missionForRun.lastSentLocalDate === nativeDayStamp) continue
+        if (nativeDayStamp && missionForGate.lastSentLocalDate === nativeDayStamp) continue
 
-        // Backoff guard: if the last run was an error, enforce exponential delay
-        if (missionForRun.lastRunStatus === "error" && missionForRun.lastRunAt) {
-          const lastRunMs = Date.parse(missionForRun.lastRunAt)
+        // ── Backoff guard ──────────────────────────────────────────────────
+        // If the last run was an error, enforce exponential delay before re-enqueue.
+        if (missionForGate.lastRunStatus === "error" && missionForGate.lastRunAt) {
+          const lastRunMs = Date.parse(missionForGate.lastRunAt)
           if (Number.isFinite(lastRunMs)) {
-            const consecutiveFailures = Math.max(0, (missionForRun.failureCount || 0) - (missionForRun.successCount || 0))
+            const consecutiveFailures = Math.max(
+              0,
+              (missionForGate.failureCount || 0) - (missionForGate.successCount || 0),
+            )
             const backoffMs = computeRetryDelayMs(Math.min(consecutiveFailures, SCHEDULER_MAX_RETRIES_PER_RUN_KEY))
             if (now.getTime() - lastRunMs < backoffMs) continue
             if (consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY) continue
           }
         }
 
-        // In-flight guard: if a previous tick is still executing this mission (e.g. due to
-        // retries causing the watchdog to reset tickInFlight), skip it this tick to prevent
-        // concurrent duplicate executions of the same mission.
-        if (inflightMissions.has(missionForRun.id)) continue
-        inflightMissions.add(missionForRun.id)
+        // ── Idempotency key ────────────────────────────────────────────────
+        // Deduplicates enqueue attempts across ticks for the same logical run slot.
+        const idempotencyKey = nativeDayStamp
+          ? `${liveMission.id}:${nativeDayStamp}`
+          : nativeTriggerMode === "interval"
+            ? `${liveMission.id}:interval:${Math.floor(now.getTime() / (Math.max(1, nativeTriggerNode?.triggerIntervalMinutes || 30) * 60_000))}`
+            : `${liveMission.id}:hour:${Math.floor(now.getTime() / 3_600_000)}`
 
-        try {
-          const scope = missionForRun.userId
-            ? { userId: missionForRun.userId, allowServiceRole: true as const, serviceRoleReason: "scheduler" as const }
-            : undefined
-          const result = await executeMission({
-            mission: missionForRun,
-            source: "scheduler",
-            now,
-            enforceOutputTime: true,
-            missionRunId: crypto.randomUUID(),
-            scope,
-          })
-          if (!result.skipped) {
-            runCount += 1
-            runCountByUser.set(userKey, perUserRuns + 1)
-            const updatedMission = {
-              ...liveMission,
-              lastRunAt: now.toISOString(),
-              lastSentLocalDate: nativeDayStamp ?? liveMission.lastSentLocalDate,
-              runCount: (liveMission.runCount || 0) + 1,
-              successCount: result.ok ? (liveMission.successCount || 0) + 1 : (liveMission.successCount || 0),
-              failureCount: result.ok ? (liveMission.failureCount || 0) : (liveMission.failureCount || 0) + 1,
-              lastRunStatus: result.ok ? ("success" as const) : ("error" as const),
-            }
-            await upsertMission(updatedMission, liveMission.userId || "")
-            if (rescheduleOverride && liveMission.userId) {
-              deleteRescheduleOverride(liveMission.userId, liveMission.id).catch(() => {})
-            }
-          } else if (nativeDayStamp) {
-            // Execution was skipped. Save day-lock for "done for today" reasons (e.g. missed
-            // the trigger window) so the scheduler doesn't re-fire on every subsequent tick.
-            // Do NOT lock when the reason is "not yet time" — those should retry next tick.
-            const r = String(result.reason || "").toLowerCase()
-            const isNotYetTime = r.includes("not yet time") || r.includes("not yet due") || r.includes("pending")
-            if (!isNotYetTime) {
-              await upsertMission(
-                { ...liveMission, lastSentLocalDate: nativeDayStamp, lastRunAt: now.toISOString() },
-                liveMission.userId || "",
-              ).catch(() => {})
-            }
-          }
-        } finally {
-          inflightMissions.delete(missionForRun.id)
+        // ── Enqueue the run (Phase 3 — execution-tick handles actual execution) ──
+        const inputSnapshot: Record<string, unknown> = {}
+        if (rescheduleOverride?.overriddenTime) {
+          inputSnapshot.scheduledAtOverride = rescheduleOverride.overriddenTime
+        }
+
+        const enqueueResult = await jobLedger.enqueue({
+          id: crypto.randomUUID(),
+          user_id: sanitizeSchedulerUserId(liveMission.userId || "") || "__global__",
+          mission_id: liveMission.id,
+          idempotency_key: idempotencyKey,
+          source: "scheduler",
+          priority: 5,
+          max_attempts: liveMission.settings.retryOnFail ? liveMission.settings.retryCount + 1 : 1,
+          ...(Object.keys(inputSnapshot).length > 0 ? { input_snapshot: inputSnapshot } : {}),
+        })
+
+        if (enqueueResult.ok) {
+          enqueueCount += 1
+          enqueueCountByUser.set(userKey, perUserEnqueues + 1)
+        } else if (enqueueResult.error !== "duplicate_idempotency_key") {
+          console.warn(`[Scheduler] Failed to enqueue mission ${liveMission.id}:`, enqueueResult.error)
         }
       } catch (err) {
-        console.error(`[Scheduler] Native mission ${mission.id} failed: ${err instanceof Error ? err.message : "unknown"}`)
-        // Persist lastRunAt + error status even on throw so the day-lock and
-        // backoff guards prevent infinite re-triggering on every tick.
-        try {
-          const crashedMission = await loadLiveMissionForUser({ missionId: mission.id, userId: mission.userId })
-          if (crashedMission) {
-            const crashTriggerNode = crashedMission.nodes?.find((n) => n.type === "schedule-trigger") as
-              | { triggerMode?: string; triggerTimezone?: string }
-              | undefined
-            const crashMode = String(crashTriggerNode?.triggerMode || "daily")
-            const crashTz = resolveTimezone(crashTriggerNode?.triggerTimezone, crashedMission.settings?.timezone)
-            const crashLocal = getLocalParts(now, crashTz)
-            const crashDayStamp =
-              (crashMode === "daily" || crashMode === "weekly" || crashMode === "once") && crashLocal?.dayStamp
-                ? crashLocal.dayStamp
-                : crashedMission.lastSentLocalDate
-            await upsertMission(
-              {
-                ...crashedMission,
-                lastRunAt: now.toISOString(),
-                lastSentLocalDate: crashDayStamp,
-                lastRunStatus: "error",
-                failureCount: (crashedMission.failureCount || 0) + 1,
-                runCount: (crashedMission.runCount || 0) + 1,
-              },
-              crashedMission.userId || mission.userId || "",
-            )
-          }
-        } catch {
-          // Best-effort — if even persistence fails, the backoff guard
-          // and per-tick caps still limit damage.
-        }
+        console.error(
+          `[Scheduler] Error processing mission ${mission.id}: ${err instanceof Error ? err.message : "unknown"}`,
+        )
       }
     }
   } catch (err) {
-    console.error(`[Scheduler] Native missions tick failed: ${err instanceof Error ? err.message : "unknown"}`)
+    console.error(`[Scheduler] Tick loop failed: ${err instanceof Error ? err.message : "unknown"}`)
   }
 
-  return { dueCount, runCount }
+  return { dueCount, runCount: enqueueCount }
 }
 
 const TICK_WATCHDOG_MS = 10 * 60_000 // Reset stuck tickInFlight after 10 minutes
@@ -333,6 +288,8 @@ export function getMissionSchedulerState() {
 
 export function ensureMissionSchedulerStarted(): { running: boolean } {
   if (state.running && state.timer) {
+    // Scheduler already running — also ensure execution-tick is running (idempotent).
+    ensureExecutionTickStarted()
     return { running: true }
   }
 
@@ -342,6 +299,10 @@ export function ensureMissionSchedulerStarted(): { running: boolean } {
   state.timer = setInterval(() => {
     void runScheduleTick()
   }, state.tickIntervalMs)
+  state.timer.unref() // don't keep the process alive if the event loop is otherwise idle
+
+  // Start execution-tick on the same process with its own independent 5s timer.
+  ensureExecutionTickStarted()
 
   return { running: true }
 }
@@ -357,6 +318,9 @@ export function stopMissionScheduler(): { running: boolean } {
   // Release the leader lease so another instance can acquire it immediately
   // rather than waiting for the TTL to expire.
   jobLedger.releaseSchedulerLease({ scope: SCHEDULER_LEASE_SCOPE, holderId: SCHEDULER_HOLDER_ID }).catch(() => {})
+
+  // Symmetric stop: scheduler started execution-tick, so scheduler stops it too.
+  stopExecutionTick()
 
   return { running: false }
 }

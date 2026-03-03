@@ -26,21 +26,23 @@ function read(relativePath) {
   return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
 }
 
-const schedulerSource = read("hud/lib/notifications/scheduler.ts");
-const runLogSource = read("hud/lib/notifications/run-log.ts");
-const runMetricsSource = read("hud/lib/notifications/run-metrics.ts");
+const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
+const runLogSource = read("hud/lib/notifications/run-log/index.ts");
+const runMetricsSource = read("hud/lib/notifications/run-metrics/index.ts");
 
 await run("P19-C1 scheduler enforces day-lock guard for daily-like triggers", async () => {
   assert.equal(schedulerSource.includes("getLocalParts"), true);
   assert.equal(schedulerSource.includes("nativeDayStamp"), true);
-  assert.equal(schedulerSource.includes("liveMission.lastSentLocalDate === nativeDayStamp"), true);
+  // Gate checks use missionForGate (reschedule override applied) not raw liveMission
+  assert.equal(schedulerSource.includes("missionForGate.lastSentLocalDate === nativeDayStamp"), true);
 });
 
 await run("P19-C2 scheduler applies mission-level retry backoff and max retry gate", async () => {
   assert.equal(schedulerSource.includes("SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
   assert.equal(schedulerSource.includes("SCHEDULER_RETRY_BASE_MS"), true);
   assert.equal(schedulerSource.includes("computeRetryDelayMs"), true);
-  assert.equal(schedulerSource.includes("liveMission.lastRunStatus === \"error\""), true);
+  // Gate checks use missionForGate (reschedule override applied) not raw liveMission
+  assert.equal(schedulerSource.includes("missionForGate.lastRunStatus === \"error\""), true);
   assert.equal(schedulerSource.includes("consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
 });
 

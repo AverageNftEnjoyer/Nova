@@ -1,4 +1,4 @@
-import { getSystemMetrics as getWindowsSystemMetrics } from "./windowsMetrics.js";
+import { getSystemMetrics as getWindowsSystemMetrics } from "../windowsMetrics/index.js";
 
 const DEFAULT_INTERVAL_MS = 2000;
 const MIN_INTERVAL_MS = 2000;

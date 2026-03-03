@@ -1,4 +1,4 @@
-import { USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
+import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 
 export const IDENTITY_SCHEMA_VERSION = 1;
 export const IDENTITY_SEED_SCHEMA_VERSION = 1;

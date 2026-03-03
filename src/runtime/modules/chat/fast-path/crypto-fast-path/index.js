@@ -1,19 +1,19 @@
 import {
   applyShortTermContextTurnClassification,
   readShortTermContextState,
-} from "../../core/short-term-context-engine.js";
+} from "../../core/short-term-context-engine/index.js";
 import {
   normalizeCoinbaseCommandText,
   resolveEnabledCoinbaseCommandCategories,
-} from "../coinbase-command-parser.js";
-import { resolveCoinbaseRolloutAccessForFastPath } from "../coinbase-rollout-policy.js";
+} from "../coinbase-command-parser/index.js";
+import { resolveCoinbaseRolloutAccessForFastPath } from "../coinbase-rollout-policy/index.js";
 import {
   COINBASE_CONSENT_AFFIRM_REGEX,
   COINBASE_WHY_REGEX,
   CONTEXTUAL_REPORT_FOLLOWUP_REGEX,
   FOLLOW_UP_DETAIL_REGEX,
   FOLLOW_UP_REMOVE_RECALL_REGEX,
-} from "../constants/index.js";
+} from "./constants/index.js";
 import {
   buildCryptoConciergeReply,
   buildMissingPriceTargetReply,
@@ -22,7 +22,7 @@ import {
   isCryptoRequestText,
   isExplicitCryptoReportRequest,
   shouldDeferCryptoFastPathToMissionBuilder,
-} from "./intent.js";
+} from "./intent/index.js";
 import {
   getCoinbaseFollowUpKey,
   readCoinbaseFollowUpState,
@@ -32,7 +32,7 @@ import {
   clearCryptoTopicAffinity,
   updateCryptoTopicAffinity,
   mergeRemovedSections,
-} from "./state.js";
+} from "./state/index.js";
 import {
   parseCryptoReportPreferenceDirectives,
   upsertCryptoReportPreferences,
@@ -43,7 +43,7 @@ import {
   buildTransactionsReply,
   buildReportReply,
   buildReportRepeatPrefix,
-} from "./replies.js";
+} from "./replies/index.js";
 
 export {
   isCryptoRequestText,

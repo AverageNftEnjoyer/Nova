@@ -5,7 +5,7 @@ import {
   clearShortTermContextState,
   readShortTermContextState,
   upsertShortTermContextState,
-} from "../../core/short-term-context-engine.js";
+} from "../../../core/short-term-context-engine/index.js";
 
 const coinbaseFollowUpStateByConversation = new Map();
 

@@ -10,7 +10,7 @@ import {
   STARTER_SKILLS,
   STARTER_SKILL_META_FILE,
   STARTER_SKILL_NAMES,
-} from "../../core/constants/index.js";
+} from "../../../core/constants/index.js";
 
 // Module-internal cache — not exported
 const SKILL_DISCOVERY_CACHE = new Map();
