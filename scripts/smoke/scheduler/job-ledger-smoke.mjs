@@ -35,6 +35,7 @@ const missionTypesSource = read("hud/lib/missions/types/index.ts")
 const purgeSource = read("hud/lib/missions/purge/index.ts")
 const schedulerSource = read("hud/lib/notifications/scheduler/index.ts")
 const retryPolicySource = read("hud/lib/missions/retry-policy.ts")
+const runDeadLetterSource = read("hud/lib/missions/job-ledger/dead-letter.ts")
 const migrationV1 = read("hud/supabase/migrations/20260301_job_runner.sql")
 const migrationV2 = read("hud/supabase/migrations/20260302_scheduler_lease_procedures.sql")
 const migrationV3 = read("hud/supabase/migrations/20260303_execution_tick_running_reclaim.sql")
@@ -147,6 +148,19 @@ await run("JL-S6 store implements reclaimExpiredLeases", () => {
 await run("JL-S7 store uses SECURITY DEFINER admin client (not anon)", () => {
   assert.ok(storeSource.includes("createSupabaseAdminClient"))
   assert.ok(!storeSource.includes("createSupabaseClient()"), "Must not use anon client")
+})
+
+await run("JL-S8 job-ledger dead-letter writer persists terminal queue failures per user context", () => {
+  assert.ok(runDeadLetterSource.includes("appendMissionRunDeadLetter"))
+  assert.ok(runDeadLetterSource.includes("mission-run-dead-letter.jsonl"))
+  assert.ok(runDeadLetterSource.includes(".agent"))
+})
+
+await run("JL-S9 failRun writes dead-letter and escalates retry-enqueue failure to dead", () => {
+  assert.ok(storeSource.includes("appendMissionRunDeadLetter"))
+  assert.ok(storeSource.includes("max_attempts_exhausted"))
+  assert.ok(storeSource.includes("RETRY_ENQUEUE_FAILED"))
+  assert.ok(storeSource.includes("retry_enqueue_failed"))
 })
 
 // ─── Migration ───────────────────────────────────────────────────────────────
@@ -418,18 +432,28 @@ await run("JL-P4-4 execution-tick calls reclaimExpiredLeases before getPendingRu
   assert.ok(reclaimIdx < pendingRunsIdx, "reclaimExpiredLeases must precede getPendingRuns")
 })
 
-await run("JL-P4-5 executeRun spawns setInterval heartbeat after startRun with clearInterval in finally", () => {
-  const fnStart = executionTickSource.indexOf("async function executeRun(")
-  assert.ok(fnStart !== -1, "executeRun not found")
-  const fnBody = executionTickSource.slice(fnStart)
-  assert.ok(fnBody.includes("setInterval("), "setInterval not found in executeRun")
-  assert.ok(fnBody.includes("jobLedger.heartbeat("), "jobLedger.heartbeat not called in executeRun")
+await run("JL-P4-5 heartbeat is self-managed by makePreClaimedSlot (clears in release(), survives executeRun timeout)", () => {
+  // Heartbeat lives in execution-guard's makePreClaimedSlot, not in executeRun,
+  // so the lease stays alive even after executeRun returns due to a per-mission timeout.
+  const fnStart = guardSource.indexOf("export function makePreClaimedSlot(")
+  assert.ok(fnStart !== -1, "makePreClaimedSlot not found in guardSource")
+  const fnBody = guardSource.slice(fnStart)
+  assert.ok(fnBody.includes("heartbeatConfig"), "heartbeatConfig param not found in makePreClaimedSlot")
+  assert.ok(fnBody.includes("setInterval("), "setInterval not found in makePreClaimedSlot")
   assert.ok(fnBody.includes("heartbeatTimer"), "heartbeatTimer variable not found")
   assert.ok(fnBody.includes("clearInterval("), "clearInterval not found")
-  // clearInterval must be inside a finally block
-  const finallyIdx = fnBody.lastIndexOf("} finally {")
-  const clearIdx = fnBody.lastIndexOf("clearInterval(")
-  assert.ok(clearIdx > finallyIdx, "clearInterval must be inside the finally block of executeRun")
+  // clearInterval must be inside release(), not in executeRun
+  const releaseIdx = fnBody.indexOf("async release(")
+  assert.ok(releaseIdx !== -1, "release() method not found")
+  const releaseBody = fnBody.slice(releaseIdx, releaseIdx + 300)
+  assert.ok(releaseBody.includes("clearInterval("), "clearInterval must be inside release()")
+  // executeRun must NOT have standalone heartbeat timer
+  const erStart = executionTickSource.indexOf("async function executeRun(")
+  const erEnd = executionTickSource.indexOf("\nasync function ", erStart + 1)
+  const erBody = executionTickSource.slice(erStart, erEnd !== -1 ? erEnd : erStart + 5000)
+  assert.ok(!erBody.includes("heartbeatTimer"), "executeRun must not manage heartbeatTimer (moved to slot)")
+  // executeRun passes heartbeatConfig to makePreClaimedSlot
+  assert.ok(erBody.includes("intervalMs") || erBody.includes("onBeat"), "executeRun must pass heartbeat config to makePreClaimedSlot")
 })
 
 await run("JL-P4-6 heartbeat interval is Math.floor(EXECUTION_TICK_LEASE_MS / 3)", () => {

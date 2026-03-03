@@ -30,6 +30,11 @@ const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
 const schedulerRouteSource = read("hud/app/api/missions/scheduler/route.ts");
 const triggerRouteSource = read("hud/app/api/missions/trigger/route.ts");
 const triggerStreamRouteSource = read("hud/app/api/missions/trigger/stream/route.ts");
+const runStatusRouteSource = read("hud/app/api/missions/runs/[missionRunId]/route.ts");
+const queueMetricsRouteSource = read("hud/app/api/missions/queue/metrics/route.ts");
+const missionsApiSource = read("hud/app/missions/api.ts");
+const missionsHookSource = read("hud/app/missions/hooks/use-missions-page-state.ts");
+const missionsPanelsSource = read("hud/app/missions/components/missions-main-panels.tsx");
 const runMetricsSource = read("hud/lib/notifications/run-metrics/index.ts");
 
 await run("P16-C1 scheduler prevents overlapping ticks and exposes tick state", async () => {
@@ -78,6 +83,69 @@ await run("P16-C5 scheduler state exposes leader election fields (Phase 2)", asy
   assert.equal(schedulerSource.includes("holderId: SCHEDULER_HOLDER_ID"), true);
   // SCHEDULER_HOLDER_ID must persist across hot-reloads via globalThis
   assert.equal(schedulerSource.includes("__novaMissionSchedulerHolderId"), true);
+});
+
+await run("P16-C6 trigger routes support optional queue-worker mode (Phase 5)", async () => {
+  const triggerTokens = [
+    "isMissionQueueModeEnabled",
+    "enqueueMissionRunForQueue",
+    "queued: true",
+    "Mission queued for worker execution.",
+  ];
+  for (const token of triggerTokens) {
+    assert.equal(triggerRouteSource.includes(token), true, `missing trigger queue token: ${token}`);
+  }
+  for (const token of triggerTokens) {
+    assert.equal(triggerStreamRouteSource.includes(token), true, `missing stream trigger queue token: ${token}`);
+  }
+});
+
+await run("P16-C7 queued run status API is user-scoped and rate-limited", async () => {
+  const requiredTokens = [
+    "requireSupabaseApiUser",
+    "RATE_LIMIT_POLICIES.missionRunStatusRead",
+    'from("job_runs")',
+    '.eq("id", missionRunId)',
+    '.eq("user_id", userId)',
+  ];
+  for (const token of requiredTokens) {
+    assert.equal(runStatusRouteSource.includes(token), true, `missing run-status token: ${token}`);
+  }
+});
+
+await run("P16-C8 queue metrics API is user-scoped and rate-limited", async () => {
+  const requiredTokens = [
+    "requireSupabaseApiUser",
+    "RATE_LIMIT_POLICIES.missionQueueMetricsRead",
+    'from("job_runs")',
+    '.eq("user_id", userId)',
+    ".eq(\"status\", \"pending\")",
+    "failureRate",
+  ];
+  for (const token of requiredTokens) {
+    assert.equal(queueMetricsRouteSource.includes(token), true, `missing queue-metrics token: ${token}`);
+  }
+});
+
+await run("P16-C9 missions HUD polls and surfaces queue metrics", async () => {
+  const requiredApiTokens = [
+    "MissionQueueMetrics",
+    "MissionQueueMetricsResponse",
+    "fetchMissionQueueMetrics",
+  ];
+  for (const token of requiredApiTokens) {
+    assert.equal(missionsApiSource.includes(token), true, `missing missions-api token: ${token}`);
+  }
+  const requiredHookTokens = [
+    "QUEUE_METRICS_POLL_MS",
+    "fetchMissionQueueMetrics",
+    "setMissionQueueMetrics",
+  ];
+  for (const token of requiredHookTokens) {
+    assert.equal(missionsHookSource.includes(token), true, `missing missions-hook token: ${token}`);
+  }
+  assert.equal(missionsPanelsSource.includes("Queue "), true, "queue summary text missing in missions panels");
+  assert.equal(missionsPanelsSource.includes("missionQueueMetrics"), true, "missionQueueMetrics prop missing in missions panels");
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

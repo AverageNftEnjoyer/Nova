@@ -11,6 +11,7 @@ export function validateMissionGraphForVersioning(mission: Mission): MissionGrap
   const nodes = Array.isArray(mission.nodes) ? mission.nodes : []
   const connections = Array.isArray(mission.connections) ? mission.connections : []
   const nodeIdSet = new Set<string>()
+  const nodeLabelSet = new Set<string>()
   const connectionIdSet = new Set<string>()
   const validConnections: MissionConnection[] = []
 
@@ -34,6 +35,21 @@ export function validateMissionGraphForVersioning(mission: Mission): MissionGrap
       return
     }
     nodeIdSet.add(nodeId)
+
+    // Duplicate labels break {{$nodes.Label.output}} expression resolution —
+    // the second node silently overwrites the first in nodesByLabel.
+    const nodeLabel = String(node?.label || "").trim()
+    if (nodeLabel) {
+      if (nodeLabelSet.has(nodeLabel)) {
+        issues.push({
+          code: "mission.node_label_duplicate",
+          path: `${nodePath}.label`,
+          message: `Duplicate node label "${nodeLabel}". Labels must be unique for expression resolution.`,
+        })
+      } else {
+        nodeLabelSet.add(nodeLabel)
+      }
+    }
   })
 
   connections.forEach((connection: MissionConnection, index) => {

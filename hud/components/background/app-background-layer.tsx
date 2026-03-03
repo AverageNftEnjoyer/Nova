@@ -27,7 +27,7 @@ const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
 const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
 const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
-const PERSISTENT_BACKGROUND_PATHS = ["/home", "/chat", "/missions", "/integrations", "/analytics", "/history", "/dev-logs", "/agents"] as const
+const PERSISTENT_BACKGROUND_PATHS = ["/home", "/chat", "/missions", "/integrations", "/history", "/dev-logs", "/agents"] as const
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
@@ -179,16 +179,6 @@ export function AppBackgroundLayer() {
               background: `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
             }}
           />
-          <div className="absolute inset-0">
-            <div
-              className="absolute top-[12%] left-[16%] h-72 w-72 rounded-full blur-[110px]"
-              style={{ backgroundColor: hexToRgba(orbPalette.circle1, 0.24) }}
-            />
-            <div
-              className="absolute bottom-[8%] right-[14%] h-64 w-64 rounded-full blur-[100px]"
-              style={{ backgroundColor: hexToRgba(orbPalette.circle2, 0.22) }}
-            />
-          </div>
         </div>
       )}
       {background === "black" && (

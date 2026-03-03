@@ -1204,7 +1204,7 @@ export default function MissionsCalendarPage() {
   }, [weekStart])
 
   // Spotlight effect — same as every other Nova OS page
-  useSpotlightEffect(true, [{ ref: shellRef, showSpotlightCore: true }], [isLight])
+  useSpotlightEffect(true, [{ ref: shellRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true }], [isLight])
 
   const orbPalette      = ORB_COLORS[orbColor]
   const orbHoverFilter  = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`

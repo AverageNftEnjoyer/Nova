@@ -1,6 +1,8 @@
 import "server-only"
 
 import { createSupabaseAdminClient } from "@/lib/supabase/server"
+import { computeRetryDelayMs } from "../retry-policy"
+import { appendMissionRunDeadLetter } from "./dead-letter"
 import type {
   EnqueueJobInput,
   FinishJobInput,
@@ -212,7 +214,7 @@ export const jobLedger: JobLedgerStore = {
 
     const { data: row } = await db
       .from("job_runs")
-      .select("started_at, attempt, max_attempts, backoff_ms, user_id, mission_id, source, run_key, input_snapshot")
+      .select("started_at, attempt, max_attempts, backoff_ms, user_id, mission_id, source, run_key, input_snapshot, priority")
       .eq("id", input.jobRunId)
       .single()
 
@@ -225,20 +227,19 @@ export const jobLedger: JobLedgerStore = {
     const nextAttempt = (row.attempt ?? 0) + 1
     const isDead = nextAttempt >= (row.max_attempts ?? 1)
 
-    // Compute exponential backoff
+    // Compute exponential backoff for the next retry row.
     const backoffBase = readIntEnv("NOVA_SCHEDULER_RETRY_BASE_MS", 60_000, 1_000, 3_600_000)
     const backoffMax = readIntEnv("NOVA_SCHEDULER_RETRY_MAX_MS", 900_000, 10_000, 86_400_000)
-    const jitter = Math.random() * 0.2 - 0.1 // ±10%
-    const rawBackoff = backoffBase * Math.pow(2, row.attempt ?? 0) * (1 + jitter)
-    const nextBackoffMs = Math.min(Math.round(rawBackoff), backoffMax)
+    const nextBackoffMs = computeRetryDelayMs(nextAttempt, backoffBase, backoffMax, true)
 
-    // Mark current run as failed/dead
+    // Mark current run as failed/dead.
     const { error: failErr } = await db
       .from("job_runs")
       .update({
         status: isDead ? "dead" : "failed",
         finished_at: finishedAt.toISOString(),
         duration_ms: durationMs,
+        backoff_ms: isDead ? row.backoff_ms ?? 0 : nextBackoffMs,
         error_code: input.errorCode ?? null,
         error_detail: input.errorDetail ?? null,
         lease_token: null,
@@ -249,26 +250,76 @@ export const jobLedger: JobLedgerStore = {
 
     if (failErr) return { ok: false }
 
-    // If retrying, enqueue a new pending run
-    if (!isDead) {
-      const retryId = generateId("jr")
-      const scheduledFor = new Date(Date.now() + nextBackoffMs).toISOString()
-
-      await db.from("job_runs").insert({
-        id: retryId,
-        user_id: row.user_id,
-        mission_id: row.mission_id,
-        status: "pending",
-        priority: 5,
-        scheduled_for: scheduledFor,
+    if (isDead) {
+      await appendMissionRunDeadLetter({
+        userId: String(row.user_id || ""),
+        missionId: String(row.mission_id || ""),
+        jobRunId: input.jobRunId,
         attempt: nextAttempt,
-        max_attempts: row.max_attempts,
-        backoff_ms: nextBackoffMs,
-        source: "retry",
-        run_key: row.run_key ?? null,
-        input_snapshot: row.input_snapshot ?? null,
-        created_at: finishedAt.toISOString(),
+        maxAttempts: Math.max(1, Number(row.max_attempts ?? 1)),
+        source: String(row.source || "scheduler") as JobRun["source"],
+        status: "dead",
+        reason: "max_attempts_exhausted",
+        errorCode: input.errorCode ?? undefined,
+        errorDetail: input.errorDetail ?? undefined,
+        retryBackoffMs: row.backoff_ms ?? 0,
+      }).catch((err) => {
+        console.warn("[JobLedger] appendMissionRunDeadLetter failed:", err instanceof Error ? err.message : err)
       })
+      return { ok: true }
+    }
+
+    // If retrying, enqueue a new pending run.
+    const retryId = generateId("jr")
+    const scheduledFor = new Date(Date.now() + nextBackoffMs).toISOString()
+    const { error: retryInsertErr } = await db.from("job_runs").insert({
+      id: retryId,
+      user_id: row.user_id,
+      mission_id: row.mission_id,
+      status: "pending",
+      priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 5,
+      scheduled_for: scheduledFor,
+      attempt: nextAttempt,
+      max_attempts: row.max_attempts,
+      backoff_ms: nextBackoffMs,
+      source: "retry",
+      run_key: row.run_key ?? null,
+      input_snapshot: row.input_snapshot ?? null,
+      created_at: finishedAt.toISOString(),
+    })
+
+    if (retryInsertErr) {
+      const enqueueFailureDetail = `Retry enqueue failed for ${input.jobRunId}: ${retryInsertErr.message}`
+      const { error: markDeadErr } = await db
+        .from("job_runs")
+        .update({
+          status: "dead",
+          error_code: "RETRY_ENQUEUE_FAILED",
+          error_detail: enqueueFailureDetail,
+        })
+        .eq("id", input.jobRunId)
+        .eq("status", "failed")
+      if (markDeadErr) {
+        console.warn("[JobLedger] Failed to mark job run dead after retry enqueue failure:", markDeadErr.message)
+      }
+
+      await appendMissionRunDeadLetter({
+        userId: String(row.user_id || ""),
+        missionId: String(row.mission_id || ""),
+        jobRunId: input.jobRunId,
+        attempt: nextAttempt,
+        maxAttempts: Math.max(1, Number(row.max_attempts ?? 1)),
+        source: String(row.source || "scheduler") as JobRun["source"],
+        status: "retry_enqueue_failed",
+        reason: "retry_enqueue_failed",
+        errorCode: "RETRY_ENQUEUE_FAILED",
+        errorDetail: enqueueFailureDetail,
+        retryBackoffMs: nextBackoffMs,
+      }).catch((err) => {
+        console.warn("[JobLedger] appendMissionRunDeadLetter failed:", err instanceof Error ? err.message : err)
+      })
+
+      return { ok: false }
     }
 
     return { ok: true }

@@ -19,6 +19,8 @@ import {
   applyMissionWorkflowAutofix,
   buildMissionFromPrompt,
   fetchMissionById,
+  fetchMissionQueueMetrics,
+  fetchMissionRunStatus,
   deleteMissionById,
   fetchIntegrationCatalog as fetchIntegrationCatalogApi,
   fetchMissions as fetchMissionsApi,
@@ -28,6 +30,8 @@ import {
   saveMissionRecord,
   triggerMissionScheduleStream,
   type BuildMissionResponse,
+  type MissionQueueMetrics,
+  type MissionRunStatusResponse,
   type MissionReliabilitySloStatus,
   type MissionReliabilitySummary,
   type MissionReliabilityResponse,
@@ -69,6 +73,8 @@ type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
 
 const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["telegram", "telegram", "discord", "email", "push", "webhook"]
 const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "email", "webhook", "telegram"]
+const QUEUED_RUN_STATUS_POLL_MS = 4_000
+const QUEUE_METRICS_POLL_MS = 10_000
 
 function normalizeOutputChannelAlias(value: string): OutputChannel | "" {
   const normalized = String(value || "").trim().toLowerCase()
@@ -541,12 +547,14 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const [runImmediatelyOnCreate, setRunImmediatelyOnCreate] = useState(false)
   const [runProgress, setRunProgress] = useState<MissionRunProgress | null>(null)
   const [missionRuntimeStatusById, setMissionRuntimeStatusById] = useState<Record<string, MissionRuntimeStatus>>({})
+  const [missionQueueMetrics, setMissionQueueMetrics] = useState<MissionQueueMetrics | null>(null)
   const [missionReliabilitySummary, setMissionReliabilitySummary] = useState<MissionReliabilitySummary | null>(null)
   const [missionReliabilitySlos, setMissionReliabilitySlos] = useState<MissionReliabilitySloStatus[]>([])
   const [missionReliabilityLookbackDays, setMissionReliabilityLookbackDays] = useState(7)
   const [missionReliabilityLoading, setMissionReliabilityLoading] = useState(false)
   const [missionReliabilityLastUpdatedAt, setMissionReliabilityLastUpdatedAt] = useState(0)
   const runProgressAnimationTimerRef = useRef<number | null>(null)
+  const missionRuntimeStatusByIdRef = useRef<Record<string, MissionRuntimeStatus>>({})
 
   const catalogApiById = useMemo(() => {
     const next: Record<string, IntegrationCatalogItem> = {}
@@ -1451,8 +1459,142 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   }, [refreshMissionReliability])
 
   useEffect(() => {
+    let cancelled = false
+    let pollInFlight = false
+
+    const pollQueueMetrics = async () => {
+      if (cancelled || pollInFlight) return
+      pollInFlight = true
+      try {
+        const response = await fetchMissionQueueMetrics()
+        if (response.status === 401) {
+          router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+          return
+        }
+        const metrics = response.data?.metrics
+        if (!response.ok || response.data?.ok !== true || !metrics) return
+        if (cancelled) return
+        setMissionQueueMetrics(metrics)
+      } finally {
+        pollInFlight = false
+      }
+    }
+
+    void pollQueueMetrics()
+    const timer = window.setInterval(() => {
+      void pollQueueMetrics()
+    }, QUEUE_METRICS_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [router])
+
+  useEffect(() => {
     writeShellUiCache({ missionSchedules: schedules })
   }, [schedules])
+
+  useEffect(() => {
+    missionRuntimeStatusByIdRef.current = missionRuntimeStatusById
+  }, [missionRuntimeStatusById])
+
+  useEffect(() => {
+    let cancelled = false
+    let pollInFlight = false
+
+    const pollQueuedRuns = async () => {
+      if (cancelled || pollInFlight) return
+
+      const queuedEntries = Object.entries(missionRuntimeStatusByIdRef.current).flatMap(([missionId, runtimeStatus]) => {
+        if (!runtimeStatus || runtimeStatus.kind !== "queued") return []
+        const missionRunId = String(runtimeStatus.missionRunId || "").trim()
+        if (!missionRunId) return []
+        return [{ missionId, missionRunId }]
+      })
+
+      if (queuedEntries.length === 0) return
+      pollInFlight = true
+
+      let shouldRefreshSchedules = false
+      try {
+        for (const entry of queuedEntries) {
+          if (cancelled) break
+
+          const response = await fetchMissionRunStatus(entry.missionRunId)
+          if (response.status === 401) {
+            router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+            break
+          }
+          const data = response.data as MissionRunStatusResponse
+          if (!response.ok || data?.ok !== true || !data.run) continue
+
+          const runStatus = String(data.run.status || "").trim().toLowerCase()
+          if (runStatus === "pending" || runStatus === "claimed") continue
+
+          if (runStatus === "running") {
+            setMissionRuntimeStatusById((prev) => {
+              const current = prev[entry.missionId]
+              if (!current || (current.kind !== "queued" && current.kind !== "running")) return prev
+              return { ...prev, [entry.missionId]: { kind: "running", step: 1, total: 1 } }
+            })
+            continue
+          }
+
+          const finishedAt = Date.now()
+          const failed = runStatus === "failed" || runStatus === "dead" || runStatus === "cancelled"
+          if (runStatus === "succeeded") {
+            shouldRefreshSchedules = true
+            setMissionRuntimeStatusById((prev) => ({
+              ...prev,
+              [entry.missionId]: { kind: "completed", at: finishedAt },
+            }))
+            setRunProgress((prev) => {
+              if (!prev || prev.missionId !== entry.missionId || prev.running) return prev
+              return {
+                ...prev,
+                running: false,
+                success: true,
+                reason: "Queued mission run completed.",
+              }
+            })
+            continue
+          }
+
+          if (failed) {
+            shouldRefreshSchedules = true
+            setMissionRuntimeStatusById((prev) => ({
+              ...prev,
+              [entry.missionId]: { kind: "failed", at: finishedAt },
+            }))
+            setRunProgress((prev) => {
+              if (!prev || prev.missionId !== entry.missionId || prev.running) return prev
+              return {
+                ...prev,
+                running: false,
+                success: false,
+                reason: String(data.run?.errorDetail || "").trim() || "Queued mission run failed.",
+              }
+            })
+          }
+        }
+      } finally {
+        pollInFlight = false
+        if (!cancelled && shouldRefreshSchedules) {
+          await refreshSchedules()
+        }
+      }
+    }
+
+    void pollQueuedRuns()
+    const timer = window.setInterval(() => {
+      void pollQueuedRuns()
+    }, QUEUED_RUN_STATUS_POLL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [refreshSchedules, router])
 
   useEffect(() => {
     const refresh = () => {
@@ -1787,6 +1929,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       setBaselineById((prev) => ({ ...prev, [savedMission.id]: createdSchedule }))
 
       let immediateRunNovachatQueued = false
+      let immediateRunQueued = false
       if (runImmediatelyOnCreate) {
         const runScheduleId = savedMission.id
         if (!runScheduleId) {
@@ -1815,10 +1958,11 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
             applyStreamingStepTrace(runScheduleId, event.trace)
           }
         })
+        immediateRunQueued = Boolean(triggerData?.queued)
         immediateRunNovachatQueued = Boolean(triggerData?.telegramQueued)
         const finalizedSteps = normalizeRunStepTraces(triggerData?.stepTraces, pendingSteps)
         stopRunProgressAnimation()
-        if (!triggerData?.ok) {
+        if (!triggerData?.ok && !immediateRunQueued) {
         const failedAt = Date.now()
         setMissionRuntimeStatusById((prev) => ({
           ...prev,
@@ -1843,8 +1987,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
           missionId: runScheduleId,
           missionLabel: label,
           running: false,
-          success: Boolean(triggerData?.ok),
-          reason: triggerData?.reason,
+          success: Boolean(triggerData?.ok || immediateRunQueued),
+          reason: triggerData?.reason || (immediateRunQueued ? "Mission queued for worker execution." : undefined),
           steps: finalizedSteps,
           outputResults: Array.isArray(triggerData?.results) ? triggerData.results : [],
           telegramQueued: immediateRunNovachatQueued,
@@ -1855,7 +1999,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         if (triggerData?.schedule) {
           updateLocalSchedule(runScheduleId, triggerData.schedule)
           setBaselineById((prev) => ({ ...prev, [runScheduleId]: triggerData.schedule as MissionListItem }))
-        } else {
+        } else if (!immediateRunQueued) {
           setSchedules((prev) =>
             prev.map((item) =>
               item.id === runScheduleId
@@ -1875,7 +2019,11 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         const finishedAt = Date.now()
         setMissionRuntimeStatusById((prev) => ({
           ...prev,
-          [runScheduleId]: triggerData?.ok ? { kind: "completed", at: finishedAt } : { kind: "failed", at: finishedAt },
+          [runScheduleId]: immediateRunQueued
+            ? { kind: "queued", at: finishedAt, missionRunId: triggerData?.missionRunId }
+            : triggerData?.ok
+              ? { kind: "completed", at: finishedAt }
+              : { kind: "failed", at: finishedAt },
         }))
       }
 
@@ -1883,8 +2031,12 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         type: "success",
         message: runImmediatelyOnCreate
           ? (isEditing
-            ? (immediateRunNovachatQueued ? "Mission saved, run started, and Telegram is ready." : "Mission saved and run started.")
-            : (immediateRunNovachatQueued ? "Mission deployed, run started, and Telegram is ready." : "Mission deployed and run started."))
+            ? immediateRunQueued
+              ? "Mission saved and run queued for worker execution."
+              : (immediateRunNovachatQueued ? "Mission saved, run started, and Telegram is ready." : "Mission saved and run started.")
+            : immediateRunQueued
+              ? "Mission deployed and run queued for worker execution."
+              : (immediateRunNovachatQueued ? "Mission deployed, run started, and Telegram is ready." : "Mission deployed and run started."))
           : (isEditing ? "Mission saved." : "Mission deployed."),
       })
       setBuilderOpen(false)
@@ -2141,14 +2293,15 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
           applyStreamingStepTrace(mission.id, event.trace)
         }
       })
+      const queued = Boolean(data?.queued)
       const finalizedSteps = normalizeRunStepTraces(data?.stepTraces, pendingSteps)
       stopRunProgressAnimation()
       setRunProgress({
         missionId: mission.id,
         missionLabel: mission.label || "Untitled mission",
         running: false,
-        success: Boolean(data?.ok),
-        reason: data?.reason,
+        success: Boolean(data?.ok || queued),
+        reason: data?.reason || (queued ? "Mission queued for worker execution." : undefined),
         steps: finalizedSteps,
         outputResults: Array.isArray(data?.results) ? data.results : [],
         telegramQueued: Boolean(data?.telegramQueued),
@@ -2159,7 +2312,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       if (data?.schedule) {
         updateLocalSchedule(mission.id, data.schedule)
         setBaselineById((prev) => ({ ...prev, [mission.id]: data.schedule as MissionListItem }))
-      } else {
+      } else if (!queued) {
         setSchedules((prev) =>
           prev.map((item) =>
             item.id === mission.id
@@ -2179,15 +2332,21 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       const finishedAt = Date.now()
       setMissionRuntimeStatusById((prev) => ({
         ...prev,
-        [mission.id]: data?.ok ? { kind: "completed", at: finishedAt } : { kind: "failed", at: finishedAt },
+        [mission.id]: queued
+          ? { kind: "queued", at: finishedAt, missionRunId: data?.missionRunId }
+          : data?.ok
+            ? { kind: "completed", at: finishedAt }
+            : { kind: "failed", at: finishedAt },
       }))
-      if (!data?.ok) throw new Error(data?.error || "Run now failed.")
+      if (!data?.ok && !queued) throw new Error(data?.error || "Run now failed.")
       await refreshSchedules()
       setStatus({
         type: "success",
-        message: data?.telegramQueued
-          ? "Mission run completed. Telegram message queued - use Open Telegram in the run trace."
-          : "Mission run completed. Review step trace panel for details.",
+        message: queued
+          ? "Mission queued for worker execution."
+          : data?.telegramQueued
+            ? "Mission run completed. Telegram message queued - use Open Telegram in the run trace."
+            : "Mission run completed. Review step trace panel for details.",
       })
     } catch (error) {
       stopRunProgressAnimation()
@@ -2338,6 +2497,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setRunProgress,
     missionRuntimeStatusById,
     setMissionRuntimeStatusById,
+    missionQueueMetrics,
     missionReliabilitySummary,
     setMissionReliabilitySummary,
     missionReliabilitySlos,

@@ -146,11 +146,31 @@ function makeNoopSlot(): MissionExecutionSlot {
  * Build a MissionExecutionSlot from an already-claimed job run.
  * Used by execution-tick to inject a pre-claimed slot into executeMission
  * so executeMissionCore bypasses the enqueue+claim step.
+ *
+ * Pass `heartbeatConfig` to let the slot self-manage the lease heartbeat.
+ * The heartbeat starts immediately and is cleared inside `release()`, which
+ * means the lease stays alive for as long as executeMissionCore is running —
+ * even after the caller (executeRun) has returned due to a per-run timeout.
+ * Without this, clearing the heartbeat in executeRun's finally would leave the
+ * background execution without lease coverage, causing reclaimExpiredLeases()
+ * to reset the run to pending and trigger a second execution.
  */
-export function makePreClaimedSlot(jobRunId: string, leaseToken: string): MissionExecutionSlot {
+export function makePreClaimedSlot(
+  jobRunId: string,
+  leaseToken: string,
+  heartbeatConfig?: { intervalMs: number; onBeat: () => Promise<void> },
+): MissionExecutionSlot {
   let outcomeSuccess = false
   let outcomeErrorDetail: string | undefined
   let outcomeReported = false
+
+  let heartbeatTimer: NodeJS.Timeout | null = null
+  if (heartbeatConfig) {
+    heartbeatTimer = setInterval(
+      () => { heartbeatConfig.onBeat().catch(() => {}) },
+      heartbeatConfig.intervalMs,
+    )
+  }
 
   return {
     jobRunId,
@@ -162,6 +182,10 @@ export function makePreClaimedSlot(jobRunId: string, leaseToken: string): Missio
       outcomeReported = true
     },
     async release() {
+      if (heartbeatTimer !== null) {
+        clearInterval(heartbeatTimer)
+        heartbeatTimer = null
+      }
       if (outcomeSuccess) {
         await jobLedger.completeRun({ jobRunId, leaseToken }).catch(() => {})
       } else {

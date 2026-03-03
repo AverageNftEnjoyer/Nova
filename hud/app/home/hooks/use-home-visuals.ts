@@ -26,6 +26,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
 
+  const homeShellRef = useRef<HTMLDivElement | null>(null)
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
   const scheduleSectionRef = useRef<HTMLElement | null>(null)
   const analyticsSectionRef = useRef<HTMLElement | null>(null)
@@ -85,25 +86,19 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   useSpotlightEffect(
     spotlightEnabled,
     [
-      { ref: pipelineSectionRef },
-      { ref: scheduleSectionRef },
-      { ref: analyticsSectionRef },
-      { ref: devToolsSectionRef },
-      { ref: integrationsSectionRef },
-      { ref: spotifyModuleSectionRef },
-      { ref: agentModuleSectionRef },
+      { ref: homeShellRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
     ],
     [isLight],
   )
 
   const panelClass =
     isLight
-      ? "home-module-surface home-module-surface--light rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-      : "home-module-surface rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
+      ? "home-module-surface home-module-surface--light rounded-md border border-[#d9e0ea] bg-white shadow-none"
+      : "home-module-surface rounded-md border border-white/10 bg-white/[0.03] backdrop-blur-xl"
   const panelStyle = undefined
   const subPanelClass = isLight
-    ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
+    ? "rounded-sm border border-[#d5dce8] bg-[#f4f7fd]"
+    : "rounded-sm border border-white/10 bg-black/25 backdrop-blur-md"
   const missionHover = isLight
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
     : ""
@@ -118,6 +113,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     subPanelClass,
     missionHover,
     orbPalette,
+    homeShellRef,
     pipelineSectionRef,
     scheduleSectionRef,
     analyticsSectionRef,

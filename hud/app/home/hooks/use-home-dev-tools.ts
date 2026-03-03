@@ -1,7 +1,7 @@
 "use client"
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useState } from "react"
 import { readShellUiCache, writeShellUiCache, type DevToolsMetricsCacheItem } from "@/lib/settings/shell-ui-cache"
 
 const POLL_MS = 5000
@@ -43,18 +43,20 @@ function deriveStatus(turn: DevLogTurn): "ok" | "warn" | "error" {
 }
 
 export function useHomeDevTools() {
-  const [metrics, setMetrics] = useState<DevToolsMetricsCacheItem>(() => {
+  const [metrics, setMetrics] = useState<DevToolsMetricsCacheItem>(EMPTY_METRICS)
+
+  useLayoutEffect(() => {
     const cached = readShellUiCache().devToolsMetrics
-    if (!cached) return EMPTY_METRICS
-    return {
+    if (!cached) return
+    setMetrics({
       totalTraces: Number(cached.totalTraces || 0),
       totalTokens: Number(cached.totalTokens || 0),
       errors: Number(cached.errors || 0),
       warnings: Number(cached.warnings || 0),
       avgLatencyMs: Number(cached.avgLatencyMs || 0),
       avgQuality: Number(cached.avgQuality || 0),
-    }
-  })
+    })
+  }, [])
 
   const fetchData = useCallback(async () => {
     try {

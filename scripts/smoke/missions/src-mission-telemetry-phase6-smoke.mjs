@@ -39,7 +39,7 @@ const autofixRouteSource = read("hud/app/api/missions/autofix/route.ts");
 const versionsRouteSource = read("hud/app/api/missions/versions/route.ts");
 const reliabilityRouteSource = read("hud/app/api/missions/reliability/route.ts");
 const missionsRouteSource = read("hud/app/api/missions/route.ts");
-const rateLimitSource = read("hud/lib/security/rate-limit.ts");
+const rateLimitSource = read("hud/lib/security/rate-limit/index.ts");
 const reliabilityGuidanceSource = renderMissionReliabilityGuidanceMarkdown().join("\n");
 
 await run("P6-C1 telemetry module defines lifecycle event model", async () => {

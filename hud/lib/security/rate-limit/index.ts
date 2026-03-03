@@ -66,6 +66,16 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_TRIGGER_STREAM_PER_MIN", 4, 1, 120),
     windowMs: 60_000,
   },
+  missionRunStatusRead: {
+    bucket: "mission-run-status-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_RUN_STATUS_READ_PER_MIN", 120, 1, 1000),
+    windowMs: 60_000,
+  },
+  missionQueueMetricsRead: {
+    bucket: "mission-queue-metrics-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_QUEUE_METRICS_READ_PER_MIN", 60, 1, 1000),
+    windowMs: 60_000,
+  },
   missionSave: {
     bucket: "mission-save",
     limit: readIntEnv("NOVA_RATE_LIMIT_MISSION_SAVE_PER_MIN", 20, 1, 300),
@@ -99,6 +109,11 @@ export const RATE_LIMIT_POLICIES = {
   integrationModelProbe: {
     bucket: "integration-model-probe",
     limit: readIntEnv("NOVA_RATE_LIMIT_INTEGRATION_PROBE_PER_MIN", 18, 1, 500),
+    windowMs: 60_000,
+  },
+  coinbaseMarketRead: {
+    bucket: "coinbase-market-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_COINBASE_MARKET_READ_PER_MIN", 24, 1, 500),
     windowMs: 60_000,
   },
   spotifyNowPlaying: {

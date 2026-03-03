@@ -171,21 +171,7 @@ async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit,
 
 export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegrationsInput) {
   const router = useRouter()
-  const cachedShellUi = readShellUiCache()
-  const initialSpotifyNowPlaying = normalizeSpotifyNowPlaying(cachedShellUi.spotifyNowPlaying)
-  const hasInitialSpotifySnapshot = Boolean(
-    initialSpotifyNowPlaying.trackId
-      || initialSpotifyNowPlaying.trackName
-      || initialSpotifyNowPlaying.albumArtUrl
-      || initialSpotifyNowPlaying.playing,
-  )
-  const initialSpotifyConnectedFromCache = Boolean(initialSpotifyNowPlaying.connected || hasInitialSpotifySnapshot)
-  const initialIntegrations = loadIntegrationsSettings()
-
-  const [missionItems, setMissionItems] = useState<MissionListItem[]>(() => {
-    const cached = readShellUiCache().missionSchedules
-    return Array.isArray(cached) ? (cached as MissionListItem[]) : []
-  })
+  const [missionItems, setMissionItems] = useState<MissionListItem[]>([])
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
@@ -195,12 +181,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
-  const [spotifyConnected, setSpotifyConnected] = useState(
-    Boolean(initialIntegrations.spotify?.connected || initialSpotifyConnectedFromCache),
-  )
-  const [spotifyNowPlaying, setSpotifyNowPlaying] = useState<HomeSpotifyNowPlaying | null>(
-    () => (hasInitialSpotifySnapshot ? initialSpotifyNowPlaying : null),
-  )
+  const [spotifyConnected, setSpotifyConnected] = useState(false)
+  const [spotifyNowPlaying, setSpotifyNowPlaying] = useState<HomeSpotifyNowPlaying | null>(null)
   // Stable ref always pointing at latest nowPlaying — safe to read inside callbacks without deps
   const spotifyNowPlayingRef = useRef<HomeSpotifyNowPlaying | null>(null)
   // Stable ref for connected — avoids refreshSpotifyNowPlaying re-creation on connect change
@@ -210,7 +192,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [spotifyBusyAction, setSpotifyBusyAction] = useState<SpotifyPlaybackAction | null>(null)
   const lastSpotifyDesktopLaunchAtRef = useRef(0)
   const spotifyDeviceWarmupUntilRef = useRef(0)
-  const preserveSpotifyCacheUntilServerSyncRef = useRef(hasInitialSpotifySnapshot)
+  const preserveSpotifyCacheUntilServerSyncRef = useRef(false)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gcalendarConnected, setGcalendarConnected] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
@@ -440,6 +422,22 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   }, [refreshSpotifyNowPlaying, speakTts])
 
   useLayoutEffect(() => {
+    const cached = readShellUiCache()
+    if (Array.isArray(cached.missionSchedules)) {
+      setMissionItems(cached.missionSchedules as MissionListItem[])
+    }
+    const initialSpotifyNowPlaying = normalizeSpotifyNowPlaying(cached.spotifyNowPlaying)
+    const hasInitialSpotifySnapshot = Boolean(
+      initialSpotifyNowPlaying.trackId
+        || initialSpotifyNowPlaying.trackName
+        || initialSpotifyNowPlaying.albumArtUrl
+        || initialSpotifyNowPlaying.playing,
+    )
+    preserveSpotifyCacheUntilServerSyncRef.current = hasInitialSpotifySnapshot
+    if (hasInitialSpotifySnapshot) {
+      setSpotifyNowPlaying(initialSpotifyNowPlaying)
+    }
+
     const local = loadIntegrationsSettings()
     applyLocalSettings(local)
     setIntegrationsHydrated(true)

@@ -321,9 +321,9 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
     !result.ok &&
     !result.skipped &&
     !input.preClaimedSlot &&
-    shouldRetry(settings?.retryOnFail ?? false, settings?.retryCount ?? 2, attempt)
+    shouldRetry(settings.retryOnFail, settings.retryCount, attempt)
   ) {
-    const delayMs = computeRetryDelayMs(attempt, settings?.retryIntervalMs ?? 5_000)
+    const delayMs = computeRetryDelayMs(attempt, settings.retryIntervalMs)
     await new Promise<void>((resolve) => setTimeout(resolve, delayMs))
     return executeMission({
       ...input,
@@ -418,10 +418,12 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       durationMs: Date.now() - startedAtMs,
       metadata: { source, reason: "Mission has no nodes." },
     }).catch(() => {})
+    executionSlot.slot?.reportOutcome(false, "Mission has no nodes.")
     return { ok: false, skipped: false, reason: "Mission has no nodes.", outputs: [], nodeTraces: [] }
   }
   const graphIssues = validateMissionGraphForVersioning(mission)
   if (graphIssues.length > 0) {
+    const graphFailReason = `Mission graph validation failed (${graphIssues.length} issue(s)).`
     await emitMissionTelemetryEvent({
       eventType: "mission.run.failed",
       status: "error",
@@ -436,10 +438,11 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         firstIssueCode: graphIssues[0]?.code,
       },
     }).catch(() => {})
+    executionSlot.slot?.reportOutcome(false, graphFailReason)
     return {
       ok: false,
       skipped: false,
-      reason: `Mission graph validation failed (${graphIssues.length} issue(s)).`,
+      reason: graphFailReason,
       outputs: [],
       nodeTraces: [],
     }
@@ -494,10 +497,12 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       durationMs: Date.now() - startedAtMs,
       metadata: { source, reason, cycleNodes: cycleNodeLabels },
     }).catch(() => {})
+    executionSlot.slot?.reportOutcome(false, reason)
     return { ok: false, skipped: false, reason, outputs: [], nodeTraces: [] }
   }
 
   if (orderedNodes.length === 0) {
+    const reason = "Mission graph has no reachable executable nodes."
     await emitMissionTelemetryEvent({
       eventType: "mission.run.failed",
       status: "error",
@@ -505,18 +510,10 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       missionId: mission.id,
       missionRunId: runId,
       durationMs: Date.now() - startedAtMs,
-      metadata: {
-        source,
-        reason: "Mission graph has no reachable executable nodes.",
-      },
+      metadata: { source, reason },
     }).catch(() => {})
-    return {
-      ok: false,
-      skipped: false,
-      reason: "Mission graph has no reachable executable nodes.",
-      outputs: [],
-      nodeTraces: [],
-    }
+    executionSlot.slot?.reportOutcome(false, reason)
+    return { ok: false, skipped: false, reason, outputs: [], nodeTraces: [] }
   }
 
   log("execution.start", { nodeCount: orderedNodes.length, startIds })
@@ -655,7 +652,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         }
       }
       if (errorConnections.length === 0) {
-        log("node.failed", { nodeId: node.id, error: output.error, retryOnFailSetting: mission.settings?.retryOnFail ?? false })
+        log("node.failed", { nodeId: node.id, error: output.error, retryOnFailSetting: mission.settings.retryOnFail })
       } else {
         log("node.failed.routed_to_error_port", { nodeId: node.id, errorTargets: errorConnections.map((c) => c.targetNodeId) })
       }

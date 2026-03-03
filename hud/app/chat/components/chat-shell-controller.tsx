@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { useRouter } from "next/navigation"
-import { Blocks, Pin, Settings, BarChart3 } from "lucide-react"
+import { Blocks, Pin, Settings } from "lucide-react"
 import { MessageList } from "./message-list"
 import { Composer } from "@/components/chat/composer"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
@@ -308,43 +308,48 @@ export function ChatShellController() {
     if (!spotlightEnabled) return
 
     const setupSectionSpotlight = (section: HTMLElement) => {
-      const spotlight = document.createElement("div")
-      spotlight.className = "home-global-spotlight"
-      section.appendChild(spotlight)
-
-      const handleMouseMove = (e: MouseEvent) => {
-        const rect = section.getBoundingClientRect()
-        spotlight.style.left = `${e.clientX - rect.left}px`
-        spotlight.style.top = `${e.clientY - rect.top}px`
-        spotlight.style.opacity = "1"
-
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
-        cards.forEach((card) => {
-          const cardRect = card.getBoundingClientRect()
-          const relativeX = ((e.clientX - cardRect.left) / cardRect.width) * 100
-          const relativeY = ((e.clientY - cardRect.top) / cardRect.height) * 100
-          card.style.setProperty("--glow-x", `${relativeX}%`)
-          card.style.setProperty("--glow-y", `${relativeY}%`)
-          card.style.setProperty("--glow-radius", "120px")
-          const inX = e.clientX >= cardRect.left && e.clientX <= cardRect.right
-          const inY = e.clientY >= cardRect.top && e.clientY <= cardRect.bottom
-          card.style.setProperty("--glow-intensity", inX && inY ? "1" : "0")
-        })
-      }
-
-      const handleMouseLeave = () => {
-        spotlight.style.opacity = "0"
+      const clampPct = (value: number) => Math.max(0, Math.min(100, value))
+      const clearCards = () => {
         const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
         cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
       }
 
+      const handleMouseMove = (e: MouseEvent) => {
+        const hoveredElement = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+        const hoveredCandidate = hoveredElement?.closest(".home-spotlight-card") as HTMLElement | null
+        const hoveredCard = hoveredCandidate && section.contains(hoveredCandidate) ? hoveredCandidate : null
+
+        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
+        cards.forEach((card) => {
+          const cardRect = card.getBoundingClientRect()
+          if (cardRect.width <= 1 || cardRect.height <= 1) {
+            card.style.setProperty("--glow-intensity", "0")
+            return
+          }
+          const relativeX = clampPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
+          const relativeY = clampPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
+          card.style.setProperty("--glow-x", `${relativeX}%`)
+          card.style.setProperty("--glow-y", `${relativeY}%`)
+          card.style.setProperty("--glow-radius", "120px")
+          card.style.setProperty("--glow-intensity", hoveredCard === card ? "1" : "0")
+        })
+      }
+
+      const handleMouseLeave = () => {
+        clearCards()
+      }
+      const handleWindowBlur = () => {
+        clearCards()
+      }
+
       section.addEventListener("mousemove", handleMouseMove)
       section.addEventListener("mouseleave", handleMouseLeave)
+      window.addEventListener("blur", handleWindowBlur)
 
       return () => {
         section.removeEventListener("mousemove", handleMouseMove)
         section.removeEventListener("mouseleave", handleMouseLeave)
-        spotlight.remove()
+        window.removeEventListener("blur", handleWindowBlur)
       }
     }
 
@@ -664,14 +669,6 @@ export function ChatShellController() {
                     <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Integrations</h2>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => router.push("/analytics")}
-                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow`, subPanelClass)}
-                      aria-label="Open analytics"
-                      title="Open analytics"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5 mx-auto text-s-50 transition-colors hover:text-accent" />
-                    </button>
                     <button
                       onClick={() => router.push("/integrations")}
                       className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/gear`, subPanelClass)}

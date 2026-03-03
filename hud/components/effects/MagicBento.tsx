@@ -33,7 +33,7 @@ const MOBILE_BREAKPOINT = 768;
 const cardData: BentoCardProps[] = [
   {
     color: '#060010',
-    title: 'Analytics',
+    title: 'Monitoring',
     description: 'Track user behavior',
     label: 'Insights'
   },

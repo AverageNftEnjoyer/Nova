@@ -235,8 +235,6 @@ export function ChatSidebar({
     ? "Missions & Automations Hub"
     : pathname?.startsWith("/integrations")
     ? "Integrations Hub"
-    : pathname?.startsWith("/analytics")
-    ? "Analytics Hub"
     : pathname?.startsWith("/history")
     ? "Communications Hub"
     : "Home Page"

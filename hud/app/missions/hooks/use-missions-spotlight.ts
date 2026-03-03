@@ -28,29 +28,30 @@ export function useMissionsSpotlight({
     if (!spotlightEnabled) return
     if (loading) return
 
-    const setupSectionSpotlight = (section: HTMLElement, options?: { enableGlow?: boolean; showSpotlightCore?: boolean }) => {
+    const setupSectionSpotlight = (
+      section: HTMLElement,
+      options?: { enableGlow?: boolean; showSpotlightCore?: boolean; directHoverOnly?: boolean },
+    ) => {
       const enableGlow = options?.enableGlow ?? true
-      const showSpotlightCore = options?.showSpotlightCore ?? true
+      const showSpotlightCore = options?.showSpotlightCore ?? false
+      const directHoverOnly = options?.directHoverOnly ?? true
       const spotlight = enableGlow && showSpotlightCore ? document.createElement("div") : null
       if (spotlight) {
         spotlight.className = "home-global-spotlight"
         section.appendChild(spotlight)
       }
-      let liveStars = 0
       let suppressSpotlightUntil = 0
       let suppressResetTimer: number | null = null
       let rafId: number | null = null
       let pendingEvent: MouseEvent | null = null
       const getCards = () => Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
+      const clampPct = (value: number) => Math.max(0, Math.min(100, value))
 
       const clearSpotlightState = () => {
         if (spotlight) spotlight.style.opacity = "0"
         getCards().forEach((card) => {
           card.style.setProperty("--glow-intensity", "0")
-          const stars = card.querySelectorAll(".fx-star-particle")
-          stars.forEach((star) => star.remove())
         })
-        liveStars = 0
       }
 
       const renderFrame = (e: MouseEvent) => {
@@ -64,14 +65,20 @@ export function useMissionsSpotlight({
 
         const proximity = 70
         const fadeDistance = 140
+        const hoveredElement = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+        const hoveredCandidate = hoveredElement?.closest(".home-spotlight-card") as HTMLElement | null
+        const hoveredCard = hoveredCandidate && section.contains(hoveredCandidate) ? hoveredCandidate : null
         getCards().forEach((card) => {
           const cardRect = card.getBoundingClientRect()
-          const inside =
-            e.clientX >= cardRect.left &&
-            e.clientX <= cardRect.right &&
-            e.clientY >= cardRect.top &&
-            e.clientY <= cardRect.bottom
-
+          if (cardRect.width <= 1 || cardRect.height <= 1) {
+            card.style.setProperty("--glow-intensity", "0")
+            return
+          }
+          const isHoveredCard = hoveredCard === card
+          if (directHoverOnly && !isHoveredCard) {
+            card.style.setProperty("--glow-intensity", "0")
+            return
+          }
           const centerX = cardRect.left + cardRect.width / 2
           const centerY = cardRect.top + cardRect.height / 2
           const distance =
@@ -79,42 +86,19 @@ export function useMissionsSpotlight({
           const effectiveDistance = Math.max(0, distance)
 
           let glowIntensity = 0
-          if (effectiveDistance <= proximity) glowIntensity = 1
+          if (directHoverOnly) glowIntensity = 1
+          else if (effectiveDistance <= proximity) glowIntensity = 1
           else if (effectiveDistance <= fadeDistance) glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity)
 
           if (enableGlow) {
-            const relativeX = ((e.clientX - cardRect.left) / cardRect.width) * 100
-            const relativeY = ((e.clientY - cardRect.top) / cardRect.height) * 100
+            const relativeX = clampPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
+            const relativeY = clampPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
             card.style.setProperty("--glow-x", `${relativeX}%`)
             card.style.setProperty("--glow-y", `${relativeY}%`)
             card.style.setProperty("--glow-intensity", glowIntensity.toString())
             card.style.setProperty("--glow-radius", "88px")
           } else {
             card.style.setProperty("--glow-intensity", "0")
-          }
-
-          const shouldSpawnStar = enableGlow ? glowIntensity > 0.2 : true
-          const spawnRate = enableGlow ? 0.05 : 0.03
-          if (inside && shouldSpawnStar && Math.random() <= spawnRate && liveStars < 12) {
-            liveStars += 1
-            const star = document.createElement("span")
-            star.className = "fx-star-particle"
-            star.style.left = `${e.clientX - cardRect.left}px`
-            star.style.top = `${e.clientY - cardRect.top}px`
-            star.style.setProperty("--fx-star-color", "rgba(255,255,255,1)")
-            star.style.setProperty("--fx-star-glow", "rgba(255,255,255,0.7)")
-            star.style.setProperty("--star-x", `${(Math.random() - 0.5) * 34}px`)
-            star.style.setProperty("--star-y", `${-12 - Math.random() * 26}px`)
-            star.style.animationDuration = `${0.9 + Math.random() * 0.6}s`
-            card.appendChild(star)
-            star.addEventListener(
-              "animationend",
-              () => {
-                star.remove()
-                liveStars = Math.max(0, liveStars - 1)
-              },
-              { once: true },
-            )
           }
         })
       }
@@ -131,6 +115,9 @@ export function useMissionsSpotlight({
       }
 
       const handleMouseLeave = () => {
+        clearSpotlightState()
+      }
+      const handleWindowBlur = () => {
         clearSpotlightState()
       }
 
@@ -150,6 +137,7 @@ export function useMissionsSpotlight({
       section.addEventListener("wheel", handleScroll, { passive: true, capture: true })
       section.addEventListener("touchmove", handleScroll, { passive: true, capture: true })
       window.addEventListener("wheel", handleScroll, { passive: true })
+      window.addEventListener("blur", handleWindowBlur)
 
       return () => {
         section.removeEventListener("mousemove", handleMouseMove)
@@ -158,6 +146,7 @@ export function useMissionsSpotlight({
         section.removeEventListener("wheel", handleScroll, true)
         section.removeEventListener("touchmove", handleScroll, true)
         window.removeEventListener("wheel", handleScroll)
+        window.removeEventListener("blur", handleWindowBlur)
         if (rafId !== null) window.cancelAnimationFrame(rafId)
         if (suppressResetTimer !== null) window.clearTimeout(suppressResetTimer)
         clearSpotlightState()

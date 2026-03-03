@@ -1,5 +1,6 @@
 import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
+import { enqueueMissionRunForQueue, isMissionQueueModeEnabled } from "@/lib/missions/workflow/queue-mode"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
@@ -119,6 +120,35 @@ export async function GET(req: Request) {
 
           const runKey = `manual-trigger-stream:${mission.id}:${Date.now()}`
           const missionRunId = crypto.randomUUID()
+          if (isMissionQueueModeEnabled()) {
+            const enqueueResult = await enqueueMissionRunForQueue({
+              mission,
+              userId,
+              missionRunId,
+              runKey,
+              requestIdempotencyKey: req.headers.get("x-idempotency-key") || undefined,
+            })
+            if (!enqueueResult.ok) {
+              safeStreamPayload({
+                type: "error",
+                error: enqueueResult.error,
+              })
+              return
+            }
+            safeStreamPayload({
+              type: "done",
+              data: {
+                ok: true,
+                queued: true,
+                missionRunId,
+                reason: "Mission queued for worker execution.",
+                results: [],
+                stepTraces: [],
+                telegramQueued: false,
+              },
+            })
+            return
+          }
           const skillSnapshot = await loadMissionSkillSnapshot({ userId })
           const startedAtMs = Date.now()
           const dagResult = await executeMission({

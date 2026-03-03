@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { setActiveUserId } from "@/lib/auth/active-user"
+import { getActiveUserId, setActiveUserId } from "@/lib/auth/active-user"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 
 function sanitizeNextPath(raw: string | null): string {
@@ -17,7 +17,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const isLoginRoute = pathname === "/login"
-  const [ready, setReady] = useState(isLoginRoute)
+  const [ready, setReady] = useState(() => isLoginRoute || Boolean(getActiveUserId()))
 
   useEffect(() => {
     const loginParams = isLoginRoute ? new URLSearchParams(window.location.search) : null

@@ -46,6 +46,7 @@ export type MissionStatusMessage = null | { type: "success" | "error"; message: 
 
 export type MissionRuntimeStatus =
   | { kind: "running"; step: number; total: number }
+  | { kind: "queued"; at: number; missionRunId?: string }
   | { kind: "completed"; at: number }
   | { kind: "failed"; at: number }
 

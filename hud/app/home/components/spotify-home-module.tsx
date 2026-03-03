@@ -17,6 +17,7 @@ interface SpotifyHomeModuleProps {
   subPanelClass: string
   panelStyle: CSSProperties | undefined
   sectionRef?: RefObject<HTMLElement | null>
+  className?: string
   connected: boolean
   nowPlaying: HomeSpotifyNowPlaying | null
   error: string | null
@@ -72,6 +73,7 @@ export function SpotifyHomeModule({
   subPanelClass,
   panelStyle,
   sectionRef,
+  className,
   connected,
   nowPlaying,
   error,
@@ -380,13 +382,13 @@ export function SpotifyHomeModule({
     <section
       ref={sectionRef}
       style={panelStyle}
-      className={`${panelClass} home-spotlight-shell hidden xl:flex xl:col-start-1 xl:row-start-2 p-0 max-h-72 overflow-hidden`}
+      className={cn(`${panelClass} home-spotlight-shell p-0 overflow-hidden`, className ?? "hidden xl:flex xl:col-start-2 xl:row-start-2 max-h-72")}
     >
       <div
         className="relative flex h-full min-h-0 w-full flex-col rounded-[inherit] transition-all duration-700"
         style={ambientShellStyle}
       >
-        <div className="relative z-10 flex h-full min-h-0 flex-col px-3 pt-3 pb-4">
+        <div className="relative z-10 flex h-full min-h-0 flex-col px-2.5 pt-2.5 pb-2.5">
           {!connected ? (
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-2">
@@ -419,7 +421,7 @@ export function SpotifyHomeModule({
                 </span>
               </div>
               <div className="flex shrink-0 flex-col">
-                <div className="relative h-32 w-32 shrink-0 self-center">
+                <div className="relative h-[7.5rem] w-[7.5rem] shrink-0 self-center">
                   {/* Render glow only while actively playing */}
                   {nowPlayingState ? (
                     <div className={cn("pointer-events-none absolute -inset-5 -z-10 overflow-visible", glowVariantClass)}>
@@ -526,13 +528,13 @@ export function SpotifyHomeModule({
                     )}
                   </div>
                 </div>
-                <div className="mt-2.5 min-w-0 pb-1">
-                  <p className={cn("truncate text-sm font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{trackTitle}</p>
+                <div className="mt-1.5 min-w-0">
+                  <p className={cn("truncate text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{trackTitle}</p>
                   <p className={cn("mt-0.5 truncate text-xs", isLight ? "text-s-60" : "text-slate-400")}>{artistName}</p>
                 </div>
               </div>
 
-              <div className="mt-2.5">
+              <div className="mt-1.5">
                 {/* Seek bar — drag anywhere to jump */}
                 <div
                   ref={progressBarRef}
@@ -570,7 +572,7 @@ export function SpotifyHomeModule({
                 </div>
               </div>
 
-              <div className="mt-0.5 grid w-full grid-cols-[1fr_auto_1fr] items-center">
+              <div className="mt-1 grid w-full grid-cols-[1fr_auto_1fr] items-center">
                 <button
                   onClick={onPlaySmart}
                   disabled={Boolean(busyAction)}
@@ -602,7 +604,7 @@ export function SpotifyHomeModule({
                     onClick={handlePlayPause}
                     disabled={Boolean(busyAction) && !isDeviceUnavailable}
                     className={cn(
-                      "inline-flex h-9 w-9 items-center justify-center rounded-full text-black hover:scale-[1.03] active:scale-[0.98]",
+                      "inline-flex h-8 w-8 items-center justify-center rounded-full text-black hover:scale-[1.03] active:scale-[0.98]",
                       busyAction && !isDeviceUnavailable ? "opacity-70" : "",
                     )}
                     style={{
@@ -617,12 +619,12 @@ export function SpotifyHomeModule({
                     {isDeviceUnavailable ? (
                       <SpotifyIcon className="h-4 w-4" />
                     ) : nowPlayingState ? (
-                      <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
                         <rect x="6" y="5" width="4.5" height="14" rx="1" />
                         <rect x="13.5" y="5" width="4.5" height="14" rx="1" />
                       </svg>
                     ) : (
-                      <svg viewBox="0 0 24 24" className="h-6 w-6 translate-x-px fill-current" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className="h-5 w-5 translate-x-px fill-current" aria-hidden="true">
                         <path d="M8 5.5v13l10-6.5z" />
                       </svg>
                     )}

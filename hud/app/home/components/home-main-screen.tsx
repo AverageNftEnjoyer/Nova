@@ -1,60 +1,81 @@
 "use client"
 
-import { Blocks, Pin, Settings, Activity, Clock3, CheckCircle2, AlertTriangle, Network, Bot } from "lucide-react"
+import { useEffect, useState } from "react"
+import Image from "next/image"
+import { useRouter } from "next/navigation"
+import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2 } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
-import type { CSSProperties } from "react"
-import { NovaOrb3D, type OrbState } from "@/components/orb/NovaOrb3D"
-import TextType from "@/components/effects/TextType"
-import { ChatSidebar } from "@/components/chat/chat-sidebar"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import {
+  BraveIcon,
+  ClaudeIcon,
+  CoinbaseIcon,
+  DiscordIcon,
+  GeminiIcon,
+  GmailCalendarIcon,
+  GmailIcon,
+  OpenAIIcon,
+  SpotifyIcon,
+  TelegramIcon,
+  XAIIcon,
+} from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
+import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { SettingsModal } from "@/components/settings/settings-modal"
 import { cn } from "@/lib/shared/utils"
 import { NOVA_DOMAIN_MANAGERS } from "@/app/agents/agent-chart-data"
-import { formatDailyTime } from "../helpers"
+import { NOVA_VERSION } from "@/lib/meta/version"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { usePageActive } from "@/lib/hooks/use-page-active"
+import { getNovaPresence } from "@/lib/chat/nova-presence"
+import { formatDailyTime, hexToRgba } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
 
+const FALLBACK_CRYPTO_ASSETS = [
+  { symbol: "BTC", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
+  { symbol: "ETH", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
+  { symbol: "SOL", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
+  { symbol: "SUI", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
+  { symbol: "XRP", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
+  { symbol: "DOGE", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
+] as const
+
+const COMMODITIES = [
+  { name: "Gold", price: "$2,184", change: "+0.6%", up: true },
+  { name: "WTI", price: "$77.30", change: "-0.3%", up: false },
+  { name: "Nat Gas", price: "$2.11", change: "+1.8%", up: true },
+] as const
+
 export function HomeMainScreen() {
+  const router = useRouter()
+  const pageActive = usePageActive()
   const {
-    isLight,
-    conversations,
-    sidebarOpen,
-    handleSelectConvo,
-    handleNewChat,
-    handleDeleteConvo,
-    handleRenameConvo,
-    handleArchiveConvo,
-    handlePinConvo,
-    goToBootup,
+    isLight: rawIsLight,
     novaState,
     connected,
-    hasAnimated,
-    assistantName,
-    orbPalette,
-    welcomeMessage,
     handleSend,
     isMuted,
     handleMuteToggle,
     muteHydrated,
+    homeShellRef,
     pipelineSectionRef,
     scheduleSectionRef,
-    analyticsSectionRef,
-    devToolsSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
     agentModuleSectionRef,
+    devToolsSectionRef,
     panelStyle,
     panelClass,
     subPanelClass,
-    missionHover,
     missions,
+    cryptoAssets,
+    cryptoRange,
+    setCryptoRange,
     openMissions,
     openCalendar,
     openIntegrations,
-    openAnalytics,
     openDevLogs,
     openAgents,
-    liveActivity,
     devToolsMetrics,
     integrationBadgeClass,
     goToIntegrations,
@@ -77,41 +98,62 @@ export function HomeMainScreen() {
     seekSpotify,
     gmailConnected,
     gcalendarConnected,
+    orbPalette,
   } = useHomeMainScreenState()
+  const isLight = muteHydrated && rawIsLight
 
-  const formatNumber = (value: unknown) => {
+  const fmt = (value: unknown) => {
     const n = Number(value)
-    if (!Number.isFinite(n)) return "0"
-    return n.toLocaleString("en-US")
+    return Number.isFinite(n) ? n.toLocaleString("en-US") : "0"
   }
-
-  const analyticsLiveActivity = liveActivity
-  const assistantNameGradientVars = {
-    "--orb-name-a": orbPalette.circle1,
-    "--orb-name-b": orbPalette.circle2,
-    "--orb-name-c": orbPalette.circle4,
-  } as CSSProperties
-  const orbState: OrbState = (
-    novaState === "idle" || novaState === "listening" || novaState === "thinking" || novaState === "speaking"
-      ? novaState
-      : "idle"
-  )
-
-  const iconForActivityService = (service: string) => {
-    const value = service.trim().toLowerCase()
-    if (value.includes("openai")) return <OpenAIIcon className="w-3.5 h-3.5" />
-    if (value.includes("claude")) return <ClaudeIcon className="w-3.5 h-3.5" />
-    if (value.includes("grok")) return <XAIIcon size={14} />
-    if (value.includes("gemini")) return <GeminiIcon size={14} />
-    if (value.includes("spotify")) return <SpotifyIcon className="w-3.5 h-3.5" />
-    if (value.includes("telegram")) return <TelegramIcon className="w-3.5 h-3.5" />
-    if (value.includes("discord")) return <DiscordIcon className="w-3.5 h-3.5" />
-    if (value.includes("gcalendar") || value.includes("gmail-calendar")) return <GmailCalendarIcon className="w-3.5 h-3.5" />
-    if (value.includes("gmail")) return <GmailIcon className="w-3.5 h-3.5" />
-    if (value.includes("brave")) return <BraveIcon className="w-3.5 h-3.5" />
-    if (value.includes("coinbase")) return <CoinbaseIcon className="w-3.5 h-3.5" />
-    return <Activity className="w-3.5 h-3.5" />
+  const fmtUsd = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return "-"
+    const abs = Math.abs(value)
+    const decimals = abs >= 1000 ? 0 : abs >= 1 ? 2 : 4
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: decimals,
+    }).format(value)
   }
+  const fmtPct = (value: number) => {
+    if (!Number.isFinite(value)) return "-"
+    const sign = value > 0 ? "+" : ""
+    return `${sign}${value.toFixed(2)}%`
+  }
+  const devMetricTiles = [
+    { label: "Total Traces", value: fmt(devToolsMetrics.totalTraces), color: "" },
+    { label: "Errors", value: fmt(devToolsMetrics.errors), color: "text-rose-400" },
+    { label: "Warnings", value: fmt(devToolsMetrics.warnings), color: "text-amber-300" },
+    { label: "Avg Latency", value: `${fmt(devToolsMetrics.avgLatencyMs)}ms`, color: "" },
+    { label: "Total Tokens", value: fmt(devToolsMetrics.totalTokens), color: "" },
+    { label: "Avg Quality", value: devToolsMetrics.avgQuality.toFixed(1), color: "" },
+  ] as const
+  const sparklinePoints = (values: readonly number[], width = 56, height = 12): string => {
+    const points = Array.isArray(values) ? values.filter((v) => Number.isFinite(v)) : []
+    if (points.length === 0) return `0,${height / 2} ${width},${height / 2}`
+    if (points.length === 1) return `0,${height / 2} ${width},${height / 2}`
+
+    const min = Math.min(...points)
+    const max = Math.max(...points)
+    const span = Math.max(max - min, 1e-9)
+    return points
+      .map((point, idx) => {
+        const x = (idx / (points.length - 1)) * width
+        const y = height - ((point - min) / span) * height
+        return `${x.toFixed(2)},${y.toFixed(2)}`
+      })
+      .join(" ")
+  }
+  const symbolOrder = ["BTC", "ETH", "SOL", "SUI", "XRP", "DOGE"] as const
+  const bySymbol = new Map(cryptoAssets.map((asset) => [asset.symbol.toUpperCase(), asset]))
+  const fallbackBySymbol = new Map(FALLBACK_CRYPTO_ASSETS.map((asset) => [asset.symbol, asset]))
+  const cryptoRows = symbolOrder.map((symbol) => bySymbol.get(symbol) ?? fallbackBySymbol.get(symbol)!)
+  const cryptoRangeOptions = [
+    { id: "1h", label: "1H" },
+    { id: "1d", label: "1D" },
+    { id: "7d", label: "7D" },
+  ] as const
 
   const integrationNodes = [
     { icon: <TelegramIcon className="w-4 h-4" />, connected: telegramConnected, label: "Telegram" },
@@ -126,181 +168,248 @@ export function HomeMainScreen() {
     { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave" },
     { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase" },
   ] as const
-  const fillerSlots = Math.max(0, 25 - integrationNodes.length)
+
   const previewManagers = NOVA_DOMAIN_MANAGERS.slice(0, 3)
-  const previewWorkerCount = NOVA_DOMAIN_MANAGERS.reduce((sum, manager) => sum + manager.workers.length, 0)
+  const previewWorkerCount = NOVA_DOMAIN_MANAGERS.reduce((sum, m) => sum + m.workers.length, 0)
   const previewOnlineCount = NOVA_DOMAIN_MANAGERS.reduce(
-    (sum, manager) => sum + manager.workers.filter((worker) => worker.status === "online").length,
+    (sum, m) => sum + m.workers.filter((w) => w.status === "online").length,
     0,
   )
+  const presence = getNovaPresence({ agentConnected: connected, novaState })
+  const [orbHovered, setOrbHovered] = useState(false)
+  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
+  // ── Panel header helper ──────────────────────────────────────────────────
+  const renderPanelHeader = ({
+    icon,
+    title,
+    action,
+  }: {
+    icon: React.ReactNode
+    title: string
+    action?: React.ReactNode
+  }) => (
+    <div className="relative flex items-center justify-between gap-2 shrink-0">
+      <div className="flex items-center gap-2 text-s-80">{icon}</div>
+      <h2
+        className={cn(
+          "absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap",
+          isLight ? "text-s-90" : "text-slate-200",
+        )}
+      >
+        {title}
+      </h2>
+      <div className="flex items-center gap-1.5">{action}</div>
+    </div>
+  )
+
+  const renderGearButton = ({
+    onClick,
+    label,
+    groupName,
+  }: {
+    onClick: () => void
+    label: string
+    groupName: string
+  }) => (
+    <button
+      onClick={onClick}
+      className={cn(
+        `h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group group/${groupName}`,
+        subPanelClass,
+      )}
+      aria-label={label}
+      title={label}
+    >
+      <Settings
+        className={`w-3.5 h-3.5 mx-auto text-s-50 group-hover:text-accent group-hover:rotate-90 group-hover/${groupName}:text-accent group-hover/${groupName}:rotate-90 transition-transform duration-200`}
+      />
+    </button>
+  )
+
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [profileName, setProfileName] = useState("User")
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
+
+  useEffect(() => {
+    const syncProfile = () => {
+      const settings = loadUserSettings()
+      setProfileName(settings.profile?.name?.trim() || "User")
+      setProfileAvatar(settings.profile?.avatar || null)
+    }
+
+    syncProfile()
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
+  }, [])
 
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
-
-      <ChatSidebar
-        conversations={conversations}
-        activeId={null}
-        isOpen={sidebarOpen}
-        onSelect={handleSelectConvo}
-        onNew={handleNewChat}
-        onDelete={handleDeleteConvo}
-        onRename={handleRenameConvo}
-        onArchive={handleArchiveConvo}
-        onPin={handlePinConvo}
-        onReplayBoot={goToBootup}
-        novaState={novaState}
-        agentConnected={connected}
-      />
-
-      <div
-        className="flex-1 relative overflow-hidden"
-        style={{
-          marginLeft: "0",
-        }}
-      >
-
-        <div className="relative z-10 h-full w-full px-6 pt-4 pb-6">
-          {/*
-            5-col equal grid, 2 rows:
-            Row 1 (flex): [Schedule col1] [Orb+Composer flex-col col2-4] [Mission Pipeline col5]
-            Row 2 (auto): [Mod Slot 1] [Mod Slot 2] [Analytics] [Dev Tools] [Nova Integrations]
-          */}
-          <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[repeat(5,minmax(0,1fr))] xl:grid-rows-[minmax(0,1fr)_auto]">
-
-            {/* ── Col 1, Row 1: Schedule (full height of row 1) ── */}
-            <div className="min-h-0 flex flex-col xl:col-start-1 xl:row-start-1">
-              <ScheduleBriefing
-                isLight={isLight}
-                panelClass={`${panelClass} home-spotlight-shell`}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                sectionRef={scheduleSectionRef}
-                onOpenCalendar={openCalendar}
-              />
-            </div>
-
-            {/* ── Cols 2–4, Row 1: Orb + Text (flex-1) then Composer pinned to bottom ── */}
-            <div className="min-h-0 flex flex-col xl:col-start-2 xl:col-span-3 xl:row-start-1">
-              <div className="flex-1 min-h-0 overflow-hidden flex flex-col items-center justify-center gap-4 py-4">
-                <div className={`relative h-70 w-70 ${hasAnimated ? "orb-intro" : ""}`}>
-                  {(
-                    <>
-                      {isLight && (
-                        <div
-                          className="absolute -inset-3 rounded-full"
-                          style={{
-                            background: "radial-gradient(circle, rgba(15,23,42,0.14) 0%, rgba(15,23,42,0.05) 52%, transparent 76%)",
-                          }}
-                        />
-                      )}
-                      <NovaOrb3D
-                        size={280}
-                        palette={orbPalette}
-                        orbState={orbState}
-                        quality="high"
-                        intensity={1}
-                        theme={isLight ? "light" : "dark"}
-                      />
-                    </>
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className={cn(`mt-2 text-5xl font-semibold ${hasAnimated ? "text-blur-intro" : ""}`, isLight ? "text-s-90" : "text-white")}>
-                    Hi, I&apos;m{" "}
-                    <span className="assistant-name-orb-gradient" style={assistantNameGradientVars}>
-                      {assistantName}
-                    </span>
-                  </p>
-                  <p className={cn(`mt-3 text-lg ${hasAnimated ? "text-blur-intro-delay" : ""}`, isLight ? "text-s-50" : "text-slate-400")}>
-                    <TextType
-                      key={welcomeMessage}
-                      as="span"
-                      text={welcomeMessage}
-                      typingSpeed={75}
-                      pauseDuration={1500}
-                      showCursor
-                      cursorCharacter="_"
-                      deletingSpeed={50}
-                      loop={false}
-                      className="inline-block"
-                    />
-                  </p>
+    <div
+      className={cn(
+        "relative flex h-dvh overflow-hidden",
+        isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100",
+      )}
+    >
+      <div ref={homeShellRef} className="flex-1 relative overflow-hidden home-spotlight-shell">
+        {/* ── 3-zone flex layout ─────────────────────────────────────────── */}
+        <div className="relative z-10 h-full w-full px-4 pt-3 pb-4 flex flex-col gap-3">
+          <header className="shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  onClick={() => router.push("/home")}
+                  onMouseEnter={() => setOrbHovered(true)}
+                  onMouseLeave={() => setOrbHovered(false)}
+                  className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+                  aria-label="Go to home"
+                >
+                  <NovaOrbIndicator
+                    palette={orbPalette}
+                    size={30}
+                    animated={pageActive}
+                    className="transition-all duration-200"
+                    style={{ filter: orbHovered ? orbHoverFilter : "none" }}
+                  />
+                </button>
+                <div className="min-w-0">
+                  <div className="flex flex-col leading-tight">
+                    <div className="flex items-baseline gap-3">
+                      <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                      <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-3">
+                      <div className="inline-flex items-center gap-1.5">
+                        <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                        <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                          {presence.label}
+                        </span>
+                      </div>
+                      <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Home Control Surface</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="relative w-full shrink-0">
-                <Composer
-                  onSend={handleSend}
-                  isStreaming={false}
-                  disabled={!connected}
-                  isMuted={isMuted}
-                  onToggleMute={handleMuteToggle}
-                  muteHydrated={muteHydrated}
+              <div />
+              <div className="flex items-center gap-2">
+                <div className={cn("flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg home-spotlight-card home-border-glow", subPanelClass)}>
+                    <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20")}>
+                      {profileAvatar ? (
+                        <Image
+                          src={profileAvatar}
+                          alt="Profile"
+                          width={32}
+                          height={32}
+                          className="w-full h-full object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <span>{profileName.charAt(0).toUpperCase()}</span>
+                      )}
+                  </div>
+                  <p className={cn("text-sm font-medium truncate max-w-36", isLight ? "text-s-90" : "text-slate-100")}>
+                    {profileName}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className={cn("h-11 w-11 rounded-lg transition-colors group/home-gear home-spotlight-card home-border-glow", subPanelClass)}
+                  aria-label="Open settings"
+                  title="Settings"
+                >
+                  <Settings className="w-5 h-5 mx-auto text-s-50 group-hover/home-gear:text-accent group-hover/home-gear:rotate-90 transition-transform duration-200" />
+                </button>
+              </div>
+          </header>
+
+          <div className="flex-1 min-h-0 flex gap-3">
+
+            {/* ── ZONE 1: Schedule (left column) ─────────────────────────── */}
+            <div className="w-[15.5rem] shrink-0 min-h-0 grid grid-rows-2 gap-3">
+              <div className="min-h-0">
+                <ScheduleBriefing
+                  isLight={isLight}
+                  panelClass={`${panelClass} home-spotlight-shell`}
+                  subPanelClass={subPanelClass}
+                  panelStyle={panelStyle}
+                  sectionRef={scheduleSectionRef}
+                  onOpenCalendar={openCalendar}
                 />
               </div>
-            </div>
 
-            {/* ── Col 5, Row 1: Mission Pipeline ── */}
-            {/* ── Col 5, Row 2: Nova Integrations ── */}
-            <aside className="contents">
-              <section ref={pipelineSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex flex-col xl:col-start-5 xl:row-start-1`}>
-                <div className="relative flex items-center justify-between gap-2 text-s-80">
-                  <div className="flex items-center gap-2">
-                    <Pin className="w-4 h-4 text-accent" />
-                  </div>
-                  <h2 className={cn("absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>Missions Hub</h2>
-                  <button
-                    onClick={openMissions}
-                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/mission-gear`, subPanelClass)}
-                    aria-label="Open mission settings"
-                  >
-                    <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/mission-gear:text-accent group-hover/mission-gear:rotate-90 transition-transform duration-200" />
-                  </button>
-                </div>
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Scheduled Nova workflows</p>
-
-                <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
+              <section
+                ref={pipelineSectionRef}
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell p-4 min-h-0 h-full flex flex-col`}
+              >
+                {renderPanelHeader({
+                  icon: <Pin className="w-4 h-4 text-accent" />,
+                  title: "Missions Hub",
+                  action: renderGearButton({ onClick: openMissions, label: "Open mission settings", groupName: "mission-gear" }),
+                })}
+                <div className="mt-1 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
                   {missions.length === 0 && (
                     <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
                       No missions yet. Add one in Mission Settings.
                     </p>
                   )}
                   {missions.map((mission) => (
-                    <div key={mission.id} className={cn(`${subPanelClass} p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
+                    <div
+                      key={mission.id}
+                      className={cn(
+                        `${subPanelClass} p-2 transition-colors`,
+                      )}
+                    >
                       <div className="flex items-start justify-between gap-2">
-                        <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
-                        <div className="flex items-center gap-1 flex-nowrap shrink-0">
-                          <span
-                            className={cn(
-                              "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap",
-                              mission.enabledCount > 0
-                                ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                                : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                            )}
-                          >
-                            {mission.enabledCount > 0 ? "Active" : "Paused"}
-                          </span>
-                        </div>
+                        <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>
+                          {mission.title}
+                        </p>
+                        <span
+                          className={cn(
+                            "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap shrink-0",
+                            mission.enabledCount > 0
+                              ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                              : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                          )}
+                        >
+                          {mission.enabledCount > 0 ? "Active" : "Paused"}
+                        </span>
                       </div>
                       {mission.description ? (
-                        <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
+                        <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>
+                          {mission.description}
+                        </p>
                       ) : null}
                       <div className="mt-1.5 flex items-end justify-between gap-2">
                         <div className="flex flex-wrap gap-1">
                           {mission.times.map((time, index) => (
-                            <span key={`${mission.id}-${time}-${index}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/4 text-slate-300")}>
+                            <span
+                              key={`${mission.id}-${time}-${index}`}
+                              className={cn(
+                                "text-[10px] px-1.5 py-0.5 rounded-md border",
+                                isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/4 text-slate-300",
+                              )}
+                            >
                               {formatDailyTime(time, mission.timezone)}
                             </span>
                           ))}
                         </div>
                         <span
-                          title={`Priority: ${mission.priority}`}
-                          aria-label={`Priority ${mission.priority}`}
                           className={cn(
                             "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap capitalize shrink-0",
-                            mission.priority === "low" && (isLight ? "border-emerald-300 bg-emerald-100 text-emerald-700" : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
-                            mission.priority === "medium" && (isLight ? "border-amber-300 bg-amber-100 text-amber-700" : "border-amber-300/40 bg-amber-500/15 text-amber-300"),
-                            mission.priority === "high" && (isLight ? "border-orange-300 bg-orange-100 text-orange-700" : "border-orange-300/40 bg-orange-500/15 text-orange-300"),
-                            mission.priority === "critical" && (isLight ? "border-rose-300 bg-rose-100 text-rose-700" : "border-rose-300/40 bg-rose-500/15 text-rose-300"),
+                            mission.priority === "low" &&
+                              (isLight
+                                ? "border-emerald-300 bg-emerald-100 text-emerald-700"
+                                : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
+                            mission.priority === "medium" &&
+                              (isLight
+                                ? "border-amber-300 bg-amber-100 text-amber-700"
+                                : "border-amber-300/40 bg-amber-500/15 text-amber-300"),
+                            mission.priority === "high" &&
+                              (isLight
+                                ? "border-orange-300 bg-orange-100 text-orange-700"
+                                : "border-orange-300/40 bg-orange-500/15 text-orange-300"),
+                            mission.priority === "critical" &&
+                              (isLight
+                                ? "border-rose-300 bg-rose-100 text-rose-700"
+                                : "border-rose-300/40 bg-rose-500/15 text-rose-300"),
                           )}
                         >
                           {mission.priority}
@@ -310,112 +419,311 @@ export function HomeMainScreen() {
                   ))}
                 </div>
               </section>
+            </div>
 
+            {/* ── ZONE 2: Center column ──────────────────────────────────── */}
+            <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0">
+              {/* ── NOVA CHAT bar ── */}
+              <div
+              style={panelStyle}
+              className={`${panelClass} home-spotlight-shell px-4 pt-3 pb-3 shrink-0`}
+            >
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-accent" />
+                  <span
+                    className={cn(
+                      "text-sm uppercase tracking-[0.22em] font-semibold",
+                      isLight ? "text-s-90" : "text-slate-200",
+                    )}
+                  >
+                    Nova Chat
+                  </span>
+                </div>
+                {(!connected || isMuted) && (
+                  <span
+                    className={cn(
+                      "text-[10px] uppercase tracking-[0.14em] px-2 py-0.5 rounded-full border",
+                      !connected
+                        ? isLight
+                          ? "border-rose-300 bg-rose-50 text-rose-600"
+                          : "border-rose-400/40 bg-rose-500/15 text-rose-400"
+                        : isLight
+                          ? "border-amber-300 bg-amber-50 text-amber-600"
+                          : "border-amber-400/40 bg-amber-500/15 text-amber-400",
+                    )}
+                  >
+                    {!connected ? "offline" : "muted"}
+                  </span>
+                )}
+              </div>
+              <Composer
+                onSend={handleSend}
+                isStreaming={false}
+                disabled={!connected}
+                isMuted={isMuted}
+                onToggleMute={handleMuteToggle}
+                muteHydrated={muteHydrated}
+              />
+            </div>
+
+            {/* ── Main module row: Spotify + open expansion slots ── */}
+            <div className="flex-1 flex gap-3 min-h-0">
+              <SpotifyHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                sectionRef={spotifyModuleSectionRef}
+                className="flex w-67 h-[16rem] shrink-0 self-start"
+                connected={spotifyConnected}
+                nowPlaying={spotifyNowPlaying}
+                error={spotifyError}
+                busyAction={spotifyBusyAction}
+                onOpenIntegrations={openIntegrations}
+                onTogglePlayPause={toggleSpotifyPlayback}
+                onNext={spotifyNextTrack}
+                onPrevious={spotifyPreviousTrack}
+                onPlaySmart={spotifyPlaySmart}
+                onSeek={seekSpotify}
+              />
+              {/* Future module expansion area — drop new panels here */}
+              <div className="flex-1 min-w-0" />
+            </div>
+
+            {/* ── Bottom row: market panels ── */}
+            <div className="grid grid-cols-3 gap-3 shrink-0 h-47">
+
+              {/* Crypto Prices */}
               <section
-                ref={integrationsSectionRef}
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-72 xl:col-start-2 xl:row-start-2`}
+                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
               >
-                <div className="relative flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0 text-s-80">
-                    <Blocks className="w-4 h-4 text-accent" />
-                  </div>
-                  <h2 className={cn("absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>Integrations</h2>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={openIntegrations}
-                      className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/integrations-gear`, subPanelClass)}
-                      aria-label="Open integrations settings"
+                {renderPanelHeader({
+                  icon: <TrendingUp className="w-4 h-4 text-accent" />,
+                  title: "Crypto Prices",
+                  action: (
+                    <div className="inline-flex items-center gap-0.5">
+                      {cryptoRangeOptions.map((option) => {
+                        const active = cryptoRange === option.id
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => setCryptoRange(option.id)}
+                            className={cn(
+                              "h-5 min-w-7 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                              active
+                                ? (isLight ? "text-accent" : "text-slate-100")
+                                : isLight
+                                  ? "text-s-50 hover:text-accent"
+                                  : "text-slate-500 hover:text-slate-300",
+                            )}
+                            aria-label={`Show ${option.label} crypto move`}
+                          >
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ),
+                })}
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  {cryptoRows.map((asset) => {
+                    const up = asset.changePct >= 0
+                    const trendStroke = up ? "#34d399" : "#fb7185"
+                    return (
+                    <div
+                      key={asset.symbol}
+                      className={cn(
+                        "flex items-center justify-between px-2 py-1 rounded-sm home-spotlight-card home-border-glow",
+                        subPanelClass,
+                      )}
                     >
-                      <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/integrations-gear:text-accent group-hover/integrations-gear:rotate-90 transition-transform duration-200" />
-                    </button>
-                  </div>
+                      <span className={cn("text-[11px] font-semibold", isLight ? "text-s-60" : "text-slate-400")}>
+                          {asset.symbol}
+                        </span>
+                      <div className="mx-2 flex-1 min-w-0">
+                        <svg
+                          viewBox="0 0 56 12"
+                          className="h-3 w-full"
+                          preserveAspectRatio="none"
+                          aria-hidden="true"
+                        >
+                          <polyline
+                            points={sparklinePoints(asset.chart)}
+                            fill="none"
+                            stroke={trendStroke}
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </div>
+                      <div className="text-right">
+                        <p
+                          className={cn(
+                            "text-[13px] font-semibold tabular-nums leading-tight",
+                            isLight ? "text-s-90" : "text-slate-100",
+                          )}
+                        >
+                          {fmtUsd(asset.price)}
+                        </p>
+                        <p className={cn("text-[10px] tabular-nums", up ? "text-emerald-400" : "text-rose-400")}>
+                          {fmtPct(asset.changePct)}
+                        </p>
+                      </div>
+                    </div>
+                    )
+                  })}
                 </div>
-
-                <div>
-                  <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
-                </div>
-
-                <div className={cn("mt-1 flex-1 min-h-0 p-1.5 rounded-lg", subPanelClass)}>
-                  <div className="grid h-full grid-cols-5 grid-rows-5 gap-1">
-                    {integrationNodes.map(({ icon, connected, label }) => (
-                      <button
-                        key={label}
-                        onClick={goToIntegrations}
-                        className={cn(
-                          "h-full min-h-0 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                          integrationBadgeClass(connected),
-                        )}
-                        aria-label={`${label}: ${connected ? "connected" : "not connected"} — manage in integrations`}
-                        title={`${label}: ${connected ? "connected" : "not connected"}`}
-                      >
-                        {icon}
-                      </button>
-                    ))}
-                    {Array.from({ length: fillerSlots }).map((_, index) => (
-                      <div
-                        key={index}
-                        className={cn(
-                          "h-full min-h-0 rounded-sm border home-spotlight-card home-border-glow",
-                          isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20",
-                        )}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-2" />
               </section>
-            </aside>
 
-            {/* ── Row 2, Col 1: Module Slot 1 ── */}
-            <SpotifyHomeModule
-              isLight={isLight}
-              panelClass={panelClass}
-              subPanelClass={subPanelClass}
-              panelStyle={panelStyle}
-              sectionRef={spotifyModuleSectionRef}
-              connected={spotifyConnected}
-              nowPlaying={spotifyNowPlaying}
-              error={spotifyError}
-              busyAction={spotifyBusyAction}
-              onOpenIntegrations={openIntegrations}
-              onTogglePlayPause={toggleSpotifyPlayback}
-              onNext={spotifyNextTrack}
-              onPrevious={spotifyPreviousTrack}
-              onPlaySmart={spotifyPlaySmart}
-              onSeek={seekSpotify}
-            />
+              {/* Commodities */}
+              <section
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+              >
+                {renderPanelHeader({
+                  icon: <BarChart2 className="w-4 h-4 text-accent" />,
+                  title: "Commodities",
+                })}
+                <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>
+                  Placeholder pricing tiles
+                </p>
+                <div className="mt-2 flex-1 flex flex-col justify-around gap-1">
+                  {COMMODITIES.map((c) => (
+                    <div
+                      key={c.name}
+                      className={cn(
+                        "flex items-center justify-between px-2 py-1.5 rounded-sm home-spotlight-card home-border-glow",
+                        subPanelClass,
+                      )}
+                    >
+                      <span className={cn("text-[12px]", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className={cn(
+                            "text-[13px] font-semibold tabular-nums",
+                            isLight ? "text-s-90" : "text-slate-100",
+                          )}
+                        >
+                          {c.price}
+                        </span>
+                        <span className={cn("text-[10px] tabular-nums", c.up ? "text-emerald-400" : "text-rose-400")}>
+                          {c.change}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-            {/* ── Row 2, Col 2: Agent Chart ── */}
+            </div>
+            </div>
+
+          {/* ── ZONE 3: Right column (4 stacked panels) ─────────────────── */}
+          <div className="w-67 shrink-0 flex flex-col gap-3 min-h-0">
+
+            {/* Integrations */}
+            <section
+              ref={integrationsSectionRef}
+              style={panelStyle}
+              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2.5 flex flex-col shrink-0`}
+            >
+              {renderPanelHeader({
+                icon: <Blocks className="w-4 h-4 text-accent" />,
+                title: "Integrations",
+                action: renderGearButton({ onClick: openIntegrations, label: "Open integrations", groupName: "integrations-gear" }),
+              })}
+              <div className={cn("mt-1 p-1.5 rounded-lg", subPanelClass)}>
+                <div className="grid grid-cols-5 gap-1" style={{ gridTemplateRows: "repeat(5, 2rem)" }}>
+                  {integrationNodes.map(({ icon, connected, label }) => (
+                    <button
+                      key={label}
+                      onClick={goToIntegrations}
+                      className={cn(
+                        "h-8 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        integrationBadgeClass(connected),
+                      )}
+                      aria-label={`${label}: ${connected ? "connected" : "not connected"}`}
+                      title={label}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                  {Array.from({ length: Math.max(0, 25 - integrationNodes.length) }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "h-8 rounded-sm border home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20",
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* Macro Pulse */}
+            <section
+              ref={devToolsSectionRef}
+              style={panelStyle}
+              className={`${panelClass} home-spotlight-shell px-3 py-2.5 shrink-0 flex flex-col`}
+            >
+              {renderPanelHeader({
+                icon: <Activity className="w-4 h-4 text-accent" />,
+                title: "Dev Tools",
+                action: renderGearButton({ onClick: openDevLogs, label: "Open dev logs", groupName: "macro-dev-gear" }),
+              })}
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {devMetricTiles.map(({ label, value, color }) => (
+                  <div
+                    key={label}
+                    className={cn(
+                      "px-2 py-1.5 rounded-sm border text-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      subPanelClass,
+                    )}
+                  >
+                    <p className="text-[9px] uppercase tracking-widest opacity-60 whitespace-nowrap">{label}</p>
+                    <p className={cn("text-[15px] font-semibold tabular-nums leading-tight mt-0.5", color)}>
+                      {value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Agent Chart */}
             <section
               ref={agentModuleSectionRef}
               style={panelStyle}
-              className={`${panelClass} home-spotlight-shell hidden xl:flex xl:col-start-5 xl:row-start-2 px-3 pb-2 pt-2 max-h-72 flex-col`}
+              className={`${panelClass} home-spotlight-shell px-3 pb-2.5 pt-2.5 shrink-0 flex flex-col`}
             >
-              <div className="relative flex items-center justify-between gap-2 w-full">
-                <div className="flex items-center gap-2 min-w-0 text-s-80">
-                  <Network className="w-4 h-4 text-accent" />
-                </div>
-                <h2 className={cn("absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>Agent Chart</h2>
-                <button
-                  onClick={openAgents}
-                  className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group/agents-gear`, subPanelClass)}
-                  aria-label="Open agent chart"
-                  title="Open agent chart"
+              {renderPanelHeader({
+                icon: <Network className="w-4 h-4 text-accent" />,
+                title: "Agent Chart",
+                action: renderGearButton({ onClick: openAgents, label: "Open agent chart", groupName: "agents-gear" }),
+              })}
+              <p className={cn("text-[11px] mt-0.5 w-full", isLight ? "text-s-50" : "text-slate-400")}>
+                Operator + manager topology
+              </p>
+              <div className={cn("mt-1.5 rounded-lg p-2 border home-spotlight-card home-border-glow", subPanelClass)}>
+                <div
+                  className={cn(
+                    "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow",
+                    isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-white/3",
+                  )}
                 >
-                  <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/agents-gear:text-accent group-hover/agents-gear:rotate-90 transition-transform duration-200" />
-                </button>
-              </div>
-              <p className={cn("text-[11px] mt-0.5 w-full", isLight ? "text-s-50" : "text-slate-400")}>Operator + manager topology</p>
-              <div className={cn("mt-1 w-full flex-1 min-h-0 rounded-lg p-2 border home-spotlight-card home-border-glow", subPanelClass)}>
-                <div className={cn("rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-white/[0.03]")}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="inline-flex items-center gap-1.5">
                       <Bot className="w-3.5 h-3.5 text-accent" />
-                      <p className={cn("text-[11px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>Nova Operator</p>
+                      <p className={cn("text-[11px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>
+                        Nova Operator
+                      </p>
                     </div>
-                    <span className="rounded-full border border-emerald-300/40 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-emerald-200">online</span>
+                    <span className="rounded-full border border-emerald-300/40 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-emerald-200">
+                      online
+                    </span>
                   </div>
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -428,122 +736,45 @@ export function HomeMainScreen() {
                         isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
                       )}
                     >
-                      <p className={cn("text-[10px] font-semibold truncate", isLight ? "text-s-80" : "text-slate-200")}>{manager.label}</p>
-                      <p className={cn("text-[9px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>{manager.workers.length} workers</p>
+                      <p className={cn("text-[10px] font-semibold truncate", isLight ? "text-s-80" : "text-slate-200")}>
+                        {manager.label}
+                      </p>
+                      <p className={cn("text-[9px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>
+                        {manager.workers.length} workers
+                      </p>
                     </button>
                   ))}
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-1.5">
-                  <div className={cn("rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20")}>
+                  <div
+                    className={cn(
+                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
+                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
+                    )}
+                  >
                     <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Managers</p>
                     <p className="text-[12px] font-semibold">{NOVA_DOMAIN_MANAGERS.length}</p>
                   </div>
-                  <div className={cn("rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20")}>
+                  <div
+                    className={cn(
+                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
+                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
+                    )}
+                  >
                     <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Online</p>
-                    <p className="text-[12px] font-semibold">{previewOnlineCount}/{previewWorkerCount}</p>
+                    <p className="text-[12px] font-semibold">
+                      {previewOnlineCount}/{previewWorkerCount}
+                    </p>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* ── Row 2, Col 3: Analytics ── */}
-            <section
-              ref={analyticsSectionRef}
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-72 xl:col-start-3 xl:row-start-2`}
-            >
-              <div className="relative flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0 text-s-80">
-                  <Clock3 className="w-4 h-4 text-accent" />
-                </div>
-                <h2 className={cn("absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>Analytics</h2>
-                <button
-                  onClick={openAnalytics}
-                  className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow group/analytics-gear`, subPanelClass)}
-                  aria-label="Open analytics dashboard"
-                  title="Open analytics dashboard"
-                >
-                  <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/analytics-gear:text-accent group-hover/analytics-gear:rotate-90 transition-transform duration-200" />
-                </button>
-              </div>
-              <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>API Activity</p>
-              <div className="module-hover-scroll hide-scrollbar mt-1 flex-1 overflow-y-auto overflow-x-hidden pr-0.5">
-                <div className="grid grid-cols-2 gap-1">
-                  {analyticsLiveActivity.map((event) => (
-                    <div key={event.id} className={cn("rounded-sm border px-1.5 py-1 flex items-start gap-1.5 min-w-0 home-spotlight-card home-border-glow", subPanelClass)}>
-                      <div className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                        {iconForActivityService(event.service)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className={cn("text-[10px] leading-tight truncate", isLight ? "text-s-90" : "text-slate-100")}>{event.service}</p>
-                        <p className={cn("text-[9px] leading-tight truncate", isLight ? "text-s-60" : "text-slate-400")}>{event.action}</p>
-                      </div>
-                      <div className="inline-flex items-center gap-1 pt-0.5 shrink-0">
-                        <p className={cn("text-[9px] font-mono whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>{event.timeAgo}</p>
-                        <span className="shrink-0">
-                          {event.status === "success"
-                            ? <CheckCircle2 className="w-3 h-3 text-emerald-300" />
-                            : <AlertTriangle className={cn("w-3 h-3", event.status === "warning" ? "text-amber-300" : "text-rose-300")} />}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            {/* ── Row 2, Col 4: Dev Tools ── */}
-            <section
-              ref={devToolsSectionRef}
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2 flex flex-col max-h-72 xl:col-start-4 xl:row-start-2`}
-            >
-              <div className="relative flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0 text-s-80">
-                  <Activity className="w-4 h-4 text-accent" />
-                </div>
-                <h2 className={cn("absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>Dev Tools</h2>
-                <button
-                  onClick={openDevLogs}
-                  className={cn(`h-7 w-7 rounded-lg transition-colors home-spotlight-card home-border-glow group/dev-tools-gear`, subPanelClass)}
-                  aria-label="Open dev logs dashboard"
-                  title="Open dev logs dashboard"
-                >
-                  <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/dev-tools-gear:text-accent group-hover/dev-tools-gear:rotate-90 transition-transform duration-200" />
-                </button>
-              </div>
-              <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>Quality Hub</p>
-              <div className="mt-1 grid grid-cols-2 gap-1 flex-1 content-start">
-                <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
-                  <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Total Traces</p>
-                  <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.totalTraces)}</p>
-                </div>
-                <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
-                  <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Errors</p>
-                  <p className="mt-0.5 text-sm font-semibold text-rose-400 tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.errors)}</p>
-                </div>
-                <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
-                  <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Warnings</p>
-                  <p className="mt-0.5 text-sm font-semibold text-amber-300 tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.warnings)}</p>
-                </div>
-                <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
-                  <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Avg Latency</p>
-                  <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.avgLatencyMs)}ms</p>
-                </div>
-                <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
-                  <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Total Tokens</p>
-                  <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{formatNumber(devToolsMetrics.totalTokens)}</p>
-                </div>
-                <div className={cn("min-w-0 px-2 py-1 rounded-sm border home-spotlight-card home-border-glow", subPanelClass)}>
-                  <p className="text-[10px] uppercase tracking-[0.1em] opacity-70 whitespace-nowrap">Avg Quality</p>
-                  <p className="mt-0.5 text-sm font-semibold tabular-nums whitespace-nowrap">{devToolsMetrics.avgQuality.toFixed(1)}</p>
-                </div>
-              </div>
-            </section>
           </div>
         </div>
       </div>
     </div>
+    <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+  </div>
   )
 }
-

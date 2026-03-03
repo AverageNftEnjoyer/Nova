@@ -10,34 +10,10 @@ import { pickGreetingForTone } from "../constants"
 import { useHomeConversations } from "./use-home-conversations"
 import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
+import { useHomeCryptoMarket } from "./use-home-crypto-market"
 import { useHomeVisuals } from "./use-home-visuals"
 
 const GREETING_COOLDOWN_MS = 60_000
-const MAX_LIVE_ACTIVITY = 6
-
-type HomeActivityEvent = {
-  id: string
-  service: string
-  action: string
-  timeAgo: string
-  status: "success" | "warning" | "error"
-}
-
-const USAGE_PROVIDER_LABEL: Record<string, string> = {
-  openai: "OpenAI",
-  claude: "Claude",
-  grok: "Grok",
-  gemini: "Gemini",
-}
-
-function timeAgoStr(tsMs: number): string {
-  const diff = Math.max(0, Date.now() - tsMs)
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
 export function useHomeMainScreenState() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -54,30 +30,6 @@ export function useHomeMainScreenState() {
     clearAgentMessages,
   } = useNovaState()
 
-  const [liveActivity, setLiveActivity] = useState<HomeActivityEvent[]>([])
-
-  useEffect(() => {
-    if (!latestUsage) return
-    const label = USAGE_PROVIDER_LABEL[latestUsage.provider] ?? latestUsage.provider
-    const tokenStr = latestUsage.totalTokens > 0
-      ? `${latestUsage.totalTokens.toLocaleString("en-US")} tokens`
-      : "Response completed"
-    const action = latestUsage.estimatedCostUsd != null && latestUsage.estimatedCostUsd > 0
-      ? `$${latestUsage.estimatedCostUsd.toFixed(4)} · ${tokenStr}`
-      : tokenStr
-    const event: HomeActivityEvent = {
-      id: `live-${latestUsage.ts}`,
-      service: label,
-      action,
-      timeAgo: timeAgoStr(latestUsage.ts),
-      status: "success",
-    }
-    setLiveActivity((prev) => {
-      if (prev.some((e) => e.id === event.id)) return prev
-      return [event, ...prev].slice(0, MAX_LIVE_ACTIVITY)
-    })
-  }, [latestUsage])
-
   const visuals = useHomeVisuals({ isLight })
 
   const speakTts = useCallback((text: string) => {
@@ -87,6 +39,7 @@ export function useHomeMainScreenState() {
   }, [sendGreeting])
 
   const integrations = useHomeIntegrations({ latestUsage, speakTts })
+  const cryptoMarket = useHomeCryptoMarket()
   const devTools = useHomeDevTools()
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
@@ -157,9 +110,15 @@ export function useHomeMainScreenState() {
   const openMissions = useCallback(() => router.push("/missions"), [router])
   const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
-  const openAnalytics = useCallback(() => router.push("/analytics"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
   const openAgents = useCallback(() => router.push("/agents"), [router])
+
+  const liveActivity = [
+    { id: "evt-openai", service: "OpenAI", action: "Reasoning turn completed", timeAgo: "14s", status: "success" as const },
+    { id: "evt-spotify", service: "Spotify", action: "Playback sync refreshed", timeAgo: "49s", status: "success" as const },
+    { id: "evt-discord", service: "Discord", action: "Webhook retry succeeded", timeAgo: "2m", status: "warning" as const },
+    { id: "evt-nova", service: "Nova Runtime", action: "Background task queued", timeAgo: "3m", status: "success" as const },
+  ]
 
   return {
     isLight,
@@ -184,6 +143,7 @@ export function useHomeMainScreenState() {
     isMuted,
     handleMuteToggle,
     muteHydrated,
+    homeShellRef: visuals.homeShellRef,
     pipelineSectionRef: visuals.pipelineSectionRef,
     scheduleSectionRef: visuals.scheduleSectionRef,
     analyticsSectionRef: visuals.analyticsSectionRef,
@@ -196,10 +156,15 @@ export function useHomeMainScreenState() {
     subPanelClass: visuals.subPanelClass,
     missionHover: visuals.missionHover,
     missions: integrations.missions,
+    cryptoAssets: cryptoMarket.cryptoAssets,
+    cryptoRange: cryptoMarket.cryptoRange,
+    setCryptoRange: cryptoMarket.setCryptoRange,
+    cryptoLoading: cryptoMarket.cryptoLoading,
+    cryptoError: cryptoMarket.cryptoError,
+    refreshCryptoMarket: cryptoMarket.refreshCryptoMarket,
     openMissions,
     openCalendar,
     openIntegrations,
-    openAnalytics,
     openDevLogs,
     openAgents,
     liveActivity,

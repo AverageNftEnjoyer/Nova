@@ -88,29 +88,34 @@ const etState = (
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed" | "skipped"> {
-  // Atomically claim the run — prevents double-execution when multiple workers overlap.
+  // Atomically claim the run - prevents double-execution when multiple workers overlap.
   const claimResult = await jobLedger.claimRun({
     jobRunId: run.id,
     leaseDurationMs: EXECUTION_TICK_LEASE_MS,
   })
   if (!claimResult.ok) return "skipped" // another worker claimed it first
 
-  // Transition claimed → running (sets started_at). Capture result for heartbeat decision.
+  // Transition claimed -> running (sets started_at). Capture result for heartbeat decision.
+  let startErrorDetail: string | undefined
   const startResult = await jobLedger.startRun({ jobRunId: run.id, leaseToken: claimResult.leaseToken }).catch((err) => {
-    console.warn("[ExecutionTick] startRun failed:", run.id, err instanceof Error ? err.message : err)
+    startErrorDetail = err instanceof Error ? err.message : String(err)
+    console.warn("[ExecutionTick] startRun failed:", run.id, startErrorDetail)
     return { ok: false }
   })
 
-  // Heartbeat: renew the lease at 1/3 of the lease duration so the run stays
-  // alive during long executions. Only start if startRun succeeded (row is 'running').
-  const heartbeatIntervalMs = Math.floor(EXECUTION_TICK_LEASE_MS / 3)
-  let heartbeatTimer: NodeJS.Timeout | null = null
-  if (startResult.ok) {
-    heartbeatTimer = setInterval(() => {
-      jobLedger.heartbeat({ jobRunId: run.id, leaseToken: claimResult.leaseToken, leaseDurationMs: EXECUTION_TICK_LEASE_MS }).catch((err) => {
-        console.warn("[ExecutionTick] heartbeat failed:", run.id, err instanceof Error ? err.message : err)
+  if (!startResult.ok) {
+    const detail = startErrorDetail || ("Unable to transition run " + run.id + " to running state.")
+    await jobLedger
+      .failRun({
+        jobRunId: run.id,
+        leaseToken: claimResult.leaseToken,
+        errorCode: "START_RUN_FAILED",
+        errorDetail: detail,
       })
-    }, heartbeatIntervalMs)
+      .catch((err) => {
+        console.warn("[ExecutionTick] failRun after startRun failure also failed:", run.id, err instanceof Error ? err.message : err)
+      })
+    return "failed"
   }
 
   try {
@@ -136,7 +141,7 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
         jobRunId: run.id,
         leaseToken: claimResult.leaseToken,
         errorCode: "MISSION_NOT_FOUND",
-        errorDetail: `Mission ${run.mission_id} not found for user ${run.user_id}`,
+        errorDetail: "Mission " + run.mission_id + " not found for user " + run.user_id,
       }).catch(() => {})
       return "failed"
     }
@@ -147,8 +152,15 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
       typeof run.input_snapshot?.scheduledAtOverride === "string" ? run.input_snapshot.scheduledAtOverride : undefined
     const missionToRun: Mission = scheduledAtOverride ? { ...mission, scheduledAtOverride } : mission
 
-    // Build a pre-claimed slot — executeMissionCore will use it instead of re-enqueuing.
-    const slot = makePreClaimedSlot(run.id, claimResult.leaseToken)
+    // Build a pre-claimed slot - executeMissionCore will use it instead of re-enqueuing.
+    // Heartbeat is managed by the slot and cleared in slot.release().
+    const slot = makePreClaimedSlot(run.id, claimResult.leaseToken, {
+      intervalMs: Math.floor(EXECUTION_TICK_LEASE_MS / 3),
+      onBeat: () =>
+        jobLedger
+          .heartbeat({ jobRunId: run.id, leaseToken: claimResult.leaseToken, leaseDurationMs: EXECUTION_TICK_LEASE_MS })
+          .then(() => {}),
+    })
 
     const scope = mission.userId
       ? { userId: mission.userId, allowServiceRole: true as const, serviceRoleReason: "execution-tick" as const }
@@ -209,16 +221,9 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
       return "failed"
     }
   } finally {
-    if (heartbeatTimer !== null) {
-      clearInterval(heartbeatTimer)
-      heartbeatTimer = null
-    }
+    // Heartbeat lifecycle is managed by makePreClaimedSlot.release().
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Batch executor
-// ─────────────────────────────────────────────────────────────────────────────
 
 export type ExecutionTickResult = {
   claimed: number

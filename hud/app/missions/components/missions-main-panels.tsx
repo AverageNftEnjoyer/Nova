@@ -7,6 +7,7 @@ import { FluidSelect } from "@/components/ui/fluid-select"
 import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { MissionTemplate } from "@/lib/missions/templates"
 import { cn } from "@/lib/shared/utils"
+import type { MissionQueueMetrics } from "../api"
 import {
   AI_PROVIDER_LABELS,
   MISSION_FILTER_STATUS_OPTIONS,
@@ -42,6 +43,7 @@ interface MissionsMainPanelsProps {
   busyById: Record<string, boolean>
   runProgress: MissionRunProgress | null
   missionRuntimeStatusById: Record<string, MissionRuntimeStatus>
+  missionQueueMetrics: MissionQueueMetrics | null
   onNovaMissionPromptChange: (value: string) => void
   onSearchQueryChange: (value: string) => void
   onStatusFilterChange: (value: string) => void
@@ -76,6 +78,7 @@ export function MissionsMainPanels({
   busyById,
   runProgress,
   missionRuntimeStatusById,
+  missionQueueMetrics,
   onNovaMissionPromptChange,
   onSearchQueryChange,
   onStatusFilterChange,
@@ -166,7 +169,14 @@ export function MissionsMainPanels({
             <Pin className="w-4 h-4 text-accent" />
             <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline Settings</h2>
           </div>
-          <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>{filteredSchedules.length} missions</p>
+          <div className="text-right">
+            <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>{filteredSchedules.length} missions</p>
+            {missionQueueMetrics && (
+              <p className={cn("text-[10px]", isLight ? "text-s-50" : "text-slate-500")}>
+                Queue {missionQueueMetrics.queueDepth} ({missionQueueMetrics.dueDepth} due) · Lag {missionQueueMetrics.lagSeconds}s · Fail {Math.round(missionQueueMetrics.failureRate * 100)}%
+              </p>
+            )}
+          </div>
         </div>
         <div className="mt-3 grid grid-cols-[minmax(0,1fr)_190px_auto] gap-2">
           <div className={cn("flex items-center gap-2 rounded-lg border px-2.5 home-spotlight-card home-border-glow", subPanelClass)}>
@@ -252,6 +262,8 @@ export function MissionsMainPanels({
                 ? `Running ${dynamicRunningStep}/${dynamicRunningTotal}`
                 : runtimeStatus?.kind === "running"
                   ? `Running ${runtimeStatus.step}/${runtimeStatus.total}`
+                  : runtimeStatus?.kind === "queued"
+                    ? `Queued at ${formatStatusTime(runtimeStatus.at)}`
                   : runtimeStatus?.kind === "completed"
                     ? `Completed at ${formatStatusTime(runtimeStatus.at)}`
                     : runtimeStatus?.kind === "failed"
@@ -265,6 +277,8 @@ export function MissionsMainPanels({
                 ? "text-sky-300"
                 : runtimeStatus?.kind === "running"
                   ? "text-sky-300"
+                  : runtimeStatus?.kind === "queued"
+                    ? "text-amber-300"
                   : runtimeStatus?.kind === "completed"
                     ? "text-emerald-300"
                     : runtimeStatus?.kind === "failed"
@@ -278,6 +292,8 @@ export function MissionsMainPanels({
                 ? "bg-sky-400"
                 : runtimeStatus?.kind === "running"
                   ? "bg-sky-400"
+                  : runtimeStatus?.kind === "queued"
+                    ? "bg-amber-400"
                   : runtimeStatus?.kind === "completed"
                     ? "bg-emerald-400"
                     : runtimeStatus?.kind === "failed"

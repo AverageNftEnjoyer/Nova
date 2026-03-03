@@ -62,6 +62,8 @@ export interface MissionRecordResponse {
 
 export interface TriggerMissionResponse {
   ok?: boolean
+  queued?: boolean
+  missionRunId?: string
   skipped?: boolean
   reason?: string
   stepTraces?: unknown
@@ -69,6 +71,46 @@ export interface TriggerMissionResponse {
   telegramQueued?: boolean
   error?: string
   schedule?: MissionListItem
+}
+
+export interface MissionRunStatusResponse {
+  ok?: boolean
+  error?: string
+  run?: {
+    id: string
+    missionId: string
+    status: "pending" | "claimed" | "running" | "succeeded" | "failed" | "dead" | "cancelled" | string
+    source?: string
+    attempt?: number
+    maxAttempts?: number
+    scheduledFor?: string
+    startedAt?: string | null
+    finishedAt?: string | null
+    durationMs?: number | null
+    errorCode?: string | null
+    errorDetail?: string | null
+    createdAt?: string
+  }
+}
+
+export interface MissionQueueMetrics {
+  asOf: string
+  lookbackMinutes: number
+  queueDepth: number
+  dueDepth: number
+  inflight: number
+  lagMs: number
+  lagSeconds: number
+  oldestDueScheduledFor: string | null
+  terminalCountLookback: number
+  failedCountLookback: number
+  failureRate: number
+}
+
+export interface MissionQueueMetricsResponse {
+  ok?: boolean
+  error?: string
+  metrics?: MissionQueueMetrics
 }
 
 export interface BuildMissionResponse {
@@ -219,6 +261,18 @@ export function triggerMissionSchedule(missionId: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ missionId }),
+  })
+}
+
+export function fetchMissionRunStatus(missionRunId: string) {
+  return requestJson<MissionRunStatusResponse>(`/api/missions/runs/${encodeURIComponent(missionRunId)}`, {
+    cache: "no-store",
+  })
+}
+
+export function fetchMissionQueueMetrics() {
+  return requestJson<MissionQueueMetricsResponse>("/api/missions/queue/metrics", {
+    cache: "no-store",
   })
 }
 

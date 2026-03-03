@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.39 Alpha (2026-03-03): Spotlight interaction stability overhaul + unified hover behavior
+ *     - Removed moving spotlight core-dot from active HUD spotlight surfaces and disabled particle streak effects by default.
+ *     - Standardized spotlight response to direct hovered-card targeting (no cross-card/module glow bleed) across Home, Chat, Missions Calendar, and Integrations.
+ *     - Hardened spotlight runtime math for zero-size/hidden cards with clamped glow coordinates to prevent visual glitching/flicker.
+ *     - Added blur/leave cleanup hardening so glow state resets cleanly when focus changes or cursor exits interactive sections.
+ *
  * - V.38 Alpha (2026-03-03): HUD navigation churn reduction + websocket cleanup hardening
  *     - Replaced hard document navigations (`window.location.*`) in root/login/chat mission entrypoints with Next router navigation to reduce full-page reload churn.
  *     - Removed background Home-hook `401` redirect side effects that could trigger repeated route bouncing during transient auth/session states.
@@ -203,13 +209,6 @@
  *     - Fixed hydration mismatch by deferring background layer rendering until client mount.
  *     - Removed duplicate page-level background state/effects from home, missions, and chat flows.
  *
- * - V.09 Alpha (2026-02-18): Analytics baseline module and nav integration
- *     - Added new /analytics route with modular analytics architecture.
- *     - Implemented frosted-glass analytics modules, spotlight effects, and D3 charts.
- *     - Added rotating settings wheel with module visibility controls and persistence.
- *     - Wired Analytics entry points into Home and Chat right-rail module controls.
- *     - Updated sidebar hub labeling to recognize Analytics Hub context.
- *
  * - V.08 Alpha (2026-02-17): Chat refactor and Brave integration
  *     - Refactored chat-shell-controller from 1688 lines to 616 lines.
  *     - Extracted logic into reusable hooks: useConversations, useIntegrationsStatus,
@@ -255,5 +254,5 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.38 Alpha"
+export const NOVA_VERSION = "V.39 Alpha"
 

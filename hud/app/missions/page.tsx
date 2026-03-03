@@ -63,6 +63,7 @@ export default function MissionsPage() {
     filteredSchedules,
     busyById,
     missionRuntimeStatusById,
+    missionQueueMetrics,
     setNovaMissionPrompt,
     setSearchQuery,
     setStatusFilter,
@@ -443,6 +444,7 @@ export default function MissionsPage() {
               busyById={busyById}
               runProgress={runProgress}
               missionRuntimeStatusById={missionRuntimeStatusById}
+              missionQueueMetrics={missionQueueMetrics}
               onNovaMissionPromptChange={setNovaMissionPrompt}
               onSearchQueryChange={setSearchQuery}
               onStatusFilterChange={setStatusFilter}

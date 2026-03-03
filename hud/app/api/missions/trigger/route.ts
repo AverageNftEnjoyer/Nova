@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
+import { enqueueMissionRunForQueue, isMissionQueueModeEnabled } from "@/lib/missions/workflow/queue-mode"
 import { loadMissions, upsertMission } from "@/lib/missions/store"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
@@ -117,6 +118,30 @@ export async function POST(req: Request) {
 
       const missionRunId = crypto.randomUUID()
       const runKey = `manual-trigger:${mission.id}:${Date.now()}`
+      if (isMissionQueueModeEnabled()) {
+        const enqueueResult = await enqueueMissionRunForQueue({
+          mission,
+          userId,
+          missionRunId,
+          runKey,
+          requestIdempotencyKey: req.headers.get("x-idempotency-key") || undefined,
+        })
+        if (!enqueueResult.ok) {
+          return NextResponse.json({ ok: false, error: enqueueResult.error }, { status: 502 })
+        }
+        return NextResponse.json(
+          {
+            ok: true,
+            queued: true,
+            missionRunId,
+            reason: "Mission queued for worker execution.",
+            results: [],
+            stepTraces: [],
+            telegramQueued: false,
+          },
+          { status: 202 },
+        )
+      }
       const skillSnapshot = await loadMissionSkillSnapshot({ userId })
       const startedAtMs = Date.now()
 
