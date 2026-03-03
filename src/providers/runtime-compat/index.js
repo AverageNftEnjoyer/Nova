@@ -23,7 +23,7 @@ const USER_CONTEXT_INTEGRATIONS_ROOT = path.join(
   path.dirname(INTEGRATIONS_CONFIG_PATH),
   "..",
   "..",
-  ".agent",
+  ".user",
   "user-context",
 );
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";

@@ -79,7 +79,7 @@ function resolveArtifactDir(userContextId: string): string {
   const scopedUserId = sanitizeUserContextId(userContextId)
   return path.join(
     resolveWorkspaceRoot(),
-    ".agent",
+    ".user",
     "user-context",
     scopedUserId,
     STATE_DIR_NAME,

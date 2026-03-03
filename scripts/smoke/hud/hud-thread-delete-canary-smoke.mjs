@@ -33,7 +33,7 @@ function resolveSmokeUserContextId() {
   ).trim();
   if (explicit) return explicit;
 
-  const root = path.join(process.cwd(), ".agent", "user-context");
+  const root = path.join(process.cwd(), ".user", "user-context");
   if (!fs.existsSync(root)) return "";
   const candidates = fs
     .readdirSync(root, { withFileTypes: true })
@@ -72,7 +72,7 @@ const { appendThreadDeleteAuditLog } = audit;
 const ts = Date.now();
 const conversationId = `thread-delete-canary-${ts}-thread`;
 const sessionKeyHint = `agent:nova:hud:user:${userContextId}:dm:${conversationId}`;
-const scopedRoot = path.join(process.cwd(), ".agent", "user-context", userContextId);
+const scopedRoot = path.join(process.cwd(), ".user", "user-context", userContextId);
 const sessionsPath = path.join(scopedRoot, "state", "sessions.json");
 const logsDir = path.join(scopedRoot, "logs");
 const auditLogPath = path.join(logsDir, "thread-delete-audit.jsonl");

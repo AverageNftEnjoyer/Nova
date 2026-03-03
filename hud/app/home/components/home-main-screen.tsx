@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2 } from "lucide-react"
+import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
 import {
   BraveIcon,
@@ -13,6 +13,7 @@ import {
   GeminiIcon,
   GmailCalendarIcon,
   GmailIcon,
+  NewsIcon,
   OpenAIIcon,
   SpotifyIcon,
   TelegramIcon,
@@ -30,6 +31,7 @@ import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { formatDailyTime, hexToRgba } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
+import { NewsFeedModule } from "./news-feed-module"
 
 const FALLBACK_CRYPTO_ASSETS = [
   { symbol: "BTC", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
@@ -62,6 +64,7 @@ export function HomeMainScreen() {
     scheduleSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
+    newsModuleSectionRef,
     agentModuleSectionRef,
     devToolsSectionRef,
     panelStyle,
@@ -82,6 +85,7 @@ export function HomeMainScreen() {
     telegramConnected,
     discordConnected,
     braveConnected,
+    newsConnected,
     coinbaseConnected,
     openaiConnected,
     claudeConnected,
@@ -98,7 +102,16 @@ export function HomeMainScreen() {
     seekSpotify,
     gmailConnected,
     gcalendarConnected,
+    newsArticles,
+    newsLoading,
+    newsError,
+    newsStale,
+    newsFetchedAt,
+    refreshNewsFeed,
     orbPalette,
+    dayInHistoryEvents,
+    dayInHistoryLoading,
+    dayInHistoryError,
   } = useHomeMainScreenState()
   const isLight = muteHydrated && rawIsLight
 
@@ -166,6 +179,7 @@ export function HomeMainScreen() {
     { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail" },
     { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar" },
     { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave" },
+    { icon: <NewsIcon className="w-4.5 h-4.5" />, connected: newsConnected, label: "News" },
     { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase" },
   ] as const
 
@@ -290,7 +304,7 @@ export function HomeMainScreen() {
               <div />
               <div className="flex items-center gap-2">
                 <div className={cn("flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg home-spotlight-card home-border-glow", subPanelClass)}>
-                    <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20")}>
+                    <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface")}>
                       {profileAvatar ? (
                         <Image
                           src={profileAvatar}
@@ -384,7 +398,7 @@ export function HomeMainScreen() {
                               key={`${mission.id}-${time}-${index}`}
                               className={cn(
                                 "text-[10px] px-1.5 py-0.5 rounded-md border",
-                                isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/4 text-slate-300",
+                                isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "home-subpanel-surface text-slate-300",
                               )}
                             >
                               {formatDailyTime(time, mission.timezone)}
@@ -487,12 +501,10 @@ export function HomeMainScreen() {
                 onPlaySmart={spotifyPlaySmart}
                 onSeek={seekSpotify}
               />
-              {/* Future module expansion area — drop new panels here */}
-              <div className="flex-1 min-w-0" />
             </div>
 
-            {/* ── Bottom row: market panels ── */}
-            <div className="grid grid-cols-3 gap-3 shrink-0 h-47">
+            {/* ── Bottom row: market + dev + history panels ── */}
+            <div className="grid grid-cols-4 gap-3 shrink-0 h-47">
 
               {/* Crypto Prices */}
               <section
@@ -503,28 +515,20 @@ export function HomeMainScreen() {
                   icon: <TrendingUp className="w-4 h-4 text-accent" />,
                   title: "Crypto Prices",
                   action: (
-                    <div className="inline-flex items-center gap-0.5">
-                      {cryptoRangeOptions.map((option) => {
-                        const active = cryptoRange === option.id
-                        return (
-                          <button
-                            key={option.id}
-                            onClick={() => setCryptoRange(option.id)}
-                            className={cn(
-                              "h-5 min-w-7 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors",
-                              active
-                                ? (isLight ? "text-accent" : "text-slate-100")
-                                : isLight
-                                  ? "text-s-50 hover:text-accent"
-                                  : "text-slate-500 hover:text-slate-300",
-                            )}
-                            aria-label={`Show ${option.label} crypto move`}
-                          >
-                            {option.label}
-                          </button>
-                        )
-                      })}
-                    </div>
+                    <button
+                      onClick={() => {
+                        const order = cryptoRangeOptions.map((o) => o.id)
+                        const idx = order.indexOf(cryptoRange)
+                        setCryptoRange(order[(idx + 1) % order.length])
+                      }}
+                      className={cn(
+                        "h-5 min-w-7 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                        isLight ? "text-accent" : "text-slate-100",
+                      )}
+                      aria-label={`Crypto range: ${cryptoRange}. Click to cycle.`}
+                    >
+                      {cryptoRangeOptions.find((o) => o.id === cryptoRange)?.label ?? "1D"}
+                    </button>
                   ),
                 })}
                 <div className="mt-2 grid grid-cols-2 gap-1.5">
@@ -618,10 +622,91 @@ export function HomeMainScreen() {
                 </div>
               </section>
 
+              {/* Dev Tools */}
+              <section
+                ref={devToolsSectionRef}
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+              >
+                {renderPanelHeader({
+                  icon: <Activity className="w-4 h-4 text-accent" />,
+                  title: "Dev Tools",
+                  action: renderGearButton({ onClick: openDevLogs, label: "Open dev logs", groupName: "macro-dev-gear" }),
+                })}
+                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                  {devMetricTiles.map(({ label, value, color }) => (
+                    <div
+                      key={label}
+                      className={cn(
+                        "px-2 py-1.5 rounded-sm border text-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        subPanelClass,
+                      )}
+                    >
+                      <p className="text-[9px] uppercase tracking-widest opacity-60 whitespace-nowrap">{label}</p>
+                      <p className={cn("text-[15px] font-semibold tabular-nums leading-tight mt-0.5", color)}>
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {/* Day in History */}
+              {(() => {
+                const now = new Date()
+                const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                const todayLabel = `${monthNames[now.getMonth()]} ${now.getDate()}`
+                return (
+                  <section
+                    style={panelStyle}
+                    className={`${panelClass} home-spotlight-shell px-3 py-2 flex flex-col`}
+                  >
+                    {renderPanelHeader({
+                      icon: <History className="w-4 h-4 text-accent" />,
+                      title: "On This Day",
+                    })}
+                    {dayInHistoryLoading && (
+                      <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>Loading...</p>
+                    )}
+                    {dayInHistoryError && !dayInHistoryLoading && (
+                      <p className="text-[11px] mt-2 text-center text-rose-400">{dayInHistoryError}</p>
+                    )}
+                    {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length > 0 && (
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {dayInHistoryEvents.map((evt, i) => (
+                          <div
+                            key={i}
+                            className={cn(
+                              "px-2.5 py-2 rounded-md border home-spotlight-card home-border-glow home-spotlight-dynamic",
+                              subPanelClass,
+                            )}
+                          >
+                            <p className={cn("text-[12px] font-semibold tabular-nums", isLight ? "text-s-90" : "text-slate-100")}>
+                              {todayLabel}, {evt.year}
+                            </p>
+                            <p className={cn(
+                              "text-[11px] mt-0.5 leading-normal",
+                              isLight ? "text-s-80" : "text-slate-300",
+                            )}>
+                              {evt.event}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length === 0 && (
+                      <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>
+                        No events found for today.
+                      </p>
+                    )}
+                  </section>
+                )
+              })()}
+
             </div>
             </div>
 
-          {/* ── ZONE 3: Right column (4 stacked panels) ─────────────────── */}
+          {/* ── ZONE 3: Right column (Integrations / News / Agent Chart) ── */}
           <div className="w-67 shrink-0 flex flex-col gap-3 min-h-0">
 
             {/* Integrations */}
@@ -656,7 +741,7 @@ export function HomeMainScreen() {
                       key={i}
                       className={cn(
                         "h-8 rounded-sm border home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20",
+                        isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "home-subpanel-surface",
                       )}
                     />
                   ))}
@@ -664,34 +749,23 @@ export function HomeMainScreen() {
               </div>
             </section>
 
-            {/* Macro Pulse */}
-            <section
-              ref={devToolsSectionRef}
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 py-2.5 shrink-0 flex flex-col`}
-            >
-              {renderPanelHeader({
-                icon: <Activity className="w-4 h-4 text-accent" />,
-                title: "Dev Tools",
-                action: renderGearButton({ onClick: openDevLogs, label: "Open dev logs", groupName: "macro-dev-gear" }),
-              })}
-              <div className="mt-2 grid grid-cols-3 gap-1.5">
-                {devMetricTiles.map(({ label, value, color }) => (
-                  <div
-                    key={label}
-                    className={cn(
-                      "px-2 py-1.5 rounded-sm border text-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                      subPanelClass,
-                    )}
-                  >
-                    <p className="text-[9px] uppercase tracking-widest opacity-60 whitespace-nowrap">{label}</p>
-                    <p className={cn("text-[15px] font-semibold tabular-nums leading-tight mt-0.5", color)}>
-                      {value}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </section>
+            {/* Live News — fills space between Integrations and Agent Chart */}
+            <NewsFeedModule
+              isLight={isLight}
+              panelClass={panelClass}
+              subPanelClass={subPanelClass}
+              panelStyle={panelStyle}
+              sectionRef={newsModuleSectionRef}
+              className="flex-1 min-h-0"
+              connected={newsConnected}
+              articles={newsArticles}
+              loading={newsLoading}
+              error={newsError}
+              stale={newsStale}
+              fetchedAt={newsFetchedAt}
+              onOpenIntegrations={openIntegrations}
+              onRefresh={refreshNewsFeed}
+            />
 
             {/* Agent Chart */}
             <section
@@ -704,14 +778,11 @@ export function HomeMainScreen() {
                 title: "Agent Chart",
                 action: renderGearButton({ onClick: openAgents, label: "Open agent chart", groupName: "agents-gear" }),
               })}
-              <p className={cn("text-[11px] mt-0.5 w-full", isLight ? "text-s-50" : "text-slate-400")}>
-                Operator + manager topology
-              </p>
-              <div className={cn("mt-1.5 rounded-lg p-2 border home-spotlight-card home-border-glow", subPanelClass)}>
+              <div className={cn("mt-0.5 rounded-lg p-2 border", subPanelClass)}>
                 <div
                   className={cn(
-                    "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow",
-                    isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-white/3",
+                    "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -733,7 +804,7 @@ export function HomeMainScreen() {
                       onClick={openAgents}
                       className={cn(
                         "rounded-md border px-1.5 py-1 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
-                        isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
+                        isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                       )}
                     >
                       <p className={cn("text-[10px] font-semibold truncate", isLight ? "text-s-80" : "text-slate-200")}>
@@ -748,8 +819,8 @@ export function HomeMainScreen() {
                 <div className="mt-2 grid grid-cols-2 gap-1.5">
                   <div
                     className={cn(
-                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
-                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
+                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                     )}
                   >
                     <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Managers</p>
@@ -757,8 +828,8 @@ export function HomeMainScreen() {
                   </div>
                   <div
                     className={cn(
-                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
-                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "border-white/10 bg-black/20",
+                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                     )}
                   >
                     <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Online</p>

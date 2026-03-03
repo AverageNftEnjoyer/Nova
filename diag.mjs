@@ -14,7 +14,7 @@ const ROOT_ENV = path.join(WORKSPACE_ROOT, ".env");
 const GLOBAL_CONFIG = path.join(WORKSPACE_ROOT, "hud", "data", "integrations-config.json");
 const USER_CONFIG = path.join(
   WORKSPACE_ROOT,
-  ".agent",
+  ".user",
   "user-context",
   USER_CONTEXT_ID,
   "integrations-config.json",

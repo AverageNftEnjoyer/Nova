@@ -39,7 +39,7 @@ await run("Calendar API routes enforce authenticated user scoping", () => {
 
 await run("Reschedule store persists per-user overrides under user-context path", () => {
   const store = read("hud/lib/calendar/reschedule-store/index.ts");
-  assert.equal(store.includes('path.join(resolveWorkspaceRoot(), ".agent", "user-context")'), true);
+  assert.equal(store.includes('path.join(resolveWorkspaceRoot(), ".user", "user-context")'), true);
   assert.equal(store.includes("resolveUserContextRoot()"), true);
   assert.equal(store.includes("resolveOverridesFile(uid)"), true);
   assert.equal(store.includes("missionId"), true);

@@ -51,6 +51,22 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+function mixHex(baseHex: string, mixHexColor: string, ratio: number): string {
+  const toRgb = (hex: string) => {
+    const clean = hex.replace("#", "")
+    const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+    const num = Number.parseInt(full, 16)
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 }
+  }
+  const base = toRgb(baseHex)
+  const mix = toRgb(mixHexColor)
+  const t = Math.max(0, Math.min(1, ratio))
+  const r = Math.round(base.r * (1 - t) + mix.r * t)
+  const g = Math.round(base.g * (1 - t) + mix.g * t)
+  const b = Math.round(base.b * (1 - t) + mix.b * t)
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`
+}
+
 export function AppBackgroundLayer() {
   const pathname = usePathname()
   const showForPath = supportsPersistentBackground(pathname)
@@ -147,6 +163,7 @@ export function AppBackgroundLayer() {
   }, [background, customBackgroundAssetId, isLight, showForPath])
 
   const orbPalette = ORB_COLORS[orbColor]
+  const blackModeCore = useMemo(() => mixHex("#020204", orbPalette.bg, 0.35), [orbPalette.bg])
   const floatingLinesGradient = useMemo<[string, string]>(
     () => [orbPalette.circle1, orbPalette.circle2],
     [orbPalette.circle1, orbPalette.circle2],
@@ -187,8 +204,8 @@ export function AppBackgroundLayer() {
             className="absolute inset-0"
             style={{
               background: `
-                radial-gradient(120% 95% at 50% 58%, rgba(11, 11, 13, 0.82) 0%, rgba(5, 5, 7, 0.96) 56%, #020204 100%),
-                linear-gradient(175deg, rgba(255,255,255,0.012) 0%, rgba(0,0,0,0) 36%)
+                radial-gradient(120% 95% at 50% 58%, ${hexToRgba(blackModeCore, 0.84)} 0%, rgba(5, 5, 7, 0.96) 56%, ${blackModeCore} 100%),
+                linear-gradient(175deg, ${hexToRgba(orbPalette.circle1, 0.045)} 0%, rgba(0,0,0,0) 36%)
               `,
             }}
           />
@@ -196,8 +213,8 @@ export function AppBackgroundLayer() {
             className="absolute inset-0"
             style={{
               backgroundImage: `
-                linear-gradient(0deg, rgba(255,255,255,0.018) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.016) 1px, transparent 1px)
+                linear-gradient(0deg, ${hexToRgba(orbPalette.circle2, 0.09)} 1px, transparent 1px),
+                linear-gradient(90deg, ${hexToRgba(orbPalette.circle1, 0.08)} 1px, transparent 1px)
               `,
               backgroundSize: "44px 44px, 44px 44px",
               backgroundPosition: "0 0, 0 0",
@@ -208,8 +225,8 @@ export function AppBackgroundLayer() {
             className="absolute inset-0"
             style={{
               backgroundImage: `
-                linear-gradient(0deg, rgba(255,255,255,0.022) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)
+                linear-gradient(0deg, ${hexToRgba(orbPalette.circle2, 0.11)} 1px, transparent 1px),
+                linear-gradient(90deg, ${hexToRgba(orbPalette.circle1, 0.1)} 1px, transparent 1px)
               `,
               backgroundSize: "5px 5px, 5px 5px",
               backgroundRepeat: "repeat, repeat",
@@ -217,7 +234,7 @@ export function AppBackgroundLayer() {
               opacity: 0.16,
             }}
           />
-          <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,0.08) 36%, rgba(0,0,0,0.58) 100%)" }} />
+          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, ${hexToRgba(orbPalette.circle1, 0.06)} 36%, rgba(0,0,0,0.58) 100%)` }} />
         </div>
       )}
       {background === "customVideo" && !!backgroundVideoUrl && (

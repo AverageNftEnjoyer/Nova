@@ -33,7 +33,7 @@ function resolveSmokeUserContextId() {
     || "",
   ).trim();
   if (explicit) return explicit;
-  const root = path.join(process.cwd(), ".agent", "user-context");
+  const root = path.join(process.cwd(), ".user", "user-context");
   if (!fs.existsSync(root)) return "";
   const candidates = fs
     .readdirSync(root, { withFileTypes: true })

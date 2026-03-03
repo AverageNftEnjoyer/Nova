@@ -93,7 +93,7 @@ function createRuntime(overrides = {}) {
     enabled: true,
     memoryEnabled: false,
     rootDir: process.cwd(),
-    memoryDbPath: path.join(process.cwd(), ".agent", "memory.smoke.db"),
+    memoryDbPath: path.join(process.cwd(), ".user", "memory.smoke.db"),
     memorySourceDir: path.join(process.cwd(), "memory"),
     enabledTools: ["read", "write", "edit", "ls", "grep", "exec", "web_search", "web_fetch"],
     execApprovalMode: "ask",

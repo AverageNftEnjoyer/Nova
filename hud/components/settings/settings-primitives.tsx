@@ -20,8 +20,8 @@ export function getSettingsCardClass(isLight: boolean) {
   return cn(
     "fx-spotlight-card fx-border-glow rounded-xl border transition-all duration-150",
     isLight
-      ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]"
-      : "border-white/10 bg-black/20 hover:bg-white/[0.06]"
+      ? "border-[#d5dce8] bg-[#f4f7fd]"
+      : "border-white/10 bg-black/20"
   )
 }
 
@@ -169,3 +169,4 @@ export function SettingSelect({
     </div>
   )
 }
+

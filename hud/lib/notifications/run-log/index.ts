@@ -44,7 +44,7 @@ function sanitizeUserContextId(value: unknown): string {
 function resolveScopedNotificationRunLogPath(scheduleId: string, userId: string): string {
   const root = resolveWorkspaceRoot()
   const cleanId = String(scheduleId || "").trim() || "unknown"
-  return path.join(root, ".agent", "user-context", userId, STATE_DIR_NAME, RUN_LOG_DIR_NAME, `${cleanId}.jsonl`)
+  return path.join(root, ".user", "user-context", userId, STATE_DIR_NAME, RUN_LOG_DIR_NAME, `${cleanId}.jsonl`)
 }
 
 function resolveUnscopedNotificationRunLogPath(scheduleId: string): string {

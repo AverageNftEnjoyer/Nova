@@ -39,7 +39,7 @@ const { buildSystemPrompt } = systemPromptModule;
 
 async function createWorkspace() {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-persona-smoke-"));
-  const userContextRoot = path.join(root, ".agent", "user-context");
+  const userContextRoot = path.join(root, ".user", "user-context");
   const templatesDir = path.join(root, "templates");
   await fsp.mkdir(userContextRoot, { recursive: true });
   await fsp.mkdir(templatesDir, { recursive: true });

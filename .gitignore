@@ -6,7 +6,7 @@
 .env.*
 !.env.example
 .claude/
-.agent/
+.user/
 
 # local runtime data
 data/

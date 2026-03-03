@@ -48,53 +48,66 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   useEffect(() => {
     if (!isOpen || !spotlightScopeRef.current || !(state.settings?.app.spotlightEnabled ?? true)) return
     const scope = spotlightScopeRef.current
-    const spotlight = document.createElement("div")
-    spotlight.className = "fx-spotlight-overlay"
-    scope.appendChild(spotlight)
+    const cards = Array.from(scope.querySelectorAll<HTMLElement>(".fx-spotlight-card"))
+    const clampPct = (value: number) => Math.max(0, Math.min(100, value))
+    let rafId: number | null = null
+    let pendingEvent: MouseEvent | null = null
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = scope.getBoundingClientRect()
-      scope.style.setProperty("--fx-overlay-x", `${e.clientX - rect.left}px`)
-      scope.style.setProperty("--fx-overlay-y", `${e.clientY - rect.top}px`)
-      scope.style.setProperty("--fx-overlay-opacity", "1")
+    const renderFrame = (e: MouseEvent) => {
+      const hoveredElement = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+      const hoveredCandidate = hoveredElement?.closest(".fx-spotlight-card") as HTMLElement | null
+      const hoveredCard = hoveredCandidate && scope.contains(hoveredCandidate) ? hoveredCandidate : null
 
-      const cards = scope.querySelectorAll<HTMLElement>(".fx-spotlight-card")
-      const proximity = 70
-      const fadeDistance = 140
       cards.forEach((card) => {
         const cardRect = card.getBoundingClientRect()
-        const centerX = cardRect.left + cardRect.width / 2
-        const centerY = cardRect.top + cardRect.height / 2
-        const distance = Math.hypot(e.clientX - centerX, e.clientY - centerY) - Math.max(cardRect.width, cardRect.height) / 2
-        const effectiveDistance = Math.max(0, distance)
-        let glowIntensity = 0
-        if (effectiveDistance <= proximity) {
-          glowIntensity = 1
-        } else if (effectiveDistance <= fadeDistance) {
-          glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity)
+        if (cardRect.width <= 1 || cardRect.height <= 1 || hoveredCard !== card) {
+          card.style.setProperty("--glow-intensity", "0")
+          return
         }
-        const relativeX = ((e.clientX - cardRect.left) / cardRect.width) * 100
-        const relativeY = ((e.clientY - cardRect.top) / cardRect.height) * 100
+
+        const relativeX = clampPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
+        const relativeY = clampPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
         card.style.setProperty("--glow-x", `${relativeX}%`)
         card.style.setProperty("--glow-y", `${relativeY}%`)
-        card.style.setProperty("--glow-intensity", glowIntensity.toString())
+        card.style.setProperty("--glow-intensity", "1")
         card.style.setProperty("--glow-radius", "120px")
       })
     }
 
+    const handleMouseMove = (e: MouseEvent) => {
+      pendingEvent = e
+      if (rafId !== null) return
+      rafId = window.requestAnimationFrame(() => {
+        const nextEvent = pendingEvent
+        pendingEvent = null
+        rafId = null
+        if (nextEvent) renderFrame(nextEvent)
+      })
+    }
+
+    const clearGlow = () => {
+      cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+    }
+
     const handleMouseLeave = () => {
-      scope.style.setProperty("--fx-overlay-opacity", "0")
-      scope.querySelectorAll<HTMLElement>(".fx-spotlight-card").forEach((card) =>
-        card.style.setProperty("--glow-intensity", "0")
-      )
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      pendingEvent = null
+      clearGlow()
     }
 
     scope.addEventListener("mousemove", handleMouseMove)
     scope.addEventListener("mouseleave", handleMouseLeave)
+    window.addEventListener("blur", clearGlow)
+
     return () => {
       scope.removeEventListener("mousemove", handleMouseMove)
       scope.removeEventListener("mouseleave", handleMouseLeave)
-      spotlight.remove()
+      window.removeEventListener("blur", clearGlow)
+      if (rafId !== null) window.cancelAnimationFrame(rafId)
+      clearGlow()
     }
   }, [isOpen, state.settings?.app.spotlightEnabled])
 
@@ -114,7 +127,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       {/* Modal shell */}
       <div
         ref={spotlightScopeRef}
-        style={{ "--fx-overlay-x": "50%", "--fx-overlay-y": "50%", "--fx-overlay-opacity": "0" } as CSSProperties}
         className={cn(
           "fx-spotlight-shell relative z-10 w-full max-w-6xl h-[min(92vh,820px)] rounded-2xl border overflow-hidden",
           "flex flex-col md:flex-row",
@@ -148,7 +160,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 size="sm"
                 className={cn(
                   "md:hidden fx-spotlight-card fx-border-glow gap-2",
-                  isLight ? "text-s-40 hover:text-s-60 hover:bg-[#eef3fb]" : "text-slate-500 hover:text-slate-300 hover:bg-white/6"
+                  isLight ? "text-s-40 hover:text-s-60" : "text-slate-500 hover:text-slate-300"
                 )}
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -158,7 +170,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 onClick={onClose}
                 className={cn(
                   "fx-spotlight-card fx-border-glow h-8 w-8 rounded-md border inline-flex items-center justify-center transition-colors",
-                  isLight ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]" : "border-white/12 bg-black/20 text-slate-300 hover:bg-white/8"
+                  isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/12 bg-black/20 text-slate-300"
                 )}
               >
                 <X className="w-4 h-4" />
@@ -377,3 +389,4 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     </div>
   )
 }
+

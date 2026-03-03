@@ -203,7 +203,7 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
   );
   const transcriptPatterns = compileTranscriptPatterns(sessionConversationIds, sessionKeyLookup);
 
-  const userContextDir = path.join(workspaceRoot, ".agent", "user-context", userContextId);
+  const userContextDir = path.join(workspaceRoot, ".user", "user-context", userContextId);
   const sessionStorePath = path.join(userContextDir, "state", "sessions.json");
   const scopedTranscriptDir = path.join(userContextDir, "transcripts");
 

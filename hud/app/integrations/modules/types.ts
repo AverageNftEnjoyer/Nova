@@ -86,6 +86,13 @@ export type UseIntegrationsActionsParams = {
   setBraveApiKey: SetState<string>
   setBraveApiKeyConfigured: SetState<boolean>
   setBraveApiKeyMasked: SetState<string>
+  newsApiKey: string
+  newsApiKeyConfigured: boolean
+  setNewsApiKey: SetState<string>
+  setNewsApiKeyConfigured: SetState<boolean>
+  setNewsApiKeyMasked: SetState<string>
+  newsDefaultTopics: string
+  setNewsDefaultTopics: SetState<string>
   coinbaseApiKey: string
   setCoinbaseApiKey: SetState<string>
   coinbaseApiSecret: string
@@ -125,6 +132,13 @@ export type IntegrationsMainPanelProps = {
   braveNeedsKeyWarning: boolean
   braveApiKeyConfigured: boolean
   braveApiKeyMasked: string
+  newsNeedsKeyWarning: boolean
+  newsApiKey: string
+  setNewsApiKey: SetState<string>
+  newsApiKeyConfigured: boolean
+  newsApiKeyMasked: string
+  newsDefaultTopics: string
+  setNewsDefaultTopics: SetState<string>
   coinbaseNeedsKeyWarning: boolean
   coinbasePendingAction: CoinbasePendingAction | null
   coinbaseSyncBadgeClass: string
@@ -191,6 +205,7 @@ export type IntegrationsMainPanelProps = {
   telegramSetupSectionRef: MutableRefObject<HTMLElement | null>
   discordSetupSectionRef: MutableRefObject<HTMLElement | null>
   braveSetupSectionRef: MutableRefObject<HTMLElement | null>
+  newsSetupSectionRef: MutableRefObject<HTMLElement | null>
   coinbaseSetupSectionRef: MutableRefObject<HTMLElement | null>
   gmailSetupSectionRef: MutableRefObject<HTMLElement | null>
   setBotToken: SetState<string>
@@ -209,6 +224,8 @@ export type IntegrationsMainPanelProps = {
   saveDiscordConfig: () => Promise<void>
   toggleBrave: () => Promise<void>
   saveBraveConfig: () => Promise<void>
+  toggleNews: () => Promise<void>
+  saveNewsConfig: () => Promise<void>
   probeCoinbaseConnection: (successMessage?: string) => Promise<void>
   toggleCoinbase: () => Promise<void>
   saveCoinbaseConfig: () => Promise<void>

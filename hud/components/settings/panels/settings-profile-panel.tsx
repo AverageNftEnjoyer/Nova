@@ -58,7 +58,7 @@ export function SettingsProfilePanel({
       {/* Avatar */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow flex items-center gap-4 p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <div
           className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
@@ -198,3 +198,4 @@ export function SettingsProfilePanel({
     </div>
   )
 }
+

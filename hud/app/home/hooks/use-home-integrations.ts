@@ -176,6 +176,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
   const [braveConnected, setBraveConnected] = useState(false)
+  const [newsConnected, setNewsConnected] = useState(false)
   const [coinbaseConnected, setCoinbaseConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
@@ -209,6 +210,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     setTelegramConnected(settings.telegram.connected)
     setDiscordConnected(settings.discord.connected)
     setBraveConnected(settings.brave.connected)
+    setNewsConnected(Boolean(settings.news?.connected))
     setCoinbaseConnected(Boolean(settings.coinbase?.connected))
     setOpenaiConnected(settings.openai.connected)
     setClaudeConnected(settings.claude.connected)
@@ -458,6 +460,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         setTelegramConnected(Boolean(config?.telegram?.connected))
         setDiscordConnected(Boolean(config?.discord?.connected))
         setBraveConnected(Boolean(config?.brave?.connected))
+        setNewsConnected(Boolean(config?.news?.connected))
         setCoinbaseConnected(Boolean(config?.coinbase?.connected))
         setOpenaiConnected(Boolean(config?.openai?.connected))
         setClaudeConnected(Boolean(config?.claude?.connected))
@@ -677,6 +680,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     telegramConnected,
     discordConnected,
     braveConnected,
+    newsConnected,
     coinbaseConnected,
     openaiConnected,
     claudeConnected,

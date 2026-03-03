@@ -21,7 +21,7 @@ function sanitizeUserContextId(value: unknown): string {
 function resolveMemoryFilePath(workspaceRoot: string, userId: string): string {
   return path.join(
     path.resolve(workspaceRoot),
-    ".agent",
+    ".user",
     "user-context",
     sanitizeUserContextId(userId),
     "MEMORY.md",

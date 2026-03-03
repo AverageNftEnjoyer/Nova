@@ -28,6 +28,13 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     setBraveApiKey,
     setBraveApiKeyConfigured,
     setBraveApiKeyMasked,
+    newsApiKey,
+    newsApiKeyConfigured,
+    setNewsApiKey,
+    setNewsApiKeyConfigured,
+    setNewsApiKeyMasked,
+    newsDefaultTopics,
+    setNewsDefaultTopics,
     coinbaseApiKey,
     setCoinbaseApiKey,
     coinbaseApiSecret,
@@ -204,6 +211,65 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       setIsSavingTarget(null)
     }
   }, [braveApiKeyConfigured, setIsSavingTarget, setSaveStatus, setSettings, settings])
+
+  const toggleNews = useCallback(async () => {
+    const canEnableFromSavedKey = Boolean(newsApiKeyConfigured || settings.news.apiKeyConfigured)
+    if (!settings.news.connected && !canEnableFromSavedKey) {
+      setSaveStatus({
+        type: "error",
+        message: "Save a News API key first, then enable News.",
+      })
+      return
+    }
+
+    const next = {
+      ...settings,
+      news: {
+        ...settings.news,
+        connected: !settings.news.connected,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("news")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ news: { connected: next.news.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update News status")
+      const payload = await res.json().catch(() => ({}))
+      const connected = Boolean(payload?.config?.news?.connected)
+      setSettings((prev: IntegrationsSettings) => {
+        const updated = {
+          ...prev,
+          news: {
+            ...prev.news,
+            connected,
+            apiKeyConfigured: Boolean(payload?.config?.news?.apiKeyConfigured) || prev.news.apiKeyConfigured,
+            apiKeyMasked: typeof payload?.config?.news?.apiKeyMasked === "string" ? payload.config.news.apiKeyMasked : prev.news.apiKeyMasked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: connected ? "success" : "disabled",
+        message: `News ${connected ? "enabled" : "disabled"}.`,
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update News status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [newsApiKeyConfigured, setIsSavingTarget, setSaveStatus, setSettings, settings])
 
   const applyCoinbaseServerConfig = useCallback((incoming: unknown) => {
     if (!incoming || typeof incoming !== "object") return
@@ -666,6 +732,86 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     }
   }, [braveApiKey, braveApiKeyConfigured, setBraveApiKey, setBraveApiKeyConfigured, setBraveApiKeyMasked, setIsSavingTarget, setSaveStatus, setSettings, settings])
 
+  const saveNewsConfig = useCallback(async () => {
+    const trimmedApiKey = newsApiKey.trim()
+    const shouldEnable = settings.news.connected || trimmedApiKey.length > 0 || newsApiKeyConfigured
+    const payloadNews: Partial<IntegrationsSettings["news"]> = {
+      defaultTopics: newsDefaultTopics.trim(),
+      language: settings.news.language,
+      country: settings.news.country,
+    }
+    if (trimmedApiKey) payloadNews.apiKey = trimmedApiKey
+
+    const next = {
+      ...settings,
+      news: {
+        ...settings.news,
+        ...payloadNews,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("news")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          news: {
+            ...payloadNews,
+            connected: shouldEnable,
+          },
+        }),
+      })
+      const savedData = await saveRes.json().catch(() => ({}))
+      if (!saveRes.ok) {
+        const message =
+          typeof savedData?.error === "string" && savedData.error.trim().length > 0
+            ? savedData.error.trim()
+            : "Failed to save News configuration."
+        throw new Error(message)
+      }
+      const masked = typeof savedData?.config?.news?.apiKeyMasked === "string" ? savedData.config.news.apiKeyMasked : ""
+      const configured = Boolean(savedData?.config?.news?.apiKeyConfigured) || trimmedApiKey.length > 0
+      const connected = Boolean(savedData?.config?.news?.connected)
+      const normalizedTopics = Array.isArray(savedData?.config?.news?.defaultTopics)
+        ? savedData.config.news.defaultTopics.map((topic: unknown) => String(topic).trim()).filter(Boolean).join(",")
+        : typeof savedData?.config?.news?.defaultTopics === "string"
+          ? savedData.config.news.defaultTopics
+          : newsDefaultTopics.trim()
+      setNewsApiKey("")
+      setNewsApiKeyMasked(masked)
+      setNewsApiKeyConfigured(configured)
+      setNewsDefaultTopics(normalizedTopics)
+      setSettings((prev: IntegrationsSettings) => {
+        const updated = {
+          ...prev,
+          news: {
+            ...prev.news,
+            connected,
+            defaultTopics: normalizedTopics,
+            apiKeyConfigured: configured,
+            apiKeyMasked: masked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: "success",
+        message: "News API saved.",
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save News configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [newsApiKey, newsApiKeyConfigured, newsDefaultTopics, setIsSavingTarget, setNewsApiKey, setNewsApiKeyConfigured, setNewsApiKeyMasked, setNewsDefaultTopics, setSaveStatus, setSettings, settings])
+
   const saveCoinbaseConfig = useCallback(async () => {
     if (isSavingTarget !== null || coinbasePendingAction !== null) return
     const trimmedApiKey = coinbaseApiKey.trim()
@@ -807,12 +953,14 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     toggleTelegram,
     toggleDiscord,
     toggleBrave,
+    toggleNews,
     probeCoinbaseConnection,
     toggleCoinbase,
     saveActiveProvider,
     saveTelegramConfig,
     saveDiscordConfig,
     saveBraveConfig,
+    saveNewsConfig,
     saveCoinbaseConfig,
     updateCoinbaseDefaults,
     updateCoinbasePrivacy,

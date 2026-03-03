@@ -32,7 +32,7 @@ function normalizeUserContextId(value: unknown): string {
 async function pruneLocalUserArtifacts(workspaceRoot: string, userId: string): Promise<void> {
   const userContextId = normalizeUserContextId(userId)
   if (!userContextId) return
-  const userContextPath = path.join(workspaceRoot, ".agent", "user-context", userContextId)
+  const userContextPath = path.join(workspaceRoot, ".user", "user-context", userContextId)
   await rm(userContextPath, { recursive: true, force: true }).catch(() => {})
 }
 

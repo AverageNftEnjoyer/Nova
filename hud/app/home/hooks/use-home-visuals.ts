@@ -1,7 +1,7 @@
 "use client"
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react"
 import {
   loadUserSettings,
   normalizeResponseTone,
@@ -16,6 +16,16 @@ import { GREETINGS_BY_TONE, pickGreetingForTone } from "../constants"
 
 interface UseHomeVisualsInput {
   isLight: boolean
+}
+
+function hexToRgbTriplet(hex: string): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `${r}, ${g}, ${b}`
 }
 
 export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
@@ -33,6 +43,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const devToolsSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
   const spotifyModuleSectionRef = useRef<HTMLElement | null>(null)
+  const newsModuleSectionRef = useRef<HTMLElement | null>(null)
   const agentModuleSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -91,18 +102,22 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     [isLight],
   )
 
+  const orbPalette = ORB_COLORS[orbColor]
+  const panelStyle = {
+    "--home-orb-rgb-primary": hexToRgbTriplet(orbPalette.circle1),
+    "--home-orb-rgb-secondary": hexToRgbTriplet(orbPalette.circle2),
+    "--home-orb-rgb-bg": hexToRgbTriplet(orbPalette.bg),
+  } as CSSProperties
   const panelClass =
     isLight
       ? "home-module-surface home-module-surface--light rounded-md border border-[#d9e0ea] bg-white shadow-none"
-      : "home-module-surface rounded-md border border-white/10 bg-white/[0.03] backdrop-blur-xl"
-  const panelStyle = undefined
+      : "home-module-surface rounded-md border backdrop-blur-xl"
   const subPanelClass = isLight
     ? "rounded-sm border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-sm border border-white/10 bg-black/25 backdrop-blur-md"
+    : "home-subpanel-surface rounded-sm border backdrop-blur-md"
   const missionHover = isLight
     ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
     : ""
-  const orbPalette = ORB_COLORS[orbColor]
 
   return {
     hasAnimated,
@@ -120,6 +135,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     devToolsSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
+    newsModuleSectionRef,
     agentModuleSectionRef,
   }
 }

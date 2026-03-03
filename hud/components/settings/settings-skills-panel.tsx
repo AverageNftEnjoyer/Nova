@@ -43,8 +43,8 @@ function getCardClass(isLight: boolean): string {
   return cn(
     "fx-spotlight-card fx-border-glow rounded-xl border transition-all duration-150",
     isLight
-      ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]"
-      : "border-white/10 bg-black/20 hover:bg-white/[0.06]",
+      ? "border-[#d5dce8] bg-[#f4f7fd]"
+      : "border-white/10 bg-black/20",
   )
 }
 
@@ -295,8 +295,8 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
                           ? "border-accent-30 bg-[#edf3ff]"
                           : "border-accent-30 bg-white/8"
                         : isLight
-                          ? "border-transparent bg-white hover:border-[#d5dce8] hover:bg-[#eef3fb]"
-                          : "border-transparent bg-black/20 hover:border-white/10 hover:bg-white/[0.06]",
+                          ? "border-transparent bg-white hover:border-[#d5dce8]"
+                          : "border-transparent bg-black/20 hover:border-white/10",
                     )}
                   >
                     <p className={cn("truncate text-sm", isLight ? "text-s-70" : "text-slate-200")}>{skill.name}</p>
@@ -414,7 +414,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
                 disabled={creating}
                 className={cn(
                   `${spotlightCardClass} h-8 px-3`,
-                  isLight ? "text-s-60 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/[0.06]",
+                  isLight ? "text-s-60" : "text-slate-300",
                 )}
               >
                 Close
@@ -440,7 +440,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
                 size="sm"
                 onClick={() => setCreateModalOpen(false)}
                 disabled={creating}
-                className={cn(isLight ? "text-s-60 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/[0.06]")}
+                className={cn(isLight ? "text-s-60" : "text-slate-300")}
               >
                 Cancel
               </Button>
@@ -483,7 +483,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
                 size="sm"
                 onClick={() => setDeleteConfirmOpen(false)}
                 disabled={deleting}
-                className={cn(isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/[0.06]")}
+                className={cn(isLight ? "text-s-50" : "text-slate-300")}
               >
                 Cancel
               </Button>
@@ -510,3 +510,4 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
     </div>
   )
 }
+

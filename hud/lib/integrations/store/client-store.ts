@@ -20,6 +20,16 @@ export interface BraveIntegrationSettings {
   apiKeyMasked?: string
 }
 
+export interface NewsIntegrationSettings {
+  connected: boolean
+  apiKey: string
+  defaultTopics: string
+  language: string
+  country: string
+  apiKeyConfigured?: boolean
+  apiKeyMasked?: string
+}
+
 export type CoinbaseConnectionMode = "api_key_pair" | "oauth"
 export type CoinbaseSyncStatus = "never" | "success" | "error"
 export type CoinbaseSyncErrorCode =
@@ -147,6 +157,7 @@ export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
   brave: BraveIntegrationSettings
+  news: NewsIntegrationSettings
   coinbase: CoinbaseIntegrationSettings
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
@@ -179,6 +190,15 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
   brave: {
     connected: false,
     apiKey: "",
+    apiKeyConfigured: false,
+    apiKeyMasked: "",
+  },
+  news: {
+    connected: false,
+    apiKey: "",
+    defaultTopics: "world,business,technology,markets,crypto",
+    language: "en",
+    country: "us",
     apiKeyConfigured: false,
     apiKeyMasked: "",
   },
@@ -289,6 +309,7 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
     if (!raw) return DEFAULT_SETTINGS
     const parsed = JSON.parse(raw) as Partial<IntegrationsSettings>
     const spotifyScopesRaw = (parsed.spotify as { scopes?: unknown } | undefined)?.scopes
+    const newsDefaultTopicsRaw = (parsed as { news?: { defaultTopics?: unknown } }).news?.defaultTopics
     return {
       telegram: {
         ...DEFAULT_SETTINGS.telegram,
@@ -303,6 +324,28 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
         ...DEFAULT_SETTINGS.brave,
         ...(parsed.brave || {}),
         apiKey: "",
+      },
+      news: {
+        ...DEFAULT_SETTINGS.news,
+        ...(parsed.news || {}),
+        apiKey: "",
+        defaultTopics:
+          typeof newsDefaultTopicsRaw === "string"
+            ? newsDefaultTopicsRaw
+            : Array.isArray(newsDefaultTopicsRaw)
+              ? (newsDefaultTopicsRaw || [])
+                  .map((topic) => String(topic).trim())
+                  .filter(Boolean)
+                  .join(",")
+              : DEFAULT_SETTINGS.news.defaultTopics,
+        language:
+          typeof parsed.news?.language === "string" && parsed.news.language.trim().length > 0
+            ? parsed.news.language.trim().toLowerCase()
+            : DEFAULT_SETTINGS.news.language,
+        country:
+          typeof parsed.news?.country === "string" && parsed.news.country.trim().length > 0
+            ? parsed.news.country.trim().toLowerCase()
+            : DEFAULT_SETTINGS.news.country,
       },
       coinbase: {
         ...DEFAULT_SETTINGS.coinbase,
@@ -451,6 +494,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
       ...settings.brave,
       apiKey: "",
     },
+    news: {
+      ...settings.news,
+      apiKey: "",
+    },
     coinbase: {
       ...settings.coinbase,
       apiKey: "",
@@ -531,6 +578,20 @@ export function updateBraveIntegrationSettings(partial: Partial<BraveIntegration
     ...current,
     brave: {
       ...current.brave,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateNewsIntegrationSettings(partial: Partial<NewsIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    news: {
+      ...current.news,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

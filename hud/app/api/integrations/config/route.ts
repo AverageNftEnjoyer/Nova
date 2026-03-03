@@ -5,6 +5,7 @@ import {
   updateIntegrationsConfig,
   type IntegrationsConfig,
   type BraveIntegrationConfig,
+  type NewsIntegrationConfig,
   type CoinbaseIntegrationConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
@@ -192,6 +193,38 @@ function normalizeBraveInput(raw: unknown, current: BraveIntegrationConfig): Bra
   return {
     connected: (typeof brave.connected === "boolean" ? brave.connected : current.connected) && nextApiKey.trim().length > 0,
     apiKey: nextApiKey,
+  }
+}
+
+function normalizeNewsInput(raw: unknown, current: NewsIntegrationConfig): NewsIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const news = raw as Partial<NewsIntegrationConfig>
+  const rawDefaultTopics = (raw as { defaultTopics?: unknown }).defaultTopics
+  const nextApiKey =
+    typeof news.apiKey === "string"
+      ? (news.apiKey.trim().length > 0 ? news.apiKey.trim() : current.apiKey)
+      : current.apiKey
+  const nextDefaultTopics = Array.isArray(rawDefaultTopics)
+    ? rawDefaultTopics.map((topic) => String(topic).trim().toLowerCase()).filter(Boolean)
+    : typeof rawDefaultTopics === "string"
+      ? rawDefaultTopics
+          .split(/[,\s]+/)
+          .map((topic) => topic.trim().toLowerCase())
+          .filter(Boolean)
+      : current.defaultTopics
+
+  return {
+    connected: (typeof news.connected === "boolean" ? news.connected : current.connected) && nextApiKey.trim().length > 0,
+    apiKey: nextApiKey,
+    defaultTopics: nextDefaultTopics.length > 0 ? nextDefaultTopics : current.defaultTopics,
+    language:
+      typeof news.language === "string" && news.language.trim().length > 0
+        ? news.language.trim().toLowerCase()
+        : current.language,
+    country:
+      typeof news.country === "string" && news.country.trim().length > 0
+        ? news.country.trim().toLowerCase()
+        : current.country,
   }
 }
 
@@ -487,6 +520,15 @@ function toClientConfig(config: IntegrationsConfig) {
       apiKeyConfigured: config.brave.apiKey.trim().length > 0,
       apiKeyMasked: maskSecret(config.brave.apiKey),
     },
+    news: {
+      connected: config.news.connected,
+      apiKey: "",
+      defaultTopics: config.news.defaultTopics,
+      language: config.news.language,
+      country: config.news.country,
+      apiKeyConfigured: config.news.apiKey.trim().length > 0,
+      apiKeyMasked: maskSecret(config.news.apiKey),
+    },
     coinbase: {
       ...config.coinbase,
       apiKey: "",
@@ -598,6 +640,7 @@ export async function PATCH(req: Request) {
       telegram?: Partial<TelegramIntegrationConfig> & { chatIds?: string[] | string }
       discord?: Partial<DiscordIntegrationConfig> & { webhookUrls?: string[] | string }
       brave?: Partial<BraveIntegrationConfig>
+      news?: Partial<NewsIntegrationConfig> & { defaultTopics?: string[] | string }
       coinbase?: Partial<CoinbaseIntegrationConfig>
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
@@ -613,6 +656,7 @@ export async function PATCH(req: Request) {
     const hasTelegramPatch = Object.prototype.hasOwnProperty.call(body, "telegram")
     const hasDiscordPatch = Object.prototype.hasOwnProperty.call(body, "discord")
     const hasBravePatch = Object.prototype.hasOwnProperty.call(body, "brave")
+    const hasNewsPatch = Object.prototype.hasOwnProperty.call(body, "news")
     const hasCoinbasePatch = Object.prototype.hasOwnProperty.call(body, "coinbase")
     const hasOpenAIPatch = Object.prototype.hasOwnProperty.call(body, "openai")
     const hasClaudePatch = Object.prototype.hasOwnProperty.call(body, "claude")
@@ -626,6 +670,7 @@ export async function PATCH(req: Request) {
     const telegram = hasTelegramPatch ? normalizeTelegramInput(body.telegram, current.telegram) : current.telegram
     const discord = hasDiscordPatch ? normalizeDiscordInput(body.discord, current.discord) : current.discord
     const brave = hasBravePatch ? normalizeBraveInput(body.brave, current.brave) : current.brave
+    const news = hasNewsPatch ? normalizeNewsInput(body.news, current.news) : current.news
     const coinbase = hasCoinbasePatch ? normalizeCoinbaseInput(body.coinbase, current.coinbase) : current.coinbase
     const shouldValidateCoinbaseApiPair =
       hasCoinbasePatch &&
@@ -653,6 +698,7 @@ export async function PATCH(req: Request) {
       telegram,
       discord,
       brave,
+      news,
       coinbase,
       openai,
       claude,

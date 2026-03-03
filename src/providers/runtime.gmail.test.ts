@@ -19,7 +19,7 @@ function writeIntegrationsConfig(
 ): void {
   const target = path.join(
     workspaceRoot,
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "state",

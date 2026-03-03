@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useRouter } from "next/navigation"
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Clock3, Copy, Search, TriangleAlert, Zap } from "lucide-react"
 
@@ -45,6 +45,16 @@ function deriveStatus(turn: DevLogTurn): "ok" | "warn" | "error" {
   return "ok"
 }
 
+function hexToRgbTriplet(hex: string): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `${r}, ${g}, ${b}`
+}
+
 export function DevLogsScreen() {
   const router = useRouter()
   const pageActive = usePageActive()
@@ -67,10 +77,15 @@ export function DevLogsScreen() {
 
   const panelClass = isLight
     ? "rounded-2xl border border-[#d9e0ea] bg-white"
-    : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_20px_60px_-35px_rgba(var(--accent-rgb),0.35)]"
+    : "home-module-surface rounded-2xl border backdrop-blur-xl shadow-[0_20px_60px_-35px_rgba(var(--accent-rgb),0.35)]"
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
+    : "home-subpanel-surface rounded-lg border backdrop-blur-md"
+  const panelStyle = {
+    "--home-orb-rgb-primary": hexToRgbTriplet(palette.circle1),
+    "--home-orb-rgb-secondary": hexToRgbTriplet(palette.circle2),
+    "--home-orb-rgb-bg": hexToRgbTriplet(palette.bg),
+  } as CSSProperties
 
   useEffect(() => {
     const syncFromSettings = () => {
@@ -142,7 +157,10 @@ export function DevLogsScreen() {
   )
 
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
+    <div
+      style={panelStyle}
+      className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}
+    >
       <div className="relative z-10 flex h-full w-full flex-col overflow-hidden px-4 py-4 sm:px-6">
         <header className="mb-4 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-4">

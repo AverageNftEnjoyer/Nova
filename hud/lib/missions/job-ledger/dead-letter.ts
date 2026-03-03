@@ -39,7 +39,7 @@ function sanitizeUserContextId(value: unknown): string {
 }
 
 function resolveScopedDeadLetterPath(root: string, scopedUserId: string): string {
-  return path.join(root, ".agent", "user-context", scopedUserId, "state", "mission-run-dead-letter.jsonl")
+  return path.join(root, ".user", "user-context", scopedUserId, "state", "mission-run-dead-letter.jsonl")
 }
 
 function resolveDeadLetterPath(userId: string): string {

@@ -18,9 +18,9 @@ const DEFAULT_CONFIG: Config = {
   session: {
     scope: "per-channel-peer",
     dmScope: "main",
-    storePath: path.join(process.cwd(), ".agent", "sessions.json"),
-    transcriptDir: path.join(process.cwd(), ".agent", "transcripts"),
-    userContextRoot: path.join(process.cwd(), ".agent", "user-context"),
+    storePath: path.join(process.cwd(), ".user", "sessions.json"),
+    transcriptDir: path.join(process.cwd(), ".user", "transcripts"),
+    userContextRoot: path.join(process.cwd(), ".user", "user-context"),
     mainKey: "main",
     resetMode: "idle",
     resetAtHour: 4,
@@ -33,7 +33,7 @@ const DEFAULT_CONFIG: Config = {
   },
   memory: {
     enabled: false,
-    dbPath: path.join(process.cwd(), ".agent", "memory.db"),
+    dbPath: path.join(process.cwd(), ".user", "memory.db"),
     embeddingProvider: "openai",
     embeddingModel: "text-embedding-3-small",
     embeddingApiKey: "",

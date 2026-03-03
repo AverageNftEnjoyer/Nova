@@ -153,7 +153,7 @@ await run("JL-S7 store uses SECURITY DEFINER admin client (not anon)", () => {
 await run("JL-S8 job-ledger dead-letter writer persists terminal queue failures per user context", () => {
   assert.ok(runDeadLetterSource.includes("appendMissionRunDeadLetter"))
   assert.ok(runDeadLetterSource.includes("mission-run-dead-letter.jsonl"))
-  assert.ok(runDeadLetterSource.includes(".agent"))
+  assert.ok(runDeadLetterSource.includes(".user"))
 })
 
 await run("JL-S9 failRun writes dead-letter and escalates retry-enqueue failure to dead", () => {

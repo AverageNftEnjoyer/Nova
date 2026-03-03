@@ -70,7 +70,7 @@ function resolveWorkspaceRoot(workspaceDir, userContextId) {
   const normalizedUserContextId = String(userContextId || "").trim().toLowerCase();
 
   if (
-    maybeAgent === ".agent"
+    maybeAgent === ".user"
     && maybeUserContext === "user-context"
     && (!normalizedUserContextId || maybeUserId === normalizedUserContextId)
   ) {
@@ -88,7 +88,7 @@ function resolvePersonaMeta({ workspaceDir, userContextId }) {
   const cached = personaMetaCache.get(cacheKey);
   if (cached && now - Number(cached.ts || 0) < 60_000) return cached.value;
 
-  const agentsPath = path.join(root, ".agent", "user-context", uid, "AGENTS.md");
+  const agentsPath = path.join(root, ".user", "user-context", uid, "AGENTS.md");
   let assistantName = "Nova";
   let tone = "neutral";
   let communicationStyle = "friendly";
@@ -289,7 +289,7 @@ export function upsertCryptoReportPreferences({ userContextId, workspaceDir, dir
   const workspaceRoot = resolveWorkspaceRoot(workspaceDir, uid);
   const userSkillPath = path.join(
     workspaceRoot,
-    ".agent",
+    ".user",
     "user-context",
     uid,
     "skills",

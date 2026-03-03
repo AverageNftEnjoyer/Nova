@@ -52,7 +52,7 @@ const runtimeTools = {
 function skillPathFor(workspaceDir, userContextId) {
   return path.join(
     workspaceDir,
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "skills",

@@ -5,6 +5,7 @@ export type IntegrationSetupKey =
   | "telegram"
   | "discord"
   | "brave"
+  | "news"
   | "coinbase"
   | "openai"
   | "claude"
@@ -50,7 +51,7 @@ export function ConnectivityGrid({
           {item.icon}
         </button>
       ))}
-      {Array.from({ length: 19 }).map((_, index) => (
+      {Array.from({ length: Math.max(0, 30 - items.length) }).map((_, index) => (
         <div
           key={index}
           className={cn(

@@ -13,7 +13,7 @@ function resolveNovaRoot(): string {
 }
 
 const NOVA_ROOT = resolveNovaRoot()
-const USER_CONTEXT_ROOT = path.join(NOVA_ROOT, ".agent", "user-context")
+const USER_CONTEXT_ROOT = path.join(NOVA_ROOT, ".user", "user-context")
 const SKILL_FILE = "SKILL.md"
 const SECTION_HEADER = "## User Preference Overrides"
 const FAVORITE_PLAYLIST_URI_KEY = "favorite_playlist_uri"

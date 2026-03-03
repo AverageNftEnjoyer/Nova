@@ -94,7 +94,7 @@ export function SettingsAppearancePanel({
       {/* Accent Color */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Accent Color</p>
         <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose your UI accent color</p>
@@ -130,7 +130,7 @@ export function SettingsAppearancePanel({
       {/* Orb Color */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Nova Orb Color</p>
         <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose the orb color on the home screen</p>
@@ -251,19 +251,10 @@ export function SettingsAppearancePanel({
         {backgroundVideoError && <p className="text-xs text-red-400 mt-2">{backgroundVideoError}</p>}
       </div>
 
-      {/* Spotlight Effects */}
-      <SettingToggle
-        label="Spotlight Effects"
-        description="Enable cursor spotlight and glow hover effects"
-        checked={settings.app.spotlightEnabled}
-        onChange={(v) => updateApp("spotlightEnabled", v)}
-        isLight={isLight}
-      />
-
       {/* Spotlight Color */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Spotlight Color</p>
         <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose the cursor spotlight color</p>
@@ -318,3 +309,4 @@ export function SettingsAppearancePanel({
     </div>
   )
 }
+

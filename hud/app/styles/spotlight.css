@@ -46,18 +46,19 @@
 }
 
 .home-module-surface {
+  border-color: rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.24);
   background-image:
     radial-gradient(
       120% 95% at 20% 0%,
-      rgba(var(--accent-rgb), 0.14) 0%,
-      rgba(var(--accent-rgb), 0.06) 36%,
+      rgba(var(--home-orb-rgb-primary, var(--accent-rgb)), 0.14) 0%,
+      rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.06) 36%,
       transparent 72%
     ),
     linear-gradient(
       145deg,
       rgba(255, 255, 255, 0.04) 0%,
       rgba(255, 255, 255, 0.012) 28%,
-      rgba(var(--accent-rgb), 0.08) 100%
+      rgba(var(--home-orb-rgb-primary, var(--accent-rgb)), 0.08) 100%
     );
   background-repeat: no-repeat, no-repeat;
   background-size: 100% 100%, 100% 100%;
@@ -65,6 +66,7 @@
 }
 
 .home-module-surface--light {
+  border-color: #d9e0ea;
   background-image:
     radial-gradient(
     120% 95% at 20% 0%,
@@ -77,6 +79,23 @@
       rgba(255, 255, 255, 0.76) 0%,
       rgba(255, 255, 255, 0.12) 32%,
       rgba(var(--accent-rgb), 0.04) 100%
+    );
+}
+
+.home-subpanel-surface {
+  border-color: rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.2);
+  background-image:
+    radial-gradient(
+      120% 100% at 18% -10%,
+      rgba(var(--home-orb-rgb-primary, var(--accent-rgb)), 0.1) 0%,
+      rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.04) 46%,
+      transparent 74%
+    ),
+    linear-gradient(
+      165deg,
+      rgba(var(--home-orb-rgb-bg, var(--accent-rgb)), 0.2) 0%,
+      rgba(0, 0, 0, 0.2) 42%,
+      rgba(var(--home-orb-rgb-primary, var(--accent-rgb)), 0.06) 100%
     );
 }
 

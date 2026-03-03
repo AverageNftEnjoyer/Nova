@@ -51,8 +51,8 @@ export function SettingsNav({ isLight, activeSection, onSectionChange, onReset }
                       ? "bg-[#edf3ff] text-accent border border-accent-30"
                       : "bg-white/8 text-accent border border-accent-30"
                     : isLight
-                      ? "text-s-50 border border-transparent hover:bg-[#eef3fb] hover:text-s-80"
-                      : "text-slate-400 border border-transparent hover:bg-white/6 hover:text-slate-200"
+                      ? "text-s-50 border border-transparent hover:text-s-80"
+                      : "text-slate-400 border border-transparent hover:text-slate-200"
                 )}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -70,7 +70,7 @@ export function SettingsNav({ isLight, activeSection, onSectionChange, onReset }
           size="sm"
           className={cn(
             "fx-spotlight-card fx-border-glow w-full gap-2 h-9 transition-colors duration-150",
-            isLight ? "text-s-40 hover:text-s-60 hover:bg-[#eef3fb]" : "text-slate-500 hover:text-slate-300 hover:bg-white/6"
+            isLight ? "text-s-40 hover:text-s-60" : "text-slate-500 hover:text-slate-300"
           )}
         >
           <RotateCcw className="w-3.5 h-3.5" />
@@ -80,3 +80,4 @@ export function SettingsNav({ isLight, activeSection, onSectionChange, onReset }
     </div>
   )
 }
+

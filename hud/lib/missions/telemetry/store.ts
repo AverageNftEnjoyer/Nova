@@ -23,7 +23,7 @@ function resolveWorkspaceRoot(): string {
 }
 
 function resolveTelemetryLogPath(userContextId: string): string {
-  return path.join(resolveWorkspaceRoot(), ".agent", "user-context", userContextId, "logs", "mission-telemetry.jsonl")
+  return path.join(resolveWorkspaceRoot(), ".user", "user-context", userContextId, "logs", "mission-telemetry.jsonl")
 }
 
 function normalizeEvent(event: MissionLifecycleEvent): MissionLifecycleEvent {

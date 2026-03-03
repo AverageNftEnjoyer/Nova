@@ -127,6 +127,11 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_SPOTIFY_PLAYBACK_PER_MIN", 40, 1, 500),
     windowMs: 60_000,
   },
+  newsFeedRead: {
+    bucket: "news-feed-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_NEWS_FEED_READ_PER_HOUR", 48, 1, 2000),
+    windowMs: 60 * 60_000,
+  },
   accountDelete: {
     bucket: "account-delete",
     limit: readIntEnv("NOVA_RATE_LIMIT_ACCOUNT_DELETE_PER_10M", 3, 1, 60),

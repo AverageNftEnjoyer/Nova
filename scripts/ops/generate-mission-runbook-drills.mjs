@@ -94,14 +94,14 @@ async function main() {
   const workspaceRoot = resolveWorkspaceRoot();
   const telemetryPath = path.join(
     workspaceRoot,
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "logs",
     "mission-telemetry.jsonl",
   );
-  const logDir = path.join(workspaceRoot, ".agent", "user-context", userContextId, "logs");
-  const reportDir = path.join(workspaceRoot, ".agent", "user-context", userContextId, "reports");
+  const logDir = path.join(workspaceRoot, ".user", "user-context", userContextId, "logs");
+  const reportDir = path.join(workspaceRoot, ".user", "user-context", userContextId, "reports");
   fs.mkdirSync(logDir, { recursive: true });
   fs.mkdirSync(reportDir, { recursive: true });
 

@@ -1,0 +1,248 @@
+"use client"
+
+import type { CSSProperties, RefObject } from "react"
+import { RefreshCw } from "lucide-react"
+
+import { cn } from "@/lib/shared/utils"
+import type { HomeNewsArticle } from "../hooks/use-home-news-feed"
+
+interface NewsFeedModuleProps {
+  isLight: boolean
+  panelClass: string
+  subPanelClass: string
+  panelStyle: CSSProperties | undefined
+  sectionRef?: RefObject<HTMLElement | null>
+  className?: string
+  connected: boolean
+  articles: HomeNewsArticle[]
+  loading: boolean
+  error: string | null
+  stale: boolean
+  fetchedAt: string
+  onOpenIntegrations: () => void
+  onRefresh: () => void
+}
+
+const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" })
+
+function formatRelativeTimestamp(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "time unknown"
+  const diffMs = parsed.getTime() - Date.now()
+  const absMs = Math.abs(diffMs)
+
+  if (absMs < 60_000) return "just now"
+  if (absMs < 3_600_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 60_000), "minute")
+  if (absMs < 86_400_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 3_600_000), "hour")
+  if (absMs < 604_800_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 86_400_000), "day")
+  if (absMs < 2_592_000_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 604_800_000), "week")
+  if (absMs < 31_536_000_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 2_592_000_000), "month")
+  return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 31_536_000_000), "year")
+}
+
+function formatAbsoluteTimestamp(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "Unknown publish time"
+  return parsed.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+function formatTagLabel(value: string): string {
+  return String(value || "")
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .toUpperCase()
+}
+
+function hashTag(value: string): number {
+  let hash = 0
+  const input = String(value || "")
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 31 + input.charCodeAt(index)) >>> 0
+  }
+  return hash
+}
+
+function shouldRenderTag(value: string): boolean {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+  if (!normalized) return false
+  if (normalized.length < 2 || normalized.length > 24) return false
+  if (
+    /premium|subscriber|subscribers|professional|corporate|plans|subscribe|subscription|newsletter|sponsored|advertisement|only-available|available-only/.test(
+      normalized,
+    )
+  ) {
+    return false
+  }
+  return true
+}
+
+function tagToneClass(tag: string, isLight: boolean): string {
+  const normalized = String(tag || "").toLowerCase()
+  if (/alert|breaking|urgent|risk/.test(normalized)) {
+    return isLight
+      ? "border-rose-300/70 bg-rose-100 text-rose-700"
+      : "border-rose-500/60 bg-rose-500/15 text-rose-200"
+  }
+  if (/conflict|war|tension|crisis|sanction/.test(normalized)) {
+    return isLight
+      ? "border-orange-300/70 bg-orange-100 text-orange-700"
+      : "border-orange-500/60 bg-orange-500/15 text-orange-200"
+  }
+  if (/live|developing|fresh|now/.test(normalized)) {
+    return isLight
+      ? "border-emerald-300/70 bg-emerald-100 text-emerald-700"
+      : "border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+  }
+  const lightPalette = [
+    "border-sky-300/70 bg-sky-100 text-sky-700",
+    "border-violet-300/70 bg-violet-100 text-violet-700",
+    "border-teal-300/70 bg-teal-100 text-teal-700",
+    "border-amber-300/70 bg-amber-100 text-amber-700",
+    "border-fuchsia-300/70 bg-fuchsia-100 text-fuchsia-700",
+  ]
+  const darkPalette = [
+    "border-sky-500/60 bg-sky-500/15 text-sky-200",
+    "border-violet-500/60 bg-violet-500/15 text-violet-200",
+    "border-teal-500/60 bg-teal-500/15 text-teal-200",
+    "border-amber-500/60 bg-amber-500/15 text-amber-200",
+    "border-fuchsia-500/60 bg-fuchsia-500/15 text-fuchsia-200",
+  ]
+  const palette = isLight ? lightPalette : darkPalette
+  return palette[hashTag(normalized) % palette.length]
+}
+
+export function NewsFeedModule({
+  isLight,
+  panelClass,
+  subPanelClass,
+  panelStyle,
+  sectionRef,
+  className,
+  connected,
+  articles,
+  loading,
+  error,
+  stale,
+  fetchedAt,
+  onOpenIntegrations,
+  onRefresh,
+}: NewsFeedModuleProps) {
+  return (
+    <section
+      ref={sectionRef}
+      style={panelStyle}
+      className={cn(`${panelClass} home-spotlight-shell p-2.5 min-h-0 flex flex-col`, className)}
+    >
+      <div className="relative flex items-center justify-end gap-2">
+        <h2
+          className={cn(
+            "pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-xs uppercase tracking-[0.22em] font-semibold",
+            isLight ? "text-s-90" : "text-slate-200",
+          )}
+        >
+          Live News
+        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onRefresh}
+            className={cn(
+              "group/news-refresh h-7 w-7 rounded-md border grid place-items-center transition-colors home-spotlight-card home-border-glow",
+              subPanelClass,
+            )}
+            title="Refresh news now"
+            aria-label="Refresh news now"
+          >
+            <RefreshCw className="w-3.5 h-3.5 transition-transform duration-200 group-hover/news-refresh:rotate-90" />
+          </button>
+          {!connected && (
+            <button
+              onClick={onOpenIntegrations}
+              className={cn(
+                "h-7 px-2 rounded-md border text-[10px] font-semibold uppercase tracking-[0.12em] transition-colors home-spotlight-card home-border-glow",
+                subPanelClass,
+              )}
+            >
+              Connect
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 pr-1">
+        {!connected ? (
+          <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
+            Connect News integration to enable a 10-minute Home feed poll.
+          </div>
+        ) : loading ? (
+          <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
+            Loading live headlines...
+          </div>
+        ) : error ? (
+          <div className={cn("rounded-md border p-2 text-[11px] leading-4 border-rose-300/40 bg-rose-500/10 text-rose-300")}>
+            {error}
+          </div>
+        ) : articles.length === 0 ? (
+          <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
+            No headlines returned for this topic.
+          </div>
+        ) : (
+          articles.slice(0, 6).map((article) => (
+            <a
+              key={article.id}
+              href={article.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className={cn(
+                "block rounded-md border p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                subPanelClass,
+              )}
+            >
+              <div className="flex items-center gap-1.5 overflow-hidden">
+                <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+                  {article.source}
+                </span>
+                {article.tags.filter((tag) => shouldRenderTag(tag)).slice(0, 3).map((tag) => (
+                  <span
+                    key={`${article.id}:${tag}`}
+                    className={cn(
+                      "max-w-[6.5rem] truncate rounded-sm border px-1 py-[1px] text-[8px] leading-none font-semibold uppercase tracking-[0.06em]",
+                      tagToneClass(tag, isLight),
+                    )}
+                  >
+                    {formatTagLabel(tag)}
+                  </span>
+                ))}
+              </div>
+              <p className={cn("mt-1 text-[11px] font-medium leading-4 line-clamp-2", isLight ? "text-s-90" : "text-slate-100")}>
+                {article.title}
+              </p>
+              <div className="mt-1 flex items-center justify-end gap-2">
+                <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+                  <time dateTime={article.publishedAt || undefined} title={formatAbsoluteTimestamp(article.publishedAt)}>
+                    {formatRelativeTimestamp(article.publishedAt)}
+                  </time>
+                </span>
+              </div>
+            </a>
+          ))
+        )}
+      </div>
+
+      <p className={cn("mt-2 text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+        Poll interval: 10m | Feed refresh: {formatRelativeTimestamp(fetchedAt)}{stale ? " | Cached fallback" : ""}
+      </p>
+    </section>
+  )
+}

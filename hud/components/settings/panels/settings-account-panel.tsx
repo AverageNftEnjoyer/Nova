@@ -60,7 +60,7 @@ export function SettingsAccountPanel({
       {/* Session */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm mb-2", isLight ? "text-s-70" : "text-slate-200")}>Session</p>
         <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
@@ -98,7 +98,7 @@ export function SettingsAccountPanel({
       {/* Account info */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <div className="flex items-center gap-3 mb-4">
           <div className={cn(
@@ -129,7 +129,7 @@ export function SettingsAccountPanel({
             disabled={!authAuthenticated}
             className={cn(
               "w-full flex items-center justify-between rounded-xl border px-3 py-2.5 transition-colors duration-150 disabled:opacity-60",
-              isLight ? "border-[#d5dce8] bg-white hover:bg-[#eef3fb]" : "border-white/10 bg-black/25 hover:bg-white/6"
+              isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25"
             )}
           >
             <div className="min-w-0 text-left">
@@ -149,7 +149,7 @@ export function SettingsAccountPanel({
             disabled={authBusy || !authAuthenticated}
             className={cn(
               "w-full flex items-center justify-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow border text-sm disabled:opacity-60",
-              isLight ? "bg-white border-[#d5dce8] hover:bg-[#eef3fb] text-s-60" : "bg-black/25 border-white/10 hover:bg-white/6 text-slate-200"
+              isLight ? "bg-white border-[#d5dce8] text-s-60" : "bg-black/25 border-white/10 text-slate-200"
             )}
           >
             Send Password Reset Link
@@ -171,7 +171,7 @@ export function SettingsAccountPanel({
               disabled={authBusy}
               className={cn(
                 "w-full flex items-center justify-center px-4 py-3 rounded-xl transition-colors duration-150 fx-spotlight-card fx-border-glow border text-sm disabled:opacity-60",
-                isLight ? "bg-white border-[#d5dce8] hover:bg-[#eef3fb] text-s-60" : "bg-black/25 border-white/10 hover:bg-white/6 text-slate-200"
+                isLight ? "bg-white border-[#d5dce8] text-s-60" : "bg-black/25 border-white/10 text-slate-200"
               )}
             >
               Open Sign In
@@ -213,7 +213,7 @@ export function SettingsAccountPanel({
                 variant="ghost"
                 size="sm"
                 onClick={() => setEmailModalOpen(false)}
-                className={cn(isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/6")}
+                className={cn(isLight ? "text-s-50" : "text-slate-300")}
               >
                 Cancel
               </Button>
@@ -258,7 +258,7 @@ export function SettingsAccountPanel({
                 variant="ghost"
                 size="sm"
                 onClick={() => setDeleteModalOpen(false)}
-                className={cn(isLight ? "text-s-50 hover:bg-[#eef3fb]" : "text-slate-300 hover:bg-white/6")}
+                className={cn(isLight ? "text-s-50" : "text-slate-300")}
               >
                 Cancel
               </Button>
@@ -280,3 +280,4 @@ export function SettingsAccountPanel({
     </div>
   )
 }
+

@@ -148,8 +148,8 @@ function buildSummary(turns: DevTurn[]) {
 async function resolveWorkspaceRoot(): Promise<string> {
   const cwd = process.cwd()
   const parent = path.resolve(cwd, "..")
-  const cwdAgentPath = path.join(cwd, ".agent")
-  const parentAgentPath = path.join(parent, ".agent")
+  const cwdAgentPath = path.join(cwd, ".user")
+  const parentAgentPath = path.join(parent, ".user")
   try {
     await fs.access(cwdAgentPath)
     return cwd
@@ -176,7 +176,7 @@ export async function GET(req: Request) {
   const limit = Math.max(20, Math.min(500, Number.parseInt(url.searchParams.get("limit") || "200", 10) || 200))
   const maxBytes = Math.max(128 * 1024, Math.min(8 * 1024 * 1024, Number.parseInt(url.searchParams.get("maxBytes") || `${4 * 1024 * 1024}`, 10) || 4 * 1024 * 1024))
   const workspaceRoot = await resolveWorkspaceRoot()
-  const logPath = path.join(workspaceRoot, ".agent", "user-context", userContextId, "logs", "conversation-dev.jsonl")
+  const logPath = path.join(workspaceRoot, ".user", "user-context", userContextId, "logs", "conversation-dev.jsonl")
   const lines = await readJsonlTail(logPath, maxBytes)
   const turns = parseTurns(lines, userContextId, limit)
   const summary = buildSummary(turns)

@@ -22,7 +22,7 @@ function resolveWorkspaceRoot(): string {
 function resolveJournalPath(userContextId: string): string {
   return path.join(
     resolveWorkspaceRoot(),
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "logs",

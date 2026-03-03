@@ -28,7 +28,7 @@ function resolveSmokeUserContextId() {
   ).trim();
   if (explicit) return explicit;
 
-  const root = path.join(process.cwd(), ".agent", "user-context");
+  const root = path.join(process.cwd(), ".user", "user-context");
   if (!fs.existsSync(root)) return "";
   const candidates = fs
     .readdirSync(root, { withFileTypes: true })
@@ -95,7 +95,7 @@ await run("Runtime memory update writes identity snapshot and audit trail under 
 
   const profilePath = path.join(
     process.cwd(),
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "profile",
@@ -103,7 +103,7 @@ await run("Runtime memory update writes identity snapshot and audit trail under 
   );
   const auditPath = path.join(
     process.cwd(),
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "logs",
@@ -146,7 +146,7 @@ await run("Runtime chat turn keeps stable scoped session and logs identity promp
 
   const sessionsPath = path.join(
     process.cwd(),
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "state",
@@ -158,7 +158,7 @@ await run("Runtime chat turn keeps stable scoped session and logs identity promp
 
   const transcriptPath = path.join(
     process.cwd(),
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "transcripts",
@@ -172,7 +172,7 @@ await run("Runtime chat turn keeps stable scoped session and logs identity promp
 
   const conversationLogPath = path.join(
     process.cwd(),
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "logs",

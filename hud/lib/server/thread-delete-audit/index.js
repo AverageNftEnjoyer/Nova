@@ -46,7 +46,7 @@ export async function appendThreadDeleteAuditLog(input) {
     cleanupError,
   };
 
-  const logsDir = path.join(workspaceRoot, ".agent", "user-context", userContextId, "logs");
+  const logsDir = path.join(workspaceRoot, ".user", "user-context", userContextId, "logs");
   await appendJsonl(path.join(logsDir, THREAD_DELETE_AUDIT_LOG_FILE), payload);
 
   const nonEmptyThread = threadMessageCount > 0;

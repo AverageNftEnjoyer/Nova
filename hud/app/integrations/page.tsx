@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { Blocks, Settings, User } from "lucide-react"
@@ -15,7 +15,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -72,6 +72,15 @@ import { useProviderDefinitions } from "./modules/hooks/use-provider-definitions
 import { IntegrationsMainPanel } from "./modules/components/integrations-main-panel"
 
 export default function IntegrationsPage() {
+  const hexToRgbTriplet = (hex: string): string => {
+    const clean = hex.replace("#", "")
+    const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+    const num = Number.parseInt(full, 16)
+    const r = (num >> 16) & 255
+    const g = (num >> 8) & 255
+    const b = num & 255
+    return `${r}, ${g}, ${b}`
+  }
   const router = useRouter()
   const [orbHovered, setOrbHovered] = useState(false)
   const { theme } = useTheme()
@@ -89,6 +98,10 @@ export default function IntegrationsPage() {
   const [braveApiKey, setBraveApiKey] = useState("")
   const [braveApiKeyConfigured, setBraveApiKeyConfigured] = useState(false)
   const [braveApiKeyMasked, setBraveApiKeyMasked] = useState("")
+  const [newsApiKey, setNewsApiKey] = useState("")
+  const [newsApiKeyConfigured, setNewsApiKeyConfigured] = useState(false)
+  const [newsApiKeyMasked, setNewsApiKeyMasked] = useState("")
+  const [newsDefaultTopics, setNewsDefaultTopics] = useState("world,business,technology,markets,crypto")
   const [coinbaseApiKey, setCoinbaseApiKey] = useState("")
   const [coinbaseApiSecret, setCoinbaseApiSecret] = useState("")
   const [coinbaseApiKeyConfigured, setCoinbaseApiKeyConfigured] = useState(false)
@@ -121,6 +134,7 @@ export default function IntegrationsPage() {
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
   const braveSetupSectionRef = useRef<HTMLElement | null>(null)
+  const newsSetupSectionRef = useRef<HTMLElement | null>(null)
   const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -191,6 +205,10 @@ export default function IntegrationsPage() {
           setBraveApiKey(fallback.brave.apiKey)
           setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
           setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
+          setNewsApiKey(fallback.news.apiKey)
+          setNewsApiKeyConfigured(Boolean(fallback.news.apiKeyConfigured))
+          setNewsApiKeyMasked(fallback.news.apiKeyMasked || "")
+          setNewsDefaultTopics(fallback.news.defaultTopics || "world,business,technology,markets,crypto")
           setCoinbaseApiKey(fallback.coinbase.apiKey)
           setCoinbaseApiSecret(fallback.coinbase.apiSecret)
           setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
@@ -236,6 +254,23 @@ export default function IntegrationsPage() {
             apiKey: config.brave?.apiKey || "",
             apiKeyConfigured: Boolean(config.brave?.apiKeyConfigured),
             apiKeyMasked: typeof config.brave?.apiKeyMasked === "string" ? config.brave.apiKeyMasked : "",
+          },
+          news: {
+            connected: Boolean(config.news?.connected),
+            apiKey: config.news?.apiKey || "",
+            defaultTopics: Array.isArray(config.news?.defaultTopics)
+              ? config.news.defaultTopics.map((topic: unknown) => String(topic).trim()).filter(Boolean).join(",")
+              : typeof config.news?.defaultTopics === "string"
+                ? config.news.defaultTopics
+                : "world,business,technology,markets,crypto",
+            language: typeof config.news?.language === "string" && config.news.language.trim().length > 0
+              ? config.news.language.trim().toLowerCase()
+              : "en",
+            country: typeof config.news?.country === "string" && config.news.country.trim().length > 0
+              ? config.news.country.trim().toLowerCase()
+              : "us",
+            apiKeyConfigured: Boolean(config.news?.apiKeyConfigured),
+            apiKeyMasked: typeof config.news?.apiKeyMasked === "string" ? config.news.apiKeyMasked : "",
           },
           coinbase: {
             connected: Boolean(config.coinbase?.connected),
@@ -383,6 +418,10 @@ export default function IntegrationsPage() {
         setBraveApiKey(normalized.brave.apiKey)
         setBraveApiKeyConfigured(Boolean(normalized.brave.apiKeyConfigured))
         setBraveApiKeyMasked(normalized.brave.apiKeyMasked || "")
+        setNewsApiKey(normalized.news.apiKey)
+        setNewsApiKeyConfigured(Boolean(normalized.news.apiKeyConfigured))
+        setNewsApiKeyMasked(normalized.news.apiKeyMasked || "")
+        setNewsDefaultTopics(normalized.news.defaultTopics || "world,business,technology,markets,crypto")
         setCoinbaseApiKey(normalized.coinbase.apiKey)
         setCoinbaseApiSecret(normalized.coinbase.apiSecret)
         setCoinbaseApiKeyConfigured(Boolean(normalized.coinbase.apiKeyConfigured))
@@ -411,6 +450,10 @@ export default function IntegrationsPage() {
         setBraveApiKey(fallback.brave.apiKey)
         setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
         setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
+        setNewsApiKey(fallback.news.apiKey)
+        setNewsApiKeyConfigured(Boolean(fallback.news.apiKeyConfigured))
+        setNewsApiKeyMasked(fallback.news.apiKeyMasked || "")
+        setNewsDefaultTopics(fallback.news.defaultTopics || "world,business,technology,markets,crypto")
         setCoinbaseApiKey(fallback.coinbase.apiKey)
         setCoinbaseApiSecret(fallback.coinbase.apiSecret)
         setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
@@ -463,6 +506,7 @@ export default function IntegrationsPage() {
       { ref: telegramSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: discordSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: braveSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: newsSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: coinbaseSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: openaiSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: claudeSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
@@ -481,11 +525,18 @@ export default function IntegrationsPage() {
   const panelClass =
     isLight
       ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-      : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
+      : "home-module-surface rounded-2xl border backdrop-blur-xl"
   const subPanelClass = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
-  const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
+    : "home-subpanel-surface rounded-lg border backdrop-blur-md"
+  const panelStyle = isLight
+    ? undefined
+    : {
+      boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)",
+      "--home-orb-rgb-primary": hexToRgbTriplet(orbPalette.circle1),
+      "--home-orb-rgb-secondary": hexToRgbTriplet(orbPalette.circle2),
+      "--home-orb-rgb-bg": hexToRgbTriplet(orbPalette.bg),
+    } as CSSProperties
   const moduleHeightClass = "h-[clamp(620px,88vh,1240px)]"
   const presence = getNovaPresence({ agentConnected, novaState })
   const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
@@ -506,6 +557,7 @@ export default function IntegrationsPage() {
     botToken.trim().length > 0
   )
   const braveNeedsKeyWarning = !(settings.brave.connected && (settings.brave.apiKeyConfigured || braveApiKeyConfigured))
+  const newsNeedsKeyWarning = !(settings.news.connected && (settings.news.apiKeyConfigured || newsApiKeyConfigured))
   const coinbaseNeedsKeyWarning = !(settings.coinbase.connected && (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) && (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured))
   const coinbaseHasKeys = Boolean(
     (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) &&
@@ -541,6 +593,7 @@ export default function IntegrationsPage() {
     { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
     { key: "gmail-calendar" as const, connected: settings.gcalendar.connected, icon: <GmailCalendarIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Google Calendar setup" },
     { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
+    { key: "news" as const, connected: settings.news.connected, icon: <NewsIcon className="w-4 h-4" />, ariaLabel: "Open News setup" },
     { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
   ]
   const activeProviderDefinition = useProviderDefinitions({
@@ -561,12 +614,14 @@ export default function IntegrationsPage() {
     toggleTelegram,
     toggleDiscord,
     toggleBrave,
+    toggleNews,
     probeCoinbaseConnection,
     toggleCoinbase,
     saveActiveProvider,
     saveTelegramConfig,
     saveDiscordConfig,
     saveBraveConfig,
+    saveNewsConfig,
     saveCoinbaseConfig,
     updateCoinbaseDefaults,
     updateCoinbasePrivacy,
@@ -592,6 +647,13 @@ export default function IntegrationsPage() {
     setBraveApiKey,
     setBraveApiKeyConfigured,
     setBraveApiKeyMasked,
+    newsApiKey,
+    newsApiKeyConfigured,
+    setNewsApiKey,
+    setNewsApiKeyConfigured,
+    setNewsApiKeyMasked,
+    newsDefaultTopics,
+    setNewsDefaultTopics,
     coinbaseApiKey,
     setCoinbaseApiKey,
     coinbaseApiSecret,
@@ -618,7 +680,7 @@ export default function IntegrationsPage() {
     geminiSetup,
   })
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
+    <div style={panelStyle} className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
       <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
       <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">
@@ -678,7 +740,7 @@ export default function IntegrationsPage() {
                 items={connectivityItems}
               />
             </div>
-            <div className={cn("mt-3 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+            <div className={cn("mt-3 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
               <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Profile & Settings</p>
               <div className="flex items-center gap-3">
                 <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden border", isLight ? "border-[#d5dce8] bg-white" : "border-white/15 bg-white/5")}>
@@ -696,7 +758,7 @@ export default function IntegrationsPage() {
                   onClick={() => setSettingsOpen(true)}
                   className={cn(
                     "h-8 w-8 rounded-lg border inline-flex items-center justify-center transition-colors group/gear home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    isLight ? "border-[#d5dce8] bg-white text-s-80" : "border-white/10 bg-black/20 text-slate-300",
+                    isLight ? "border-[#d5dce8] bg-white text-s-80" : "home-subpanel-surface text-slate-300",
                   )}
                   aria-label="Open settings"
                   title="Settings"
@@ -721,6 +783,13 @@ export default function IntegrationsPage() {
             braveNeedsKeyWarning={braveNeedsKeyWarning}
             braveApiKeyConfigured={braveApiKeyConfigured}
             braveApiKeyMasked={braveApiKeyMasked}
+            newsNeedsKeyWarning={newsNeedsKeyWarning}
+            newsApiKey={newsApiKey}
+            setNewsApiKey={setNewsApiKey}
+            newsApiKeyConfigured={newsApiKeyConfigured}
+            newsApiKeyMasked={newsApiKeyMasked}
+            newsDefaultTopics={newsDefaultTopics}
+            setNewsDefaultTopics={setNewsDefaultTopics}
             coinbaseNeedsKeyWarning={coinbaseNeedsKeyWarning}
             coinbasePendingAction={coinbasePendingAction}
             coinbaseSyncBadgeClass={coinbaseSyncBadgeClass}
@@ -753,6 +822,7 @@ export default function IntegrationsPage() {
             telegramSetupSectionRef={telegramSetupSectionRef}
             discordSetupSectionRef={discordSetupSectionRef}
             braveSetupSectionRef={braveSetupSectionRef}
+            newsSetupSectionRef={newsSetupSectionRef}
             coinbaseSetupSectionRef={coinbaseSetupSectionRef}
             gmailSetupSectionRef={gmailSetupSectionRef}
             setBotToken={setBotToken}
@@ -771,6 +841,8 @@ export default function IntegrationsPage() {
             saveDiscordConfig={saveDiscordConfig}
             toggleBrave={toggleBrave}
             saveBraveConfig={saveBraveConfig}
+            toggleNews={toggleNews}
+            saveNewsConfig={saveNewsConfig}
             probeCoinbaseConnection={probeCoinbaseConnection}
             toggleCoinbase={toggleCoinbase}
             saveCoinbaseConfig={saveCoinbaseConfig}
@@ -788,7 +860,7 @@ export default function IntegrationsPage() {
               </p>
             </div>
 
-            <div className={cn("mt-4 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+            <div className={cn("mt-4 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
               <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Active LLM Provider</p>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
                 <FluidSelect
@@ -820,6 +892,7 @@ export default function IntegrationsPage() {
                 { name: "Gmail", active: settings.gmail.connected },
                 { name: "Google Calendar", active: settings.gcalendar.connected },
                 { name: "Brave", active: settings.brave.connected },
+                { name: "News", active: settings.news.connected },
                 { name: "Coinbase", active: settings.coinbase.connected },
               ].map((item) => (
                 <div

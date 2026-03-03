@@ -11,6 +11,8 @@ import { useHomeConversations } from "./use-home-conversations"
 import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeCryptoMarket } from "./use-home-crypto-market"
+import { useHomeDayInHistory } from "./use-home-day-in-history"
+import { useHomeNewsFeed } from "./use-home-news-feed"
 import { useHomeVisuals } from "./use-home-visuals"
 
 const GREETING_COOLDOWN_MS = 60_000
@@ -41,6 +43,8 @@ export function useHomeMainScreenState() {
   const integrations = useHomeIntegrations({ latestUsage, speakTts })
   const cryptoMarket = useHomeCryptoMarket()
   const devTools = useHomeDevTools()
+  const dayInHistory = useHomeDayInHistory()
+  const newsFeed = useHomeNewsFeed({ enabled: integrations.newsConnected })
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
   const [isMuted, setIsMuted] = useState(true)
@@ -150,6 +154,7 @@ export function useHomeMainScreenState() {
     devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
     spotifyModuleSectionRef: visuals.spotifyModuleSectionRef,
+    newsModuleSectionRef: visuals.newsModuleSectionRef,
     agentModuleSectionRef: visuals.agentModuleSectionRef,
     panelStyle: visuals.panelStyle,
     panelClass: visuals.panelClass,
@@ -174,6 +179,7 @@ export function useHomeMainScreenState() {
     telegramConnected: integrations.telegramConnected,
     discordConnected: integrations.discordConnected,
     braveConnected: integrations.braveConnected,
+    newsConnected: integrations.newsConnected,
     coinbaseConnected: integrations.coinbaseConnected,
     openaiConnected: integrations.openaiConnected,
     claudeConnected: integrations.claudeConnected,
@@ -192,5 +198,17 @@ export function useHomeMainScreenState() {
     seekSpotify: integrations.seekSpotify,
     gmailConnected: integrations.gmailConnected,
     gcalendarConnected: integrations.gcalendarConnected,
+    newsTopics: newsFeed.newsTopics,
+    selectedNewsTopic: newsFeed.selectedNewsTopic,
+    setSelectedNewsTopic: newsFeed.setSelectedNewsTopic,
+    newsArticles: newsFeed.newsArticles,
+    newsLoading: newsFeed.newsLoading,
+    newsError: newsFeed.newsError,
+    newsStale: newsFeed.newsStale,
+    newsFetchedAt: newsFeed.newsFetchedAt,
+    refreshNewsFeed: newsFeed.refreshNewsFeed,
+    dayInHistoryEvents: dayInHistory.events,
+    dayInHistoryLoading: dayInHistory.loading,
+    dayInHistoryError: dayInHistory.error,
   }
 }

@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.40 Alpha (2026-03-03): Orb-driven surface theming rollout across HUD modules
+ *     - Replaced hardcoded dark panel/subpanel fills with orb-color-aware tinted surfaces on Home, Agents, Dev Logs, Integrations, and Missions Calendar.
+ *     - Updated dark background "black" mode grid and atmospheric gradients to inherit the active orb palette while preserving existing depth treatment.
+ *     - Standardized shared surface CSS variables (`--home-orb-rgb-*`) so module boxes and background accents stay visually aligned per selected orb color.
+ *     - Preserved light-theme styling behavior while expanding orb-color visual consistency for dark-mode module shells and cards.
+ *
  * - V.39 Alpha (2026-03-03): Spotlight interaction stability overhaul + unified hover behavior
  *     - Removed moving spotlight core-dot from active HUD spotlight surfaces and disabled particle streak effects by default.
  *     - Standardized spotlight response to direct hovered-card targeting (no cross-card/module glow bleed) across Home, Chat, Missions Calendar, and Integrations.
@@ -254,5 +260,5 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.39 Alpha"
+export const NOVA_VERSION = "V.40 Alpha"
 

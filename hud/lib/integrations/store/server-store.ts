@@ -21,6 +21,14 @@ export interface BraveIntegrationConfig {
   apiKey: string
 }
 
+export interface NewsIntegrationConfig {
+  connected: boolean
+  apiKey: string
+  defaultTopics: string[]
+  language: string
+  country: string
+}
+
 export type CoinbaseConnectionMode = "api_key_pair" | "oauth"
 export type CoinbaseSyncStatus = "never" | "success" | "error"
 export type CoinbaseSyncErrorCode =
@@ -150,6 +158,7 @@ export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
   discord: DiscordIntegrationConfig
   brave: BraveIntegrationConfig
+  news: NewsIntegrationConfig
   coinbase: CoinbaseIntegrationConfig
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
@@ -190,6 +199,13 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   brave: {
     connected: false,
     apiKey: "",
+  },
+  news: {
+    connected: false,
+    apiKey: "",
+    defaultTopics: ["world", "business", "technology", "markets", "crypto"],
+    language: "en",
+    country: "us",
   },
   coinbase: {
     connected: false,
@@ -374,6 +390,7 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
     normalizedGmailAccounts[0]
 
   const normalizedTelegramBotToken = unwrapStoredSecret(raw?.telegram?.botToken)
+  const rawNewsDefaultTopics = (raw as { news?: { defaultTopics?: unknown } } | null | undefined)?.news?.defaultTopics
 
   return {
     telegram: {
@@ -392,6 +409,28 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
     brave: {
       connected: raw?.brave?.connected ?? DEFAULT_CONFIG.brave.connected,
       apiKey: unwrapStoredSecret(raw?.brave?.apiKey),
+    },
+    news: {
+      connected:
+        (raw?.news?.connected ?? DEFAULT_CONFIG.news.connected) &&
+        unwrapStoredSecret(raw?.news?.apiKey).trim().length > 0,
+      apiKey: unwrapStoredSecret(raw?.news?.apiKey),
+      defaultTopics: Array.isArray(rawNewsDefaultTopics)
+        ? rawNewsDefaultTopics.map((topic) => String(topic).trim().toLowerCase()).filter(Boolean)
+        : typeof rawNewsDefaultTopics === "string"
+          ? String(rawNewsDefaultTopics || "")
+              .split(/[,\s]+/)
+              .map((topic) => topic.trim().toLowerCase())
+              .filter(Boolean)
+          : DEFAULT_CONFIG.news.defaultTopics,
+      language:
+        typeof raw?.news?.language === "string" && raw.news.language.trim().length > 0
+          ? raw.news.language.trim().toLowerCase()
+          : DEFAULT_CONFIG.news.language,
+      country:
+        typeof raw?.news?.country === "string" && raw.news.country.trim().length > 0
+          ? raw.news.country.trim().toLowerCase()
+          : DEFAULT_CONFIG.news.country,
     },
     coinbase: {
       connected: raw?.coinbase?.connected ?? DEFAULT_CONFIG.coinbase.connected,
@@ -598,6 +637,10 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
       ...config.brave,
       apiKey: wrapStoredSecret(config.brave.apiKey),
     },
+    news: {
+      ...config.news,
+      apiKey: wrapStoredSecret(config.news.apiKey),
+    },
     coinbase: {
       ...config.coinbase,
       apiKey: wrapStoredSecret(config.coinbase.apiKey),
@@ -670,6 +713,21 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
     brave: {
       ...current.brave,
       ...(partial.brave || {}),
+    },
+    news: {
+      ...current.news,
+      ...(partial.news || {}),
+      defaultTopics: Array.isArray(partial.news?.defaultTopics)
+        ? partial.news.defaultTopics.map((topic) => String(topic).trim().toLowerCase()).filter(Boolean)
+        : current.news.defaultTopics,
+      language:
+        typeof partial.news?.language === "string" && partial.news.language.trim().length > 0
+          ? partial.news.language.trim().toLowerCase()
+          : current.news.language,
+      country:
+        typeof partial.news?.country === "string" && partial.news.country.trim().length > 0
+          ? partial.news.country.trim().toLowerCase()
+          : current.news.country,
     },
     coinbase: {
       ...current.coinbase,

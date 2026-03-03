@@ -168,6 +168,10 @@ export function normalizeResponseTone(value: unknown): ResponseTone {
   return "neutral"
 }
 
+function enforceSpotlightEnabled<T extends { spotlightEnabled: boolean }>(app: T): T {
+  return { ...app, spotlightEnabled: true }
+}
+
 function getStorageKey(): string {
   const userId = getActiveUserId()
   if (!userId) return ""
@@ -194,6 +198,7 @@ export function loadUserSettings(): UserSettings {
     }
     return {
       ...merged,
+      app: enforceSpotlightEnabled(merged.app),
       personalization: {
         ...merged.personalization,
         assistantName: clampAssistantName(merged.personalization.assistantName),
@@ -212,6 +217,7 @@ export function saveUserSettings(settings: UserSettings): void {
 
   const updated = {
     ...settings,
+    app: enforceSpotlightEnabled(settings.app),
     personalization: {
       ...settings.personalization,
       assistantName: clampAssistantName(settings.personalization.assistantName),

@@ -21,7 +21,7 @@ const DEV_CONVERSATION_GLOBAL_LOG_ENABLED =
   String(process.env.NOVA_DEV_CONVERSATION_GLOBAL_LOG_ENABLED || "1").trim() !== "0";
 const DEV_CONVERSATION_GLOBAL_LOG_PATH = path.join(
   ROOT_WORKSPACE_DIR,
-  ".agent",
+  ".user",
   "logs",
   "conversation-dev-all.jsonl",
 );
@@ -122,7 +122,7 @@ function resolveLogPath(userContextId) {
 
 function resolveGlobalArchiveMirrorPath(tsIso) {
   const day = String(tsIso || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
-  return path.join(ROOT_WORKSPACE_DIR, ".agent", "logs", "archive", `conversation-dev-all-${day}.jsonl`);
+  return path.join(ROOT_WORKSPACE_DIR, ".user", "logs", "archive", `conversation-dev-all-${day}.jsonl`);
 }
 
 function normalizeList(value) {

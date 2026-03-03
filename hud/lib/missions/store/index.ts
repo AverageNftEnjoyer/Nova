@@ -40,7 +40,7 @@ function resolveWorkspaceRoot(): string {
 }
 
 function resolveUserContextRoot(): string {
-  return path.join(resolveWorkspaceRoot(), ".agent", "user-context")
+  return path.join(resolveWorkspaceRoot(), ".user", "user-context")
 }
 
 function sanitizeUserId(value: unknown): string {

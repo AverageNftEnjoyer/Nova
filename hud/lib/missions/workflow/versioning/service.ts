@@ -24,7 +24,7 @@ function resolveWorkspaceRoot(): string {
 }
 
 function resolveVersionLogPath(userContextId: string): string {
-  return path.join(resolveWorkspaceRoot(), ".agent", "user-context", userContextId, "logs", "mission-versions.jsonl")
+  return path.join(resolveWorkspaceRoot(), ".user", "user-context", userContextId, "logs", "mission-versions.jsonl")
 }
 
 function cloneMission(mission: Mission): Mission {

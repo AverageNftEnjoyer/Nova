@@ -6,7 +6,7 @@
  * Layout: mini month picker sidebar + week/month/day views + detail modal
  */
 
-import { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext, type CSSProperties } from "react"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, ChevronRight, Settings, Plus, X, Clock, CalendarDays, Layers, User, Trash2 } from "lucide-react"
 import Link from "next/link"
@@ -98,6 +98,16 @@ function getWeekStart(d: Date): Date {
   date.setDate(date.getDate() - date.getDay())
   date.setHours(0, 0, 0, 0)
   return date
+}
+
+function hexToRgbTriplet(hex: string): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `${r}, ${g}, ${b}`
 }
 
 function sameDay(a: Date, b: Date) {
@@ -536,7 +546,7 @@ function DetailModal({
 
           {/* Inline reschedule picker */}
           {rescheduleOpen && ev.kind === "mission" && (
-            <div className={cn("mb-3 p-3 rounded-xl border", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/30")}>
+            <div className={cn("mb-3 p-3 rounded-xl border", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
               <p className={cn("text-[9px] font-mono uppercase tracking-widest mb-2", isLight ? "text-s-50" : "text-slate-500")}>
                 New time
               </p>
@@ -549,7 +559,7 @@ function DetailModal({
                     "flex-1 text-[11px] font-mono rounded-lg px-2 py-1.5 border focus:outline-none focus:ring-1 focus:ring-accent/50",
                     isLight
                       ? "border-[#d5dce8] bg-white text-s-90"
-                      : "border-white/10 bg-white/5 text-slate-200",
+                      : "home-subpanel-surface text-slate-200",
                   )}
                 />
                 <input
@@ -560,7 +570,7 @@ function DetailModal({
                     "w-24 text-[11px] font-mono rounded-lg px-2 py-1.5 border focus:outline-none focus:ring-1 focus:ring-accent/50",
                     isLight
                       ? "border-[#d5dce8] bg-white text-s-90"
-                      : "border-white/10 bg-white/5 text-slate-200",
+                      : "home-subpanel-surface text-slate-200",
                   )}
                 />
               </div>
@@ -708,7 +718,7 @@ function MiniCalendar({
               "h-5 w-5 rounded-md flex items-center justify-center transition-colors home-spotlight-card home-border-glow",
               isLight
                 ? "border border-[#d5dce8] bg-[#f4f7fd] text-s-50 hover:text-accent"
-                : "border border-white/10 bg-black/25 text-slate-400 hover:text-slate-100",
+                : "home-subpanel-surface border text-slate-400 hover:text-slate-100",
             )}
           >
             <ChevronLeft className="w-3 h-3" />
@@ -719,7 +729,7 @@ function MiniCalendar({
               "h-5 w-5 rounded-md flex items-center justify-center transition-colors home-spotlight-card home-border-glow",
               isLight
                 ? "border border-[#d5dce8] bg-[#f4f7fd] text-s-50 hover:text-accent"
-                : "border border-white/10 bg-black/25 text-slate-400 hover:text-slate-100",
+                : "home-subpanel-surface border text-slate-400 hover:text-slate-100",
             )}
           >
             <ChevronRight className="w-3 h-3" />
@@ -800,7 +810,7 @@ function WeekView({
       {/* Locked day headers */}
       <div className="shrink-0">
         <div
-          className="grid border-b border-white/10 bg-black/25 backdrop-blur-md"
+          className="grid border-b border-white/10 home-subpanel-surface backdrop-blur-md"
           style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}
         >
           <div className="border-r border-white/4" />
@@ -956,7 +966,7 @@ function DayView({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 border-b border-white/6 py-3 px-4 bg-black/20 backdrop-blur-md">
+      <div className="shrink-0 border-b border-white/6 py-3 px-4 home-subpanel-surface backdrop-blur-md">
         <div className={cn("text-[11px] font-mono tracking-wide mb-1", isToday ? "text-accent" : "text-white/85")}>
           {DAY_NAMES[day.getDay()]}
         </div>
@@ -1210,11 +1220,18 @@ export default function MissionsCalendarPage() {
   const orbHoverFilter  = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
   const panelClass      = isLight
     ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-    : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
+    : "home-module-surface rounded-2xl border backdrop-blur-xl"
   const subPanelClass   = isLight
     ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
-  const panelStyle      = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
+    : "home-subpanel-surface rounded-lg border backdrop-blur-md"
+  const panelStyle      = isLight
+    ? undefined
+    : {
+      boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)",
+      "--home-orb-rgb-primary": hexToRgbTriplet(orbPalette.circle1),
+      "--home-orb-rgb-secondary": hexToRgbTriplet(orbPalette.circle2),
+      "--home-orb-rgb-bg": hexToRgbTriplet(orbPalette.bg),
+    } as CSSProperties
 
   // Week days array (Sun–Sat)
   const weekDays = useMemo(() =>
@@ -1500,7 +1517,7 @@ export default function MissionsCalendarPage() {
 
                   {/* Add category form */}
                   {addCatOpen && (
-                    <div className={cn("mb-2 p-2 rounded-lg border", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/30")}>
+                    <div className={cn("mb-2 p-2 rounded-lg border", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
                       <input
                         value={newCatLabel}
                         onChange={(e) => setNewCatLabel(e.target.value)}
@@ -1508,7 +1525,7 @@ export default function MissionsCalendarPage() {
                         onKeyDown={(e) => e.key === "Enter" && handleAddCategory()}
                         className={cn(
                           "w-full text-[11px] rounded-md px-2 py-1.5 border mb-2 focus:outline-none focus:ring-1 focus:ring-accent/50",
-                          isLight ? "border-[#d5dce8] bg-white text-s-90 placeholder:text-s-40" : "border-white/10 bg-white/8 text-slate-100 placeholder:text-slate-400",
+                          isLight ? "border-[#d5dce8] bg-white text-s-90 placeholder:text-s-40" : "home-subpanel-surface text-slate-100 placeholder:text-slate-400",
                         )}
                       />
                       <div className="flex flex-wrap gap-1 mb-2">

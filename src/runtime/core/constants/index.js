@@ -30,6 +30,7 @@ function readLowerCsvEnv(name, fallbackCsv = "") {
 // ===== Base Paths =====
 export const ROOT_DIR = path.join(__dirname, "..");
 export const ROOT_WORKSPACE_DIR = path.join(__dirname, "..", "..", "..");
+export const USER_DATA_DIR = ".user";
 export const INTEGRATIONS_CONFIG_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", "integrations-config.json");
 
 // ===== API Base URLs =====
@@ -76,12 +77,12 @@ export const TOOL_CAPABILITY_DENYLIST = readLowerCsvEnv("NOVA_TOOL_CAPABILITY_DE
 export const TOOL_WEB_SEARCH_PROVIDER = "brave";
 
 // ===== Memory Paths =====
-export const MEMORY_DB_PATH = path.join(ROOT_WORKSPACE_DIR, ".agent", "memory.db");
+export const MEMORY_DB_PATH = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "memory.db");
 export const MEMORY_SOURCE_DIR = path.join(ROOT_WORKSPACE_DIR, "memory");
 
 // ===== Session Config =====
-export const SESSION_STORE_PATH = path.join(ROOT_WORKSPACE_DIR, ".agent", "sessions.json");
-export const SESSION_TRANSCRIPT_DIR = path.join(ROOT_WORKSPACE_DIR, ".agent", "transcripts");
+export const SESSION_STORE_PATH = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "sessions.json");
+export const SESSION_TRANSCRIPT_DIR = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "transcripts");
 export const SESSION_MAX_TURNS = readIntEnv("NOVA_SESSION_MAX_TURNS", 20, { min: 1, max: 1000 });
 export const SESSION_IDLE_MINUTES = readIntEnv("NOVA_SESSION_IDLE_MINUTES", 120, { min: 1, max: 10_080 });
 export const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "main").trim() || "main";
@@ -125,7 +126,7 @@ export const RAW_STREAM_ENABLED =
 export const RAW_STREAM_PATH = String(
   process.env.OPENCLAW_RAW_STREAM_PATH ||
     process.env.NOVA_RAW_STREAM_PATH ||
-    path.join(ROOT_WORKSPACE_DIR, ".agent", "raw-stream.jsonl")
+    path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "raw-stream.jsonl")
 ).trim();
 
 // ===== Provider Fallback =====
@@ -254,7 +255,7 @@ export const MEMORY_FACT_MAX_CHARS = readIntEnv("NOVA_MEMORY_FACT_MAX_CHARS", 28
 export const STT_MODEL = String(process.env.NOVA_STT_MODEL || "whisper-1").trim();
 
 // ===== User Context & Bootstrap =====
-export const USER_CONTEXT_ROOT = path.join(ROOT_WORKSPACE_DIR, ".agent", "user-context");
+export const USER_CONTEXT_ROOT = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "user-context");
 export const BOOTSTRAP_BASELINE_DIR = path.join(ROOT_WORKSPACE_DIR, "templates");
 export const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "IDENTITY.md"];
 

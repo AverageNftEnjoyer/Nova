@@ -97,7 +97,7 @@ async function main() {
   const workspaceRoot = resolveWorkspaceRoot();
   const logPath = path.join(
     workspaceRoot,
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "logs",
@@ -105,7 +105,7 @@ async function main() {
   );
   const reportDir = path.join(
     workspaceRoot,
-    ".agent",
+    ".user",
     "user-context",
     userContextId,
     "reports",

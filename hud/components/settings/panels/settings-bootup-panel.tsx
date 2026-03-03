@@ -47,7 +47,7 @@ export function SettingsBootupPanel({
     <div className="space-y-5">
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150 mb-4",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-300")}>
           Configure Nova startup behavior. This section is dedicated to boot experience settings.
@@ -81,7 +81,7 @@ export function SettingsBootupPanel({
       {/* Boot music library */}
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Bootup Music</p>
         <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>
@@ -168,7 +168,7 @@ export function SettingsBootupPanel({
 
       <div className={cn(
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
-        isLight ? "border-[#d5dce8] bg-[#f4f7fd] hover:bg-[#eef3fb]" : "border-white/10 bg-black/20 hover:bg-white/6"
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
         <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>More Boot Settings</p>
         <p className={cn("text-xs", isLight ? "text-s-30" : "text-slate-500")}>
@@ -178,3 +178,4 @@ export function SettingsBootupPanel({
     </div>
   )
 }
+

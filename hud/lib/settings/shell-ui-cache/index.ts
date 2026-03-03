@@ -412,6 +412,7 @@ function ensureScopedCacheUser(): void {
 
 export function readShellUiCache(): Readonly<ShellUiCache> {
   ensureScopedCacheUser()
+  cache.spotlightEnabled = true
   return cache
 }
 

@@ -43,7 +43,7 @@ function resolveWorkspaceRoot() {
 }
 
 function resolveUserContextRoot() {
-  return path.join(resolveWorkspaceRoot(), ".agent", "user-context")
+  return path.join(resolveWorkspaceRoot(), ".user", "user-context")
 }
 
 function resolveScopedDataFile(userContextId) {

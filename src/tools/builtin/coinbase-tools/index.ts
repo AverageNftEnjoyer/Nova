@@ -213,8 +213,8 @@ function loadCoinbaseReportSkillPrefs(workspaceDir: string, userContextId: strin
   if (!normalizedUserContextId) return null;
   const root = path.resolve(workspaceDir || process.cwd());
   const candidates = [
-    path.join(root, ".agent", "user-context", normalizedUserContextId, "skills", "coinbase", "SKILL.md"),
-    path.join(root, ".agent", "user-context", normalizedUserContextId, "skills.md"),
+    path.join(root, ".user", "user-context", normalizedUserContextId, "skills", "coinbase", "SKILL.md"),
+    path.join(root, ".user", "user-context", normalizedUserContextId, "skills.md"),
   ];
   for (const filePath of candidates) {
     try {
@@ -718,7 +718,7 @@ function resolvePersonaMetaFromWorkspace(workspaceDir: string, userContextId: st
   const now = Date.now();
   const cached = personaMetaByWorkspaceAndUser.get(cacheKey);
   if (cached && now - cached.ts < PERSONA_META_CACHE_TTL_MS) return cached.value;
-  const agentsPath = path.join(root, ".agent", "user-context", uid, "AGENTS.md");
+  const agentsPath = path.join(root, ".user", "user-context", uid, "AGENTS.md");
   let assistantName = "Nova";
   let tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed" = "neutral";
   try {

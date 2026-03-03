@@ -7,6 +7,7 @@ export type IntegrationsSaveTarget =
   | "telegram"
   | "discord"
   | "brave"
+  | "news"
   | "coinbase"
   | "openai"
   | "claude"

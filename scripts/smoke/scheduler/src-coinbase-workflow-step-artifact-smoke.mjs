@@ -157,7 +157,7 @@ await run("P26-CB2 coinbase step executes, persists artifact, and re-reads on ne
 
   const artifactDir = path.join(
     tmpRoot,
-    ".agent",
+    ".user",
     "user-context",
     "smoke-user-a",
     "state",

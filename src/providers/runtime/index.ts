@@ -173,7 +173,7 @@ export function resolveRuntimePaths(workspaceRoot?: string): RuntimePaths {
   return {
     workspaceRoot: root,
     integrationsConfigPath,
-    userContextRoot: path.join(root, ".agent", "user-context"),
+    userContextRoot: path.join(root, ".user", "user-context"),
     hudRoot,
   };
 }

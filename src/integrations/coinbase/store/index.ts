@@ -698,7 +698,7 @@ export function coinbaseDbPathForUserContext(userContextIdInput: string, workspa
     throw new Error("Missing userContextId for Coinbase DB path.");
   }
   const workspaceRoot = path.resolve(workspaceRootInput || process.cwd());
-  return path.join(workspaceRoot, ".agent", "user-context", userContextId, "coinbase", "coinbase.sqlite");
+  return path.join(workspaceRoot, ".user", "user-context", userContextId, "coinbase", "coinbase.sqlite");
 }
 
 function ensureCoinbaseSchema(db: Database.Database): void {

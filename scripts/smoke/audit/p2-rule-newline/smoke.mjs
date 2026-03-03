@@ -79,7 +79,7 @@ async function run() {
 
     const skillPath = path.join(
       tmpDir,
-      ".agent",
+      ".user",
       "user-context",
       userContextId,
       "skills",
@@ -138,7 +138,7 @@ async function run() {
 
     const skillPath2 = path.join(
       tmpDir,
-      ".agent",
+      ".user",
       "user-context",
       userContextId2,
       "skills",

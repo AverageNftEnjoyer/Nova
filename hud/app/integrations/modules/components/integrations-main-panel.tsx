@@ -11,18 +11,20 @@ import type { IntegrationsMainPanelProps } from "../types"
 export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
   const {
     activeSetup, panelStyle, panelClass, moduleHeightClass, isLight, subPanelClass, settings, isSavingTarget,
-    telegramNeedsKeyWarning, braveApiKeyConfigured, braveApiKeyMasked, coinbaseNeedsKeyWarning, coinbasePendingAction, coinbaseSyncBadgeClass, coinbaseSyncLabel,
+    telegramNeedsKeyWarning, braveApiKeyConfigured, braveApiKeyMasked, newsNeedsKeyWarning, newsApiKey, setNewsApiKey, newsApiKeyConfigured, newsApiKeyMasked,
+    newsDefaultTopics, setNewsDefaultTopics,
+    coinbaseNeedsKeyWarning, coinbasePendingAction, coinbaseSyncBadgeClass, coinbaseSyncLabel,
     coinbaseLastSyncText, coinbaseFreshnessText, coinbaseErrorText, coinbaseHasKeys, coinbaseScopeSummary, coinbasePrivacy, coinbasePrivacyHydrated, coinbasePrivacySaving, coinbasePrivacyError,
     coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
     coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
     coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
     spotifySetup,
     telegramSetupSectionRef,
-    discordSetupSectionRef, braveSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
+    discordSetupSectionRef, braveSetupSectionRef, newsSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
     spotifySetupSectionRef, gmailCalendarSetupSectionRef, setBotToken,
     botToken, botTokenConfigured, botTokenMasked, setChatIds, chatIds, setDiscordWebhookUrls, discordWebhookUrls,
     setBraveApiKey, braveApiKey, toggleTelegram, saveTelegramConfig, toggleDiscord, saveDiscordConfig, toggleBrave,
-    saveBraveConfig, probeCoinbaseConnection, toggleCoinbase, saveCoinbaseConfig, updateCoinbasePrivacy,
+    saveBraveConfig, toggleNews, saveNewsConfig, probeCoinbaseConnection, toggleCoinbase, saveCoinbaseConfig, updateCoinbasePrivacy,
     updateCoinbaseDefaults,
   } = props
 
@@ -322,6 +324,121 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         <li>1. Run a mission that includes web fetch/search and check run trace for successful web sources.</li>
                         <li>2. If you still see low-source or key-missing warnings, disable then re-enable Brave after saving a fresh key.</li>
                         <li>3. Rotate the key in Brave dashboard immediately if it is ever exposed in logs, screenshots, or shared text.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            )}
+
+            {activeSetup === "news" && (
+            <section ref={newsSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    News API
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Configure live news for Home feed topic filtering.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleNews}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.news.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.news.connected ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={saveNewsConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "news" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <SecretInput
+                  value={newsApiKey}
+                  onChange={setNewsApiKey}
+                  label="API Key"
+                  placeholder="news_live_xxxxxxxxx"
+                  placeholderWhenConfigured="Enter new key to replace current key"
+                  maskedValue={newsApiKeyMasked}
+                  isConfigured={newsApiKeyConfigured}
+                  name="news_api_key_input"
+                  isLight={isLight}
+                  subPanelClass={subPanelClass}
+                />
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Feed Defaults</p>
+                  <input
+                    value={newsDefaultTopics}
+                    onChange={(e) => setNewsDefaultTopics(e.target.value)}
+                    placeholder="Default topics (comma separated)"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                    )}
+                  />
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                    {newsNeedsKeyWarning && (
+                      <p className={cn("text-[11px]", isLight ? "text-amber-700" : "text-amber-300")}>
+                        Key missing
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create and Save Credentials</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Create an API key in your news provider dashboard.</li>
+                        <li>2. Paste the key above and set your default topics list.</li>
+                        <li>3. Click <span className="font-mono">Save</span>, then <span className="font-mono">Enable</span>.</li>
+                      </ol>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Home Feed Behavior</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Home feed polls every <span className="font-mono">10 minutes</span> only while the page is visible.</li>
+                        <li>2. Topic buttons switch between general, market, and crypto sources without spamming calls.</li>
+                        <li>3. Use default topics to seed initial chips for your account.</li>
                       </ol>
                     </div>
                   </div>

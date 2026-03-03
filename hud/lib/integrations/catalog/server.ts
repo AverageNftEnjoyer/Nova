@@ -61,6 +61,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "news",
+      label: "News",
+      kind: "api",
+      connected: config.news.connected && config.news.apiKey.trim().length > 0,
+      source: "core",
+      capabilities: ["fetch"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "coinbase",
       label: "Coinbase",
       kind: "api",

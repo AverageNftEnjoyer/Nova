@@ -168,7 +168,7 @@ export async function loadMissionSkillSnapshot(params?: {
   const scopedUserId = sanitizeUserContextId(params?.userId || "")
   const dirs = [path.join(workspaceRoot, "skills")]
   if (scopedUserId) {
-    dirs.push(path.join(workspaceRoot, ".agent", "user-context", scopedUserId, "skills"))
+    dirs.push(path.join(workspaceRoot, ".user", "user-context", scopedUserId, "skills"))
   }
 
   const skills = await discoverMissionSkills(dirs)

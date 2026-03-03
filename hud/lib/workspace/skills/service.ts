@@ -96,7 +96,7 @@ function toTitleCaseSlug(slug: string): string {
 export function resolveSkillsDir(workspaceRoot: string, userId: string): string {
   return path.join(
     path.resolve(workspaceRoot),
-    ".agent",
+    ".user",
     "user-context",
     sanitizeUserContextId(userId),
     "skills",

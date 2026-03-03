@@ -39,7 +39,7 @@ function wrapSecret(value: unknown): string {
 
 function resolveUserRuntimeConfigPath(workspaceRoot: string, userId: string): string {
   const scopedUserId = sanitizeUserContextId(userId)
-  return path.join(path.resolve(workspaceRoot), ".agent", "user-context", scopedUserId, "state", "integrations-config.json")
+  return path.join(path.resolve(workspaceRoot), ".user", "user-context", scopedUserId, "state", "integrations-config.json")
 }
 
 export async function syncAgentRuntimeIntegrationsSnapshot(
@@ -108,6 +108,15 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
       defaultModel: String(config.gemini.defaultModel || "").trim(),
     },
     spotify: buildRuntimeSafeSpotifySnapshot(config.spotify),
+    news: {
+      connected: Boolean(config.news.connected),
+      apiKey: wrapSecret(config.news.apiKey),
+      defaultTopics: Array.isArray(config.news.defaultTopics)
+        ? config.news.defaultTopics.map((topic) => String(topic).trim().toLowerCase()).filter(Boolean)
+        : [],
+      language: String(config.news.language || "").trim().toLowerCase(),
+      country: String(config.news.country || "").trim().toLowerCase(),
+    },
     gmail: buildRuntimeSafeGmailSnapshot(config.gmail),
     updatedAt: new Date().toISOString(),
     source: "user-scoped-runtime-sync",

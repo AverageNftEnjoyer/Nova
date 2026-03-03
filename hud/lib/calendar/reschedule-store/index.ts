@@ -4,7 +4,7 @@
  * Persists per-user calendar drag-drop reschedule overrides independently of
  * the Mission graph so Builder edits and calendar edits do not conflict.
  *
- * Stored at: .agent/user-context/<userId>/calendar/calendar-overrides.json
+ * Stored at: .user/user-context/<userId>/calendar/calendar-overrides.json
  * Keyed by: (userId, missionId) - no cross-user access possible.
  */
 
@@ -33,7 +33,7 @@ function resolveWorkspaceRoot(): string {
 }
 
 function resolveUserContextRoot(): string {
-  return path.join(resolveWorkspaceRoot(), ".agent", "user-context")
+  return path.join(resolveWorkspaceRoot(), ".user", "user-context")
 }
 
 function sanitizeUserId(value: unknown): string {

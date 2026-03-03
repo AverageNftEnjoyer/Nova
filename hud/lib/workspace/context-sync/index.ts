@@ -62,7 +62,7 @@ function sanitizeUserContextId(value: unknown): string {
 }
 
 function resolveUserContextDir(workspaceRoot: string, userId: string): string {
-  return path.join(path.resolve(workspaceRoot), ".agent", "user-context", sanitizeUserContextId(userId))
+  return path.join(path.resolve(workspaceRoot), ".user", "user-context", sanitizeUserContextId(userId))
 }
 
 function compactText(value: unknown, maxLen: number): string {
