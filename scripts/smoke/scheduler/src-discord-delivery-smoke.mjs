@@ -96,9 +96,9 @@ const discordHarness = {
 };
 
 const discordModule = transpileAndLoad(
-  "hud/lib/notifications/discord.ts",
+  "hud/lib/notifications/discord/index.ts",
   {
-    "@/lib/integrations/server-store": {
+    "@/lib/integrations/store/server-store": {
       loadIntegrationsConfig: async (scope) => {
         const userId = String(scope?.userId || scope?.user?.id || "").trim();
         if (discordHarness.configByUser.has(userId)) return discordHarness.configByUser.get(userId);
@@ -155,7 +155,7 @@ await run("P22-D3 unit partial delivery status computes all-target vs partial ou
 });
 
 await run("P22-D4 unit integrations store encrypts/decrypts Discord webhook URLs at rest", async () => {
-  const storeSource = read("hud/lib/integrations/server-store.ts");
+  const storeSource = read("hud/lib/integrations/store/server-store.ts");
   assert.equal(
     storeSource.includes("raw.discord.webhookUrls.map((url) => unwrapStoredSecret(url))"),
     true,
@@ -333,7 +333,7 @@ await run("P22-D11 integration PATCH /api/integrations/config rejects invalid Di
           }),
       },
     },
-    "@/lib/integrations/server-store": {
+    "@/lib/integrations/store/server-store": {
       loadIntegrationsConfig: async () => ({
         telegram: { connected: false, botToken: "", chatIds: [] },
         discord: { connected: false, webhookUrls: [] },
@@ -358,6 +358,7 @@ await run("P22-D11 integration PATCH /api/integrations/config rejects invalid Di
       updateIntegrationsConfig: async (next) => ({ ...next, updatedAt: new Date().toISOString() }),
     },
     "@/lib/integrations/agent-runtime-sync": { syncAgentRuntimeIntegrationsSnapshot: async () => {} },
+    "@/lib/integrations/runtime/agent-sync": { syncAgentRuntimeIntegrationsSnapshot: async () => {} },
     "@/lib/coinbase/reporting": {
       createCoinbaseStore: async () => ({ purgeUserData: () => ({}), appendAuditLog: () => {}, close: () => {} }),
     },
@@ -370,6 +371,10 @@ await run("P22-D11 integration PATCH /api/integrations/config rejects invalid Di
     "@/lib/notifications/discord": {
       isValidDiscordWebhookUrl,
       redactWebhookTarget,
+    },
+    "@/lib/notifications/slack": {
+      isValidSlackWebhookUrl: () => true,
+      redactSlackWebhookUrl: () => "slack:webhook:redacted",
     },
   });
 
@@ -438,7 +443,7 @@ await run("P22-D13 integration mission workflow preserves per-target Discord out
   const outputExecutorSource = read("hud/lib/missions/workflow/executors/output-executors.ts");
   const dispatchSource = read("hud/lib/missions/output/dispatch.ts");
   assert.equal(dispatchSource.includes("dispatchNotification"), true);
-  assert.equal(dispatchSource.includes("return await dispatchNotification"), true);
+  assert.equal(dispatchSource.includes("const channelResults = await dispatchNotification({"), true);
   assert.equal(outputExecutorSource.includes("data: results"), true);
   assert.equal(outputExecutorSource.includes('const first = results[0] ?? { ok: false, error: "No result returned" }'), true);
   assert.equal(executionSource.includes("outputs.push({ ok: output.ok, error: output.error, status: undefined })"), true);
@@ -446,7 +451,7 @@ await run("P22-D13 integration mission workflow preserves per-target Discord out
 });
 
 await run("P22-D14 integration scheduler outage safeguards keep tick loop alive", async () => {
-  const schedulerSource = read("hud/lib/notifications/scheduler.ts");
+  const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
   assert.equal(schedulerSource.includes("if (state.tickInFlight)"), true);
   assert.equal(schedulerSource.includes("state.tickInFlight = false"), true);
   assert.equal(schedulerSource.includes("try {"), true);

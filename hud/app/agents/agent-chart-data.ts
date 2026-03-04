@@ -39,13 +39,18 @@ export const NOVA_COUNCIL_NODES = [
     label: "Memory Council",
     summary: "Context packing, preference reads, memory write policy",
   },
+  {
+    id: "planning-council",
+    label: "Planning Council",
+    summary: "Multi-step decomposition, execution strategy, and plan validation",
+  },
 ] as const
 
 export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
   {
     id: "media-manager",
     label: "Media",
-    objective: "Playback, queueing, listening flow",
+    objective: "Playback, queueing, and voice delivery",
     accent: "emerald",
     workers: [
       {
@@ -63,6 +68,14 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         provider: "grok",
         status: "online",
         tags: ["mute", "resume"],
+      },
+      {
+        id: "tts-agent",
+        name: "TTS Agent",
+        role: "Speech synthesis",
+        provider: "openai",
+        status: "online",
+        tags: ["speech", "voice-output"],
       },
     ],
   },
@@ -88,6 +101,14 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         status: "busy",
         tags: ["balances", "P&L"],
       },
+      {
+        id: "market-agent",
+        name: "Market Agent",
+        role: "Market structure + trend scans",
+        provider: "gemini",
+        status: "online",
+        tags: ["trend", "market-scan"],
+      },
     ],
   },
   {
@@ -111,6 +132,14 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         provider: "claude",
         status: "online",
         tags: ["build", "run"],
+      },
+      {
+        id: "reminders-agent",
+        name: "Reminders Agent",
+        role: "Reminders + follow-up tasks",
+        provider: "openai",
+        status: "online",
+        tags: ["reminders", "follow-up"],
       },
     ],
   },
@@ -136,6 +165,14 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         status: "offline",
         tags: ["send", "status"],
       },
+      {
+        id: "discord-agent",
+        name: "Discord Agent",
+        role: "Channel delivery + status checks",
+        provider: "claude",
+        status: "online",
+        tags: ["discord", "delivery"],
+      },
     ],
   },
   {
@@ -160,14 +197,6 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         status: "busy",
         tags: ["files", "index"],
       },
-    ],
-  },
-  {
-    id: "research-manager",
-    label: "Research",
-    objective: "Web discovery and synthesis",
-    accent: "rose",
-    workers: [
       {
         id: "web-research-agent",
         name: "Web Research Agent",
@@ -175,14 +204,6 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         provider: "openai",
         status: "online",
         tags: ["search", "citations"],
-      },
-      {
-        id: "briefing-agent",
-        name: "Briefing Agent",
-        role: "Digest generation",
-        provider: "grok",
-        status: "online",
-        tags: ["brief", "summary"],
       },
     ],
   },
@@ -194,4 +215,3 @@ export const PROVIDER_RAIL = [
   { id: "grok", label: "Grok Adapter", model: "grok-4" },
   { id: "gemini", label: "Gemini Adapter", model: "gemini-2.5-pro" },
 ] as const
-

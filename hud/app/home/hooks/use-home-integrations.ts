@@ -175,6 +175,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
+  const [slackConnected, setSlackConnected] = useState(false)
   const [braveConnected, setBraveConnected] = useState(false)
   const [newsConnected, setNewsConnected] = useState(false)
   const [coinbaseConnected, setCoinbaseConnected] = useState(false)
@@ -183,6 +184,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [grokConnected, setGrokConnected] = useState(false)
   const [geminiConnected, setGeminiConnected] = useState(false)
   const [spotifyConnected, setSpotifyConnected] = useState(false)
+  const [youtubeConnected, setYouTubeConnected] = useState(false)
   const [spotifyNowPlaying, setSpotifyNowPlaying] = useState<HomeSpotifyNowPlaying | null>(null)
   // Stable ref always pointing at latest nowPlaying — safe to read inside callbacks without deps
   const spotifyNowPlayingRef = useRef<HomeSpotifyNowPlaying | null>(null)
@@ -209,6 +211,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const applyLocalSettings = useCallback((settings: IntegrationsSettings) => {
     setTelegramConnected(settings.telegram.connected)
     setDiscordConnected(settings.discord.connected)
+    setSlackConnected(Boolean(settings.slack?.connected))
     setBraveConnected(settings.brave.connected)
     setNewsConnected(Boolean(settings.news?.connected))
     setCoinbaseConnected(Boolean(settings.coinbase?.connected))
@@ -218,6 +221,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     setGeminiConnected(settings.gemini.connected)
     const spotifyIsConnected = Boolean(settings.spotify?.connected)
     setSpotifyConnected(spotifyIsConnected)
+    setYouTubeConnected(Boolean(settings.youtube?.connected))
     if (!spotifyIsConnected) {
       if (!preserveSpotifyCacheUntilServerSyncRef.current) {
         setSpotifyNowPlaying(null)
@@ -459,6 +463,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         const provider = providerFromValue(config?.activeLlmProvider)
         setTelegramConnected(Boolean(config?.telegram?.connected))
         setDiscordConnected(Boolean(config?.discord?.connected))
+        setSlackConnected(Boolean(config?.slack?.connected))
         setBraveConnected(Boolean(config?.brave?.connected))
         setNewsConnected(Boolean(config?.news?.connected))
         setCoinbaseConnected(Boolean(config?.coinbase?.connected))
@@ -468,6 +473,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         setGeminiConnected(Boolean(config?.gemini?.connected))
         const spotifyIsConnected = Boolean(config?.spotify?.connected)
         setSpotifyConnected(spotifyIsConnected)
+        setYouTubeConnected(Boolean(config?.youtube?.connected))
         if (!spotifyIsConnected) {
           setSpotifyNowPlaying(null)
           setSpotifyError(null)
@@ -679,6 +685,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     integrationBadgeClass,
     telegramConnected,
     discordConnected,
+    slackConnected,
     braveConnected,
     newsConnected,
     coinbaseConnected,
@@ -687,6 +694,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     grokConnected,
     geminiConnected,
     spotifyConnected,
+    youtubeConnected,
     spotifyNowPlaying,
     spotifyLoading,
     spotifyError,

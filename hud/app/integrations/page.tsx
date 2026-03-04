@@ -15,7 +15,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -46,6 +46,7 @@ import {
   useGmailSetup,
   useGmailCalendarSetup,
   useSpotifySetup,
+  useYouTubeSetup,
   normalizeGmailAccountsForUi,
   type IntegrationsSaveStatus,
   type IntegrationsSaveTarget,
@@ -95,6 +96,9 @@ export default function IntegrationsPage() {
   const [botTokenMasked, setBotTokenMasked] = useState("")
   const [chatIds, setChatIds] = useState("")
   const [discordWebhookUrls, setDiscordWebhookUrls] = useState("")
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("")
+  const [slackWebhookUrlConfigured, setSlackWebhookUrlConfigured] = useState(false)
+  const [slackWebhookUrlMasked, setSlackWebhookUrlMasked] = useState("")
   const [braveApiKey, setBraveApiKey] = useState("")
   const [braveApiKeyConfigured, setBraveApiKeyConfigured] = useState(false)
   const [braveApiKeyMasked, setBraveApiKeyMasked] = useState("")
@@ -102,6 +106,7 @@ export default function IntegrationsPage() {
   const [newsApiKeyConfigured, setNewsApiKeyConfigured] = useState(false)
   const [newsApiKeyMasked, setNewsApiKeyMasked] = useState("")
   const [newsDefaultTopics, setNewsDefaultTopics] = useState("world,business,technology,markets,crypto")
+  const [newsPreferredSources, setNewsPreferredSources] = useState("")
   const [coinbaseApiKey, setCoinbaseApiKey] = useState("")
   const [coinbaseApiSecret, setCoinbaseApiSecret] = useState("")
   const [coinbaseApiKeyConfigured, setCoinbaseApiKeyConfigured] = useState(false)
@@ -133,6 +138,7 @@ export default function IntegrationsPage() {
   const connectivitySectionRef = useRef<HTMLElement | null>(null)
   const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
   const discordSetupSectionRef = useRef<HTMLElement | null>(null)
+  const slackSetupSectionRef = useRef<HTMLElement | null>(null)
   const braveSetupSectionRef = useRef<HTMLElement | null>(null)
   const newsSetupSectionRef = useRef<HTMLElement | null>(null)
   const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -141,6 +147,7 @@ export default function IntegrationsPage() {
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
   const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
   const spotifySetupSectionRef = useRef<HTMLElement | null>(null)
+  const youtubeSetupSectionRef = useRef<HTMLElement | null>(null)
   const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
   const gmailCalendarSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
@@ -169,12 +176,19 @@ export default function IntegrationsPage() {
     setIsSavingTarget,
     onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
+  const youtubeSetup = useYouTubeSetup({
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
+  })
   const hydrateOpenAISetup = openAISetup.hydrate
   const hydrateClaudeSetup = claudeSetup.hydrate
   const hydrateGrokSetup = grokSetup.hydrate
   const hydrateGeminiSetup = geminiSetup.hydrate
   const hydrateGmailSetup = gmailSetup.hydrate
   const hydrateSpotifySetup = spotifySetup.hydrate
+  const hydrateYouTubeSetup = youtubeSetup.hydrate
 
   useEffect(() => {
     let cancelled = false
@@ -202,6 +216,9 @@ export default function IntegrationsPage() {
           setBotTokenMasked(fallback.telegram.botTokenMasked || "")
           setChatIds(fallback.telegram.chatIds)
           setDiscordWebhookUrls(fallback.discord.webhookUrls)
+          setSlackWebhookUrl(fallback.slack?.webhookUrl || "")
+          setSlackWebhookUrlConfigured(Boolean(fallback.slack?.webhookUrlConfigured))
+          setSlackWebhookUrlMasked(fallback.slack?.webhookUrlMasked || "")
           setBraveApiKey(fallback.brave.apiKey)
           setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
           setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
@@ -209,6 +226,7 @@ export default function IntegrationsPage() {
           setNewsApiKeyConfigured(Boolean(fallback.news.apiKeyConfigured))
           setNewsApiKeyMasked(fallback.news.apiKeyMasked || "")
           setNewsDefaultTopics(fallback.news.defaultTopics || "world,business,technology,markets,crypto")
+          setNewsPreferredSources(fallback.news.preferredSources || "")
           setCoinbaseApiKey(fallback.coinbase.apiKey)
           setCoinbaseApiSecret(fallback.coinbase.apiSecret)
           setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
@@ -221,6 +239,7 @@ export default function IntegrationsPage() {
           hydrateGrokSetup(fallback)
           hydrateGeminiSetup(fallback)
           hydrateSpotifySetup(fallback)
+          hydrateYouTubeSetup(fallback)
           hydrateGmailSetup(fallback)
           setActiveLlmProvider(fallback.activeLlmProvider || "openai")
           return
@@ -249,6 +268,12 @@ export default function IntegrationsPage() {
               ? config.discord.webhookUrlsMasked.map((value: unknown) => String(value))
               : [],
           },
+          slack: {
+            connected: Boolean(config.slack?.connected),
+            webhookUrl: config.slack?.webhookUrl || "",
+            webhookUrlConfigured: Boolean(config.slack?.webhookUrlConfigured),
+            webhookUrlMasked: typeof config.slack?.webhookUrlMasked === "string" ? config.slack.webhookUrlMasked : "",
+          },
           brave: {
             connected: Boolean(config.brave?.connected),
             apiKey: config.brave?.apiKey || "",
@@ -263,6 +288,11 @@ export default function IntegrationsPage() {
               : typeof config.news?.defaultTopics === "string"
                 ? config.news.defaultTopics
                 : "world,business,technology,markets,crypto",
+            preferredSources: Array.isArray(config.news?.preferredSources)
+              ? config.news.preferredSources.map((source: unknown) => String(source).trim()).filter(Boolean).join(",")
+              : typeof config.news?.preferredSources === "string"
+                ? config.news.preferredSources
+                : "",
             language: typeof config.news?.language === "string" && config.news.language.trim().length > 0
               ? config.news.language.trim().toLowerCase()
               : "en",
@@ -355,6 +385,29 @@ export default function IntegrationsPage() {
             redirectUri: typeof config.spotify?.redirectUri === "string" ? config.spotify.redirectUri : SPOTIFY_DEFAULT_REDIRECT_URI,
             tokenConfigured: Boolean(config.spotify?.tokenConfigured),
           },
+          youtube: {
+            connected: Boolean(config.youtube?.connected),
+            channelId: typeof config.youtube?.channelId === "string" ? config.youtube.channelId : "",
+            channelTitle: typeof config.youtube?.channelTitle === "string" ? config.youtube.channelTitle : "",
+            scopes: Array.isArray(config.youtube?.scopes)
+              ? config.youtube.scopes.join(" ")
+              : typeof config.youtube?.scopes === "string"
+                ? config.youtube.scopes
+                : "",
+            permissions: {
+              allowFeed: typeof config.youtube?.permissions?.allowFeed === "boolean"
+                ? config.youtube.permissions.allowFeed
+                : true,
+              allowSearch: typeof config.youtube?.permissions?.allowSearch === "boolean"
+                ? config.youtube.permissions.allowSearch
+                : true,
+              allowVideoDetails: typeof config.youtube?.permissions?.allowVideoDetails === "boolean"
+                ? config.youtube.permissions.allowVideoDetails
+                : true,
+            },
+            redirectUri: typeof config.youtube?.redirectUri === "string" ? config.youtube.redirectUri : "http://localhost:3000/api/integrations/youtube/callback",
+            tokenConfigured: Boolean(config.youtube?.tokenConfigured),
+          },
           gmail: {
             connected: Boolean(config.gmail?.connected),
             email: typeof config.gmail?.email === "string" ? config.gmail.email : "",
@@ -415,6 +468,9 @@ export default function IntegrationsPage() {
         setBotTokenMasked(normalized.telegram.botTokenMasked || "")
         setChatIds(normalized.telegram.chatIds)
         setDiscordWebhookUrls(normalized.discord.webhookUrls)
+        setSlackWebhookUrl(normalized.slack?.webhookUrl || "")
+        setSlackWebhookUrlConfigured(Boolean(normalized.slack?.webhookUrlConfigured))
+        setSlackWebhookUrlMasked(normalized.slack?.webhookUrlMasked || "")
         setBraveApiKey(normalized.brave.apiKey)
         setBraveApiKeyConfigured(Boolean(normalized.brave.apiKeyConfigured))
         setBraveApiKeyMasked(normalized.brave.apiKeyMasked || "")
@@ -422,6 +478,7 @@ export default function IntegrationsPage() {
         setNewsApiKeyConfigured(Boolean(normalized.news.apiKeyConfigured))
         setNewsApiKeyMasked(normalized.news.apiKeyMasked || "")
         setNewsDefaultTopics(normalized.news.defaultTopics || "world,business,technology,markets,crypto")
+        setNewsPreferredSources(normalized.news.preferredSources || "")
         setCoinbaseApiKey(normalized.coinbase.apiKey)
         setCoinbaseApiSecret(normalized.coinbase.apiSecret)
         setCoinbaseApiKeyConfigured(Boolean(normalized.coinbase.apiKeyConfigured))
@@ -434,6 +491,7 @@ export default function IntegrationsPage() {
         hydrateGrokSetup(normalized)
         hydrateGeminiSetup(normalized)
         hydrateSpotifySetup(normalized)
+        hydrateYouTubeSetup(normalized)
         hydrateGmailSetup(normalized)
         setActiveLlmProvider(normalized.activeLlmProvider || "openai")
         saveIntegrationsSettings(normalized)
@@ -447,6 +505,9 @@ export default function IntegrationsPage() {
         setBotTokenMasked(fallback.telegram.botTokenMasked || "")
         setChatIds(fallback.telegram.chatIds)
         setDiscordWebhookUrls(fallback.discord.webhookUrls)
+        setSlackWebhookUrl(fallback.slack?.webhookUrl || "")
+        setSlackWebhookUrlConfigured(Boolean(fallback.slack?.webhookUrlConfigured))
+        setSlackWebhookUrlMasked(fallback.slack?.webhookUrlMasked || "")
         setBraveApiKey(fallback.brave.apiKey)
         setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
         setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
@@ -454,6 +515,7 @@ export default function IntegrationsPage() {
         setNewsApiKeyConfigured(Boolean(fallback.news.apiKeyConfigured))
         setNewsApiKeyMasked(fallback.news.apiKeyMasked || "")
         setNewsDefaultTopics(fallback.news.defaultTopics || "world,business,technology,markets,crypto")
+        setNewsPreferredSources(fallback.news.preferredSources || "")
         setCoinbaseApiKey(fallback.coinbase.apiKey)
         setCoinbaseApiSecret(fallback.coinbase.apiSecret)
         setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
@@ -466,6 +528,7 @@ export default function IntegrationsPage() {
         hydrateGrokSetup(fallback)
         hydrateGeminiSetup(fallback)
         hydrateSpotifySetup(fallback)
+        hydrateYouTubeSetup(fallback)
         hydrateGmailSetup(fallback)
         setActiveLlmProvider(fallback.activeLlmProvider || "openai")
       })
@@ -473,7 +536,7 @@ export default function IntegrationsPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydrateSpotifySetup, router])
+  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydrateSpotifySetup, hydrateYouTubeSetup, router])
 
   useEffect(() => {
     const refresh = () => {
@@ -505,6 +568,7 @@ export default function IntegrationsPage() {
       { ref: connectivitySectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: telegramSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: discordSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: slackSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: braveSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: newsSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: coinbaseSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
@@ -513,6 +577,7 @@ export default function IntegrationsPage() {
       { ref: grokSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: geminiSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: spotifySetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: youtubeSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: gmailSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: gmailCalendarSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: activeStatusSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
@@ -585,15 +650,17 @@ export default function IntegrationsPage() {
   const connectivityItems = [
     { key: "telegram" as const, connected: settings.telegram.connected, icon: <TelegramIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Telegram setup" },
     { key: "discord" as const, connected: settings.discord.connected, icon: <DiscordIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Discord setup" },
+    { key: "slack" as const, connected: settings.slack.connected, icon: <SlackIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Slack setup" },
     { key: "openai" as const, connected: settings.openai.connected, icon: <OpenAIIcon className="w-4.5[18px]" />, ariaLabel: "Open OpenAI setup" },
     { key: "claude" as const, connected: settings.claude.connected, icon: <ClaudeIcon className="w-4 h-4" />, ariaLabel: "Open Claude setup" },
     { key: "grok" as const, connected: settings.grok.connected, icon: <XAIIcon size={16} />, ariaLabel: "Open Grok setup" },
     { key: "gemini" as const, connected: settings.gemini.connected, icon: <GeminiIcon size={16} />, ariaLabel: "Open Gemini setup" },
     { key: "spotify" as const, connected: settings.spotify.connected, icon: <SpotifyIcon className="w-4 h-4" />, ariaLabel: "Open Spotify setup" },
+    { key: "youtube" as const, connected: settings.youtube.connected, icon: <YouTubeIcon className="w-4 h-4" />, ariaLabel: "Open YouTube setup" },
     { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
     { key: "gmail-calendar" as const, connected: settings.gcalendar.connected, icon: <GmailCalendarIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Google Calendar setup" },
     { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
-    { key: "news" as const, connected: settings.news.connected, icon: <NewsIcon className="w-4 h-4" />, ariaLabel: "Open News setup" },
+    { key: "news" as const, connected: settings.news.connected, icon: <NewsIcon className="w-3.5 h-3.5" />, ariaLabel: "Open News setup" },
     { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
   ]
   const activeProviderDefinition = useProviderDefinitions({
@@ -613,6 +680,7 @@ export default function IntegrationsPage() {
   const {
     toggleTelegram,
     toggleDiscord,
+    toggleSlack,
     toggleBrave,
     toggleNews,
     probeCoinbaseConnection,
@@ -620,6 +688,7 @@ export default function IntegrationsPage() {
     saveActiveProvider,
     saveTelegramConfig,
     saveDiscordConfig,
+    saveSlackConfig,
     saveBraveConfig,
     saveNewsConfig,
     saveCoinbaseConfig,
@@ -642,6 +711,10 @@ export default function IntegrationsPage() {
     setBotTokenMasked,
     chatIds,
     discordWebhookUrls,
+    slackWebhookUrl,
+    slackWebhookUrlConfigured,
+    setSlackWebhookUrlConfigured,
+    setSlackWebhookUrlMasked,
     braveApiKey,
     braveApiKeyConfigured,
     setBraveApiKey,
@@ -654,6 +727,8 @@ export default function IntegrationsPage() {
     setNewsApiKeyMasked,
     newsDefaultTopics,
     setNewsDefaultTopics,
+    newsPreferredSources,
+    setNewsPreferredSources,
     coinbaseApiKey,
     setCoinbaseApiKey,
     coinbaseApiSecret,
@@ -790,6 +865,8 @@ export default function IntegrationsPage() {
             newsApiKeyMasked={newsApiKeyMasked}
             newsDefaultTopics={newsDefaultTopics}
             setNewsDefaultTopics={setNewsDefaultTopics}
+            newsPreferredSources={newsPreferredSources}
+            setNewsPreferredSources={setNewsPreferredSources}
             coinbaseNeedsKeyWarning={coinbaseNeedsKeyWarning}
             coinbasePendingAction={coinbasePendingAction}
             coinbaseSyncBadgeClass={coinbaseSyncBadgeClass}
@@ -817,10 +894,13 @@ export default function IntegrationsPage() {
             gmailSetup={gmailSetup}
             gmailCalendarSetup={gmailCalendarSetup}
             spotifySetup={spotifySetup}
+            youtubeSetup={youtubeSetup}
             spotifySetupSectionRef={spotifySetupSectionRef}
+            youtubeSetupSectionRef={youtubeSetupSectionRef}
             gmailCalendarSetupSectionRef={gmailCalendarSetupSectionRef}
             telegramSetupSectionRef={telegramSetupSectionRef}
             discordSetupSectionRef={discordSetupSectionRef}
+            slackSetupSectionRef={slackSetupSectionRef}
             braveSetupSectionRef={braveSetupSectionRef}
             newsSetupSectionRef={newsSetupSectionRef}
             coinbaseSetupSectionRef={coinbaseSetupSectionRef}
@@ -833,12 +913,18 @@ export default function IntegrationsPage() {
             chatIds={chatIds}
             setDiscordWebhookUrls={setDiscordWebhookUrls}
             discordWebhookUrls={discordWebhookUrls}
+            setSlackWebhookUrl={setSlackWebhookUrl}
+            slackWebhookUrl={slackWebhookUrl}
+            slackWebhookUrlConfigured={slackWebhookUrlConfigured}
+            slackWebhookUrlMasked={slackWebhookUrlMasked}
             setBraveApiKey={setBraveApiKey}
             braveApiKey={braveApiKey}
             toggleTelegram={toggleTelegram}
             saveTelegramConfig={saveTelegramConfig}
             toggleDiscord={toggleDiscord}
             saveDiscordConfig={saveDiscordConfig}
+            toggleSlack={toggleSlack}
+            saveSlackConfig={saveSlackConfig}
             toggleBrave={toggleBrave}
             saveBraveConfig={saveBraveConfig}
             toggleNews={toggleNews}
@@ -884,11 +970,13 @@ export default function IntegrationsPage() {
               {[
                 { name: "Telegram", active: settings.telegram.connected },
                 { name: "Discord", active: settings.discord.connected },
+                { name: "Slack", active: settings.slack.connected },
                 { name: "OpenAI", active: settings.openai.connected },
                 { name: "Claude", active: settings.claude.connected },
                 { name: "Grok", active: settings.grok.connected },
                 { name: "Gemini", active: settings.gemini.connected },
                 { name: "Spotify", active: settings.spotify.connected },
+                { name: "YouTube", active: settings.youtube.connected },
                 { name: "Gmail", active: settings.gmail.connected },
                 { name: "Google Calendar", active: settings.gcalendar.connected },
                 { name: "Brave", active: settings.brave.connected },

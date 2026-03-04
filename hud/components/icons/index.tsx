@@ -18,12 +18,20 @@ export function SpotifyIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/spotify.svg" alt="Spotify" width={16} height={16} className={className} unoptimized />
 }
 
+export function YouTubeIcon({ className = "w-4 h-4" }: BraveIconProps) {
+  return <Image src="/images/youtube.svg" alt="YouTube" width={16} height={16} className={className} unoptimized />
+}
+
 export function NewsIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/news.svg" alt="News" width={16} height={16} className={className} unoptimized />
 }
 
 export function ClaudeIcon(props: ComponentProps<typeof Claude.Color>) {
   return <Claude.Color {...props} />
+}
+
+export function SlackIcon({ className = "w-4 h-4" }: BraveIconProps) {
+  return <Image src="/images/slack.svg" alt="Slack" width={16} height={16} className={className} unoptimized />
 }
 
 export function DiscordIcon(props: SVGProps<SVGSVGElement>) {

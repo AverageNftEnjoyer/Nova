@@ -15,8 +15,10 @@ import {
   GmailIcon,
   NewsIcon,
   OpenAIIcon,
+  SlackIcon,
   SpotifyIcon,
   TelegramIcon,
+  YouTubeIcon,
   XAIIcon,
 } from "@/components/icons"
 import { Composer } from "@/components/chat/composer"
@@ -32,6 +34,7 @@ import { formatDailyTime, hexToRgba } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
 import { NewsFeedModule } from "./news-feed-module"
+import { YouTubeHomeModule } from "./youtube-home-module"
 
 const FALLBACK_CRYPTO_ASSETS = [
   { symbol: "BTC", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
@@ -84,6 +87,7 @@ export function HomeMainScreen() {
     goToIntegrations,
     telegramConnected,
     discordConnected,
+    slackConnected,
     braveConnected,
     newsConnected,
     coinbaseConnected,
@@ -92,6 +96,7 @@ export function HomeMainScreen() {
     grokConnected,
     geminiConnected,
     spotifyConnected,
+    youtubeConnected,
     spotifyNowPlaying,
     spotifyError,
     spotifyBusyAction,
@@ -171,15 +176,17 @@ export function HomeMainScreen() {
   const integrationNodes = [
     { icon: <TelegramIcon className="w-4 h-4" />, connected: telegramConnected, label: "Telegram" },
     { icon: <DiscordIcon className="w-4 h-4" />, connected: discordConnected, label: "Discord" },
+    { icon: <SlackIcon className="w-4 h-4" />, connected: slackConnected, label: "Slack" },
     { icon: <OpenAIIcon className="w-4.5 h-4.5" />, connected: openaiConnected, label: "OpenAI" },
     { icon: <ClaudeIcon className="w-4.5 h-4.5" />, connected: claudeConnected, label: "Claude" },
     { icon: <XAIIcon size={16} />, connected: grokConnected, label: "Grok" },
     { icon: <GeminiIcon size={16} />, connected: geminiConnected, label: "Gemini" },
     { icon: <SpotifyIcon className="w-4.5 h-4.5" />, connected: spotifyConnected, label: "Spotify" },
+    { icon: <YouTubeIcon className="w-4 h-4" />, connected: youtubeConnected, label: "YouTube" },
     { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail" },
     { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar" },
     { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave" },
-    { icon: <NewsIcon className="w-4.5 h-4.5" />, connected: newsConnected, label: "News" },
+    { icon: <NewsIcon className="w-4 h-4" />, connected: newsConnected, label: "News" },
     { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase" },
   ] as const
 
@@ -500,6 +507,15 @@ export function HomeMainScreen() {
                 onPrevious={spotifyPreviousTrack}
                 onPlaySmart={spotifyPlaySmart}
                 onSeek={seekSpotify}
+              />
+              <YouTubeHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                className="flex-1 min-w-0 h-[16rem] self-start"
+                connected={youtubeConnected}
+                onOpenIntegrations={openIntegrations}
               />
             </div>
 

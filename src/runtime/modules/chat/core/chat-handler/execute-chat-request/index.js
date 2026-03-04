@@ -151,6 +151,7 @@ import { runToolLoop } from "../tool-loop-runner/index.js";
 import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "../direct-completion/index.js";
 import { buildPromptContextForTurn } from "../prompt-context-builder/index.js";
 import { refineAssistantReply } from "../response-refinement/index.js";
+import { resolveOrgChartRoutingEnvelope } from "../../../routing/org-chart-routing/index.js";
 
 
 
@@ -771,6 +772,17 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.fallbackReason = fallbackReason;
     runSummary.fallbackStage = fallbackStage;
     runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
+    runSummary.requestHints.orgChartPath = resolveOrgChartRoutingEnvelope({
+      route: runSummary.route,
+      responseRoute: runSummary.responseRoute || responseRoute,
+      text,
+      toolCalls: runSummary.toolCalls,
+      provider: runSummary.provider || activeChatRuntime.provider,
+      providerSource: runSummary.provider ? "chat-runtime-selected" : "chat-runtime-fallback",
+      userContextId,
+      conversationId,
+      sessionKey,
+    });
     broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
     broadcastState("idle", userContextId);
   }
@@ -779,5 +791,4 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 }
 
 // ===== Main dispatcher =====
-
 

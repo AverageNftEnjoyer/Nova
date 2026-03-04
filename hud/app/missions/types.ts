@@ -102,7 +102,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any"
   conditionFailureAction?: "skip" | "notify" | "stop"
-  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook"
+  outputChannel?: "telegram" | "discord" | "email" | "slack" | "push" | "webhook"
   outputTiming?: "immediate" | "scheduled" | "digest"
   outputTime?: string
   outputFrequency?: "once" | "multiple"
@@ -128,7 +128,7 @@ export interface GeneratedMissionSummary {
     thresholdPct?: number
     cadence?: "daily" | "weekly" | string
     timezone?: string
-    deliveryChannel?: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+    deliveryChannel?: "telegram" | "discord" | "email" | "slack" | "push" | "webhook" | string
     quoteCurrency?: string
   }
   workflowSteps?: Array<Partial<WorkflowStep>>

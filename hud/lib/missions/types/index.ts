@@ -14,6 +14,22 @@ import { getRuntimeTimezone } from "@/lib/shared/timezone"
 
 export type Provider = "openai" | "claude" | "grok" | "gemini"
 export type AiDetailLevel = "concise" | "standard" | "detailed"
+export type CouncilAgentRole =
+  | "routing-council"
+  | "policy-council"
+  | "memory-council"
+  | "planning-council"
+export type AuditAgentRole = "audit-council"
+export type DomainManagerRole =
+  | "media-manager"
+  | "finance-manager"
+  | "productivity-manager"
+  | "comms-manager"
+  | "system-manager"
+export type WorkerDomain = "media" | "finance" | "productivity" | "comms" | "system"
+export type WorkerAgentRole = "worker-agent"
+export type OrgChartWorkerRole = CouncilAgentRole | DomainManagerRole | WorkerAgentRole
+export type OrgChartAgentRole = "operator" | AuditAgentRole | OrgChartWorkerRole
 
 export type MissionCategory =
   | "research"
@@ -327,7 +343,6 @@ export interface WebhookOutputNode extends NodeBase {
 
 export interface SlackOutputNode extends NodeBase {
   type: "slack-output"
-  webhookUrl?: string
   channel?: string
   messageTemplate?: string
   inputExpression?: string
@@ -343,11 +358,71 @@ export interface StickyNoteNode extends NodeBase {
   color?: string
 }
 
-export interface SubWorkflowNode extends NodeBase {
-  type: "sub-workflow"
+export interface AgentRetryPolicy {
+  maxAttempts: number
+  backoffMs: number
+}
+
+interface AgentNodeBase extends NodeBase {
+  agentId: string
+  goal: string
+  inputMapping?: Record<string, string>
+  outputSchema?: string
+  timeoutMs?: number
+  retryPolicy?: AgentRetryPolicy
+  reads?: string[]
+  writes?: string[]
+}
+
+export interface AgentSupervisorNode extends AgentNodeBase {
+  type: "agent-supervisor"
+  role: "operator"
+}
+
+export interface AgentWorkerNode extends AgentNodeBase {
+  type: "agent-worker"
+  role: OrgChartWorkerRole
+  domain?: WorkerDomain
+}
+
+export interface AgentHandoffNode extends NodeBase {
+  type: "agent-handoff"
+  fromAgentId: string
+  toAgentId: string
+  reason: string
+}
+
+export interface AgentStateReadNode extends NodeBase {
+  type: "agent-state-read"
+  key: string
+  required?: boolean
+}
+
+export interface AgentStateWriteNode extends NodeBase {
+  type: "agent-state-write"
+  key: string
+  valueExpression: string
+  writeMode?: "replace" | "merge" | "append"
+}
+
+export interface AgentSubworkflowNode extends NodeBase {
+  type: "agent-subworkflow"
   missionId: string
-  inputMapping?: Record<string, string>  // varName → expression
+  inputMapping?: Record<string, string>
   waitForCompletion?: boolean
+}
+
+export interface ProviderSelectorNode extends NodeBase {
+  type: "provider-selector"
+  allowedProviders: Provider[]
+  defaultProvider: Provider
+  strategy?: "policy" | "latency" | "cost" | "quality"
+}
+
+export interface AgentAuditNode extends AgentNodeBase {
+  type: "agent-audit"
+  role: AuditAgentRole
+  requiredChecks: string[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -395,7 +470,15 @@ export type MissionNode =
   | SlackOutputNode
   // Utility
   | StickyNoteNode
-  | SubWorkflowNode
+  // Agent Orchestration
+  | AgentSupervisorNode
+  | AgentWorkerNode
+  | AgentHandoffNode
+  | AgentStateReadNode
+  | AgentStateWriteNode
+  | AgentSubworkflowNode
+  | ProviderSelectorNode
+  | AgentAuditNode
 
 export type MissionNodeType = MissionNode["type"]
 
@@ -503,6 +586,9 @@ export interface ExecutionContext {
   nodeOutputs: Map<string, NodeOutput>
   variables: Record<string, string>
   scope?: IntegrationsStoreScope
+  userContextId?: string
+  conversationId?: string
+  sessionKey?: string
   skillSnapshot?: {
     version: string
     createdAt: string
@@ -511,6 +597,7 @@ export interface ExecutionContext {
   }
   resolveExpr: (template: string) => string
   onNodeTrace?: (trace: NodeExecutionTrace) => void | Promise<void>
+  agentState?: AgentStateEnvelope
 }
 
 export interface NodeExecutionTrace {
@@ -546,6 +633,9 @@ export interface ExecuteMissionInput {
   runKey?: string
   attempt?: number
   scope?: IntegrationsStoreScope
+  userContextId?: string
+  conversationId?: string
+  sessionKey?: string
   skillSnapshot?: {
     version: string
     createdAt: string
@@ -570,6 +660,26 @@ export interface MissionScheduleGate {
   dayStamp: string
   mode: string
   timezone?: string
+}
+
+export interface AgentStateWriteAuditEntry {
+  key: string
+  nodeId: string
+  agentId?: string
+  occurredAt: string
+}
+
+export interface AgentStateEnvelope {
+  stateVersion: "phase0"
+  userContextId: string
+  conversationId: string
+  sessionKey: string
+  missionId: string
+  runId: string
+  keys: Record<string, unknown>
+  declaredKeys: string[]
+  writePolicies: Record<string, string[]>
+  auditTrail: AgentStateWriteAuditEntry[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -663,7 +773,7 @@ export interface WorkflowStep {
   conditionValue?: string
   conditionLogic?: "all" | "any" | string
   conditionFailureAction?: "skip" | "notify" | "stop" | string
-  outputChannel?: "telegram" | "discord" | "email" | "push" | "webhook" | string
+  outputChannel?: "telegram" | "discord" | "email" | "slack" | "push" | "webhook" | string
   outputTiming?: "immediate" | "scheduled" | "digest" | string
   outputTime?: string
   outputFrequency?: "once" | "multiple" | string
@@ -707,7 +817,7 @@ export interface CoinbaseMissionParams {
   thresholdPct?: number
   cadence?: "daily" | "weekly" | string
   timezone?: string
-  deliveryChannel?: "telegram" | "telegram" | "discord" | "email" | "push" | "webhook" | string
+  deliveryChannel?: "telegram" | "discord" | "email" | "slack" | "push" | "webhook" | string
   quoteCurrency?: string
 }
 
@@ -750,3 +860,4 @@ export interface WorkflowScheduleGate {
   mode: string
   timezone?: string
 }
+

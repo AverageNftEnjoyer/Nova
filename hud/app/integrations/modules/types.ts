@@ -81,6 +81,10 @@ export type UseIntegrationsActionsParams = {
   setBotTokenMasked: SetState<string>
   chatIds: string
   discordWebhookUrls: string
+  slackWebhookUrl: string
+  slackWebhookUrlConfigured: boolean
+  setSlackWebhookUrlConfigured: SetState<boolean>
+  setSlackWebhookUrlMasked: SetState<string>
   braveApiKey: string
   braveApiKeyConfigured: boolean
   setBraveApiKey: SetState<string>
@@ -93,6 +97,8 @@ export type UseIntegrationsActionsParams = {
   setNewsApiKeyMasked: SetState<string>
   newsDefaultTopics: string
   setNewsDefaultTopics: SetState<string>
+  newsPreferredSources: string
+  setNewsPreferredSources: SetState<string>
   coinbaseApiKey: string
   setCoinbaseApiKey: SetState<string>
   coinbaseApiSecret: string
@@ -139,6 +145,8 @@ export type IntegrationsMainPanelProps = {
   newsApiKeyMasked: string
   newsDefaultTopics: string
   setNewsDefaultTopics: SetState<string>
+  newsPreferredSources: string
+  setNewsPreferredSources: SetState<string>
   coinbaseNeedsKeyWarning: boolean
   coinbasePendingAction: CoinbasePendingAction | null
   coinbaseSyncBadgeClass: string
@@ -200,10 +208,25 @@ export type IntegrationsMainPanelProps = {
     disconnectSpotify: () => Promise<void>
     testSpotifyConnection: () => Promise<void>
   }
+  youtubeSetup: {
+    youtubeRedirectUri: string
+    setYouTubeRedirectUri: (value: string) => void
+    youtubeChannelId: string
+    youtubeChannelTitle: string
+    youtubeScopes: string
+    youtubePermissions: IntegrationsSettings["youtube"]["permissions"]
+    connectYouTube: () => void
+    saveYouTubeConfig: () => Promise<void>
+    disconnectYouTube: () => Promise<void>
+    testYouTubeConnection: () => Promise<void>
+    updateYouTubePermissions: (patch: Partial<IntegrationsSettings["youtube"]["permissions"]>) => Promise<void>
+  }
   spotifySetupSectionRef: MutableRefObject<HTMLElement | null>
+  youtubeSetupSectionRef: MutableRefObject<HTMLElement | null>
   gmailCalendarSetupSectionRef: MutableRefObject<HTMLElement | null>
   telegramSetupSectionRef: MutableRefObject<HTMLElement | null>
   discordSetupSectionRef: MutableRefObject<HTMLElement | null>
+  slackSetupSectionRef: MutableRefObject<HTMLElement | null>
   braveSetupSectionRef: MutableRefObject<HTMLElement | null>
   newsSetupSectionRef: MutableRefObject<HTMLElement | null>
   coinbaseSetupSectionRef: MutableRefObject<HTMLElement | null>
@@ -216,12 +239,18 @@ export type IntegrationsMainPanelProps = {
   chatIds: string
   setDiscordWebhookUrls: SetState<string>
   discordWebhookUrls: string
+  setSlackWebhookUrl: SetState<string>
+  slackWebhookUrl: string
+  slackWebhookUrlConfigured: boolean
+  slackWebhookUrlMasked: string
   setBraveApiKey: SetState<string>
   braveApiKey: string
   toggleTelegram: () => Promise<void>
   saveTelegramConfig: () => Promise<void>
   toggleDiscord: () => Promise<void>
   saveDiscordConfig: () => Promise<void>
+  toggleSlack: () => Promise<void>
+  saveSlackConfig: () => Promise<void>
   toggleBrave: () => Promise<void>
   saveBraveConfig: () => Promise<void>
   toggleNews: () => Promise<void>

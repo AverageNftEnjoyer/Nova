@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.41 Alpha (2026-03-04): YouTube integration rollout + architecture-agent overhaul
+ *     - Added YouTube integration wiring across Integrations and Home surfaces, including connected-state visibility and setup flow hydration.
+ *     - Expanded integration runtime surface for YouTube channel context, permissions, and token-configured state handling.
+ *     - Continued org-chart/operator architecture overhaul so Nova remains the primary operator delegating to specialized agent lanes.
+ *     - Hardened operator-routing and delegation scaffolding for cleaner separation between Nova core logic and downstream agent execution paths.
+ *
  * - V.40 Alpha (2026-03-03): Orb-driven surface theming rollout across HUD modules
  *     - Replaced hardcoded dark panel/subpanel fills with orb-color-aware tinted surfaces on Home, Agents, Dev Logs, Integrations, and Missions Calendar.
  *     - Updated dark background "black" mode grid and atmospheric gradients to inherit the active orb palette while preserving existing depth treatment.
@@ -129,7 +135,7 @@
  *     - Added ChatKit foundation with deterministic config validation, feature flags, and user-scoped telemetry events.
  *     - Implemented shadow-mode evaluation and controlled low-risk serving with hard fallback to existing runtime flow.
  *     - Added structured multi-step workflow orchestration (`research -> summarize -> display`) bound to skill docs under `skills/`.
- *     - Added release-gate chain and runbook artifacts with PASS evidence report at `archive/logs/chatkit-phase5-gate-report.json`.
+ *     - Added release-gate chain and runbook artifacts with PASS evidence report at `archive/logs/chatkit-release-readiness-report.json`.
  *     - Validated full ChatKit smoke chain end-to-end with live gate mode enabled (`datasetMode: live`).
  *
  * - V.21 Alpha (2026-02-21): Nova conversation intelligence and reliability upgrade
@@ -260,5 +266,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.40 Alpha"
+export const NOVA_VERSION = "V.41 Alpha"
+
 

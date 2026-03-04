@@ -17,14 +17,17 @@ import {
   Panel,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { CheckCircle2, Play, Save } from "lucide-react"
+import { CheckCircle2, Database, Rows4, Save, ShieldAlert, Play } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
-import type { Mission, MissionConnection, MissionNode, MissionNodeType } from "@/lib/missions/types"
-import { getNodeCatalogEntry, PALETTE_CATEGORIES, NODE_CATALOG, type NodeCatalogEntry } from "@/lib/missions/catalog"
+import type { Mission, MissionConnection, MissionNode } from "@/lib/missions/types"
+import { getNodeCatalogEntry, getPaletteCatalog, PALETTE_CATEGORIES, type NodeCatalogEntry } from "@/lib/missions/catalog"
+import { validateMissionGraphForVersioning, type MissionGraphValidationIssue } from "@/lib/missions/workflow/versioning/mission-graph-validation"
 import { ACCENT_COLORS, loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { BaseNode, type MissionNodeData } from "./nodes/base-node"
+
+type CanvasNodeType = NodeCatalogEntry["type"]
 
 function missionNodesToRFNodes(
   missionNodes: MissionNode[],
@@ -99,6 +102,82 @@ function rfEdgesToMissionConnections(edges: Edge[]): MissionConnection[] {
 
 const NODE_TYPES = { missionNode: BaseNode }
 
+const COUNCIL_ROLES = new Set(["routing-council", "policy-council", "memory-council", "planning-council"])
+const DOMAIN_MANAGER_ROLES = new Set(["media-manager", "finance-manager", "productivity-manager", "comms-manager", "system-manager"])
+
+type CommandLaneId = "operator" | "council" | "domain-manager" | "worker" | "audit" | "provider"
+
+const COMMAND_LANES: Array<{ id: CommandLaneId; label: string; y: number }> = [
+  { id: "operator", label: "Operator", y: 120 },
+  { id: "council", label: "Council", y: 240 },
+  { id: "domain-manager", label: "Domain Manager", y: 360 },
+  { id: "worker", label: "Worker", y: 480 },
+  { id: "audit", label: "Audit", y: 600 },
+  { id: "provider", label: "Provider Rail", y: 720 },
+]
+
+function getCommandLaneForNode(node: MissionNode): CommandLaneId | null {
+  if (node.type === "agent-supervisor") return "operator"
+  if (node.type === "agent-audit") return "audit"
+  if (node.type === "provider-selector") return "provider"
+  if (node.type !== "agent-worker") return null
+  if (COUNCIL_ROLES.has(node.role)) return "council"
+  if (DOMAIN_MANAGER_ROLES.has(node.role)) return "domain-manager"
+  return "worker"
+}
+
+function collectAgentStateInspector(mission: Pick<Mission, "nodes">): {
+  declaredReads: string[]
+  declaredWrites: string[]
+  stateReadKeys: string[]
+  stateWriteKeys: string[]
+  writePolicies: Array<{ key: string; agentIds: string[] }>
+  undeclaredReads: string[]
+  undeclaredWrites: string[]
+} {
+  const declaredReadSet = new Set<string>()
+  const declaredWriteSet = new Set<string>()
+  const writePolicyMap = new Map<string, Set<string>>()
+
+  for (const node of mission.nodes) {
+    if (node.type !== "agent-supervisor" && node.type !== "agent-worker" && node.type !== "agent-audit") continue
+    for (const key of node.reads || []) {
+      const normalized = String(key || "").trim()
+      if (normalized) declaredReadSet.add(normalized)
+    }
+    for (const key of node.writes || []) {
+      const normalized = String(key || "").trim()
+      if (!normalized) continue
+      declaredWriteSet.add(normalized)
+      if (!writePolicyMap.has(normalized)) writePolicyMap.set(normalized, new Set<string>())
+      const agentId = String(node.agentId || "").trim()
+      if (agentId) writePolicyMap.get(normalized)?.add(agentId)
+    }
+  }
+
+  const stateReadKeys = mission.nodes
+    .filter((node): node is Extract<MissionNode, { type: "agent-state-read" }> => node.type === "agent-state-read")
+    .map((node) => String(node.key || "").trim())
+    .filter(Boolean)
+  const stateWriteKeys = mission.nodes
+    .filter((node): node is Extract<MissionNode, { type: "agent-state-write" }> => node.type === "agent-state-write")
+    .map((node) => String(node.key || "").trim())
+    .filter(Boolean)
+
+  const undeclaredReads = stateReadKeys.filter((key) => !declaredReadSet.has(key))
+  const undeclaredWrites = stateWriteKeys.filter((key) => !declaredWriteSet.has(key))
+
+  return {
+    declaredReads: [...declaredReadSet],
+    declaredWrites: [...declaredWriteSet],
+    stateReadKeys,
+    stateWriteKeys,
+    writePolicies: [...writePolicyMap.entries()].map(([key, agentIds]) => ({ key, agentIds: [...agentIds] })),
+    undeclaredReads,
+    undeclaredWrites,
+  }
+}
+
 function hexToRgbString(hex: string): string {
   const normalized = hex.startsWith("#") ? hex.slice(1) : hex
   const full = normalized.length === 3 ? normalized.split("").map((c) => `${c}${c}`).join("") : normalized
@@ -110,7 +189,7 @@ function hexToRgbString(hex: string): string {
   return `${r}, ${g}, ${b}`
 }
 
-function buildDefaultNodeConfig(type: MissionNodeType, label: string, id: string, position: { x: number; y: number }): Record<string, unknown> {
+function buildDefaultNodeConfig(type: CanvasNodeType, label: string, id: string, position: { x: number; y: number }): Record<string, unknown> {
   const base = { id, type, label, position }
 
   switch (type) {
@@ -186,11 +265,213 @@ function buildDefaultNodeConfig(type: MissionNodeType, label: string, id: string
 
     case "sticky-note":
       return { ...base, content: "Notes..." }
-    case "sub-workflow":
-      return { ...base, missionId: "", waitForCompletion: true }
+    case "agent-supervisor":
+      return { ...base, agentId: "operator", role: "operator", goal: "", reads: [], writes: [] }
+    case "agent-worker":
+      return { ...base, agentId: id, role: "worker-agent", domain: "system", goal: "", reads: [], writes: [] }
+    case "agent-handoff":
+      return { ...base, fromAgentId: "", toAgentId: "", reason: "" }
+    case "agent-state-read":
+      return { ...base, key: "", required: true }
+    case "agent-state-write":
+      return { ...base, key: "", valueExpression: "", writeMode: "replace" }
+    case "provider-selector":
+      return { ...base, allowedProviders: [], defaultProvider: "", strategy: "policy" }
+    case "agent-audit":
+      return { ...base, agentId: "audit-council", role: "audit-council", goal: "", requiredChecks: [], reads: [], writes: [] }
+    case "agent-subworkflow":
+      return { ...base, missionId: "", waitForCompletion: true, inputMapping: {} }
     default:
       return { ...base }
   }
+}
+
+function buildCommandSpineTemplate(
+  startX: number,
+  idPrefix: string,
+): Array<{ key: string; id: string; type: CanvasNodeType; label: string; position: { x: number; y: number }; config: Record<string, unknown> }> {
+  const mkId = (suffix: string) => `${idPrefix}-${suffix}`
+  const specs: Array<{ key: string; type: CanvasNodeType; label: string; y: number }> = [
+    { key: "trigger", type: "manual-trigger", label: "Manual Trigger", y: 40 },
+    { key: "operator", type: "agent-supervisor", label: "Operator", y: 120 },
+    { key: "handoff-op-council", type: "agent-handoff", label: "Operator -> Council", y: 180 },
+    { key: "council", type: "agent-worker", label: "Routing Council", y: 240 },
+    { key: "handoff-council-manager", type: "agent-handoff", label: "Council -> Manager", y: 300 },
+    { key: "manager", type: "agent-worker", label: "System Manager", y: 360 },
+    { key: "handoff-manager-worker", type: "agent-handoff", label: "Manager -> Worker", y: 420 },
+    { key: "worker", type: "agent-worker", label: "Worker Agent", y: 480 },
+    { key: "handoff-worker-audit", type: "agent-handoff", label: "Worker -> Audit", y: 540 },
+    { key: "provider", type: "provider-selector", label: "Provider Selector", y: 720 },
+    { key: "audit", type: "agent-audit", label: "Audit Council", y: 600 },
+    { key: "handoff-audit-op", type: "agent-handoff", label: "Audit -> Operator", y: 660 },
+    { key: "output", type: "email-output", label: "Send Response", y: 780 },
+  ]
+
+  return specs.map((spec, idx) => {
+    const id = mkId(spec.key)
+    const position = { x: startX + idx * 220, y: spec.y }
+    const config = buildDefaultNodeConfig(spec.type, spec.label, id, position)
+
+    if (spec.key === "operator") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          agentId: "operator",
+          role: "operator",
+          goal: "Command councils and managers, then compose final response.",
+        },
+      }
+    }
+    if (spec.key === "council") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          agentId: "routing-council",
+          role: "routing-council",
+          goal: "Classify intent and route to the correct manager.",
+        },
+      }
+    }
+    if (spec.key === "manager") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          agentId: "system-manager",
+          role: "system-manager",
+          goal: "Assign execution to the best worker.",
+        },
+      }
+    }
+    if (spec.key === "worker") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          agentId: "worker-1",
+          role: "worker-agent",
+          domain: "system",
+          goal: "Execute delegated task and return result.",
+        },
+      }
+    }
+    if (spec.key === "provider") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          allowedProviders: ["claude", "openai", "grok", "gemini"],
+          defaultProvider: "claude",
+          strategy: "policy",
+        },
+      }
+    }
+    if (spec.key === "audit") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          agentId: "audit-council",
+          role: "audit-council",
+          goal: "Verify isolation and policy guardrails.",
+          requiredChecks: ["user-context-isolation", "policy-guardrails"],
+        },
+      }
+    }
+    if (spec.key === "handoff-op-council") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: { ...config, fromAgentId: "operator", toAgentId: "routing-council", reason: "route intent" },
+      }
+    }
+    if (spec.key === "handoff-council-manager") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: { ...config, fromAgentId: "routing-council", toAgentId: "system-manager", reason: "assign manager" },
+      }
+    }
+    if (spec.key === "handoff-manager-worker") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: { ...config, fromAgentId: "system-manager", toAgentId: "worker-1", reason: "delegate execution" },
+      }
+    }
+    if (spec.key === "handoff-worker-audit") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: { ...config, fromAgentId: "worker-1", toAgentId: "audit-council", reason: "request audit" },
+      }
+    }
+    if (spec.key === "handoff-audit-op") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: { ...config, fromAgentId: "audit-council", toAgentId: "operator", reason: "final compose" },
+      }
+    }
+    if (spec.key === "output") {
+      return {
+        key: spec.key,
+        id,
+        type: spec.type,
+        label: spec.label,
+        position,
+        config: {
+          ...config,
+          recipients: [],
+          subject: "Mission Result",
+          messageTemplate: "Mission completed by operator after audit.",
+          format: "text",
+        },
+      }
+    }
+    return { key: spec.key, id, type: spec.type, label: spec.label, position, config }
+  })
 }
 
 function CategoryAddMenu({
@@ -238,6 +519,7 @@ function CanvasToolbar({
   onRun,
   onExit,
   onAddNode,
+  catalogEntries,
   isSaving,
   isRunning,
   justSaved,
@@ -247,6 +529,7 @@ function CanvasToolbar({
   onRun: () => void
   onExit?: () => void
   onAddNode: (entry: NodeCatalogEntry) => void
+  catalogEntries: NodeCatalogEntry[]
   isSaving?: boolean
   isRunning?: boolean
   justSaved?: boolean
@@ -257,7 +540,7 @@ function CanvasToolbar({
         <CategoryAddMenu
           key={cat.id}
           categoryLabel={cat.label}
-          entries={NODE_CATALOG.filter((entry) => entry.category === cat.id)}
+          entries={catalogEntries.filter((entry) => entry.category === cat.id)}
           buttonTone={
             cat.id === "triggers"
               ? "border-amber-300/35 bg-amber-500/16 text-amber-100"
@@ -380,12 +663,48 @@ function MissionCanvasInner({
 
   const [rfNodes, setRFNodes, onNodesChange] = useNodesState<RFNode<MissionNodeData>>(initialRFNodes)
   const [rfEdges, setRFEdges, onEdgesChange] = useEdgesState(initialRFEdges)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [validationTouched, setValidationTouched] = useState(false)
+  const paletteCatalog = useMemo(() => getPaletteCatalog(), [])
 
-  const buildDraftMission = useCallback((): Mission => {
+  const draftMission = useMemo((): Mission => {
     const updatedNodes = rfNodesToMissionNodes(rfNodes, mission.nodes)
     const updatedConnections = rfEdgesToMissionConnections(rfEdges)
-    return { ...mission, nodes: updatedNodes, connections: updatedConnections, updatedAt: new Date().toISOString() }
+    return { ...mission, nodes: updatedNodes, connections: updatedConnections }
   }, [mission, rfEdges, rfNodes])
+
+  const buildDraftMission = useCallback((): Mission => {
+    return { ...draftMission, updatedAt: new Date().toISOString() }
+  }, [draftMission])
+
+  const validationIssues = useMemo(() => validateMissionGraphForVersioning(draftMission), [draftMission])
+  const laneCountById = useMemo(() => {
+    const counts: Record<CommandLaneId, number> = {
+      operator: 0,
+      council: 0,
+      "domain-manager": 0,
+      worker: 0,
+      audit: 0,
+      provider: 0,
+    }
+    for (const node of draftMission.nodes) {
+      const lane = getCommandLaneForNode(node)
+      if (lane) counts[lane] += 1
+    }
+    return counts
+  }, [draftMission.nodes])
+  const inspector = useMemo(() => collectAgentStateInspector(draftMission), [draftMission])
+  const outputBypassEdges = useMemo(() => {
+    if (!validationIssues.length) return []
+    const badIssueIds = new Set(
+      validationIssues
+        .filter((issue) => issue.code === "mission.agent.output_source_invalid")
+        .map((issue) => issue.path.split(".").at(-1))
+        .filter(Boolean) as string[],
+    )
+    if (!badIssueIds.size) return []
+    return draftMission.connections.filter((connection) => badIssueIds.has(connection.id))
+  }, [draftMission.connections, validationIssues])
 
   const nodesWithStatus = useMemo(
     () =>
@@ -426,7 +745,7 @@ function MissionCanvasInner({
   const onDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
       event.preventDefault()
-      const nodeType = event.dataTransfer.getData("application/nova-mission-node-type") as MissionNodeType
+      const nodeType = event.dataTransfer.getData("application/nova-mission-node-type") as CanvasNodeType
       const nodeLabel = event.dataTransfer.getData("application/nova-mission-node-label")
       if (!nodeType) return
 
@@ -479,6 +798,98 @@ function MissionCanvasInner({
     [setRFNodes],
   )
 
+  const snapSelectedNodeToLane = useCallback((laneId: CommandLaneId) => {
+    if (!selectedNodeId) return
+    const lane = COMMAND_LANES.find((item) => item.id === laneId)
+    if (!lane) return
+    setRFNodes((nodes) =>
+      nodes.map((node) =>
+        node.id === selectedNodeId
+          ? {
+              ...node,
+              position: {
+                ...node.position,
+                y: lane.y,
+              },
+            }
+          : node,
+      ),
+    )
+  }, [selectedNodeId, setRFNodes])
+
+  const autoArrangeCommandLanes = useCallback(() => {
+    const laneBuckets = new Map<CommandLaneId, string[]>()
+    for (const lane of COMMAND_LANES) laneBuckets.set(lane.id, [])
+    for (const node of draftMission.nodes) {
+      const lane = getCommandLaneForNode(node)
+      if (!lane) continue
+      laneBuckets.get(lane)?.push(node.id)
+    }
+    const nextPositionById = new Map<string, { x: number; y: number }>()
+    for (const lane of COMMAND_LANES) {
+      const ids = laneBuckets.get(lane.id) || []
+      ids.forEach((id, idx) => {
+        nextPositionById.set(id, { x: 220 + idx * 240, y: lane.y })
+      })
+    }
+    setRFNodes((nodes) =>
+      nodes.map((node) => {
+        const next = nextPositionById.get(node.id)
+        if (!next) return node
+        return { ...node, position: next }
+      }),
+    )
+  }, [draftMission.nodes, setRFNodes])
+
+  const insertCommandSpineTemplate = useCallback(() => {
+    const maxX = rfNodes.reduce((max, node) => Math.max(max, node.position.x), 0)
+    const startX = (Number.isFinite(maxX) ? maxX : 0) + 260
+    const idPrefix = `spine-${Date.now()}`
+    const templateNodes = buildCommandSpineTemplate(startX, idPrefix)
+    const newNodes: RFNode<MissionNodeData>[] = templateNodes
+      .map((node) => {
+        const entry = getNodeCatalogEntry(node.type)
+        if (!entry) return null
+        return {
+          id: node.id,
+          type: "missionNode",
+          position: node.position,
+          data: {
+            nodeConfig: node.config,
+            catalogEntry: entry,
+            label: String(node.config.label || node.label),
+          },
+        }
+      })
+      .filter(Boolean) as RFNode<MissionNodeData>[]
+
+    const specsByKey = new Map(templateNodes.map((node) => [node.key, node.id]))
+    const edges: Edge[] = [
+      { id: `${idPrefix}-c1`, source: specsByKey.get("trigger") || "", sourceHandle: "main", target: specsByKey.get("operator") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c2`, source: specsByKey.get("operator") || "", sourceHandle: "main", target: specsByKey.get("handoff-op-council") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c3`, source: specsByKey.get("handoff-op-council") || "", sourceHandle: "main", target: specsByKey.get("council") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c4`, source: specsByKey.get("council") || "", sourceHandle: "main", target: specsByKey.get("handoff-council-manager") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c5`, source: specsByKey.get("handoff-council-manager") || "", sourceHandle: "main", target: specsByKey.get("manager") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c6`, source: specsByKey.get("manager") || "", sourceHandle: "main", target: specsByKey.get("handoff-manager-worker") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c7`, source: specsByKey.get("handoff-manager-worker") || "", sourceHandle: "main", target: specsByKey.get("worker") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c8`, source: specsByKey.get("worker") || "", sourceHandle: "main", target: specsByKey.get("handoff-worker-audit") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c9`, source: specsByKey.get("handoff-worker-audit") || "", sourceHandle: "main", target: specsByKey.get("provider") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c10`, source: specsByKey.get("provider") || "", sourceHandle: "main", target: specsByKey.get("audit") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c11`, source: specsByKey.get("audit") || "", sourceHandle: "main", target: specsByKey.get("handoff-audit-op") || "", targetHandle: "main" },
+      { id: `${idPrefix}-c12`, source: specsByKey.get("handoff-audit-op") || "", sourceHandle: "main", target: specsByKey.get("output") || "", targetHandle: "main" },
+    ]
+      .filter((edge) => edge.source && edge.target)
+      .map((edge) => ({
+        ...edge,
+        type: "smoothstep",
+        animated: true,
+        style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
+      }))
+
+    setRFNodes((nodes) => [...nodes, ...newNodes])
+    setRFEdges((current) => [...current, ...edges])
+  }, [rfNodes, setRFEdges, setRFNodes])
+
   useEffect(() => {
     const syncSpotlightSettings = () => {
       const appSettings = loadUserSettings().app
@@ -494,6 +905,12 @@ function MissionCanvasInner({
   }, [])
 
   useEffect(() => {
+    if (validationTouched && validationIssues.length === 0) {
+      setValidationTouched(false)
+    }
+  }, [validationIssues.length, validationTouched])
+
+  useEffect(() => {
     return () => {
       if (saveFlashTimeoutRef.current) {
         window.clearTimeout(saveFlashTimeoutRef.current)
@@ -502,6 +919,11 @@ function MissionCanvasInner({
   }, [])
 
   const handleSave = useCallback(async () => {
+    setValidationTouched(true)
+    if (validationIssues.length > 0) {
+      setJustSaved(false)
+      return
+    }
     try {
       const result = await onSave(buildDraftMission())
       if (result === false) {
@@ -518,16 +940,18 @@ function MissionCanvasInner({
     } catch {
       setJustSaved(false)
     }
-  }, [buildDraftMission, onSave])
+  }, [buildDraftMission, onSave, validationIssues.length])
 
   const handleRun = useCallback(async () => {
+    setValidationTouched(true)
+    if (validationIssues.length > 0) return
     const draftMission = buildDraftMission()
     const saved = await onSave(draftMission)
     if (saved === false) return
     if (onRun) {
       await onRun(draftMission)
     }
-  }, [buildDraftMission, onRun, onSave])
+  }, [buildDraftMission, onRun, onSave, validationIssues.length])
 
   const handleCanvasMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect()
@@ -563,6 +987,7 @@ function MissionCanvasInner({
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          onSelectionChange={({ nodes }) => setSelectedNodeId(nodes[0]?.id || null)}
           nodeTypes={NODE_TYPES}
           fitView
           fitViewOptions={{ padding: 0.16 }}
@@ -592,11 +1017,138 @@ function MissionCanvasInner({
               onRun={handleRun}
               onExit={onExit}
               onAddNode={handleAddNode}
+              catalogEntries={paletteCatalog}
               isSaving={isSaving}
               isRunning={isRunning}
               justSaved={justSaved}
             />
           </Panel>
+          <Panel position="top-left">
+            <div className="w-72 rounded-xl border border-white/12 bg-black/70 p-3 text-white shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-100/90">
+                  <Rows4 className="h-3.5 w-3.5" />
+                  Command Lanes
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={insertCommandSpineTemplate}
+                    className="rounded border border-indigo-300/35 bg-indigo-500/12 px-2 py-0.5 text-[10px] font-medium text-indigo-100 hover:bg-indigo-500/22"
+                  >
+                    Insert Spine
+                  </button>
+                  <button
+                    type="button"
+                    onClick={autoArrangeCommandLanes}
+                    className="rounded border border-cyan-300/35 bg-cyan-500/12 px-2 py-0.5 text-[10px] font-medium text-cyan-100 hover:bg-cyan-500/22"
+                  >
+                    Auto-arrange
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {COMMAND_LANES.map((lane) => (
+                  <div key={lane.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
+                    <div className="min-w-0">
+                      <div className="truncate text-[11px] text-white/85">{lane.label}</div>
+                      <div className="text-[10px] text-white/45">Y = {lane.y}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] text-white/65">{laneCountById[lane.id]}</span>
+                      <button
+                        type="button"
+                        onClick={() => snapSelectedNodeToLane(lane.id)}
+                        disabled={!selectedNodeId}
+                        className="rounded border border-cyan-300/35 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-100 hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Snap
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 text-[10px] text-white/45">
+                {selectedNodeId ? `Selected node: ${selectedNodeId}` : "Select a node to snap it into a command lane."}
+              </div>
+            </div>
+          </Panel>
+          <Panel position="bottom-right">
+            <div className="w-80 rounded-xl border border-white/12 bg-black/70 p-3 text-white shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+              <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-100/90">
+                <Database className="h-3.5 w-3.5" />
+                Agent State Inspector
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <div className="text-white/60">Declared Reads</div>
+                  <div className="mt-1 font-medium text-white/90">{inspector.declaredReads.length}</div>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <div className="text-white/60">Declared Writes</div>
+                  <div className="mt-1 font-medium text-white/90">{inspector.declaredWrites.length}</div>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <div className="text-white/60">State Reads</div>
+                  <div className="mt-1 font-medium text-white/90">{inspector.stateReadKeys.length}</div>
+                </div>
+                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
+                  <div className="text-white/60">State Writes</div>
+                  <div className="mt-1 font-medium text-white/90">{inspector.stateWriteKeys.length}</div>
+                </div>
+              </div>
+              {inspector.writePolicies.length > 0 && (
+                <div className="mt-2 rounded border border-white/10 bg-white/[0.03] p-2">
+                  <div className="mb-1 text-[10px] uppercase tracking-[0.1em] text-white/55">Write Policies</div>
+                  <div className="max-h-24 space-y-1 overflow-y-auto pr-1 text-[10px]">
+                    {inspector.writePolicies.map((policy) => (
+                      <div key={policy.key} className="flex items-center justify-between gap-2">
+                        <span className="truncate text-white/85">{policy.key}</span>
+                        <span className="truncate text-white/55">{policy.agentIds.join(", ") || "none"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(inspector.undeclaredReads.length > 0 || inspector.undeclaredWrites.length > 0) && (
+                <div className="mt-2 rounded border border-rose-300/30 bg-rose-500/10 p-2 text-[10px] text-rose-100">
+                  <div className="mb-1 font-semibold uppercase tracking-[0.1em]">Contract Gaps</div>
+                  {inspector.undeclaredReads.length > 0 && <div>Undeclared reads: {inspector.undeclaredReads.join(", ")}</div>}
+                  {inspector.undeclaredWrites.length > 0 && <div>Undeclared writes: {inspector.undeclaredWrites.join(", ")}</div>}
+                </div>
+              )}
+            </div>
+          </Panel>
+          {(validationTouched || validationIssues.length > 0) && (
+            <Panel position="bottom-left">
+              <div className="w-96 rounded-xl border border-rose-300/30 bg-rose-500/10 p-3 text-rose-100 shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]">
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Validation Blockers ({validationIssues.length})
+                </div>
+                {validationIssues.length === 0 ? (
+                  <div className="text-[11px] text-emerald-100">No blockers. Save/run is allowed.</div>
+                ) : (
+                  <div className="max-h-28 space-y-1 overflow-y-auto pr-1 text-[11px]">
+                    {validationIssues.slice(0, 6).map((issue: MissionGraphValidationIssue, index) => (
+                      <div key={`${issue.code}-${index}`} className="rounded border border-rose-300/20 bg-black/25 px-2 py-1">
+                        <div className="font-mono text-[10px] text-rose-200/85">{issue.code}</div>
+                        <div>{issue.message}</div>
+                      </div>
+                    ))}
+                    {validationIssues.length > 6 && (
+                      <div className="text-[10px] text-rose-200/80">+{validationIssues.length - 6} more issue(s)</div>
+                    )}
+                    {outputBypassEdges.length > 0 && (
+                      <div className="rounded border border-rose-300/25 bg-black/25 px-2 py-1 text-[10px]">
+                        Output bypass edges: {outputBypassEdges.map((edge) => edge.id).join(", ")}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Panel>
+          )}
         </ReactFlow>
       </div>
     </div>

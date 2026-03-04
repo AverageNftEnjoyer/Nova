@@ -179,14 +179,27 @@ export async function refineAssistantReply({
     }
   }
 
-  const normalizedReply = normalizeAssistantReply(nextReply);
+  const preNormalizedReply = String(nextReply || "");
+  const normalizedReply = normalizeAssistantReply(preNormalizedReply);
   broadcastThinkingStatus("Finalizing response", userContextId);
   nextReply = normalizedReply.skip ? "" : normalizedReply.text;
   if (!nextReply || !nextReply.trim()) {
+    const salvageReply = String(preNormalizedReply || "").trim();
+    if (salvageReply) {
+      nextReply = salvageReply;
+      return {
+        reply: nextReply,
+        responseRoute: `${nextResponseRoute}_normalize_salvage`,
+        emittedAssistantDelta: didEmitDelta,
+        promptTokensDelta,
+        completionTokensDelta,
+        correctionPassesDelta,
+      };
+    }
     const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
       strict: hasStrictOutputRequirements,
     });
-    markFallback("post_normalize_empty_reply_fallback", "empty_reply_after_normalization", nextReply);
+    markFallback("post_normalize_empty_reply_fallback", "empty_reply_after_normalization", preNormalizedReply);
     retries.push({
       stage: "post_normalize_empty_reply_fallback",
       fromModel: modelUsed,

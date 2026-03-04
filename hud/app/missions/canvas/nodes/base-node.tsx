@@ -106,6 +106,104 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
   const num = (k: string, fb: number) => (typeof cfg[k] === "number" ? (cfg[k] as number) : fb)
   const bool = (k: string, fb = false) => (typeof cfg[k] === "boolean" ? (cfg[k] as boolean) : fb)
   const arr = (k: string): string[] => (Array.isArray(cfg[k]) ? (cfg[k] as unknown[]).map(String) : [])
+  const declarationFields = (options?: {
+    includeGoal?: boolean
+    includeRole?: boolean
+    includeHandoffAgents?: boolean
+    includeReason?: boolean
+    roleMode?: "worker" | "audit"
+  }) => (
+    <>
+      <FieldWrap label="Agent ID">
+        <input
+          className={FIELD_INPUT}
+          value={str("agentId")}
+          onChange={(e) => upd({ agentId: e.target.value })}
+          placeholder="operator"
+        />
+      </FieldWrap>
+      {options?.includeRole && (
+        <FieldWrap label="Role">
+          {options.roleMode === "worker" ? (
+            <FluidSelect
+              isLight={false}
+              value={str("role", "worker-agent")}
+              options={[
+                { value: "routing-council", label: "Routing Council" },
+                { value: "policy-council", label: "Policy Council" },
+                { value: "memory-council", label: "Memory Council" },
+                { value: "planning-council", label: "Planning Council" },
+                { value: "media-manager", label: "Media Manager" },
+                { value: "finance-manager", label: "Finance Manager" },
+                { value: "productivity-manager", label: "Productivity Manager" },
+                { value: "comms-manager", label: "Comms Manager" },
+                { value: "system-manager", label: "System Manager" },
+                { value: "worker-agent", label: "Worker Agent" },
+              ]}
+              onChange={(v) => upd({ role: v })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          ) : (
+            <input
+              className={FIELD_INPUT}
+              value="audit-council"
+              onChange={() => {}}
+            />
+          )}
+        </FieldWrap>
+      )}
+      {options?.includeGoal !== false && (
+        <PromptArea
+          value={str("goal")}
+          onChange={(v) => upd({ goal: v })}
+          label="Goal"
+          placeholder="Describe this role objective and constraints."
+        />
+      )}
+      <CsvField
+        label="Reads (state keys)"
+        value={arr("reads")}
+        onChange={(v) => upd({ reads: v })}
+        placeholder="brief, context.summary"
+      />
+      <CsvField
+        label="Writes (state keys)"
+        value={arr("writes")}
+        onChange={(v) => upd({ writes: v })}
+        placeholder="analysis, final_report"
+      />
+      {options?.includeHandoffAgents && (
+        <FieldWrap label="From Agent">
+          <input
+            className={FIELD_INPUT}
+            value={str("fromAgentId")}
+            onChange={(e) => upd({ fromAgentId: e.target.value })}
+            placeholder="operator"
+          />
+        </FieldWrap>
+      )}
+      {options?.includeHandoffAgents && (
+        <FieldWrap label="To Agent">
+          <input
+            className={FIELD_INPUT}
+            value={str("toAgentId")}
+            onChange={(e) => upd({ toAgentId: e.target.value })}
+            placeholder="routing-council-1"
+          />
+        </FieldWrap>
+      )}
+      {options?.includeReason && (
+        <FieldWrap label="Reason">
+          <input
+            className={FIELD_INPUT}
+            value={str("reason")}
+            onChange={(e) => upd({ reason: e.target.value })}
+            placeholder="Why this handoff happens"
+          />
+        </FieldWrap>
+      )}
+    </>
+  )
 
   switch (type) {
     // ── Triggers ────────────────────────────────────────────────────────────
@@ -355,6 +453,15 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
     }
 
     // ── Logic ────────────────────────────────────────────────────────────────
+    case "agent-supervisor":
+      return declarationFields({ includeGoal: true, includeRole: false })
+
+    case "agent-worker":
+      return declarationFields({ includeGoal: true, includeRole: true, roleMode: "worker" })
+
+    case "agent-audit":
+      return declarationFields({ includeGoal: true, includeRole: true, roleMode: "audit" })
+
     case "condition": {
       const rules = Array.isArray(cfg.rules) ? (cfg.rules as Array<Record<string, unknown>>) : [{}]
       const rule = rules[0] || {}
@@ -470,6 +577,9 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
     }
 
     // ── Transform ────────────────────────────────────────────────────────────
+    case "agent-handoff":
+      return declarationFields({ includeGoal: false, includeHandoffAgents: true, includeReason: true })
+
     case "set-variables": {
       const assignments = Array.isArray(cfg.assignments) ? (cfg.assignments as Array<Record<string, unknown>>) : []
       const assignText = assignments.map((a) => `${String(a.name || "")}=${String(a.value || "")}`).join("\n")
@@ -553,6 +663,79 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
       )
 
     // ── Output ───────────────────────────────────────────────────────────────
+    case "agent-state-read":
+      return (
+        <>
+          <FieldWrap label="State Key">
+            <input
+              className={FIELD_INPUT}
+              value={str("key")}
+              onChange={(e) => upd({ key: e.target.value })}
+              placeholder="task.plan"
+            />
+          </FieldWrap>
+          <FieldWrap label="Required">
+            <FluidSelect
+              isLight={false}
+              value={bool("required", true) ? "true" : "false"}
+              options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]}
+              onChange={(v) => upd({ required: v === "true" })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          </FieldWrap>
+        </>
+      )
+
+    case "agent-state-write":
+      return (
+        <>
+          <FieldWrap label="State Key">
+            <input className={FIELD_INPUT} value={str("key")} onChange={(e) => upd({ key: e.target.value })} placeholder="task.result" />
+          </FieldWrap>
+          <FieldWrap label="Value Expression">
+            <input
+              className={FIELD_INPUT}
+              value={str("valueExpression", "{{$input}}")}
+              onChange={(e) => upd({ valueExpression: e.target.value })}
+              placeholder="{{$input}}"
+            />
+          </FieldWrap>
+          <FieldWrap label="Write Mode">
+            <FluidSelect
+              isLight={false}
+              value={str("writeMode", "replace")}
+              options={[{ value: "replace", label: "Replace" }, { value: "merge", label: "Merge" }, { value: "append", label: "Append" }]}
+              onChange={(v) => upd({ writeMode: v })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          </FieldWrap>
+        </>
+      )
+
+    case "provider-selector":
+      return (
+        <>
+          <CsvField
+            label="Allowed Providers"
+            value={arr("allowedProviders")}
+            onChange={(v) => upd({ allowedProviders: v })}
+            placeholder="claude, openai"
+          />
+          <FieldWrap label="Default Provider">
+            <input className={FIELD_INPUT} value={str("defaultProvider", "claude")} onChange={(e) => upd({ defaultProvider: e.target.value })} placeholder="claude" />
+          </FieldWrap>
+          <FieldWrap label="Strategy">
+            <FluidSelect
+              isLight={false}
+              value={str("strategy", "policy")}
+              options={[{ value: "policy", label: "Policy" }, { value: "latency", label: "Latency" }, { value: "cost", label: "Cost" }, { value: "quality", label: "Quality" }]}
+              onChange={(v) => upd({ strategy: v })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          </FieldWrap>
+        </>
+      )
+
     case "telegram-output":
       return (
         <>
@@ -622,11 +805,13 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
     case "slack-output":
       return (
         <>
-          <FieldWrap label="Channel / Webhook URL">
-            <input className={FIELD_INPUT} value={str("webhookUrl") || str("channel")} onChange={(e) => {
-              const v = e.target.value
-              upd(v.startsWith("http") ? { webhookUrl: v, channel: "" } : { channel: v, webhookUrl: "" })
-            }} placeholder="#general or https://hooks.slack.com/..." />
+          <FieldWrap label="Channel (optional)">
+            <input
+              className={FIELD_INPUT}
+              value={str("channel")}
+              onChange={(e) => upd({ channel: e.target.value })}
+              placeholder="#general"
+            />
           </FieldWrap>
           <MessageTemplateArea value={str("messageTemplate")} onChange={(v) => upd({ messageTemplate: v })} />
         </>
@@ -638,18 +823,6 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
         <FieldWrap label="Content">
           <textarea className={cn(FIELD_INPUT, "min-h-[72px] resize-y")} value={str("content", "Notes…")} onChange={(e) => upd({ content: e.target.value })} placeholder="Notes…" />
         </FieldWrap>
-      )
-
-    case "sub-workflow":
-      return (
-        <>
-          <FieldWrap label="Mission ID">
-            <input className={FIELD_INPUT} value={str("missionId")} onChange={(e) => upd({ missionId: e.target.value })} placeholder="Paste the target mission ID" />
-          </FieldWrap>
-          <FieldWrap label="Wait for Completion">
-            <FluidSelect isLight={false} value={bool("waitForCompletion", true) ? "yes" : "no"} options={[{ value: "yes", label: "Yes — block until done" }, { value: "no", label: "No — fire and forget" }]} onChange={(v) => upd({ waitForCompletion: v === "yes" })} buttonClassName={FIELD_SELECT_BTN} />
-          </FieldWrap>
-        </>
       )
 
     default:
@@ -786,3 +959,4 @@ export const BaseNode = memo(function BaseNode({ id, data, selected }: NodeProps
     </div>
   )
 })
+

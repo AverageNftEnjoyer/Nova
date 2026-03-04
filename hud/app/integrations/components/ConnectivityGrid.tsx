@@ -4,6 +4,7 @@ import { cn } from "@/lib/shared/utils"
 export type IntegrationSetupKey =
   | "telegram"
   | "discord"
+  | "slack"
   | "brave"
   | "news"
   | "coinbase"
@@ -12,6 +13,7 @@ export type IntegrationSetupKey =
   | "grok"
   | "gemini"
   | "spotify"
+  | "youtube"
   | "gmail"
   | "gmail-calendar"
 

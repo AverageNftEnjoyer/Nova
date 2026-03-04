@@ -110,21 +110,17 @@ export async function POST(req: Request) {
     const scheduleTime = triggerNode?.triggerTime || "09:00"
     const scheduleTimezone = resolveTimezone(timezoneOverride, triggerNode?.triggerTimezone, mission.settings?.timezone)
 
-    // Backward-compat wrapper so existing agent consumers (chat-special-handlers.js)
-    // can still read workflow.label and workflow.summary.schedule.*
     const responseBase = {
       ok: true,
       provider: generated.provider,
       model: generated.model,
       debug: debugSelected,
-      workflow: {
+      missionSummary: {
         label: mission.label,
+        description: mission.description,
         integration: mission.integration,
-        summary: {
-          description: mission.description,
-          workflowSteps: mission.nodes,   // length-only usage
-          schedule: { time: scheduleTime, timezone: scheduleTimezone },
-        },
+        nodeCount: mission.nodes.length,
+        schedule: { time: scheduleTime, timezone: scheduleTimezone },
       },
     }
 
@@ -175,12 +171,19 @@ export async function POST(req: Request) {
     }).catch(() => {})
     return NextResponse.json(payload, { status: 201 })
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to build workflow."
+    const isContractFailure =
+      /invalid node payload/i.test(errorMessage)
+      || /required an agent graph/i.test(errorMessage)
+      || /invalid graph contract/i.test(errorMessage)
+      || /graph failed validation/i.test(errorMessage)
+    const statusCode = isContractFailure ? 422 : 500
     if (reservationKey) {
       await finalizeMissionBuildRequest({
         key: reservationKey,
         userContextId: userId,
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to build workflow.",
+        error: errorMessage,
       })
     }
     await emitMissionTelemetryEvent({
@@ -189,12 +192,18 @@ export async function POST(req: Request) {
       userContextId: userId,
       durationMs: Date.now() - startedAtMs,
       metadata: {
-        error: error instanceof Error ? error.message : "Failed to build workflow.",
+        error: errorMessage,
+        contractFailure: isContractFailure,
       },
     }).catch(() => {})
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Failed to build workflow.", debug: debugSelected },
-      { status: 500 },
+      {
+        ok: false,
+        error: errorMessage,
+        debug: debugSelected,
+        validation: isContractFailure ? { blocked: true, stage: "generation-contract" } : undefined,
+      },
+      { status: statusCode },
     )
   }
 }

@@ -33,7 +33,7 @@ export function useSpotlightEffect(
         section.appendChild(spotlight)
       }
       let liveStars = 0
-      const cards = Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
+      const getCards = () => Array.from(section.querySelectorAll<HTMLElement>(".home-spotlight-card"))
       let rafId: number | null = null
       let pendingEvent: MouseEvent | null = null
 
@@ -54,7 +54,7 @@ export function useSpotlightEffect(
         const hoveredCandidate = hoveredElement?.closest(".home-spotlight-card") as HTMLElement | null
         const hoveredCard = hoveredCandidate && section.contains(hoveredCandidate) ? hoveredCandidate : null
 
-        cards.forEach((card) => {
+        getCards().forEach((card) => {
           const cardRect = card.getBoundingClientRect()
           if (cardRect.width <= 1 || cardRect.height <= 1) {
             card.style.setProperty("--glow-intensity", "0")
@@ -135,11 +135,11 @@ export function useSpotlightEffect(
         }
         pendingEvent = null
         if (spotlight) spotlight.style.opacity = "0"
-        cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+        getCards().forEach((card) => card.style.setProperty("--glow-intensity", "0"))
       }
       const handleWindowBlur = () => {
         if (spotlight) spotlight.style.opacity = "0"
-        cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+        getCards().forEach((card) => card.style.setProperty("--glow-intensity", "0"))
       }
 
       section.addEventListener("mousemove", handleMouseMove)
@@ -151,7 +151,7 @@ export function useSpotlightEffect(
         section.removeEventListener("mouseleave", handleMouseLeave)
         window.removeEventListener("blur", handleWindowBlur)
         if (rafId !== null) window.cancelAnimationFrame(rafId)
-        cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
+        getCards().forEach((card) => card.style.setProperty("--glow-intensity", "0"))
         spotlight?.remove()
       }
     }

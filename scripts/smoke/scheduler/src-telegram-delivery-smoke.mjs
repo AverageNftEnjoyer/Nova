@@ -29,7 +29,7 @@ function read(relativePath) {
 }
 
 function loadTelegramModule(harness) {
-  const source = read("hud/lib/notifications/telegram.ts");
+  const source = read("hud/lib/notifications/telegram/index.ts");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
@@ -45,7 +45,7 @@ function loadTelegramModule(harness) {
     exports: module.exports,
     require: (specifier) => {
       if (specifier === "server-only") return {};
-      if (specifier === "@/lib/integrations/server-store") {
+      if (specifier === "@/lib/integrations/store/server-store") {
         return {
           loadIntegrationsConfig: async () => harness.config,
         };

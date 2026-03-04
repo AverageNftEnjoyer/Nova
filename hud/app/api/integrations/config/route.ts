@@ -9,9 +9,11 @@ import {
   type CoinbaseIntegrationConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
+  type SlackIntegrationConfig,
   type GrokIntegrationConfig,
   type GeminiIntegrationConfig,
   type SpotifyIntegrationConfig,
+  type YouTubeIntegrationConfig,
   type GmailIntegrationConfig,
   type GmailCalendarIntegrationConfig,
   type LlmProvider,
@@ -21,6 +23,7 @@ import {
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
+import { isValidSlackWebhookUrl, redactSlackWebhookUrl } from "@/lib/notifications/slack"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
@@ -164,6 +167,32 @@ function normalizeDiscordInput(raw: unknown, current: DiscordIntegrationConfig):
   }
 }
 
+function normalizeSlackInput(raw: unknown, current: SlackIntegrationConfig): SlackIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const slack = raw as Partial<SlackIntegrationConfig>
+
+  const webhookUrlProvided = typeof slack.webhookUrl === "string"
+  const nextWebhookUrl = webhookUrlProvided ? slack.webhookUrl!.trim() : current.webhookUrl
+
+  if (nextWebhookUrl && !isValidSlackWebhookUrl(nextWebhookUrl)) {
+    throw new Error(`Invalid Slack webhook URL: ${redactSlackWebhookUrl(nextWebhookUrl)}`)
+  }
+
+  const requestedConnected =
+    typeof slack.connected === "boolean"
+      ? slack.connected
+      : (webhookUrlProvided && nextWebhookUrl.length === 0 ? false : current.connected)
+  if (requestedConnected && !nextWebhookUrl) {
+    throw new Error("Slack cannot be enabled without a valid webhook URL.")
+  }
+  const connected = requestedConnected && nextWebhookUrl.trim().length > 0
+
+  return {
+    connected,
+    webhookUrl: nextWebhookUrl,
+  }
+}
+
 function normalizeOpenAIInput(raw: unknown, current: OpenAIIntegrationConfig): OpenAIIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const openai = raw as Partial<OpenAIIntegrationConfig>
@@ -198,8 +227,9 @@ function normalizeBraveInput(raw: unknown, current: BraveIntegrationConfig): Bra
 
 function normalizeNewsInput(raw: unknown, current: NewsIntegrationConfig): NewsIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
-  const news = raw as Partial<NewsIntegrationConfig>
+  const news = raw as Partial<NewsIntegrationConfig> & { preferredSources?: string[] | string }
   const rawDefaultTopics = (raw as { defaultTopics?: unknown }).defaultTopics
+  const rawPreferredSources = (raw as { preferredSources?: unknown }).preferredSources
   const nextApiKey =
     typeof news.apiKey === "string"
       ? (news.apiKey.trim().length > 0 ? news.apiKey.trim() : current.apiKey)
@@ -212,11 +242,20 @@ function normalizeNewsInput(raw: unknown, current: NewsIntegrationConfig): NewsI
           .map((topic) => topic.trim().toLowerCase())
           .filter(Boolean)
       : current.defaultTopics
+  const nextPreferredSources = Array.isArray(rawPreferredSources)
+    ? rawPreferredSources.map((source) => String(source).trim()).filter(Boolean)
+    : typeof rawPreferredSources === "string"
+      ? rawPreferredSources
+          .split(/[,\n]+/)
+          .map((source) => source.trim())
+          .filter(Boolean)
+      : current.preferredSources
 
   return {
     connected: (typeof news.connected === "boolean" ? news.connected : current.connected) && nextApiKey.trim().length > 0,
     apiKey: nextApiKey,
     defaultTopics: nextDefaultTopics.length > 0 ? nextDefaultTopics : current.defaultTopics,
+    preferredSources: nextPreferredSources,
     language:
       typeof news.language === "string" && news.language.trim().length > 0
         ? news.language.trim().toLowerCase()
@@ -390,6 +429,53 @@ function normalizeSpotifyInput(raw: unknown, current: SpotifyIntegrationConfig):
   }
 }
 
+function normalizeYouTubeInput(raw: unknown, current: YouTubeIntegrationConfig): YouTubeIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const youtube = raw as Partial<YouTubeIntegrationConfig> & { scopes?: string[] | string }
+  const scopes = typeof youtube.scopes === "string"
+    ? youtube.scopes.split(/\s+/).map((scope) => scope.trim()).filter(Boolean)
+    : Array.isArray(youtube.scopes)
+      ? youtube.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+      : current.scopes
+  const nextAccess =
+    typeof youtube.accessTokenEnc === "string"
+      ? (youtube.accessTokenEnc.trim().length > 0 ? youtube.accessTokenEnc.trim() : current.accessTokenEnc)
+      : current.accessTokenEnc
+  const nextRefresh =
+    typeof youtube.refreshTokenEnc === "string"
+      ? (youtube.refreshTokenEnc.trim().length > 0 ? youtube.refreshTokenEnc.trim() : current.refreshTokenEnc)
+      : current.refreshTokenEnc
+  return {
+    ...current,
+    connected:
+      (typeof youtube.connected === "boolean" ? youtube.connected : current.connected) &&
+      (nextAccess.length > 0 || nextRefresh.length > 0),
+    channelId: typeof youtube.channelId === "string" ? youtube.channelId.trim() : current.channelId,
+    channelTitle: typeof youtube.channelTitle === "string" ? youtube.channelTitle.trim() : current.channelTitle,
+    scopes,
+    permissions: {
+      ...current.permissions,
+      ...(youtube.permissions || {}),
+      allowFeed:
+        typeof youtube.permissions?.allowFeed === "boolean"
+          ? youtube.permissions.allowFeed
+          : current.permissions.allowFeed,
+      allowSearch:
+        typeof youtube.permissions?.allowSearch === "boolean"
+          ? youtube.permissions.allowSearch
+          : current.permissions.allowSearch,
+      allowVideoDetails:
+        typeof youtube.permissions?.allowVideoDetails === "boolean"
+          ? youtube.permissions.allowVideoDetails
+          : current.permissions.allowVideoDetails,
+    },
+    redirectUri: typeof youtube.redirectUri === "string" && youtube.redirectUri.trim().length > 0 ? youtube.redirectUri.trim() : current.redirectUri,
+    accessTokenEnc: nextAccess,
+    refreshTokenEnc: nextRefresh,
+    tokenExpiry: typeof youtube.tokenExpiry === "number" ? youtube.tokenExpiry : current.tokenExpiry,
+  }
+}
+
 function normalizeGmailInput(raw: unknown, current: GmailIntegrationConfig): GmailIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const gmail = raw as Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
@@ -508,6 +594,12 @@ function toClientConfig(config: IntegrationsConfig) {
       webhookUrlsConfigured: config.discord.webhookUrls.length > 0,
       webhookUrlsMasked: config.discord.webhookUrls.map((url) => redactWebhookTarget(url)),
     },
+    slack: {
+      ...config.slack,
+      webhookUrl: "",
+      webhookUrlConfigured: config.slack.webhookUrl.trim().length > 0,
+      webhookUrlMasked: redactSlackWebhookUrl(config.slack.webhookUrl),
+    },
     openai: {
       ...config.openai,
       apiKey: "",
@@ -524,6 +616,7 @@ function toClientConfig(config: IntegrationsConfig) {
       connected: config.news.connected,
       apiKey: "",
       defaultTopics: config.news.defaultTopics,
+      preferredSources: config.news.preferredSources,
       language: config.news.language,
       country: config.news.country,
       apiKeyConfigured: config.news.apiKey.trim().length > 0,
@@ -566,6 +659,21 @@ function toClientConfig(config: IntegrationsConfig) {
       tokenConfigured:
         config.spotify.refreshTokenEnc.trim().length > 0 ||
         config.spotify.accessTokenEnc.trim().length > 0,
+    },
+    youtube: {
+      connected: config.youtube.connected,
+      channelId: config.youtube.channelId,
+      channelTitle: config.youtube.channelTitle,
+      scopes: config.youtube.scopes,
+      permissions: {
+        allowFeed: Boolean(config.youtube.permissions?.allowFeed),
+        allowSearch: Boolean(config.youtube.permissions?.allowSearch),
+        allowVideoDetails: Boolean(config.youtube.permissions?.allowVideoDetails),
+      },
+      redirectUri: config.youtube.redirectUri,
+      tokenConfigured:
+        config.youtube.refreshTokenEnc.trim().length > 0 ||
+        config.youtube.accessTokenEnc.trim().length > 0,
     },
     gmail: {
       connected: config.gmail.connected,
@@ -639,14 +747,16 @@ export async function PATCH(req: Request) {
     const body = (await req.json()) as Partial<IntegrationsConfig> & {
       telegram?: Partial<TelegramIntegrationConfig> & { chatIds?: string[] | string }
       discord?: Partial<DiscordIntegrationConfig> & { webhookUrls?: string[] | string }
+      slack?: Partial<SlackIntegrationConfig>
       brave?: Partial<BraveIntegrationConfig>
-      news?: Partial<NewsIntegrationConfig> & { defaultTopics?: string[] | string }
+      news?: Partial<NewsIntegrationConfig> & { defaultTopics?: string[] | string; preferredSources?: string[] | string }
       coinbase?: Partial<CoinbaseIntegrationConfig>
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
       gemini?: Partial<GeminiIntegrationConfig>
       spotify?: Partial<SpotifyIntegrationConfig> & { scopes?: string[] | string }
+      youtube?: Partial<YouTubeIntegrationConfig> & { scopes?: string[] | string }
       gmail?: Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
       gcalendar?: Partial<GmailCalendarIntegrationConfig>
       activeLlmProvider?: LlmProvider
@@ -655,6 +765,7 @@ export async function PATCH(req: Request) {
     const wasCoinbaseConnected = Boolean(current.coinbase.connected)
     const hasTelegramPatch = Object.prototype.hasOwnProperty.call(body, "telegram")
     const hasDiscordPatch = Object.prototype.hasOwnProperty.call(body, "discord")
+    const hasSlackPatch = Object.prototype.hasOwnProperty.call(body, "slack")
     const hasBravePatch = Object.prototype.hasOwnProperty.call(body, "brave")
     const hasNewsPatch = Object.prototype.hasOwnProperty.call(body, "news")
     const hasCoinbasePatch = Object.prototype.hasOwnProperty.call(body, "coinbase")
@@ -663,12 +774,14 @@ export async function PATCH(req: Request) {
     const hasGrokPatch = Object.prototype.hasOwnProperty.call(body, "grok")
     const hasGeminiPatch = Object.prototype.hasOwnProperty.call(body, "gemini")
     const hasSpotifyPatch = Object.prototype.hasOwnProperty.call(body, "spotify")
+    const hasYouTubePatch = Object.prototype.hasOwnProperty.call(body, "youtube")
     const hasGmailPatch = Object.prototype.hasOwnProperty.call(body, "gmail")
     const hasGcalendarPatch = Object.prototype.hasOwnProperty.call(body, "gcalendar")
     const hasActiveProviderPatch = Object.prototype.hasOwnProperty.call(body, "activeLlmProvider")
     const hasAgentsPatch = Object.prototype.hasOwnProperty.call(body, "agents")
     const telegram = hasTelegramPatch ? normalizeTelegramInput(body.telegram, current.telegram) : current.telegram
     const discord = hasDiscordPatch ? normalizeDiscordInput(body.discord, current.discord) : current.discord
+    const slack = hasSlackPatch ? normalizeSlackInput(body.slack, current.slack) : current.slack
     const brave = hasBravePatch ? normalizeBraveInput(body.brave, current.brave) : current.brave
     const news = hasNewsPatch ? normalizeNewsInput(body.news, current.news) : current.news
     const coinbase = hasCoinbasePatch ? normalizeCoinbaseInput(body.coinbase, current.coinbase) : current.coinbase
@@ -689,6 +802,7 @@ export async function PATCH(req: Request) {
     const grok = hasGrokPatch ? normalizeGrokInput(body.grok, current.grok) : current.grok
     const gemini = hasGeminiPatch ? normalizeGeminiInput(body.gemini, current.gemini) : current.gemini
     const spotify = hasSpotifyPatch ? normalizeSpotifyInput(body.spotify, current.spotify) : current.spotify
+    const youtube = hasYouTubePatch ? normalizeYouTubeInput(body.youtube, current.youtube) : current.youtube
     const gmail = hasGmailPatch ? normalizeGmailInput(body.gmail, current.gmail) : current.gmail
     const gcalendar = hasGcalendarPatch ? normalizeGmailCalendarInput(body.gcalendar, current.gcalendar) : current.gcalendar
     const activeLlmProvider = hasActiveProviderPatch
@@ -697,6 +811,7 @@ export async function PATCH(req: Request) {
     const next = await updateIntegrationsConfig({
       telegram,
       discord,
+      slack,
       brave,
       news,
       coinbase,
@@ -705,6 +820,7 @@ export async function PATCH(req: Request) {
       grok,
       gemini,
       spotify,
+      youtube,
       gmail,
       gcalendar,
       activeLlmProvider,
@@ -745,7 +861,9 @@ export async function PATCH(req: Request) {
       error instanceof Error &&
       (/Invalid Discord webhook URL/i.test(error.message) ||
         /Discord cannot be enabled/i.test(error.message) ||
-        /Discord webhook count exceeds cap/i.test(error.message))
+        /Discord webhook count exceeds cap/i.test(error.message) ||
+        /Invalid Slack webhook URL/i.test(error.message) ||
+        /Slack cannot be enabled/i.test(error.message))
     ) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }

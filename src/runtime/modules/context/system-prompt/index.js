@@ -103,7 +103,7 @@ function buildDocsSection(params) {
 export function buildAgentSystemPrompt(params) {
   const promptMode = params.promptMode || PromptMode.FULL;
   if (promptMode === PromptMode.NONE) {
-    return "You are Nova, a personal assistant.";
+    return "You are Nova Operator, the user-facing assistant.";
   }
 
   const isMinimal = promptMode === PromptMode.MINIMAL;
@@ -125,7 +125,7 @@ export function buildAgentSystemPrompt(params) {
   });
 
   const lines = [
-    "You are Nova, a personal assistant running in the Nova runtime.",
+    "You are Nova Operator, the only user-facing assistant identity in the Nova runtime.",
     "",
     "## Tooling",
     "Tool availability is runtime-dependent.",

@@ -12,21 +12,34 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
   const {
     activeSetup, panelStyle, panelClass, moduleHeightClass, isLight, subPanelClass, settings, isSavingTarget,
     telegramNeedsKeyWarning, braveApiKeyConfigured, braveApiKeyMasked, newsNeedsKeyWarning, newsApiKey, setNewsApiKey, newsApiKeyConfigured, newsApiKeyMasked,
-    newsDefaultTopics, setNewsDefaultTopics,
+    newsDefaultTopics, setNewsDefaultTopics, newsPreferredSources, setNewsPreferredSources,
     coinbaseNeedsKeyWarning, coinbasePendingAction, coinbaseSyncBadgeClass, coinbaseSyncLabel,
     coinbaseLastSyncText, coinbaseFreshnessText, coinbaseErrorText, coinbaseHasKeys, coinbaseScopeSummary, coinbasePrivacy, coinbasePrivacyHydrated, coinbasePrivacySaving, coinbasePrivacyError,
     coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
     coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
     coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
-    spotifySetup,
+    spotifySetup, youtubeSetup,
     telegramSetupSectionRef,
-    discordSetupSectionRef, braveSetupSectionRef, newsSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
-    spotifySetupSectionRef, gmailCalendarSetupSectionRef, setBotToken,
+    discordSetupSectionRef, slackSetupSectionRef, braveSetupSectionRef, newsSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
+    spotifySetupSectionRef, youtubeSetupSectionRef, gmailCalendarSetupSectionRef, setBotToken,
     botToken, botTokenConfigured, botTokenMasked, setChatIds, chatIds, setDiscordWebhookUrls, discordWebhookUrls,
-    setBraveApiKey, braveApiKey, toggleTelegram, saveTelegramConfig, toggleDiscord, saveDiscordConfig, toggleBrave,
+    setSlackWebhookUrl, slackWebhookUrl, slackWebhookUrlConfigured, slackWebhookUrlMasked,
+    setBraveApiKey, braveApiKey, toggleTelegram, saveTelegramConfig, toggleDiscord, saveDiscordConfig, toggleSlack, saveSlackConfig, toggleBrave,
     saveBraveConfig, toggleNews, saveNewsConfig, probeCoinbaseConnection, toggleCoinbase, saveCoinbaseConfig, updateCoinbasePrivacy,
     updateCoinbaseDefaults,
   } = props
+  const youtubeMergedScopes = new Set(
+    [
+      ...(typeof settings.youtube.scopes === "string" ? settings.youtube.scopes.split(/\s+/).map((scope) => scope.trim()).filter(Boolean) : []),
+      ...(typeof youtubeSetup.youtubeScopes === "string" ? youtubeSetup.youtubeScopes.split(/\s+/).map((scope) => scope.trim()).filter(Boolean) : []),
+    ].map((scope) => scope.toLowerCase()),
+  )
+  const youtubeHasReadonlyScope =
+    youtubeMergedScopes.has("https://www.googleapis.com/auth/youtube.readonly") ||
+    youtubeMergedScopes.has("https://www.googleapis.com/auth/youtube")
+  const gmailHasCredentials =
+    Boolean(settings.gmail.oauthClientId?.trim()) &&
+    (Boolean(settings.gmail.oauthClientSecretConfigured) || Boolean(settings.gmail.oauthClientSecret?.trim()))
 
   return (
     <div className="space-y-4">
@@ -231,6 +244,81 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
             </section>
             )}
 
+            {activeSetup === "slack" && (
+            <section ref={slackSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Slack Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Save a Slack webhook for mission and notification delivery.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleSlack}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.slack.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.slack.connected ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={saveSlackConfig}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSavingTarget === "slack" ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <SecretInput
+                  value={slackWebhookUrl}
+                  onChange={setSlackWebhookUrl}
+                  label="Webhook URL"
+                  placeholder="https://hooks.slack.com/services/T.../B.../xxxx"
+                  placeholderWhenConfigured="Enter new webhook URL to replace current"
+                  maskedValue={slackWebhookUrlMasked}
+                  isConfigured={slackWebhookUrlConfigured}
+                  serverLabel="Webhook on server"
+                  name="slack_webhook_input"
+                  isLight={isLight}
+                  subPanelClass={subPanelClass}
+                />
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Setup Instructions</p>
+                  <div className="space-y-2">
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      )}
+                    >
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Slack Incoming Webhook</p>
+                      <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                        <li>1. Go to <span className="font-mono">api.slack.com/apps</span> and create or select an app.</li>
+                        <li>2. Under <span className="font-mono">Incoming Webhooks</span>, activate and add a new webhook to a channel.</li>
+                        <li>3. Copy the webhook URL and paste it into <span className="font-mono">Webhook URL</span> above.</li>
+                        <li>4. Click <span className="font-mono">Save</span> — Nova will send a test message to verify the connection.</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            )}
+
             {activeSetup === "brave" && (
             <section ref={braveSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
               <div className="flex items-center justify-between">
@@ -400,8 +488,32 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       isLight
                         ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
                         : "border-white/10 text-slate-100 placeholder:text-slate-500",
+                      )}
+                  />
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Preferred Sources</p>
+                  <input
+                    value={newsPreferredSources}
+                    onChange={(e) => setNewsPreferredSources(e.target.value)}
+                    placeholder="Bloomberg, ABC News, Reuters"
+                    spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    data-gramm="false"
+                    data-gramm_editor="false"
+                    data-enable-grammarly="false"
+                    className={cn(
+                      "w-full h-9 px-3 rounded-md border bg-transparent text-sm outline-none",
+                      isLight
+                        ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+                        : "border-white/10 text-slate-100 placeholder:text-slate-500",
                     )}
                   />
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+                    Used by the YouTube module for source-first news video ranking when `mode=sources`.
+                  </p>
                 </div>
 
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
@@ -439,6 +551,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         <li>1. Home feed polls every <span className="font-mono">10 minutes</span> only while the page is visible.</li>
                         <li>2. Topic buttons switch between general, market, and crypto sources without spamming calls.</li>
                         <li>3. Use default topics to seed initial chips for your account.</li>
+                        <li>4. Preferred Sources are shared with YouTube feed ranking for per-user source tuning.</li>
                       </ol>
                     </div>
                   </div>
@@ -925,6 +1038,155 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   </div>
                   <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
                     Scopes: <span className="font-mono">{spotifySetup.spotifyScopes || "none"}</span>
+                  </p>
+                </div>
+              </div>
+            </section>
+            )}
+
+            {activeSetup === "youtube" && (
+            <section ref={youtubeSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    YouTube Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Connect YouTube with your Google OAuth account. Nova keeps Home playback muted and respects your per-user permissions.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={settings.youtube.connected ? (() => void youtubeSetup.disconnectYouTube()) : youtubeSetup.connectYouTube}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.youtube.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.youtube.connected ? "Disconnect" : "Connect"}
+                  </button>
+                  <button
+                    onClick={() => void youtubeSetup.testYouTubeConnection()}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border border-emerald-300/40 bg-emerald-500/15 text-emerald-200 transition-colors hover:bg-emerald-500/20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                    )}
+                  >
+                    {isSavingTarget === "youtube-test" ? "Testing..." : "Test"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                {!gmailHasCredentials && (
+                  <div className={cn(
+                    "rounded-lg border p-3 text-xs",
+                    isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+                  )}>
+                    YouTube uses your Gmail OAuth app credentials. Configure Gmail Client ID and Secret in Gmail Setup first.
+                  </div>
+                )}
+
+                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
+                    Connection
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "h-2 w-2 rounded-full shrink-0",
+                        settings.youtube.connected ? "bg-emerald-400" : "bg-rose-400",
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>
+                      {settings.youtube.connected ? `Connected as ${youtubeSetup.youtubeChannelTitle || "YouTube channel"}` : "Not connected"}
+                    </span>
+                  </div>
+                </div>
+
+                {settings.youtube.connected && (
+                  <div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                    <p className={cn("text-[11px] mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
+                      YouTube Permissions
+                    </p>
+                    <div className="space-y-2">
+                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+                        <div>
+                          <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Home Feed</p>
+                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to load personalized or source-weighted YouTube feed results.</p>
+                        </div>
+                        <NovaSwitch
+                          size="sm"
+                          checked={Boolean(youtubeSetup.youtubePermissions.allowFeed)}
+                          disabled={isSavingTarget !== null || !youtubeHasReadonlyScope}
+                          onChange={(checked) => void youtubeSetup.updateYouTubePermissions({ allowFeed: checked })}
+                        />
+                      </div>
+                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+                        <div>
+                          <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Search</p>
+                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to search YouTube videos and channels for this user.</p>
+                        </div>
+                        <NovaSwitch
+                          size="sm"
+                          checked={Boolean(youtubeSetup.youtubePermissions.allowSearch)}
+                          disabled={isSavingTarget !== null || !youtubeHasReadonlyScope}
+                          onChange={(checked) => void youtubeSetup.updateYouTubePermissions({ allowSearch: checked })}
+                        />
+                      </div>
+                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+                        <div>
+                          <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Video Details</p>
+                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to fetch metadata such as duration, views, and channel details.</p>
+                        </div>
+                        <NovaSwitch
+                          size="sm"
+                          checked={Boolean(youtubeSetup.youtubePermissions.allowVideoDetails)}
+                          disabled={isSavingTarget !== null || !youtubeHasReadonlyScope}
+                          onChange={(checked) => void youtubeSetup.updateYouTubePermissions({ allowVideoDetails: checked })}
+                        />
+                      </div>
+                      {!youtubeHasReadonlyScope && (
+                        <p className={cn("text-[11px]", isLight ? "text-amber-700" : "text-amber-300")}>
+                          This account is missing YouTube read scope. Reconnect YouTube to grant permissions.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>How it works</p>
+                  <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>1. Configure Gmail OAuth client credentials in Gmail Setup.</li>
+                    <li>2. Click <span className="font-mono">Connect</span> and approve YouTube read access in Google OAuth.</li>
+                    <li>3. Keep Home playback muted while browsing Nova.</li>
+                    <li>4. Use permissions above to restrict feed/search/details behavior per user.</li>
+                  </ol>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Connection Status</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <p className={cn("text-[12px]", isLight ? "text-s-70" : "text-slate-300")}>
+                      Connected: <span className={cn("font-mono", settings.youtube.connected ? "text-emerald-300" : "text-rose-300")}>{settings.youtube.connected ? "yes" : "no"}</span>
+                    </p>
+                    <p className={cn("text-[12px]", isLight ? "text-s-70" : "text-slate-300")}>
+                      Token: <span className={cn("font-mono", settings.youtube.tokenConfigured ? "text-emerald-300" : "text-rose-300")}>{settings.youtube.tokenConfigured ? "configured" : "missing"}</span>
+                    </p>
+                    <p className={cn("text-[12px] truncate", isLight ? "text-s-70" : "text-slate-300")}>
+                      Channel ID: <span className="font-mono">{youtubeSetup.youtubeChannelId || "n/a"}</span>
+                    </p>
+                    <p className={cn("text-[12px] truncate", isLight ? "text-s-70" : "text-slate-300")}>
+                      Channel: <span className="font-mono">{youtubeSetup.youtubeChannelTitle || "n/a"}</span>
+                    </p>
+                  </div>
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+                    Scopes: <span className="font-mono">{youtubeSetup.youtubeScopes || "none"}</span>
                   </p>
                 </div>
               </div>

@@ -22,7 +22,7 @@
 import "server-only"
 
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
-import { purgeVersionsForMission } from "@/lib/missions/workflow/versioning"
+import { purgeVersionsForMission } from "@/lib/missions/workflow/versioning/server"
 import { purgeTelemetryForMission } from "@/lib/missions/telemetry"
 import { purgeNotificationRunLog } from "@/lib/notifications/run-log"
 import { purgeDeadLetterForMission } from "@/lib/notifications/dead-letter"

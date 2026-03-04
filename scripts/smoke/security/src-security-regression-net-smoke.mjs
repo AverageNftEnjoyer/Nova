@@ -79,8 +79,8 @@ await run("P20-C2 transport + tool policy regressions remain blocked", async () 
 
 await run("P20-C3 scheduler reliability regressions remain covered", async () => {
   const schedulerOutput = runNodeScript("scripts/smoke/scheduler/src-scheduler-delivery-smoke.mjs");
-  assert.equal(schedulerOutput.includes("idempotency keys"), true);
-  assert.equal(schedulerOutput.includes("retry"), true);
+  assert.equal(schedulerOutput.includes("P19-C2 scheduler applies mission-level retry backoff and max retry gate"), true);
+  assert.equal(schedulerOutput.includes("P19-C3 run log stores and summarizes runKey attempts"), true);
 });
 
 await run("P20-C4 runtime defaults are locked to safe baseline values", async () => {

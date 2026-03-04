@@ -1,4 +1,4 @@
-﻿# NovaOS Release Readiness Report
+# NovaOS Release Readiness Report
 
 ## Rollout Checklist
 - [x] Agent core build passes.
@@ -14,7 +14,7 @@
 
 ## Gate Evidence
 - ChatKit gate report:
-  - `archive/logs/chatkit-phase5-gate-report.json`
+  - `archive/logs/chatkit-release-readiness-report.json`
 - ChatKit event stream:
   - `archive/logs/chatkit-events.jsonl`
 
@@ -27,5 +27,6 @@
    - `npm.cmd run build:agent-core`
    - `npm.cmd run smoke:src-release-readiness`
 3. If any critical gate still fails, revert to last known-good release commit/tag.
+
 
 

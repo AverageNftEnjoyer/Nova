@@ -172,10 +172,10 @@ async function main() {
   ];
   fs.writeFileSync(reportPath, `${lines.join("\n")}\n`, "utf8");
 
-  console.log(`[phase6] Drill evidence written: ${path.relative(workspaceRoot, reportPath)}`);
-  console.log(`[phase6] Drill log appended: ${path.relative(workspaceRoot, drillLogPath)}`);
-  console.log(`[phase6] Drill hard failures: ${hardFailing.length}`);
-  console.log(`[phase6] Drill not observed: ${notObserved.length}`);
+  console.log(`[mission-prod-ready] Drill evidence written: ${path.relative(workspaceRoot, reportPath)}`);
+  console.log(`[mission-prod-ready] Drill log appended: ${path.relative(workspaceRoot, drillLogPath)}`);
+  console.log(`[mission-prod-ready] Drill hard failures: ${hardFailing.length}`);
+  console.log(`[mission-prod-ready] Drill not observed: ${notObserved.length}`);
 
   if (args.strict && (hardFailing.length > 0 || notObserved.length > 0)) {
     process.exit(3);
@@ -186,3 +186,4 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+

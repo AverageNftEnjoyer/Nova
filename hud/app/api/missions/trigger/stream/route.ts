@@ -120,6 +120,8 @@ export async function GET(req: Request) {
 
           const runKey = `manual-trigger-stream:${mission.id}:${Date.now()}`
           const missionRunId = crypto.randomUUID()
+          const conversationId = `mission-trigger-stream:${mission.id}`
+          const sessionKey = `agent:nova:hud:user:${userId}:dm:${conversationId}`
           if (isMissionQueueModeEnabled()) {
             const enqueueResult = await enqueueMissionRunForQueue({
               mission,
@@ -156,6 +158,9 @@ export async function GET(req: Request) {
             source: "trigger",
             missionRunId,
             runKey,
+            userContextId: userId,
+            conversationId,
+            sessionKey,
             attempt: 1,
             enforceOutputTime: false,
             skillSnapshot,

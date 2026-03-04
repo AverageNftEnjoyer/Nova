@@ -119,7 +119,7 @@ function toWorkflowStep(node: MissionNode): Partial<WorkflowStep> | null {
             ? "email"
             : node.type === "webhook-output"
               ? "webhook"
-              : "telegram"
+              : "slack"
     return {
       ...base,
       type: "output",

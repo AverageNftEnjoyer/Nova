@@ -28,8 +28,8 @@ import {
   deriveScheduleFromPrompt,
   inferRequestedOutputChannel,
   normalizeOutputChannelId,
-  buildPromptGroundedAiPrompt,
 } from "./generation"
+import { validateMissionGraphForVersioning } from "./versioning"
 
 export interface BuildMissionResult {
   mission: Mission
@@ -62,6 +62,20 @@ function asNum(v: unknown, fallback: number): number {
 
 function positionFor(index: number): NodePosition {
   return { x: 200 + index * 240, y: 200 }
+}
+
+function shouldBuildAgentGraph(prompt: string): boolean {
+  const normalized = String(prompt || "").toLowerCase()
+  return (
+    normalized.includes("agent")
+    || normalized.includes("agents")
+    || normalized.includes("council")
+    || normalized.includes("domain manager")
+    || normalized.includes("provider selector")
+    || normalized.includes("command spine")
+    || normalized.includes("audit")
+    || normalized.includes("team of")
+  )
 }
 
 // ─── Node parser ─────────────────────────────────────────────────────────────
@@ -329,7 +343,6 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
         id, label, position: pos, type: "slack-output",
         messageTemplate: asStr(r.messageTemplate) || undefined,
         channel: asStr(r.channel) || undefined,
-        webhookUrl: asStr(r.webhookUrl) || undefined,
       }
     case "webhook-output":
       return { id, label, position: pos, type: "webhook-output", url: asStr(r.url, "") }
@@ -337,26 +350,148 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
     // ── Utility ───────────────────────────────────────────────────────────
     case "sticky-note":
       return { id, label, position: pos, type: "sticky-note", content: asStr(r.content, "") }
-    case "sub-workflow":
+    case "agent-supervisor": {
+      const agentId = asStr(r.agentId, "").trim()
+      const goal = asStr(r.goal, "").trim()
+      if (!agentId || !goal) return null
       return {
-        id, label, position: pos, type: "sub-workflow",
-        missionId: asStr(r.missionId, ""),
+        id, label, position: pos, type: "agent-supervisor",
+        agentId,
+        role: "operator",
+        goal,
+        reads: Array.isArray(r.reads) ? r.reads.map(String) : [],
+        writes: Array.isArray(r.writes) ? r.writes.map(String) : [],
+      }
+    }
+    case "agent-worker": {
+      const agentId = asStr(r.agentId, "").trim()
+      const goal = asStr(r.goal, "").trim()
+      const role = String(r.role || "").trim()
+      const validRole =
+        role === "routing-council"
+        || role === "policy-council"
+        || role === "memory-council"
+        || role === "planning-council"
+        || role === "media-manager"
+        || role === "finance-manager"
+        || role === "productivity-manager"
+        || role === "comms-manager"
+        || role === "system-manager"
+        || role === "worker-agent"
+      if (!agentId || !goal || !validRole) return null
+      const domainRaw = String(r.domain || "").trim()
+      if (
+        domainRaw
+        && domainRaw !== "media"
+        && domainRaw !== "finance"
+        && domainRaw !== "productivity"
+        && domainRaw !== "comms"
+        && domainRaw !== "system"
+      ) {
+        return null
+      }
+      const domain = domainRaw
+        ? (domainRaw as "media" | "finance" | "productivity" | "comms" | "system")
+        : undefined
+      return {
+        id, label, position: pos, type: "agent-worker",
+        agentId,
+        role,
+        domain,
+        goal,
+        reads: Array.isArray(r.reads) ? r.reads.map(String) : [],
+        writes: Array.isArray(r.writes) ? r.writes.map(String) : [],
+      }
+    }
+    case "agent-handoff":
+      if (!asStr(r.fromAgentId, "").trim() || !asStr(r.toAgentId, "").trim() || !asStr(r.reason, "").trim()) return null
+      return {
+        id, label, position: pos, type: "agent-handoff",
+        fromAgentId: asStr(r.fromAgentId, "").trim(),
+        toAgentId: asStr(r.toAgentId, "").trim(),
+        reason: asStr(r.reason, "").trim(),
+      }
+    case "agent-state-read":
+      if (!asStr(r.key, "").trim()) return null
+      return {
+        id, label, position: pos, type: "agent-state-read",
+        key: asStr(r.key, "").trim(),
+        required: r.required !== false,
+      }
+    case "agent-state-write":
+      if (!asStr(r.key, "").trim() || !asStr(r.valueExpression, "").trim()) return null
+      return {
+        id, label, position: pos, type: "agent-state-write",
+        key: asStr(r.key, "").trim(),
+        valueExpression: asStr(r.valueExpression, "").trim(),
+        writeMode: (() => {
+          const mode = String(r.writeMode || "replace")
+          return mode === "merge" || mode === "append" ? mode : "replace"
+        })(),
+      }
+    case "provider-selector": {
+      const allowedProviders = Array.isArray(r.allowedProviders)
+        ? r.allowedProviders
+          .map((provider) => String(provider).trim())
+          .filter((provider) => provider === "openai" || provider === "claude" || provider === "grok" || provider === "gemini")
+          .map((provider) => provider as Provider)
+        : []
+      const defaultProvider = String(r.defaultProvider || "").trim()
+      const strategy = String(r.strategy || "").trim()
+      const strategyValid = strategy === "policy" || strategy === "latency" || strategy === "cost" || strategy === "quality"
+      if (allowedProviders.length === 0 || !allowedProviders.includes(defaultProvider as Provider) || !strategyValid) return null
+      const parsedStrategy = strategy as "policy" | "latency" | "cost" | "quality"
+      return {
+        id, label, position: pos, type: "provider-selector",
+        allowedProviders,
+        defaultProvider: defaultProvider as Provider,
+        strategy: parsedStrategy,
+      }
+    }
+    case "agent-audit": {
+      const agentId = asStr(r.agentId, "").trim()
+      const goal = asStr(r.goal, "").trim()
+      const requiredChecks = Array.isArray(r.requiredChecks)
+        ? r.requiredChecks.map(String).map((item) => item.trim()).filter(Boolean)
+        : []
+      if (!agentId || !goal || requiredChecks.length === 0) return null
+      return {
+        id, label, position: pos, type: "agent-audit",
+        agentId,
+        role: "audit-council",
+        goal,
+        requiredChecks,
+        reads: Array.isArray(r.reads) ? r.reads.map(String) : [],
+        writes: Array.isArray(r.writes) ? r.writes.map(String) : [],
+      }
+    }
+    case "agent-subworkflow":
+      if (!asStr(r.missionId, "").trim()) return null
+      return {
+        id, label, position: pos, type: "agent-subworkflow",
+        missionId: asStr(r.missionId, "").trim(),
         waitForCompletion: r.waitForCompletion !== false,
       }
 
     default:
-      // Unknown type — treat as a telegram-output so the mission is at least runnable
-      return { id, label, position: pos, type: "telegram-output" }
+      return null
   }
 }
 
-function parseLlmNodes(rawNodes: unknown[]): MissionNode[] {
+function parseLlmNodes(rawNodes: unknown[]): { nodes: MissionNode[]; rejected: Array<{ index: number; type: string }> } {
   const nodes: MissionNode[] = []
+  const rejected: Array<{ index: number; type: string }> = []
   for (let i = 0; i < rawNodes.length; i++) {
     const node = parseLlmNode(rawNodes[i], i)
-    if (node) nodes.push(node)
+    if (node) {
+      nodes.push(node)
+      continue
+    }
+    const raw = rawNodes[i]
+    const record = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>
+    rejected.push({ index: i, type: String(record.type || "unknown") })
   }
-  return nodes
+  return { nodes, rejected }
 }
 
 function parseLlmConnections(rawConns: unknown[], nodeIds: Set<string>): MissionConnection[] {
@@ -382,49 +517,6 @@ function parseLlmConnections(rawConns: unknown[], nodeIds: Set<string>): Mission
     })
   }
   return connections
-}
-
-// ─── Fallback ─────────────────────────────────────────────────────────────────
-
-function buildFallbackMission(
-  prompt: string,
-  requestedOutput: string,
-  defaultLlm: Provider,
-  userId: string,
-): Mission {
-  const outputTypeMap: Record<string, string> = {
-    telegram: "telegram-output",
-    discord: "discord-output",
-    email: "email-output",
-    slack: "slack-output",
-  }
-  const outputType = (outputTypeMap[requestedOutput] || "telegram-output") as
-    | "telegram-output" | "discord-output" | "email-output" | "slack-output"
-
-  const aiId = "n3"
-  const nodes: MissionNode[] = [
-    {
-      id: "n1", type: "schedule-trigger", label: "Daily Trigger", position: positionFor(0),
-      triggerMode: "daily", triggerTime: "09:00", triggerTimezone: resolveTimezone(undefined),
-    },
-    {
-      id: "n2", type: "web-search", label: "Web Search", position: positionFor(1),
-      query: prompt.slice(0, 150),
-    },
-    {
-      id: aiId, type: "ai-summarize", label: "Summarize", position: positionFor(2),
-      prompt: buildPromptGroundedAiPrompt(prompt) || "Summarize in 3 concise bullet points.",
-      integration: defaultLlm,
-      detailLevel: "standard",
-    },
-    { id: "n4", type: outputType, label: "Send Output", position: positionFor(3), messageTemplate: `{{$nodes.${aiId}.output.text}}` },
-  ]
-  const connections: MissionConnection[] = [
-    { id: "c1", sourceNodeId: "n1", sourcePort: "main", targetNodeId: "n2", targetPort: "main" },
-    { id: "c2", sourceNodeId: "n2", sourcePort: "main", targetNodeId: "n3", targetPort: "main" },
-    { id: "c3", sourceNodeId: "n3", sourcePort: "main", targetNodeId: "n4", targetPort: "main" },
-  ]
-  return buildMission({ userId, label: prompt.slice(0, 30) || "New Mission", description: prompt, nodes, connections, integration: requestedOutput })
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -465,14 +557,21 @@ export async function buildMissionFromPrompt(
     .filter((item) => item.kind === "channel" && item.connected)
     .map((item) => normalizeOutputChannelId(item.id))
     .filter(Boolean)
-  const outputSet = new Set(outputOptions.length > 0 ? outputOptions : ["telegram", "discord", "email", "webhook"])
-  const defaultOutput = outputOptions[0] || "telegram"
+  const outputSet = new Set(outputOptions)
+  if (outputSet.size === 0) {
+    throw new Error("Mission generation requires at least one connected output integration.")
+  }
+  const defaultOutput = outputOptions[0]
 
   const activeLlmProvider = String(config?.activeLlmProvider || "")
-  const rawDefaultLlm = llmOptions.includes(activeLlmProvider) ? activeLlmProvider : (llmOptions[0] || "openai")
+  if (llmOptions.length === 0) {
+    throw new Error("Mission generation requires at least one connected LLM provider.")
+  }
+  const rawDefaultLlm = llmOptions.includes(activeLlmProvider) ? activeLlmProvider : llmOptions[0]
   const defaultLlm: Provider = rawDefaultLlm === "claude" || rawDefaultLlm === "grok" || rawDefaultLlm === "gemini" ? rawDefaultLlm as Provider : "openai"
 
   const requestedOutput = inferRequestedOutputChannel(prompt, outputSet, defaultOutput)
+  const requireAgentGraph = shouldBuildAgentGraph(prompt)
   const scheduleHint = deriveScheduleFromPrompt(prompt)
   const scheduleTime = scheduleHint.time || "09:00"
   const scheduleTz = resolveTimezone(scheduleHint.timezone)
@@ -485,6 +584,12 @@ export async function buildMissionFromPrompt(
   const systemText = [
     "You are Nova's mission architect. Output only strict JSON — no markdown, no explanation.",
     "Build production-grade automation workflows using native MissionNode types.",
+    "For agent missions, enforce this command spine: operator -> council -> domain-manager -> worker -> audit -> operator.",
+    "Use provider-selector as a separate execution rail and never as a manager role.",
+    "Never emit unknown node types. Never omit required connections.",
+    requireAgentGraph
+      ? "This prompt requires an agent graph. You must emit supervisor, council, domain-manager, worker, provider-selector, audit, and handoff nodes."
+      : "Use a non-agent graph unless the user explicitly asks for multi-agent orchestration.",
     "Pass data between nodes using template expressions: {{$nodes.NODE_ID.output.text}} or {{$nodes.NODE_ID.output.items}}.",
     "All node IDs must be unique strings (n1, n2, …). Connections: sourceNodeId:sourcePort → targetNodeId:targetPort.",
     `Use 24-hour HH:MM time. Default timezone: ${scheduleTz}.`,
@@ -498,17 +603,48 @@ export async function buildMissionFromPrompt(
     label: "Mission title (max 30 chars)",
     description: "What this mission does",
     schedule: { mode: "daily", time: scheduleTime, timezone: scheduleTz, days: ["mon", "tue", "wed", "thu", "fri"] },
-    nodes: [
-      { id: "n1", type: "schedule-trigger", label: "Daily trigger", triggerMode: "daily", triggerTime: scheduleTime, triggerTimezone: scheduleTz },
-      { id: "n2", type: "web-search", label: "Search news", query: "SEARCH QUERY HERE" },
-      { id: "n3", type: "ai-summarize", label: "Summarize", prompt: "Summarize in clear bullet points. Do not invent facts.", integration: defaultLlm, detailLevel: "standard" },
-      { id: "n4", type: outputNodeType, label: "Send output", messageTemplate: "{{$nodes.n3.output.text}}" },
-    ],
-    connections: [
-      { id: "c1", sourceNodeId: "n1", sourcePort: "main", targetNodeId: "n2", targetPort: "main" },
-      { id: "c2", sourceNodeId: "n2", sourcePort: "main", targetNodeId: "n3", targetPort: "main" },
-      { id: "c3", sourceNodeId: "n3", sourcePort: "main", targetNodeId: "n4", targetPort: "main" },
-    ],
+    nodes: requireAgentGraph
+      ? [
+          { id: "n1", type: "schedule-trigger", label: "Daily trigger", triggerMode: "daily", triggerTime: scheduleTime, triggerTimezone: scheduleTz },
+          { id: "n2", type: "agent-supervisor", label: "Operator", agentId: "operator", role: "operator", goal: "Command councils and manager routing." },
+          { id: "n3", type: "agent-worker", label: "Routing Council", agentId: "routing-council", role: "routing-council", goal: "Classify intent and select domain manager." },
+          { id: "n4", type: "agent-worker", label: "System Manager", agentId: "system-manager", role: "system-manager", goal: "Assign work to worker agent." },
+          { id: "n5", type: "agent-worker", label: "Worker Agent", agentId: "worker-1", role: "worker-agent", goal: "Execute the task." },
+          { id: "n6", type: "provider-selector", label: "Provider Rail", allowedProviders: [defaultLlm], defaultProvider: defaultLlm, strategy: "policy" },
+          { id: "n7", type: "agent-audit", label: "Audit", agentId: "audit-council", role: "audit-council", goal: "Verify isolation and policy checks.", requiredChecks: ["user-context-isolation", "policy-guardrails"] },
+          { id: "n8", type: "agent-handoff", label: "Operator->Council", fromAgentId: "operator", toAgentId: "routing-council", reason: "route intent" },
+          { id: "n9", type: "agent-handoff", label: "Council->Manager", fromAgentId: "routing-council", toAgentId: "system-manager", reason: "domain ownership" },
+          { id: "n10", type: "agent-handoff", label: "Manager->Worker", fromAgentId: "system-manager", toAgentId: "worker-1", reason: "execution delegation" },
+          { id: "n11", type: "agent-handoff", label: "Worker->Audit", fromAgentId: "worker-1", toAgentId: "audit-council", reason: "compliance review" },
+          { id: "n12", type: "agent-handoff", label: "Audit->Operator", fromAgentId: "audit-council", toAgentId: "operator", reason: "final approval" },
+          { id: "n13", type: outputNodeType, label: "Send output", messageTemplate: "{{$nodes.n2.output.text}}" },
+        ]
+      : [
+          { id: "n1", type: "schedule-trigger", label: "Daily trigger", triggerMode: "daily", triggerTime: scheduleTime, triggerTimezone: scheduleTz },
+          { id: "n2", type: "web-search", label: "Search news", query: "SEARCH QUERY HERE" },
+          { id: "n3", type: "ai-summarize", label: "Summarize", prompt: "Summarize in clear bullet points. Do not invent facts.", integration: defaultLlm, detailLevel: "standard" },
+          { id: "n4", type: outputNodeType, label: "Send output", messageTemplate: "{{$nodes.n3.output.text}}" },
+        ],
+    connections: requireAgentGraph
+      ? [
+          { id: "c1", sourceNodeId: "n1", sourcePort: "main", targetNodeId: "n2", targetPort: "main" },
+          { id: "c2", sourceNodeId: "n2", sourcePort: "main", targetNodeId: "n3", targetPort: "main" },
+          { id: "c3", sourceNodeId: "n3", sourcePort: "main", targetNodeId: "n4", targetPort: "main" },
+          { id: "c4", sourceNodeId: "n4", sourcePort: "main", targetNodeId: "n5", targetPort: "main" },
+          { id: "c5", sourceNodeId: "n5", sourcePort: "main", targetNodeId: "n6", targetPort: "main" },
+          { id: "c6", sourceNodeId: "n6", sourcePort: "main", targetNodeId: "n7", targetPort: "main" },
+          { id: "c7", sourceNodeId: "n7", sourcePort: "main", targetNodeId: "n8", targetPort: "main" },
+          { id: "c8", sourceNodeId: "n8", sourcePort: "main", targetNodeId: "n9", targetPort: "main" },
+          { id: "c9", sourceNodeId: "n9", sourcePort: "main", targetNodeId: "n10", targetPort: "main" },
+          { id: "c10", sourceNodeId: "n10", sourcePort: "main", targetNodeId: "n11", targetPort: "main" },
+          { id: "c11", sourceNodeId: "n11", sourcePort: "main", targetNodeId: "n12", targetPort: "main" },
+          { id: "c12", sourceNodeId: "n2", sourcePort: "main", targetNodeId: "n13", targetPort: "main" },
+        ]
+      : [
+          { id: "c1", sourceNodeId: "n1", sourcePort: "main", targetNodeId: "n2", targetPort: "main" },
+          { id: "c2", sourceNodeId: "n2", sourcePort: "main", targetNodeId: "n3", targetPort: "main" },
+          { id: "c3", sourceNodeId: "n3", sourcePort: "main", targetNodeId: "n4", targetPort: "main" },
+        ],
   })
 
   const userText = [
@@ -524,6 +660,9 @@ export async function buildMissionFromPrompt(
     "- set-variables: assignments=[{name,value}]",
     "- email-output: subject=SUBJECT, messageTemplate",
     "- slack-output: channel=#CHANNEL, messageTemplate",
+    requireAgentGraph
+      ? "- For this prompt, include the complete command-spine handoff set and a dedicated agent-audit node."
+      : "- Use agent nodes only when the user asks for multi-agent routing.",
     "Return JSON matching this exact structure:",
     schemaExample,
   ].join("\n")
@@ -532,6 +671,7 @@ export async function buildMissionFromPrompt(
   let model = ""
   let nodes: MissionNode[] = []
   let connections: MissionConnection[] = []
+  let rejectedNodes: Array<{ index: number; type: string }> = []
   let label = ""
   let description = ""
 
@@ -546,33 +686,34 @@ export async function buildMissionFromPrompt(
     if (parsed) {
       label = String(parsed.label || "").trim().slice(0, 40)
       description = String(parsed.description || "").trim()
-      nodes = parseLlmNodes(Array.isArray(parsed.nodes) ? parsed.nodes : [])
+      const parsedNodes = parseLlmNodes(Array.isArray(parsed.nodes) ? parsed.nodes : [])
+      nodes = parsedNodes.nodes
+      rejectedNodes = parsedNodes.rejected
       const nodeIds = new Set(nodes.map((n) => n.id))
       connections = parseLlmConnections(Array.isArray(parsed.connections) ? parsed.connections : [], nodeIds)
     }
   } catch (err) {
-    console.warn("[buildMissionFromPrompt] LLM call failed, using fallback:", err instanceof Error ? err.message : "unknown")
+    throw new Error(`Mission generation failed: ${err instanceof Error ? err.message : "unknown error"}`)
   }
 
   const triggerTypes = new Set(["schedule-trigger", "manual-trigger", "webhook-trigger", "event-trigger"])
   const hasTrigger = nodes.some((n) => triggerTypes.has(n.type))
 
-  if (nodes.length === 0 || !hasTrigger) {
-    const fallback = buildFallbackMission(prompt, requestedOutput, defaultLlm, userId)
-    return { mission: fallback, provider, model: model || "fallback" }
+  if (nodes.length === 0) {
+    throw new Error("Mission generation returned zero nodes.")
   }
-
-  // Auto-wire: if LLM returned nodes but forgot connections, build a linear chain
+  if (rejectedNodes.length > 0) {
+    const sample = rejectedNodes.slice(0, 3).map((item) => `${item.type}@${item.index}`).join(", ")
+    throw new Error(`Mission generation returned invalid node payload(s): ${sample}.`)
+  }
+  if (!hasTrigger) {
+    throw new Error("Mission generation must include at least one trigger node.")
+  }
+  if (requireAgentGraph && !nodes.some((node) => node.type.startsWith("agent-") || node.type === "provider-selector")) {
+    throw new Error("Mission generation required an agent graph but returned no agent orchestration nodes.")
+  }
   if (connections.length === 0 && nodes.length > 1) {
-    for (let i = 0; i < nodes.length - 1; i++) {
-      connections.push({
-        id: `c${i + 1}`,
-        sourceNodeId: nodes[i].id,
-        sourcePort: "main",
-        targetNodeId: nodes[i + 1].id,
-        targetPort: "main",
-      })
-    }
+    throw new Error("Mission generation returned a disconnected graph (missing connections).")
   }
 
   const mission = buildMission({
@@ -584,6 +725,12 @@ export async function buildMissionFromPrompt(
     integration: requestedOutput,
     chatIds: options?.chatIds || [],
   })
+
+  const issues = validateMissionGraphForVersioning(mission)
+  if (issues.length > 0) {
+    const sample = issues.slice(0, 3).map((issue) => issue.code).join(", ")
+    throw new Error(`Mission generation produced invalid graph contract: ${sample}.`)
+  }
 
   return { mission: { ...mission, status: "draft" }, provider, model }
 }

@@ -77,8 +77,8 @@ export const STEP_CONDITION_FAILURE_OPTIONS: FluidSelectOption[] = [
 
 export const FALLBACK_OUTPUT_CHANNEL_OPTIONS: FluidSelectOption[] = [
   { value: "telegram", label: "Telegram" },
-  { value: "telegram", label: "Telegram" },
   { value: "discord", label: "Discord" },
+  { value: "slack", label: "Slack" },
   { value: "email", label: "Email" },
   { value: "push", label: "In-App Push" },
   { value: "webhook", label: "Webhook" },

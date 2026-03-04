@@ -108,11 +108,29 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
       defaultModel: String(config.gemini.defaultModel || "").trim(),
     },
     spotify: buildRuntimeSafeSpotifySnapshot(config.spotify),
+    youtube: {
+      connected: Boolean(config.youtube.connected),
+      channelId: String(config.youtube.channelId || "").trim(),
+      channelTitle: String(config.youtube.channelTitle || "").trim(),
+      scopes: Array.isArray(config.youtube.scopes)
+        ? config.youtube.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+        : [],
+      redirectUri: String(config.youtube.redirectUri || "").trim(),
+      accessToken: wrapSecret(config.youtube.accessTokenEnc),
+      refreshToken: wrapSecret(config.youtube.refreshTokenEnc),
+      tokenExpiry:
+        typeof config.youtube.tokenExpiry === "number" && Number.isFinite(config.youtube.tokenExpiry)
+          ? Math.max(0, Math.floor(config.youtube.tokenExpiry))
+          : 0,
+    },
     news: {
       connected: Boolean(config.news.connected),
       apiKey: wrapSecret(config.news.apiKey),
       defaultTopics: Array.isArray(config.news.defaultTopics)
         ? config.news.defaultTopics.map((topic) => String(topic).trim().toLowerCase()).filter(Boolean)
+        : [],
+      preferredSources: Array.isArray(config.news.preferredSources)
+        ? config.news.preferredSources.map((source) => String(source).trim()).filter(Boolean)
         : [],
       language: String(config.news.language || "").trim().toLowerCase(),
       country: String(config.news.country || "").trim().toLowerCase(),

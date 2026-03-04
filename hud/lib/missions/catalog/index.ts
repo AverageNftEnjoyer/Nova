@@ -15,6 +15,7 @@ export type NodePaletteCategory =
   | "triggers"
   | "data"
   | "ai"
+  | "agents"
   | "logic"
   | "transform"
   | "output"
@@ -239,6 +240,110 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     outputs: ["main"],
     tags: ["ai", "chat", "conversation", "assistant", "prompt"],
   },
+  {
+    type: "agent-supervisor",
+    label: "Operator",
+    description: "Nova commander node. Routes work through councils and domain managers.",
+    category: "agents",
+    icon: "Crown",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["operator", "commander", "supervisor", "orchestrator"],
+  },
+  {
+    type: "agent-worker",
+    label: "Council/Manager/Worker",
+    description: "Org-chart agent node for councils, domain managers, and worker agents.",
+    category: "agents",
+    icon: "Users",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["council", "manager", "worker", "agent", "domain"],
+  },
+  {
+    type: "agent-handoff",
+    label: "Handoff",
+    description: "Explicit ownership transfer between two agents in the command spine.",
+    category: "agents",
+    icon: "ArrowRightLeft",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["handoff", "routing", "ownership", "transition"],
+  },
+  {
+    type: "agent-state-read",
+    label: "State Read",
+    description: "Read a declared key from shared mission agent state.",
+    category: "agents",
+    icon: "Database",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["state", "read", "context", "shared"],
+  },
+  {
+    type: "agent-state-write",
+    label: "State Write",
+    description: "Write to shared mission agent state with audit trail.",
+    category: "agents",
+    icon: "PencilLine",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["state", "write", "audit", "shared"],
+  },
+  {
+    type: "provider-selector",
+    label: "Provider Selector",
+    description: "Select execution provider via policy rail separate from agent hierarchy.",
+    category: "agents",
+    icon: "Cpu",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["provider", "openai", "claude", "grok", "gemini", "policy"],
+  },
+  {
+    type: "agent-audit",
+    label: "Audit Agent",
+    description: "Dedicated audit council node for policy checks and trace validation.",
+    category: "agents",
+    icon: "ShieldCheck",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["audit", "policy", "compliance", "guardrail"],
+  },
+  {
+    type: "agent-subworkflow",
+    label: "Agent Subworkflow",
+    description: "Invoke another mission as a scoped subworkflow within agent routing.",
+    category: "agents",
+    icon: "Layers",
+    color: "bg-indigo-500/10",
+    borderColor: "border-indigo-400/40",
+    textColor: "text-indigo-300",
+    inputs: ["main"],
+    outputs: ["main", "error"],
+    tags: ["subworkflow", "delegate", "nested", "agent"],
+  },
 
   // ─── LOGIC ────────────────────────────────────────────────────────────────
   {
@@ -456,7 +561,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "slack-output",
     label: "Slack",
-    description: "Post a message to a Slack channel via incoming webhook.",
+    description: "Post a message to a Slack channel using the connected Slack integration.",
     category: "output",
     icon: "Hash",
     color: "bg-pink-500/10",
@@ -481,49 +586,44 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     outputs: [],
     tags: ["note", "comment", "documentation", "sticky"],
   },
-  {
-    type: "sub-workflow",
-    label: "Sub-Workflow",
-    description: "Call another mission as a reusable sub-workflow.",
-    category: "logic",
-    icon: "Layers",
-    color: "bg-orange-500/10",
-    borderColor: "border-orange-400/40",
-    textColor: "text-orange-300",
-    inputs: ["main"],
-    outputs: ["main", "error"],
-    tags: ["sub-workflow", "reuse", "call", "nested", "modular"],
-  },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lookup Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const _catalogByType = new Map(NODE_CATALOG.map((e) => [e.type, e]))
+const _catalogByType = new Map<string, NodeCatalogEntry>(NODE_CATALOG.map((e) => [e.type, e]))
 
 export function getNodeCatalogEntry(type: MissionNodeType): NodeCatalogEntry | undefined {
   return _catalogByType.get(type)
 }
 
+export function getPaletteCatalog(): NodeCatalogEntry[] {
+  return NODE_CATALOG
+}
+
 export function getNodesByCategory(category: NodePaletteCategory): NodeCatalogEntry[] {
-  return NODE_CATALOG.filter((e) => e.category === category)
+  return getPaletteCatalog().filter((entry) => entry.category === category)
 }
 
 export const PALETTE_CATEGORIES: { id: NodePaletteCategory; label: string; icon: string }[] = [
   { id: "triggers", label: "Triggers", icon: "Zap" },
   { id: "data", label: "Data", icon: "Database" },
   { id: "ai", label: "AI", icon: "Sparkles" },
+  { id: "agents", label: "Agents", icon: "Crown" },
   { id: "logic", label: "Logic", icon: "GitBranch" },
   { id: "transform", label: "Transform", icon: "Shuffle" },
   { id: "output", label: "Output", icon: "Send" },
 ]
 
 /** Search catalog by keyword, returns ranked results */
-export function searchCatalog(query: string): NodeCatalogEntry[] {
+export function searchCatalog(
+  query: string,
+): NodeCatalogEntry[] {
+  const catalog = getPaletteCatalog()
   const q = query.toLowerCase().trim()
-  if (!q) return NODE_CATALOG
-  return NODE_CATALOG.filter(
+  if (!q) return catalog
+  return catalog.filter(
     (e) =>
       e.label.toLowerCase().includes(q) ||
       e.description.toLowerCase().includes(q) ||

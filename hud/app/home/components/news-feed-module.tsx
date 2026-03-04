@@ -1,6 +1,6 @@
 "use client"
 
-import type { CSSProperties, RefObject } from "react"
+import type { CSSProperties, FocusEvent, MouseEvent, RefObject } from "react"
 import { RefreshCw } from "lucide-react"
 
 import { cn } from "@/lib/shared/utils"
@@ -123,6 +123,22 @@ function tagToneClass(tag: string, isLight: boolean): string {
   return palette[hashTag(normalized) % palette.length]
 }
 
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 50
+  return Math.max(0, Math.min(100, value))
+}
+
+function updateArticleSpotlight(element: HTMLElement, clientX: number, clientY: number): void {
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 1 || rect.height <= 1) return
+  const relativeX = clampPercent(((clientX - rect.left) / rect.width) * 100)
+  const relativeY = clampPercent(((clientY - rect.top) / rect.height) * 100)
+  element.style.setProperty("--glow-x", `${relativeX}%`)
+  element.style.setProperty("--glow-y", `${relativeY}%`)
+  element.style.setProperty("--glow-intensity", "1")
+  element.style.setProperty("--glow-radius", "120px")
+}
+
 export function NewsFeedModule({
   isLight,
   panelClass,
@@ -134,11 +150,29 @@ export function NewsFeedModule({
   articles,
   loading,
   error,
-  stale,
-  fetchedAt,
   onOpenIntegrations,
   onRefresh,
 }: NewsFeedModuleProps) {
+  const handleArticleMouseMove = (event: MouseEvent<HTMLAnchorElement>) => {
+    updateArticleSpotlight(event.currentTarget, event.clientX, event.clientY)
+  }
+
+  const handleArticleMouseLeave = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.currentTarget.style.setProperty("--glow-intensity", "0")
+  }
+
+  const handleArticleFocus = (event: FocusEvent<HTMLAnchorElement>) => {
+    const element = event.currentTarget
+    const rect = element.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+    updateArticleSpotlight(element, centerX, centerY)
+  }
+
+  const handleArticleBlur = (event: FocusEvent<HTMLAnchorElement>) => {
+    event.currentTarget.style.setProperty("--glow-intensity", "0")
+  }
+
   return (
     <section
       ref={sectionRef}
@@ -198,51 +232,56 @@ export function NewsFeedModule({
             No headlines returned for this topic.
           </div>
         ) : (
-          articles.slice(0, 6).map((article) => (
-            <a
-              key={article.id}
-              href={article.url}
-              target="_blank"
-              rel="noreferrer noopener"
-              className={cn(
-                "block rounded-md border p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
-                subPanelClass,
-              )}
-            >
-              <div className="flex items-center gap-1.5 overflow-hidden">
-                <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
-                  {article.source}
-                </span>
-                {article.tags.filter((tag) => shouldRenderTag(tag)).slice(0, 3).map((tag) => (
-                  <span
-                    key={`${article.id}:${tag}`}
-                    className={cn(
-                      "max-w-[6.5rem] truncate rounded-sm border px-1 py-[1px] text-[8px] leading-none font-semibold uppercase tracking-[0.06em]",
-                      tagToneClass(tag, isLight),
-                    )}
-                  >
-                    {formatTagLabel(tag)}
+          articles.slice(0, 6).map((article) => {
+            const primaryTag = article.tags.find((tag) => shouldRenderTag(tag))
+            const fallbackTopic = shouldRenderTag(article.topic) ? article.topic : ""
+            const displayTag = primaryTag || fallbackTopic
+
+            return (
+              <a
+                key={article.id}
+                href={article.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                onMouseMove={handleArticleMouseMove}
+                onMouseLeave={handleArticleMouseLeave}
+                onFocus={handleArticleFocus}
+                onBlur={handleArticleBlur}
+                className={cn(
+                  "block rounded-md border p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-dynamic",
+                  subPanelClass,
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+                    {article.source}
                   </span>
-                ))}
-              </div>
-              <p className={cn("mt-1 text-[11px] font-medium leading-4 line-clamp-2", isLight ? "text-s-90" : "text-slate-100")}>
-                {article.title}
-              </p>
-              <div className="mt-1 flex items-center justify-end gap-2">
-                <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
-                  <time dateTime={article.publishedAt || undefined} title={formatAbsoluteTimestamp(article.publishedAt)}>
-                    {formatRelativeTimestamp(article.publishedAt)}
-                  </time>
-                </span>
-              </div>
-            </a>
-          ))
+                  {displayTag ? (
+                    <span
+                      className={cn(
+                        "rounded-sm border px-1 py-[1px] text-[8px] leading-none font-semibold uppercase tracking-[0.06em]",
+                        tagToneClass(displayTag, isLight),
+                      )}
+                    >
+                      {formatTagLabel(displayTag)}
+                    </span>
+                  ) : null}
+                </div>
+                <p className={cn("mt-1 text-[11px] font-medium leading-4 line-clamp-2", isLight ? "text-s-90" : "text-slate-100")}>
+                  {article.title}
+                </p>
+                <div className="mt-1 flex items-center justify-end gap-2">
+                  <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+                    <time dateTime={article.publishedAt || undefined} title={formatAbsoluteTimestamp(article.publishedAt)}>
+                      {formatRelativeTimestamp(article.publishedAt)}
+                    </time>
+                  </span>
+                </div>
+              </a>
+            )
+          })
         )}
       </div>
-
-      <p className={cn("mt-2 text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
-        Poll interval: 10m | Feed refresh: {formatRelativeTimestamp(fetchedAt)}{stale ? " | Cached fallback" : ""}
-      </p>
     </section>
   )
 }

@@ -14,7 +14,7 @@ import {
   deriveDiffOperationsFromMissionSnapshot,
   type MissionDiffOperation,
 } from "@/lib/missions/workflow/diff"
-import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
+import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/server"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { purgeMissionDerivedData } from "@/lib/missions/purge"
 

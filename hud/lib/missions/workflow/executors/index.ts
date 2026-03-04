@@ -9,6 +9,16 @@ import { executeAiSummarize, executeAiClassify, executeAiExtract, executeAiGener
 import { executeCondition, executeSwitch, executeLoop, executeMerge, executeSplit, executeWait } from "./logic-executors"
 import { executeSetVariables, executeCode, executeFormat, executeFilter, executeSort, executeDedupe } from "./transform-executors"
 import { executeTelegramOutput, executeDiscordOutput, executeEmailOutput, executeWebhookOutput, executeSlackOutput } from "./output-executors"
+import {
+  executeAgentAudit,
+  executeAgentHandoff,
+  executeAgentStateRead,
+  executeAgentStateWrite,
+  executeAgentSubworkflow,
+  executeAgentSupervisor,
+  executeAgentWorker,
+  executeProviderSelector,
+} from "./agent-executors"
 
 export type NodeExecutor = (node: MissionNode, ctx: ExecutionContext) => Promise<NodeOutput & { port?: string }>
 
@@ -53,5 +63,13 @@ export const EXECUTOR_REGISTRY: Record<string, NodeExecutor> = {
   "slack-output": (n, c) => executeSlackOutput(n as Parameters<typeof executeSlackOutput>[0], c),
   // Utility (no-op executors)
   "sticky-note": async () => ({ ok: true, text: "" }),
-  "sub-workflow": async () => ({ ok: false, error: "sub-workflow execution not yet implemented." }),
+  // Agent orchestration
+  "agent-supervisor": (n, c) => executeAgentSupervisor(n as Parameters<typeof executeAgentSupervisor>[0], c),
+  "agent-worker": (n, c) => executeAgentWorker(n as Parameters<typeof executeAgentWorker>[0], c),
+  "agent-handoff": (n, c) => executeAgentHandoff(n as Parameters<typeof executeAgentHandoff>[0], c),
+  "agent-state-read": (n, c) => executeAgentStateRead(n as Parameters<typeof executeAgentStateRead>[0], c),
+  "agent-state-write": (n, c) => executeAgentStateWrite(n as Parameters<typeof executeAgentStateWrite>[0], c),
+  "provider-selector": (n, c) => executeProviderSelector(n as Parameters<typeof executeProviderSelector>[0], c),
+  "agent-audit": (n, c) => executeAgentAudit(n as Parameters<typeof executeAgentAudit>[0], c),
+  "agent-subworkflow": (n, c) => executeAgentSubworkflow(n as Parameters<typeof executeAgentSubworkflow>[0], c),
 }

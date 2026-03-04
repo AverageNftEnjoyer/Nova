@@ -2,141 +2,43 @@
 // handleInput dispatcher split into focused sub-handlers.
 // Bug Fix 2: Tool loop errors are now caught, logged, and surfaced to HUD.
 
-import { createRequire } from "module";
-
-// NLP preprocessing (compiled TS â†’ dist/nlp/preprocess/index.js)
-// Loaded lazily so a missing build does not crash the runtime.
-let _preprocess = null;
-function getPreprocess() {
-  if (_preprocess) return _preprocess;
-  try {
-    const require = createRequire(import.meta.url);
-    // Resolve relative to the project root dist output
-    const mod = require("../../../../../dist/nlp/preprocess/index.js");
-    _preprocess = mod.preprocess ?? mod.default?.preprocess ?? null;
-  } catch {
-    // Build not available yet â€” fall back to identity
-    _preprocess = (text) => ({ raw_text: text, clean_text: text, corrections: [], confidence: 1.0 });
-  }
-  return _preprocess;
-}
 import {
-  DEFAULT_CHAT_MODEL,
-  DEFAULT_CLAUDE_MODEL,
-  DEFAULT_GROK_MODEL,
-  DEFAULT_GEMINI_MODEL,
-  ENABLE_PROVIDER_FALLBACK,
-  OPENAI_FALLBACK_MODEL,
-  OPENAI_REQUEST_TIMEOUT_MS,
-  TOOL_LOOP_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_ENABLED,
-  TOOL_LOOP_MAX_STEPS,
-  TOOL_LOOP_MAX_DURATION_MS,
-  TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS,
-  TOOL_LOOP_RECOVERY_TIMEOUT_MS,
-  TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP,
-  CLAUDE_CHAT_MAX_TOKENS,
-  OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS,
-  MEMORY_LOOP_ENABLED,
-  SESSION_MAX_TURNS,
-  SESSION_MAX_HISTORY_TOKENS,
-  MAX_PROMPT_TOKENS,
-  PROMPT_RESPONSE_RESERVE_TOKENS,
-  PROMPT_HISTORY_TARGET_TOKENS,
-  PROMPT_MIN_HISTORY_TOKENS,
-  PROMPT_CONTEXT_SECTION_MAX_TOKENS,
-  PROMPT_BUDGET_DEBUG,
-  AGENT_PROMPT_MODE,
   ROOT_WORKSPACE_DIR,
-  ROUTING_PREFERENCE,
-  ROUTING_ALLOW_ACTIVE_OVERRIDE,
-  ROUTING_PREFERRED_PROVIDERS,
 } from "../../../../core/constants/index.js";
 import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../../infrastructure/config/index.js";
-import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../../context/persona-context/index.js";
-import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../../context/user-preferences/index.js";
+import { resolvePersonaWorkspaceDir, appendRawStream } from "../../../context/persona-context/index.js";
 import {
   recordIdentitySkillPreferenceUpdate,
-  recordIdentityToolUsage,
-  syncIdentityIntelligenceFromTurn,
 } from "../../../context/identity/engine/index.js";
-import { syncPersonalityFromTurn } from "../../../context/personality/index.js";
-import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../../../../memory/runtime-compat/index.js";
+import { isMemoryUpdateRequest } from "../../../../../memory/runtime-compat/index.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../../context/skill-preferences/index.js";
-import { buildRuntimeSkillsPrompt } from "../../../context/skills/index.js";
-import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../routing/intent-router/index.js";
-import { speak, playThinking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../../../audio/voice/index.js";
+import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt } from "../../routing/intent-router/index.js";
+import { normalizeRuntimeTone } from "../../../audio/voice/index.js";
 import {
-  broadcast,
-  broadcastState,
-  broadcastThinkingStatus,
-  broadcastMessage,
   createAssistantStreamId,
   broadcastAssistantStreamStart,
   broadcastAssistantStreamDelta,
   broadcastAssistantStreamDone,
-  consumeHudOpTokenForSensitiveAction,
 } from "../../../infrastructure/hud-gateway/index.js";
-import {
-  claudeMessagesCreate,
-  claudeMessagesStream,
-  describeUnknownError,
-  estimateTokenCostUsd,
-  extractOpenAIChatText,
-  getOpenAIClient,
-  resolveConfiguredChatRuntime,
-  streamOpenAiChatCompletion,
-  toErrorDetails,
-  withTimeout,
-} from "../../../llm/providers/index.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../core/context-prompt/index.js";
-import { buildAgentSystemPrompt, PromptMode } from "../../../context/system-prompt/index.js";
-import { buildPersonaPrompt } from "../../../context/bootstrap/index.js";
 import { shouldSkipDuplicateInbound } from "../../routing/inbound-dedupe/index.js";
-import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../quality/reply-normalizer/index.js";
 import { normalizeInboundUserText } from "../../quality/response-quality-guard/index.js";
-import { appendDevConversationLog } from "../../telemetry/dev-conversation-log/index.js";
-import { runChatKitShadowEvaluation } from "../../telemetry/chatkit-shadow/index.js";
-import { runChatKitServeAttempt } from "../../telemetry/chatkit-serving/index.js";
-import { parseOutputConstraints, validateOutputConstraints } from "../../quality/output-constraints/index.js";
-import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../analysis/link-understanding/index.js";
-import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../prompt/prompt-budget/index.js";
 import {
   buildLatencyTurnPolicy,
   resolveToolExecutionPolicy,
 } from "../../telemetry/latency-policy/index.js";
 import { createChatLatencyTelemetry } from "../../telemetry/latency-telemetry/index.js";
-import { detectSuspiciousPatterns, wrapWebContent } from "../../../context/external-content/index.js";
-import {
-  applyMemoryFactsToWorkspace,
-  buildMissionConfirmReply,
-  clearPendingMissionConfirm,
-  getPendingMissionConfirm,
-  hashShadowPayload,
-  isMissionConfirmNo,
-  isMissionConfirmYes,
-  resolveConversationId,
-  setPendingMissionConfirm,
-  stripAssistantInvocation,
-  stripMissionConfirmPrefix,
-  summarizeToolResultPreview,
-} from "../chat-utils/index.js";
-import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../tool-loop-guardrails/index.js";
+import { resolveConversationId } from "../chat-utils/index.js";
 import {
   sendDirectAssistantReply,
   handleMemoryUpdate,
   handleShutdown,
   handleSpotify,
+  handleYouTube,
   handleWorkflowBuild,
 } from "../chat-special-handlers/index.js";
 import {
   isWeatherRequestText,
-  tryWeatherFastPathReply,
-  getPendingWeatherConfirm,
-  setPendingWeatherConfirm,
-  clearPendingWeatherConfirm,
-  isWeatherConfirmYes,
-  isWeatherConfirmNo,
 } from "../../fast-path/weather-fast-path/index.js";
 import {
   isCryptoRequestText,
@@ -144,7 +46,6 @@ import {
   tryCryptoFastPathReply,
 } from "../../fast-path/crypto-fast-path/index.js";
 import {
-  cacheRecentCryptoReport,
   handleDuplicateCryptoReportRequest,
 } from "../crypto-report-dedupe/index.js";
 import {
@@ -155,60 +56,30 @@ import {
   clearShortTermContextState,
 } from "../short-term-context-engine/index.js";
 import { getShortTermContextPolicy } from "../short-term-context-policies/index.js";
+import {
+  delegateToOrgChartWorker,
+} from "./operator-delegation/index.js";
+import {
+  handleMissionBuildRouting,
+  handleMissionContextRouting,
+} from "./operator-mission-routing/index.js";
+import { handleWeatherConfirmationRouting } from "./operator-weather-routing/index.js";
+import {
+  deriveHandleInputRuntimeContext,
+  finalizeHandleInputTurn,
+} from "./operator-finalization/index.js";
+import { handleDuplicateInboundRouting } from "./operator-dedupe-routing/index.js";
+import { preprocessInboundText } from "./operator-preprocess/index.js";
+import { selectChatRuntimeForTurn } from "./operator-runtime-selection/index.js";
+import { routeOperatorDispatch } from "./operator-dispatch-routing/index.js";
+import { buildOperatorContextHints } from "./operator-context-hints/index.js";
+import {
+  isSpotifyDirectIntent,
+  isSpotifyContextualFollowUpIntent,
+  isYouTubeDirectIntent,
+  isYouTubeContextualFollowUpIntent,
+} from "../../routing/operator-intent-signals/index.js";
 import { executeChatRequest } from "./execute-chat-request/index.js";
-
-function readIntEnv(name, fallback, minValue, maxValue) {
-  const parsed = Number.parseInt(String(process.env[name] || "").trim(), 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(minValue, Math.min(maxValue, parsed));
-}
-
-const MEMORY_RECALL_TIMEOUT_MS = readIntEnv("NOVA_MEMORY_RECALL_TIMEOUT_MS", 450, 50, 10_000);
-const WEB_PRELOAD_TIMEOUT_MS = readIntEnv("NOVA_WEB_PRELOAD_TIMEOUT_MS", 900, 50, 30_000);
-const LINK_PRELOAD_TIMEOUT_MS = readIntEnv("NOVA_LINK_PRELOAD_TIMEOUT_MS", 900, 50, 30_000);
-const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000").trim().replace(/\/+$/, "");
-const INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS = Math.max(
-  5_000,
-  readIntEnv("NOVA_INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS", 20_000, 1_000, 300_000),
-);
-const integrationsSnapshotEnsuredAtByUser = new Map();
-async function ensureRuntimeIntegrationsSnapshot(userContextId, supabaseAccessToken) {
-  const userId = sessionRuntime.normalizeUserContextId(String(userContextId || ""));
-  const token = String(supabaseAccessToken || "").trim();
-  if (!userId || !token) return;
-  const now = Date.now();
-  const last = Number(integrationsSnapshotEnsuredAtByUser.get(userId) || 0);
-  if (now - last < INTEGRATIONS_SNAPSHOT_ENSURE_TTL_MS) return;
-  try {
-    const res = await fetch(`${HUD_API_BASE_URL}/api/integrations/config/runtime-snapshot`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (res.ok) {
-      integrationsSnapshotEnsuredAtByUser.set(userId, now);
-      return;
-    }
-    console.warn(`[IntegrationsSnapshot] ensure failed status=${res.status} user=${userId}`);
-  } catch (err) {
-    console.warn(`[IntegrationsSnapshot] ensure failed user=${userId} error=${describeUnknownError(err)}`);
-  }
-}
-
-function mergeMissionPrompt(basePrompt, incomingText) {
-  const base = String(basePrompt || "").replace(/\s+/g, " ").trim();
-  const incomingRaw = stripAssistantInvocation(incomingText);
-  const incoming = String(incomingRaw || incomingText || "").replace(/\s+/g, " ").trim();
-  if (!base) return incoming;
-  if (!incoming) return base;
-  const baseNorm = base.toLowerCase();
-  const incomingNorm = incoming.toLowerCase();
-  if (incomingNorm === baseNorm) return base;
-  if (baseNorm.includes(incomingNorm)) return base;
-  if (incomingNorm.includes(baseNorm)) return incoming;
-  return `${base}. ${incoming}`.replace(/\s+/g, " ").trim();
-}
 
 function emitSingleChunkAssistantStream(replyText, source, conversationId, userContextId) {
   const normalizedReply = String(replyText || "").trim();
@@ -217,42 +88,6 @@ function emitSingleChunkAssistantStream(replyText, source, conversationId, userC
   broadcastAssistantStreamStart(streamId, source, undefined, conversationId, userContextId);
   broadcastAssistantStreamDelta(streamId, normalizedReply, source, undefined, conversationId, userContextId);
   broadcastAssistantStreamDone(streamId, source, undefined, conversationId, userContextId);
-}
-
-function isBlockedNonMusicPlayIntent(text) {
-  return /\bplay\s+(a |the )?(game|video|clip|movie|film|role|part)\b/i.test(text);
-}
-
-function isSpotifyDirectIntent(text) {
-  const normalized = String(text || "").trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.includes("spotify")
-    || normalized.includes("play music")
-    || normalized.includes("play some")
-    || normalized.includes("put on ")
-    || /\b(switch|change)\s+(the\s+)?(song|track|music)\s+(to|into)\s+/i.test(normalized)
-    || /\b(switch|change)\s+to\s+.+\s+by\s+/i.test(normalized)
-    || /\bplay\s+(my |one of my |a |the )?(favorite|liked|saved|default|playlist|song|track|album|artist)/i.test(normalized)
-    || /\b(my\s+favorite\s+playlist\s+is(?:\s+called)?|set\s+(?:my\s+)?favorite\s+playlist\s+to|make\s+.+\s+my\s+favorite\s+playlist)\b/i.test(normalized)
-    || /\b(clear|remove|unset|forget|unfavorite)\s+(my\s+)?favorite\s+playlist\b/i.test(normalized)
-    || /\badd\s+(?:this|current|this song|this track|song|track)\b.*\b(?:to|into)\b.*\bplaylist\b/i.test(normalized)
-    || /\b(skip|next track|previous track|next song|last song|go back a song|pause|resume|now playing|what.?s playing|what is playing|what song.*playing|song is this.*playing|what am i listening to|currently playing|playing currently|shuffle|repeat|queue|restart|replay|start over|from the beginning|retsrat|retsart|restat)\b/i.test(normalized)
-    || /\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(normalized)
-    || (/\bretreat\b/i.test(normalized) && /\b(song|track|music)\b/i.test(normalized))
-    || /\bplay\s+.+\s+by\s+/i.test(normalized)
-    || (/\bplay\s+[a-z].{2,}/i.test(normalized) && !isBlockedNonMusicPlayIntent(normalized))
-  );
-}
-
-function isSpotifyContextualFollowUpIntent(text) {
-  const normalized = String(text || "").trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    /\b(what(?:'s| is)\s+it\s+called|what(?:'s| is)\s+that\s+called|who\s+sings\s+(?:it|that|this)|who(?:'s| is)\s+singing|what\s+track\s+is\s+(?:that|this)|that\s+song|this\s+song|that\s+track|this\s+track|playing\s+it)\b/i.test(normalized)
-    || /\b(next|previous|prev|skip|go back|restart|replay|start over|from the beginning)\b/i.test(normalized)
-    || /\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(normalized)
-  );
 }
 
 async function handleInputCore(text, opts = {}) {
@@ -288,7 +123,8 @@ async function handleInputCore(text, opts = {}) {
   const cryptoPolicy = getShortTermContextPolicy("crypto");
   const assistantPolicyForDedupe = getShortTermContextPolicy("assistant");
   const spotifyPolicy = getShortTermContextPolicy("spotify");
-  const followUpContinuationCue = [missionPolicy, cryptoPolicy, assistantPolicyForDedupe, spotifyPolicy].some((policy) => {
+  const youtubePolicy = getShortTermContextPolicy("youtube");
+  const followUpContinuationCue = [missionPolicy, cryptoPolicy, assistantPolicyForDedupe, spotifyPolicy, youtubePolicy].some((policy) => {
     if (!policy) return false;
     return policy.isNonCriticalFollowUp(normalizedTextForRouting)
       && !policy.isCancel(normalizedTextForRouting)
@@ -310,112 +146,54 @@ async function handleInputCore(text, opts = {}) {
   }
 
   const explicitCryptoReportRequest = isExplicitCryptoReportRequest(text);
-  const skipDuplicateInbound = !explicitCryptoReportRequest
-    && !duplicateMayBeMissionRequest
-    && !followUpContinuationCue
-    && shouldSkipDuplicateInbound({
+  const duplicateInboundRouteResult = await handleDuplicateInboundRouting({
     text,
     source,
     sender,
     userContextId,
     sessionKey,
     inboundMessageId,
+    conversationId,
+    explicitCryptoReportRequest,
+    duplicateMayMissionRequest: duplicateMayBeMissionRequest,
+    followUpContinuationCue,
+    duplicateMayBeCryptoReport,
+    shouldSkipDuplicateInbound,
+    handleDuplicateCryptoReportRequest,
+    appendRawStream,
+    rerenderDuplicateReport: async () => {
+      const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
+      const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
+      return await tryCryptoFastPathReply({
+        text,
+        runtimeTools,
+        availableTools,
+        userContextId,
+        conversationId,
+        workspaceDir: ROOT_WORKSPACE_DIR,
+      });
+    },
+    emitSingleChunkAssistantStream,
   });
-  if (skipDuplicateInbound) {
-    const duplicateRecovery = await handleDuplicateCryptoReportRequest({
-      duplicateMayBeCryptoReport,
-      userContextId,
-      conversationId,
-      source,
-      sessionKey,
-      text,
-      appendRawStream,
-      rerenderReport: async () => {
-        const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
-        const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
-        return await tryCryptoFastPathReply({
-          text,
-          runtimeTools,
-          availableTools,
-          userContextId,
-          conversationId,
-          workspaceDir: ROOT_WORKSPACE_DIR,
-        });
-      },
-    });
-    if (duplicateRecovery) return duplicateRecovery;
-    const duplicateReply =
-      "I got that same request again and skipped the duplicate. Say 'run it again' if you want me to execute it again.";
-    emitSingleChunkAssistantStream(duplicateReply, source, conversationId, userContextId);
-    appendRawStream({
-      event: "request_duplicate_skipped",
-      source,
-      sessionKey,
-      userContextId: userContextId || undefined,
-      chars: String(text || "").length,
-    });
-    return {
-      route: "duplicate_skipped",
-      ok: true,
-      reply: duplicateReply,
-      error: "",
-      provider: "",
-      model: "",
-      toolCalls: [],
-      toolExecutions: [],
-      retries: [],
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      estimatedCostUsd: null,
-      memoryRecallUsed: false,
-      memoryAutoCaptured: 0,
-      webSearchPreloadUsed: false,
-      linkUnderstandingUsed: false,
-      requestHints: {},
-      canRunToolLoop: false,
-      canRunWebSearch: false,
-      canRunWebFetch: false,
-      latencyMs: 0,
-    };
-  }
+  if (duplicateInboundRouteResult) return duplicateInboundRouteResult;
 
   appendRawStream({ event: "request_start", source, sessionKey, userContextId: userContextId || undefined, chars: String(text || "").length });
 
   // â”€â”€ NLP preprocessing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // raw_text is used for UI display and transcript persistence.
   // clean_text is used for routing, tool selection, memory recall, and LLM.
-  const raw_text = text;
-  let clean_text = text;
-  let nlpCorrections = [];
-  let nlpConfidence = 1.0;
   const nlpBypass = opts?.nlpBypass === true;
-  const nlpPreprocessStartedAt = Date.now();
-  if (!nlpBypass) {
-    try {
-      const preprocessFn = getPreprocess();
-      if (preprocessFn) {
-        // preprocess() is async (spell checker loads on first call)
-        const nlpResult = await preprocessFn(text);
-        clean_text = nlpResult.clean_text || text;
-        nlpCorrections = nlpResult.corrections || [];
-        nlpConfidence = Number.isFinite(Number(nlpResult.confidence)) ? Number(nlpResult.confidence) : 1.0;
-        if (nlpCorrections.length > 0) {
-          const summary = nlpCorrections.map((c) => `${c.reason}(${c.confidence.toFixed(2)})`).join(", ");
-          console.log(`[NLP] ${nlpCorrections.length} correction(s) session=${sessionKey}: ${summary}`);
-        }
-      }
-    } catch {
-      // Preprocessing failure is non-fatal; continue with original text
-      clean_text = text;
-      nlpConfidence = 1.0;
-    }
-  }
-  latencyTelemetry.addStage("nlp_preprocess", Date.now() - nlpPreprocessStartedAt);
-  // Use clean_text for all downstream routing and LLM calls.
-  // raw_text is preserved for UI messages and transcript writes.
-  text = clean_text;
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const nlpResult = await preprocessInboundText({
+    text,
+    sessionKey,
+    nlpBypass,
+    latencyTelemetry,
+  });
+  const raw_text = nlpResult.rawText;
+  const nlpCorrections = nlpResult.nlpCorrections;
+  const nlpConfidence = nlpResult.nlpConfidence;
+  text = nlpResult.cleanText;
+
 
   if (runtimeAssistantName && typeof wakeWordRuntime?.setAssistantName === "function") {
     wakeWordRuntime.setAssistantName(runtimeAssistantName);
@@ -439,7 +217,18 @@ async function handleInputCore(text, opts = {}) {
 
   // Memory update â€” short-circuit before any LLM call
   if (isMemoryUpdateRequest(text)) {
-    return await handleMemoryUpdate(text, ctx);
+    return await delegateToOrgChartWorker({
+      routeHint: "memory_update",
+      responseRoute: "memory_update",
+      text,
+      toolCalls: ["memory_update"],
+      provider: "",
+      providerSource: "chat-runtime-fallback",
+      userContextId,
+      conversationId,
+      sessionKey,
+      run: async () => handleMemoryUpdate(text, ctx),
+    });
   }
 
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
@@ -504,199 +293,54 @@ async function handleInputCore(text, opts = {}) {
     conversationId,
     domainId: "spotify",
   });
+  const youtubeShortTermContextSnapshot = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: "youtube",
+  });
   const missionContextIsPrimary =
     missionShortTermContext
     && Number(missionShortTermContext.ts || 0) >= Number(cryptoShortTermContext?.ts || 0)
-    && Number(missionShortTermContext.ts || 0) >= Number(spotifyShortTermContextSnapshot?.ts || 0);
-  if (missionContextIsPrimary && missionPolicy.isCancel(normalizedTextForRouting)) {
-    clearPendingMissionConfirm(sessionKey);
-    clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
-    const reply = await sendDirectAssistantReply(
-      text,
-      "Okay. I canceled the mission follow-up context.",
-      ctx,
-      "Clearing mission context",
-    );
-    return {
-      route: "mission_context_canceled",
-      ok: true,
-      reply,
-    };
-  }
+    && Number(missionShortTermContext.ts || 0) >= Number(spotifyShortTermContextSnapshot?.ts || 0)
+    && Number(missionShortTermContext.ts || 0) >= Number(youtubeShortTermContextSnapshot?.ts || 0);
+  const missionContextRouteResult = await handleMissionContextRouting({
+    text,
+    normalizedTextForRouting,
+    missionContextIsPrimary,
+    missionShortTermContext,
+    missionPolicy,
+    userContextId,
+    conversationId,
+    sessionKey,
+    ctx,
+    sendDirectAssistantReply,
+    upsertShortTermContextState,
+    clearShortTermContextState,
+  });
+  if (missionContextRouteResult) return missionContextRouteResult;
 
-  const missionIsFollowUpRefine =
-    missionContextIsPrimary
-    && missionPolicy.isNonCriticalFollowUp(normalizedTextForRouting)
-    && !missionPolicy.isNewTopic(normalizedTextForRouting)
-    && !missionPolicy.isCancel(normalizedTextForRouting);
-  if (missionIsFollowUpRefine && !getPendingMissionConfirm(sessionKey)) {
-    const basePrompt = String(missionShortTermContext?.slots?.pendingPrompt || "").trim();
-    const mergedPrompt = mergeMissionPrompt(basePrompt, text);
-    if (mergedPrompt) {
-      setPendingMissionConfirm(sessionKey, mergedPrompt);
-      upsertShortTermContextState({
-        userContextId,
-        conversationId,
-        domainId: "mission_task",
-        topicAffinityId: "mission_task",
-        slots: {
-          pendingPrompt: mergedPrompt,
-          phase: "confirm_refine",
-          lastUserText: String(text || "").trim(),
-        },
-      });
-      const reply = await sendDirectAssistantReply(
-        text,
-        buildMissionConfirmReply(mergedPrompt),
-        ctx,
-        "Refining mission",
-      );
-      return {
-        route: "mission_context_refine",
-        ok: true,
-        reply,
-      };
-    }
-  }
+  const weatherConfirmationRouteResult = await handleWeatherConfirmationRouting({
+    text,
+    sessionKey,
+    userContextId,
+    ctx,
+    sendDirectAssistantReply,
+  });
+  if (weatherConfirmationRouteResult) return weatherConfirmationRouteResult;
 
-  const pendingWeather = getPendingWeatherConfirm(sessionKey);
-  if (pendingWeather) {
-    if (isWeatherConfirmNo(text)) {
-      clearPendingWeatherConfirm(sessionKey);
-      const reply = await sendDirectAssistantReply(
-        text,
-        "Okay. I will not run that location. Share the correct city and I will fetch weather immediately.",
-        ctx,
-        "Waiting for location",
-      );
-      return {
-        route: "weather_confirm_declined",
-        ok: true,
-        reply,
-      };
-    }
-
-    if (isWeatherConfirmYes(text)) {
-      const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
-      const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
-      const canRunToolLoop = TOOL_LOOP_ENABLED
-        && availableTools.length > 0
-        && typeof runtimeTools?.executeToolUse === "function";
-      const canRunWebSearch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_search");
-      clearPendingWeatherConfirm(sessionKey);
-      const confirmedWeatherResult = await tryWeatherFastPathReply({
-        text: pendingWeather.prompt,
-        runtimeTools,
-        availableTools,
-        canRunWebSearch,
-        forcedLocation: pendingWeather.suggestedLocation,
-        bypassConfirmation: true,
-      });
-      const confirmedReply = String(confirmedWeatherResult?.reply || "").trim()
-        || `I could not fetch weather for ${pendingWeather.suggestedLocation} yet. Please retry.`;
-      const reply = await sendDirectAssistantReply(text, confirmedReply, ctx, "Fetching weather");
-      return {
-        route: "weather_confirm_accepted",
-        ok: true,
-        reply,
-        toolCalls: confirmedWeatherResult?.toolCall ? [String(confirmedWeatherResult.toolCall)] : [],
-        canRunToolLoop,
-        canRunWebSearch,
-      };
-    }
-
-    // If the user moved on or asked a fresh weather question, do not trap the
-    // session in a yes/no loop. Clear stale confirmation and continue routing.
-    clearPendingWeatherConfirm(sessionKey);
-  }
-
-  // Mission confirmation/build routing before LLM/provider selection.
-  const pendingMission = getPendingMissionConfirm(sessionKey);
-  if (pendingMission) {
-    if (isMissionConfirmNo(text)) {
-      clearPendingMissionConfirm(sessionKey);
-      clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
-      const reply = await sendDirectAssistantReply(
-        text,
-        "No problem. I will not create a mission. If you want one later, say: create a mission for ...",
-        ctx,
-      );
-      return {
-        route: "mission_confirm_declined",
-        ok: true,
-        reply,
-      };
-    }
-
-    if (isMissionConfirmYes(text)) {
-      const details = stripMissionConfirmPrefix(text);
-      const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, details);
-      clearPendingMissionConfirm(sessionKey);
-      clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
-      return await handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" });
-    }
-
-    const detailLikeFollowUp = /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|telegram|daily|every|morning|night|tomorrow)\b/i.test(text);
-    if (detailLikeFollowUp) {
-      const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, text);
-      setPendingMissionConfirm(sessionKey, mergedPrompt);
-      upsertShortTermContextState({
-        userContextId,
-        conversationId,
-        domainId: "mission_task",
-        topicAffinityId: "mission_task",
-        slots: {
-          pendingPrompt: mergedPrompt,
-          phase: "confirm_refine",
-          lastUserText: String(text || "").trim(),
-        },
-      });
-      const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(mergedPrompt), ctx);
-      return {
-        route: "mission_confirm_refine",
-        ok: true,
-        reply,
-      };
-    }
-  }
-
-  if (shouldBuildWorkflowFromPrompt(text)) {
-    clearPendingMissionConfirm(sessionKey);
-    upsertShortTermContextState({
-      userContextId,
-      conversationId,
-      domainId: "mission_task",
-      topicAffinityId: "mission_task",
-      slots: {
-        pendingPrompt: String(text || "").trim(),
-        phase: "build_attempt",
-        lastUserText: String(text || "").trim(),
-      },
-    });
-    return await handleWorkflowBuild(text, ctx, { engine: "src" });
-  }
-
-  if (shouldConfirmWorkflowFromPrompt(text)) {
-    const candidatePrompt = stripAssistantInvocation(text) || text;
-    setPendingMissionConfirm(sessionKey, candidatePrompt);
-    upsertShortTermContextState({
-      userContextId,
-      conversationId,
-      domainId: "mission_task",
-      topicAffinityId: "mission_task",
-      slots: {
-        pendingPrompt: candidatePrompt,
-        phase: "confirm_prompt",
-        lastUserText: String(text || "").trim(),
-      },
-    });
-    const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(candidatePrompt), ctx);
-    return {
-      route: "mission_confirm_prompt",
-      ok: true,
-      reply,
-    };
-  }
+  const missionBuildRouteResult = await handleMissionBuildRouting({
+    text,
+    userContextId,
+    conversationId,
+    sessionKey,
+    ctx,
+    delegateToOrgChartWorker,
+    sendDirectAssistantReply,
+    handleWorkflowBuild,
+    upsertShortTermContextState,
+    clearShortTermContextState,
+  });
+  if (missionBuildRouteResult) return missionBuildRouteResult;
 
   const turnPolicy = buildLatencyTurnPolicy(text, {
     weatherIntent: isWeatherRequestText(text),
@@ -704,55 +348,25 @@ async function handleInputCore(text, opts = {}) {
     canRunWebSearchHint: true,
     canRunWebFetchHint: true,
   });
-  const assistantTurnClassification = applyShortTermContextTurnClassification({
-    userContextId,
-    conversationId,
-    domainId: "assistant",
+  const contextHints = buildOperatorContextHints({
     text,
-  });
-  const assistantShortTermContext = readShortTermContextState({
+    turnPolicy,
     userContextId,
     conversationId,
-    domainId: "assistant",
+    isSpotifyDirectIntent,
+    isSpotifyContextualFollowUpIntent,
+    isYouTubeDirectIntent,
+    isYouTubeContextualFollowUpIntent,
+    applyShortTermContextTurnClassification,
+    readShortTermContextState,
+    clearShortTermContextState,
+    summarizeShortTermContextForPrompt,
   });
-  const spotifyTurnClassification = applyShortTermContextTurnClassification({
-    userContextId,
-    conversationId,
-    domainId: "spotify",
-    text,
-  });
-  const spotifyShortTermContext = readShortTermContextState({
-    userContextId,
-    conversationId,
-    domainId: "spotify",
-  });
-  const spotifyShortTermFollowUp =
-    Boolean(spotifyShortTermContext)
-    && !isSpotifyDirectIntent(text)
-    && (spotifyTurnClassification.isNonCriticalFollowUp || isSpotifyContextualFollowUpIntent(text))
-    && !spotifyTurnClassification.isCancel
-    && !spotifyTurnClassification.isNewTopic;
-  const requestHints = {
-    fastLaneSimpleChat: turnPolicy.fastLaneSimpleChat === true,
-    assistantShortTermFollowUp: false,
-    assistantShortTermContextSummary: "",
-    spotifyShortTermFollowUp: false,
-    spotifyShortTermContextSummary: "",
-  };
-  if (!turnPolicy.weatherIntent && !turnPolicy.cryptoIntent) {
-    if ((assistantTurnClassification.isCancel || assistantTurnClassification.isNewTopic) && assistantShortTermContext) {
-      clearShortTermContextState({ userContextId, conversationId, domainId: "assistant" });
-    } else if (assistantTurnClassification.isNonCriticalFollowUp && assistantShortTermContext) {
-      requestHints.assistantShortTermFollowUp = true;
-      requestHints.assistantShortTermContextSummary = summarizeShortTermContextForPrompt(assistantShortTermContext, 520);
-      requestHints.assistantTopicAffinityId = String(assistantShortTermContext.topicAffinityId || "");
-    }
-    if (spotifyShortTermFollowUp && spotifyShortTermContext) {
-      requestHints.spotifyShortTermFollowUp = true;
-      requestHints.spotifyShortTermContextSummary = summarizeShortTermContextForPrompt(spotifyShortTermContext, 320);
-      requestHints.spotifyTopicAffinityId = String(spotifyShortTermContext.topicAffinityId || "");
-    }
-  }
+  const requestHints = contextHints.requestHints;
+  const spotifyShortTermFollowUp = contextHints.spotifyShortTermFollowUp;
+  const spotifyShortTermContext = contextHints.spotifyShortTermContext;
+  const youtubeShortTermFollowUp = contextHints.youtubeShortTermFollowUp;
+  const youtubeShortTermContext = contextHints.youtubeShortTermContext;
 
   let runtimeTools = null;
   let availableTools = [];
@@ -773,42 +387,19 @@ async function handleInputCore(text, opts = {}) {
   const canRunWebFetch = executionPolicy.canRunWebFetch;
   const canRunToolLoop = executionPolicy.canRunToolLoop;
 
-  // Resolve provider (Bug Fix 4: uses cached loader) + routing arbitration
-  const providerResolutionStartedAt = Date.now();
-  await ensureRuntimeIntegrationsSnapshot(userContextId, ctx.supabaseAccessToken);
-  const integrationsRuntime = cachedLoadIntegrationsRuntime({ userContextId });
-  const activeChatRuntime = resolveConfiguredChatRuntime(integrationsRuntime, {
-    strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
-    preference: ROUTING_PREFERENCE,
-    requiresToolCalling: canRunToolLoop,
-    allowActiveProviderOverride: ENABLE_PROVIDER_FALLBACK && ROUTING_ALLOW_ACTIVE_OVERRIDE,
-    preferredProviders: ROUTING_PREFERRED_PROVIDERS,
+  // Resolve provider + model + client for this turn.
+  const {
+    activeChatRuntime,
+    activeOpenAiCompatibleClient,
+    selectedChatModel,
+  } = await selectChatRuntimeForTurn({
+    userContextId,
+    supabaseAccessToken: ctx.supabaseAccessToken,
+    canRunToolLoop,
+    sessionKey,
+    source,
+    latencyTelemetry,
   });
-  latencyTelemetry.addStage("provider_resolution", Date.now() - providerResolutionStartedAt);
-
-  if (!activeChatRuntime.apiKey) {
-    const providerName = activeChatRuntime.provider === "claude" ? "Claude" : activeChatRuntime.provider === "grok" ? "Grok" : activeChatRuntime.provider === "gemini" ? "Gemini" : "OpenAI";
-    throw new Error(`Missing ${providerName} API key for active provider "${activeChatRuntime.provider}". Configure Integrations first.`);
-  }
-  if (!activeChatRuntime.connected) {
-    throw new Error(`Active provider "${activeChatRuntime.provider}" is not enabled. Enable it or switch activeLlmProvider.`);
-  }
-
-  const activeOpenAiCompatibleClient = activeChatRuntime.provider === "claude"
-    ? null
-    : getOpenAIClient({ apiKey: activeChatRuntime.apiKey, baseURL: activeChatRuntime.baseURL });
-  const selectedChatModel = activeChatRuntime.model
-    || (activeChatRuntime.provider === "claude" ? DEFAULT_CLAUDE_MODEL
-      : activeChatRuntime.provider === "grok" ? DEFAULT_GROK_MODEL
-      : activeChatRuntime.provider === "gemini" ? DEFAULT_GEMINI_MODEL
-      : DEFAULT_CHAT_MODEL);
-
-  console.log(
-    `[RuntimeSelection] session=${sessionKey} provider=${activeChatRuntime.provider}` +
-    ` model=${selectedChatModel} source=${source}` +
-    ` route=${String(activeChatRuntime.routeReason || "n/a")}` +
-    ` candidates=${Array.isArray(activeChatRuntime.rankedCandidates) ? activeChatRuntime.rankedCandidates.join(">") : activeChatRuntime.provider}`,
-  );
 
   const llmCtx = {
     activeChatRuntime,
@@ -824,34 +415,35 @@ async function handleInputCore(text, opts = {}) {
     latencyTelemetry,
   };
   const shouldRouteToSpotify = isSpotifyDirectIntent(text) || spotifyShortTermFollowUp;
+  const shouldRouteToYouTube =
+    !shouldRouteToSpotify &&
+    (isYouTubeDirectIntent(text) || youtubeShortTermFollowUp);
 
-  // Route to Spotify sub-handler for direct intents and scoped follow-ups.
-  if (shouldRouteToSpotify) {
-    const spotifyResult = await handleSpotify(text, ctx, llmCtx);
-    if (spotifyResult?.ok !== false) {
-      const resolvedTopicAffinityId = String(
-        spotifyPolicy.resolveTopicAffinityId?.(text, spotifyShortTermContext || spotifyShortTermContextSnapshot || {})
-        || spotifyShortTermContext?.topicAffinityId
-        || spotifyShortTermContextSnapshot?.topicAffinityId
-        || "spotify_general",
-      ).trim() || "spotify_general";
-      upsertShortTermContextState({
-        userContextId,
-        conversationId,
-        domainId: "spotify",
-        topicAffinityId: resolvedTopicAffinityId,
-        slots: {
-          lastUserText: String(text || "").trim().slice(0, 320),
-          lastAssistantReply: String(spotifyResult?.reply || "").trim().slice(0, 320),
-          lastRoute: "spotify",
-          followUpResolved: spotifyShortTermFollowUp === true,
-        },
-      });
-    }
-    return spotifyResult;
-  }
-
-  return await executeChatRequest(text, ctx, llmCtx, requestHints);
+  return await routeOperatorDispatch({
+    text,
+    ctx,
+    llmCtx,
+    requestHints,
+    shouldRouteToSpotify,
+    spotifyShortTermFollowUp,
+    spotifyPolicy,
+    spotifyShortTermContext,
+    spotifyShortTermContextSnapshot,
+    shouldRouteToYouTube,
+    youtubeShortTermFollowUp,
+    youtubePolicy,
+    youtubeShortTermContext,
+    youtubeShortTermContextSnapshot,
+    userContextId,
+    conversationId,
+    sessionKey,
+    activeChatRuntime,
+    delegateToOrgChartWorker,
+    handleSpotify,
+    handleYouTube,
+    executeChatRequest,
+    upsertShortTermContextState,
+  });
 }
 
 export async function handleInput(text, opts = {}) {
@@ -859,20 +451,9 @@ export async function handleInput(text, opts = {}) {
   const userInputText = String(text || "");
   const source = String(opts?.source || "hud");
   const sender = String(opts?.sender || "");
-  let sessionKey = "";
-  let userContextId = "";
-  let conversationId = "";
-  let nlpBypass = opts?.nlpBypass === true;
+  const runtimeContext = deriveHandleInputRuntimeContext({ opts, source });
   let result = null;
   let caughtError = null;
-
-  try {
-    userContextId = String(sessionRuntime.resolveUserContextId(opts) || "");
-    sessionKey = String(opts?.sessionKeyHint || "");
-    conversationId = resolveConversationId(opts, sessionKey, source);
-  } catch {
-    // Best effort logging; allow main handler to throw normally.
-  }
 
   try {
     result = await handleInputCore(text, opts);
@@ -881,93 +462,19 @@ export async function handleInput(text, opts = {}) {
     caughtError = err;
     throw err;
   } finally {
-    const summary = result && typeof result === "object"
-      ? result
-      : {
-          route: "unclassified",
-          ok: caughtError ? false : true,
-          reply: typeof result === "string" ? result : "",
-          error: caughtError ? describeUnknownError(caughtError) : "",
-        };
-
-    appendDevConversationLog({
+    finalizeHandleInputTurn({
+      startedAt,
+      userInputText,
       source,
       sender,
-      userContextId,
-      conversationId,
-      sessionKey,
-      route: String(summary.route || "unclassified"),
-      userInputText,
-      cleanedInputText: normalizeInboundUserText(userInputText),
-      assistantReplyText: String(summary.reply || ""),
-      provider: String(summary.provider || ""),
-      model: String(summary.model || ""),
-      requestHints: summary.requestHints && typeof summary.requestHints === "object" ? summary.requestHints : {},
-      canRunToolLoop: summary.canRunToolLoop === true,
-      canRunWebSearch: summary.canRunWebSearch === true,
-      canRunWebFetch: summary.canRunWebFetch === true,
-      toolCalls: Array.isArray(summary.toolCalls) ? summary.toolCalls : [],
-      toolExecutions: Array.isArray(summary.toolExecutions) ? summary.toolExecutions : [],
-      retries: Array.isArray(summary.retries) ? summary.retries : [],
-      memoryRecallUsed: summary.memoryRecallUsed === true,
-      memorySearchDiagnostics: summary.memorySearchDiagnostics && typeof summary.memorySearchDiagnostics === "object"
-        ? summary.memorySearchDiagnostics
-        : null,
-      memoryAutoCaptured: Number.isFinite(Number(summary.memoryAutoCaptured))
-        ? Number(summary.memoryAutoCaptured)
-        : 0,
-      webSearchPreloadUsed: summary.webSearchPreloadUsed === true,
-      linkUnderstandingUsed: summary.linkUnderstandingUsed === true,
-      promptTokens: Number.isFinite(Number(summary.promptTokens)) ? Number(summary.promptTokens) : 0,
-      completionTokens: Number.isFinite(Number(summary.completionTokens)) ? Number(summary.completionTokens) : 0,
-      totalTokens: Number.isFinite(Number(summary.totalTokens)) ? Number(summary.totalTokens) : 0,
-      estimatedCostUsd: Number.isFinite(Number(summary.estimatedCostUsd))
-        ? Number(summary.estimatedCostUsd)
-        : null,
-      latencyMs: Number.isFinite(Number(summary.latencyMs)) && Number(summary.latencyMs) > 0
-        ? Number(summary.latencyMs)
-        : Date.now() - startedAt,
-      latencyStages: summary.latencyStages && typeof summary.latencyStages === "object"
-        ? summary.latencyStages
-        : {},
-      latencyHotPath: String(summary.latencyHotPath || ""),
-      correctionPassCount: Number.isFinite(Number(summary.correctionPassCount))
-        ? Number(summary.correctionPassCount)
-        : 0,
-      fallbackReason: String(summary.fallbackReason || ""),
-      fallbackStage: String(summary.fallbackStage || ""),
-      hadCandidateBeforeFallback: summary.hadCandidateBeforeFallback === true,
-      toolLoopGuardrails: summary.toolLoopGuardrails && typeof summary.toolLoopGuardrails === "object"
-        ? summary.toolLoopGuardrails
-        : null,
-      ok: summary.ok !== false && !caughtError,
-      error: String(summary.error || (caughtError ? describeUnknownError(caughtError) : "")),
-      nlpBypass,
-      nlpConfidence: Number.isFinite(Number(summary.nlpConfidence))
-        ? Number(summary.nlpConfidence)
-        : null,
-      nlpCorrectionCount: Number.isFinite(Number(summary.nlpCorrectionCount))
-        ? Number(summary.nlpCorrectionCount)
-        : 0,
+      runtimeContext,
+      result,
+      caughtError,
     });
-
-    // Phase 2: ChatKit shadow-mode evaluation (non-blocking, never affects user-visible output).
-    void runChatKitShadowEvaluation({
-      userContextId,
-      conversationId,
-      missionRunId: String(summary.missionRunId || ""),
-      prompt: userInputText,
-      route: String(summary.route || "unclassified"),
-      baselineProvider: String(summary.provider || ""),
-      baselineModel: String(summary.model || ""),
-      baselineLatencyMs: Number.isFinite(Number(summary.latencyMs))
-        ? Number(summary.latencyMs)
-        : Date.now() - startedAt,
-      baselineOk: summary.ok !== false && !caughtError,
-      turnId: String(summary.turnId || ""),
-    }).catch(() => {});
   }
 }
+
+
 
 
 

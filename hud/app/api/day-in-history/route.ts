@@ -9,7 +9,6 @@ export const dynamic = "force-dynamic"
 const API_BASE = "https://api.api-ninjas.com/v1/dayinhistory"
 const API_KEY = String(process.env.NOVA_DAY_IN_HISTORY_API_KEY || "").trim()
 const FETCH_TIMEOUT_MS = 6_000
-const MAX_EVENTS = 5
 
 interface DayInHistoryEvent {
   year: number

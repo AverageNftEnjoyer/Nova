@@ -118,6 +118,8 @@ export async function POST(req: Request) {
 
       const missionRunId = crypto.randomUUID()
       const runKey = `manual-trigger:${mission.id}:${Date.now()}`
+      const conversationId = `mission-trigger:${mission.id}`
+      const sessionKey = `agent:nova:hud:user:${userId}:dm:${conversationId}`
       if (isMissionQueueModeEnabled()) {
         const enqueueResult = await enqueueMissionRunForQueue({
           mission,
@@ -150,6 +152,9 @@ export async function POST(req: Request) {
         source: "trigger",
         missionRunId,
         runKey,
+        userContextId: userId,
+        conversationId,
+        sessionKey,
         attempt: 1,
         enforceOutputTime: false,
         skillSnapshot,

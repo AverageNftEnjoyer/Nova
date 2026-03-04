@@ -124,6 +124,17 @@ export interface BuildMissionResponse {
   debug?: string
   provider?: string
   model?: string
+  mission?: unknown
+  missionSummary?: {
+    label?: string
+    description?: string
+    integration?: string
+    nodeCount?: number
+    schedule?: {
+      time?: string
+      timezone?: string
+    }
+  }
   workflow?: {
     label?: string
     integration?: string

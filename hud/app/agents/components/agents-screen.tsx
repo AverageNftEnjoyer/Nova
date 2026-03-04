@@ -61,6 +61,7 @@ const COUNCIL_ICON_BY_ID: Record<string, ComponentType<{ className?: string }>> 
   "routing-council": Compass,
   "policy-council": ShieldCheck,
   "memory-council": Brain,
+  "planning-council": GitBranch,
 }
 
 export function AgentsScreen() {

@@ -29,6 +29,7 @@ function read(relativePath) {
 
 const constantsSource = read("src/runtime/core/constants/index.js");
 const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler/index.js");
+const promptContextBuilderSource = read("src/runtime/modules/chat/core/chat-handler/prompt-context-builder/index.js");
 const missionAiExecutorsSource = read("hud/lib/missions/workflow/executors/ai-executors.ts");
 const promptBudgetSource = read("src/runtime/modules/chat/prompt/prompt-budget/index.js");
 const promptBudgetModule = await import(
@@ -81,8 +82,22 @@ await run("P18-C2 prompt budget helpers compact and bound sections", async () =>
 });
 
 await run("P18-C3 chat handler uses budgeted context injection and dynamic history budget", async () => {
+  const chatHandlerRequiredTokens = [
+    'import { executeChatRequest } from "./execute-chat-request/index.js";',
+  ];
+  for (const token of chatHandlerRequiredTokens) {
+    assert.equal(chatHandlerSource.includes(token), true, `missing chat-handler token: ${token}`);
+  }
+
+  const legacyChatHandlerTokens = [
+    'import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../prompt/prompt-budget/index.js";',
+  ];
+  for (const token of legacyChatHandlerTokens) {
+    assert.equal(chatHandlerSource.includes(token), false, `legacy chat-handler token still present: ${token}`);
+  }
+
   const requiredTokens = [
-    'import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../prompt/prompt-budget.js";',
+    'import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../../prompt/prompt-budget/index.js";',
     "const promptBudgetOptions = {",
     "const promptBudgetProfile = resolveDynamicPromptBudget({",
     "const appended = appendBudgetedPromptSection({",
@@ -90,7 +105,7 @@ await run("P18-C3 chat handler uses budgeted context injection and dynamic histo
     "history_budget=${computedHistoryTokenBudget}",
   ];
   for (const token of requiredTokens) {
-    assert.equal(chatHandlerSource.includes(token), true, `missing chat-handler token: ${token}`);
+    assert.equal(promptContextBuilderSource.includes(token), true, `missing prompt-context token: ${token}`);
   }
 });
 

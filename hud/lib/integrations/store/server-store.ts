@@ -16,6 +16,11 @@ export interface DiscordIntegrationConfig {
   webhookUrls: string[]
 }
 
+export interface SlackIntegrationConfig {
+  connected: boolean
+  webhookUrl: string
+}
+
 export interface BraveIntegrationConfig {
   connected: boolean
   apiKey: string
@@ -25,6 +30,7 @@ export interface NewsIntegrationConfig {
   connected: boolean
   apiKey: string
   defaultTopics: string[]
+  preferredSources: string[]
   language: string
   country: string
 }
@@ -97,6 +103,24 @@ export interface SpotifyIntegrationConfig {
   tokenExpiry: number
 }
 
+export interface YouTubeIntegrationConfig {
+  connected: boolean
+  channelId: string
+  channelTitle: string
+  scopes: string[]
+  homeTopic: string
+  homeCommandNonce: number
+  permissions: {
+    allowFeed: boolean
+    allowSearch: boolean
+    allowVideoDetails: boolean
+  }
+  redirectUri: string
+  accessTokenEnc: string
+  refreshTokenEnc: string
+  tokenExpiry: number
+}
+
 export interface GmailIntegrationConfig {
   connected: boolean
   email: string
@@ -157,6 +181,7 @@ export interface AgentIntegrationConfig {
 export interface IntegrationsConfig {
   telegram: TelegramIntegrationConfig
   discord: DiscordIntegrationConfig
+  slack: SlackIntegrationConfig
   brave: BraveIntegrationConfig
   news: NewsIntegrationConfig
   coinbase: CoinbaseIntegrationConfig
@@ -165,11 +190,20 @@ export interface IntegrationsConfig {
   grok: GrokIntegrationConfig
   gemini: GeminiIntegrationConfig
   spotify: SpotifyIntegrationConfig
+  youtube: YouTubeIntegrationConfig
   gmail: GmailIntegrationConfig
   gcalendar: GmailCalendarIntegrationConfig
   activeLlmProvider: LlmProvider
   agents: Record<string, AgentIntegrationConfig>
   updatedAt: string
+}
+
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Array<infer U>
+    ? U[]
+    : T[K] extends object
+      ? DeepPartial<T[K]>
+      : T[K]
 }
 
 const INTEGRATIONS_TABLE = "integration_configs"
@@ -181,7 +215,13 @@ export type IntegrationsStoreScope =
       client?: SupabaseClient | null
       user?: { id?: string | null } | null
       allowServiceRole?: boolean
-      serviceRoleReason?: "scheduler" | "execution-tick" | "gmail-oauth-callback" | "gmail-calendar-oauth-callback" | "spotify-oauth-callback"
+      serviceRoleReason?:
+        | "scheduler"
+        | "execution-tick"
+        | "gmail-oauth-callback"
+        | "gmail-calendar-oauth-callback"
+        | "spotify-oauth-callback"
+        | "youtube-oauth-callback"
     }
   | null
   | undefined
@@ -196,6 +236,10 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     connected: false,
     webhookUrls: [],
   },
+  slack: {
+    connected: false,
+    webhookUrl: "",
+  },
   brave: {
     connected: false,
     apiKey: "",
@@ -204,6 +248,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     connected: false,
     apiKey: "",
     defaultTopics: ["world", "business", "technology", "markets", "crypto"],
+    preferredSources: [],
     language: "en",
     country: "us",
   },
@@ -253,6 +298,23 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     scopes: [],
     oauthClientId: "",
     redirectUri: "http://localhost:3000/api/integrations/spotify/callback",
+    accessTokenEnc: "",
+    refreshTokenEnc: "",
+    tokenExpiry: 0,
+  },
+  youtube: {
+    connected: false,
+    channelId: "",
+    channelTitle: "",
+    scopes: [],
+    homeTopic: "news",
+    homeCommandNonce: 0,
+    permissions: {
+      allowFeed: true,
+      allowSearch: true,
+      allowVideoDetails: true,
+    },
+    redirectUri: "http://localhost:3000/api/integrations/youtube/callback",
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,
@@ -338,7 +400,7 @@ function wrapStoredSecret(value: unknown): string {
   return encryptSecret(raw)
 }
 
-function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): IntegrationsConfig {
+function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined): IntegrationsConfig {
   const rawAgents = raw?.agents && typeof raw.agents === "object"
     ? raw.agents
     : {}
@@ -391,6 +453,7 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
 
   const normalizedTelegramBotToken = unwrapStoredSecret(raw?.telegram?.botToken)
   const rawNewsDefaultTopics = (raw as { news?: { defaultTopics?: unknown } } | null | undefined)?.news?.defaultTopics
+  const rawNewsPreferredSources = (raw as { news?: { preferredSources?: unknown } } | null | undefined)?.news?.preferredSources
 
   return {
     telegram: {
@@ -406,6 +469,13 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
         ? raw.discord.webhookUrls.map((url) => unwrapStoredSecret(url)).map((url) => String(url).trim()).filter(Boolean)
         : [],
     },
+    slack: (() => {
+      const normalizedSlackWebhookUrl = unwrapStoredSecret(raw?.slack?.webhookUrl)
+      return {
+        connected: (raw?.slack?.connected ?? DEFAULT_CONFIG.slack.connected) && normalizedSlackWebhookUrl.trim().length > 0,
+        webhookUrl: normalizedSlackWebhookUrl,
+      }
+    })(),
     brave: {
       connected: raw?.brave?.connected ?? DEFAULT_CONFIG.brave.connected,
       apiKey: unwrapStoredSecret(raw?.brave?.apiKey),
@@ -423,6 +493,14 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
               .map((topic) => topic.trim().toLowerCase())
               .filter(Boolean)
           : DEFAULT_CONFIG.news.defaultTopics,
+      preferredSources: Array.isArray(rawNewsPreferredSources)
+        ? rawNewsPreferredSources.map((source) => String(source).trim()).filter(Boolean)
+        : typeof rawNewsPreferredSources === "string"
+          ? rawNewsPreferredSources
+              .split(/[,\n]+/)
+              .map((source) => source.trim())
+              .filter(Boolean)
+          : DEFAULT_CONFIG.news.preferredSources,
       language:
         typeof raw?.news?.language === "string" && raw.news.language.trim().length > 0
           ? raw.news.language.trim().toLowerCase()
@@ -511,6 +589,41 @@ function normalizeConfig(raw: Partial<IntegrationsConfig> | null | undefined): I
       accessTokenEnc: wrapStoredSecret(raw?.spotify?.accessTokenEnc),
       refreshTokenEnc: wrapStoredSecret(raw?.spotify?.refreshTokenEnc),
       tokenExpiry: typeof raw?.spotify?.tokenExpiry === "number" ? raw.spotify.tokenExpiry : 0,
+    },
+    youtube: {
+      connected:
+        (raw?.youtube?.connected ?? DEFAULT_CONFIG.youtube.connected) &&
+        (
+          wrapStoredSecret(raw?.youtube?.refreshTokenEnc).length > 0 ||
+          wrapStoredSecret(raw?.youtube?.accessTokenEnc).length > 0
+        ),
+      channelId: String(raw?.youtube?.channelId || "").trim(),
+      channelTitle: String(raw?.youtube?.channelTitle || "").trim(),
+      scopes: Array.isArray(raw?.youtube?.scopes)
+        ? raw!.youtube!.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+        : [],
+      homeTopic: String(raw?.youtube?.homeTopic || "").trim() || DEFAULT_CONFIG.youtube.homeTopic,
+      homeCommandNonce: Number.isFinite(Number(raw?.youtube?.homeCommandNonce))
+        ? Math.max(0, Math.floor(Number(raw?.youtube?.homeCommandNonce)))
+        : DEFAULT_CONFIG.youtube.homeCommandNonce,
+      permissions: {
+        allowFeed:
+          typeof raw?.youtube?.permissions?.allowFeed === "boolean"
+            ? raw.youtube.permissions.allowFeed
+            : DEFAULT_CONFIG.youtube.permissions.allowFeed,
+        allowSearch:
+          typeof raw?.youtube?.permissions?.allowSearch === "boolean"
+            ? raw.youtube.permissions.allowSearch
+            : DEFAULT_CONFIG.youtube.permissions.allowSearch,
+        allowVideoDetails:
+          typeof raw?.youtube?.permissions?.allowVideoDetails === "boolean"
+            ? raw.youtube.permissions.allowVideoDetails
+            : DEFAULT_CONFIG.youtube.permissions.allowVideoDetails,
+      },
+      redirectUri: String(raw?.youtube?.redirectUri || "").trim() || DEFAULT_CONFIG.youtube.redirectUri,
+      accessTokenEnc: wrapStoredSecret(raw?.youtube?.accessTokenEnc),
+      refreshTokenEnc: wrapStoredSecret(raw?.youtube?.refreshTokenEnc),
+      tokenExpiry: typeof raw?.youtube?.tokenExpiry === "number" ? raw.youtube.tokenExpiry : 0,
     },
     gmail: {
       connected: (raw?.gmail?.connected ?? DEFAULT_CONFIG.gmail.connected) && enabledAccounts.length > 0,
@@ -602,7 +715,8 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
       reason !== "execution-tick" &&
       reason !== "gmail-oauth-callback" &&
       reason !== "gmail-calendar-oauth-callback" &&
-      reason !== "spotify-oauth-callback"
+      reason !== "spotify-oauth-callback" &&
+      reason !== "youtube-oauth-callback"
     ) {
       throw new Error("Service-role integrations access requires an approved internal reason.")
     }
@@ -628,6 +742,10 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
     discord: {
       ...config.discord,
       webhookUrls: config.discord.webhookUrls.map((url) => wrapStoredSecret(url)).filter(Boolean),
+    },
+    slack: {
+      ...config.slack,
+      webhookUrl: wrapStoredSecret(config.slack.webhookUrl),
     },
     openai: {
       ...config.openai,
@@ -663,6 +781,11 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
       accessTokenEnc: wrapStoredSecret(config.spotify.accessTokenEnc),
       refreshTokenEnc: wrapStoredSecret(config.spotify.refreshTokenEnc),
     },
+    youtube: {
+      ...config.youtube,
+      accessTokenEnc: wrapStoredSecret(config.youtube.accessTokenEnc),
+      refreshTokenEnc: wrapStoredSecret(config.youtube.refreshTokenEnc),
+    },
     gmail: {
       ...config.gmail,
       accounts: config.gmail.accounts.map((account) => ({
@@ -694,7 +817,7 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
   }
 }
 
-function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<IntegrationsConfig>): IntegrationsConfig {
+function mergeIntegrationsConfig(current: IntegrationsConfig, partial: DeepPartial<IntegrationsConfig>): IntegrationsConfig {
   return normalizeConfig({
     ...current,
     ...partial,
@@ -705,6 +828,10 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
     discord: {
       ...current.discord,
       ...(partial.discord || {}),
+    },
+    slack: {
+      ...current.slack,
+      ...(partial.slack || {}),
     },
     openai: {
       ...current.openai,
@@ -720,6 +847,14 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
       defaultTopics: Array.isArray(partial.news?.defaultTopics)
         ? partial.news.defaultTopics.map((topic) => String(topic).trim().toLowerCase()).filter(Boolean)
         : current.news.defaultTopics,
+      preferredSources: Array.isArray(partial.news?.preferredSources)
+        ? partial.news.preferredSources.map((source) => String(source).trim()).filter(Boolean)
+        : typeof partial.news?.preferredSources === "string"
+          ? String(partial.news.preferredSources)
+              .split(/[,\n]+/)
+              .map((source) => source.trim())
+              .filter(Boolean)
+          : current.news.preferredSources,
       language:
         typeof partial.news?.language === "string" && partial.news.language.trim().length > 0
           ? partial.news.language.trim().toLowerCase()
@@ -752,6 +887,38 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: Partial<I
         ? partial.spotify.scopes.map((scope) => String(scope).trim()).filter(Boolean)
         : current.spotify.scopes,
       tokenExpiry: typeof partial.spotify?.tokenExpiry === "number" ? partial.spotify.tokenExpiry : current.spotify.tokenExpiry,
+    },
+    youtube: {
+      ...current.youtube,
+      ...(partial.youtube || {}),
+      scopes: Array.isArray(partial.youtube?.scopes)
+        ? partial.youtube.scopes.map((scope) => String(scope).trim()).filter(Boolean)
+        : current.youtube.scopes,
+      homeTopic:
+        typeof partial.youtube?.homeTopic === "string" && partial.youtube.homeTopic.trim().length > 0
+          ? partial.youtube.homeTopic.trim()
+          : current.youtube.homeTopic,
+      homeCommandNonce:
+        typeof partial.youtube?.homeCommandNonce === "number" && Number.isFinite(partial.youtube.homeCommandNonce)
+          ? Math.max(0, Math.floor(partial.youtube.homeCommandNonce))
+          : current.youtube.homeCommandNonce,
+      permissions: {
+        ...current.youtube.permissions,
+        ...(partial.youtube?.permissions || {}),
+        allowFeed:
+          typeof partial.youtube?.permissions?.allowFeed === "boolean"
+            ? partial.youtube.permissions.allowFeed
+            : current.youtube.permissions.allowFeed,
+        allowSearch:
+          typeof partial.youtube?.permissions?.allowSearch === "boolean"
+            ? partial.youtube.permissions.allowSearch
+            : current.youtube.permissions.allowSearch,
+        allowVideoDetails:
+          typeof partial.youtube?.permissions?.allowVideoDetails === "boolean"
+            ? partial.youtube.permissions.allowVideoDetails
+            : current.youtube.permissions.allowVideoDetails,
+      },
+      tokenExpiry: typeof partial.youtube?.tokenExpiry === "number" ? partial.youtube.tokenExpiry : current.youtube.tokenExpiry,
     },
     gmail: {
       ...current.gmail,
@@ -865,7 +1032,7 @@ export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?:
 // and the last writer silently overwrites the other's changes.
 const _configUpdateLocks = new Map<string, Promise<void>>()
 
-export async function updateIntegrationsConfig(partial: Partial<IntegrationsConfig>, scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
+export async function updateIntegrationsConfig(partial: DeepPartial<IntegrationsConfig>, scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
   const normalizedScope = normalizeStoreScope(scope)
   assertScopedIntegrationsAccess(normalizedScope)
   const { userId } = normalizedScope

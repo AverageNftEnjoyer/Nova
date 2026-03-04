@@ -50,6 +50,7 @@ import {
 } from "../helpers"
 import { useMissionsSpotlight } from "./use-missions-spotlight"
 import { useAutoClearStatus, useAutoDismissRunProgress, useMissionActionMenuDismiss } from "./use-missions-transient-effects"
+import { missionRequiresCanvasEditor } from "./mission-graph-shape"
 import { defaultMissionSettings } from "@/lib/missions/types"
 import type { Mission as NativeMission, MissionConnection, MissionNode } from "@/lib/missions/types"
 import type {
@@ -71,15 +72,15 @@ interface UseMissionsPageStateInput {
 
 type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
 
-const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["telegram", "telegram", "discord", "email", "push", "webhook"]
-const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "email", "webhook", "telegram"]
+const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["telegram", "discord", "email", "slack", "push", "webhook"]
+const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "slack", "email", "webhook"]
 const QUEUED_RUN_STATUS_POLL_MS = 4_000
 const QUEUE_METRICS_POLL_MS = 10_000
 
 function normalizeOutputChannelAlias(value: string): OutputChannel | "" {
   const normalized = String(value || "").trim().toLowerCase()
   if (normalized === "gmail") return "email"
-  if (normalized === "telegram" || normalized === "telegram" || normalized === "discord" || normalized === "email" || normalized === "push" || normalized === "webhook") {
+  if (normalized === "telegram" || normalized === "discord" || normalized === "email" || normalized === "slack" || normalized === "push" || normalized === "webhook") {
     return normalized
   }
   return ""
@@ -387,6 +388,16 @@ function buildNativeMissionNodesFromWorkflow(params: {
         position,
         recipients: recipientTargets,
         subject: label,
+      } satisfies MissionNode
+    }
+    if (outputChannel === "slack") {
+      return {
+        id: nodeId,
+        type: "slack-output",
+        label,
+        position,
+        channel: recipientTargets[0] || undefined,
+        messageTemplate: typeof step.outputTemplate === "string" ? step.outputTemplate : undefined,
       } satisfies MissionNode
     }
     if (outputChannel === "webhook") {
@@ -1173,7 +1184,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         throw new Error([data?.error || "Failed to generate mission draft.", data?.debug ? `(${data.debug})` : ""].filter(Boolean).join(" "))
       }
 
-      const summary = data.workflow?.summary
+      const generatedMission = (data as { mission?: NativeMission }).mission
+      const summary = data.workflow?.summary || (generatedMission ? missionToWorkflowSummaryForAutofix(generatedMission) : null)
       if (!summary) throw new Error("Nova returned an invalid mission draft.")
 
       const generatedTime = typeof summary.schedule?.time === "string" && /^\d{2}:\d{2}$/.test(summary.schedule.time) ? summary.schedule.time : "09:00"
@@ -1186,7 +1198,14 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         : ["mon", "tue", "wed", "thu", "fri"]
 
       setEditingMissionId(null)
-      setNewLabel(String(data.workflow?.label || "Generated Mission").trim() || "Generated Mission")
+      setNewLabel(
+        String(
+          (data as { missionSummary?: { label?: string } }).missionSummary?.label
+          || data.workflow?.label
+          || generatedMission?.label
+          || "Generated Mission",
+        ).trim() || "Generated Mission",
+      )
       setNewDescription(String(summary.description || prompt).trim())
       setNewTime(generatedTime)
       setDetectedTimezone(generatedTimezone)
@@ -2171,6 +2190,14 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   }, [deleteMission, pendingDeleteMission])
 
   const applyNativeMissionToBuilder = useCallback((nativeMission: NativeMission, fallbackMission: MissionListItem, duplicate: boolean) => {
+    if (missionRequiresCanvasEditor(nativeMission)) {
+      setStatus({
+        type: "error",
+        message: "This mission uses advanced graph topology. Open it in Mission Canvas to edit without flattening connections.",
+      })
+      return
+    }
+
     const triggerNode = nativeMission.nodes.find((node) => node.type === "schedule-trigger")
     const resolvedMode =
       triggerNode?.type === "schedule-trigger" &&
@@ -2219,7 +2246,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     if (duplicate) {
       setStatus({ type: "success", message: "Mission duplicated into builder. Configure and deploy." })
     }
-  }, [detectedTimezone, mapWorkflowStepsForBuilder])
+  }, [detectedTimezone, mapWorkflowStepsForBuilder, setStatus])
 
   const editMissionFromActions = useCallback(async (mission: MissionListItem) => {
     try {

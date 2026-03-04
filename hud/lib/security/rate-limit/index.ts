@@ -127,6 +127,21 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_SPOTIFY_PLAYBACK_PER_MIN", 40, 1, 500),
     windowMs: 60_000,
   },
+  youtubeSearch: {
+    bucket: "youtube-search",
+    limit: readIntEnv("NOVA_RATE_LIMIT_YOUTUBE_SEARCH_PER_MIN", 30, 1, 500),
+    windowMs: 60_000,
+  },
+  youtubeVideoRead: {
+    bucket: "youtube-video-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_YOUTUBE_VIDEO_READ_PER_MIN", 120, 1, 1000),
+    windowMs: 60_000,
+  },
+  youtubeFeedRead: {
+    bucket: "youtube-feed-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_YOUTUBE_FEED_READ_PER_MIN", 36, 1, 500),
+    windowMs: 60_000,
+  },
   newsFeedRead: {
     bucket: "news-feed-read",
     limit: readIntEnv("NOVA_RATE_LIMIT_NEWS_FEED_READ_PER_HOUR", 48, 1, 2000),

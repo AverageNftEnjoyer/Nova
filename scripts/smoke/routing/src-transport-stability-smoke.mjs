@@ -57,7 +57,7 @@ await run("P14-C1 src runtime shell entrypoint wiring exists", async () => {
   assert.equal(srcEntrypoint.includes("export async function startNovaRuntime()"), true);
   assert.equal(srcEntrypoint.includes("startGateway();"), true);
   assert.equal(srcEntrypoint.includes("await startVoiceLoop({"), true);
-  assert.equal(srcEntrypoint.includes("registerHandleInput(handleInput);"), true);
+  assert.equal(srcEntrypoint.includes("registerHandleInput(runtimeHandleInput);"), true);
   assert.equal(srcEntrypoint.includes("initVoiceBroadcast(broadcastState);"), true);
 });
 
@@ -173,8 +173,8 @@ await run("P14-C7 wake word follows assistant-name updates and STT hint wiring",
 await run("P14-C8 voice/session paths do not hardcode local-mic fallback", async () => {
   assert.equal(srcVoiceLoop.includes('"local-mic"'), false);
   assert.equal(srcVoiceModule.includes('userContextId = "local-mic"'), false);
-  assert.equal(read("src/session/key.ts").includes("local-mic"), false);
-  assert.equal(read("src/session/runtime-compat.js").includes("local-mic"), false);
+  assert.equal(read("src/runtime/modules/infrastructure/config/index.js").includes("local-mic"), false);
+  assert.equal(read("src/runtime/core/config/index.js").includes("local-mic"), false);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

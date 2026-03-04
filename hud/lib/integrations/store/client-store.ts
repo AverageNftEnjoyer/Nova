@@ -13,6 +13,13 @@ export interface DiscordIntegrationSettings {
   webhookUrlsMasked?: string[]
 }
 
+export interface SlackIntegrationSettings {
+  connected: boolean
+  webhookUrl: string
+  webhookUrlConfigured?: boolean
+  webhookUrlMasked?: string
+}
+
 export interface BraveIntegrationSettings {
   connected: boolean
   apiKey: string
@@ -24,6 +31,7 @@ export interface NewsIntegrationSettings {
   connected: boolean
   apiKey: string
   defaultTopics: string
+  preferredSources: string
   language: string
   country: string
   apiKeyConfigured?: boolean
@@ -108,6 +116,20 @@ export interface SpotifyIntegrationSettings {
   tokenConfigured?: boolean
 }
 
+export interface YouTubeIntegrationSettings {
+  connected: boolean
+  channelId: string
+  channelTitle: string
+  scopes: string
+  permissions: {
+    allowFeed: boolean
+    allowSearch: boolean
+    allowVideoDetails: boolean
+  }
+  redirectUri: string
+  tokenConfigured?: boolean
+}
+
 export interface GmailIntegrationSettings {
   connected: boolean
   email: string
@@ -156,6 +178,7 @@ export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 export interface IntegrationsSettings {
   telegram: TelegramIntegrationSettings
   discord: DiscordIntegrationSettings
+  slack: SlackIntegrationSettings
   brave: BraveIntegrationSettings
   news: NewsIntegrationSettings
   coinbase: CoinbaseIntegrationSettings
@@ -164,6 +187,7 @@ export interface IntegrationsSettings {
   grok: GrokIntegrationSettings
   gemini: GeminiIntegrationSettings
   spotify: SpotifyIntegrationSettings
+  youtube: YouTubeIntegrationSettings
   gmail: GmailIntegrationSettings
   gcalendar: GmailCalendarIntegrationSettings
   activeLlmProvider: LlmProvider
@@ -187,6 +211,12 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     webhookUrlsConfigured: false,
     webhookUrlsMasked: [],
   },
+  slack: {
+    connected: false,
+    webhookUrl: "",
+    webhookUrlConfigured: false,
+    webhookUrlMasked: "",
+  },
   brave: {
     connected: false,
     apiKey: "",
@@ -197,6 +227,7 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     connected: false,
     apiKey: "",
     defaultTopics: "world,business,technology,markets,crypto",
+    preferredSources: "",
     language: "en",
     country: "us",
     apiKeyConfigured: false,
@@ -262,6 +293,19 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     redirectUri: "http://localhost:3000/api/integrations/spotify/callback",
     tokenConfigured: false,
   },
+  youtube: {
+    connected: false,
+    channelId: "",
+    channelTitle: "",
+    scopes: "",
+    permissions: {
+      allowFeed: true,
+      allowSearch: true,
+      allowVideoDetails: true,
+    },
+    redirectUri: "http://localhost:3000/api/integrations/youtube/callback",
+    tokenConfigured: false,
+  },
   gmail: {
     connected: false,
     email: "",
@@ -310,6 +354,8 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
     const parsed = JSON.parse(raw) as Partial<IntegrationsSettings>
     const spotifyScopesRaw = (parsed.spotify as { scopes?: unknown } | undefined)?.scopes
     const newsDefaultTopicsRaw = (parsed as { news?: { defaultTopics?: unknown } }).news?.defaultTopics
+    const newsPreferredSourcesRaw = (parsed as { news?: { preferredSources?: unknown } }).news?.preferredSources
+    const youtubeScopesRaw = (parsed.youtube as { scopes?: unknown } | undefined)?.scopes
     return {
       telegram: {
         ...DEFAULT_SETTINGS.telegram,
@@ -319,6 +365,11 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
       discord: {
         ...DEFAULT_SETTINGS.discord,
         ...(parsed.discord || {}),
+      },
+      slack: {
+        ...DEFAULT_SETTINGS.slack,
+        ...(parsed.slack || {}),
+        webhookUrl: "",
       },
       brave: {
         ...DEFAULT_SETTINGS.brave,
@@ -338,6 +389,15 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
                   .filter(Boolean)
                   .join(",")
               : DEFAULT_SETTINGS.news.defaultTopics,
+        preferredSources:
+          typeof newsPreferredSourcesRaw === "string"
+            ? newsPreferredSourcesRaw
+            : Array.isArray(newsPreferredSourcesRaw)
+              ? (newsPreferredSourcesRaw || [])
+                  .map((source) => String(source).trim())
+                  .filter(Boolean)
+                  .join(",")
+              : DEFAULT_SETTINGS.news.preferredSources,
         language:
           typeof parsed.news?.language === "string" && parsed.news.language.trim().length > 0
             ? parsed.news.language.trim().toLowerCase()
@@ -415,6 +475,31 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
             ? spotifyScopesRaw.map((scope) => String(scope).trim()).filter(Boolean).join(" ")
             : DEFAULT_SETTINGS.spotify.scopes,
       },
+      youtube: {
+        ...DEFAULT_SETTINGS.youtube,
+        ...(parsed.youtube || {}),
+        scopes: typeof youtubeScopesRaw === "string"
+          ? youtubeScopesRaw
+          : Array.isArray(youtubeScopesRaw)
+            ? youtubeScopesRaw.map((scope) => String(scope).trim()).filter(Boolean).join(" ")
+            : DEFAULT_SETTINGS.youtube.scopes,
+        permissions: {
+          ...DEFAULT_SETTINGS.youtube.permissions,
+          ...(parsed.youtube?.permissions || {}),
+          allowFeed:
+            typeof parsed.youtube?.permissions?.allowFeed === "boolean"
+              ? parsed.youtube.permissions.allowFeed
+              : DEFAULT_SETTINGS.youtube.permissions.allowFeed,
+          allowSearch:
+            typeof parsed.youtube?.permissions?.allowSearch === "boolean"
+              ? parsed.youtube.permissions.allowSearch
+              : DEFAULT_SETTINGS.youtube.permissions.allowSearch,
+          allowVideoDetails:
+            typeof parsed.youtube?.permissions?.allowVideoDetails === "boolean"
+              ? parsed.youtube.permissions.allowVideoDetails
+              : DEFAULT_SETTINGS.youtube.permissions.allowVideoDetails,
+        },
+      },
       gmail: {
         ...DEFAULT_SETTINGS.gmail,
         ...(parsed.gmail || {}),
@@ -490,6 +575,10 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
       ...settings.discord,
       webhookUrls: "",
     },
+    slack: {
+      ...settings.slack,
+      webhookUrl: "",
+    },
     brave: {
       ...settings.brave,
       apiKey: "",
@@ -522,6 +611,9 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     spotify: {
       ...settings.spotify,
     },
+    youtube: {
+      ...settings.youtube,
+    },
     gmail: {
       ...settings.gmail,
       oauthClientSecret: "",
@@ -550,6 +642,20 @@ export function updateTelegramIntegrationSettings(partial: Partial<TelegramInteg
     ...current,
     telegram: {
       ...current.telegram,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateSlackIntegrationSettings(partial: Partial<SlackIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    slack: {
+      ...current.slack,
       ...partial,
     },
     updatedAt: new Date().toISOString(),
@@ -701,6 +807,20 @@ export function updateSpotifyIntegrationSettings(partial: Partial<SpotifyIntegra
     ...current,
     spotify: {
       ...current.spotify,
+      ...partial,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updateYouTubeIntegrationSettings(partial: Partial<YouTubeIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    youtube: {
+      ...current.youtube,
       ...partial,
     },
     updatedAt: new Date().toISOString(),

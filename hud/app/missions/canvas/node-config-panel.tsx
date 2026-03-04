@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useCallback } from "react"
 import { X } from "lucide-react"
@@ -51,20 +51,33 @@ export function NodeConfigPanel({ node, onUpdate, onClose, className }: NodeConf
 }
 
 function ConfigFields({ node, update }: { node: MissionNode; update: (updates: Partial<MissionNode>) => void }) {
-  switch (node.type) {
+  const nodeType = node.type as string
+  switch (nodeType) {
     case "schedule-trigger":
-      return <ScheduleTriggerConfig node={node} update={update} />
+      return <ScheduleTriggerConfig node={node as ScheduleTriggerNode} update={update} />
     case "web-search":
-      return <WebSearchConfig node={node} update={update} />
+      return <WebSearchConfig node={node as WebSearchNode} update={update} />
     case "ai-summarize":
     case "ai-generate":
-      return <AiConfig node={node} update={update} />
+      return <AiConfig node={node as AiSummarizeNode | AiGenerateNode} update={update} />
     case "http-request":
-      return <HttpRequestConfig node={node} update={update} />
+      return <HttpRequestConfig node={node as HttpRequestNode} update={update} />
     case "condition":
-      return <ConditionConfig node={node} update={update} />
+      return <ConditionConfig node={node as ConditionNode} update={update} />
     case "email-output":
       return <EmailOutputConfig node={node as EmailOutputNode} update={update} />
+    case "agent-supervisor":
+    case "agent-worker":
+    case "agent-audit":
+      return <AgentConfig node={node} update={update} />
+    case "agent-handoff":
+      return <HandoffConfig node={node} update={update} />
+    case "agent-state-read":
+      return <StateReadConfig node={node} update={update} />
+    case "agent-state-write":
+      return <StateWriteConfig node={node} update={update} />
+    case "provider-selector":
+      return <ProviderSelectorConfig node={node} update={update} />
     default:
       return <GenericLabelConfig node={node} update={update} />
   }
@@ -306,6 +319,207 @@ function EmailOutputConfig({ node, update }: { node: EmailOutputNode; update: (u
             { value: "html", label: "HTML" },
           ]}
           onChange={(v) => update({ format: v as "text" | "html" } as Partial<MissionNode>)}
+        />
+      </Field>
+    </>
+  )
+}
+
+function AgentConfig({ node, update }: { node: MissionNode; update: (u: Partial<MissionNode>) => void }) {
+  const reads = Array.isArray((node as unknown as Record<string, unknown>).reads)
+    ? ((node as unknown as Record<string, unknown>).reads as unknown[]).map(String)
+    : []
+  const writes = Array.isArray((node as unknown as Record<string, unknown>).writes)
+    ? ((node as unknown as Record<string, unknown>).writes as unknown[]).map(String)
+    : []
+  const goal = String((node as unknown as Record<string, unknown>).goal || "")
+  const agentId = String((node as unknown as Record<string, unknown>).agentId || "")
+  const role = String((node as unknown as Record<string, unknown>).role || "")
+  const workerRoleOptions = [
+    { value: "routing-council", label: "Routing Council" },
+    { value: "policy-council", label: "Policy Council" },
+    { value: "memory-council", label: "Memory Council" },
+    { value: "planning-council", label: "Planning Council" },
+    { value: "media-manager", label: "Media Manager" },
+    { value: "finance-manager", label: "Finance Manager" },
+    { value: "productivity-manager", label: "Productivity Manager" },
+    { value: "comms-manager", label: "Comms Manager" },
+    { value: "system-manager", label: "System Manager" },
+    { value: "worker-agent", label: "Worker Agent" },
+  ]
+
+  return (
+    <>
+      <Field label="Label">
+        <TextInput value={node.label} onChange={(v) => update({ label: v } as Partial<MissionNode>)} />
+      </Field>
+      <Field label="Agent ID">
+        <TextInput value={agentId} onChange={(v) => update({ agentId: v } as Partial<MissionNode>)} placeholder="operator" />
+      </Field>
+      {node.type === "agent-worker" && (
+        <Field label="Role">
+          <FluidSelect
+            isLight={false}
+            value={role || "worker-agent"}
+            options={workerRoleOptions}
+            onChange={(v) => update({ role: v } as Partial<MissionNode>)}
+          />
+        </Field>
+      )}
+      {node.type === "agent-audit" && (
+        <Field label="Role">
+          <TextInput value="audit-council" onChange={() => {}} />
+        </Field>
+      )}
+      <Field label="Goal">
+        <TextInput
+          value={goal}
+          onChange={(v) => update({ goal: v } as Partial<MissionNode>)}
+          multiline
+          placeholder="Describe this role objective and constraints."
+        />
+      </Field>
+      <Field label="Reads (CSV keys)">
+        <TextInput
+          value={reads.join(", ")}
+          onChange={(v) => update({ reads: v.split(",").map((item) => item.trim()).filter(Boolean) } as Partial<MissionNode>)}
+          placeholder="brief, context.summary"
+        />
+      </Field>
+      <Field label="Writes (CSV keys)">
+        <TextInput
+          value={writes.join(", ")}
+          onChange={(v) => update({ writes: v.split(",").map((item) => item.trim()).filter(Boolean) } as Partial<MissionNode>)}
+          placeholder="analysis, final_report"
+        />
+      </Field>
+    </>
+  )
+}
+
+function HandoffConfig({ node, update }: { node: MissionNode; update: (u: Partial<MissionNode>) => void }) {
+  const fromAgentId = String((node as unknown as Record<string, unknown>).fromAgentId || "")
+  const toAgentId = String((node as unknown as Record<string, unknown>).toAgentId || "")
+  const reason = String((node as unknown as Record<string, unknown>).reason || "")
+  return (
+    <>
+      <Field label="Label">
+        <TextInput value={node.label} onChange={(v) => update({ label: v } as Partial<MissionNode>)} />
+      </Field>
+      <Field label="From Agent ID">
+        <TextInput value={fromAgentId} onChange={(v) => update({ fromAgentId: v } as Partial<MissionNode>)} placeholder="operator" />
+      </Field>
+      <Field label="To Agent ID">
+        <TextInput value={toAgentId} onChange={(v) => update({ toAgentId: v } as Partial<MissionNode>)} placeholder="routing-council-1" />
+      </Field>
+      <Field label="Reason">
+        <TextInput value={reason} onChange={(v) => update({ reason: v } as Partial<MissionNode>)} placeholder="Why this handoff happens" />
+      </Field>
+    </>
+  )
+}
+
+function StateReadConfig({ node, update }: { node: MissionNode; update: (u: Partial<MissionNode>) => void }) {
+  const key = String((node as unknown as Record<string, unknown>).key || "")
+  const required = (node as unknown as Record<string, unknown>).required !== false
+  return (
+    <>
+      <Field label="Label">
+        <TextInput value={node.label} onChange={(v) => update({ label: v } as Partial<MissionNode>)} />
+      </Field>
+      <Field label="State Key">
+        <TextInput
+          value={key}
+          onChange={(v) => update({ key: v } as Partial<MissionNode>)}
+          placeholder="task.plan"
+        />
+      </Field>
+      <Field label="Required">
+        <FluidSelect
+          isLight={false}
+          value={required ? "true" : "false"}
+          options={[
+            { value: "true", label: "Yes" },
+            { value: "false", label: "No" },
+          ]}
+          onChange={(v) => update({ required: v === "true" } as Partial<MissionNode>)}
+        />
+      </Field>
+    </>
+  )
+}
+
+function StateWriteConfig({ node, update }: { node: MissionNode; update: (u: Partial<MissionNode>) => void }) {
+  const key = String((node as unknown as Record<string, unknown>).key || "")
+  const valueExpression = String((node as unknown as Record<string, unknown>).valueExpression || "{{$input}}")
+  const writeMode = String((node as unknown as Record<string, unknown>).writeMode || "replace")
+  return (
+    <>
+      <Field label="Label">
+        <TextInput value={node.label} onChange={(v) => update({ label: v } as Partial<MissionNode>)} />
+      </Field>
+      <Field label="State Key">
+        <TextInput
+          value={key}
+          onChange={(v) => update({ key: v } as Partial<MissionNode>)}
+          placeholder="task.result"
+        />
+      </Field>
+      <Field label="Value Expression">
+        <TextInput
+          value={valueExpression}
+          onChange={(v) => update({ valueExpression: v } as Partial<MissionNode>)}
+          placeholder="{{$input}}"
+        />
+      </Field>
+      <Field label="Write Mode">
+        <FluidSelect
+          isLight={false}
+          value={writeMode}
+          options={[
+            { value: "replace", label: "Replace" },
+            { value: "merge", label: "Merge" },
+            { value: "append", label: "Append" },
+          ]}
+          onChange={(v) => update({ writeMode: v as "replace" | "merge" | "append" } as Partial<MissionNode>)}
+        />
+      </Field>
+    </>
+  )
+}
+
+function ProviderSelectorConfig({ node, update }: { node: MissionNode; update: (u: Partial<MissionNode>) => void }) {
+  const allowedProviders = Array.isArray((node as unknown as Record<string, unknown>).allowedProviders)
+    ? ((node as unknown as Record<string, unknown>).allowedProviders as unknown[]).map(String).filter(Boolean)
+    : []
+  const defaultProvider = String((node as unknown as Record<string, unknown>).defaultProvider || "claude")
+  const strategy = String((node as unknown as Record<string, unknown>).strategy || "policy")
+  return (
+    <>
+      <Field label="Label">
+        <TextInput value={node.label} onChange={(v) => update({ label: v } as Partial<MissionNode>)} />
+      </Field>
+      <Field label="Allowed Providers (CSV)">
+        <TextInput
+          value={allowedProviders.join(", ")}
+          onChange={(v) => update({ allowedProviders: v.split(",").map((item) => item.trim()).filter(Boolean) } as Partial<MissionNode>)}
+          placeholder="claude, openai"
+        />
+      </Field>
+      <Field label="Default Provider">
+        <TextInput value={defaultProvider} onChange={(v) => update({ defaultProvider: v } as Partial<MissionNode>)} placeholder="claude" />
+      </Field>
+      <Field label="Strategy">
+        <FluidSelect
+          isLight={false}
+          value={strategy}
+          options={[
+            { value: "policy", label: "Policy" },
+            { value: "latency", label: "Latency" },
+            { value: "cost", label: "Cost" },
+            { value: "quality", label: "Quality" },
+          ]}
+          onChange={(v) => update({ strategy: v as "policy" | "latency" | "cost" | "quality" } as Partial<MissionNode>)}
         />
       </Field>
     </>

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { loadMissions, upsertMission } from "@/lib/missions/store"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
-import { listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning"
+import { listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"

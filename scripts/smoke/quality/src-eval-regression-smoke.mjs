@@ -111,7 +111,7 @@ await run("P19-C2 mission quality regression gate", async () => {
   const requiredMarkers = [
     "P17-C1 quality module exposes scoring + guardrail APIs",
     "P17-C3 workflow output path applies quality guardrails before dispatch",
-    "P17-C4 fallback-output path also applies quality guardrails",
+    "P17-C4 legacy fallback-output path is removed from mission engine",
   ];
   for (const marker of requiredMarkers) {
     assert.equal(missionOutput.includes(marker), true, `missing mission marker: ${marker}`);

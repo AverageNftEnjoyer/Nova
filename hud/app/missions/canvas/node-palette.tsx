@@ -1,25 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Search } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
-import { NODE_CATALOG, PALETTE_CATEGORIES, searchCatalog, type NodeCatalogEntry, type NodePaletteCategory } from "@/lib/missions/catalog"
-import type { MissionNodeType } from "@/lib/missions/types"
+import { getPaletteCatalog, PALETTE_CATEGORIES, searchCatalog, type NodeCatalogEntry, type NodePaletteCategory } from "@/lib/missions/catalog"
 
 interface NodePaletteProps {
-  onAddNode: (type: MissionNodeType, label: string) => void
+  onAddNode: (type: NodeCatalogEntry["type"], label: string) => void
   className?: string
 }
 
 export function NodePalette({ onAddNode, className }: NodePaletteProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState<NodePaletteCategory | "all">("all")
+  const paletteCatalog = useMemo(() => getPaletteCatalog(), [])
 
   const results = searchQuery.trim()
     ? searchCatalog(searchQuery)
     : activeCategory === "all"
-      ? NODE_CATALOG
-      : NODE_CATALOG.filter((e) => e.category === activeCategory)
+      ? paletteCatalog
+      : paletteCatalog.filter((e) => e.category === activeCategory)
 
   const handleDragStart = (e: React.DragEvent, entry: NodeCatalogEntry) => {
     e.dataTransfer.setData("application/nova-mission-node-type", entry.type)

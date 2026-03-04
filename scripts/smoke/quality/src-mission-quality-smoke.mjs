@@ -65,14 +65,14 @@ await run("P17-C3 workflow output path applies quality guardrails before dispatc
   }
 });
 
-await run("P17-C4 fallback-output path also applies quality guardrails", async () => {
-  const requiredTokens = [
+await run("P17-C4 legacy fallback-output path is removed from mission engine", async () => {
+  const legacyTokens = [
     'const { applyMissionOutputQualityGuardrails } = await import("../output/quality")',
     "const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)",
     "fallback.output.dispatched",
   ];
-  for (const token of requiredTokens) {
-    assert.equal(executeMissionSource.includes(token), true, `missing fallback token: ${token}`);
+  for (const token of legacyTokens) {
+    assert.equal(executeMissionSource.includes(token), false, `legacy fallback token still present: ${token}`);
   }
 });
 

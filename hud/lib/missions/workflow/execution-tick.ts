@@ -170,11 +170,16 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
       run.source === "manual" ? "manual" : run.source === "webhook" ? "trigger" : "scheduler"
 
     try {
+      const conversationId = `mission-scheduler:${mission.id}`
+      const sessionKey = `agent:nova:scheduler:user:${run.user_id}:dm:${conversationId}`
       const result = await executeMission({
         mission: missionToRun,
         source,
         now,
         missionRunId: run.id,
+        userContextId: run.user_id,
+        conversationId,
+        sessionKey,
         attempt: (run.attempt ?? 0) + 1,
         scope,
         preClaimedSlot: slot,

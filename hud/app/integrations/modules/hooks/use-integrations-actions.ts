@@ -23,6 +23,10 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     setBotTokenMasked,
     chatIds,
     discordWebhookUrls,
+    slackWebhookUrl,
+    slackWebhookUrlConfigured,
+    setSlackWebhookUrlConfigured,
+    setSlackWebhookUrlMasked,
     braveApiKey,
     braveApiKeyConfigured,
     setBraveApiKey,
@@ -35,6 +39,8 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     setNewsApiKeyMasked,
     newsDefaultTopics,
     setNewsDefaultTopics,
+    newsPreferredSources,
+    setNewsPreferredSources,
     coinbaseApiKey,
     setCoinbaseApiKey,
     coinbaseApiSecret,
@@ -664,6 +670,136 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     }
   }, [discordWebhookUrls, setIsSavingTarget, setSaveStatus, setSettings, settings])
 
+  const toggleSlack = useCallback(async () => {
+    const canEnableFromSavedUrl = Boolean(slackWebhookUrlConfigured || settings.slack.webhookUrlConfigured)
+    if (!settings.slack.connected && !canEnableFromSavedUrl) {
+      setSaveStatus({
+        type: "error",
+        message: "Save a Slack webhook URL first, then enable Slack.",
+      })
+      return
+    }
+    const next = {
+      ...settings,
+      slack: {
+        ...settings.slack,
+        connected: !settings.slack.connected,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("slack")
+    try {
+      const res = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slack: { connected: next.slack.connected } }),
+      })
+      if (!res.ok) throw new Error("Failed to update Slack status")
+      const payload = await res.json().catch(() => ({}))
+      const connected = Boolean(payload?.config?.slack?.connected)
+      setSettings((prev: IntegrationsSettings) => {
+        const updated = {
+          ...prev,
+          slack: {
+            ...prev.slack,
+            connected,
+            webhookUrlConfigured: Boolean(payload?.config?.slack?.webhookUrlConfigured) || prev.slack.webhookUrlConfigured,
+            webhookUrlMasked: typeof payload?.config?.slack?.webhookUrlMasked === "string" ? payload.config.slack.webhookUrlMasked : prev.slack.webhookUrlMasked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+      setSaveStatus({
+        type: connected ? "success" : "disabled",
+        message: `Slack ${connected ? "enabled" : "disabled"}.`,
+      })
+    } catch {
+      setSettings(settings)
+      saveIntegrationsSettings(settings)
+      setSaveStatus({
+        type: "error",
+        message: "Failed to update Slack status. Try again.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [slackWebhookUrlConfigured, setIsSavingTarget, setSaveStatus, setSettings, settings])
+
+  const saveSlackConfig = useCallback(async () => {
+    const trimmedUrl = slackWebhookUrl.trim()
+    const next = {
+      ...settings,
+      slack: {
+        ...settings.slack,
+        webhookUrl: trimmedUrl,
+      },
+    }
+    setSettings(next)
+    saveIntegrationsSettings(next)
+    setSaveStatus(null)
+    setIsSavingTarget("slack")
+    try {
+      const saveRes = await fetch("/api/integrations/config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slack: {
+            webhookUrl: trimmedUrl,
+          },
+        }),
+      })
+      const payload = await saveRes.json().catch(() => ({}))
+      if (!saveRes.ok) {
+        throw new Error(payload?.error || "Failed to save Slack configuration")
+      }
+      const connected = Boolean(payload?.config?.slack?.connected)
+      const webhookUrlConfigured = Boolean(payload?.config?.slack?.webhookUrlConfigured)
+      const webhookUrlMasked = typeof payload?.config?.slack?.webhookUrlMasked === "string" ? payload.config.slack.webhookUrlMasked : ""
+      setSlackWebhookUrlConfigured(webhookUrlConfigured)
+      setSlackWebhookUrlMasked(webhookUrlMasked)
+      setSettings((prev: IntegrationsSettings) => {
+        const updated = {
+          ...prev,
+          slack: {
+            ...prev.slack,
+            connected,
+            webhookUrlConfigured,
+            webhookUrlMasked,
+          },
+        }
+        saveIntegrationsSettings(updated)
+        return updated
+      })
+
+      const testRes = await fetch("/api/integrations/test-slack", {
+        method: "POST",
+      })
+      const testData = await testRes.json().catch(() => ({}))
+      if (!testRes.ok || !testData?.ok) {
+        const fallbackResultError =
+          Array.isArray(testData?.results) && testData.results.length > 0
+            ? testData.results.find((r: { ok?: boolean; error?: string }) => !r?.ok)?.error
+            : undefined
+        throw new Error(testData?.error || fallbackResultError || "Saved, but Slack verification failed.")
+      }
+
+      setSaveStatus({
+        type: "success",
+        message: "Slack saved and verified.",
+      })
+    } catch (error) {
+      setSaveStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "Could not save Slack configuration.",
+      })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }, [slackWebhookUrl, setIsSavingTarget, setSaveStatus, setSettings, setSlackWebhookUrlConfigured, setSlackWebhookUrlMasked, settings])
+
   const saveBraveConfig = useCallback(async () => {
     const trimmedApiKey = braveApiKey.trim()
     const shouldEnable = settings.brave.connected || trimmedApiKey.length > 0 || braveApiKeyConfigured
@@ -734,9 +870,11 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
 
   const saveNewsConfig = useCallback(async () => {
     const trimmedApiKey = newsApiKey.trim()
+    const trimmedPreferredSources = newsPreferredSources.trim()
     const shouldEnable = settings.news.connected || trimmedApiKey.length > 0 || newsApiKeyConfigured
     const payloadNews: Partial<IntegrationsSettings["news"]> = {
       defaultTopics: newsDefaultTopics.trim(),
+      preferredSources: trimmedPreferredSources,
       language: settings.news.language,
       country: settings.news.country,
     }
@@ -780,10 +918,16 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         : typeof savedData?.config?.news?.defaultTopics === "string"
           ? savedData.config.news.defaultTopics
           : newsDefaultTopics.trim()
+      const normalizedPreferredSources = Array.isArray(savedData?.config?.news?.preferredSources)
+        ? savedData.config.news.preferredSources.map((source: unknown) => String(source).trim()).filter(Boolean).join(",")
+        : typeof savedData?.config?.news?.preferredSources === "string"
+          ? savedData.config.news.preferredSources
+          : trimmedPreferredSources
       setNewsApiKey("")
       setNewsApiKeyMasked(masked)
       setNewsApiKeyConfigured(configured)
       setNewsDefaultTopics(normalizedTopics)
+      setNewsPreferredSources(normalizedPreferredSources)
       setSettings((prev: IntegrationsSettings) => {
         const updated = {
           ...prev,
@@ -791,6 +935,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
             ...prev.news,
             connected,
             defaultTopics: normalizedTopics,
+            preferredSources: normalizedPreferredSources,
             apiKeyConfigured: configured,
             apiKeyMasked: masked,
           },
@@ -810,7 +955,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     } finally {
       setIsSavingTarget(null)
     }
-  }, [newsApiKey, newsApiKeyConfigured, newsDefaultTopics, setIsSavingTarget, setNewsApiKey, setNewsApiKeyConfigured, setNewsApiKeyMasked, setNewsDefaultTopics, setSaveStatus, setSettings, settings])
+  }, [newsApiKey, newsApiKeyConfigured, newsDefaultTopics, newsPreferredSources, setIsSavingTarget, setNewsApiKey, setNewsApiKeyConfigured, setNewsApiKeyMasked, setNewsDefaultTopics, setNewsPreferredSources, setSaveStatus, setSettings, settings])
 
   const saveCoinbaseConfig = useCallback(async () => {
     if (isSavingTarget !== null || coinbasePendingAction !== null) return
@@ -952,6 +1097,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
   return {
     toggleTelegram,
     toggleDiscord,
+    toggleSlack,
     toggleBrave,
     toggleNews,
     probeCoinbaseConnection,
@@ -959,6 +1105,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
     saveActiveProvider,
     saveTelegramConfig,
     saveDiscordConfig,
+    saveSlackConfig,
     saveBraveConfig,
     saveNewsConfig,
     saveCoinbaseConfig,

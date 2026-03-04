@@ -1,5 +1,5 @@
-/**
- * Mission Execution Engine — V.26 DAG-based
+﻿/**
+ * Mission Execution Engine â€” V.26 DAG-based
  *
  * Executes a Mission by traversing its node graph (DAG) topologically,
  * passing outputs between nodes via ExecutionContext.nodeOutputs.
@@ -9,6 +9,7 @@
 import "server-only"
 
 import type {
+  AgentStateEnvelope,
   Mission,
   MissionNode,
   MissionConnection,
@@ -27,9 +28,9 @@ import { validateMissionGraphForVersioning } from "./versioning"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { computeRetryDelayMs, shouldRetry } from "../retry-policy"
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Expression Resolver
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Resolve {{$nodes.Label.output.field}} and {{$vars.name}} expressions.
@@ -60,7 +61,7 @@ function buildExprResolver(nodeOutputs: Map<string, NodeOutput>, nodesByLabel: M
 
         if (section === "output") {
           if (!field || field === "text") return output.text ?? ""
-          // "data" without a sub-field → serialize the whole data object
+          // "data" without a sub-field â†’ serialize the whole data object
           if (field === "data") return output.data !== undefined ? JSON.stringify(output.data) : (output.text ?? "")
           if (output.data && typeof output.data === "object") {
             return String(getNestedField(output.data as Record<string, unknown>, field) ?? "")
@@ -87,9 +88,49 @@ function getNestedField(obj: Record<string, unknown>, path: string): unknown {
   return curr
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+function buildAgentStateEnvelope(
+  mission: Mission,
+  runId: string,
+  userContextId: string,
+  conversationId: string,
+  sessionKey: string,
+): AgentStateEnvelope {
+  const declaredKeys = Array.from(
+    new Set(
+      mission.nodes
+        .filter((node): node is Extract<MissionNode, { type: "agent-state-write" }> => node.type === "agent-state-write")
+        .map((node) => String(node.key || "").trim())
+        .filter(Boolean),
+    ),
+  )
+  const writePolicies: Record<string, string[]> = {}
+  for (const node of mission.nodes) {
+    if (node.type !== "agent-supervisor" && node.type !== "agent-worker" && node.type !== "agent-audit") continue
+    for (const key of node.writes || []) {
+      const normalized = String(key || "").trim()
+      if (!normalized) continue
+      if (!writePolicies[normalized]) writePolicies[normalized] = []
+      const agentId = String(node.agentId || "").trim()
+      if (agentId) writePolicies[normalized].push(agentId)
+    }
+  }
+  return {
+    stateVersion: "phase0",
+    userContextId,
+    conversationId,
+    sessionKey,
+    missionId: mission.id,
+    runId,
+    keys: {},
+    declaredKeys,
+    writePolicies,
+    auditTrail: [],
+  }
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // DAG Utilities
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function buildAdjacencyMap(connections: MissionConnection[]): Map<string, MissionConnection[]> {
   const map = new Map<string, MissionConnection[]>()
@@ -160,7 +201,7 @@ function topologicalOrder(
     }
   }
 
-  // Any reachable nodes not visited could not be processed — they are in cycles
+  // Any reachable nodes not visited could not be processed â€” they are in cycles
   const unvisited = reachableNodes.filter((n) => !visited.has(n.id))
   return {
     nodes: result,
@@ -169,14 +210,14 @@ function topologicalOrder(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Schedule Gate
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason: string; dayStamp: string } {
   const triggerNode = mission.nodes.find((n) => n.type === "schedule-trigger") as ScheduleTriggerNode | undefined
   if (!triggerNode) {
-    return { due: true, reason: "No schedule trigger — assuming manual/webhook.", dayStamp: "" }
+    return { due: true, reason: "No schedule trigger â€” assuming manual/webhook.", dayStamp: "" }
   }
 
   const timezone = resolveTimezone(triggerNode.triggerTimezone, mission.settings?.timezone)
@@ -188,7 +229,7 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
   if (mission.scheduledAtOverride) {
     const overrideTime = new Date(mission.scheduledAtOverride)
     if (Number.isNaN(overrideTime.getTime())) {
-      // Malformed override — fall through to normal schedule
+      // Malformed override â€” fall through to normal schedule
     } else {
       const diffMs = now.getTime() - overrideTime.getTime()
       // Due if we are within a 15-minute window after the override time
@@ -196,9 +237,9 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
         return { due: true, reason: `Calendar override at ${mission.scheduledAtOverride}.`, dayStamp: local.dayStamp }
       }
       if (diffMs < 0) {
-        return { due: false, reason: `Calendar override pending — ${Math.round(-diffMs / 60000)}m until ${mission.scheduledAtOverride}.`, dayStamp: local.dayStamp }
+        return { due: false, reason: `Calendar override pending â€” ${Math.round(-diffMs / 60000)}m until ${mission.scheduledAtOverride}.`, dayStamp: local.dayStamp }
       }
-      // Override window expired — fall through to normal schedule
+      // Override window expired â€” fall through to normal schedule
     }
   }
 
@@ -224,7 +265,7 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
     return { due: true, reason: "Once: first run.", dayStamp: local.dayStamp }
   }
 
-  // Check day-lock for daily/weekly — don't re-run same day
+  // Check day-lock for daily/weekly â€” don't re-run same day
   if (mode === "daily" || mode === "weekly") {
     if (mission.lastSentLocalDate === local.dayStamp) {
       return { due: false, reason: `Already ran today (${local.dayStamp}).`, dayStamp: local.dayStamp }
@@ -264,29 +305,29 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
   return { due: true, reason: `Schedule gate passed (${mode}) at ${triggerNode.triggerTime || "unknown"}.`, dayStamp: local.dayStamp }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Global Execution Timeout
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const MISSION_MAX_DURATION_MS = Number(process.env.NOVA_MISSION_MAX_DURATION_MS) || 5 * 60 * 1000 // default 5 minutes
 
 /**
- * Public entry point — wraps core execution with a global timeout and retry loop.
+ * Public entry point â€” wraps core execution with a global timeout and retry loop.
  *
  * Retry behaviour is driven by MissionSettings:
  *   - retryOnFail:     must be true to enable retries
  *   - retryCount:      number of retries after the initial failure (default 2)
  *   - retryIntervalMs: base delay before first retry; subsequent delays are
- *                      exponentially backed off with ±10% jitter (default 5 000 ms)
+ *                      exponentially backed off with Â±10% jitter (default 5 000 ms)
  *
  * Each retry creates a new job_runs row (new missionRunId, incremented attempt).
- * The phase 1 gate: retryCount=2 → up to 3 total attempts, last failure → status=dead.
+ * The phase 1 gate: retryCount=2 â†’ up to 3 total attempts, last failure â†’ status=dead.
  */
 export async function executeMission(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
   const attempt = input.attempt ?? 1
   const settings = input.mission.settings
 
-  // ── Single-attempt timeout race ─────────────────────────────────────────────
+  // â”€â”€ Single-attempt timeout race â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null
 
   const timeoutPromise = new Promise<ExecuteMissionResult>((resolve) => {
@@ -314,8 +355,8 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
     },
   )
 
-  // ── Retry logic ─────────────────────────────────────────────────────────────
-  // Skip in-process retry when a pre-claimed slot is provided — the job ledger's
+  // â”€â”€ Retry logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Skip in-process retry when a pre-claimed slot is provided â€” the job ledger's
   // failRun() re-enqueues a new pending run so the execution-tick handles retries.
   if (
     !result.ok &&
@@ -335,9 +376,9 @@ export async function executeMission(input: ExecuteMissionInput): Promise<Execut
   return result
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Core Execution Function
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMissionResult> {
   const { mission, source } = input
@@ -351,9 +392,21 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     console.info("[MissionEngine]", { event, missionId: mission.id, runId, ...data, ts: new Date().toISOString() })
   }
 
-  const userContextId = String(input.scope?.userId || input.scope?.user?.id || mission.userId || "").trim()
+  const userContextId = String(input.userContextId || input.scope?.userId || input.scope?.user?.id || mission.userId || "").trim()
+  const conversationId = String(input.conversationId || input.runKey || `mission:${mission.id}:${runId}`).trim()
+  const sessionKey = String(input.sessionKey || `agent:nova:mission:user:${userContextId}:dm:${conversationId}`).trim()
+  const hasAgentNodes = mission.nodes.some((node) => node.type.startsWith("agent-") || node.type === "provider-selector")
+  if (hasAgentNodes && (!userContextId || !conversationId || !sessionKey)) {
+    return {
+      ok: false,
+      skipped: false,
+      reason: "Agent missions require userContextId, conversationId, and sessionKey.",
+      outputs: [],
+      nodeTraces: [],
+    }
+  }
   const maxAttempts = mission.settings.retryOnFail ? mission.settings.retryCount + 1 : 1
-  // When execution-tick pre-claims a slot, skip enqueue+claim — use the slot directly.
+  // When execution-tick pre-claims a slot, skip enqueue+claim â€” use the slot directly.
   const executionSlot: MissionExecutionGuardDecision = input.preClaimedSlot
     ? { ok: true, slot: input.preClaimedSlot as MissionExecutionSlot }
     : await acquireMissionExecutionSlot({ userContextId, missionId: mission.id, missionRunId: runId, maxAttempts, source })
@@ -378,7 +431,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   try {
-  // ── Schedule Gate ─────────────────────────────────────────────────────────
+  // â”€â”€ Schedule Gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (source === "scheduler") {
     const gate = checkScheduleGate(mission, now)
     if (!gate.due) {
@@ -398,7 +451,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     log("gate.passed", { reason: gate.reason })
   }
 
-  // ── Validate mission ──────────────────────────────────────────────────────
+  // â”€â”€ Validate mission â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   await emitMissionTelemetryEvent({
     eventType: "mission.run.started",
     status: "info",
@@ -448,7 +501,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     }
   }
 
-  // ── Build execution context ───────────────────────────────────────────────
+  // â”€â”€ Build execution context â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const nodesByLabel = new Map(mission.nodes.map((n) => [n.label, n]))
   const nodeOutputs = new Map<string, NodeOutput>()
   const variables: Record<string, string> = {}
@@ -471,17 +524,21 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     nodeOutputs,
     variables,
     scope: input.scope,
+    userContextId,
+    conversationId,
+    sessionKey,
     skillSnapshot: input.skillSnapshot,
     resolveExpr: (template: string) => buildExprResolver(nodeOutputs, nodesByLabel, variables)(template),
     onNodeTrace: input.onNodeTrace,
+    agentState: hasAgentNodes ? buildAgentStateEnvelope(mission, runId, userContextId, conversationId, sessionKey) : undefined,
   }
 
-  // ── Find trigger nodes ────────────────────────────────────────────────────
+  // â”€â”€ Find trigger nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const triggerTypes = new Set(["schedule-trigger", "webhook-trigger", "manual-trigger", "event-trigger"])
   const triggerNodes = mission.nodes.filter((n) => triggerTypes.has(n.type))
   const startIds = triggerNodes.length > 0 ? triggerNodes.map((n) => n.id) : [mission.nodes[0].id]
 
-  // ── Topological sort + cycle detection ───────────────────────────────────
+  // â”€â”€ Topological sort + cycle detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { nodes: orderedNodes, cycleDetected, cycleNodeLabels } = topologicalOrder(startIds, mission.nodes, mission.connections)
   const adjacency = buildAdjacencyMap(mission.connections)
 
@@ -518,8 +575,9 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
 
   log("execution.start", { nodeCount: orderedNodes.length, startIds })
 
-  // ── Execute each node ─────────────────────────────────────────────────────
+  // â”€â”€ Execute each node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let skipReason = ""
+  let hadNodeFailure = false
 
   for (const node of orderedNodes) {
     if (node.disabled) {
@@ -562,6 +620,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
 
     const executor = EXECUTOR_REGISTRY[node.type]
     if (!executor) {
+      hadNodeFailure = true
       const trace: NodeExecutionTrace = {
         nodeId: node.id,
         nodeType: node.type,
@@ -586,7 +645,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
 
     nodeOutputs.set(node.id, output)
 
-    // ── Handle trigger skip (not yet due) ──────────────────────────────────
+    // â”€â”€ Handle trigger skip (not yet due) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (triggerTypes.has(node.type) && output.ok) {
       const triggered = output.data && typeof output.data === "object" && (output.data as Record<string, unknown>).triggered === false
       const skipped = output.data && typeof output.data === "object" && (output.data as Record<string, unknown>).skipped === true
@@ -620,6 +679,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     const endedAt = new Date().toISOString()
 
     if (!output.ok) {
+      hadNodeFailure = true
       const trace: NodeExecutionTrace = {
         nodeId: node.id,
         nodeType: node.type,
@@ -636,7 +696,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
 
       // Route to error port if connected; skip main-port targets so they don't
       // run with an empty/failed upstream. Error-port targets are already in
-      // topological order and will execute normally — their input is the failed
+      // topological order and will execute normally â€” their input is the failed
       // node's output (ok: false) which is already stored in nodeOutputs.
       const allOutgoing = adjacency.get(node.id) || []
       const errorConnections = allOutgoing.filter((c) => c.sourcePort === "error")
@@ -659,7 +719,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       continue
     }
 
-    // ── Condition routing: skip nodes on wrong branch ──────────────────────
+    // â”€â”€ Condition routing: skip nodes on wrong branch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const resolvedPort = output.port || "main"
     const outgoing = adjacency.get(node.id) || []
     if (outgoing.length > 0 && (node.type === "condition" || node.type === "switch")) {
@@ -671,7 +731,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       }
     }
 
-    // ── Collect output node results ────────────────────────────────────────
+    // â”€â”€ Collect output node results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const outputTypes = new Set(["telegram-output", "discord-output", "email-output", "webhook-output", "slack-output"])
     if (outputTypes.has(node.type)) {
       outputs.push({ ok: output.ok, error: output.error, status: undefined })
@@ -693,59 +753,8 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     log("node.completed", { nodeId: node.id, type: node.type })
   }
 
-  // ── Fallback output if no output nodes ran ────────────────────────────────
-  if (outputs.length === 0 || outputs.every((output) => !output.ok)) {
-    const lastOutputText = [...nodeOutputs.values()].map((o) => o.text).filter(Boolean).at(-1)
-    const fallbackText = String(lastOutputText || "").trim() || `Mission "${mission.label}" completed with upstream errors and no user-ready summary.`
-    if (fallbackText) {
-      const primaryChannel = String(mission.integration || "telegram").trim() || "telegram"
-      const fallbackChannels = outputs.length === 0
-        ? [primaryChannel, ...(primaryChannel === "telegram" ? [] : ["telegram"])]
-        : ["telegram", ...(primaryChannel === "telegram" ? [] : [primaryChannel])]
-      const { dispatchOutput } = await import("../output/dispatch")
-      const { humanizeMissionOutputText } = await import("../output/formatters")
-      const { applyMissionOutputQualityGuardrails } = await import("../output/quality")
-
-      const humanized = humanizeMissionOutputText(fallbackText, undefined, { includeSources: true, detailLevel: "standard" })
-      const { text: guarded } = applyMissionOutputQualityGuardrails(humanized)
-      const fallbackTarget = {
-        missionId: mission.id,
-        userContextId: String(input.scope?.userId || input.scope?.user?.id || ""),
-        missionLabel: mission.label,
-        timezone: resolveTimezone(mission.settings?.timezone),
-      }
-
-      for (const channel of fallbackChannels) {
-        try {
-          const fallbackResults = await dispatchOutput(
-            channel,
-            guarded,
-            mission.chatIds,
-            fallbackTarget,
-            input.scope,
-            {
-              missionRunId: runId,
-              runKey: input.runKey,
-              attempt: input.attempt ?? 1,
-              source: source === "scheduler" ? "scheduler" : "trigger",
-              nodeId: "fallback-output",
-              outputIndex: 0,
-              occurredAt: now.toISOString(),
-            },
-          )
-          const first = fallbackResults[0] ?? { ok: false, error: "No result" }
-          outputs.push({ ok: first.ok, error: first.error })
-          log("fallback.output.dispatched", { channel, ok: first.ok })
-          if (first.ok) break
-        } catch (err) {
-          outputs.push({ ok: false, error: String(err) })
-          log("fallback.output.failed", { channel, error: String(err) })
-        }
-      }
-    }
-  }
-
-  const ok = outputs.length === 0 || outputs.some((o) => o.ok)
+  // â”€â”€ Final mission status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const ok = !hadNodeFailure && (outputs.length === 0 || outputs.some((o) => o.ok))
   log("execution.complete", { ok, outputCount: outputs.length, traceCount: nodeTraces.length })
   await emitMissionTelemetryEvent({
     eventType: ok ? "mission.run.completed" : "mission.run.failed",
@@ -772,3 +781,4 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
     await executionSlot.slot?.release()
   }
 }
+

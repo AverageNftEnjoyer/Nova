@@ -9,6 +9,7 @@ import "server-only"
 import { createHash } from "node:crypto"
 
 import { dispatchNotification, type NotificationIntegration } from "@/lib/notifications/dispatcher"
+import { sendSlackMessage } from "@/lib/notifications/slack"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { fetchWithSsrfGuard } from "../web/safe-fetch"
@@ -164,6 +165,7 @@ export async function dispatchOutput(
     outputIndex?: number
     deliveryKey?: string
     occurredAt?: string
+    slackChannel?: string
   },
 ): Promise<OutputResult[]> {
   const userContextId = String(scope?.userId || scope?.user?.id || target.userContextId || "").trim()
@@ -267,55 +269,41 @@ export async function dispatchOutput(
   }
 
   if (channel === "slack") {
-    const urls = (targets || []).map((t) => String(t || "").trim()).filter(Boolean)
-    if (!urls.length) {
-      return [{ ok: false, error: "Slack output requires at least one webhook URL in recipients." }]
-    }
-    const missionRunId = String(metadata?.missionRunId || "").trim()
-    const runKey = String(metadata?.runKey || "").trim()
-    const nodeId = String(metadata?.nodeId || "output").trim() || "output"
-    const outputIndex = Number.isFinite(Number(metadata?.outputIndex))
-      ? Math.max(0, Number(metadata?.outputIndex))
-      : 0
-    const deliveryKey = String(metadata?.deliveryKey || "").trim()
-      || `${String(target.missionId || "mission").trim()}:${missionRunId || runKey || "run"}:${nodeId}:${outputIndex}:${channel}`
-    const results = await Promise.all(urls.map(async (url) => {
-      try {
-        const { response } = await fetchWithSsrfGuard({
-          url,
-          timeoutMs: WEBHOOK_TIMEOUT_MS,
-          maxRedirects: WEBHOOK_MAX_REDIRECTS,
-          init: {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Mission-Delivery-Key": deliveryKey },
-            body: JSON.stringify({
-              text: safeText,
-              scheduleId: target.missionId,
-              label: target.missionLabel,
-              ts: new Date().toISOString(),
-            }),
-          },
-        })
-        return { ok: response.ok, status: response.status, error: response.ok ? undefined : `Slack webhook returned ${response.status}` }
-      } catch (error) {
-        return { ok: false, error: error instanceof Error ? error.message : "Slack webhook send failed" }
-      }
-    }))
-    if (results.some((result) => result.ok)) {
-      try {
-        await mirrorMissionOutputToGoogleCalendar({
-          channel,
+    try {
+      const channelName = String(metadata?.slackChannel || "").trim()
+      const sendResults = await sendSlackMessage(
+        {
           text: safeText,
-          userContextId,
-          target,
-          scope,
-          metadata,
-        })
-      } catch (error) {
-        console.warn("[dispatchOutput][gcalendar_mirror] Mirror failed:", error instanceof Error ? error.message : String(error))
+          channel: channelName || undefined,
+        },
+        scope,
+      )
+      const results = sendResults.map((result) => ({
+        ok: result.ok,
+        status: result.status,
+        error: result.ok ? undefined : (result.error || `Slack webhook returned ${result.status}`),
+      }))
+      if (results.some((result) => result.ok)) {
+        try {
+          await mirrorMissionOutputToGoogleCalendar({
+            channel,
+            text: safeText,
+            userContextId,
+            target,
+            scope,
+            metadata,
+          })
+        } catch (error) {
+          console.warn("[dispatchOutput][gcalendar_mirror] Mirror failed:", error instanceof Error ? error.message : String(error))
+        }
       }
+      return results
+    } catch (error) {
+      return [{
+        ok: false,
+        error: `channel_unavailable:${channel}:${error instanceof Error ? error.message : "unknown_error"}`,
+      }]
     }
-    return results
   }
 
   return [{ ok: false, error: `Unsupported output channel: ${channel}` }]

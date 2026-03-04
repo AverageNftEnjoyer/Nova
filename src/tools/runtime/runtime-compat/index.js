@@ -4,7 +4,7 @@ import { spawnSync } from "child_process";
 import { randomUUID } from "crypto";
 import { pathToFileURL } from "url";
 
-const NPM_BIN = process.platform === "win32" ? "npm.cmd" : "npm";
+const NPM_BIN = "npm";
 
 function normalizeUserContextId(value) {
   const trimmed = String(value || "").trim().toLowerCase();
@@ -33,6 +33,20 @@ function parseCsvList(values) {
   );
 }
 
+function resolveToolRuntimeRootDir(rootDir) {
+  const fallback = path.resolve(String(rootDir || process.cwd() || "."));
+  let current = fallback;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const hasPackageJson = fs.existsSync(path.join(current, "package.json"));
+    const hasTsConfig = fs.existsSync(path.join(current, "tsconfig.json"));
+    if (hasPackageJson && hasTsConfig) return current;
+    const parent = path.dirname(current);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  return fallback;
+}
+
 export function createToolRuntime(options) {
   const {
     enabled,
@@ -56,6 +70,12 @@ export function createToolRuntime(options) {
     describeUnknownError,
   } = options;
 
+  const runtimeRootDir = resolveToolRuntimeRootDir(rootDir);
+  const configuredRootDir = path.resolve(String(rootDir || process.cwd() || "."));
+  if (runtimeRootDir !== configuredRootDir) {
+    console.log(`[ToolLoop] Adjusted runtime root from ${configuredRootDir} to ${runtimeRootDir}`);
+  }
+
   const sharedState = {
     initialized: false,
     initPromise: null,
@@ -69,17 +89,15 @@ export function createToolRuntime(options) {
   const scopedStates = new Map();
   let runtimeModules = null;
   let runtimeModulesPromise = null;
+  let buildBootstrapAttempted = false;
+  let buildBootstrapReady = false;
   const includeSharedMemorySourceForScopedUsers =
     String(process.env.NOVA_MEMORY_INCLUDE_SHARED_SOURCE || "").trim() === "1";
 
-  function ensureAgentCoreBuild() {
-    const distMarker = path.join(rootDir, "dist", "tools", "core", "registry.js");
-    if (fs.existsSync(distMarker)) {
-      return true;
-    }
+  function tryBuildAgentCoreWithNpm() {
     try {
       const result = spawnSync(NPM_BIN, ["run", "build:agent-core"], {
-        cwd: rootDir,
+        cwd: runtimeRootDir,
         stdio: "ignore",
         shell: false,
         windowsHide: true,
@@ -87,14 +105,83 @@ export function createToolRuntime(options) {
       });
       if (result.error || result.status !== 0) {
         const detail = result.error?.message || `exit=${String(result.status)}`;
-        console.warn(`[ToolLoop] Failed building TypeScript core: ${detail}`);
+        console.warn(`[ToolLoop] Failed building TypeScript core via npm: ${detail}`);
         return false;
       }
-      return fs.existsSync(distMarker);
+      return true;
     } catch (err) {
-      console.warn(`[ToolLoop] Failed building TypeScript core: ${describeUnknownError(err)}`);
+      console.warn(`[ToolLoop] Failed building TypeScript core via npm: ${describeUnknownError(err)}`);
       return false;
     }
+  }
+
+  async function tryBuildAgentCoreInProcess() {
+    try {
+      const ts = await import("typescript");
+      const tsconfigPath = path.join(runtimeRootDir, "tsconfig.json");
+      if (!fs.existsSync(tsconfigPath)) {
+        console.warn(`[ToolLoop] Missing tsconfig for in-process build at ${tsconfigPath}`);
+        return false;
+      }
+
+      const readResult = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+      if (readResult?.error) {
+        const detail = ts.flattenDiagnosticMessageText(readResult.error.messageText, "\n");
+        console.warn(`[ToolLoop] Failed reading tsconfig for in-process build: ${detail}`);
+        return false;
+      }
+
+      const parsed = ts.parseJsonConfigFileContent(readResult.config, ts.sys, runtimeRootDir);
+      if (Array.isArray(parsed?.errors) && parsed.errors.length > 0) {
+        const first = parsed.errors[0];
+        const detail = ts.flattenDiagnosticMessageText(first.messageText, "\n");
+        console.warn(`[ToolLoop] Failed parsing tsconfig for in-process build: ${detail}`);
+        return false;
+      }
+
+      const program = ts.createProgram({
+        rootNames: Array.isArray(parsed.fileNames) ? parsed.fileNames : [],
+        options: parsed.options || {},
+      });
+      const emitResult = program.emit();
+      if (emitResult.emitSkipped) {
+        const diagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics || []);
+        const first = diagnostics[0];
+        const detail = first
+          ? ts.flattenDiagnosticMessageText(first.messageText, "\n")
+          : "emit skipped";
+        console.warn(`[ToolLoop] Failed in-process TypeScript build: ${detail}`);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn(`[ToolLoop] Failed in-process TypeScript build: ${describeUnknownError(err)}`);
+      return false;
+    }
+  }
+
+  async function ensureAgentCoreBuild() {
+    const distMarker = path.join(runtimeRootDir, "dist", "tools", "core", "registry.js");
+    if (fs.existsSync(distMarker)) {
+      buildBootstrapAttempted = true;
+      buildBootstrapReady = true;
+      return true;
+    }
+    if (buildBootstrapAttempted && !buildBootstrapReady) return false;
+
+    buildBootstrapAttempted = true;
+    const npmBuilt = tryBuildAgentCoreWithNpm();
+    if (npmBuilt && fs.existsSync(distMarker)) {
+      buildBootstrapReady = true;
+      return true;
+    }
+
+    const inProcessBuilt = await tryBuildAgentCoreInProcess();
+    buildBootstrapReady = inProcessBuilt && fs.existsSync(distMarker);
+    if (!buildBootstrapReady) {
+      console.warn("[ToolLoop] Agent core build bootstrap unavailable; tool-loop runtime remains disabled until dist exists.");
+    }
+    return buildBootstrapReady;
   }
 
   async function loadRuntimeModules() {
@@ -102,13 +189,13 @@ export function createToolRuntime(options) {
     if (runtimeModulesPromise) return runtimeModulesPromise;
 
     runtimeModulesPromise = (async () => {
-      const buildReady = ensureAgentCoreBuild();
+      const buildReady = await ensureAgentCoreBuild();
       if (!buildReady) return null;
 
-      const registryModuleUrl = pathToFileURL(path.join(rootDir, "dist", "tools", "core", "registry.js")).href;
-      const executorModuleUrl = pathToFileURL(path.join(rootDir, "dist", "tools", "core", "executor.js")).href;
-      const protocolModuleUrl = pathToFileURL(path.join(rootDir, "dist", "tools", "core", "protocol.js")).href;
-      const memoryModuleUrl = pathToFileURL(path.join(rootDir, "dist", "memory", "manager.js")).href;
+      const registryModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "tools", "core", "registry.js")).href;
+      const executorModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "tools", "core", "executor.js")).href;
+      const protocolModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "tools", "core", "protocol.js")).href;
+      const memoryModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "memory", "manager.js")).href;
 
       const [{ createToolRegistry }, { executeToolUse }, protocolModule, memoryModule] = await Promise.all([
         import(registryModuleUrl),
@@ -209,7 +296,7 @@ export function createToolRuntime(options) {
           webSearchApiKey,
         },
         {
-          workspaceDir: rootDir,
+          workspaceDir: runtimeRootDir,
           memoryManager,
         },
       );

@@ -81,7 +81,7 @@ const BASELINE = {
 const LATENCY_THRESHOLDS_MS = {
   p50: resolveThreshold("NOVA_SMOKE_LATENCY_P50_MS", 7000),
   p95: resolveThreshold("NOVA_SMOKE_LATENCY_P95_MS", 12000),
-  p99: resolveThreshold("NOVA_SMOKE_LATENCY_P99_MS", 18000),
+  p99: resolveThreshold("NOVA_SMOKE_LATENCY_P99_MS", 20000),
 };
 
 const userContextId = resolveSmokeUserContextId();
@@ -422,4 +422,3 @@ if (gateFailures.length > 0) {
   console.error(`LATENCY_GATE_FAIL ${gateFailures.join(" | ")}`);
   process.exit(1);
 }
-

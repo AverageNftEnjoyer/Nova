@@ -41,6 +41,7 @@ const providersRuntimeCompatModule = await import(
 );
 
 const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler/index.js");
+const executeChatRequestSource = read("src/runtime/modules/chat/core/chat-handler/execute-chat-request/index.js");
 const devConversationLogSource = read("src/runtime/modules/chat/telemetry/dev-conversation-log/index.js");
 
 const {
@@ -108,15 +109,32 @@ await run("WSD5 fast-lane prompt budget profile reduces context budget determini
 
 await run("WSD6 chat handler + dev log are wired for latency staging", async () => {
   const requiredChatTokens = [
-    'import { createChatLatencyTelemetry } from "../telemetry/latency-telemetry.js";',
     "const turnPolicy = buildLatencyTurnPolicy(text, {",
     "const executionPolicy = resolveToolExecutionPolicy(turnPolicy, {",
     "latencyTelemetry.addStage(\"runtime_tool_init\"",
+  ];
+  const latencyTelemetryImportTokens = [
+    'import { createChatLatencyTelemetry } from "../telemetry/latency-telemetry.js";',
+    'import { createChatLatencyTelemetry } from "../../telemetry/latency-telemetry/index.js";',
+  ];
+  assert.equal(
+    latencyTelemetryImportTokens.some((token) => chatHandlerSource.includes(token)),
+    true,
+    "missing chat-handler token: createChatLatencyTelemetry import",
+  );
+  for (const token of requiredChatTokens) {
+    assert.equal(chatHandlerSource.includes(token), true, `missing chat-handler token: ${token}`);
+  }
+  const requiredExecuteTokens = [
     "runSummary.latencyStages = latencySnapshot.stageMs || {};",
     "runSummary.correctionPassCount = Number.isFinite(Number(latencySnapshot.counters?.output_constraint_correction_passes))",
   ];
-  for (const token of requiredChatTokens) {
-    assert.equal(chatHandlerSource.includes(token), true, `missing chat-handler token: ${token}`);
+  for (const token of requiredExecuteTokens) {
+    assert.equal(
+      executeChatRequestSource.includes(token),
+      true,
+      `missing execute-chat-request token: ${token}`,
+    );
   }
 
   const requiredLogTokens = [

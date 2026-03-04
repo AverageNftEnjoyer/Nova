@@ -113,7 +113,20 @@ const contractModule = loadModule("hud/lib/missions/output/contract.ts", {
 const briefingQualityModule = loadModule("hud/lib/missions/output/briefing-quality.ts", {});
 const briefingModule = loadModule("hud/lib/missions/output/briefing-presenter.ts", {
   "./briefing-quality": briefingQualityModule,
+  "@/lib/shared/timezone": {
+    getRuntimeTimezone: () => "America/New_York",
+  },
 });
+const integrationsStoreStub = {
+  loadIntegrationsConfig: async () => ({
+    gcalendar: {
+      connected: false,
+      permissions: { allowCreate: false },
+      accounts: [],
+      activeAccountId: "",
+    },
+  }),
+};
 let latestBriefingPreview = "";
 const realUserContextId = process.env.NOVA_SMOKE_USER_CONTEXT_ID || "dd5ea07a-b92e-4ce8-a5f9-fe229168c80f";
 
@@ -185,10 +198,24 @@ await run("P27-C3 integration: Telegram dispatch receives readable bounded Coinb
         return [{ ok: true, status: 200 }];
       },
     },
+    "@/lib/notifications/slack": {
+      sendSlackMessage: async () => [{ ok: true, status: 200 }],
+    },
     "@/lib/telegram/pending-messages": {
       addPendingMessage: async () => undefined,
     },
-    "@/lib/integrations/server-store": {},
+    "@/lib/shared/timezone": {
+      getRuntimeTimezone: () => "America/New_York",
+      resolveTimezone: (...values) => {
+        for (const value of values) {
+          const normalized = String(value || "").trim();
+          if (normalized) return normalized;
+        }
+        return "America/New_York";
+      },
+    },
+    "@/lib/integrations/server-store": integrationsStoreStub,
+    "@/lib/integrations/store/server-store": integrationsStoreStub,
     "../web/safe-fetch": {
       fetchWithSsrfGuard: async () => ({
         response: { ok: true, status: 200 },
@@ -277,6 +304,116 @@ await run("P27-C4 auth/internal Coinbase notes are stripped from user-visible me
   assert.equal(guarded.text.includes("Unauthorized"), false);
   assert.equal(guarded.text.includes("jwt_bearer"), false);
   assert.equal(guarded.text.includes("private account data"), false);
+});
+
+await run("P27-S1 slack output dispatch routes through sendSlackMessage with channel override", async () => {
+  const capturedSlack = [];
+  const dispatchModule = loadModule("hud/lib/missions/output/dispatch.ts", {
+    "@/lib/notifications/dispatcher": {
+      dispatchNotification: async () => {
+        throw new Error("dispatchNotification should not be called for slack output");
+      },
+    },
+    "@/lib/notifications/slack": {
+      sendSlackMessage: async (input) => {
+        capturedSlack.push(input);
+        return [{ ok: true, status: 200 }];
+      },
+    },
+    "@/lib/shared/timezone": {
+      getRuntimeTimezone: () => "America/New_York",
+      resolveTimezone: (...values) => {
+        for (const value of values) {
+          const normalized = String(value || "").trim();
+          if (normalized) return normalized;
+        }
+        return "America/New_York";
+      },
+    },
+    "@/lib/integrations/server-store": integrationsStoreStub,
+    "@/lib/integrations/store/server-store": integrationsStoreStub,
+    "../web/safe-fetch": {
+      fetchWithSsrfGuard: async () => ({
+        response: { ok: true, status: 200 },
+      }),
+    },
+    "./contract": contractModule,
+  });
+
+  const result = await dispatchModule.dispatchOutput(
+    "slack",
+    "Slack smoke message",
+    [],
+    {
+      id: "mission-p27-slack",
+      missionId: "mission-p27-slack",
+      userId: realUserContextId,
+      userContextId: realUserContextId,
+      label: "Slack Mission",
+      missionLabel: "Slack Mission",
+      timezone: "America/New_York",
+    },
+    { userId: realUserContextId },
+    { missionRunId: "run-p27-slack", nodeId: "slack-node-1", slackChannel: "#ops-alerts" },
+  );
+
+  assert.equal(Array.isArray(result), true);
+  assert.equal(result[0]?.ok, true);
+  assert.equal(capturedSlack.length, 1);
+  assert.equal(String(capturedSlack[0]?.text || ""), "Slack smoke message");
+  assert.equal(String(capturedSlack[0]?.channel || ""), "#ops-alerts");
+});
+
+await run("P27-S2 slack output dispatch maps sender failures to stable channel_unavailable error", async () => {
+  const dispatchModule = loadModule("hud/lib/missions/output/dispatch.ts", {
+    "@/lib/notifications/dispatcher": {
+      dispatchNotification: async () => [{ ok: true, status: 200 }],
+    },
+    "@/lib/notifications/slack": {
+      sendSlackMessage: async () => {
+        throw new Error("Slack integration is disabled");
+      },
+    },
+    "@/lib/shared/timezone": {
+      getRuntimeTimezone: () => "America/New_York",
+      resolveTimezone: (...values) => {
+        for (const value of values) {
+          const normalized = String(value || "").trim();
+          if (normalized) return normalized;
+        }
+        return "America/New_York";
+      },
+    },
+    "@/lib/integrations/server-store": integrationsStoreStub,
+    "@/lib/integrations/store/server-store": integrationsStoreStub,
+    "../web/safe-fetch": {
+      fetchWithSsrfGuard: async () => ({
+        response: { ok: true, status: 200 },
+      }),
+    },
+    "./contract": contractModule,
+  });
+
+  const result = await dispatchModule.dispatchOutput(
+    "slack",
+    "Slack smoke message",
+    [],
+    {
+      id: "mission-p27-slack-err",
+      missionId: "mission-p27-slack-err",
+      userId: realUserContextId,
+      userContextId: realUserContextId,
+      label: "Slack Mission",
+      missionLabel: "Slack Mission",
+      timezone: "America/New_York",
+    },
+    { userId: realUserContextId },
+    { missionRunId: "run-p27-slack-err", nodeId: "slack-node-2" },
+  );
+
+  assert.equal(Array.isArray(result), true);
+  assert.equal(result[0]?.ok, false);
+  assert.equal(String(result[0]?.error || "").includes("channel_unavailable:slack"), true);
 });
 
 await run("P27-U1 NBA parser strips noisy non-score text and keeps clean final score rows only", async () => {

@@ -1,0 +1,11 @@
+{
+  "ts": "2026-03-04T18:24:25.001Z",
+  "userContextCount": 4,
+  "missionCount": 3,
+  "findingCount": 0,
+  "legacyNodeTypes": [
+    "sub-workflow"
+  ],
+  "findings": [],
+  "parseErrors": []
+}

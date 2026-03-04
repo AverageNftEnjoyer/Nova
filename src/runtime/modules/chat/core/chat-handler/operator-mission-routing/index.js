@@ -1,0 +1,226 @@
+import {
+  shouldBuildWorkflowFromPrompt,
+  shouldConfirmWorkflowFromPrompt,
+} from "../../../routing/intent-router/index.js";
+import {
+  buildMissionConfirmReply,
+  clearPendingMissionConfirm,
+  getPendingMissionConfirm,
+  isMissionConfirmNo,
+  isMissionConfirmYes,
+  setPendingMissionConfirm,
+  stripAssistantInvocation,
+  stripMissionConfirmPrefix,
+} from "../../chat-utils/index.js";
+
+const MISSION_FOLLOWUP_DETAIL_PATTERN =
+  /\b(at|am|pm|est|et|pst|pt|cst|ct|telegram|discord|telegram|daily|every|morning|night|tomorrow)\b/i;
+
+export function mergeMissionPrompt(basePrompt, incomingText) {
+  const base = String(basePrompt || "").replace(/\s+/g, " ").trim();
+  const incomingRaw = stripAssistantInvocation(incomingText);
+  const incoming = String(incomingRaw || incomingText || "").replace(/\s+/g, " ").trim();
+  if (!base) return incoming;
+  if (!incoming) return base;
+  const baseNorm = base.toLowerCase();
+  const incomingNorm = incoming.toLowerCase();
+  if (incomingNorm === baseNorm) return base;
+  if (baseNorm.includes(incomingNorm)) return base;
+  if (incomingNorm.includes(baseNorm)) return incoming;
+  return `${base}. ${incoming}`.replace(/\s+/g, " ").trim();
+}
+
+export async function handleMissionContextRouting(input = {}) {
+  const {
+    text,
+    normalizedTextForRouting,
+    missionContextIsPrimary,
+    missionShortTermContext,
+    missionPolicy,
+    userContextId,
+    conversationId,
+    sessionKey,
+    ctx,
+    sendDirectAssistantReply,
+    upsertShortTermContextState,
+    clearShortTermContextState,
+  } = input;
+
+  if (!missionContextIsPrimary || !missionPolicy) return null;
+
+  if (missionPolicy.isCancel(normalizedTextForRouting)) {
+    clearPendingMissionConfirm(sessionKey);
+    clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
+    const reply = await sendDirectAssistantReply(
+      text,
+      "Okay. I canceled the mission follow-up context.",
+      ctx,
+      "Clearing mission context",
+    );
+    return {
+      route: "mission_context_canceled",
+      ok: true,
+      reply,
+    };
+  }
+
+  const missionIsFollowUpRefine =
+    missionPolicy.isNonCriticalFollowUp(normalizedTextForRouting)
+    && !missionPolicy.isNewTopic(normalizedTextForRouting)
+    && !missionPolicy.isCancel(normalizedTextForRouting);
+  if (missionIsFollowUpRefine && !getPendingMissionConfirm(sessionKey)) {
+    const basePrompt = String(missionShortTermContext?.slots?.pendingPrompt || "").trim();
+    const mergedPrompt = mergeMissionPrompt(basePrompt, text);
+    if (mergedPrompt) {
+      setPendingMissionConfirm(sessionKey, mergedPrompt);
+      upsertShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "mission_task",
+        topicAffinityId: "mission_task",
+        slots: {
+          pendingPrompt: mergedPrompt,
+          phase: "confirm_refine",
+          lastUserText: String(text || "").trim(),
+        },
+      });
+      const reply = await sendDirectAssistantReply(
+        text,
+        buildMissionConfirmReply(mergedPrompt),
+        ctx,
+        "Refining mission",
+      );
+      return {
+        route: "mission_context_refine",
+        ok: true,
+        reply,
+      };
+    }
+  }
+  return null;
+}
+
+export async function handleMissionBuildRouting(input = {}) {
+  const {
+    text,
+    userContextId,
+    conversationId,
+    sessionKey,
+    ctx,
+    delegateToOrgChartWorker,
+    sendDirectAssistantReply,
+    handleWorkflowBuild,
+    upsertShortTermContextState,
+    clearShortTermContextState,
+  } = input;
+
+  const pendingMission = getPendingMissionConfirm(sessionKey);
+  if (pendingMission) {
+    if (isMissionConfirmNo(text)) {
+      clearPendingMissionConfirm(sessionKey);
+      clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
+      const reply = await sendDirectAssistantReply(
+        text,
+        "No problem. I will not create a mission. If you want one later, say: create a mission for ...",
+        ctx,
+      );
+      return {
+        route: "mission_confirm_declined",
+        ok: true,
+        reply,
+      };
+    }
+
+    if (isMissionConfirmYes(text)) {
+      const details = stripMissionConfirmPrefix(text);
+      const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, details);
+      clearPendingMissionConfirm(sessionKey);
+      clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
+      return await delegateToOrgChartWorker({
+        routeHint: "workflow_build",
+        responseRoute: "workflow_build",
+        text: mergedPrompt,
+        toolCalls: ["workflow_build"],
+        provider: "",
+        providerSource: "chat-runtime-fallback",
+        userContextId,
+        conversationId,
+        sessionKey,
+        run: async () => handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" }),
+      });
+    }
+
+    if (MISSION_FOLLOWUP_DETAIL_PATTERN.test(text)) {
+      const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, text);
+      setPendingMissionConfirm(sessionKey, mergedPrompt);
+      upsertShortTermContextState({
+        userContextId,
+        conversationId,
+        domainId: "mission_task",
+        topicAffinityId: "mission_task",
+        slots: {
+          pendingPrompt: mergedPrompt,
+          phase: "confirm_refine",
+          lastUserText: String(text || "").trim(),
+        },
+      });
+      const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(mergedPrompt), ctx);
+      return {
+        route: "mission_confirm_refine",
+        ok: true,
+        reply,
+      };
+    }
+  }
+
+  if (shouldBuildWorkflowFromPrompt(text)) {
+    clearPendingMissionConfirm(sessionKey);
+    upsertShortTermContextState({
+      userContextId,
+      conversationId,
+      domainId: "mission_task",
+      topicAffinityId: "mission_task",
+      slots: {
+        pendingPrompt: String(text || "").trim(),
+        phase: "build_attempt",
+        lastUserText: String(text || "").trim(),
+      },
+    });
+    return await delegateToOrgChartWorker({
+      routeHint: "workflow_build",
+      responseRoute: "workflow_build",
+      text,
+      toolCalls: ["workflow_build"],
+      provider: "",
+      providerSource: "chat-runtime-fallback",
+      userContextId,
+      conversationId,
+      sessionKey,
+      run: async () => handleWorkflowBuild(text, ctx, { engine: "src" }),
+    });
+  }
+
+  if (shouldConfirmWorkflowFromPrompt(text)) {
+    const candidatePrompt = stripAssistantInvocation(text) || text;
+    setPendingMissionConfirm(sessionKey, candidatePrompt);
+    upsertShortTermContextState({
+      userContextId,
+      conversationId,
+      domainId: "mission_task",
+      topicAffinityId: "mission_task",
+      slots: {
+        pendingPrompt: candidatePrompt,
+        phase: "confirm_prompt",
+        lastUserText: String(text || "").trim(),
+      },
+    });
+    const reply = await sendDirectAssistantReply(text, buildMissionConfirmReply(candidatePrompt), ctx);
+    return {
+      route: "mission_confirm_prompt",
+      ok: true,
+      reply,
+    };
+  }
+
+  return null;
+}

@@ -105,7 +105,18 @@ await run("Runtime files contain configured tool-loop guardrail hooks", () => {
     chatHandlerPath,
     "utf8",
   );
-  assert.equal(chatHandler.includes("toolLoopGuardrails"), true);
+  const executeChatRequestPath = resolveExistingPath(
+    [
+      path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler", "execute-chat-request", "index.js"),
+      path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-handler", "execute-chat-request.js"),
+    ],
+    "execute-chat-request source",
+  );
+  const executeChatRequestSource = fs.readFileSync(executeChatRequestPath, "utf8");
+  assert.equal(
+    chatHandler.includes("toolLoopGuardrails") || executeChatRequestSource.includes("toolLoopGuardrails"),
+    true,
+  );
 
   const agentRunnerPath = resolveExistingPath(
     [

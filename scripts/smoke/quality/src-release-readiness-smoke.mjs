@@ -32,6 +32,7 @@ function fileExists(relativePath) {
 
 const packageJson = JSON.parse(read("package.json"));
 const versionSourceCandidates = [
+  "hud/lib/meta/version/index.ts",
   "hud/lib/meta/version.ts",
   "hud/lib/version.ts",
 ];
@@ -67,7 +68,7 @@ await run("P20-C1 release gate scripts are present", async () => {
     "smoke:src-latency-gate",
     "smoke:src-release-readiness",
     "smoke:src-release",
-    "verify:phase15",
+    "verify:release-readiness",
   ];
   for (const scriptName of requiredScripts) {
     assert.equal(typeof packageJson?.scripts?.[scriptName], "string", `missing script: ${scriptName}`);
@@ -103,9 +104,9 @@ await run("P20-C1d release gate includes Discord delivery hard gate", async () =
 });
 
 await run("P20-C2 verify script points to a real file", async () => {
-  const verifyScript = String(packageJson?.scripts?.["verify:phase15"] || "").trim();
+  const verifyScript = String(packageJson?.scripts?.["verify:release-readiness"] || "").trim();
   const match = /^node\s+(.+)$/.exec(verifyScript);
-  assert.ok(match?.[1], "verify:phase15 must be a node script path");
+  assert.ok(match?.[1], "verify:release-readiness must be a node script path");
   const target = match[1].trim().replace(/^\.\/+/, "");
   assert.equal(fileExists(target), true, `missing verify target: ${target}`);
 });
@@ -155,3 +156,4 @@ for (const result of results) summarize(result);
 console.log(`\nSummary: pass=${passCount} fail=${failCount} skip=${skipCount}`);
 
 if (failCount > 0) process.exit(1);
+

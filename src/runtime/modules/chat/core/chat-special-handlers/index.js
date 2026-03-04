@@ -512,6 +512,219 @@ async function runSpotifyViaHudApi(action, intent, ctx) {
   }
 }
 
+function sanitizeYouTubeTopic(value) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return normalized || "news";
+}
+
+function extractYouTubeTopic(text) {
+  const input = String(text || "").trim();
+  if (!input) return "news";
+  const patterns = [
+    /\bshow\s+me\s+info\s+on\s+(.+)$/i,
+    /\b(?:show|find|get|pull)\s+(?:me\s+)?(?:news|video|videos|broadcast|broadcasts)\s+(?:about|on|for)\s+(.+)$/i,
+    /\b(?:youtube|you\s*tube)\s+(?:news|video|videos|broadcast|broadcasts)\s+(?:about|on|for)\s+(.+)$/i,
+    /\b(?:switch|change)\s+(?:the\s+)?(?:youtube\s+)?topic\s+(?:to|about)\s+(.+)$/i,
+    /\b(?:watch|show)\s+(?:me\s+)?(.+)\s+(?:on|in)\s+youtube$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = input.match(pattern);
+    if (!match?.[1]) continue;
+    const topic = sanitizeYouTubeTopic(match[1]);
+    if (topic) return topic;
+  }
+
+  const youtubePrefixMatch = input.match(/\b(?:youtube|you\s*tube)\s+(.+)$/i);
+  if (youtubePrefixMatch?.[1]) {
+    const topic = sanitizeYouTubeTopic(youtubePrefixMatch[1]);
+    if (topic) return topic;
+  }
+  return "news";
+}
+
+function normalizeYouTubeIntentFallback(text) {
+  const input = String(text || "").trim().toLowerCase();
+  if (!input) {
+    return { action: "set_topic", topic: "news", response: "Switching YouTube to news." };
+  }
+  if (/\b(next|another|different)\s+(video|news|clip|broadcast)\b/i.test(input) || /\b(refresh|update)\s+youtube\b/i.test(input)) {
+    return { action: "refresh", topic: "", response: "Refreshing your YouTube feed." };
+  }
+  const topic = extractYouTubeTopic(text);
+  const replyTopic = topic.replace(/-/g, " ");
+  return { action: "set_topic", topic, response: `Switching YouTube to ${replyTopic}.` };
+}
+
+async function runYouTubeHomeControlViaHudApi(intent, ctx) {
+  const token = String(ctx?.supabaseAccessToken || "").trim();
+  const normalizedUserContextId = String(ctx?.userContextId || "").trim();
+  if (!token || !normalizedUserContextId) {
+    return {
+      attempted: false,
+      ok: false,
+      message: "I need your authenticated Nova session before I can control YouTube.",
+      code: "youtube.unauthorized",
+    };
+  }
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  if (RUNTIME_SHARED_TOKEN) headers[RUNTIME_SHARED_TOKEN_HEADER] = RUNTIME_SHARED_TOKEN;
+  const body = {
+    action: intent.action === "refresh" ? "refresh" : "set_topic",
+    topic: intent.topic ? sanitizeYouTubeTopic(intent.topic) : undefined,
+    userContextId: normalizedUserContextId,
+  };
+  try {
+    const res = await fetch(`${HUD_API_BASE_URL}/api/integrations/youtube/home-control`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.ok === true) {
+      return {
+        attempted: true,
+        ok: true,
+        message: String(data?.message || "").trim(),
+        topic: String(data?.topic || "").trim(),
+        code: "",
+      };
+    }
+    return {
+      attempted: true,
+      ok: false,
+      message: String(data?.error || "").trim() || `YouTube control request failed (${res.status}).`,
+      code: String(data?.code || "").trim(),
+      topic: String(data?.topic || "").trim(),
+    };
+  } catch (err) {
+    return {
+      attempted: true,
+      ok: false,
+      message: describeUnknownError(err),
+      code: "youtube.network",
+      topic: "",
+    };
+  }
+}
+
+// ===== YouTube sub-handler =====
+export async function handleYouTube(text, ctx) {
+  const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
+  stopSpeaking();
+  broadcastState("thinking", userContextId);
+  broadcastThinkingStatus("Updating YouTube", userContextId);
+  const userText = ctx.raw_text || text;
+  broadcastMessage("user", userText, source, conversationId, userContextId);
+  if (sessionId) {
+    sessionRuntime.appendTranscriptTurn(sessionId, "user", userText, {
+      source,
+      sender: sender || null,
+      sessionKey: sessionKey || undefined,
+      conversationId: conversationId || undefined,
+      nlpConfidence: Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : undefined,
+      nlpCorrectionCount: Array.isArray(ctx.nlpCorrections) ? ctx.nlpCorrections.length : undefined,
+      ...(ctx.nlpBypass ? { nlpBypass: true } : {}),
+    });
+  }
+
+  const assistantStreamId = createAssistantStreamId();
+  const summary = {
+    route: "youtube",
+    ok: true,
+    reply: "",
+    error: "",
+    provider: "",
+    model: "",
+    toolCalls: ["youtube_home_control"],
+    toolExecutions: [],
+    retries: [],
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    estimatedCostUsd: null,
+    memoryRecallUsed: false,
+    webSearchPreloadUsed: false,
+    linkUnderstandingUsed: false,
+    requestHints: {},
+    canRunToolLoop: false,
+    canRunWebSearch: false,
+    canRunWebFetch: false,
+    latencyMs: 0,
+  };
+  const startedAt = Date.now();
+  let assistantStreamStarted = false;
+
+  const ensureAssistantStreamStarted = () => {
+    if (assistantStreamStarted) return;
+    broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);
+    assistantStreamStarted = true;
+  };
+
+  async function emitAssistantReply(replyText) {
+    const normalized = normalizeAssistantReply(String(replyText || ""));
+    if (normalized.skip) {
+      if (assistantStreamStarted) {
+        broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
+        assistantStreamStarted = false;
+      }
+      return "";
+    }
+    ensureAssistantStreamStarted();
+    broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source, undefined, conversationId, userContextId);
+    broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);
+    assistantStreamStarted = false;
+    if (sessionId) {
+      sessionRuntime.appendTranscriptTurn(sessionId, "assistant", normalized.text, {
+        source,
+        sender: "nova",
+        sessionKey: sessionKey || undefined,
+        conversationId: conversationId || undefined,
+      });
+    }
+    if (useVoice) {
+      await withTimeout(
+        speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice),
+        10_000,
+        "YouTube TTS",
+      ).catch(() => {});
+    }
+    return normalized.text;
+  }
+
+  try {
+    const intent = normalizeYouTubeIntentFallback(text);
+    broadcastThinkingStatus("Applying YouTube update", userContextId);
+    const hudResult = await runYouTubeHomeControlViaHudApi(intent, ctx);
+    let reply = String(intent.response || "Updating YouTube.").trim();
+    if (hudResult.ok) {
+      const topicLabel = sanitizeYouTubeTopic(hudResult.topic || intent.topic).replace(/-/g, " ");
+      reply = hudResult.message || `Switched YouTube to ${topicLabel}.`;
+    } else {
+      summary.ok = false;
+      summary.error = hudResult.message || "I couldn't update YouTube right now.";
+      reply = summary.error;
+    }
+    summary.reply = await emitAssistantReply(String(reply || "Done.").slice(0, 180));
+  } catch (e) {
+    summary.ok = false;
+    summary.error = String(e instanceof Error ? e.message : describeUnknownError(e));
+    summary.reply = await emitAssistantReply("I couldn't update YouTube right now.");
+  } finally {
+    broadcastThinkingStatus("", userContextId);
+    broadcastState("idle", userContextId);
+    summary.latencyMs = Date.now() - startedAt;
+  }
+  return summary;
+}
+
 // ===== Spotify sub-handler =====
 export async function handleSpotify(text, ctx, llmCtx) {
   const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
@@ -890,12 +1103,14 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
     }
     if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
 
-    const label = data?.workflow?.label || "Generated Workflow";
+    const label = data?.missionSummary?.label || data?.mission?.label || "Generated Workflow";
     const provider = data?.provider || "LLM";
     const model = data?.model || "default model";
-    const stepCount = Array.isArray(data?.workflow?.summary?.workflowSteps) ? data.workflow.summary.workflowSteps.length : 0;
-    const scheduleTime = data?.workflow?.summary?.schedule?.time || "09:00";
-    const scheduleTimezone = data?.workflow?.summary?.schedule?.timezone || "America/New_York";
+    const stepCount = Number.isFinite(Number(data?.missionSummary?.nodeCount))
+      ? Number(data.missionSummary.nodeCount)
+      : (Array.isArray(data?.mission?.nodes) ? data.mission.nodes.length : 0);
+    const scheduleTime = data?.missionSummary?.schedule?.time || "09:00";
+    const scheduleTimezone = data?.missionSummary?.schedule?.timezone || "America/New_York";
 
     const reply = data?.deployed
       ? `Built and deployed "${label}" with ${stepCount} workflow steps. It is scheduled for ${scheduleTime} ${scheduleTimezone}. Generated using ${provider} ${model}. Open the Missions page to review or edit it.`

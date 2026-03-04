@@ -205,8 +205,8 @@ async function main() {
   };
   fs.appendFileSync(indexPath, `${JSON.stringify(record)}\n`, "utf8");
 
-  console.log(`[phase6] Reliability review written: ${path.relative(workspaceRoot, reportPath)}`);
-  console.log(`[phase6] SLO breach count: ${breached.length}`);
+  console.log(`[mission-prod-ready] Reliability review written: ${path.relative(workspaceRoot, reportPath)}`);
+  console.log(`[mission-prod-ready] SLO breach count: ${breached.length}`);
 
   if (args.failOnBreach && breached.length > 0) {
     process.exit(2);
@@ -217,3 +217,4 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
+

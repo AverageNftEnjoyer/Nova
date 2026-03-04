@@ -63,6 +63,7 @@ export function renderStepIcon(type: WorkflowStepType, className: string) {
 export function getMissionIntegrationIcon(integration: string, className: string) {
   if (integration === "telegram") return <Send className={className} />
   if (integration === "discord") return <MessageCircle className={className} />
+  if (integration === "slack") return <MessageCircle className={className} />
   if (integration === "email") return <Mail className={className} />
   if (integration === "openai" || integration === "claude" || integration === "grok" || integration === "gemini") {
     return <Sparkles className={className} />
@@ -104,7 +105,7 @@ export function isTemplateSecret(value: string): boolean {
 }
 
 export function usesSavedIntegrationDestination(channel: WorkflowStep["outputChannel"]): boolean {
-  return channel === "telegram" || channel === "discord"
+  return channel === "telegram" || channel === "discord" || channel === "slack"
 }
 
 export function sanitizeOutputRecipients(
@@ -219,7 +220,7 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       conditionValue: resolvedType === "condition" ? (typeof step.conditionValue === "string" ? step.conditionValue : "") : undefined,
       conditionLogic: resolvedType === "condition" ? (step.conditionLogic === "any" ? "any" : "all") : undefined,
       conditionFailureAction: resolvedType === "condition" ? (step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip") : undefined,
-      outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
+      outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "slack" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
       outputTiming: resolvedType === "output" ? (step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate") : undefined,
       outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
       outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
@@ -227,6 +228,7 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       outputRecipients: resolvedType === "output"
         ? sanitizeOutputRecipients(
           step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+            || step.outputChannel === "slack"
             ? step.outputChannel
             : "telegram",
           typeof step.outputRecipients === "string" ? step.outputRecipients : "",

@@ -1,4 +1,4 @@
-﻿# NovaOS Current Release Notes
+# NovaOS Current Release Notes
 
 ## Version
 - `V.22 Alpha`
@@ -18,10 +18,11 @@
 
 ## Evidence Artifacts
 - `archive/logs/chatkit-events.jsonl`
-- `archive/logs/chatkit-phase5-gate-report.json`
+- `archive/logs/chatkit-release-readiness-report.json`
 
 ## Known Constraints
 - Live-gate quality confidence is strongest when shadow comparison volume is non-zero.
 - Latency/reliability assertions should use a scoped recent lookback window for clean adjudication.
+
 
 

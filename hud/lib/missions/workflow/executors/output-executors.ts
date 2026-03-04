@@ -75,6 +75,7 @@ async function dispatchToChannel(
   metadata?: {
     nodeId?: string
     outputIndex?: number
+    slackChannel?: string
   },
 ): Promise<NodeOutput> {
   if (!text.trim()) {
@@ -116,6 +117,7 @@ async function dispatchToChannel(
         nodeId: metadata?.nodeId,
         outputIndex: metadata?.outputIndex,
         occurredAt: ctx.now.toISOString(),
+        slackChannel: metadata?.slackChannel,
       },
     )
     const first = results[0] ?? { ok: false, error: "No result returned" }
@@ -184,6 +186,10 @@ export async function executeSlackOutput(
   ctx: ExecutionContext,
 ): Promise<NodeOutput> {
   const text = resolveOutputText(node, ctx)
-  const webhookUrl = node.webhookUrl ? ctx.resolveExpr(node.webhookUrl) : (ctx.mission?.chatIds?.[0] || "")
-  return dispatchToChannel("slack", text, webhookUrl ? [webhookUrl] : [], ctx, { nodeId: node.id, outputIndex: 0 })
+  const slackChannel = node.channel ? ctx.resolveExpr(node.channel) : ""
+  return dispatchToChannel("slack", text, [], ctx, {
+    nodeId: node.id,
+    outputIndex: 0,
+    slackChannel: slackChannel || undefined,
+  })
 }
