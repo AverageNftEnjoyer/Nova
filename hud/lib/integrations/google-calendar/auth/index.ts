@@ -4,31 +4,28 @@
  * Reuses Gmail's OAuth app credentials and HMAC state signing.
  * Requests calendar event management scope in addition to base Gmail scopes.
  */
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
 import { gmailError } from "../../gmail/errors.ts"
 import type { GmailClientConfig, GmailOAuthStatePayload } from "../../gmail/types.ts"
+import { getOAuthStateSecret } from "@/lib/security/oauth-state-secret"
 
 export const GMAIL_CALENDAR_EXTRA_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
 ]
 
-const DEV_FALLBACK_STATE_SECRET = createHash("sha256")
-  .update(`nova-dev-gmail-calendar-oauth:${process.cwd()}`)
-  .digest("hex")
-
 function getOAuthSecret(): string {
-  const configured = String(
-    process.env.NOVA_GMAIL_OAUTH_STATE_SECRET || process.env.NOVA_ENCRYPTION_KEY || "",
-  ).trim()
-  if (configured) return configured
-  if (process.env.NODE_ENV !== "development") {
+  try {
+    return getOAuthStateSecret()
+  } catch (error) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : "NOVA_ENCRYPTION_KEY is required for OAuth state signing."
     throw gmailError(
       "gmail.internal",
-      "NOVA_GMAIL_OAUTH_STATE_SECRET (or NOVA_ENCRYPTION_KEY) is required in production.",
+      message,
     )
   }
-  return DEV_FALLBACK_STATE_SECRET
 }
 
 function signState(payload: GmailOAuthStatePayload & { flow: "gmail-calendar" }): string {
@@ -79,7 +76,7 @@ export function buildGmailCalendarOAuthUrl(params: {
   const userId = String(params.userId || "").trim()
   if (!userId) throw gmailError("gmail.invalid_request", "Missing user scope for GmailCalendar OAuth.", { status: 400 })
   const clientId = String(params.config.clientId || "").trim()
-  if (!clientId) throw gmailError("gmail.invalid_request", "Gmail OAuth client id is missing (NOVA_GMAIL_CLIENT_ID).", { status: 400 })
+  if (!clientId) throw gmailError("gmail.invalid_request", "Gmail OAuth client id is missing.", { status: 400 })
 
   const safeReturnTo = params.returnTo.startsWith("/") ? params.returnTo : "/integrations"
   const state = signState({

@@ -21,18 +21,26 @@ function normalizeYoutubeRedirectUri(rawValue: string, appUrl: string): string {
 
 export async function getYouTubeClientConfig(scope?: YouTubeScope): Promise<YouTubeClientConfig> {
   const integrations = await loadIntegrationsConfig(scope)
-  const appUrl = String(process.env.NOVA_APP_URL || "http://localhost:3000")
-    .trim()
-    .replace(/\/+$/, "")
   const configuredRedirect = String(
-    process.env.NOVA_YOUTUBE_REDIRECT_URI ||
-      integrations.youtube.redirectUri ||
-      process.env.NOVA_GMAIL_REDIRECT_URI ||
-      "",
+    integrations.youtube.redirectUri || "",
   ).trim()
+  const appUrl = (() => {
+    if (!configuredRedirect) return "http://localhost:3000"
+    try {
+      return new URL(configuredRedirect).origin.replace(/\/+$/, "")
+    } catch {
+      return "http://localhost:3000"
+    }
+  })()
   return {
-    clientId: String(integrations.gmail.oauthClientId || process.env.NOVA_GMAIL_CLIENT_ID || "").trim(),
-    clientSecret: String(integrations.gmail.oauthClientSecret || process.env.NOVA_GMAIL_CLIENT_SECRET || "").trim(),
+    clientId: String(
+      integrations.gmail.oauthClientId ||
+      "",
+    ).trim(),
+    clientSecret: String(
+      integrations.gmail.oauthClientSecret ||
+      "",
+    ).trim(),
     redirectUri: normalizeYoutubeRedirectUri(configuredRedirect, appUrl),
     appUrl,
   }

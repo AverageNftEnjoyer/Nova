@@ -14,6 +14,11 @@ import {
   deriveDiffOperationsFromMissionSnapshot,
   type MissionDiffOperation,
 } from "@/lib/missions/workflow/diff"
+import {
+  isMissionAgentExecutorEnabled,
+  isMissionAgentGraphEnabled,
+  missionUsesAgentGraph,
+} from "@/lib/missions/workflow/agent-flags"
 import { appendMissionVersionEntry, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/server"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { purgeMissionDerivedData } from "@/lib/missions/purge"
@@ -54,6 +59,17 @@ async function removeMissionScheduleBestEffort(missionId: string, userId: string
   }).catch((error) => {
     console.warn("[missions.route][gcalendar_sync] schedule mirror delete failed:", error instanceof Error ? error.message : String(error))
   })
+}
+
+function getAgentMissionRolloutBlockReason(mission: Pick<Mission, "nodes">): string | null {
+  if (!missionUsesAgentGraph(mission)) return null
+  if (!isMissionAgentGraphEnabled()) {
+    return "Agent mission graphs are disabled by NOVA_MISSIONS_AGENT_GRAPH_ENABLED."
+  }
+  if (!isMissionAgentExecutorEnabled()) {
+    return "Agent mission execution is disabled by NOVA_MISSIONS_AGENT_EXECUTOR_ENABLED."
+  }
+  return null
 }
 
 /**
@@ -132,6 +148,13 @@ export async function POST(req: Request) {
         aiIntegration: selected.provider,
         aiModel: selected.model,
       })
+      const rolloutBlockReason = getAgentMissionRolloutBlockReason(mission)
+      if (rolloutBlockReason) {
+        return NextResponse.json(
+          { ok: false, error: rolloutBlockReason },
+          { status: 409 },
+        )
+      }
       await upsertMission(mission, userId)
       await syncMissionScheduleBestEffort(mission, verified)
       await appendMissionVersionEntry({
@@ -210,6 +233,20 @@ export async function POST(req: Request) {
           { status: 409 },
         )
       }
+      const rolloutBlockReason = getAgentMissionRolloutBlockReason(diffResult.mission)
+      if (rolloutBlockReason) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: rolloutBlockReason,
+            validation: {
+              blocked: true,
+              issues: [],
+            },
+          },
+          { status: 409 },
+        )
+      }
       await emitMissionTelemetryEvent({
         eventType: "mission.validation.completed",
         status: "success",
@@ -261,6 +298,13 @@ export async function POST(req: Request) {
   }
   if (!Array.isArray(mission.connections)) {
     return NextResponse.json({ ok: false, error: "Mission connections must be an array." }, { status: 400 })
+  }
+  const rolloutBlockReason = getAgentMissionRolloutBlockReason(mission)
+  if (rolloutBlockReason) {
+    return NextResponse.json(
+      { ok: false, error: rolloutBlockReason },
+      { status: 409 },
+    )
   }
   const graphIssues = validateMissionGraphForVersioning(mission)
   if (graphIssues.length > 0) {

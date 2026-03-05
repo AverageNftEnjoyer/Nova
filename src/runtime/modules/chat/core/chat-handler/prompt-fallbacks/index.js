@@ -1,7 +1,6 @@
 import { OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS } from "../../../../../core/constants/index.js";
 import { extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
 import { validateOutputConstraints } from "../../../quality/output-constraints/index.js";
-import { isWeatherRequestText } from "../../../fast-path/weather-fast-path/index.js";
 
 function readIntEnv(name, fallback, minValue, maxValue) {
   const parsed = Number.parseInt(String(process.env[name] || "").trim(), 10);
@@ -185,9 +184,6 @@ function buildDeterministicEmptyReplyFallback(userText, { strict = false } = {})
   }
   if (/\bone sentence only\b|\bin one sentence\b/i.test(raw)) {
     return "I hit a temporary generation failure, so please retry and I will answer in one sentence.";
-  }
-  if (isWeatherRequestText(raw)) {
-    return "I could not complete the live weather lookup right now, so please retry with city and state.";
   }
   if (strict) {
     return "I hit a temporary generation issue; please retry this exact request.";

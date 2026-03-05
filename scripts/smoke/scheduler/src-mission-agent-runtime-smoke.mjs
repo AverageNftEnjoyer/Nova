@@ -337,6 +337,11 @@ await run("P0-A5 engine-level execution preserves deterministic supervisor merge
         shouldRetry: () => false,
         computeRetryDelayMs: () => 0,
       },
+      "./agent-flags": {
+        isMissionAgentGraphEnabled: () => true,
+        isMissionAgentExecutorEnabled: () => true,
+        missionUsesAgentGraph: () => true,
+      },
     },
   );
 

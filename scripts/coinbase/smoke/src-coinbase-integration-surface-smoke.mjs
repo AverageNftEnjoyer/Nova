@@ -10,8 +10,8 @@ import {
   createStaticCredentialProvider,
   mapCoinbaseHttpError,
 } from "../../../dist/integrations/coinbase/index.js";
-import { tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
-import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/fast-path/coinbase-command-parser/index.js";
+import { runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
+import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/workers/finance/coinbase-command-parser/index.js";
 
 const results = [];
 
@@ -214,7 +214,7 @@ await run("P11-R1 runtime isolation + cross-conversation routing under load", as
     const user = i % 2 === 0 ? "u-load-a" : "u-load-b";
     const conv = i % 2 === 0 ? `conv-a-${i}` : `conv-b-${i}`;
     requests.push(
-      tryCryptoFastPathReply({
+      runCryptoRequest({
         text: "price btc",
         runtimeTools,
         availableTools,
@@ -364,5 +364,6 @@ for (const result of results) {
 console.log(`report=${reportPath}`);
 console.log(`Summary: pass=${pass} fail=${fail} skip=${skipCount}`);
 if (fail > 0) process.exit(1);
+
 
 

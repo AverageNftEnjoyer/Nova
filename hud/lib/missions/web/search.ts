@@ -256,12 +256,6 @@ export async function searchWebAndCollect(
   }
 
   if (!braveApiKey) {
-    braveApiKey = String(
-      process.env.BRAVE_API_KEY || process.env.NOVA_WEB_SEARCH_API_KEY || process.env.MYAGENT_WEB_SEARCH_API_KEY || "",
-    ).trim()
-  }
-
-  if (!braveApiKey) {
     return {
       searchUrl: `https://search.brave.com/search?q=${encodeURIComponent(queryVariants[0] || query)}`,
       query,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { isCryptoRequestText, tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
-import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/fast-path/coinbase-command-parser/index.js";
+import { isCryptoRequestText, runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
+import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/workers/finance/coinbase-command-parser/index.js";
 
 const availableTools = [
   { name: "coinbase_capabilities" },
@@ -111,7 +111,7 @@ assert.equal(parseCoinbaseCommand("my crypto report").intent, "report", "alias s
 assert.equal(parseCoinbaseCommand("portfolio").intent, "portfolio", "alias should route portfolio intent");
 assert.equal(parseCoinbaseCommand("price btc").intent, "price", "alias should route price intent");
 
-const priceReply = await tryCryptoFastPathReply({
+const priceReply = await runCryptoRequest({
   text: "nova what's the price of btc",
   runtimeTools,
   availableTools,
@@ -122,7 +122,7 @@ assert.match(String(priceReply.reply || ""), /BTC-USD now:/i, "price reply shoul
 assert.match(String(priceReply.reply || ""), /Freshness:/i, "price reply should include freshness metadata");
 assert.match(String(priceReply.reply || ""), /Source:/i, "price reply should include source metadata");
 
-const ambiguousReply = await tryCryptoFastPathReply({
+const ambiguousReply = await runCryptoRequest({
   text: "coinbase price btx",
   runtimeTools,
   availableTools,
@@ -131,7 +131,7 @@ const ambiguousReply = await tryCryptoFastPathReply({
 });
 assert.match(String(ambiguousReply.reply || ""), /not fully confident/i, "ambiguous ticker should ask clarifying question");
 
-const portfolioReply = await tryCryptoFastPathReply({
+const portfolioReply = await runCryptoRequest({
   text: "portfolo",
   runtimeTools,
   availableTools,
@@ -140,7 +140,7 @@ const portfolioReply = await tryCryptoFastPathReply({
 });
 assert.match(String(portfolioReply.reply || ""), /couldn't verify/i, "portfolio auth failure should be explicit no-verify");
 
-const reportAliasReply = await tryCryptoFastPathReply({
+const reportAliasReply = await runCryptoRequest({
   text: "my crypto report",
   runtimeTools,
   availableTools,
@@ -149,7 +149,7 @@ const reportAliasReply = await tryCryptoFastPathReply({
 });
 assert.match(String(reportAliasReply.reply || ""), /crypto report/i, "report alias should resolve to report flow");
 
-const weeklyPnlReply = await tryCryptoFastPathReply({
+const weeklyPnlReply = await runCryptoRequest({
   text: "weekly pnl",
   runtimeTools,
   availableTools,
@@ -160,7 +160,7 @@ assert.match(String(weeklyPnlReply.reply || ""), /crypto report/i, "weekly pnl a
 
 const previousDisabledCategories = process.env.NOVA_COINBASE_DISABLED_COMMAND_CATEGORIES;
 process.env.NOVA_COINBASE_DISABLED_COMMAND_CATEGORIES = "reports";
-const blockedReportReply = await tryCryptoFastPathReply({
+const blockedReportReply = await runCryptoRequest({
   text: "my crypto report",
   runtimeTools,
   availableTools,
@@ -171,7 +171,7 @@ if (previousDisabledCategories === undefined) delete process.env.NOVA_COINBASE_D
 else process.env.NOVA_COINBASE_DISABLED_COMMAND_CATEGORIES = previousDisabledCategories;
 assert.match(String(blockedReportReply.reply || ""), /disabled by admin policy/i, "disabled report category should fail closed");
 
-const cryptoHelpReply = await tryCryptoFastPathReply({
+const cryptoHelpReply = await runCryptoRequest({
   text: "crypto help",
   runtimeTools,
   availableTools,
@@ -180,7 +180,7 @@ const cryptoHelpReply = await tryCryptoFastPathReply({
 });
 assert.match(String(cryptoHelpReply.reply || ""), /Commands:/i, "crypto help should include supported commands guidance");
 
-const mixedMissionReply = await tryCryptoFastPathReply({
+const mixedMissionReply = await runCryptoRequest({
   text: "build me a morning mission with nba recap, inspirational quote, sui price, and a tech headline",
   runtimeTools,
   availableTools,
@@ -194,3 +194,4 @@ assert.equal(runtimeTools.calls.some((call) => call.userContextId === "u2"), tru
 assert.equal(runtimeTools.calls.every((call) => call.userContextId.length > 0), true, "tool calls should never drop userContextId");
 
 console.log("[coinbase:chat-fast-path:smoke] crypto routing + confidence + safe failure policy passed.");
+

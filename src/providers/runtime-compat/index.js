@@ -247,15 +247,9 @@ function resolveIntegrationsConfigPath(userContextId) {
   );
 }
 
-function resolveProviderApiKey(provider, integrationApiKey) {
+function resolveProviderApiKey(integrationApiKey) {
   const fromIntegration = unwrapStoredSecret(integrationApiKey);
-  if (String(fromIntegration || "").trim()) return String(fromIntegration || "").trim();
-  if (provider === "claude") return String(process.env.ANTHROPIC_API_KEY || "").trim();
-  if (provider === "grok") return String(process.env.XAI_API_KEY || "").trim();
-  if (provider === "gemini") {
-    return String(process.env.GEMINI_API_KEY || "").trim() || String(process.env.GOOGLE_API_KEY || "").trim();
-  }
-  return String(process.env.OPENAI_API_KEY || "").trim();
+  return String(fromIntegration || "").trim();
 }
 
 function resolveProviderConnectedState(connectedFlag, apiKey) {
@@ -343,10 +337,10 @@ export function loadIntegrationsRuntime(options = {}) {
           : parsed?.activeLlmProvider === "openai"
             ? "openai"
             : "openai";
-    const openaiApiKey = resolveProviderApiKey("openai", openaiIntegration.apiKey);
-    const claudeApiKey = resolveProviderApiKey("claude", claudeIntegration.apiKey);
-    const grokApiKey = resolveProviderApiKey("grok", grokIntegration.apiKey);
-    const geminiApiKey = resolveProviderApiKey("gemini", geminiIntegration.apiKey);
+    const openaiApiKey = resolveProviderApiKey(openaiIntegration.apiKey);
+    const claudeApiKey = resolveProviderApiKey(claudeIntegration.apiKey);
+    const grokApiKey = resolveProviderApiKey(grokIntegration.apiKey);
+    const geminiApiKey = resolveProviderApiKey(geminiIntegration.apiKey);
     return {
       sourcePath: configPath,
       activeProvider,
@@ -388,18 +382,14 @@ export function loadIntegrationsRuntime(options = {}) {
       gmail: gmailIntegration
     };
   } catch {
-    const activeProvider = parseActiveProvider(String(process.env.NOVA_ACTIVE_LLM_PROVIDER || "").trim() || "openai");
-    const openaiApiKey = resolveProviderApiKey("openai", "");
-    const claudeApiKey = resolveProviderApiKey("claude", "");
-    const grokApiKey = resolveProviderApiKey("grok", "");
-    const geminiApiKey = resolveProviderApiKey("gemini", "");
+    const activeProvider = "openai";
     return {
       sourcePath: configPath,
       activeProvider,
-      openai: { connected: openaiApiKey.length > 0, apiKey: openaiApiKey, baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
-      claude: { connected: claudeApiKey.length > 0, apiKey: claudeApiKey, baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
-      grok: { connected: grokApiKey.length > 0, apiKey: grokApiKey, baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
-      gemini: { connected: geminiApiKey.length > 0, apiKey: geminiApiKey, baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
+      openai: { connected: false, apiKey: "", baseURL: DEFAULT_OPENAI_BASE_URL, model: DEFAULT_CHAT_MODEL },
+      claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
+      grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
+      gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
       spotify: {
         connected: false,
         spotifyUserId: "",
@@ -424,7 +414,7 @@ export function loadOpenAIIntegrationRuntime(options = {}) {
     const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
     const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-    const apiKey = resolveProviderApiKey("openai", integration.apiKey);
+    const apiKey = resolveProviderApiKey(integration.apiKey);
     const baseURL = toOpenAiLikeBase(
       typeof integration.baseUrl === "string" ? integration.baseUrl : "",
       DEFAULT_OPENAI_BASE_URL
@@ -434,9 +424,8 @@ export function loadOpenAIIntegrationRuntime(options = {}) {
       : DEFAULT_CHAT_MODEL;
     return { apiKey, baseURL, model, sourcePath: configPath };
   } catch {
-    const apiKey = resolveProviderApiKey("openai", "");
     return {
-      apiKey,
+      apiKey: "",
       baseURL: DEFAULT_OPENAI_BASE_URL,
       model: DEFAULT_CHAT_MODEL,
       sourcePath: configPath,

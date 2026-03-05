@@ -22,7 +22,7 @@ function read(relPath) {
 }
 
 await run("IAB-1 bridge enforces timeout + retry controls", async () => {
-  const source = read("src/runtime/modules/chat/core/chat-special-handlers/integration-api-bridge/index.js");
+  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
   assert.equal(source.includes("fetchWithTimeoutAndRetry"), true);
   assert.equal(source.includes("AbortController"), true);
   assert.equal(source.includes("NOVA_INTEGRATION_BRIDGE_TIMEOUT_MS"), true);
@@ -30,19 +30,19 @@ await run("IAB-1 bridge enforces timeout + retry controls", async () => {
 });
 
 await run("IAB-2 spotify bridge maps aborts to timeout code", async () => {
-  const source = read("src/runtime/modules/chat/core/chat-special-handlers/integration-api-bridge/index.js");
+  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
   assert.equal(source.includes('code: errorCode'), true);
   assert.equal(source.includes('"spotify.timeout"'), true);
 });
 
 await run("IAB-3 youtube bridge maps aborts to timeout code", async () => {
-  const source = read("src/runtime/modules/chat/core/chat-special-handlers/integration-api-bridge/index.js");
+  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
   assert.equal(source.includes('"youtube.timeout"'), true);
   assert.equal(source.includes('code: errorCode'), true);
 });
 
 await run("IAB-4 mission bridge posts with idempotency support", async () => {
-  const source = read("src/runtime/modules/chat/core/chat-special-handlers/integration-api-bridge/index.js");
+  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
   assert.equal(source.includes("runMissionBuildViaHudApi"), true);
   assert.equal(source.includes("/api/missions/build"), true);
   assert.equal(source.includes('headers["X-Idempotency-Key"] = idempotencyKey'), true);
@@ -56,3 +56,4 @@ for (const result of results) {
 }
 console.log(`\nSummary: pass=${passCount} fail=${failCount}`);
 if (failCount > 0) process.exit(1);
+

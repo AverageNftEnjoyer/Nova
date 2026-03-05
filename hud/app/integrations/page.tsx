@@ -33,6 +33,7 @@ import {
   GEMINI_DEFAULT_BASE_URL,
   GMAIL_DEFAULT_REDIRECT_URI,
   SPOTIFY_DEFAULT_REDIRECT_URI,
+  YOUTUBE_DEFAULT_REDIRECT_URI,
   hexToRgba,
 } from "./constants"
 
@@ -405,7 +406,7 @@ export default function IntegrationsPage() {
                 ? config.youtube.permissions.allowVideoDetails
                 : true,
             },
-            redirectUri: typeof config.youtube?.redirectUri === "string" ? config.youtube.redirectUri : "http://localhost:3000/api/integrations/youtube/callback",
+            redirectUri: typeof config.youtube?.redirectUri === "string" ? config.youtube.redirectUri : YOUTUBE_DEFAULT_REDIRECT_URI,
             tokenConfigured: Boolean(config.youtube?.tokenConfigured),
           },
           gmail: {

@@ -125,12 +125,29 @@ export function ChatShellController() {
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
 
+  const activeConversationStreaming = useMemo(() => {
+    const activeConversationId = String(activeConvo?.id || "").trim()
+    if (!activeConversationId) return false
+    for (let i = chatTransportEvents.length - 1; i >= 0; i -= 1) {
+      const event = chatTransportEvents[i]
+      const eventConversationId =
+        "conversationId" in event && typeof event.conversationId === "string"
+          ? event.conversationId.trim()
+          : ""
+      if (eventConversationId && eventConversationId !== activeConversationId) continue
+      if (event.type === "assistant_stream_done") return false
+      if (event.type === "assistant_stream_start" || event.type === "assistant_stream_delta") return true
+    }
+    return false
+  }, [activeConvo?.id, chatTransportEvents])
+
   // Single canonical thinking signal from runtime state + active stream id.
   const isThinking = useMemo(() => {
     if (novaState === "thinking") return true
     if (streamingAssistantId) return true
+    if (activeConversationStreaming) return true
     return false
-  }, [novaState, streamingAssistantId])
+  }, [activeConversationStreaming, novaState, streamingAssistantId])
 
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
@@ -232,10 +249,7 @@ export function ChatShellController() {
       const resolvedPendingConvoId = pendingConvoId
         ? resolveConversationIdForAgent(pendingConvoId) || pendingConvoId
         : ""
-      const targetConvoExists = resolvedPendingConvoId
-        ? conversations.some((entry) => String(entry.id || "").trim() === resolvedPendingConvoId)
-        : false
-      if (resolvedPendingConvoId && resolvedPendingConvoId !== activeConvo.id && targetConvoExists) {
+      if (resolvedPendingConvoId && resolvedPendingConvoId !== activeConvo.id) {
         void handleSelectConvo(resolvedPendingConvoId)
         return
       }
@@ -248,6 +262,10 @@ export function ChatShellController() {
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
       if (!activeUserId) {
+        pendingBootSendHandledRef.current = true
+        pendingBootSendOpTokenRef.current = ""
+        pendingBootSendDispatchedAtRef.current = 0
+        sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
         return
       }
 

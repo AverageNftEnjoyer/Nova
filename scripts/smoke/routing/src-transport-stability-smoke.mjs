@@ -33,7 +33,8 @@ const srcVoiceLoopPath = "src/runtime/audio/voice-loop/index.js";
 const srcEntrypointPath = "src/runtime/core/entrypoint/index.js";
 const srcChatHandlerPath = "src/runtime/modules/chat/core/chat-handler/index.js";
 const srcExecuteChatRequestPath = "src/runtime/modules/chat/core/chat-handler/execute-chat-request/index.js";
-const srcChatSpecialHandlersPath = "src/runtime/modules/chat/core/chat-special-handlers/index.js";
+const srcDirectAssistantReplyPath = "src/runtime/modules/chat/workers/shared/direct-assistant-reply/index.js";
+const srcMemoryWorkerPath = "src/runtime/modules/chat/workers/system/memory-agent/index.js";
 const srcConfigPath = "src/runtime/core/config/index.js";
 const srcVoiceModulePath = "src/runtime/modules/audio/voice/index.js";
 const rootLauncherPath = "nova.js";
@@ -44,7 +45,8 @@ const srcVoiceLoop = read(srcVoiceLoopPath);
 const srcEntrypoint = read(srcEntrypointPath);
 const srcChatHandler = read(srcChatHandlerPath);
 const srcExecuteChatRequest = read(srcExecuteChatRequestPath);
-const srcChatSpecialHandlers = read(srcChatSpecialHandlersPath);
+const srcDirectAssistantReply = read(srcDirectAssistantReplyPath);
+const srcMemoryWorker = read(srcMemoryWorkerPath);
 const srcConfig = read(srcConfigPath);
 const srcVoiceModule = read(srcVoiceModulePath);
 const rootLauncher = read(rootLauncherPath);
@@ -104,12 +106,12 @@ await run("P14-C4 Assistant stream framing remains unchanged", async () => {
 });
 
 await run("Manual memory updates emit assistant stream events", async () => {
-  const memoryHandlerSource = `${srcChatHandler}\n${srcChatSpecialHandlers}`;
-  assert.equal(memoryHandlerSource.includes("async function handleMemoryUpdate(text, ctx)"), true);
-  assert.equal(memoryHandlerSource.includes("function sendAssistantReply(reply)"), true);
-  assert.equal(memoryHandlerSource.includes("broadcastAssistantStreamStart(assistantStreamId, source, undefined, conversationId, userContextId);"), true);
-  assert.equal(memoryHandlerSource.includes("broadcastAssistantStreamDelta(assistantStreamId, normalized.text, source, undefined, conversationId, userContextId);"), true);
-  assert.equal(memoryHandlerSource.includes("broadcastAssistantStreamDone(assistantStreamId, source, undefined, conversationId, userContextId);"), true);
+  assert.equal(srcChatHandler.includes("handleMemoryWorker"), true);
+  assert.equal(srcMemoryWorker.includes("export async function handleMemoryWorker(text, ctx)"), true);
+  assert.equal(srcMemoryWorker.includes("sendDirectAssistantReply("), true);
+  assert.equal(srcDirectAssistantReply.includes("broadcastAssistantStreamStart(streamId, source, undefined, conversationId, userContextId);"), true);
+  assert.equal(srcDirectAssistantReply.includes("broadcastAssistantStreamDelta(streamId, normalizedReply.text, source, undefined, conversationId, userContextId);"), true);
+  assert.equal(srcDirectAssistantReply.includes("broadcastAssistantStreamDone(streamId, source, undefined, conversationId, userContextId);"), true);
 });
 
 await run("Runtime launch/import graph is src-owned", async () => {

@@ -31,14 +31,18 @@ const weatherRoutingModule = await import(
 const chatUtilsModule = await import(
   pathToFileURL(path.join(process.cwd(), "src", "runtime", "modules", "chat", "core", "chat-utils", "index.js")).href,
 );
-const weatherFastPathModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src", "runtime", "modules", "chat", "fast-path", "weather-fast-path", "index.js")).href,
+const weatherServiceModule = await import(
+  pathToFileURL(path.join(process.cwd(), "src", "runtime", "modules", "chat", "workers", "market", "weather-service", "index.js")).href,
 );
 
 const { handleMissionContextRouting, handleMissionBuildRouting } = missionRoutingModule;
 const { handleWeatherConfirmationRouting } = weatherRoutingModule;
 const { setPendingMissionConfirm, clearPendingMissionConfirm, getPendingMissionConfirm } = chatUtilsModule;
-const { setPendingWeatherConfirm, clearPendingWeatherConfirm, getPendingWeatherConfirm } = weatherFastPathModule;
+const {
+  writePendingWeatherConfirmation,
+  clearPendingWeatherConfirmation,
+  readPendingWeatherConfirmation,
+} = weatherServiceModule;
 
 await run("P20-C1 mission context cancel clears pending state and short-term context", async () => {
   const sessionKey = "agent:nova:hud:user:test-user:dm:mission-cancel";
@@ -73,6 +77,9 @@ await run("P20-C2 mission confirm yes delegates merged prompt to workflow build 
   const sessionKey = "agent:nova:hud:user:test-user:dm:mission-confirm";
   setPendingMissionConfirm(sessionKey, "Create a daily BTC digest");
   let delegatedText = "";
+  let delegatedRouteHint = "";
+  let delegatedToolCalls = [];
+  let missionWorkerCalled = false;
   const result = await handleMissionBuildRouting({
     text: "yes at 9am on telegram",
     userContextId: "test-user",
@@ -81,10 +88,15 @@ await run("P20-C2 mission confirm yes delegates merged prompt to workflow build 
     ctx: {},
     delegateToOrgChartWorker: async (payload) => {
       delegatedText = String(payload?.text || "");
+      delegatedRouteHint = String(payload?.routeHint || "");
+      delegatedToolCalls = Array.isArray(payload?.toolCalls) ? payload.toolCalls : [];
       return { route: "workflow_build", ok: true, delegatedText };
     },
     sendDirectAssistantReply: async () => "",
-    handleWorkflowBuild: async () => ({ route: "workflow_build", ok: true }),
+    missionWorker: async () => {
+      missionWorkerCalled = true;
+      return { route: "workflow_build", ok: true };
+    },
     upsertShortTermContextState: () => {},
     clearShortTermContextState: () => {},
   });
@@ -92,42 +104,64 @@ await run("P20-C2 mission confirm yes delegates merged prompt to workflow build 
   assert.equal(result?.ok, true);
   assert.equal(delegatedText.toLowerCase().includes("daily btc digest"), true);
   assert.equal(delegatedText.toLowerCase().includes("9am"), true);
+  assert.equal(delegatedRouteHint, "workflow");
+  assert.deepEqual(delegatedToolCalls, ["mission"]);
+  assert.equal(missionWorkerCalled, false);
   assert.equal(getPendingMissionConfirm(sessionKey), null);
 });
 
 await run("P20-C3 weather confirm no declines and clears pending confirmation", async () => {
   const sessionKey = "agent:nova:hud:user:test-user:dm:weather-no";
-  setPendingWeatherConfirm(sessionKey, "weather in paris", "Paris, France");
+  writePendingWeatherConfirmation(sessionKey, "weather in paris", "Paris, France");
   const result = await handleWeatherConfirmationRouting({
     text: "no",
     sessionKey,
-    userContextId: "test-user",
     ctx: {},
     sendDirectAssistantReply: async () => "declined",
   });
   assert.equal(result?.route, "weather_confirm_declined");
   assert.equal(result?.ok, true);
-  assert.equal(getPendingWeatherConfirm(sessionKey), null);
+  assert.equal(readPendingWeatherConfirmation(sessionKey), null);
 });
 
 await run("P20-C4 weather non-confirm text clears stale pending confirmation", async () => {
   const sessionKey = "agent:nova:hud:user:test-user:dm:weather-stale";
-  setPendingWeatherConfirm(sessionKey, "weather in tokyo", "Tokyo, Japan");
+  writePendingWeatherConfirmation(sessionKey, "weather in tokyo", "Tokyo, Japan");
   const result = await handleWeatherConfirmationRouting({
     text: "new question",
     sessionKey,
-    userContextId: "test-user",
     ctx: {},
     sendDirectAssistantReply: async () => "",
   });
   assert.equal(result, null);
-  assert.equal(getPendingWeatherConfirm(sessionKey), null);
+  assert.equal(readPendingWeatherConfirmation(sessionKey), null);
+});
+
+await run("P20-C5 weather confirm yes resolves through shared weather lookup", async () => {
+  const sessionKey = "agent:nova:hud:user:test-user:dm:weather-yes";
+  writePendingWeatherConfirmation(sessionKey, "weather in paris", "Paris, France");
+  const result = await handleWeatherConfirmationRouting({
+    text: "yes",
+    sessionKey,
+    ctx: {},
+    runWeatherLookup: async (input) => {
+      assert.equal(input?.forcedLocation, "Paris, France");
+      assert.equal(input?.bypassConfirmation, true);
+      return { reply: "Paris, France right now: 61F, clear skies." };
+    },
+    sendDirectAssistantReply: async () => "confirmed",
+  });
+  assert.equal(result?.route, "weather_confirm_accepted");
+  assert.equal(result?.ok, true);
+  assert.equal(result?.reply, "confirmed");
+  assert.equal(readPendingWeatherConfirmation(sessionKey), null);
 });
 
 clearPendingMissionConfirm("agent:nova:hud:user:test-user:dm:mission-cancel");
 clearPendingMissionConfirm("agent:nova:hud:user:test-user:dm:mission-confirm");
-clearPendingWeatherConfirm("agent:nova:hud:user:test-user:dm:weather-no");
-clearPendingWeatherConfirm("agent:nova:hud:user:test-user:dm:weather-stale");
+clearPendingWeatherConfirmation("agent:nova:hud:user:test-user:dm:weather-no");
+clearPendingWeatherConfirmation("agent:nova:hud:user:test-user:dm:weather-stale");
+clearPendingWeatherConfirmation("agent:nova:hud:user:test-user:dm:weather-yes");
 
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;

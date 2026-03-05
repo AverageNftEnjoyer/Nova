@@ -53,26 +53,29 @@ function isDefaultLocalCalendarRedirect(value: string): boolean {
 
 export async function getGmailCalendarClientConfig(scope?: GmailCalTokenScope): Promise<GmailClientConfig> {
   const integrations = await loadIntegrationsConfig(scope)
-  const appUrl = String(process.env.NOVA_APP_URL || "http://localhost:3000")
-    .trim()
-    .replace(/\/+$/, "")
   const gmailRedirect = String(integrations.gmail.redirectUri || "").trim()
   const gcalendarRedirect = String(integrations.gcalendar.redirectUri || "").trim()
   const preferredGcalendarRedirect = !isDefaultLocalCalendarRedirect(gcalendarRedirect) ? gcalendarRedirect : ""
   const configuredRedirect = String(
-    process.env.NOVA_GMAIL_CALENDAR_REDIRECT_URI ||
-      process.env.NOVA_GMAIL_REDIRECT_URI ||
-      preferredGcalendarRedirect ||
-      gmailRedirect ||
-      gcalendarRedirect ||
-      "",
+    preferredGcalendarRedirect ||
+    gmailRedirect ||
+    gcalendarRedirect ||
+    "",
   ).trim()
+  const appUrl = (() => {
+    if (!configuredRedirect) return "http://localhost:3000"
+    try {
+      return new URL(configuredRedirect).origin.replace(/\/+$/, "")
+    } catch {
+      return "http://localhost:3000"
+    }
+  })()
   return {
     clientId: String(
-      integrations.gmail.oauthClientId || process.env.NOVA_GMAIL_CLIENT_ID || "",
+      integrations.gmail.oauthClientId || "",
     ).trim(),
     clientSecret: String(
-      integrations.gmail.oauthClientSecret || process.env.NOVA_GMAIL_CLIENT_SECRET || "",
+      integrations.gmail.oauthClientSecret || "",
     ).trim(),
     redirectUri: normalizeCalendarRedirectUri(configuredRedirect, appUrl),
     appUrl,

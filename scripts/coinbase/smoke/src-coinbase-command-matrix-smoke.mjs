@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 
 const logCalls = [];
 const availableTools = [
@@ -42,7 +42,7 @@ const runtimeTools = {
 };
 
 async function ask(text, userContextId = "u-matrix", conversationId = "c-matrix") {
-  return tryCryptoFastPathReply({ text, runtimeTools, availableTools, userContextId, conversationId });
+  return runCryptoRequest({ text, runtimeTools, availableTools, userContextId, conversationId });
 }
 
 function countTool(name) {
@@ -164,5 +164,6 @@ for (const c of cases) {
 console.log(`report=${reportPath}`);
 console.log(`Summary: pass=${pass} fail=${fail} total=${cases.length}`);
 if (fail > 0) process.exit(1);
+
 
 

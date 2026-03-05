@@ -7,11 +7,20 @@ import { GOOGLE_TOKEN_ENDPOINT, GOOGLE_USERINFO_ENDPOINT, type GmailAccountRecor
 
 export async function getGmailClientConfig(scope?: GmailScope): Promise<GmailClientConfig> {
   const integrations = await loadIntegrationsConfig(scope)
+  const redirectUri = String(integrations.gmail.redirectUri || "").trim()
+  const appUrl = (() => {
+    if (!redirectUri) return "http://localhost:3000"
+    try {
+      return new URL(redirectUri).origin.replace(/\/+$/, "")
+    } catch {
+      return "http://localhost:3000"
+    }
+  })()
   return {
-    clientId: String(integrations.gmail.oauthClientId || process.env.NOVA_GMAIL_CLIENT_ID || "").trim(),
-    clientSecret: String(integrations.gmail.oauthClientSecret || process.env.NOVA_GMAIL_CLIENT_SECRET || "").trim(),
-    redirectUri: String(integrations.gmail.redirectUri || process.env.NOVA_GMAIL_REDIRECT_URI || "http://localhost:3000/api/integrations/gmail/callback").trim(),
-    appUrl: String(process.env.NOVA_APP_URL || "http://localhost:3000").trim().replace(/\/+$/, ""),
+    clientId: String(integrations.gmail.oauthClientId || "").trim(),
+    clientSecret: String(integrations.gmail.oauthClientSecret || "").trim(),
+    redirectUri,
+    appUrl,
   }
 }
 

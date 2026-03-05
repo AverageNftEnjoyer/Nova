@@ -72,7 +72,7 @@ export const dynamic = "force-dynamic"
 
 const DISCORD_MAX_TARGETS = Math.max(
   1,
-  Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
+  50,
 )
 
 function validateDiscordTargets(targets: string[]): { ok: true } | { ok: false; message: string } {

@@ -12,7 +12,6 @@ import { useHomeConversations } from "./use-home-conversations"
 import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeCryptoMarket } from "./use-home-crypto-market"
-import { useHomeDayInHistory } from "./use-home-day-in-history"
 import { useHomeNewsFeed } from "./use-home-news-feed"
 import { useHomeVisuals } from "./use-home-visuals"
 
@@ -54,7 +53,6 @@ export function useHomeMainScreenState() {
   const integrations = useHomeIntegrations({ latestUsage, speakTts })
   const cryptoMarket = useHomeCryptoMarket()
   const devTools = useHomeDevTools()
-  const dayInHistory = useHomeDayInHistory()
   const newsFeed = useHomeNewsFeed({ enabled: integrations.newsConnected })
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
@@ -269,8 +267,5 @@ export function useHomeMainScreenState() {
     newsStale: newsFeed.newsStale,
     newsFetchedAt: newsFeed.newsFetchedAt,
     refreshNewsFeed: newsFeed.refreshNewsFeed,
-    dayInHistoryEvents: dayInHistory.events,
-    dayInHistoryLoading: dayInHistory.loading,
-    dayInHistoryError: dayInHistory.error,
   }
 }

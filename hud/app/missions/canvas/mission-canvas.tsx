@@ -21,6 +21,11 @@ import { CheckCircle2, Database, Rows4, Save, ShieldAlert, Play } from "lucide-r
 import { cn } from "@/lib/shared/utils"
 import type { Mission, MissionConnection, MissionNode } from "@/lib/missions/types"
 import { getNodeCatalogEntry, getPaletteCatalog, PALETTE_CATEGORIES, type NodeCatalogEntry } from "@/lib/missions/catalog"
+import {
+  buildCommandSpineAgentIds,
+  buildProviderSelectorDefaults,
+  buildScopedAgentId,
+} from "@/lib/missions/workflow/agent-topology"
 import { validateMissionGraphForVersioning, type MissionGraphValidationIssue } from "@/lib/missions/workflow/versioning/mission-graph-validation"
 import { ACCENT_COLORS, loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
@@ -191,6 +196,7 @@ function hexToRgbString(hex: string): string {
 
 function buildDefaultNodeConfig(type: CanvasNodeType, label: string, id: string, position: { x: number; y: number }): Record<string, unknown> {
   const base = { id, type, label, position }
+  const providerDefaults = buildProviderSelectorDefaults()
 
   switch (type) {
     case "schedule-trigger":
@@ -266,9 +272,32 @@ function buildDefaultNodeConfig(type: CanvasNodeType, label: string, id: string,
     case "sticky-note":
       return { ...base, content: "Notes..." }
     case "agent-supervisor":
-      return { ...base, agentId: "operator", role: "operator", goal: "", reads: [], writes: [] }
+      return {
+        ...base,
+        agentId: buildScopedAgentId("operator", id),
+        role: "operator",
+        goal: "",
+        reads: [],
+        writes: [],
+        inputMapping: {},
+        outputSchema: "{\"route\":\"string\"}",
+        timeoutMs: 120000,
+        retryPolicy: { maxAttempts: 1, backoffMs: 0 },
+      }
     case "agent-worker":
-      return { ...base, agentId: id, role: "worker-agent", domain: "system", goal: "", reads: [], writes: [] }
+      return {
+        ...base,
+        agentId: buildScopedAgentId("worker-agent", id),
+        role: "worker-agent",
+        domain: "system",
+        goal: "",
+        reads: [],
+        writes: [],
+        inputMapping: {},
+        outputSchema: "{\"result\":\"string\"}",
+        timeoutMs: 120000,
+        retryPolicy: { maxAttempts: 2, backoffMs: 1500 },
+      }
     case "agent-handoff":
       return { ...base, fromAgentId: "", toAgentId: "", reason: "" }
     case "agent-state-read":
@@ -276,9 +305,26 @@ function buildDefaultNodeConfig(type: CanvasNodeType, label: string, id: string,
     case "agent-state-write":
       return { ...base, key: "", valueExpression: "", writeMode: "replace" }
     case "provider-selector":
-      return { ...base, allowedProviders: [], defaultProvider: "", strategy: "policy" }
+      return {
+        ...base,
+        allowedProviders: providerDefaults.allowedProviders,
+        defaultProvider: providerDefaults.defaultProvider,
+        strategy: "policy",
+      }
     case "agent-audit":
-      return { ...base, agentId: "audit-council", role: "audit-council", goal: "", requiredChecks: [], reads: [], writes: [] }
+      return {
+        ...base,
+        agentId: buildScopedAgentId("audit-council", id),
+        role: "audit-council",
+        goal: "",
+        requiredChecks: [],
+        reads: [],
+        writes: [],
+        inputMapping: {},
+        outputSchema: "{\"audit\":\"string\"}",
+        timeoutMs: 120000,
+        retryPolicy: { maxAttempts: 1, backoffMs: 0 },
+      }
     case "agent-subworkflow":
       return { ...base, missionId: "", waitForCompletion: true, inputMapping: {} }
     default:
@@ -291,6 +337,8 @@ function buildCommandSpineTemplate(
   idPrefix: string,
 ): Array<{ key: string; id: string; type: CanvasNodeType; label: string; position: { x: number; y: number }; config: Record<string, unknown> }> {
   const mkId = (suffix: string) => `${idPrefix}-${suffix}`
+  const agentIds = buildCommandSpineAgentIds(idPrefix)
+  const providerDefaults = buildProviderSelectorDefaults()
   const specs: Array<{ key: string; type: CanvasNodeType; label: string; y: number }> = [
     { key: "trigger", type: "manual-trigger", label: "Manual Trigger", y: 40 },
     { key: "operator", type: "agent-supervisor", label: "Operator", y: 120 },
@@ -321,7 +369,7 @@ function buildCommandSpineTemplate(
         position,
         config: {
           ...config,
-          agentId: "operator",
+          agentId: agentIds.operator,
           role: "operator",
           goal: "Command councils and managers, then compose final response.",
         },
@@ -336,7 +384,7 @@ function buildCommandSpineTemplate(
         position,
         config: {
           ...config,
-          agentId: "routing-council",
+          agentId: agentIds.council,
           role: "routing-council",
           goal: "Classify intent and route to the correct manager.",
         },
@@ -351,7 +399,7 @@ function buildCommandSpineTemplate(
         position,
         config: {
           ...config,
-          agentId: "system-manager",
+          agentId: agentIds.manager,
           role: "system-manager",
           goal: "Assign execution to the best worker.",
         },
@@ -366,7 +414,7 @@ function buildCommandSpineTemplate(
         position,
         config: {
           ...config,
-          agentId: "worker-1",
+          agentId: agentIds.worker,
           role: "worker-agent",
           domain: "system",
           goal: "Execute delegated task and return result.",
@@ -382,8 +430,8 @@ function buildCommandSpineTemplate(
         position,
         config: {
           ...config,
-          allowedProviders: ["claude", "openai", "grok", "gemini"],
-          defaultProvider: "claude",
+          allowedProviders: providerDefaults.allowedProviders,
+          defaultProvider: providerDefaults.defaultProvider,
           strategy: "policy",
         },
       }
@@ -397,7 +445,7 @@ function buildCommandSpineTemplate(
         position,
         config: {
           ...config,
-          agentId: "audit-council",
+          agentId: agentIds.audit,
           role: "audit-council",
           goal: "Verify isolation and policy guardrails.",
           requiredChecks: ["user-context-isolation", "policy-guardrails"],
@@ -411,7 +459,7 @@ function buildCommandSpineTemplate(
         type: spec.type,
         label: spec.label,
         position,
-        config: { ...config, fromAgentId: "operator", toAgentId: "routing-council", reason: "route intent" },
+        config: { ...config, fromAgentId: agentIds.operator, toAgentId: agentIds.council, reason: "route intent" },
       }
     }
     if (spec.key === "handoff-council-manager") {
@@ -421,7 +469,7 @@ function buildCommandSpineTemplate(
         type: spec.type,
         label: spec.label,
         position,
-        config: { ...config, fromAgentId: "routing-council", toAgentId: "system-manager", reason: "assign manager" },
+        config: { ...config, fromAgentId: agentIds.council, toAgentId: agentIds.manager, reason: "assign manager" },
       }
     }
     if (spec.key === "handoff-manager-worker") {
@@ -431,7 +479,7 @@ function buildCommandSpineTemplate(
         type: spec.type,
         label: spec.label,
         position,
-        config: { ...config, fromAgentId: "system-manager", toAgentId: "worker-1", reason: "delegate execution" },
+        config: { ...config, fromAgentId: agentIds.manager, toAgentId: agentIds.worker, reason: "delegate execution" },
       }
     }
     if (spec.key === "handoff-worker-audit") {
@@ -441,7 +489,7 @@ function buildCommandSpineTemplate(
         type: spec.type,
         label: spec.label,
         position,
-        config: { ...config, fromAgentId: "worker-1", toAgentId: "audit-council", reason: "request audit" },
+        config: { ...config, fromAgentId: agentIds.worker, toAgentId: agentIds.audit, reason: "request audit" },
       }
     }
     if (spec.key === "handoff-audit-op") {
@@ -451,7 +499,7 @@ function buildCommandSpineTemplate(
         type: spec.type,
         label: spec.label,
         position,
-        config: { ...config, fromAgentId: "audit-council", toAgentId: "operator", reason: "final compose" },
+        config: { ...config, fromAgentId: agentIds.audit, toAgentId: agentIds.operator, reason: "final compose" },
       }
     }
     if (spec.key === "output") {

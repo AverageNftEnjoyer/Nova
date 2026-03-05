@@ -12,7 +12,7 @@ import {
   resetCoinbaseObservabilityForTests,
   resolveCoinbaseRolloutAccess,
 } from "../../../dist/integrations/coinbase/index.js";
-import { tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 
 const results = [];
 
@@ -131,7 +131,7 @@ await run("Rollback kill switch disables both fast-path and tools deterministica
   setEnv("NOVA_COINBASE_COMMAND_CATEGORIES", "price,portfolio,transactions,reports,status");
   setEnv("NOVA_COINBASE_DISABLED_COMMAND_CATEGORIES", "");
 
-  const reply = await tryCryptoFastPathReply({
+  const reply = await runCryptoRequest({
     text: "coinbase status",
     runtimeTools: { executeToolUse: async () => ({ content: "{}" }) },
     availableTools: [{ name: "coinbase_capabilities" }],
@@ -350,5 +350,6 @@ if (READINESS_MODE) {
 }
 
 if (fail > 0 || readinessFailed) process.exit(1);
+
 
 

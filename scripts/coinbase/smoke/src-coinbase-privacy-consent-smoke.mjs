@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { CoinbaseDataStore, renderCoinbasePortfolioReport } from "../../../dist/integrations/coinbase/index.js";
-import { tryCryptoFastPathReply } from "../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 
 const results = [];
 function run(name, fn) {
@@ -42,7 +42,7 @@ await run("P10-D2 fast-path Coinbase replies omit disclaimer", async () => {
       return { content: JSON.stringify({ ok: false, errorCode: "UNKNOWN_TOOL" }) };
     },
   };
-  const res = await tryCryptoFastPathReply({
+  const res = await runCryptoRequest({
     text: "price btc",
     runtimeTools,
     availableTools: [{ name: "coinbase_spot_price" }],
@@ -152,5 +152,6 @@ for (const result of results) {
 console.log(`report=${reportPath}`);
 console.log(`Summary: pass=${pass} fail=${fail}`);
 if (fail > 0) process.exit(1);
+
 
 

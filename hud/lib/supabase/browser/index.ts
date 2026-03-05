@@ -11,7 +11,7 @@ let cachedClient: SupabaseClient | null = null
 
 export function getSupabaseBrowserClient(): SupabaseClient {
   if (!hasSupabaseClientConfig) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. Restart dev server after updating .env.")
+    throw new Error("Supabase client is not configured for this deployment.")
   }
   if (!cachedClient) {
     cachedClient = createClient(supabaseUrl, supabaseAnonKey, {

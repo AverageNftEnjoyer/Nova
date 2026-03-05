@@ -1,19 +1,18 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
 import { gmailError } from "./errors.ts"
+import { getOAuthStateSecret } from "@/lib/security/oauth-state-secret"
 import { DEFAULT_GMAIL_SCOPES, GOOGLE_OAUTH_BASE, type GmailClientConfig, type GmailOAuthStatePayload } from "./types.ts"
 
-const DEV_FALLBACK_OAUTH_STATE_SECRET = createHash("sha256")
-  .update(`nova-dev-gmail-oauth:${process.cwd()}`)
-  .digest("hex")
-
 function getOAuthSecret(): string {
-  const configured = String(process.env.NOVA_GMAIL_OAUTH_STATE_SECRET || process.env.NOVA_ENCRYPTION_KEY || "").trim()
-  if (configured) return configured
-  if (process.env.NODE_ENV === "production") {
-    throw gmailError("gmail.internal", "NOVA_GMAIL_OAUTH_STATE_SECRET (or NOVA_ENCRYPTION_KEY) is required in production.")
+  try {
+    return getOAuthStateSecret()
+  } catch (error) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : "NOVA_ENCRYPTION_KEY is required for OAuth state signing."
+    throw gmailError("gmail.internal", message)
   }
-  return DEV_FALLBACK_OAUTH_STATE_SECRET
 }
 
 function signState(payload: GmailOAuthStatePayload): string {
@@ -58,7 +57,7 @@ export function buildGmailOAuthUrl(params: {
   const userId = String(params.userId || "").trim()
   if (!userId) throw gmailError("gmail.invalid_request", "Missing user scope for Gmail OAuth.", { status: 400 })
   const clientId = String(params.config.clientId || "").trim()
-  if (!clientId) throw gmailError("gmail.invalid_request", "Gmail OAuth client id is missing (NOVA_GMAIL_CLIENT_ID).", { status: 400 })
+  if (!clientId) throw gmailError("gmail.invalid_request", "Gmail OAuth client id is missing.", { status: 400 })
 
   const safeReturnTo = params.returnTo.startsWith("/") ? params.returnTo : "/integrations"
   const state = signState({

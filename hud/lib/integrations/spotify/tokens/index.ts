@@ -12,14 +12,19 @@ import {
 
 export async function getSpotifyClientConfig(scope?: SpotifyScope): Promise<SpotifyClientConfig> {
   const integrations = await loadIntegrationsConfig(scope)
+  const redirectUri = String(integrations.spotify.redirectUri || "").trim()
+  const appUrl = (() => {
+    if (!redirectUri) return "http://localhost:3000"
+    try {
+      return new URL(redirectUri).origin.replace(/\/+$/, "")
+    } catch {
+      return "http://localhost:3000"
+    }
+  })()
   return {
-    clientId: String(integrations.spotify.oauthClientId || process.env.NOVA_SPOTIFY_CLIENT_ID || "").trim(),
-    redirectUri: String(
-      integrations.spotify.redirectUri ||
-      process.env.NOVA_SPOTIFY_REDIRECT_URI ||
-      "http://localhost:3000/api/integrations/spotify/callback",
-    ).trim(),
-    appUrl: String(process.env.NOVA_APP_URL || "http://localhost:3000").trim().replace(/\/+$/, ""),
+    clientId: String(integrations.spotify.oauthClientId || "").trim(),
+    redirectUri,
+    appUrl,
   }
 }
 

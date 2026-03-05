@@ -7,8 +7,17 @@ export const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2
 export const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
 // Gmail defaults
-export const GMAIL_DEFAULT_REDIRECT_URI = "http://localhost:3000/api/integrations/gmail/callback"
-export const SPOTIFY_DEFAULT_REDIRECT_URI = "http://localhost:3000/api/integrations/spotify/callback"
+const GMAIL_CALLBACK_PATH = "/api/integrations/gmail/callback"
+const SPOTIFY_CALLBACK_PATH = "/api/integrations/spotify/callback"
+const YOUTUBE_CALLBACK_PATH = "/api/integrations/youtube/callback"
+const defaultOrigin =
+  typeof window !== "undefined" && typeof window.location?.origin === "string" && window.location.origin
+    ? window.location.origin
+    : "http://localhost:3000"
+export const GMAIL_DEFAULT_REDIRECT_URI = `${defaultOrigin}${GMAIL_CALLBACK_PATH}`
+export const SPOTIFY_DEFAULT_REDIRECT_URI = `${defaultOrigin}${SPOTIFY_CALLBACK_PATH}`
+export const YOUTUBE_DEFAULT_REDIRECT_URI =
+  `${defaultOrigin}${YOUTUBE_CALLBACK_PATH}`
 
 // Utility functions
 export function hexToRgba(hex: string, alpha: number): string {

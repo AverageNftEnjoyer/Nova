@@ -5,7 +5,7 @@
  * If the caller knew the correct workspace (e.g. a user's persona dir), the pref was
  * written to the wrong location. Future reads from the correct path would find nothing.
  *
- * Fix: workspaceDir is now threaded from tryCryptoFastPathReply → upsertCryptoReportPreferences
+ * Fix: workspaceDir is now threaded from runCryptoRequest → upsertCryptoReportPreferences
  * (crypto-fast-path.js:474-477, chat-handler.js call sites).
  *
  * Tests:
@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { tryCryptoFastPathReply } from "../../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { runCryptoRequest } from "../../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 
 const availableTools = [
   { name: "coinbase_portfolio_report" },
@@ -69,7 +69,7 @@ async function run() {
 
   try {
     // ── Seed crypto affinity
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: "show me my coinbase portfolio",
       runtimeTools,
       availableTools,
@@ -79,7 +79,7 @@ async function run() {
     });
 
     // ── Preference message routed to tmpDir1
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: "always show 2 decimals in my coinbase report going forward",
       runtimeTools,
       availableTools,
@@ -113,7 +113,7 @@ async function run() {
     const userContextId2 = `audit-p5b-${Date.now()}`;
     const conversationId2 = `conv-p5b-${Date.now()}`;
 
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: "show me my coinbase portfolio",
       runtimeTools,
       availableTools,
@@ -122,7 +122,7 @@ async function run() {
       workspaceDir: tmpDir2,
     });
 
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: "never show timestamps in my coinbase report going forward",
       runtimeTools,
       availableTools,
@@ -154,3 +154,4 @@ run().catch((err) => {
   console.error(`FAIL smoke/audit/p5-workspace-write: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });
+

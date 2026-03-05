@@ -40,7 +40,7 @@ export function cacheRecentCryptoReport(userContextId, conversationId, reply) {
   });
 }
 
-function buildFastPathSummary(route, reply, toolCalls = []) {
+function buildCryptoReplaySummary(route, reply, toolCalls = []) {
   return {
     route,
     ok: true,
@@ -88,7 +88,7 @@ export async function handleDuplicateCryptoReportRequest({
       userContextId: userContextId || undefined,
       chars: String(text || "").length,
     });
-    return buildFastPathSummary("duplicate_report_replayed", cachedReportReply, []);
+    return buildCryptoReplaySummary("duplicate_report_replayed", cachedReportReply, []);
   }
 
   let rerenderedReply = "";
@@ -112,17 +112,16 @@ export async function handleDuplicateCryptoReportRequest({
       userContextId: userContextId || undefined,
       chars: String(text || "").length,
     });
-    return buildFastPathSummary(
+    return buildCryptoReplaySummary(
       "duplicate_report_rerendered",
       rerenderedReply,
       rerenderedToolCall ? [rerenderedToolCall] : [],
     );
   }
 
-  return buildFastPathSummary(
+  return buildCryptoReplaySummary(
     "duplicate_report_fallback",
     "I could not replay your last crypto report yet. Retrying now usually resolves this.",
     [],
   );
 }
-

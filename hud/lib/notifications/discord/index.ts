@@ -124,9 +124,7 @@ function normalizeWebhookUrls(urls?: string[]): string[] {
   if (urls && urls.length > 0) {
     return dedupe(urls)
   }
-
-  const envUrls = process.env.DISCORD_WEBHOOK_URLS ?? process.env.DISCORD_WEBHOOK_URL ?? ""
-  return dedupe(envUrls.split(","))
+  return []
 }
 
 export function isRetryableDiscordStatus(status: number): boolean {
@@ -264,7 +262,7 @@ export async function sendDiscordMessage(input: DiscordSendInput, scope?: Integr
       : normalizeWebhookUrls(undefined)
 
   if (webhookUrls.length === 0) {
-    throw new Error("No Discord webhook URLs configured. Set DISCORD_WEBHOOK_URLS or configure Discord webhooks.")
+    throw new Error("No Discord webhook URLs configured. Add Discord webhooks in Integrations.")
   }
   if (webhookUrls.length > DISCORD_MAX_TARGETS) {
     throw new Error(`Discord target count exceeds cap (${DISCORD_MAX_TARGETS}). Reduce configured targets.`)

@@ -195,6 +195,25 @@ export interface IntegrationsSettings {
 }
 
 const STORAGE_KEY_PREFIX = "nova_integrations_settings"
+const SPOTIFY_CALLBACK_PATH = "/api/integrations/spotify/callback"
+const YOUTUBE_CALLBACK_PATH = "/api/integrations/youtube/callback"
+const GMAIL_CALLBACK_PATH = "/api/integrations/gmail/callback"
+const GCALENDAR_CALLBACK_PATH = "/api/integrations/gmail-calendar/callback"
+
+function getDefaultOrigin(): string {
+  if (typeof window !== "undefined" && typeof window.location?.origin === "string" && window.location.origin) {
+    return window.location.origin
+  }
+  return "http://localhost:3000"
+}
+
+function getDefaultRedirectUri(pathname: string): string {
+  return `${getDefaultOrigin()}${pathname}`
+}
+
+function getDefaultYouTubeRedirectUri(): string {
+  return getDefaultRedirectUri(YOUTUBE_CALLBACK_PATH)
+}
 export const INTEGRATIONS_UPDATED_EVENT = "nova:integrations-updated"
 
 const DEFAULT_SETTINGS: IntegrationsSettings = {
@@ -290,7 +309,7 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     displayName: "",
     scopes: "",
     oauthClientId: "",
-    redirectUri: "http://localhost:3000/api/integrations/spotify/callback",
+    redirectUri: getDefaultRedirectUri(SPOTIFY_CALLBACK_PATH),
     tokenConfigured: false,
   },
   youtube: {
@@ -303,7 +322,7 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
       allowSearch: true,
       allowVideoDetails: true,
     },
-    redirectUri: "http://localhost:3000/api/integrations/youtube/callback",
+    redirectUri: getDefaultYouTubeRedirectUri(),
     tokenConfigured: false,
   },
   gmail: {
@@ -314,7 +333,7 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     activeAccountId: "",
     oauthClientId: "",
     oauthClientSecret: "",
-    redirectUri: "http://localhost:3000/api/integrations/gmail/callback",
+    redirectUri: getDefaultRedirectUri(GMAIL_CALLBACK_PATH),
     oauthClientSecretConfigured: false,
     oauthClientSecretMasked: "",
     tokenConfigured: false,
@@ -330,7 +349,7 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     },
     accounts: [],
     activeAccountId: "",
-    redirectUri: "http://localhost:3000/api/integrations/gmail-calendar/callback",
+    redirectUri: getDefaultRedirectUri(GCALENDAR_CALLBACK_PATH),
     tokenConfigured: false,
   },
   activeLlmProvider: "openai",

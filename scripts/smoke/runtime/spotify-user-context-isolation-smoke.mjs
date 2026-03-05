@@ -25,7 +25,7 @@ await run("RSI-1 Playback route scopes user context to verified identity", async
   const routeSource = read("hud/app/api/integrations/spotify/playback/route.ts");
   assert.equal(routeSource.includes("requestedUserContextId !== verifiedUserContextId"), true);
   assert.equal(routeSource.includes("playback.user_scope_hint_mismatch"), true);
-  assert.equal(routeSource.includes("const userId = verifiedUserContextId || verified.user.id"), true);
+  assert.equal(routeSource.includes("userId = verifiedUserContextId || verified.user.id"), true);
 });
 
 await run("RSI-2 Playback route enforces runtime shared token verification", async () => {
@@ -35,13 +35,13 @@ await run("RSI-2 Playback route enforces runtime shared token verification", asy
 });
 
 await run("RSI-3 Runtime Spotify handler forwards userContextId to playback API", async () => {
-  const bridgeSource = read("src/runtime/modules/chat/core/chat-special-handlers/integration-api-bridge/index.js");
+  const bridgeSource = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
   assert.equal(bridgeSource.includes("/api/integrations/spotify/playback"), true);
   assert.equal(bridgeSource.includes("userContextId: normalizedUserContextId"), true);
 });
 
 await run("RSI-4 Runtime Spotify handler attaches runtime token header when configured", async () => {
-  const bridgeSource = read("src/runtime/modules/chat/core/chat-special-handlers/integration-api-bridge/index.js");
+  const bridgeSource = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
   assert.equal(bridgeSource.includes("resolveRuntimeSharedTokenHeader"), true);
   assert.equal(bridgeSource.includes("resolveRuntimeSharedToken"), true);
   assert.equal(bridgeSource.includes("Authorization: `Bearer ${token}`"), true);
@@ -63,3 +63,4 @@ for (const result of results) {
 }
 console.log(`\nSummary: pass=${passCount} fail=${failCount}`);
 if (failCount > 0) process.exit(1);
+

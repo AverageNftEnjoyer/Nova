@@ -33,7 +33,7 @@ const telemetrySanitizerSource = read("hud/lib/missions/telemetry/sanitizer.ts")
 const telemetryStoreSource = read("hud/lib/missions/telemetry/store.ts");
 const telemetrySloSource = read("hud/lib/missions/telemetry/slo.ts");
 const telemetryEmitterSource = read("hud/lib/missions/telemetry/emitter.ts");
-const buildRouteSource = read("hud/app/api/missions/build/route.ts");
+const buildExecutionSource = read("src/runtime/modules/services/missions/build-execution/index.js");
 const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
 const autofixRouteSource = read("hud/app/api/missions/autofix/route.ts");
 const versionsRouteSource = read("hud/app/api/missions/versions/route.ts");
@@ -110,8 +110,8 @@ await run("SLO evaluator computes validation run retry and p95 metrics", async (
 
 await run("Lifecycle routes emit telemetry events", async () => {
   assert.equal(telemetryEmitterSource.includes("emitMissionTelemetryEvent"), true, "emitter missing function");
-  assert.equal(buildRouteSource.includes("mission.build.started"), true, "build route missing build started event");
-  assert.equal(buildRouteSource.includes("mission.validation.completed"), true, "build route missing validation event");
+  assert.equal(buildExecutionSource.includes("mission.build.started"), true, "mission build service missing build started event");
+  assert.equal(buildExecutionSource.includes("mission.validation.completed"), true, "mission build service missing validation event");
   assert.equal(executeMissionSource.includes("mission.run.started"), true, "execute mission missing run started event");
   assert.equal(executeMissionSource.includes("mission.run.completed"), true, "execute mission missing run completed event");
   assert.equal(autofixRouteSource.includes("mission.autofix.completed"), true, "autofix route missing autofix event");

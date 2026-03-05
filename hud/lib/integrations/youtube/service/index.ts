@@ -25,11 +25,7 @@ const VIDEO_CACHE_TTL_MS = 10 * 60_000
 const FEED_CACHE_TTL_MS = 3 * 60_000
 const SUBSCRIPTIONS_CACHE_TTL_MS = 12 * 60_000
 
-const YOUTUBE_DAILY_QUOTA_BUDGET = (() => {
-  const parsed = Number.parseInt(String(process.env.NOVA_YOUTUBE_DAILY_QUOTA_BUDGET || "").trim(), 10)
-  if (!Number.isFinite(parsed)) return 7_000
-  return Math.max(500, Math.min(10_000, parsed))
-})()
+const YOUTUBE_DAILY_QUOTA_BUDGET = 7_000
 
 const QUOTA_COST_SEARCH = 100
 const QUOTA_COST_VIDEO_DETAILS = 1

@@ -3,7 +3,16 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 
-const YOUTUBE_DEFAULT_REDIRECT_URI = "http://localhost:3000/api/integrations/youtube/callback"
+const YOUTUBE_CALLBACK_PATH = "/api/integrations/youtube/callback"
+
+function resolveDefaultYouTubeRedirectUri(): string {
+  if (typeof window !== "undefined" && typeof window.location?.origin === "string" && window.location.origin) {
+    return `${window.location.origin}${YOUTUBE_CALLBACK_PATH}`
+  }
+  return `http://localhost:3000${YOUTUBE_CALLBACK_PATH}`
+}
+
+const YOUTUBE_DEFAULT_REDIRECT_URI = resolveDefaultYouTubeRedirectUri()
 
 interface UseYouTubeSetupParams {
   setSettings: Dispatch<SetStateAction<IntegrationsSettings>>

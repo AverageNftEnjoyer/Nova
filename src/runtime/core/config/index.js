@@ -70,14 +70,14 @@ export const toolRuntime = createToolRuntime({
   capabilityAllowlist: TOOL_CAPABILITY_ALLOWLIST.join(","),
   capabilityDenylist: TOOL_CAPABILITY_DENYLIST.join(","),
   webSearchProvider: TOOL_WEB_SEARCH_PROVIDER,
-  webSearchApiKey: String(process.env.BRAVE_API_KEY || "").trim(),
+  webSearchApiKey: "",
   memoryConfig: {
     embeddingProvider:
       String(process.env.NOVA_EMBEDDING_PROVIDER || "local").trim().toLowerCase() === "openai"
         ? "openai"
         : "local",
     embeddingModel: String(process.env.NOVA_EMBEDDING_MODEL || "text-embedding-3-small").trim(),
-    embeddingApiKey: String(process.env.OPENAI_API_KEY || "").trim(),
+    embeddingApiKey: "",
     chunkSize: Number.parseInt(process.env.NOVA_MEMORY_CHUNK_SIZE || "400", 10),
     chunkOverlap: Number.parseInt(process.env.NOVA_MEMORY_CHUNK_OVERLAP || "80", 10),
     hybridVectorWeight: Number.parseFloat(process.env.NOVA_MEMORY_VECTOR_WEIGHT || "0.7"),

@@ -131,8 +131,8 @@ await run("P28-C3 dispatch input builder maps route decisions and context hints 
     sessionKey: "s28",
     activeChatRuntime: { provider: "openai" },
     delegateToOrgChartWorker: async () => ({}),
-    handleSpotify: async () => ({}),
-    handleYouTube: async () => ({}),
+    spotifyWorker: async () => ({}),
+    youtubeWorker: async () => ({}),
     executeChatRequest: async () => ({}),
     upsertShortTermContextState: () => {},
   });

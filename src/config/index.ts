@@ -146,7 +146,7 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
       workspace: env.NOVA_WORKSPACE ?? base.agent.workspace,
       model: env.NOVA_MODEL ?? base.agent.model,
       maxTokens: toIntInRange(env.NOVA_MAX_TOKENS, base.agent.maxTokens, 1, 1_000_000),
-      apiKey: env.ANTHROPIC_API_KEY ?? env.NOVA_API_KEY ?? base.agent.apiKey,
+      apiKey: base.agent.apiKey,
       bootstrapMaxChars: toIntInRange(
         env.NOVA_BOOTSTRAP_MAX_CHARS,
         base.agent.bootstrapMaxChars,
@@ -222,7 +222,7 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
         base.memory.embeddingProvider,
       ),
       embeddingModel: env.NOVA_EMBEDDING_MODEL ?? base.memory.embeddingModel,
-      embeddingApiKey: env.OPENAI_API_KEY ?? env.NOVA_EMBEDDING_API_KEY ?? base.memory.embeddingApiKey,
+      embeddingApiKey: base.memory.embeddingApiKey,
       chunkSize: toIntInRange(env.NOVA_MEMORY_CHUNK_SIZE, base.memory.chunkSize, 1, 100_000),
       chunkOverlap: toIntInRange(env.NOVA_MEMORY_CHUNK_OVERLAP, base.memory.chunkOverlap, 0, 50_000),
       hybridVectorWeight: toFloatInRange(
@@ -251,7 +251,7 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
       ),
       safeBinaries: splitCsv(env.NOVA_SAFE_BINARIES, base.tools.safeBinaries),
       webSearchProvider: "brave",
-      webSearchApiKey: env.BRAVE_API_KEY ?? env.NOVA_WEB_SEARCH_API_KEY ?? base.tools.webSearchApiKey,
+      webSearchApiKey: base.tools.webSearchApiKey,
     },
   };
 }

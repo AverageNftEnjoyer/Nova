@@ -31,20 +31,18 @@ import { createChatLatencyTelemetry } from "../../telemetry/latency-telemetry/in
 import { resolveConversationId } from "../chat-utils/index.js";
 import {
   sendDirectAssistantReply,
-  handleMemoryUpdate,
-  handleShutdown,
-  handleSpotify,
-  handleYouTube,
-  handleWorkflowBuild,
-} from "../chat-special-handlers/index.js";
+} from "../../workers/shared/direct-assistant-reply/index.js";
+import { handleMemoryWorker } from "../../workers/system/memory-agent/index.js";
+import { handleShutdownWorker } from "../../workers/system/shutdown-agent/index.js";
+import { handleMissionBuildWorker } from "../../workers/productivity/missions-agent/index.js";
 import {
   isWeatherRequestText,
-} from "../../fast-path/weather-fast-path/index.js";
+} from "../../workers/market/weather-service/index.js";
 import {
   isCryptoRequestText,
   isExplicitCryptoReportRequest,
-  tryCryptoFastPathReply,
-} from "../../fast-path/crypto-fast-path/index.js";
+  runCryptoRequest,
+} from "../../workers/finance/crypto-service/index.js";
 import {
   handleDuplicateCryptoReportRequest,
 } from "../crypto-report-dedupe/index.js";
@@ -171,15 +169,6 @@ async function handleInputCore(text, opts = {}) {
   const duplicateMayBeMissionRequest = shouldBuildWorkflowFromPrompt(text)
     || shouldConfirmWorkflowFromPrompt(text);
   const rawRoutingText = text.toLowerCase().trim();
-  if (rawRoutingText === "nova shutdown" || rawRoutingText === "nova shut down" || rawRoutingText === "shutdown nova") {
-    await handleShutdown({ ttsVoice });
-    return {
-      route: "shutdown",
-      ok: true,
-      reply: "Shutting down now. If you need me again, just restart the system.",
-      latencyMs: 0,
-    };
-  }
 
   const explicitCryptoReportRequest = isExplicitCryptoReportRequest(text);
   const duplicateInboundRouteResult = await handleDuplicateInboundRouting({
@@ -200,7 +189,7 @@ async function handleInputCore(text, opts = {}) {
     rerenderDuplicateReport: async () => {
       const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
       const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
-      return await tryCryptoFastPathReply({
+      return await runCryptoRequest({
         text,
         runtimeTools,
         availableTools,
@@ -251,19 +240,40 @@ async function handleInputCore(text, opts = {}) {
     nlpBypass,
   };
 
-  // Memory update â€” short-circuit before any LLM call
-  if (isMemoryUpdateRequest(text)) {
+  // System workers short-circuit before any LLM call.
+  const runShutdownWorker = typeof opts.shutdownWorker === "function"
+    ? opts.shutdownWorker
+    : handleShutdownWorker;
+  if (rawRoutingText === "nova shutdown" || rawRoutingText === "nova shut down" || rawRoutingText === "shutdown nova") {
     return await delegateToOrgChartWorker({
-      routeHint: "memory_update",
-      responseRoute: "memory_update",
+      routeHint: "shutdown",
+      responseRoute: "shutdown",
       text,
-      toolCalls: ["memory_update"],
+      toolCalls: ["shutdown"],
       provider: "",
       providerSource: "chat-runtime-fallback",
       userContextId,
       conversationId,
       sessionKey,
-      run: async () => handleMemoryUpdate(text, ctx),
+      run: async () => runShutdownWorker(text, ctx),
+    });
+  }
+
+  const runMemoryWorker = typeof opts.memoryWorker === "function"
+    ? opts.memoryWorker
+    : handleMemoryWorker;
+  if (isMemoryUpdateRequest(text)) {
+    return await delegateToOrgChartWorker({
+      routeHint: "memory",
+      responseRoute: "memory",
+      text,
+      toolCalls: ["memory"],
+      provider: "",
+      providerSource: "chat-runtime-fallback",
+      userContextId,
+      conversationId,
+      sessionKey,
+      run: async () => runMemoryWorker(text, ctx),
     });
   }
 
@@ -361,7 +371,7 @@ async function handleInputCore(text, opts = {}) {
     ctx,
     delegateToOrgChartWorker,
     sendDirectAssistantReply,
-    handleWorkflowBuild,
+    missionWorker: typeof opts.missionWorker === "function" ? opts.missionWorker : handleMissionBuildWorker,
     upsertShortTermContextState,
     clearShortTermContextState,
   });
@@ -545,8 +555,6 @@ async function handleInputCore(text, opts = {}) {
     sessionKey,
     activeChatRuntime,
     delegateToOrgChartWorker,
-    handleSpotify,
-    handleYouTube,
     executeChatRequest,
     upsertShortTermContextState,
   }));
@@ -579,6 +587,7 @@ export async function handleInput(text, opts = {}) {
     });
   }
 }
+
 
 
 

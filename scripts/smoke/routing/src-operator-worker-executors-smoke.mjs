@@ -96,7 +96,7 @@ await run("P30-C3 spotify executor uses specialized handler", async () => {
     text: "play spotify",
     ctx: {},
     llmCtx: {},
-    handleSpotify: async () => {
+    spotifyWorker: async () => {
       called = true;
       return { ok: true, route: "spotify" };
     },
@@ -115,7 +115,7 @@ await run("P30-C4 youtube executor uses specialized handler", async () => {
     text: "show youtube videos",
     ctx: {},
     llmCtx: {},
-    handleYouTube: async () => {
+    youtubeWorker: async () => {
       called = true;
       return { ok: true, route: "youtube" };
     },
@@ -191,28 +191,45 @@ await run("P30-C7 web research executor enforces web preload hints", async () =>
   assert.equal(resolvedHints?.forceWebFetchPreload, true);
 });
 
-await run("P30-C8 market executor enforces freshness-oriented preload hints", async () => {
+await run("P30-C8 crypto executor uses specialized worker handler", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "crypto");
+  let called = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "show crypto prices",
+    ctx: {},
+    llmCtx: {},
+    cryptoWorker: async () => {
+      called = true;
+      return { ok: true, route: "crypto" };
+    },
+    executeChatRequest: async () => ({ ok: false, route: "chat" }),
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "crypto");
+  assert.equal(called, true);
+});
+
+await run("P30-C9 market executor uses specialized weather handler for weather lanes", async () => {
   const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "market");
-  let resolvedHints = null;
+  let called = false;
   const runExecutor = resolveOperatorWorkerExecutor({
     lane,
     text: "weather and market brief",
     ctx: {},
     llmCtx: {},
-    requestHints: {},
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      resolvedHints = hints;
+    weatherWorker: async () => {
+      called = true;
       return { ok: true, route: "weather" };
     },
+    executeChatRequest: async () => ({ ok: false, route: "chat" }),
   });
   const out = await runExecutor();
   assert.equal(out?.route, "weather");
-  assert.equal(resolvedHints?.operatorLane?.executorKind, "market");
-  assert.equal(resolvedHints?.forceWebSearchPreload, true);
-  assert.equal(resolvedHints?.fastLaneSimpleChat, false);
+  assert.equal(called, true);
 });
 
-await run("P30-C9 operator execution controls can disable force flags", async () => {
+await run("P30-C10 operator execution controls can disable force flags", async () => {
   const previous = {
     toolLoop: process.env.NOVA_OPERATOR_FORCE_TOOL_LOOP,
     webSearch: process.env.NOVA_OPERATOR_FORCE_WEB_SEARCH_PRELOAD,

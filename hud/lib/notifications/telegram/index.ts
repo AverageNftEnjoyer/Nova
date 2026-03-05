@@ -59,13 +59,11 @@ function normalizeChatIds(ids?: string[]): string[] {
   if (ids && ids.length > 0) {
     return deduped(ids)
   }
-
-  const envIds = process.env.TELEGRAM_CHAT_IDS ?? process.env.TELEGRAM_CHAT_ID ?? ""
-  return deduped(envIds.split(","))
+  return []
 }
 
 function getTelegramToken(configToken?: string): string {
-  const token = configToken || process.env.TELEGRAM_BOT_TOKEN
+  const token = configToken
   if (!token) {
     throw new Error("Telegram bot token is missing. Re-save Telegram integration in Settings.")
   }
@@ -232,7 +230,7 @@ export async function sendTelegramMessage(input: TelegramSendInput, scope?: Inte
   }
 
   if (chatIds.length === 0) {
-    throw new Error("No Telegram chat IDs configured. Set TELEGRAM_CHAT_IDS or pass chatIds in the request.")
+    throw new Error("No Telegram chat IDs configured. Add chat IDs in Integrations or pass chatIds in the request.")
   }
 
   const endpoint = `https://api.telegram.org/bot${token}/sendMessage`

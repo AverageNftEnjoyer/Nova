@@ -14,7 +14,7 @@
  */
 
 import assert from "node:assert/strict";
-import { tryCryptoFastPathReply } from "../../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { runCryptoRequest } from "../../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 
 const calls = [];
 
@@ -73,7 +73,7 @@ async function run() {
   const conversationId = `conv-p1-${Date.now()}`;
 
   // ── Seed crypto affinity by requesting a real crypto report first
-  const seed = await tryCryptoFastPathReply({
+  const seed = await runCryptoRequest({
     text: "show me my coinbase portfolio report",
     runtimeTools,
     availableTools,
@@ -90,7 +90,7 @@ async function run() {
 
   // ── Test A: "can you explain it" — "it" alone must NOT fire portfolio report
   calls.length = 0;
-  const explainIt = await tryCryptoFastPathReply({
+  const explainIt = await runCryptoRequest({
     text: "can you explain it",
     runtimeTools,
     availableTools,
@@ -107,7 +107,7 @@ async function run() {
 
   // ── Test B: "whats my total balance" — crypto words still fire the follow-up
   calls.length = 0;
-  const totalBalance = await tryCryptoFastPathReply({
+  const totalBalance = await runCryptoRequest({
     text: "whats my total balance",
     runtimeTools,
     availableTools,
@@ -123,7 +123,7 @@ async function run() {
 
   // ── Test C: "how does it work exactly" — only "it", no crypto words
   calls.length = 0;
-  const howItWorks = await tryCryptoFastPathReply({
+  const howItWorks = await runCryptoRequest({
     text: "how does it work exactly",
     runtimeTools,
     availableTools,
@@ -145,3 +145,4 @@ run().catch((err) => {
   console.error(`FAIL smoke/audit/p1-it-word-regression: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });
+

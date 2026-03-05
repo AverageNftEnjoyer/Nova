@@ -31,7 +31,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 const DISCORD_MAX_WEBHOOKS = Math.max(
   1,
-  Math.min(200, Number.parseInt(process.env.NOVA_DISCORD_MAX_TARGETS || "50", 10) || 50),
+  50,
 )
 
 type CoinbaseCredentialMode = "pem_private_key" | "secret_string" | "unknown"

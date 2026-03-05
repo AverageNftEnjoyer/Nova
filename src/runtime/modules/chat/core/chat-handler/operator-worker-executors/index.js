@@ -1,5 +1,9 @@
 import { OPERATOR_LANE_SEQUENCE } from "../operator-lane-config/index.js";
 import { DOMAIN_WORKER_RULES } from "../../../routing/org-chart-routing/registry.js";
+import { handleSpotifyWorker } from "../../../workers/media/spotify-agent/index.js";
+import { handleYouTubeWorker } from "../../../workers/media/youtube-agent/index.js";
+import { handleCryptoWorker } from "../../../workers/finance/crypto-agent/index.js";
+import { handleWeatherWorker } from "../../../workers/market/weather-agent/index.js";
 
 const DEFAULT_EXECUTOR_KIND = "default";
 const EXECUTOR_KIND_CANDIDATES = OPERATOR_LANE_SEQUENCE.flatMap((lane) => [
@@ -203,17 +207,25 @@ function buildLaneRequestHints(requestHints, lane, executorKind = DEFAULT_EXECUT
 }
 
 const EXECUTOR_KIND_HANDLERS = {
-  spotify: ({ text, ctx, llmCtx, handleSpotify }) => {
-    if (typeof handleSpotify !== "function") {
-      throw new Error("routeOperatorDispatch requires handleSpotify");
-    }
-    return async () => handleSpotify(text, ctx, llmCtx);
+  spotify: ({ text, ctx, llmCtx, spotifyWorker }) => {
+    const runSpotifyWorker = typeof spotifyWorker === "function" ? spotifyWorker : handleSpotifyWorker;
+    return async () => runSpotifyWorker(text, ctx, llmCtx);
   },
-  youtube: ({ text, ctx, llmCtx, handleYouTube }) => {
-    if (typeof handleYouTube !== "function") {
-      throw new Error("routeOperatorDispatch requires handleYouTube");
+  youtube: ({ text, ctx, youtubeWorker }) => {
+    const runYouTubeWorker = typeof youtubeWorker === "function" ? youtubeWorker : handleYouTubeWorker;
+    return async () => runYouTubeWorker(text, ctx);
+  },
+  crypto: ({ text, ctx, llmCtx, cryptoWorker }) => {
+    const runCryptoWorker = typeof cryptoWorker === "function" ? cryptoWorker : handleCryptoWorker;
+    return async () => runCryptoWorker(text, ctx, llmCtx);
+  },
+  market: ({ text, ctx, llmCtx, weatherWorker, requestHints, lane, executorKind, executeChatRequest }) => {
+    if (String(lane?.routeHint || "").trim().toLowerCase() === "weather") {
+      const runWeatherWorker = typeof weatherWorker === "function" ? weatherWorker : handleWeatherWorker;
+      return async () => runWeatherWorker(text, ctx, llmCtx);
     }
-    return async () => handleYouTube(text, ctx, llmCtx);
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    return async () => executeChatRequest(text, ctx, llmCtx, laneRequestHints);
   },
   default: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
     const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
@@ -228,8 +240,10 @@ export function resolveOperatorWorkerExecutor(input = {}) {
     ctx,
     llmCtx,
     requestHints,
-    handleSpotify,
-    handleYouTube,
+    spotifyWorker,
+    youtubeWorker,
+    cryptoWorker,
+    weatherWorker,
     executeChatRequest,
   } = input;
 
@@ -249,8 +263,10 @@ export function resolveOperatorWorkerExecutor(input = {}) {
     ctx,
     llmCtx,
     requestHints,
-    handleSpotify,
-    handleYouTube,
+    spotifyWorker,
+    youtubeWorker,
+    cryptoWorker,
+    weatherWorker,
     executeChatRequest,
   });
 }

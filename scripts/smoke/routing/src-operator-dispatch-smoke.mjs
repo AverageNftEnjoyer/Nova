@@ -43,7 +43,7 @@ await run("P24-C1 chat route delegates to chat worker path", async () => {
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "chat", ok: true, reply: "ok" }),
     upsertShortTermContextState: () => {},
   });
@@ -76,7 +76,7 @@ await run("P24-C2 spotify route updates short-term context on success", async ()
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true, reply: "Playing now" }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true, reply: "Playing now" }),
     executeChatRequest: async () => ({ route: "chat", ok: true }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -109,7 +109,7 @@ await run("P24-C3 spotify route does not update context on failure", async () =>
     delegateToOrgChartWorker: async (payload) => {
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: false, error: "provider_unavailable" }),
+    spotifyWorker: async () => ({ route: "spotify", ok: false, error: "provider_unavailable" }),
     executeChatRequest: async () => ({ route: "chat", ok: true }),
     upsertShortTermContextState: () => { updates += 1; },
   });
@@ -143,7 +143,7 @@ await run("P24-C4 polymarket route delegates through org-chart worker and update
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "polymarket", ok: true, reply: "Odds loaded." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -184,7 +184,7 @@ await run("P24-C5 coinbase route delegates through org-chart worker and updates 
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
       executeHints = hints;
       return { route: "coinbase", ok: true, reply: "Balances synced." };
@@ -230,7 +230,7 @@ await run("P24-C6 gmail route delegates through org-chart worker and updates con
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "Inbox loaded." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -272,7 +272,7 @@ await run("P24-C7 telegram route delegates through org-chart worker and updates 
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "telegram", ok: true, reply: "Telegram message queued." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -315,7 +315,7 @@ await run("P24-C8 discord route delegates through org-chart worker and updates c
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "discord", ok: true, reply: "Discord post queued." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -359,7 +359,7 @@ await run("P24-C9 calendar route delegates through org-chart worker and updates 
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "calendar", ok: true, reply: "Calendar loaded." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -404,7 +404,7 @@ await run("P24-C10 reminders route delegates through org-chart worker and update
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "reminder", ok: true, reply: "Reminder created." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -451,7 +451,7 @@ await run("P24-C11 web research route delegates through org-chart worker and upd
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
       executeHints = hints;
       return { route: "web_research", ok: true, reply: "Research summary ready." };
@@ -474,6 +474,7 @@ await run("P24-C11 web research route delegates through org-chart worker and upd
 await run("P24-C12 crypto route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let cryptoWorkerCalled = false;
   const out = await routeOperatorDispatch({
     text: "show crypto prices",
     ctx: {},
@@ -504,13 +505,17 @@ await run("P24-C12 crypto route delegates through org-chart worker and updates c
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "crypto", ok: true, reply: "Crypto snapshot ready." }),
+    cryptoWorker: async () => {
+      cryptoWorkerCalled = true;
+      return { route: "crypto", ok: true, reply: "Crypto snapshot ready." };
+    },
+    executeChatRequest: async () => ({ route: "chat", ok: false, reply: "" }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "crypto");
   assert.equal(out?.ok, true);
   assert.equal(calls.length, 1);
+  assert.equal(cryptoWorkerCalled, true);
   assert.equal(calls[0]?.routeHint, "crypto");
   assert.equal(contextUpdates.length, 1);
   assert.equal(contextUpdates[0]?.domainId, "crypto");
@@ -521,7 +526,7 @@ await run("P24-C12 crypto route delegates through org-chart worker and updates c
 await run("P24-C13 market route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
-  let executeHints = null;
+  let weatherCalled = false;
   const out = await routeOperatorDispatch({
     text: "weather in nyc",
     ctx: {},
@@ -553,23 +558,23 @@ await run("P24-C13 market route delegates through org-chart worker and updates c
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      executeHints = hints;
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
+    weatherWorker: async () => {
+      weatherCalled = true;
       return { route: "weather", ok: true, reply: "Weather loaded." };
     },
+    executeChatRequest: async () => ({ route: "chat", ok: false }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "weather");
   assert.equal(out?.ok, true);
+  assert.equal(weatherCalled, true);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "weather");
   assert.equal(contextUpdates.length, 1);
   assert.equal(contextUpdates[0]?.domainId, "market");
   assert.equal(contextUpdates[0]?.topicAffinityId, "market_weather");
   assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
-  assert.equal(executeHints?.operatorLane?.executorKind, "market");
-  assert.equal(executeHints?.forceWebSearchPreload, true);
 });
 
 await run("P24-C14 files route delegates through org-chart worker and updates context", async () => {
@@ -607,7 +612,7 @@ await run("P24-C14 files route delegates through org-chart worker and updates co
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "files", ok: true, reply: "Files listed." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -657,7 +662,7 @@ await run("P24-C15 diagnostics route delegates through org-chart worker and upda
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "diagnostic", ok: true, reply: "Diagnostics complete." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -708,7 +713,7 @@ await run("P24-C16 voice route delegates through org-chart worker and updates co
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "voice", ok: true, reply: "Voice settings updated." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -760,7 +765,7 @@ await run("P24-C17 tts route delegates through org-chart worker and updates cont
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async () => ({ route: "tts", ok: true, reply: "Reading aloud now." }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
@@ -812,7 +817,7 @@ await run("P24-C18 default worker lanes receive operator lane request hints with
       calls.push(payload);
       return await payload.run();
     },
-    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
     executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
       executeHints = hints;
       return { route: "gmail", ok: true, reply: "Gmail routed." };

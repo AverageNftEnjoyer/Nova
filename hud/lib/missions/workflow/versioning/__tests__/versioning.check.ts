@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
-import { buildMission } from "../../../store"
-import { appendMissionVersionEntry, listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "../server"
+import { buildMission } from "../../../store/index.ts"
+import { appendMissionVersionEntry, listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "../server.ts"
 
 function runCheck(name: string, fn: () => Promise<void> | void): Promise<void> {
   return Promise.resolve(fn()).then(() => {

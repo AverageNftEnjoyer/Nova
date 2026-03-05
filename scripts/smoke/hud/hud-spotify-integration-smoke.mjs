@@ -83,7 +83,7 @@ await run("HSP-6 Icon registry exports Spotify SVG icon", async () => {
 });
 
 await run("HSP-7 Runtime sync includes runtime-safe spotify snapshot", async () => {
-  const runtimeSync = read("hud/lib/integrations/agent-runtime-sync.ts");
+  const runtimeSync = read("hud/lib/integrations/runtime/agent-sync.ts");
   assert.equal(runtimeSync.includes("buildRuntimeSafeSpotifySnapshot"), true);
   assert.equal(runtimeSync.includes("spotify:"), true);
 });
@@ -97,21 +97,21 @@ await run("HSP-8 Home Spotify hook enforces request timeouts to avoid UI lock", 
 });
 
 await run("HSP-9 Spotify favorite playlist preferences are user-scoped", async () => {
-  const prefs = read("hud/lib/integrations/spotify/skill-prefs.ts");
+  const prefs = read("hud/lib/integrations/spotify/skill-prefs/index.ts");
   assert.equal(prefs.includes("USER_CONTEXT_ROOT"), true);
   assert.equal(prefs.includes("normalizeUserId"), true);
   assert.equal(prefs.includes('path.join(USER_CONTEXT_ROOT, id, "skills", "spotify", SKILL_FILE)'), true);
 });
 
 await run("HSP-10 Playlist matching resolves against user playlists, not generic global search", async () => {
-  const service = read("hud/lib/integrations/spotify/service.ts");
+  const service = read("hud/lib/integrations/spotify/service/index.ts");
   assert.equal(service.includes("/me/playlists?"), true);
   assert.equal(service.includes("spotify_search_playlist"), false);
 });
 
 await run("HSP-11 Playlist actions enforce required Spotify scopes with reconnect guidance", async () => {
-  const service = read("hud/lib/integrations/spotify/service.ts");
-  const tokens = read("hud/lib/integrations/spotify/tokens.ts");
+  const service = read("hud/lib/integrations/spotify/service/index.ts");
+  const tokens = read("hud/lib/integrations/spotify/tokens/index.ts");
   assert.equal(tokens.includes("getSpotifyGrantedScopes"), true);
   assert.equal(service.includes("ensureSpotifyScopeAny"), true);
   assert.equal(service.includes("playlist-read-private"), true);

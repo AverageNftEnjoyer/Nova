@@ -8,8 +8,7 @@ import {
   extractOpenAIChatText,
   withTimeout,
 } from "../../../../llm/providers/index.js";
-import { replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../../routing/intent-router/index.js";
-import { isWeatherRequestText } from "../../../fast-path/weather-fast-path/index.js";
+import { replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "../../../routing/intent-router/index.js";
 import { validateOutputConstraints } from "../../../quality/output-constraints/index.js";
 import { normalizeAssistantReply } from "../../../quality/reply-normalizer/index.js";
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
@@ -70,8 +69,7 @@ export async function refineAssistantReply({
       });
       const fallbackContent = String(fallbackResult?.content || "").trim();
       if (fallbackContent && !/^web_search error/i.test(fallbackContent)) {
-        const weatherReadable = isWeatherRequestText(text) ? buildWeatherWebSummary(text, fallbackContent) : "";
-        const readable = weatherReadable || buildWebSearchReadableReply(text, fallbackContent);
+        const readable = buildWebSearchReadableReply(text, fallbackContent);
         const correction = readable
           ? `I do have live web access in this runtime.\n\n${readable}`
           : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;

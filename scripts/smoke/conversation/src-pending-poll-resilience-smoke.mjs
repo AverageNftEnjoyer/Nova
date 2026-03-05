@@ -34,14 +34,14 @@ const [
   conversationActionsSource,
   messagesRouteSource,
   chatHandlerSource,
-  specialHandlersSource,
+  missionWorkerSource,
 ] = await Promise.all([
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/useNovaState.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/useConversations.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/lib/chat/hooks/use-conversations/conversation-actions.ts"), "utf8"),
   readFile(path.join(process.cwd(), "hud/app/api/threads/[threadId]/messages/route.ts"), "utf8"),
   readFile(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js"), "utf8"),
-  readFile(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-special-handlers/index.js"), "utf8"),
+  readFile(path.join(process.cwd(), "src/runtime/modules/chat/workers/productivity/missions-agent/index.js"), "utf8"),
 ]);
 
 await run("P1 chat hook removed legacy merge hook pipeline", async () => {
@@ -78,7 +78,7 @@ await run("P2 transport model ignores assistant plain message payloads", async (
 
 await run("P3 runtime emits stream lifecycle for duplicate and workflow replies", async () => {
   assert.equal(chatHandlerSource.includes("broadcastMessage(\"assistant\""), false);
-  assert.equal(specialHandlersSource.includes("broadcastMessage(\"assistant\""), false);
+  assert.equal(missionWorkerSource.includes("broadcastMessage(\"assistant\""), false);
   assertIncludesAll(
     chatHandlerSource,
     [
@@ -89,7 +89,7 @@ await run("P3 runtime emits stream lifecycle for duplicate and workflow replies"
     "duplicate stream token missing",
   );
   assertIncludesAll(
-    specialHandlersSource,
+    missionWorkerSource,
     [
       "emitWorkflowAssistantReply",
       "broadcastAssistantStreamStart(streamId",

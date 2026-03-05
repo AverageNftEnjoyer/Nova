@@ -381,10 +381,7 @@ async function pickLikedTrackUri(scope?: SpotifyScope): Promise<string> {
   return uri
 }
 
-const PLAY_CONTINUATION_QUEUE_TARGET = Math.max(
-  2,
-  Math.min(12, Number.parseInt(process.env.NOVA_SPOTIFY_CONTINUATION_QUEUE_TARGET || "8", 10) || 8),
-)
+const PLAY_CONTINUATION_QUEUE_TARGET = 8
 
 function extractTrackIdFromUri(uri: string): string {
   const normalized = String(uri || "").trim()

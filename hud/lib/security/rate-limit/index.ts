@@ -30,12 +30,8 @@ const globalState = globalThis as GlobalRateLimitState
 const rateLimitStore = globalState.__novaRateLimitStore ?? new Map<string, FixedWindowEntry>()
 globalState.__novaRateLimitStore = rateLimitStore
 
-function readIntEnv(name: string, fallback: number, minValue: number, maxValue: number): number {
-  const raw = String(process.env[name] || "").trim()
-  if (!raw) return fallback
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isFinite(parsed)) return fallback
-  return Math.max(minValue, Math.min(maxValue, parsed))
+function readIntEnv(_name: string, fallback: number, minValue: number, maxValue: number): number {
+  return Math.max(minValue, Math.min(maxValue, fallback))
 }
 
 const GC_INTERVAL_MS = readIntEnv("NOVA_RATE_LIMIT_GC_INTERVAL_MS", 60_000, 5_000, 600_000)

@@ -1,27 +1,25 @@
-import { TOOL_LOOP_ENABLED } from "../../../../../core/constants/index.js";
-import { toolRuntime } from "../../../../infrastructure/config/index.js";
 import {
-  clearPendingWeatherConfirm,
-  getPendingWeatherConfirm,
-  isWeatherConfirmNo,
-  isWeatherConfirmYes,
-  tryWeatherFastPathReply,
-} from "../../../fast-path/weather-fast-path/index.js";
+  clearPendingWeatherConfirmation,
+  isWeatherConfirmationAccepted,
+  isWeatherConfirmationRejected,
+  readPendingWeatherConfirmation,
+  runWeatherLookup,
+} from "../../../workers/market/weather-service/index.js";
 
 export async function handleWeatherConfirmationRouting(input = {}) {
   const {
     text,
     sessionKey,
-    userContextId,
     ctx,
     sendDirectAssistantReply,
+    runWeatherLookup: runWeatherLookupOverride = null,
   } = input;
 
-  const pendingWeather = getPendingWeatherConfirm(sessionKey);
+  const pendingWeather = readPendingWeatherConfirmation(sessionKey);
   if (!pendingWeather) return null;
 
-  if (isWeatherConfirmNo(text)) {
-    clearPendingWeatherConfirm(sessionKey);
+  if (isWeatherConfirmationRejected(text)) {
+    clearPendingWeatherConfirmation(sessionKey);
     const reply = await sendDirectAssistantReply(
       text,
       "Okay. I will not run that location. Share the correct city and I will fetch weather immediately.",
@@ -35,19 +33,13 @@ export async function handleWeatherConfirmationRouting(input = {}) {
     };
   }
 
-  if (isWeatherConfirmYes(text)) {
-    const runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
-    const availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
-    const canRunToolLoop = TOOL_LOOP_ENABLED
-      && availableTools.length > 0
-      && typeof runtimeTools?.executeToolUse === "function";
-    const canRunWebSearch = canRunToolLoop && availableTools.some((t) => String(t?.name || "") === "web_search");
-    clearPendingWeatherConfirm(sessionKey);
-    const confirmedWeatherResult = await tryWeatherFastPathReply({
+  if (isWeatherConfirmationAccepted(text)) {
+    const runWeatherLookupRef = typeof runWeatherLookupOverride === "function"
+      ? runWeatherLookupOverride
+      : runWeatherLookup;
+    clearPendingWeatherConfirmation(sessionKey);
+    const confirmedWeatherResult = await runWeatherLookupRef({
       text: pendingWeather.prompt,
-      runtimeTools,
-      availableTools,
-      canRunWebSearch,
       forcedLocation: pendingWeather.suggestedLocation,
       bypassConfirmation: true,
     });
@@ -58,15 +50,11 @@ export async function handleWeatherConfirmationRouting(input = {}) {
       route: "weather_confirm_accepted",
       ok: true,
       reply,
-      toolCalls: confirmedWeatherResult?.toolCall ? [String(confirmedWeatherResult.toolCall)] : [],
-      canRunToolLoop,
-      canRunWebSearch,
     };
   }
 
   // If the user moved on or asked a fresh weather question, do not trap the
   // session in a yes/no loop. Clear stale confirmation and continue routing.
-  clearPendingWeatherConfirm(sessionKey);
+  clearPendingWeatherConfirmation(sessionKey);
   return null;
 }
-

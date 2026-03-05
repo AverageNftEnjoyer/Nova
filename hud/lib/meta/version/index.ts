@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.43 Alpha (2026-03-05): Agentic runtime service ownership + mission stack extraction
+ *     - Removed remaining operator-owned system action handlers by moving workflow build, memory update, and shutdown into dedicated workers.
+ *     - Eliminated legacy weather and crypto fast paths in favor of dedicated workers and shared runtime-owned services.
+ *     - Added shared mission services under `src/` for build orchestration, idempotency, timezone resolution, graph validation, and generation helpers.
+ *     - Converted the missions build API route into a thin transport wrapper over shared mission execution and updated roadmap/smoke coverage around the new architecture.
+ *
  * - V.42 Alpha (2026-03-05): YouTube single-call guardrails + Polymarket top-row live-odds placeholder
  *     - Enforced YouTube single-request behavior per explicit user action by removing secondary feed fallbacks and background enrichment calls.
  *     - Tightened home-module fetch behavior so YouTube only refreshes on explicit command/refresh pathways, with scoped dedupe/rate-limit protections retained.
@@ -272,6 +278,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.42 Alpha"
+export const NOVA_VERSION = "V.43 Alpha"
 
 

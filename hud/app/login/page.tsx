@@ -90,7 +90,7 @@ export default function LoginPage() {
 
     if (!hasSupabaseClientConfig || !supabaseBrowser) {
       if (debugEnabled) loginDebugEvent("login-page", "supabase:missing")
-      setError("Supabase public client env is missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart.")
+      setError("Authentication is not configured for this deployment.")
       return
     }
     void supabaseBrowser.auth.getSession().then(({ data }) => {
@@ -285,7 +285,7 @@ export default function LoginPage() {
     setBusy(true)
     try {
       if (!hasSupabaseClientConfig || !supabaseBrowser) {
-        throw new Error("Supabase public client env is missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart.")
+        throw new Error("Authentication is not configured for this deployment.")
       }
       if (mode === "forgot") {
         if (debugEnabled) loginDebugEvent("login-page", "submit:forgot")
@@ -377,7 +377,7 @@ export default function LoginPage() {
     setBusy(true)
     try {
       if (!hasSupabaseClientConfig || !supabaseBrowser) {
-        throw new Error("Supabase public client env is missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY, then restart.")
+        throw new Error("Authentication is not configured for this deployment.")
       }
       const supabase = supabaseBrowser
       const redirectTo = `${window.location.origin}/login?next=${encodeURIComponent(nextPath)}&oauth=1`

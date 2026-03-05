@@ -4,8 +4,6 @@ import path from "path"
 // The HUD process runs with cwd = C:\Nova\hud, but the .agent directory lives at the repo root.
 // Resolve upward from cwd: if cwd ends with "hud", go up one level. Otherwise trust cwd.
 function resolveNovaRoot(): string {
-  const envRoot = String(process.env.NOVA_ROOT || "").trim()
-  if (envRoot) return envRoot
   const cwd = process.cwd()
   // When started via nova.js the HUD cwd is <root>/hud; normalise to repo root.
   if (path.basename(cwd).toLowerCase() === "hud") return path.dirname(cwd)

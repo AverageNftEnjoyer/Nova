@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
 import type { AgentSupervisorNode, AgentSubworkflowNode, AgentWorkerNode, ExecutionContext, Mission } from "../../../types/index"
-import { executeAgentSubworkflow, executeAgentSupervisor, executeAgentWorker } from "../agent-executors"
+import { executeAgentSubworkflow, executeAgentSupervisor, executeAgentWorker } from "../agent-executors.ts"
 
 function runCheck(name: string, fn: () => Promise<void> | void): Promise<void> {
   return Promise.resolve(fn()).then(() => {

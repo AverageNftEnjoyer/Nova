@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { tryCryptoFastPathReply } from "../../../../src/runtime/modules/chat/fast-path/crypto-fast-path/index.js";
+import { runCryptoRequest } from "../../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 
 const availableTools = [
   { name: "coinbase_portfolio_report" },
@@ -57,7 +57,7 @@ async function run() {
 
   try {
     // ── Seed crypto affinity
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: "show me my coinbase portfolio",
       runtimeTools,
       availableTools,
@@ -68,7 +68,7 @@ async function run() {
 
     // ── Test A/B: preference text with embedded \n (Unix)
     const prefTextLF = "always show 2 decimals in my coinbase report\nremember this going forward";
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: prefTextLF,
       runtimeTools,
       availableTools,
@@ -117,7 +117,7 @@ async function run() {
     const userContextId2 = `audit-p2b-${Date.now()}`;
     const conversationId2 = `conv-p2b-${Date.now()}`;
 
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: "show me my coinbase portfolio",
       runtimeTools,
       availableTools,
@@ -127,7 +127,7 @@ async function run() {
     });
 
     const prefTextCRLF = "always show 2 decimals in my coinbase report\r\nremember this going forward";
-    await tryCryptoFastPathReply({
+    await runCryptoRequest({
       text: prefTextCRLF,
       runtimeTools,
       availableTools,
@@ -164,3 +164,4 @@ run().catch((err) => {
   console.error(`FAIL smoke/audit/p2-rule-newline: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });
+

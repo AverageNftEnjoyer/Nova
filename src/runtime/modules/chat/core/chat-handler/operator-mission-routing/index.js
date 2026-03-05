@@ -109,7 +109,7 @@ export async function handleMissionBuildRouting(input = {}) {
     ctx,
     delegateToOrgChartWorker,
     sendDirectAssistantReply,
-    handleWorkflowBuild,
+    missionWorker,
     upsertShortTermContextState,
     clearShortTermContextState,
   } = input;
@@ -137,16 +137,16 @@ export async function handleMissionBuildRouting(input = {}) {
       clearPendingMissionConfirm(sessionKey);
       clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
       return await delegateToOrgChartWorker({
-        routeHint: "workflow_build",
-        responseRoute: "workflow_build",
+        routeHint: "workflow",
+        responseRoute: "workflow",
         text: mergedPrompt,
-        toolCalls: ["workflow_build"],
+        toolCalls: ["mission"],
         provider: "",
         providerSource: "chat-runtime-fallback",
         userContextId,
         conversationId,
         sessionKey,
-        run: async () => handleWorkflowBuild(mergedPrompt, ctx, { engine: "src" }),
+        run: async () => missionWorker(mergedPrompt, ctx, { engine: "src" }),
       });
     }
 
@@ -187,16 +187,16 @@ export async function handleMissionBuildRouting(input = {}) {
       },
     });
     return await delegateToOrgChartWorker({
-      routeHint: "workflow_build",
-      responseRoute: "workflow_build",
+      routeHint: "workflow",
+      responseRoute: "workflow",
       text,
-      toolCalls: ["workflow_build"],
+      toolCalls: ["mission"],
       provider: "",
       providerSource: "chat-runtime-fallback",
       userContextId,
       conversationId,
       sessionKey,
-      run: async () => handleWorkflowBuild(text, ctx, { engine: "src" }),
+      run: async () => missionWorker(text, ctx, { engine: "src" }),
     });
   }
 

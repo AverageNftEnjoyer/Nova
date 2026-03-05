@@ -29,6 +29,7 @@ import {
   inferRequestedOutputChannel,
   normalizeOutputChannelId,
 } from "./generation"
+import { isMissionAgentGraphEnabled, missionUsesAgentGraph } from "./agent-flags"
 import { validateMissionGraphForVersioning } from "./versioning"
 
 export interface BuildMissionResult {
@@ -76,6 +77,52 @@ function shouldBuildAgentGraph(prompt: string): boolean {
     || normalized.includes("audit")
     || normalized.includes("team of")
   )
+}
+
+function parseStringMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const entries = Object.entries(value).flatMap(([key, mapValue]) => {
+    const normalizedKey = String(key || "").trim()
+    const normalizedValue = typeof mapValue === "string" ? mapValue.trim() : ""
+    return normalizedKey && normalizedValue ? [[normalizedKey, normalizedValue] as const] : []
+  })
+  if (entries.length === 0) return undefined
+  return Object.fromEntries(entries)
+}
+
+function parseAgentRetryPolicy(value: unknown): { maxAttempts: number; backoffMs: number } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  const maxAttempts = Number(record.maxAttempts)
+  const backoffMs = Number(record.backoffMs)
+  if (!Number.isFinite(maxAttempts) || maxAttempts < 1 || !Number.isFinite(backoffMs) || backoffMs < 0) {
+    return undefined
+  }
+  return {
+    maxAttempts: Math.max(1, Math.floor(maxAttempts)),
+    backoffMs: Math.max(0, Math.floor(backoffMs)),
+  }
+}
+
+function parseAgentRuntimeConfig(record: Record<string, unknown>): {
+  inputMapping?: Record<string, string>
+  outputSchema?: string
+  timeoutMs?: number
+  retryPolicy?: { maxAttempts: number; backoffMs: number }
+} {
+  const inputMapping = parseStringMap(record.inputMapping)
+  const outputSchema = asStr(record.outputSchema, "").trim() || undefined
+  const timeoutMsRaw = Number(record.timeoutMs)
+  const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0
+    ? Math.max(1, Math.floor(timeoutMsRaw))
+    : undefined
+  const retryPolicy = parseAgentRetryPolicy(record.retryPolicy)
+  return {
+    ...(inputMapping ? { inputMapping } : {}),
+    ...(outputSchema ? { outputSchema } : {}),
+    ...(timeoutMs ? { timeoutMs } : {}),
+    ...(retryPolicy ? { retryPolicy } : {}),
+  }
 }
 
 // ─── Node parser ─────────────────────────────────────────────────────────────
@@ -361,6 +408,7 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
         goal,
         reads: Array.isArray(r.reads) ? r.reads.map(String) : [],
         writes: Array.isArray(r.writes) ? r.writes.map(String) : [],
+        ...parseAgentRuntimeConfig(r),
       }
     }
     case "agent-worker": {
@@ -401,6 +449,7 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
         goal,
         reads: Array.isArray(r.reads) ? r.reads.map(String) : [],
         writes: Array.isArray(r.writes) ? r.writes.map(String) : [],
+        ...parseAgentRuntimeConfig(r),
       }
     }
     case "agent-handoff":
@@ -463,6 +512,7 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
         requiredChecks,
         reads: Array.isArray(r.reads) ? r.reads.map(String) : [],
         writes: Array.isArray(r.writes) ? r.writes.map(String) : [],
+        ...parseAgentRuntimeConfig(r),
       }
     }
     case "agent-subworkflow":
@@ -470,6 +520,7 @@ function parseLlmNode(raw: unknown, index: number): MissionNode | null {
       return {
         id, label, position: pos, type: "agent-subworkflow",
         missionId: asStr(r.missionId, "").trim(),
+        inputMapping: parseStringMap(r.inputMapping),
         waitForCompletion: r.waitForCompletion !== false,
       }
 
@@ -572,6 +623,9 @@ export async function buildMissionFromPrompt(
 
   const requestedOutput = inferRequestedOutputChannel(prompt, outputSet, defaultOutput)
   const requireAgentGraph = shouldBuildAgentGraph(prompt)
+  if (requireAgentGraph && !isMissionAgentGraphEnabled()) {
+    throw new Error("Mission generation requested an agent graph, but NOVA_MISSIONS_AGENT_GRAPH_ENABLED is disabled.")
+  }
   const scheduleHint = deriveScheduleFromPrompt(prompt)
   const scheduleTime = scheduleHint.time || "09:00"
   const scheduleTz = resolveTimezone(scheduleHint.timezone)
@@ -586,6 +640,7 @@ export async function buildMissionFromPrompt(
     "Build production-grade automation workflows using native MissionNode types.",
     "For agent missions, enforce this command spine: operator -> council -> domain-manager -> worker -> audit -> operator.",
     "Use provider-selector as a separate execution rail and never as a manager role.",
+    "Agent supervisor, worker, and audit nodes should include inputMapping, outputSchema, timeoutMs, and retryPolicy when possible.",
     "Never emit unknown node types. Never omit required connections.",
     requireAgentGraph
       ? "This prompt requires an agent graph. You must emit supervisor, council, domain-manager, worker, provider-selector, audit, and handoff nodes."
@@ -606,12 +661,12 @@ export async function buildMissionFromPrompt(
     nodes: requireAgentGraph
       ? [
           { id: "n1", type: "schedule-trigger", label: "Daily trigger", triggerMode: "daily", triggerTime: scheduleTime, triggerTimezone: scheduleTz },
-          { id: "n2", type: "agent-supervisor", label: "Operator", agentId: "operator", role: "operator", goal: "Command councils and manager routing." },
-          { id: "n3", type: "agent-worker", label: "Routing Council", agentId: "routing-council", role: "routing-council", goal: "Classify intent and select domain manager." },
-          { id: "n4", type: "agent-worker", label: "System Manager", agentId: "system-manager", role: "system-manager", goal: "Assign work to worker agent." },
-          { id: "n5", type: "agent-worker", label: "Worker Agent", agentId: "worker-1", role: "worker-agent", goal: "Execute the task." },
+          { id: "n2", type: "agent-supervisor", label: "Operator", agentId: "operator", role: "operator", goal: "Command councils and manager routing.", inputMapping: { brief: "{{$nodes.n1.output.text}}" }, outputSchema: "{\"route\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, backoffMs: 0 } },
+          { id: "n3", type: "agent-worker", label: "Routing Council", agentId: "routing-council", role: "routing-council", goal: "Classify intent and select domain manager.", inputMapping: { route: "{{$nodes.n2.output.text}}" }, outputSchema: "{\"manager\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 2, backoffMs: 1500 } },
+          { id: "n4", type: "agent-worker", label: "System Manager", agentId: "system-manager", role: "system-manager", goal: "Assign work to worker agent.", inputMapping: { manager: "{{$nodes.n3.output.text}}" }, outputSchema: "{\"worker\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 2, backoffMs: 1500 } },
+          { id: "n5", type: "agent-worker", label: "Worker Agent", agentId: "worker-1", role: "worker-agent", goal: "Execute the task.", inputMapping: { assignment: "{{$nodes.n4.output.text}}" }, outputSchema: "{\"result\":\"string\"}", timeoutMs: 180000, retryPolicy: { maxAttempts: 2, backoffMs: 2000 } },
           { id: "n6", type: "provider-selector", label: "Provider Rail", allowedProviders: [defaultLlm], defaultProvider: defaultLlm, strategy: "policy" },
-          { id: "n7", type: "agent-audit", label: "Audit", agentId: "audit-council", role: "audit-council", goal: "Verify isolation and policy checks.", requiredChecks: ["user-context-isolation", "policy-guardrails"] },
+          { id: "n7", type: "agent-audit", label: "Audit", agentId: "audit-council", role: "audit-council", goal: "Verify isolation and policy checks.", requiredChecks: ["user-context-isolation", "policy-guardrails"], inputMapping: { review: "{{$nodes.n5.output.text}}" }, outputSchema: "{\"audit\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, backoffMs: 0 } },
           { id: "n8", type: "agent-handoff", label: "Operator->Council", fromAgentId: "operator", toAgentId: "routing-council", reason: "route intent" },
           { id: "n9", type: "agent-handoff", label: "Council->Manager", fromAgentId: "routing-council", toAgentId: "system-manager", reason: "domain ownership" },
           { id: "n10", type: "agent-handoff", label: "Manager->Worker", fromAgentId: "system-manager", toAgentId: "worker-1", reason: "execution delegation" },
@@ -708,6 +763,9 @@ export async function buildMissionFromPrompt(
   }
   if (!hasTrigger) {
     throw new Error("Mission generation must include at least one trigger node.")
+  }
+  if (!isMissionAgentGraphEnabled() && missionUsesAgentGraph({ nodes })) {
+    throw new Error("Mission generation returned an agent graph while NOVA_MISSIONS_AGENT_GRAPH_ENABLED is disabled.")
   }
   if (requireAgentGraph && !nodes.some((node) => node.type.startsWith("agent-") || node.type === "provider-selector")) {
     throw new Error("Mission generation required an agent graph but returned no agent orchestration nodes.")

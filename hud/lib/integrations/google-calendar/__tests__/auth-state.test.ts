@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 // Provide env vars before importing the module under test
-process.env.NOVA_GMAIL_OAUTH_STATE_SECRET = "test-secret-abc123"
+process.env.NOVA_ENCRYPTION_KEY = "test-secret-abc123"
 // NODE_ENV is read-only in strict TS — already "test" in node:test runner
 
 import {

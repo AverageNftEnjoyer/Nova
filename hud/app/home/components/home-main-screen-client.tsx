@@ -1,14 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useSyncExternalStore } from "react"
 import { HomeMainScreen } from "./home-main-screen"
 
-export function HomeMainScreenClient() {
-  const [mounted, setMounted] = useState(false)
+const subscribe = () => () => {}
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+export function HomeMainScreenClient() {
+  const mounted = useSyncExternalStore(subscribe, () => true, () => false)
 
   if (!mounted) return null
   return <HomeMainScreen />

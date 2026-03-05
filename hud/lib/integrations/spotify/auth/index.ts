@@ -1,19 +1,18 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
 import { spotifyError } from "../errors/index"
+import { getOAuthStateSecret } from "@/lib/security/oauth-state-secret"
 import { DEFAULT_SPOTIFY_SCOPES, SPOTIFY_AUTH_BASE, type SpotifyClientConfig, type SpotifyOAuthStatePayload } from "../types/index"
 
-const DEV_FALLBACK_OAUTH_STATE_SECRET = createHash("sha256")
-  .update(`nova-dev-spotify-oauth:${process.cwd()}`)
-  .digest("hex")
-
 function getOAuthSecret(): string {
-  const configured = String(process.env.NOVA_SPOTIFY_OAUTH_STATE_SECRET || process.env.NOVA_ENCRYPTION_KEY || "").trim()
-  if (configured) return configured
-  if (process.env.NODE_ENV !== "development") {
-    throw spotifyError("spotify.internal", "NOVA_SPOTIFY_OAUTH_STATE_SECRET (or NOVA_ENCRYPTION_KEY) is required in production.")
+  try {
+    return getOAuthStateSecret()
+  } catch (error) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : "NOVA_ENCRYPTION_KEY is required for OAuth state signing."
+    throw spotifyError("spotify.internal", message)
   }
-  return DEV_FALLBACK_OAUTH_STATE_SECRET
 }
 
 function base64UrlFromBuffer(buffer: Buffer): string {

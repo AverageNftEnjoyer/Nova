@@ -38,11 +38,6 @@ export async function POST(req: Request) {
   const runtimeTokenDecision = verifyRuntimeSharedToken(req)
   if (!runtimeTokenDecision.ok) return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
 
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.spotifyPlayback)
-  if (!limit.allowed) return rateLimitExceededResponse(limit)
-
   try {
     const body = await safeJson(req)
     const parsed = playbackBodySchema.safeParse(body)
@@ -50,18 +45,49 @@ export async function POST(req: Request) {
       throw new Error(parsed.error.issues[0]?.message || "Invalid playback request.")
     }
     const payload = parsed.data
+    const { unauthorized, verified } = await requireSupabaseApiUser(req)
     const requestedUserContextId = normalizeUserContextId(payload.userContextId)
-    const verifiedUserContextId = normalizeUserContextId(verified.user.id)
-    if (requestedUserContextId && requestedUserContextId !== verifiedUserContextId) {
-      // Treat userContextId in payload as a client hint only; authenticated user scope
-      // is always derived from verified Supabase identity.
-      logSpotifyApi("playback.user_scope_hint_mismatch", {
-        requestedUserContextId,
-        verifiedUserContextId,
+    const runtimeAuthenticated = runtimeTokenDecision.authenticated === true
+
+    let userId = ""
+    let scope: Parameters<typeof controlSpotifyPlayback>[2]
+
+    if (verified) {
+      const verifiedUserContextId = normalizeUserContextId(verified.user.id)
+      if (requestedUserContextId && requestedUserContextId !== verifiedUserContextId) {
+        // Treat userContextId in payload as a client hint only; authenticated user scope
+        // is always derived from verified Supabase identity.
+        logSpotifyApi("playback.user_scope_hint_mismatch", {
+          requestedUserContextId,
+          verifiedUserContextId,
+        })
+      }
+      userId = verifiedUserContextId || verified.user.id
+      scope = verified
+    } else {
+      if (!runtimeAuthenticated) {
+        return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+      }
+      if (!requestedUserContextId) {
+        return NextResponse.json(
+          { ok: false, code: "spotify.user_context_required", error: "Spotify runtime requests require userContextId." },
+          { status: 400 },
+        )
+      }
+      userId = requestedUserContextId
+      scope = {
+        userId,
+        allowServiceRole: true,
+        serviceRoleReason: "runtime-bridge",
+      }
+      logSpotifyApi("playback.runtime_bridge", {
+        userContextId: userId,
+        action: payload.action,
       })
     }
 
-    const userId = verifiedUserContextId || verified.user.id
+    const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.spotifyPlayback)
+    if (!limit.allowed) return rateLimitExceededResponse(limit)
 
     // Invalidate the server-side now-playing cache so the very next poll after this
     // command always fetches fresh state from Spotify's API rather than stale cache.
@@ -106,7 +132,7 @@ export async function POST(req: Request) {
             playlistUri: prefs.favoritePlaylistUri,
             playlistName: prefs.favoritePlaylistName,
           },
-          verified,
+          scope,
         )
         playSmartUnavailableByUser.delete(userId)
         logSpotifyApi("playback.success", { userContextId: userId, action: "play_smart" })
@@ -132,7 +158,7 @@ export async function POST(req: Request) {
 
       if (!playlistUri) {
         // Detect current context via the service layer
-        const ctx = await getSpotifyCurrentContext(verified)
+        const ctx = await getSpotifyCurrentContext(scope)
         if (!ctx.playing) {
           return NextResponse.json(
             { ok: false, error: "Nothing is playing. Start a playlist first, then ask me to save it.", code: "spotify.not_found" },
@@ -173,7 +199,7 @@ export async function POST(req: Request) {
           { status: 400 },
         )
       }
-      const resolved = await findSpotifyPlaylistByQuery(query, verified)
+      const resolved = await findSpotifyPlaylistByQuery(query, scope)
       if (!resolved.match) {
         const suffix = resolved.suggestions.length > 0
           ? ` Did you mean: ${resolved.suggestions.join(", ")}?`
@@ -233,7 +259,7 @@ export async function POST(req: Request) {
           playlistUri: prefs.favoritePlaylistUri,
           playlistName: prefs.favoritePlaylistName,
         },
-        verified,
+        scope,
       )
       logSpotifyApi("playback.success", {
         userContextId: userId,
@@ -243,20 +269,20 @@ export async function POST(req: Request) {
       return NextResponse.json(result)
     }
 
-    const result = await controlSpotifyPlayback(
-      payload.action,
-      {
+      const result = await controlSpotifyPlayback(
+        payload.action,
+        {
         query: payload.query || "",
         type: payload.type,
         positionMs: payload.positionMs,
         volumePercent: payload.volumePercent,
         shuffleOn: payload.shuffleOn,
-        repeatMode: payload.repeatMode,
-        deviceId: payload.deviceId,
-        deviceName: payload.deviceName,
-      },
-      verified,
-    )
+          repeatMode: payload.repeatMode,
+          deviceId: payload.deviceId,
+          deviceName: payload.deviceName,
+        },
+        scope,
+      )
     logSpotifyApi("playback.success", {
       userContextId: userId,
       action: payload.action,

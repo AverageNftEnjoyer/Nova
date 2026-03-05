@@ -27,6 +27,7 @@ import { emitMissionTelemetryEvent } from "../telemetry"
 import { validateMissionGraphForVersioning } from "./versioning"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { computeRetryDelayMs, shouldRetry } from "../retry-policy"
+import { isMissionAgentExecutorEnabled, isMissionAgentGraphEnabled, missionUsesAgentGraph } from "./agent-flags"
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Expression Resolver
@@ -311,6 +312,43 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
 
 const MISSION_MAX_DURATION_MS = Number(process.env.NOVA_MISSION_MAX_DURATION_MS) || 5 * 60 * 1000 // default 5 minutes
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isAgentNodeWithRuntimePolicy(
+  node: MissionNode,
+): node is Extract<MissionNode, { type: "agent-supervisor" | "agent-worker" | "agent-audit" }> {
+  return node.type === "agent-supervisor" || node.type === "agent-worker" || node.type === "agent-audit"
+}
+
+async function executeNodeWithOptionalTimeout(
+  node: MissionNode,
+  executor: NonNullable<(typeof EXECUTOR_REGISTRY)[MissionNode["type"]]>,
+  ctx: ExecutionContext,
+): Promise<NodeOutput & { port?: string }> {
+  if (!isAgentNodeWithRuntimePolicy(node) || !node.timeoutMs || node.timeoutMs <= 0) {
+    return executor(node, ctx)
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    return await Promise.race([
+      executor(node, ctx),
+      new Promise<NodeOutput & { port?: string }>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            ok: false,
+            error: `Agent node "${node.label}" timed out after ${node.timeoutMs}ms.`,
+            errorCode: "AGENT_NODE_TIMEOUT",
+          })
+        }, node.timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /**
  * Public entry point â€” wraps core execution with a global timeout and retry loop.
  *
@@ -395,7 +433,25 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   const userContextId = String(input.userContextId || input.scope?.userId || input.scope?.user?.id || mission.userId || "").trim()
   const conversationId = String(input.conversationId || input.runKey || `mission:${mission.id}:${runId}`).trim()
   const sessionKey = String(input.sessionKey || `agent:nova:mission:user:${userContextId}:dm:${conversationId}`).trim()
-  const hasAgentNodes = mission.nodes.some((node) => node.type.startsWith("agent-") || node.type === "provider-selector")
+  const hasAgentNodes = missionUsesAgentGraph(mission)
+  if (hasAgentNodes && !isMissionAgentGraphEnabled()) {
+    return {
+      ok: false,
+      skipped: false,
+      reason: "Agent graph missions are disabled by NOVA_MISSIONS_AGENT_GRAPH_ENABLED.",
+      outputs: [],
+      nodeTraces: [],
+    }
+  }
+  if (hasAgentNodes && !isMissionAgentExecutorEnabled()) {
+    return {
+      ok: false,
+      skipped: false,
+      reason: "Agent executor missions are disabled by NOVA_MISSIONS_AGENT_EXECUTOR_ENABLED.",
+      outputs: [],
+      nodeTraces: [],
+    }
+  }
   if (hasAgentNodes && (!userContextId || !conversationId || !sessionKey)) {
     return {
       ok: false,
@@ -636,11 +692,26 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       continue
     }
 
-    let output: NodeOutput & { port?: string }
-    try {
-      output = await executor(node, ctx)
-    } catch (err) {
-      output = { ok: false, error: String(err), errorCode: "EXECUTOR_EXCEPTION" }
+    const runtimePolicy = isAgentNodeWithRuntimePolicy(node)
+      ? {
+          maxAttempts: Math.max(1, Number(node.retryPolicy?.maxAttempts || 1)),
+          backoffMs: Math.max(0, Number(node.retryPolicy?.backoffMs || 0)),
+        }
+      : { maxAttempts: 1, backoffMs: 0 }
+
+    let output: NodeOutput & { port?: string } = { ok: false, error: "Node executor was not invoked.", errorCode: "EXECUTOR_UNREACHABLE" }
+    let retryCount = 0
+    for (let nodeAttempt = 1; nodeAttempt <= runtimePolicy.maxAttempts; nodeAttempt++) {
+      try {
+        output = await executeNodeWithOptionalTimeout(node, executor, ctx)
+      } catch (err) {
+        output = { ok: false, error: String(err), errorCode: "EXECUTOR_EXCEPTION" }
+      }
+      if (output.ok || nodeAttempt >= runtimePolicy.maxAttempts) break
+      retryCount += 1
+      if (runtimePolicy.backoffMs > 0) {
+        await delay(runtimePolicy.backoffMs)
+      }
     }
 
     nodeOutputs.set(node.id, output)
@@ -685,9 +756,12 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         nodeType: node.type,
         label: node.label,
         status: "failed",
-        detail: output.error || "Node execution failed.",
+        detail: retryCount > 0
+          ? `${output.error || "Node execution failed."} (after ${retryCount + 1} attempts)`
+          : output.error || "Node execution failed.",
         errorCode: output.errorCode,
         artifactRef: output.artifactRef,
+        retryCount,
         startedAt,
         endedAt,
       }
@@ -744,6 +818,7 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       status: "completed",
       detail: output.text ? output.text.slice(0, 200) : undefined,
       artifactRef: output.artifactRef,
+      retryCount,
       startedAt,
       endedAt,
     }

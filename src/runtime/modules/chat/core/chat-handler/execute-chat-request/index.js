@@ -27,12 +27,11 @@ import {
   PROMPT_CONTEXT_SECTION_MAX_TOKENS,
   PROMPT_BUDGET_DEBUG,
   AGENT_PROMPT_MODE,
-  ROOT_WORKSPACE_DIR,
   ROUTING_PREFERENCE,
   ROUTING_ALLOW_ACTIVE_OVERRIDE,
   ROUTING_PREFERRED_PROVIDERS,
 } from "../../../../../core/constants/index.js";
-import { sessionRuntime, toolRuntime, wakeWordRuntime } from "../../../../infrastructure/config/index.js";
+import { sessionRuntime, toolRuntime } from "../../../../infrastructure/config/index.js";
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../../../context/persona-context/index.js";
 import { captureUserPreferencesFromMessage, buildUserPreferencePromptSection } from "../../../../context/user-preferences/index.js";
 import {
@@ -41,10 +40,10 @@ import {
   syncIdentityIntelligenceFromTurn,
 } from "../../../../context/identity/engine/index.js";
 import { syncPersonalityFromTurn } from "../../../../context/personality/index.js";
-import { isMemoryUpdateRequest, extractAutoMemoryFacts } from "../../../../../../memory/runtime-compat/index.js";
+import { extractAutoMemoryFacts } from "../../../../../../memory/runtime-compat/index.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../../../context/skill-preferences/index.js";
 import { buildRuntimeSkillsPrompt } from "../../../../context/skills/index.js";
-import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt, shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply, buildWeatherWebSummary } from "../../../routing/intent-router/index.js";
+import { shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "../../../routing/intent-router/index.js";
 import { speak, playThinking, getBusy, setBusy, getCurrentVoice, normalizeRuntimeTone, runtimeToneDirective } from "../../../../audio/voice/index.js";
 import {
   broadcast,
@@ -72,7 +71,6 @@ import {
 import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../../core/context-prompt/index.js";
 import { buildAgentSystemPrompt, PromptMode } from "../../../../context/system-prompt/index.js";
 import { buildPersonaPrompt } from "../../../../context/bootstrap/index.js";
-import { shouldSkipDuplicateInbound } from "../../../routing/inbound-dedupe/index.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
 import { normalizeInboundUserText } from "../../../quality/response-quality-guard/index.js";
 import { appendDevConversationLog } from "../../../telemetry/dev-conversation-log/index.js";
@@ -103,30 +101,8 @@ import {
 } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
 import {
-  sendDirectAssistantReply,
-  handleMemoryUpdate,
-  handleShutdown,
-  handleSpotify,
-  handleWorkflowBuild,
-} from "../../chat-special-handlers/index.js";
-import {
   isWeatherRequestText,
-  tryWeatherFastPathReply,
-  getPendingWeatherConfirm,
-  setPendingWeatherConfirm,
-  clearPendingWeatherConfirm,
-  isWeatherConfirmYes,
-  isWeatherConfirmNo,
-} from "../../../fast-path/weather-fast-path/index.js";
-import {
-  isCryptoRequestText,
-  isExplicitCryptoReportRequest,
-  tryCryptoFastPathReply,
-} from "../../../fast-path/crypto-fast-path/index.js";
-import {
-  cacheRecentCryptoReport,
-  handleDuplicateCryptoReportRequest,
-} from "../../crypto-report-dedupe/index.js";
+} from "../../../workers/market/weather-service/index.js";
 import {
   applyShortTermContextTurnClassification,
   readShortTermContextState,
@@ -371,73 +347,31 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     let modelUsed = selectedChatModel;
     let providerUsed = activeChatRuntime.provider;
     const fastPathStartedAt = Date.now();
-    let weatherFastResult = { reply: "", suggestedLocation: "", needsConfirmation: false, toolCall: "" };
-    let cryptoFastResult = { reply: "", source: "", toolCall: "" };
-    if (!hasStrictOutputRequirements) {
-      weatherFastResult = await tryWeatherFastPathReply({
-        text,
-        runtimeTools,
-        availableTools,
-        canRunWebSearch,
-      });
-      if (!String(weatherFastResult?.reply || "").trim()) {
-        cryptoFastResult = await tryCryptoFastPathReply({
-          text,
-          runtimeTools,
-          availableTools,
-          userContextId,
-          conversationId,
-          workspaceDir: ROOT_WORKSPACE_DIR,
-        });
-      }
-    }
     latencyTelemetry.addStage("fast_path", Date.now() - fastPathStartedAt);
     let llmStartedAt = 0;
 
-    if (String(weatherFastResult?.reply || "").trim()) {
-      responseRoute = "weather_fast_path";
-      const suggestedLocation = String(weatherFastResult?.suggestedLocation || "").trim();
-      if (weatherFastResult?.needsConfirmation && suggestedLocation) {
-        setPendingWeatherConfirm(sessionKey, text, suggestedLocation);
-        broadcastThinkingStatus("Confirming location", userContextId);
-      } else {
-        clearPendingWeatherConfirm(sessionKey);
-        broadcastThinkingStatus("Summarizing weather", userContextId);
-      }
-      reply = String(weatherFastResult.reply || "").trim();
-      if (weatherFastResult?.toolCall) observedToolCalls.push(String(weatherFastResult.toolCall));
-    } else if (String(cryptoFastResult?.reply || "").trim()) {
-      responseRoute = "crypto_fast_path";
-      clearPendingWeatherConfirm(sessionKey);
-      broadcastThinkingStatus("Checking Coinbase", userContextId);
-      reply = String(cryptoFastResult.reply || "").trim();
-      if (cryptoFastResult?.toolCall) observedToolCalls.push(String(cryptoFastResult.toolCall));
-      if (String(cryptoFastResult?.toolCall || "").trim() === "coinbase_portfolio_report" && reply) {
-        cacheRecentCryptoReport(userContextId, conversationId, reply);
-      }
+    const serveIntentClass = !hasStrictOutputRequirements
+      && turnPolicy?.weatherIntent !== true
+      && turnPolicy?.cryptoIntent !== true
+      ? "chat"
+      : "other";
+    const serveAttempt = await runChatKitServeAttempt({
+      prompt: text,
+      userContextId,
+      conversationId,
+      missionRunId: "",
+      intentClass: serveIntentClass,
+      turnId: preparedPromptHash || `${Date.now()}`,
+    });
+    if (serveAttempt.used === true) {
+      responseRoute = "chatkit_served";
+      broadcastThinkingStatus("Drafting response", userContextId);
+      reply = String(serveAttempt.reply || "").trim();
+      providerUsed = "openai-chatkit";
+      modelUsed = String(serveAttempt.model || selectedChatModel);
+      promptTokens = Number(serveAttempt?.usage?.promptTokens || 0);
+      completionTokens = Number(serveAttempt?.usage?.completionTokens || 0);
     } else {
-      const serveIntentClass = !hasStrictOutputRequirements
-        && turnPolicy?.weatherIntent !== true
-        && turnPolicy?.cryptoIntent !== true
-        ? "chat"
-        : "other";
-      const serveAttempt = await runChatKitServeAttempt({
-        prompt: text,
-        userContextId,
-        conversationId,
-        missionRunId: "",
-        intentClass: serveIntentClass,
-        turnId: preparedPromptHash || `${Date.now()}`,
-      });
-      if (serveAttempt.used === true) {
-        responseRoute = "chatkit_served";
-        broadcastThinkingStatus("Drafting response", userContextId);
-        reply = String(serveAttempt.reply || "").trim();
-        providerUsed = "openai-chatkit";
-        modelUsed = String(serveAttempt.model || selectedChatModel);
-        promptTokens = Number(serveAttempt?.usage?.promptTokens || 0);
-        completionTokens = Number(serveAttempt?.usage?.completionTokens || 0);
-      } else {
       const promptContext = await buildPromptContextForTurn({
         text,
         uiText,
@@ -569,7 +503,6 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         modelUsed = directResult.modelUsed || modelUsed;
         emittedAssistantDelta = emittedAssistantDelta || directResult.emittedAssistantDelta === true;
       }
-    }
     }
     if (llmStartedAt > 0) {
       latencyTelemetry.addStage("llm_generation", Date.now() - llmStartedAt);

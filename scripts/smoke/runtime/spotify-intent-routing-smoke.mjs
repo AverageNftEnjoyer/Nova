@@ -21,44 +21,44 @@ function read(relPath) {
   return fs.readFileSync(path.join(process.cwd(), relPath), "utf8");
 }
 
-await run("SIR-1 Chat handler routes switch/change song phrasing to Spotify sub-handler", async () => {
-  const handlerSource = read("src/runtime/modules/chat/core/chat-handler/index.js");
-  assert.equal(handlerSource.includes(String.raw`\b(switch|change)\s+(the\s+)?(song|track|music)\s+(to|into)\s+`), true);
-  assert.equal(handlerSource.includes(String.raw`\b(switch|change)\s+to\s+.+\s+by\s+`), true);
-  assert.equal(handlerSource.includes("restart|replay|start over|from the beginning|retsrat|retsart|restat"), true);
-  assert.equal(handlerSource.includes("(/\\bretreat\\b/i.test(normalized) && /\\b(song|track|music)\\b/i.test(normalized))"), true);
-  assert.equal(handlerSource.includes("const spotifyResult = await handleSpotify(text, ctx, llmCtx);"), true);
-  assert.equal(handlerSource.includes("return spotifyResult;"), true);
+await run("SIR-1 Spotify direct-intent rules include switch/change and restart fallback phrases", async () => {
+  const intentSignalsSource = read("src/runtime/modules/chat/routing/operator-intent-signals/index.js");
+  assert.equal(intentSignalsSource.includes(String.raw`\b(switch|change)\s+(the\s+)?(song|track|music)\s+(to|into)\s+`), true);
+  assert.equal(intentSignalsSource.includes(String.raw`\b(switch|change)\s+to\s+.+\s+by\s+`), true);
+  assert.equal(intentSignalsSource.includes("restart|replay|start over|from the beginning|retsrat|retsart|restat"), true);
+  assert.equal(intentSignalsSource.includes("(/\\bretreat\\b/i.test(normalized) && /\\b(song|track|music)\\b/i.test(normalized))"), true);
 });
 
-await run("SIR-2 Spotify fast fallback maps switch/change song phrasing to play action with query", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
-  assert.equal(spotifyHandlerSource.includes("const switchToQueryMatch = input.match("), true);
-  assert.equal(spotifyHandlerSource.includes("const switchArtistQueryMatch = input.match("), true);
-  assert.equal(spotifyHandlerSource.includes("/\\bretreat\\b/i.test(input) && /\\b(song|track|music)\\b/i.test(input)"), true);
-  assert.equal(spotifyHandlerSource.includes("what song.*playing"), true);
-  assert.equal(spotifyHandlerSource.includes("set_favorite_playlist"), true);
-  assert.equal(spotifyHandlerSource.includes("clear_favorite_playlist"), true);
-  assert.equal(spotifyHandlerSource.includes("add_to_playlist"), true);
-  assert.equal(spotifyHandlerSource.includes('return { action: "play", query, response: `Switching to ${query}.` };'), true);
+await run("SIR-2 Operator worker executors route spotify/youtube lanes to worker modules", async () => {
+  const executorsSource = read("src/runtime/modules/chat/core/chat-handler/operator-worker-executors/index.js");
+  assert.equal(executorsSource.includes("import { handleSpotifyWorker }"), true);
+  assert.equal(executorsSource.includes("import { handleYouTubeWorker }"), true);
+  assert.equal(executorsSource.includes("spotify: ({ text, ctx, llmCtx, spotifyWorker }) => {"), true);
+  assert.equal(executorsSource.includes("const runSpotifyWorker = typeof spotifyWorker === \"function\" ? spotifyWorker : handleSpotifyWorker;"), true);
+  assert.equal(executorsSource.includes("youtube: ({ text, ctx, youtubeWorker }) => {"), true);
+  assert.equal(executorsSource.includes("const runYouTubeWorker = typeof youtubeWorker === \"function\" ? youtubeWorker : handleYouTubeWorker;"), true);
 });
 
-await run("SIR-3 Spotify TTS dedupe guard exists to prevent repeated spoken spam", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
-  assert.equal(spotifyHandlerSource.includes("SPOTIFY_TTS_DEDUPE_WINDOW_MS"), true);
-  assert.equal(spotifyHandlerSource.includes("shouldSuppressSpotifyTts(userContextId, normalized.text)"), true);
+await run("SIR-3 Spotify worker owns runtime flow and fallback logic", async () => {
+  const workerSource = read("src/runtime/modules/chat/workers/media/spotify-agent/index.js");
+  assert.equal(workerSource.includes("normalizeSpotifyIntentFallback(text)"), true);
+  assert.equal(workerSource.includes("runSpotifyViaHudApi(action, sanitizedIntent, ctx)"), true);
+  assert.equal(workerSource.includes("runDesktopSpotifyAction(action, intentQuery)"), true);
+  assert.equal(workerSource.includes("shouldSuppressSpotifyTts(userContextId, normalized.text)"), true);
 });
 
 await run("SIR-4 Desktop Spotify fallback wraps exec errors without crashing runtime", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
-  assert.equal(spotifyHandlerSource.includes("exec(command, (error) => {"), true);
-  assert.equal(spotifyHandlerSource.includes("Desktop fallback command failed"), true);
-  assert.equal(spotifyHandlerSource.includes("Desktop fallback command threw"), true);
+  const runtimeUtilsSource = read("src/runtime/modules/chat/workers/media/spotify-agent/runtime-utils/index.js");
+  assert.equal(runtimeUtilsSource.includes("exec(command, (error) => {"), true);
+  assert.equal(runtimeUtilsSource.includes("Desktop fallback command failed"), true);
+  assert.equal(runtimeUtilsSource.includes("Desktop fallback command threw"), true);
 });
 
-await run("SIR-5 Spotify runtime prompt contains no hardcoded user playlist literals", async () => {
-  const spotifyHandlerSource = read("src/runtime/modules/chat/core/chat-special-handlers/index.js");
-  assert.equal(spotifyHandlerSource.toLowerCase().includes("demon time"), false);
+await run("SIR-5 Spotify worker path contains no hardcoded user playlist literals", async () => {
+  const workerSource = read("src/runtime/modules/chat/workers/media/spotify-agent/index.js");
+  const runtimeUtilsSource = read("src/runtime/modules/chat/workers/media/spotify-agent/runtime-utils/index.js");
+  assert.equal(workerSource.toLowerCase().includes("demon time"), false);
+  assert.equal(runtimeUtilsSource.toLowerCase().includes("demon time"), false);
 });
 
 const passCount = results.filter((result) => result.status === "PASS").length;
@@ -69,3 +69,4 @@ for (const result of results) {
 }
 console.log(`\nSummary: pass=${passCount} fail=${failCount}`);
 if (failCount > 0) process.exit(1);
+

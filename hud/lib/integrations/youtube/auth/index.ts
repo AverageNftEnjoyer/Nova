@@ -1,11 +1,8 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 
 import { youtubeError } from "../errors/index"
+import { getOAuthStateSecret } from "@/lib/security/oauth-state-secret"
 import { DEFAULT_YOUTUBE_SCOPES, GOOGLE_OAUTH_BASE, type YouTubeClientConfig, type YouTubeOAuthStatePayload } from "../types/index"
-
-const DEV_FALLBACK_OAUTH_STATE_SECRET = createHash("sha256")
-  .update(`nova-dev-youtube-oauth:${process.cwd()}`)
-  .digest("hex")
 
 function sanitizeReturnToPath(value: string): string {
   const raw = String(value || "").trim().slice(0, 2048)
@@ -24,20 +21,17 @@ function sanitizeReturnToPath(value: string): string {
 }
 
 function getOAuthSecret(): string {
-  const configured = String(
-    process.env.NOVA_YOUTUBE_OAUTH_STATE_SECRET ||
-    process.env.NOVA_GMAIL_OAUTH_STATE_SECRET ||
-    process.env.NOVA_ENCRYPTION_KEY ||
-    "",
-  ).trim()
-  if (configured) return configured
-  if (process.env.NODE_ENV === "production") {
+  try {
+    return getOAuthStateSecret()
+  } catch (error) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : "NOVA_ENCRYPTION_KEY is required for OAuth state signing."
     throw youtubeError(
       "youtube.internal",
-      "NOVA_YOUTUBE_OAUTH_STATE_SECRET (or NOVA_GMAIL_OAUTH_STATE_SECRET / NOVA_ENCRYPTION_KEY) is required in production.",
+      message,
     )
   }
-  return DEV_FALLBACK_OAUTH_STATE_SECRET
 }
 
 function signState(payload: YouTubeOAuthStatePayload): string {

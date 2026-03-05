@@ -10,8 +10,7 @@ import {
 import { consumeHudOpTokenForSensitiveAction, broadcastThinkingStatus, broadcastAssistantStreamDelta } from "../../../../infrastructure/hud-gateway/index.js";
 import { describeUnknownError, extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
 import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
-import { isWeatherRequestText } from "../../../fast-path/weather-fast-path/index.js";
-import { buildWebSearchReadableReply, buildWeatherWebSummary } from "../../../routing/intent-router/index.js";
+import { buildWebSearchReadableReply } from "../../../routing/intent-router/index.js";
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
 import { resolveGmailToolFallbackReply, buildConstraintSafeFallback } from "../prompt-fallbacks/index.js";
@@ -359,14 +358,8 @@ export async function runToolLoop({
 
     if (latestUsefulTool) {
       if (latestUsefulTool.name === "web_search") {
-        if (isWeatherRequestText(text)) {
-          const weatherReadable = buildWeatherWebSummary(text, latestUsefulTool.content);
-          reply = weatherReadable
-            || "I checked live weather sources, but couldn't extract a reliable forecast summary yet. Please retry with city and state (for example: Pittsburgh, PA).";
-        } else {
-          const readable = buildWebSearchReadableReply(text, latestUsefulTool.content);
-          reply = readable || `Live web results:\n\n${latestUsefulTool.content.slice(0, 2200)}`;
-        }
+        const readable = buildWebSearchReadableReply(text, latestUsefulTool.content);
+        reply = readable || `Live web results:\n\n${latestUsefulTool.content.slice(0, 2200)}`;
       } else if (latestUsefulTool.name === "web_fetch") {
         reply = `I fetched the page content but the model did not finalize the answer. Here is the extracted content:\n\n${latestUsefulTool.content.slice(0, 2200)}`;
       } else {

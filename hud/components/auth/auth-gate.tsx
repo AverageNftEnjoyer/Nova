@@ -18,28 +18,22 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const isLoginRoute = pathname === "/login"
   // Keep initial render deterministic between server and client.
-  const [ready, setReady] = useState(() => isLoginRoute)
+  const [ready, setReady] = useState(() => {
+    if (isLoginRoute) return true
+    if (typeof window === "undefined") return false
+    return Boolean(getActiveUserId())
+  })
 
   useEffect(() => {
     const localUserId = getActiveUserId()
     const hasLocalUser = Boolean(localUserId)
-    if (!isLoginRoute && hasLocalUser) {
-      setReady(true)
-    }
 
     const loginParams = isLoginRoute ? new URLSearchParams(window.location.search) : null
     const loginMode = String(loginParams?.get("mode") || "").trim()
     const allowLoginWhileAuthed = isLoginRoute && (loginMode === "signup" || loginParams?.get("switch") === "1")
     let cancelled = false
     if (!hasSupabaseClientConfig || !supabaseBrowser) {
-      if (isLoginRoute) {
-        setReady(true)
-        return
-      }
-      if (hasLocalUser) {
-        setReady(true)
-        return
-      }
+      if (isLoginRoute || hasLocalUser) return
       router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`)
       return
     }

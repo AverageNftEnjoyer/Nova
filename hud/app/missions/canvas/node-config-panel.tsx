@@ -78,6 +78,8 @@ function ConfigFields({ node, update }: { node: MissionNode; update: (updates: P
       return <StateWriteConfig node={node} update={update} />
     case "provider-selector":
       return <ProviderSelectorConfig node={node} update={update} />
+    case "agent-subworkflow":
+      return <AgentSubworkflowConfig node={node} update={update} />
     default:
       return <GenericLabelConfig node={node} update={update} />
   }
@@ -89,6 +91,29 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-white/62">{label}</label>
       {children}
     </div>
+  )
+}
+
+function mappingToText(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return ""
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, mapValue]) => `${key}=${String(mapValue || "")}`)
+    .join("\n")
+}
+
+function textToMapping(value: string): Record<string, string> {
+  return Object.fromEntries(
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const index = line.indexOf("=")
+        if (index < 0) return []
+        const key = line.slice(0, index).trim()
+        const mapValue = line.slice(index + 1).trim()
+        return key && mapValue ? [[key, mapValue] as const] : []
+      }),
   )
 }
 
@@ -332,6 +357,10 @@ function AgentConfig({ node, update }: { node: MissionNode; update: (u: Partial<
   const writes = Array.isArray((node as unknown as Record<string, unknown>).writes)
     ? ((node as unknown as Record<string, unknown>).writes as unknown[]).map(String)
     : []
+  const inputMapping = mappingToText((node as unknown as Record<string, unknown>).inputMapping)
+  const outputSchema = String((node as unknown as Record<string, unknown>).outputSchema || "")
+  const timeoutMs = String((node as unknown as Record<string, unknown>).timeoutMs || "")
+  const retryPolicy = ((node as unknown as Record<string, unknown>).retryPolicy || {}) as Record<string, unknown>
   const goal = String((node as unknown as Record<string, unknown>).goal || "")
   const agentId = String((node as unknown as Record<string, unknown>).agentId || "")
   const role = String((node as unknown as Record<string, unknown>).role || "")
@@ -391,6 +420,53 @@ function AgentConfig({ node, update }: { node: MissionNode; update: (u: Partial<
           value={writes.join(", ")}
           onChange={(v) => update({ writes: v.split(",").map((item) => item.trim()).filter(Boolean) } as Partial<MissionNode>)}
           placeholder="analysis, final_report"
+        />
+      </Field>
+      <Field label="Input Mapping">
+        <TextInput
+          value={inputMapping}
+          onChange={(v) => update({ inputMapping: textToMapping(v) } as Partial<MissionNode>)}
+          multiline
+          placeholder={"brief={{$nodes.Trigger.output.text}}"}
+        />
+      </Field>
+      <Field label="Output Schema">
+        <TextInput
+          value={outputSchema}
+          onChange={(v) => update({ outputSchema: v } as Partial<MissionNode>)}
+          multiline
+          placeholder='{"result":"string"}'
+        />
+      </Field>
+      <Field label="Timeout (ms)">
+        <TextInput
+          value={timeoutMs}
+          onChange={(v) => update({ timeoutMs: Number(v) || undefined } as Partial<MissionNode>)}
+          placeholder="120000"
+        />
+      </Field>
+      <Field label="Retry Attempts">
+        <TextInput
+          value={String(retryPolicy.maxAttempts || 1)}
+          onChange={(v) => update({
+            retryPolicy: {
+              maxAttempts: Math.max(1, Number(v) || 1),
+              backoffMs: Math.max(0, Number(retryPolicy.backoffMs) || 0),
+            },
+          } as Partial<MissionNode>)}
+          placeholder="1"
+        />
+      </Field>
+      <Field label="Retry Backoff (ms)">
+        <TextInput
+          value={String(retryPolicy.backoffMs || 0)}
+          onChange={(v) => update({
+            retryPolicy: {
+              maxAttempts: Math.max(1, Number(retryPolicy.maxAttempts) || 1),
+              backoffMs: Math.max(0, Number(v) || 0),
+            },
+          } as Partial<MissionNode>)}
+          placeholder="0"
         />
       </Field>
     </>
@@ -520,6 +596,45 @@ function ProviderSelectorConfig({ node, update }: { node: MissionNode; update: (
             { value: "quality", label: "Quality" },
           ]}
           onChange={(v) => update({ strategy: v as "policy" | "latency" | "cost" | "quality" } as Partial<MissionNode>)}
+        />
+      </Field>
+    </>
+  )
+}
+
+function AgentSubworkflowConfig({ node, update }: { node: MissionNode; update: (u: Partial<MissionNode>) => void }) {
+  const missionId = String((node as unknown as Record<string, unknown>).missionId || "")
+  const waitForCompletion = (node as unknown as Record<string, unknown>).waitForCompletion !== false
+  const inputMapping = mappingToText((node as unknown as Record<string, unknown>).inputMapping)
+  return (
+    <>
+      <Field label="Label">
+        <TextInput value={node.label} onChange={(v) => update({ label: v } as Partial<MissionNode>)} />
+      </Field>
+      <Field label="Mission ID">
+        <TextInput
+          value={missionId}
+          onChange={(v) => update({ missionId: v } as Partial<MissionNode>)}
+          placeholder="child-mission-id"
+        />
+      </Field>
+      <Field label="Input Mapping">
+        <TextInput
+          value={inputMapping}
+          onChange={(v) => update({ inputMapping: textToMapping(v) } as Partial<MissionNode>)}
+          multiline
+          placeholder={"brief={{$nodes.Operator.output.text}}"}
+        />
+      </Field>
+      <Field label="Wait For Completion">
+        <FluidSelect
+          isLight={false}
+          value={waitForCompletion ? "true" : "false"}
+          options={[
+            { value: "true", label: "Yes" },
+            { value: "false", label: "No" },
+          ]}
+          onChange={(v) => update({ waitForCompletion: v === "true" } as Partial<MissionNode>)}
         />
       </Field>
     </>

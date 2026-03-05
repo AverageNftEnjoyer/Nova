@@ -111,9 +111,6 @@ export function HomeMainScreen() {
     newsFetchedAt,
     refreshNewsFeed,
     orbPalette,
-    dayInHistoryEvents,
-    dayInHistoryLoading,
-    dayInHistoryError,
   } = useHomeMainScreenState()
   const isLight = muteHydrated && rawIsLight
 
@@ -651,50 +648,16 @@ export function HomeMainScreen() {
                   icon: <History className="w-4 h-4 text-accent" />,
                   title: "On This Day",
                 })}
-                {dayInHistoryLoading && (
-                  <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>Loading...</p>
-                )}
-                {dayInHistoryError && !dayInHistoryLoading && (
-                  <p className="text-[11px] mt-2 text-center text-rose-400">{dayInHistoryError}</p>
-                )}
-                {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length > 0 && (
-                  <div className="mt-1.5 flex flex-col gap-1.5">
-                    {dayInHistoryEvents.map((evt, i) => {
-                      const monthIndex = Number.isFinite(Number(evt.month))
-                        ? Math.min(12, Math.max(1, Math.floor(Number(evt.month))))
-                        : 1
-                      const day = Number.isFinite(Number(evt.day))
-                        ? Math.min(31, Math.max(1, Math.floor(Number(evt.day))))
-                        : 1
-                      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-                      const eventLabel = `${monthNames[monthIndex - 1]} ${day}`
-                      return (
-                          <div
-                          key={i}
-                          className={cn(
-                            "px-2.5 py-2 rounded-md border home-spotlight-card home-border-glow",
-                            subPanelClass,
-                          )}
-                        >
-                          <p className={cn("text-[12px] font-semibold tabular-nums", isLight ? "text-s-90" : "text-slate-100")}>
-                            {eventLabel}, {evt.year}
-                          </p>
-                          <p className={cn(
-                            "text-[11px] mt-0.5 leading-normal",
-                            isLight ? "text-s-80" : "text-slate-300",
-                          )}>
-                            {evt.event}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length === 0 && (
-                  <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>
-                    No events found for today.
+                <div
+                  className={cn(
+                    "mt-2 flex-1 rounded-md border grid place-items-center home-spotlight-card home-border-glow",
+                    subPanelClass,
+                  )}
+                >
+                  <p className={cn("text-[11px] text-center px-3", isLight ? "text-s-50" : "text-slate-400")}>
+                    Module slot reserved.
                   </p>
-                )}
+                </div>
               </section>
 
             </div>

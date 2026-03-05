@@ -44,8 +44,10 @@ export async function routeOperatorDispatch(input = {}) {
     sessionKey = "",
     activeChatRuntime = null,
     delegateToOrgChartWorker,
-    handleSpotify,
-    handleYouTube,
+    spotifyWorker,
+    youtubeWorker,
+    cryptoWorker,
+    weatherWorker,
     executeChatRequest,
     upsertShortTermContextState,
   } = input;
@@ -72,8 +74,10 @@ export async function routeOperatorDispatch(input = {}) {
       ctx,
       llmCtx,
       requestHints,
-      handleSpotify,
-      handleYouTube,
+      spotifyWorker,
+      youtubeWorker,
+      cryptoWorker,
+      weatherWorker,
       executeChatRequest,
     });
 

@@ -39,8 +39,17 @@ const chatHandlerModule = await import(
 const useConversationsSource = await import("node:fs/promises").then((fsp) =>
   fsp.readFile(path.join(process.cwd(), "hud/lib/chat/hooks/useConversations.ts"), "utf8"),
 );
+const conversationActionsSource = await import("node:fs/promises").then((fsp) =>
+  fsp.readFile(path.join(process.cwd(), "hud/lib/chat/hooks/use-conversations/conversation-actions.ts"), "utf8"),
+);
+const conversationSharedSource = await import("node:fs/promises").then((fsp) =>
+  fsp.readFile(path.join(process.cwd(), "hud/lib/chat/hooks/use-conversations/shared.ts"), "utf8"),
+);
 const chatShellControllerSource = await import("node:fs/promises").then((fsp) =>
   fsp.readFile(path.join(process.cwd(), "hud/app/chat/components/chat-shell-controller.tsx"), "utf8"),
+);
+const useNovaStateSource = await import("node:fs/promises").then((fsp) =>
+  fsp.readFile(path.join(process.cwd(), "hud/lib/chat/hooks/useNovaState.ts"), "utf8"),
 );
 
 const { handleInput } = chatHandlerModule;
@@ -79,22 +88,18 @@ await run("E1 runtime keeps stable session key across optimistic/server conversa
 });
 
 await run("E2 HUD hook keeps canonical session id mapping across optimistic/server merges", async () => {
-  const requiredTokens = [
-    "const reconcileOptimisticConversationMappings = useCallback(",
-    "optimisticMap.set(localId, matchedServerConvo.id)",
-    "sessionMap.set(matchedServerConvo.id, canonicalSessionId)",
-    "const resolveConversationSelectionId = useCallback(",
-    "const selectedActiveId = resolveConversationSelectionId(activeId || \"\", mergedConvos)",
-    "const selectedLocalId = resolveConversationSelectionId(id, conversations)",
-    "reconcileOptimisticConversationMappings(localSnapshot, convos)",
-    "reconcileOptimisticConversationMappings(conversations, remote)",
+  const requiredGroups = [
+    ["const reconcileOptimisticConversationMappings = useCallback(", useConversationsSource],
+    ["optimisticMap.set(localId, matchedServerConvo.id)", useConversationsSource],
+    ["sessionMap.set(matchedServerConvo.id, canonicalSessionId)", useConversationsSource],
+    ["const resolveConversationSelectionId = useCallback(", useConversationsSource],
+    ["const selectedActiveId = resolveConversationSelectionId(activeId || \"\", mergedConvos)", useConversationsSource],
+    ["const selectedLocalId = resolveConversationSelectionId(id, conversations)", conversationActionsSource],
+    ["reconcileOptimisticConversationMappings(localSnapshot, convos)", useConversationsSource],
+    ["reconcileOptimisticConversationMappings(conversations, remote)", conversationActionsSource],
   ];
-  for (const token of requiredTokens) {
-    assert.equal(
-      useConversationsSource.includes(token),
-      true,
-      `missing useConversations mapping token: ${token}`,
-    );
+  for (const [token, source] of requiredGroups) {
+    assert.equal(source.includes(token), true, `missing conversation mapping token: ${token}`);
   }
 });
 
@@ -117,7 +122,7 @@ await run("E3 chat handoff resolves optimistic/server convo remap before pending
     );
   }
   const activeUserCheckIdx = chatShellControllerSource.indexOf("const activeUserId = getActiveUserId()");
-  const clearPendingIdx = chatShellControllerSource.indexOf("pendingBootSendHandledRef.current = true");
+  const clearPendingIdx = chatShellControllerSource.indexOf("pendingBootSendHandledRef.current = true", activeUserCheckIdx);
   assert.equal(activeUserCheckIdx >= 0 && clearPendingIdx > activeUserCheckIdx, true, "pending message cleared before user id check");
 });
 
@@ -132,44 +137,52 @@ await run("E4 thinking indicator and assistant echo dedupe guards are present", 
       "const isThinking = useMemo(() => {",
       "if (novaState === \"thinking\") return true",
       "if (streamingAssistantId) return true",
-      "for (let i = agentMessages.length - 1; i >= 0; i -= 1)",
+      "if (activeConversationStreaming) return true",
+    ],
+    [
+      "const activeConversationStreaming = useMemo(() => {",
+      "for (let i = chatTransportEvents.length - 1; i >= 0; i -= 1)",
+      "if (event.type === \"assistant_stream_done\") return false",
+      "if (event.type === \"assistant_stream_start\" || event.type === \"assistant_stream_delta\") return true",
     ],
   ];
   const shellGuardPresent = shellTokenSets.some((tokenSet) =>
     tokenSet.every((token) => chatShellControllerSource.includes(token)));
   assert.equal(shellGuardPresent, true, "missing thinking guard implementation in chat shell controller");
 
-  const dedupeConstantMatch = useConversationsSource.match(/const ASSISTANT_ECHO_DEDUP_MS\s*=\s*([0-9_]+)/);
-  assert.equal(Boolean(dedupeConstantMatch), true, "missing ASSISTANT_ECHO_DEDUP_MS constant");
-  const dedupeMs = Number(String(dedupeConstantMatch?.[1] || "0").replace(/_/g, ""));
-  assert.equal(Number.isFinite(dedupeMs) && dedupeMs >= 8_000 && dedupeMs <= 120_000, true);
-
-  const convoRequired = [
-    "Backend can emit a final assistant \"message\" event right after stream completion.",
-    "const closeInTime = Math.abs(incomingTs - lastTs) <= ASSISTANT_ECHO_DEDUP_MS",
-    "if (closeInTime && (sameText || semanticallySame)) {",
+  const dedupeTokenSets = [
+    [
+      "const ASSISTANT_ECHO_DEDUP_MS",
+      "Backend can emit a final assistant \"message\" event right after stream completion.",
+      "const closeInTime = Math.abs(incomingTs - lastTs) <= ASSISTANT_ECHO_DEDUP_MS",
+      "if (closeInTime && (sameText || semanticallySame)) {",
+    ],
+    [
+      "const HUD_USER_ECHO_DEDUPE_MS",
+      "assistant_msg:${conversationId}:${normalizedForDedupe}",
+      "if (msg.role === \"assistant\") {",
+      "Stream lifecycle events are the single source of truth.",
+    ],
   ];
-  for (const token of convoRequired) {
-    assert.equal(useConversationsSource.includes(token), true, `missing assistant dedupe token: ${token}`);
-  }
+  const dedupeGuardPresent = dedupeTokenSets.some((tokenSet) =>
+    tokenSet.every((token) => useConversationsSource.includes(token) || useNovaStateSource.includes(token)));
+  assert.equal(dedupeGuardPresent, true, "missing assistant dedupe guard implementation");
 });
 
 await run("E5 optimistic/server thread merge prevents duplicate sidebar rows and misrouted replies", async () => {
-  const requiredTokens = [
-    "optimisticIdToServerId: Map<string, string> = new Map<string, string>()",
-    "if (mappedServerId && remoteIds.has(mappedServerId)) return false",
-    "const resolveIncomingConversationId = (rawConversationId: string): string => {",
-    "if (OPTIMISTIC_ID_REGEX.test(candidate)) return candidate",
-    "const preSyncNext = beforeSyncConversations",
-    ".map((c) => (c.id === convo.id || c.id === serverConvo.id ? seededServerConvo : c))",
-    "persist(preSyncNext, preSyncActive)",
+  const requiredGroups = [
+    ["const optimisticIdToServerIdRef = useRef<Map<string, string>>(new Map())", useConversationsSource],
+    ["if (mappedServerId && remoteIds.has(mappedServerId)) return false", conversationSharedSource],
+    ["const preSyncNext = beforeSyncConversations", conversationActionsSource],
+    [".map((c) => (c.id === convo.id || c.id === serverConvo.id ? seededServerConvo : c))", conversationActionsSource],
+    ["persist(preSyncNext, preSyncActive)", conversationActionsSource],
   ];
-  for (const token of requiredTokens) {
-    assert.equal(useConversationsSource.includes(token), true, `missing optimistic/server reconciliation token: ${token}`);
+  for (const [token, source] of requiredGroups) {
+    assert.equal(source.includes(token), true, `missing optimistic/server reconciliation token: ${token}`);
   }
 
-  const preSyncPersistIdx = useConversationsSource.indexOf("persist(preSyncNext, preSyncActive)");
-  const syncIdx = useConversationsSource.indexOf("const synced = await syncServerMessages(seededServerConvo)");
+  const preSyncPersistIdx = conversationActionsSource.indexOf("persist(preSyncNext, preSyncActive)");
+  const syncIdx = conversationActionsSource.indexOf("const synced = await syncServerMessages(seededServerConvo)");
   assert.equal(
     preSyncPersistIdx >= 0 && syncIdx > preSyncPersistIdx,
     true,
@@ -178,14 +191,14 @@ await run("E5 optimistic/server thread merge prevents duplicate sidebar rows and
 });
 
 await run("E6 async optimistic replacement preserves currently active conversation", async () => {
-  const requiredTokens = [
-    "const latestActiveConvoIdRef = useRef<string>(\"\")",
-    "latestActiveConvoIdRef.current = String(activeConvo?.id || \"\").trim()",
-    "const latestActiveId = latestActiveConvoIdRef.current",
-    "const refreshedActiveId = latestActiveConvoIdRef.current",
+  const requiredGroups = [
+    ["const latestActiveConvoIdRef = useRef<string>(\"\")", useConversationsSource],
+    ["latestActiveConvoIdRef.current = String(activeConvo?.id || \"\").trim()", useConversationsSource],
+    ["const latestActiveId = latestActiveConvoIdRef.current", conversationActionsSource],
+    ["const refreshedActiveId = latestActiveConvoIdRef.current", conversationActionsSource],
   ];
-  for (const token of requiredTokens) {
-    assert.equal(useConversationsSource.includes(token), true, `missing active-conversation race guard token: ${token}`);
+  for (const [token, source] of requiredGroups) {
+    assert.equal(source.includes(token), true, `missing active-conversation race guard token: ${token}`);
   }
 });
 

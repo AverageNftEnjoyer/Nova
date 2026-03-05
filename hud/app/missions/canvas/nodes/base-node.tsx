@@ -99,6 +99,29 @@ function CsvField({ label, value, onChange, placeholder }: { label: string; valu
   )
 }
 
+function mappingToText(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return ""
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, mapValue]) => `${key}=${String(mapValue || "")}`)
+    .join("\n")
+}
+
+function textToMapping(value: string): Record<string, string> {
+  return Object.fromEntries(
+    value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => {
+        const index = line.indexOf("=")
+        if (index < 0) return []
+        const key = line.slice(0, index).trim()
+        const mapValue = line.slice(index + 1).trim()
+        return key && mapValue ? [[key, mapValue] as const] : []
+      }),
+  )
+}
+
 // ── Type-specific field panels ─────────────────────────────────────────────
 
 function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unknown>; upd: (u: Record<string, unknown>) => void }) {
@@ -172,6 +195,61 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
         onChange={(v) => upd({ writes: v })}
         placeholder="analysis, final_report"
       />
+      <FieldWrap label="Input Mapping">
+        <textarea
+          className={cn(FIELD_INPUT, "min-h-12 resize-y font-mono")}
+          value={mappingToText(cfg.inputMapping)}
+          onChange={(e) => upd({ inputMapping: textToMapping(e.target.value) })}
+          placeholder={"brief={{$nodes.Trigger.output.text}}"}
+        />
+      </FieldWrap>
+      <FieldWrap label="Output Schema">
+        <textarea
+          className={cn(FIELD_INPUT, "min-h-12 resize-y font-mono")}
+          value={str("outputSchema", "{\"result\":\"string\"}")}
+          onChange={(e) => upd({ outputSchema: e.target.value })}
+          placeholder='{"result":"string"}'
+        />
+      </FieldWrap>
+      <div className="grid grid-cols-3 gap-1.5">
+        <FieldWrap label="Timeout (ms)">
+          <input
+            className={FIELD_INPUT}
+            type="number"
+            value={num("timeoutMs", 120000)}
+            onChange={(e) => upd({ timeoutMs: Number(e.target.value) || undefined })}
+            placeholder="120000"
+          />
+        </FieldWrap>
+        <FieldWrap label="Retry Attempts">
+          <input
+            className={FIELD_INPUT}
+            type="number"
+            value={Number((cfg.retryPolicy as Record<string, unknown> | undefined)?.maxAttempts || 1)}
+            onChange={(e) => upd({
+              retryPolicy: {
+                maxAttempts: Math.max(1, Number(e.target.value) || 1),
+                backoffMs: Math.max(0, Number((cfg.retryPolicy as Record<string, unknown> | undefined)?.backoffMs || 0)),
+              },
+            })}
+            placeholder="1"
+          />
+        </FieldWrap>
+        <FieldWrap label="Backoff (ms)">
+          <input
+            className={FIELD_INPUT}
+            type="number"
+            value={Number((cfg.retryPolicy as Record<string, unknown> | undefined)?.backoffMs || 0)}
+            onChange={(e) => upd({
+              retryPolicy: {
+                maxAttempts: Math.max(1, Number((cfg.retryPolicy as Record<string, unknown> | undefined)?.maxAttempts || 1)),
+                backoffMs: Math.max(0, Number(e.target.value) || 0),
+              },
+            })}
+            placeholder="0"
+          />
+        </FieldWrap>
+      </div>
       {options?.includeHandoffAgents && (
         <FieldWrap label="From Agent">
           <input
@@ -730,6 +808,32 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
               value={str("strategy", "policy")}
               options={[{ value: "policy", label: "Policy" }, { value: "latency", label: "Latency" }, { value: "cost", label: "Cost" }, { value: "quality", label: "Quality" }]}
               onChange={(v) => upd({ strategy: v })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          </FieldWrap>
+        </>
+      )
+
+    case "agent-subworkflow":
+      return (
+        <>
+          <FieldWrap label="Mission ID">
+            <input className={FIELD_INPUT} value={str("missionId")} onChange={(e) => upd({ missionId: e.target.value })} placeholder="child-mission-id" />
+          </FieldWrap>
+          <FieldWrap label="Input Mapping">
+            <textarea
+              className={cn(FIELD_INPUT, "min-h-12 resize-y font-mono")}
+              value={mappingToText(cfg.inputMapping)}
+              onChange={(e) => upd({ inputMapping: textToMapping(e.target.value) })}
+              placeholder={"brief={{$nodes.Operator.output.text}}"}
+            />
+          </FieldWrap>
+          <FieldWrap label="Wait For Completion">
+            <FluidSelect
+              isLight={false}
+              value={bool("waitForCompletion", true) ? "true" : "false"}
+              options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]}
+              onChange={(v) => upd({ waitForCompletion: v === "true" })}
               buttonClassName={FIELD_SELECT_BTN}
             />
           </FieldWrap>

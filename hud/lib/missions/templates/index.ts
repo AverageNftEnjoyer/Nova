@@ -8,6 +8,10 @@
 import type { Mission, MissionNode, MissionConnection, MissionCategory, Provider } from "../types/index"
 import { defaultMissionSettings } from "../types/index"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
+import {
+  buildProviderSelectorDefaults,
+  namespaceMissionAgentGraph,
+} from "@/lib/missions/workflow/agent-topology"
 
 const TEMPLATE_TIMEZONE = getRuntimeTimezone()
 
@@ -614,6 +618,98 @@ const SOCIAL_TRENDS: MissionTemplate = makeTemplate(
   [conn("c1", "t1", "s1"), conn("c2", "s1", "a1"), conn("c3", "a1", "o1")],
 )
 
+const AGENT_RESEARCH_DESK: MissionTemplate = makeTemplate(
+  "agent-research-desk",
+  "Agent Research Desk",
+  "Operator-led research team that routes web context through council, manager, worker, and audit stages.",
+  "Stand up a mission-native agent team for daily research briefings with explicit handoffs and state tracking.",
+  "research",
+  ["agents", "research", "team", "audit", "workflow"],
+  "Users",
+  [
+    { ...n("t1", 100, 200), type: "schedule-trigger", label: "Daily Research Trigger", triggerMode: "daily", triggerTime: "08:30", triggerTimezone: TEMPLATE_TIMEZONE } as MissionNode,
+    { ...n("s1", 320, 200), type: "web-search", label: "Collect Sources", query: "{{$vars.topic}} latest developments site:reuters.com OR site:apnews.com OR site:ft.com", fetchContent: true } as MissionNode,
+    { ...n("a1", 540, 200), type: "agent-supervisor", label: "Operator", agentId: "operator", role: "operator", goal: "Frame the research brief and command downstream routing.", writes: ["research.brief"], inputMapping: { brief: "{{$nodes.Collect Sources.output.text}}" }, outputSchema: "{\"brief\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, backoffMs: 0 } } as MissionNode,
+    { ...n("a2", 760, 200), type: "agent-worker", label: "Routing Council", agentId: "routing-council", role: "routing-council", goal: "Route the brief to the appropriate domain manager.", reads: ["research.brief"], writes: ["research.plan"], inputMapping: { brief: "{{$nodes.Operator.output.text}}" }, outputSchema: "{\"manager\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 2, backoffMs: 1500 } } as MissionNode,
+    { ...n("a3", 980, 200), type: "agent-worker", label: "System Manager", agentId: "system-manager", role: "system-manager", goal: "Assign the research task to the execution worker.", reads: ["research.plan"], writes: ["research.assignment"], inputMapping: { plan: "{{$nodes.Routing Council.output.text}}" }, outputSchema: "{\"assignment\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 2, backoffMs: 1500 } } as MissionNode,
+    { ...n("a4", 1200, 200), type: "agent-worker", label: "Research Worker", agentId: "web-research-agent", role: "worker-agent", domain: "system", goal: "Produce the final research summary from the collected sources.", reads: ["research.assignment"], writes: ["research.result"], inputMapping: { assignment: "{{$nodes.System Manager.output.text}}" }, outputSchema: "{\"summary\":\"string\"}", timeoutMs: 180000, retryPolicy: { maxAttempts: 2, backoffMs: 2000 } } as MissionNode,
+    { ...n("st1", 1420, 200), type: "agent-state-write", label: "Persist Research Result", key: "research.result", valueExpression: "{{$nodes.Research Worker.output.text}}", writeMode: "replace" } as MissionNode,
+    { ...n("p1", 1640, 200), type: "provider-selector", label: "Provider Policy", allowedProviders: ["claude", "openai", "grok", "gemini"] as Provider[], defaultProvider: "claude", strategy: "policy" } as MissionNode,
+    { ...n("au1", 1860, 200), type: "agent-audit", label: "Audit Council", agentId: "audit-council", role: "audit-council", goal: "Verify user context isolation and provider policy before delivery.", reads: ["research.result"], requiredChecks: ["user-context-isolation", "policy-guardrails"], inputMapping: { review: "{{$nodes.Persist Research Result.output.text}}" }, outputSchema: "{\"audit\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, backoffMs: 0 } } as MissionNode,
+    { ...n("sr1", 2080, 200), type: "agent-state-read", label: "Load Final Research", key: "research.result", required: true } as MissionNode,
+    { ...n("h1", 2300, 120), type: "agent-handoff", label: "Operator -> Council", fromAgentId: "operator", toAgentId: "routing-council", reason: "route research intent" } as MissionNode,
+    { ...n("h2", 2300, 200), type: "agent-handoff", label: "Council -> Manager", fromAgentId: "routing-council", toAgentId: "system-manager", reason: "assign manager" } as MissionNode,
+    { ...n("h3", 2300, 280), type: "agent-handoff", label: "Manager -> Worker", fromAgentId: "system-manager", toAgentId: "web-research-agent", reason: "delegate execution" } as MissionNode,
+    { ...n("h4", 2520, 160), type: "agent-handoff", label: "Worker -> Audit", fromAgentId: "web-research-agent", toAgentId: "audit-council", reason: "request review" } as MissionNode,
+    { ...n("h5", 2520, 240), type: "agent-handoff", label: "Audit -> Operator", fromAgentId: "audit-council", toAgentId: "operator", reason: "return approved brief" } as MissionNode,
+    { ...n("o1", 2740, 200), type: "email-output", label: "Deliver Research Brief", subject: "Research Desk Brief", messageTemplate: "{{$nodes.Load Final Research.output.data.value}}", format: "text" } as MissionNode,
+  ],
+  [
+    conn("c1", "t1", "s1"),
+    conn("c2", "s1", "a1"),
+    conn("c3", "a1", "a2"),
+    conn("c4", "a2", "a3"),
+    conn("c5", "a3", "a4"),
+    conn("c6", "a4", "st1"),
+    conn("c7", "st1", "p1"),
+    conn("c8", "p1", "au1"),
+    conn("c9", "au1", "sr1"),
+    conn("c10", "sr1", "h1"),
+    conn("c11", "h1", "h2"),
+    conn("c12", "h2", "h3"),
+    conn("c13", "h3", "h4"),
+    conn("c14", "h4", "h5"),
+    conn("c15", "sr1", "o1"),
+  ],
+  ["agent-team", "command-spine"],
+)
+
+const AGENT_INCIDENT_COMMAND: MissionTemplate = makeTemplate(
+  "agent-incident-command",
+  "Agent Incident Command",
+  "Multi-agent incident workflow that triages an outage signal, records state, audits policy, and dispatches an ops update.",
+  "Use Nova's native mission agents for production incident triage with explicit routing and scoped audit trails.",
+  "devops",
+  ["agents", "incident", "operations", "slack", "audit"],
+  "ShieldAlert",
+  [
+    { ...n("t1", 100, 200), type: "webhook-trigger", label: "Incident Webhook", method: "POST", path: "/incident-command", authentication: "bearer" } as MissionNode,
+    { ...n("h0", 320, 200), type: "http-request", label: "Fetch Incident Context", method: "GET", url: "{{$vars.incident_context_url}}/{{$nodes.Incident Webhook.output.data.incidentId}}", responseFormat: "json" } as MissionNode,
+    { ...n("a1", 540, 200), type: "agent-supervisor", label: "Operator", agentId: "operator", role: "operator", goal: "Define incident scope and delegate the triage path.", writes: ["incident.brief"], inputMapping: { incident: "{{$nodes.Fetch Incident Context.output.text}}" }, outputSchema: "{\"brief\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, backoffMs: 0 } } as MissionNode,
+    { ...n("a2", 760, 200), type: "agent-worker", label: "Routing Council", agentId: "routing-council", role: "routing-council", goal: "Classify the incident and choose the response manager.", reads: ["incident.brief"], writes: ["incident.plan"], inputMapping: { brief: "{{$nodes.Operator.output.text}}" }, outputSchema: "{\"manager\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 2, backoffMs: 1500 } } as MissionNode,
+    { ...n("a3", 980, 200), type: "agent-worker", label: "System Manager", agentId: "system-manager", role: "system-manager", goal: "Assign the incident response worker and capture the action plan.", reads: ["incident.plan"], writes: ["incident.assignment"], inputMapping: { plan: "{{$nodes.Routing Council.output.text}}" }, outputSchema: "{\"assignment\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 2, backoffMs: 1500 } } as MissionNode,
+    { ...n("a4", 1200, 200), type: "agent-worker", label: "Diagnostics Worker", agentId: "diagnostics-agent", role: "worker-agent", domain: "system", goal: "Summarize likely blast radius and next actions.", reads: ["incident.assignment"], writes: ["incident.status"], inputMapping: { assignment: "{{$nodes.System Manager.output.text}}" }, outputSchema: "{\"status\":\"string\"}", timeoutMs: 180000, retryPolicy: { maxAttempts: 2, backoffMs: 2000 } } as MissionNode,
+    { ...n("st1", 1420, 200), type: "agent-state-write", label: "Persist Incident Status", key: "incident.status", valueExpression: "{{$nodes.Diagnostics Worker.output.text}}", writeMode: "replace" } as MissionNode,
+    { ...n("p1", 1640, 200), type: "provider-selector", label: "Provider Policy", allowedProviders: ["claude", "openai", "grok", "gemini"] as Provider[], defaultProvider: "claude", strategy: "policy" } as MissionNode,
+    { ...n("au1", 1860, 200), type: "agent-audit", label: "Audit Council", agentId: "audit-council", role: "audit-council", goal: "Confirm the response stayed within user-scoped policy controls.", reads: ["incident.status"], requiredChecks: ["user-context-isolation", "policy-guardrails"], inputMapping: { audit: "{{$nodes.Persist Incident Status.output.text}}" }, outputSchema: "{\"audit\":\"string\"}", timeoutMs: 120000, retryPolicy: { maxAttempts: 1, backoffMs: 0 } } as MissionNode,
+    { ...n("sr1", 2080, 200), type: "agent-state-read", label: "Load Incident Status", key: "incident.status", required: true } as MissionNode,
+    { ...n("h1", 2300, 120), type: "agent-handoff", label: "Operator -> Council", fromAgentId: "operator", toAgentId: "routing-council", reason: "triage intent" } as MissionNode,
+    { ...n("h2", 2300, 200), type: "agent-handoff", label: "Council -> Manager", fromAgentId: "routing-council", toAgentId: "system-manager", reason: "pick response manager" } as MissionNode,
+    { ...n("h3", 2300, 280), type: "agent-handoff", label: "Manager -> Worker", fromAgentId: "system-manager", toAgentId: "diagnostics-agent", reason: "delegate investigation" } as MissionNode,
+    { ...n("h4", 2520, 160), type: "agent-handoff", label: "Worker -> Audit", fromAgentId: "diagnostics-agent", toAgentId: "audit-council", reason: "request audit" } as MissionNode,
+    { ...n("h5", 2520, 240), type: "agent-handoff", label: "Audit -> Operator", fromAgentId: "audit-council", toAgentId: "operator", reason: "return approved status" } as MissionNode,
+    { ...n("o1", 2740, 200), type: "slack-output", label: "Post Incident Update", channel: "#incident-command", messageTemplate: "{{$nodes.Load Incident Status.output.data.value}}" } as MissionNode,
+  ],
+  [
+    conn("c1", "t1", "h0"),
+    conn("c2", "h0", "a1"),
+    conn("c3", "a1", "a2"),
+    conn("c4", "a2", "a3"),
+    conn("c5", "a3", "a4"),
+    conn("c6", "a4", "st1"),
+    conn("c7", "st1", "p1"),
+    conn("c8", "p1", "au1"),
+    conn("c9", "au1", "sr1"),
+    conn("c10", "sr1", "h1"),
+    conn("c11", "h1", "h2"),
+    conn("c12", "h2", "h3"),
+    conn("c13", "h3", "h4"),
+    conn("c14", "h4", "h5"),
+    conn("c15", "sr1", "o1"),
+  ],
+  ["agent-team", "incident-response"],
+)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Template Registry
 // ─────────────────────────────────────────────────────────────────────────────
@@ -660,6 +756,9 @@ export const MISSION_TEMPLATES: MissionTemplate[] = [
   INVENTORY_ALERT,
   // Social
   SOCIAL_TRENDS,
+  // Agent Teams
+  AGENT_RESEARCH_DESK,
+  AGENT_INCIDENT_COMMAND,
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -713,17 +812,34 @@ function applyAiDefaults(node: MissionNode, aiIntegration?: Provider, aiModel?: 
   return { ...node }
 }
 
+function applyTemplateProviderDefaults(node: MissionNode, aiIntegration?: Provider): MissionNode {
+  if (node.type !== "provider-selector") return { ...node }
+  const providerDefaults = buildProviderSelectorDefaults(aiIntegration)
+  return {
+    ...node,
+    allowedProviders: providerDefaults.allowedProviders,
+    defaultProvider: providerDefaults.defaultProvider,
+  }
+}
+
 export function instantiateTemplate(template: MissionTemplate, userId: string, overrides?: InstantiateTemplateOverrides): Mission {
   const now = new Date().toISOString()
+  const missionId = crypto.randomUUID()
   const nodes = Array.isArray(template.blueprint.nodes)
-    ? template.blueprint.nodes.map((node) => applyAiDefaults(node, overrides?.aiIntegration, overrides?.aiModel))
+    ? namespaceMissionAgentGraph(
+      template.blueprint.nodes.map((node) => applyTemplateProviderDefaults(
+        applyAiDefaults(node, overrides?.aiIntegration, overrides?.aiModel),
+        overrides?.aiIntegration,
+      )),
+      missionId,
+    )
     : []
   const connections = Array.isArray(template.blueprint.connections)
     ? template.blueprint.connections.map((connection) => ({ ...connection }))
     : []
   return {
     ...template.blueprint,
-    id: crypto.randomUUID(),
+    id: missionId,
     userId,
     label: overrides?.label || template.blueprint.label,
     chatIds: overrides?.chatIds || [],

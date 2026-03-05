@@ -207,6 +207,22 @@ type DeepPartial<T> = {
 }
 
 const INTEGRATIONS_TABLE = "integration_configs"
+const SPOTIFY_CALLBACK_PATH = "/api/integrations/spotify/callback"
+const YOUTUBE_CALLBACK_PATH = "/api/integrations/youtube/callback"
+const GMAIL_CALLBACK_PATH = "/api/integrations/gmail/callback"
+const GCALENDAR_CALLBACK_PATH = "/api/integrations/gmail-calendar/callback"
+
+function getDefaultAppUrl(): string {
+  return "http://localhost:3000"
+}
+
+function getDefaultRedirectUri(pathname: string): string {
+  return `${getDefaultAppUrl()}${pathname}`
+}
+
+function getDefaultYouTubeRedirectUri(): string {
+  return getDefaultRedirectUri(YOUTUBE_CALLBACK_PATH)
+}
 
 export type IntegrationsStoreScope =
   | {
@@ -218,6 +234,7 @@ export type IntegrationsStoreScope =
       serviceRoleReason?:
         | "scheduler"
         | "execution-tick"
+        | "runtime-bridge"
         | "gmail-oauth-callback"
         | "gmail-calendar-oauth-callback"
         | "spotify-oauth-callback"
@@ -297,7 +314,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     displayName: "",
     scopes: [],
     oauthClientId: "",
-    redirectUri: "http://localhost:3000/api/integrations/spotify/callback",
+    redirectUri: getDefaultRedirectUri(SPOTIFY_CALLBACK_PATH),
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,
@@ -314,7 +331,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
       allowSearch: true,
       allowVideoDetails: true,
     },
-    redirectUri: "http://localhost:3000/api/integrations/youtube/callback",
+    redirectUri: getDefaultYouTubeRedirectUri(),
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,
@@ -327,7 +344,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     activeAccountId: "",
     oauthClientId: "",
     oauthClientSecret: "",
-    redirectUri: "http://localhost:3000/api/integrations/gmail/callback",
+    redirectUri: getDefaultRedirectUri(GMAIL_CALLBACK_PATH),
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,
@@ -343,7 +360,7 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     },
     accounts: [],
     activeAccountId: "",
-    redirectUri: "http://localhost:3000/api/integrations/gmail-calendar/callback",
+    redirectUri: getDefaultRedirectUri(GCALENDAR_CALLBACK_PATH),
     accessTokenEnc: "",
     refreshTokenEnc: "",
     tokenExpiry: 0,
@@ -713,6 +730,7 @@ function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; 
     if (
       reason !== "scheduler" &&
       reason !== "execution-tick" &&
+      reason !== "runtime-bridge" &&
       reason !== "gmail-oauth-callback" &&
       reason !== "gmail-calendar-oauth-callback" &&
       reason !== "spotify-oauth-callback" &&
