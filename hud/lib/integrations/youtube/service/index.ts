@@ -33,7 +33,34 @@ const YOUTUBE_DAILY_QUOTA_BUDGET = (() => {
 
 const QUOTA_COST_SEARCH = 100
 const QUOTA_COST_VIDEO_DETAILS = 1
-const QUOTA_COST_SUBSCRIPTIONS = 1
+const DEFAULT_TOPIC_MATCH_MIN = 0.4
+const STRICT_TOPIC_MATCH_MIN = 0.55
+const STRICT_SOURCE_MATCH_MIN = 0.6
+const STRICT_CHANNEL_SOURCE_MATCH_MIN = 0.75
+const TOPIC_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "about",
+  "for",
+  "from",
+  "in",
+  "on",
+  "of",
+  "to",
+  "the",
+  "news",
+  "latest",
+  "update",
+  "updates",
+  "video",
+  "videos",
+  "youtube",
+  "today",
+  "live",
+  "watch",
+  "new",
+])
 
 type QuotaEntry = {
   dayKey: string
@@ -56,6 +83,9 @@ type ServiceGlobalState = typeof globalThis & {
   __novaYoutubeVideoCacheByUser?: Map<string, TimedValue<YouTubeVideoDetails>>
   __novaYoutubeFeedCacheByUser?: Map<string, TimedValue<YouTubeFeedResult>>
   __novaYoutubeSubscriptionsByUser?: Map<string, TimedValue<Map<string, ChannelWeight>>>
+  __novaYoutubeSearchInFlightByUser?: Map<string, Promise<YouTubeSearchResult>>
+  __novaYoutubeVideoInFlightByUser?: Map<string, Promise<YouTubeVideoDetails>>
+  __novaYoutubeFeedInFlightByUser?: Map<string, Promise<YouTubeFeedResult>>
 }
 
 const globalState = globalThis as ServiceGlobalState
@@ -64,12 +94,18 @@ const searchCacheByUser = globalState.__novaYoutubeSearchCacheByUser ?? new Map<
 const videoCacheByUser = globalState.__novaYoutubeVideoCacheByUser ?? new Map<string, TimedValue<YouTubeVideoDetails>>()
 const feedCacheByUser = globalState.__novaYoutubeFeedCacheByUser ?? new Map<string, TimedValue<YouTubeFeedResult>>()
 const subscriptionsByUser = globalState.__novaYoutubeSubscriptionsByUser ?? new Map<string, TimedValue<Map<string, ChannelWeight>>>()
+const searchInFlightByUser = globalState.__novaYoutubeSearchInFlightByUser ?? new Map<string, Promise<YouTubeSearchResult>>()
+const videoInFlightByUser = globalState.__novaYoutubeVideoInFlightByUser ?? new Map<string, Promise<YouTubeVideoDetails>>()
+const feedInFlightByUser = globalState.__novaYoutubeFeedInFlightByUser ?? new Map<string, Promise<YouTubeFeedResult>>()
 
 globalState.__novaYoutubeQuotaByUser = quotaByUser
 globalState.__novaYoutubeSearchCacheByUser = searchCacheByUser
 globalState.__novaYoutubeVideoCacheByUser = videoCacheByUser
 globalState.__novaYoutubeFeedCacheByUser = feedCacheByUser
 globalState.__novaYoutubeSubscriptionsByUser = subscriptionsByUser
+globalState.__novaYoutubeSearchInFlightByUser = searchInFlightByUser
+globalState.__novaYoutubeVideoInFlightByUser = videoInFlightByUser
+globalState.__novaYoutubeFeedInFlightByUser = feedInFlightByUser
 
 function normalizeUserScope(scope?: YouTubeScope): string {
   return String(scope?.userId || scope?.user?.id || "").trim().toLowerCase()
@@ -97,6 +133,121 @@ function normalizeSourceKey(value: unknown): string {
 function normalizeTopic(value: unknown): string {
   const normalized = normalizeToken(value)
   return normalized || "news"
+}
+
+function normalizeSourceConstraint(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s.&'/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64)
+}
+
+function isBroadNewsTopic(topic: string): boolean {
+  const normalized = normalizeTopic(topic).replace(/-/g, " ").trim()
+  return (
+    normalized === "news"
+    || normalized === "latest news"
+    || normalized === "breaking news"
+    || normalized === "top news"
+  )
+}
+
+function topicSignalTokens(topic: string): string[] {
+  const normalized = normalizeTopic(topic).replace(/-/g, " ").trim()
+  if (!normalized) return []
+  return Array.from(
+    new Set(
+      normalized
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter((token) => token.length >= 2 && !TOPIC_STOPWORDS.has(token)),
+    ),
+  )
+}
+
+function sourceSignalTokens(source: string): string[] {
+  return Array.from(
+    new Set(
+      normalizeSourceConstraint(source)
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter((token) => token.length >= 2 && !TOPIC_STOPWORDS.has(token)),
+    ),
+  )
+}
+
+function computeTopicMatchStrength(
+  topic: string,
+  title: string,
+  description: string,
+  channelTitle: string,
+): number {
+  const phrase = normalizeTopic(topic).replace(/-/g, " ").trim().toLowerCase()
+  if (!phrase || isBroadNewsTopic(topic)) return 1
+  const haystack = `${String(title || "")} ${String(description || "")} ${String(channelTitle || "")}`.toLowerCase()
+  if (!haystack) return 0
+  if (haystack.includes(phrase)) return 1
+
+  const tokens = topicSignalTokens(topic)
+  if (tokens.length === 0) return 0
+  let matches = 0
+  for (const token of tokens) {
+    if (haystack.includes(token)) matches += 1
+  }
+  return matches / tokens.length
+}
+
+function computeSourceMatchStrength(
+  sources: string[],
+  channelTitle: string,
+  title: string,
+  description: string,
+): number {
+  if (!Array.isArray(sources) || sources.length === 0) return 0
+  const channelKey = normalizeSourceKey(channelTitle)
+  const haystack = `${String(channelTitle || "")} ${String(title || "")} ${String(description || "")}`.toLowerCase()
+  let best = 0
+  for (const source of sources) {
+    const normalizedSource = normalizeSourceConstraint(source)
+    if (!normalizedSource) continue
+    if (channelKey && (channelKey === normalizedSource || channelKey.includes(normalizedSource))) {
+      best = Math.max(best, 1)
+      continue
+    }
+    const tokens = sourceSignalTokens(normalizedSource)
+    if (tokens.length === 0) continue
+    let matches = 0
+    for (const token of tokens) {
+      if (haystack.includes(token)) matches += 1
+    }
+    best = Math.max(best, matches / tokens.length)
+  }
+  return best
+}
+
+function computeChannelSourceMatchStrength(sources: string[], channelTitle: string): number {
+  if (!Array.isArray(sources) || sources.length === 0) return 0
+  const channelKey = normalizeSourceKey(channelTitle)
+  if (!channelKey) return 0
+  let best = 0
+  for (const source of sources) {
+    const normalizedSource = normalizeSourceConstraint(source)
+    if (!normalizedSource) continue
+    if (channelKey === normalizedSource || channelKey.includes(normalizedSource)) {
+      best = Math.max(best, 1)
+      continue
+    }
+    const tokens = sourceSignalTokens(normalizedSource)
+    if (tokens.length === 0) continue
+    let matches = 0
+    for (const token of tokens) {
+      if (channelKey.includes(token)) matches += 1
+    }
+    best = Math.max(best, matches / tokens.length)
+  }
+  return best
 }
 
 function parseNonNegativeInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -141,6 +292,30 @@ function getCached<T>(store: Map<string, TimedValue<T>>, key: string): T | null 
 
 function setCached<T>(store: Map<string, TimedValue<T>>, key: string, value: T, ttlMs: number): void {
   store.set(key, { value, expiresAt: Date.now() + Math.max(1_000, ttlMs) })
+}
+
+async function withInFlightDedup<T>(
+  store: Map<string, Promise<T>>,
+  key: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const inFlight = store.get(key)
+  if (inFlight) return inFlight
+  const promise = task()
+  store.set(key, promise)
+  void promise.then(
+    () => {
+      if (store.get(key) === promise) {
+        store.delete(key)
+      }
+    },
+    () => {
+      if (store.get(key) === promise) {
+        store.delete(key)
+      }
+    },
+  )
+  return promise
 }
 
 async function youtubeApiRequest(
@@ -221,20 +396,43 @@ function parseDurationSeconds(durationIso: string): number {
   return (days * 86_400) + (hours * 3_600) + (minutes * 60) + seconds
 }
 
+function looksLikeYouTubeShortsText(value: unknown): boolean {
+  const text = String(value || "").toLowerCase()
+  if (!text) return false
+  return /(^|\s)#shorts?\b/.test(text) || /\/shorts?\b/.test(text) || /\byoutube\s+shorts?\b/.test(text)
+}
+
+async function filterOutYouTubeShorts(
+  items: YouTubeSearchResult["items"],
+): Promise<YouTubeSearchResult["items"]> {
+  if (items.length === 0) return items
+  return items.filter((item) => {
+    if (looksLikeYouTubeShortsText(item.title) || looksLikeYouTubeShortsText(item.description)) return false
+    return true
+  })
+}
+
 function buildSearchCacheKey(scope: YouTubeScope | undefined, value: Record<string, unknown>): string {
   return `${normalizeUserScope(scope)}:${Object.entries(value).map(([key, val]) => `${key}=${String(val || "")}`).join("&")}`
 }
 
 function buildQueryText(mode: YouTubeFeedMode, topic: string, preferredSources: string[]): string {
   const topicText = topic.replace(/-/g, " ")
+  const broadNewsTopic = isBroadNewsTopic(topic)
   const topSources = preferredSources.slice(0, 4)
+  if (!broadNewsTopic) {
+    if (topSources.length > 0) {
+      return `${topicText} (${topSources.join(" OR ")}) -shorts`
+    }
+    return `${topicText} news -shorts`
+  }
   if (mode === "sources" && topSources.length > 0) {
-    return `${topicText} (${topSources.join(" OR ")})`
+    return `${topicText} (${topSources.join(" OR ")}) -shorts`
   }
   if (topSources.length > 0) {
-    return `${topicText} news ${topSources.slice(0, 2).join(" ")}`
+    return `${topicText} news ${topSources.slice(0, 2).join(" ")} -shorts`
   }
-  return `${topicText} news`
+  return `${topicText} news -shorts`
 }
 
 async function getUserSubscriptionWeights(scope?: YouTubeScope): Promise<Map<string, ChannelWeight>> {
@@ -244,51 +442,7 @@ async function getUserSubscriptionWeights(scope?: YouTubeScope): Promise<Map<str
   if (cached) return cached
 
   const map = new Map<string, ChannelWeight>()
-  try {
-    let pageToken = ""
-    for (let page = 0; page < 2; page += 1) {
-      const params = new URLSearchParams({
-        part: "snippet",
-        mine: "true",
-        maxResults: "50",
-      })
-      if (pageToken) params.set("pageToken", pageToken)
-      const response = await youtubeApiRequest(
-        `${YOUTUBE_API_BASE}/subscriptions?${params.toString()}`,
-        { method: "GET" },
-        { operation: "youtube_subscriptions", scope, quotaCost: QUOTA_COST_SUBSCRIPTIONS, timeoutMs: 9_000 },
-      )
-      await assertYouTubeOk(response, "Failed to read YouTube subscriptions.")
-      const payload = await response.json().catch(() => null) as {
-        items?: Array<{
-          snippet?: {
-            title?: string
-            resourceId?: { channelId?: string }
-          }
-        }>
-        nextPageToken?: string
-      } | null
-
-      const items = Array.isArray(payload?.items) ? payload.items : []
-      for (const item of items) {
-        const channelId = String(item?.snippet?.resourceId?.channelId || "").trim()
-        if (!channelId) continue
-        const channelTitle = normalizeSourceName(item?.snippet?.title || "")
-        map.set(channelId, {
-          channelTitle,
-          weight: 1,
-        })
-      }
-      pageToken = String(payload?.nextPageToken || "").trim()
-      if (!pageToken) break
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : ""
-    if (!/forbidden|scope|permission|quota/i.test(message)) {
-      throw error
-    }
-  }
-
+  // Strict single-request policy: do not add a secondary subscriptions lookup.
   setCached(subscriptionsByUser, userId, map, SUBSCRIPTIONS_CACHE_TTL_MS)
   return map
 }
@@ -298,13 +452,17 @@ function scoreFeedItem(params: {
     channelId: string
     channelTitle: string
     title: string
+    description: string
     publishedAt: string
   }
   topic: string
   subscriptions: Map<string, ChannelWeight>
   preferredSources: string[]
+  requiredSources: string[]
+  strictSources: boolean
+  strictTopic: boolean
   historyChannelIds: Set<string>
-}): { score: number; reason: string } {
+}): { score: number; reason: string; topicStrength: number; sourceStrength: number; channelSourceStrength: number } {
   const reasons: string[] = []
   let score = 0
 
@@ -312,41 +470,70 @@ function scoreFeedItem(params: {
   if (Number.isFinite(publishedMs)) {
     const ageHours = Math.max(0, (Date.now() - publishedMs) / 3_600_000)
     const recency = Math.max(0, 1 - Math.min(72, ageHours) / 72)
-    score += recency * 30
+    score += recency * 20
     if (recency >= 0.66) reasons.push("recent")
   }
 
   const subscription = params.subscriptions.get(params.item.channelId)
   if (subscription) {
-    score += 35
+    score += 12
     reasons.push("subscription")
   }
 
   if (params.historyChannelIds.has(params.item.channelId)) {
-    score += 22
+    score += 8
     reasons.push("history")
   }
 
-  const channelKey = normalizeSourceKey(params.item.channelTitle)
-  const preferredMatch = params.preferredSources.some((source) => {
-    const sourceKey = normalizeSourceKey(source)
-    return sourceKey.length > 0 && channelKey.includes(sourceKey)
-  })
-  if (preferredMatch) {
-    score += 26
+  const sourceStrength = computeSourceMatchStrength(
+    params.preferredSources,
+    params.item.channelTitle,
+    params.item.title,
+    params.item.description,
+  )
+  const channelSourceStrength = computeChannelSourceMatchStrength(
+    params.requiredSources.length > 0 ? params.requiredSources : params.preferredSources,
+    params.item.channelTitle,
+  )
+  if (sourceStrength > 0) {
+    score += sourceStrength * 22
     reasons.push("preferred-source")
   }
-
-  const topicKey = normalizeTopic(params.topic).replace(/-/g, " ")
-  const titleKey = String(params.item.title || "").toLowerCase()
-  if (topicKey && titleKey.includes(topicKey)) {
+  if (channelSourceStrength > 0.8) {
     score += 12
+    reasons.push("channel-match")
+  }
+
+  const topicStrength = computeTopicMatchStrength(
+    params.topic,
+    params.item.title,
+    params.item.description,
+    params.item.channelTitle,
+  )
+  if (topicStrength > 0) {
+    score += (topicStrength * 62) + 14
     reasons.push("topic-match")
+  } else if (!isBroadNewsTopic(params.topic)) {
+    score -= 28
+    reasons.push("off-topic")
+  }
+
+  if (params.strictSources && params.requiredSources.length > 0 && channelSourceStrength < STRICT_CHANNEL_SOURCE_MATCH_MIN) {
+    score -= 36
+    reasons.push("source-miss")
+  }
+
+  if (params.strictTopic && !isBroadNewsTopic(params.topic) && topicStrength < 0.55) {
+    score -= 42
+    reasons.push("weak-topic")
   }
 
   return {
     score: Math.max(0, Math.round(score)),
     reason: reasons.length > 0 ? reasons.join(", ") : "recent",
+    topicStrength,
+    sourceStrength,
+    channelSourceStrength,
   }
 }
 
@@ -356,6 +543,7 @@ export async function searchYouTube(
     type?: YouTubeSearchType
     pageToken?: string
     maxResults?: number
+    videoDuration?: "any" | "short" | "medium" | "long"
   },
   scope?: YouTubeScope,
 ): Promise<YouTubeSearchResult> {
@@ -364,73 +552,80 @@ export async function searchYouTube(
   const type: YouTubeSearchType = input.type === "channel" ? "channel" : "video"
   const maxResults = parseNonNegativeInt(input.maxResults, 12, 1, 25)
   const pageToken = String(input.pageToken || "").trim()
+  const requestedDuration = String(input.videoDuration || "").trim().toLowerCase()
+  const videoDuration: "any" | "short" | "medium" | "long" =
+    requestedDuration === "short" || requestedDuration === "medium" || requestedDuration === "long"
+      ? requestedDuration
+      : "any"
 
-  const cacheKey = buildSearchCacheKey(scope, { query, type, maxResults, pageToken })
+  const cacheKey = buildSearchCacheKey(scope, { query, type, maxResults, pageToken, videoDuration })
   const cached = getCached(searchCacheByUser, cacheKey)
   if (cached) return cached
-
-  const params = new URLSearchParams({
-    part: "snippet",
-    q: query,
-    type,
-    maxResults: String(maxResults),
-    safeSearch: "moderate",
-  })
-  if (type === "video") {
-    params.set("videoEmbeddable", "true")
-  }
-  if (pageToken) params.set("pageToken", pageToken)
-
-  const response = await youtubeApiRequest(
-    `${YOUTUBE_API_BASE}/search?${params.toString()}`,
-    { method: "GET" },
-    { operation: "youtube_search", scope, quotaCost: QUOTA_COST_SEARCH },
-  )
-  await assertYouTubeOk(response, "YouTube search failed.")
-  const payload = await response.json().catch(() => null) as {
-    nextPageToken?: string
-    prevPageToken?: string
-    items?: Array<{
-      id?: { kind?: string; videoId?: string; channelId?: string } | string
-      snippet?: {
-        title?: string
-        description?: string
-        channelId?: string
-        channelTitle?: string
-        publishedAt?: string
-        thumbnails?: Record<string, { url?: string }>
-      }
-    }>
-  } | null
-
-  const items = Array.isArray(payload?.items) ? payload.items : []
-  const normalized = items
-    .map((item) => {
-      const idRecord = item?.id && typeof item.id === "object" ? item.id : null
-      const kind: YouTubeSearchType = idRecord?.kind?.includes("channel") ? "channel" : "video"
-      const id = String(idRecord?.channelId || idRecord?.videoId || "").trim()
-      const snippet = item?.snippet
-      if (!id || !snippet) return null
-      return {
-        id,
-        kind,
-        title: String(snippet.title || "").trim(),
-        description: String(snippet.description || "").trim(),
-        channelId: String(snippet.channelId || "").trim(),
-        channelTitle: String(snippet.channelTitle || "").trim(),
-        publishedAt: String(snippet.publishedAt || "").trim(),
-        thumbnailUrl: resolveThumbnail(snippet),
-      }
+  return withInFlightDedup(searchInFlightByUser, cacheKey, async () => {
+    const params = new URLSearchParams({
+      part: "snippet",
+      q: query,
+      type,
+      maxResults: String(maxResults),
+      safeSearch: "moderate",
     })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    if (type === "video") {
+      params.set("videoEmbeddable", "true")
+      if (videoDuration !== "any") params.set("videoDuration", videoDuration)
+    }
+    if (pageToken) params.set("pageToken", pageToken)
 
-  const result: YouTubeSearchResult = {
-    items: normalized,
-    nextPageToken: String(payload?.nextPageToken || "").trim(),
-    prevPageToken: String(payload?.prevPageToken || "").trim(),
-  }
-  setCached(searchCacheByUser, cacheKey, result, SEARCH_CACHE_TTL_MS)
-  return result
+    const response = await youtubeApiRequest(
+      `${YOUTUBE_API_BASE}/search?${params.toString()}`,
+      { method: "GET" },
+      { operation: "youtube_search", scope, quotaCost: QUOTA_COST_SEARCH },
+    )
+    await assertYouTubeOk(response, "YouTube search failed.")
+    const payload = await response.json().catch(() => null) as {
+      nextPageToken?: string
+      prevPageToken?: string
+      items?: Array<{
+        id?: { kind?: string; videoId?: string; channelId?: string } | string
+        snippet?: {
+          title?: string
+          description?: string
+          channelId?: string
+          channelTitle?: string
+          publishedAt?: string
+          thumbnails?: Record<string, { url?: string }>
+        }
+      }>
+    } | null
+
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    const normalized = items
+      .map((item) => {
+        const idRecord = item?.id && typeof item.id === "object" ? item.id : null
+        const kind: YouTubeSearchType = idRecord?.kind?.includes("channel") ? "channel" : "video"
+        const id = String(idRecord?.channelId || idRecord?.videoId || "").trim()
+        const snippet = item?.snippet
+        if (!id || !snippet) return null
+        return {
+          id,
+          kind,
+          title: String(snippet.title || "").trim(),
+          description: String(snippet.description || "").trim(),
+          channelId: String(snippet.channelId || "").trim(),
+          channelTitle: String(snippet.channelTitle || "").trim(),
+          publishedAt: String(snippet.publishedAt || "").trim(),
+          thumbnailUrl: resolveThumbnail(snippet),
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+    const result: YouTubeSearchResult = {
+      items: normalized,
+      nextPageToken: String(payload?.nextPageToken || "").trim(),
+      prevPageToken: String(payload?.prevPageToken || "").trim(),
+    }
+    setCached(searchCacheByUser, cacheKey, result, SEARCH_CACHE_TTL_MS)
+    return result
+  })
 }
 
 export async function getYouTubeVideoDetails(videoId: string, scope?: YouTubeScope): Promise<YouTubeVideoDetails> {
@@ -442,65 +637,73 @@ export async function getYouTubeVideoDetails(videoId: string, scope?: YouTubeSco
   const cacheKey = buildSearchCacheKey(scope, { videoId: normalizedVideoId })
   const cached = getCached(videoCacheByUser, cacheKey)
   if (cached) return cached
+  return withInFlightDedup(videoInFlightByUser, cacheKey, async () => {
+    const params = new URLSearchParams({
+      part: "snippet,contentDetails,statistics",
+      id: normalizedVideoId,
+      maxResults: "1",
+    })
+    const response = await youtubeApiRequest(
+      `${YOUTUBE_API_BASE}/videos?${params.toString()}`,
+      { method: "GET" },
+      { operation: "youtube_video_details", scope, quotaCost: QUOTA_COST_VIDEO_DETAILS },
+    )
+    await assertYouTubeOk(response, "YouTube video details failed.")
+    const payload = await response.json().catch(() => null) as {
+      items?: Array<{
+        id?: string
+        snippet?: {
+          title?: string
+          description?: string
+          channelId?: string
+          channelTitle?: string
+          publishedAt?: string
+          thumbnails?: Record<string, { url?: string }>
+        }
+        contentDetails?: { duration?: string }
+        statistics?: {
+          viewCount?: string | number
+          likeCount?: string | number
+        }
+      }>
+    } | null
 
-  const params = new URLSearchParams({
-    part: "snippet,contentDetails,statistics",
-    id: normalizedVideoId,
-    maxResults: "1",
+    const item = payload?.items?.[0]
+    if (!item) throw youtubeError("youtube.not_found", "YouTube video not found.", { status: 404 })
+    const durationIso = String(item.contentDetails?.duration || "").trim()
+    const details: YouTubeVideoDetails = {
+      id: String(item.id || normalizedVideoId).trim(),
+      title: String(item.snippet?.title || "").trim(),
+      description: String(item.snippet?.description || "").trim(),
+      channelId: String(item.snippet?.channelId || "").trim(),
+      channelTitle: String(item.snippet?.channelTitle || "").trim(),
+      publishedAt: String(item.snippet?.publishedAt || "").trim(),
+      thumbnailUrl: resolveThumbnail(item.snippet),
+      durationIso,
+      durationSeconds: parseDurationSeconds(durationIso),
+      viewCount: Number.parseInt(String(item.statistics?.viewCount || "0"), 10) || 0,
+      likeCount: Number.parseInt(String(item.statistics?.likeCount || "0"), 10) || 0,
+    }
+    setCached(videoCacheByUser, cacheKey, details, VIDEO_CACHE_TTL_MS)
+    return details
   })
-  const response = await youtubeApiRequest(
-    `${YOUTUBE_API_BASE}/videos?${params.toString()}`,
-    { method: "GET" },
-    { operation: "youtube_video_details", scope, quotaCost: QUOTA_COST_VIDEO_DETAILS },
-  )
-  await assertYouTubeOk(response, "YouTube video details failed.")
-  const payload = await response.json().catch(() => null) as {
-    items?: Array<{
-      id?: string
-      snippet?: {
-        title?: string
-        description?: string
-        channelId?: string
-        channelTitle?: string
-        publishedAt?: string
-        thumbnails?: Record<string, { url?: string }>
-      }
-      contentDetails?: { duration?: string }
-      statistics?: {
-        viewCount?: string | number
-        likeCount?: string | number
-      }
-    }>
-  } | null
-
-  const item = payload?.items?.[0]
-  if (!item) throw youtubeError("youtube.not_found", "YouTube video not found.", { status: 404 })
-  const durationIso = String(item.contentDetails?.duration || "").trim()
-  const details: YouTubeVideoDetails = {
-    id: String(item.id || normalizedVideoId).trim(),
-    title: String(item.snippet?.title || "").trim(),
-    description: String(item.snippet?.description || "").trim(),
-    channelId: String(item.snippet?.channelId || "").trim(),
-    channelTitle: String(item.snippet?.channelTitle || "").trim(),
-    publishedAt: String(item.snippet?.publishedAt || "").trim(),
-    thumbnailUrl: resolveThumbnail(item.snippet),
-    durationIso,
-    durationSeconds: parseDurationSeconds(durationIso),
-    viewCount: Number.parseInt(String(item.statistics?.viewCount || "0"), 10) || 0,
-    likeCount: Number.parseInt(String(item.statistics?.likeCount || "0"), 10) || 0,
-  }
-  setCached(videoCacheByUser, cacheKey, details, VIDEO_CACHE_TTL_MS)
-  return details
 }
 
 export async function getYouTubeFeed(options: YouTubeFeedOptions, scope?: YouTubeScope): Promise<YouTubeFeedResult> {
   const mode: YouTubeFeedMode = options.mode === "sources" ? "sources" : "personalized"
   const topic = normalizeTopic(options.topic || "news")
+  const broadNewsTopic = isBroadNewsTopic(topic)
   const pageToken = String(options.pageToken || "").trim()
   const maxResults = parseNonNegativeInt(options.maxResults, 9, 4, 15)
   const preferredSources = Array.isArray(options.preferredSources)
-    ? options.preferredSources.map((source) => normalizeSourceName(source)).filter(Boolean)
+    ? options.preferredSources.map((source) => normalizeSourceConstraint(source)).filter(Boolean)
     : []
+  const requiredSources = Array.isArray(options.requiredSources)
+    ? options.requiredSources.map((source) => normalizeSourceConstraint(source)).filter(Boolean)
+    : []
+  const strictSources = options.strictSources === true || requiredSources.length > 0
+  const strictTopic = options.strictTopic === true || strictSources
+  const effectivePreferredSources = Array.from(new Set([...requiredSources, ...preferredSources])).slice(0, 8)
   const historyChannelIds = new Set(
     Array.isArray(options.historyChannelIds)
       ? options.historyChannelIds.map((id) => String(id || "").trim()).filter(Boolean).slice(0, 20)
@@ -512,70 +715,121 @@ export async function getYouTubeFeed(options: YouTubeFeedOptions, scope?: YouTub
     topic,
     pageToken,
     maxResults,
-    preferredSources: preferredSources.join("|"),
+    preferredSources: effectivePreferredSources.join("|"),
+    requiredSources: requiredSources.join("|"),
+    strictSources: strictSources ? "1" : "0",
+    strictTopic: strictTopic ? "1" : "0",
     historyChannelIds: Array.from(historyChannelIds).join("|"),
   })
   const cached = getCached(feedCacheByUser, cacheKey)
   if (cached) return cached
+  return withInFlightDedup(feedInFlightByUser, cacheKey, async () => {
+    const effectiveHistoryChannelIds = broadNewsTopic ? historyChannelIds : new Set<string>()
 
-  const subscriptions = mode === "personalized"
-    ? await getUserSubscriptionWeights(scope)
-    : new Map<string, ChannelWeight>()
-  const topSubscriptionSources = Array.from(subscriptions.values())
-    .map((entry) => entry.channelTitle)
-    .filter(Boolean)
-    .slice(0, 4)
-  const querySources = mode === "personalized"
-    ? [...preferredSources, ...topSubscriptionSources]
-    : preferredSources
+    const subscriptions = mode === "personalized" && broadNewsTopic && !strictSources
+      ? await getUserSubscriptionWeights(scope)
+      : new Map<string, ChannelWeight>()
+    const topSubscriptionSources = Array.from(subscriptions.values())
+      .map((entry) => entry.channelTitle)
+      .filter(Boolean)
+      .slice(0, 4)
+    const querySources = strictSources
+      ? effectivePreferredSources
+      : mode === "personalized" && broadNewsTopic
+        ? [...effectivePreferredSources, ...topSubscriptionSources]
+        : effectivePreferredSources
 
-  const query = buildQueryText(mode, topic, querySources)
-  const search = await searchYouTube(
-    {
-      query,
-      type: "video",
-      pageToken,
-      maxResults,
-    },
-    scope,
-  )
+    const query = buildQueryText(mode, topic, querySources)
+    const searchMaxResults = Math.min(25, Math.max(maxResults + 8, maxResults))
+    const search = await searchYouTube(
+      {
+        query,
+        type: "video",
+        pageToken,
+        maxResults: searchMaxResults,
+        videoDuration: "medium",
+      },
+      scope,
+    )
+    const candidateItems = search.items
+    const filteredItems = await filterOutYouTubeShorts(candidateItems)
 
-  const scoredItems: YouTubeFeedItem[] = search.items
-    .map((item) => {
-      const scored = scoreFeedItem({
-        item,
-        topic,
-        subscriptions,
-        preferredSources,
-        historyChannelIds,
+    const scoredItems = filteredItems
+      .map((item) => {
+        const scored = scoreFeedItem({
+          item,
+          topic,
+          subscriptions,
+          preferredSources: effectivePreferredSources,
+          requiredSources,
+          strictSources,
+          strictTopic,
+          historyChannelIds: effectiveHistoryChannelIds,
+        })
+        return {
+          videoId: item.id,
+          title: item.title,
+          channelId: item.channelId,
+          channelTitle: item.channelTitle,
+          publishedAt: item.publishedAt,
+          thumbnailUrl: item.thumbnailUrl,
+          description: item.description,
+          score: scored.score,
+          reason: scored.reason,
+          topicStrength: scored.topicStrength,
+          sourceStrength: scored.sourceStrength,
+          channelSourceStrength: scored.channelSourceStrength,
+        }
       })
-      return {
-        videoId: item.id,
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score
+        return Date.parse(String(b.publishedAt || "")) - Date.parse(String(a.publishedAt || ""))
+      })
+
+    const minTopicStrength = broadNewsTopic
+      ? 0
+      : strictTopic
+        ? STRICT_TOPIC_MATCH_MIN
+        : DEFAULT_TOPIC_MATCH_MIN
+    let rankedItems = broadNewsTopic
+      ? scoredItems
+      : scoredItems.filter((item) => item.topicStrength >= minTopicStrength)
+
+    if (strictSources && requiredSources.length > 0) {
+      rankedItems = rankedItems.filter(
+        (item) => item.channelSourceStrength >= STRICT_CHANNEL_SOURCE_MATCH_MIN && item.sourceStrength >= STRICT_SOURCE_MATCH_MIN,
+      )
+    }
+
+    if (!broadNewsTopic && rankedItems.length === 0 && !strictTopic && !strictSources) {
+      rankedItems = scoredItems.filter((item) => item.topicStrength >= 0.25)
+    }
+
+    const selectedItems: YouTubeFeedItem[] = rankedItems
+      .slice(0, maxResults)
+      .map((item) => ({
+        videoId: item.videoId,
         title: item.title,
         channelId: item.channelId,
         channelTitle: item.channelTitle,
         publishedAt: item.publishedAt,
         thumbnailUrl: item.thumbnailUrl,
         description: item.description,
-        score: scored.score,
-        reason: scored.reason,
-      }
-    })
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score
-      return Date.parse(String(b.publishedAt || "")) - Date.parse(String(a.publishedAt || ""))
-    })
+        score: item.score,
+        reason: item.reason,
+      }))
 
-  const result: YouTubeFeedResult = {
-    items: scoredItems,
-    nextPageToken: search.nextPageToken,
-    prevPageToken: search.prevPageToken,
-    mode,
-    topic,
-    sourceSummary: querySources.slice(0, 8),
-  }
-  setCached(feedCacheByUser, cacheKey, result, FEED_CACHE_TTL_MS)
-  return result
+    const result: YouTubeFeedResult = {
+      items: selectedItems,
+      nextPageToken: search.nextPageToken,
+      prevPageToken: search.prevPageToken,
+      mode,
+      topic,
+      sourceSummary: querySources.slice(0, 8),
+    }
+    setCached(feedCacheByUser, cacheKey, result, FEED_CACHE_TTL_MS)
+    return result
+  })
 }
 
 export async function probeYouTubeConnection(scope?: YouTubeScope): Promise<{

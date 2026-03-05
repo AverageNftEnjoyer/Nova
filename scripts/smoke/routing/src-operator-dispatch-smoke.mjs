@@ -118,10 +118,719 @@ await run("P24-C3 spotify route does not update context on failure", async () =>
   assert.equal(updates, 0);
 });
 
+await run("P24-C4 polymarket route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "show polymarket odds for election",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: true,
+    polymarketShortTermFollowUp: true,
+    polymarketPolicy: {
+      resolveTopicAffinityId: () => "polymarket_politics",
+    },
+    polymarketShortTermContext: null,
+    polymarketShortTermContextSnapshot: null,
+    userContextId: "user-4",
+    conversationId: "thread-4",
+    sessionKey: "agent:nova:hud:user:user-4:dm:thread-4",
+    activeChatRuntime: { provider: "grok" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "polymarket", ok: true, reply: "Odds loaded." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "polymarket");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "polymarket");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "polymarket");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "polymarket_politics");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C5 coinbase route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  let executeHints = null;
+  const out = await routeOperatorDispatch({
+    text: "refresh my coinbase balances",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: true,
+    coinbaseShortTermFollowUp: true,
+    coinbasePolicy: {
+      resolveTopicAffinityId: () => "coinbase_portfolio",
+    },
+    coinbaseShortTermContext: null,
+    coinbaseShortTermContextSnapshot: null,
+    userContextId: "user-5",
+    conversationId: "thread-5",
+    sessionKey: "agent:nova:hud:user:user-5:dm:thread-5",
+    activeChatRuntime: { provider: "openai" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
+      executeHints = hints;
+      return { route: "coinbase", ok: true, reply: "Balances synced." };
+    },
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "coinbase");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "coinbase");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "coinbase");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "coinbase_portfolio");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+  assert.equal(executeHints?.operatorLane?.executorKind, "coinbase");
+  assert.equal(executeHints?.forceToolLoop, true);
+});
+
+await run("P24-C6 gmail route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "check my gmail inbox",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: true,
+    gmailShortTermFollowUp: true,
+    gmailPolicy: {
+      resolveTopicAffinityId: () => "gmail_unread",
+    },
+    gmailShortTermContext: null,
+    gmailShortTermContextSnapshot: null,
+    userContextId: "user-6",
+    conversationId: "thread-6",
+    sessionKey: "agent:nova:hud:user:user-6:dm:thread-6",
+    activeChatRuntime: { provider: "claude" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "Inbox loaded." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "gmail");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "gmail");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "gmail");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "gmail_unread");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C7 telegram route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "send this to telegram",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: true,
+    telegramShortTermFollowUp: true,
+    telegramPolicy: {
+      resolveTopicAffinityId: () => "telegram_send",
+    },
+    telegramShortTermContext: null,
+    telegramShortTermContextSnapshot: null,
+    userContextId: "user-7",
+    conversationId: "thread-7",
+    sessionKey: "agent:nova:hud:user:user-7:dm:thread-7",
+    activeChatRuntime: { provider: "grok" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "telegram", ok: true, reply: "Telegram message queued." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "telegram");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "telegram");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "telegram");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "telegram_send");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C8 discord route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "post this to discord",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: true,
+    discordShortTermFollowUp: true,
+    discordPolicy: {
+      resolveTopicAffinityId: () => "discord_send",
+    },
+    discordShortTermContext: null,
+    discordShortTermContextSnapshot: null,
+    userContextId: "user-8",
+    conversationId: "thread-8",
+    sessionKey: "agent:nova:hud:user:user-8:dm:thread-8",
+    activeChatRuntime: { provider: "claude" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "discord", ok: true, reply: "Discord post queued." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "discord");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "discord");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "discord");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "discord_send");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C9 calendar route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "show my calendar for tomorrow",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: true,
+    calendarShortTermFollowUp: true,
+    calendarPolicy: {
+      resolveTopicAffinityId: () => "calendar_agenda",
+    },
+    calendarShortTermContext: null,
+    calendarShortTermContextSnapshot: null,
+    userContextId: "user-9",
+    conversationId: "thread-9",
+    sessionKey: "agent:nova:hud:user:user-9:dm:thread-9",
+    activeChatRuntime: { provider: "gemini" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "calendar", ok: true, reply: "Calendar loaded." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "calendar");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "calendar");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "calendar");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "calendar_agenda");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C10 reminders route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "set a reminder for 5pm",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: true,
+    remindersShortTermFollowUp: true,
+    remindersPolicy: {
+      resolveTopicAffinityId: () => "reminder_create",
+    },
+    remindersShortTermContext: null,
+    remindersShortTermContextSnapshot: null,
+    userContextId: "user-10",
+    conversationId: "thread-10",
+    sessionKey: "agent:nova:hud:user:user-10:dm:thread-10",
+    activeChatRuntime: { provider: "openai" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "reminder", ok: true, reply: "Reminder created." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "reminder");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "reminder");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "reminders");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "reminder_create");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C11 web research route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  let executeHints = null;
+  const out = await routeOperatorDispatch({
+    text: "research latest AI safety papers with citations",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: true,
+    webResearchShortTermFollowUp: true,
+    webResearchPolicy: {
+      resolveTopicAffinityId: () => "web_research_citations",
+    },
+    webResearchShortTermContext: null,
+    webResearchShortTermContextSnapshot: null,
+    userContextId: "user-11",
+    conversationId: "thread-11",
+    sessionKey: "agent:nova:hud:user:user-11:dm:thread-11",
+    activeChatRuntime: { provider: "claude" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
+      executeHints = hints;
+      return { route: "web_research", ok: true, reply: "Research summary ready." };
+    },
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "web_research");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "web_research");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "web_research");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "web_research_citations");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+  assert.equal(executeHints?.operatorLane?.executorKind, "web_research");
+  assert.equal(executeHints?.forceWebSearchPreload, true);
+  assert.equal(executeHints?.forceWebFetchPreload, true);
+});
+
+await run("P24-C12 crypto route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "show crypto prices",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: true,
+    cryptoShortTermFollowUp: true,
+    cryptoPolicy: {
+      resolveTopicAffinityId: () => "crypto_price",
+    },
+    cryptoShortTermContext: null,
+    cryptoShortTermContextSnapshot: null,
+    userContextId: "user-12",
+    conversationId: "thread-12",
+    sessionKey: "agent:nova:hud:user:user-12:dm:thread-12",
+    activeChatRuntime: { provider: "openai" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "crypto", ok: true, reply: "Crypto snapshot ready." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "crypto");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "crypto");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "crypto");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "crypto_price");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C13 market route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  let executeHints = null;
+  const out = await routeOperatorDispatch({
+    text: "weather in nyc",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: true,
+    marketShortTermFollowUp: true,
+    marketPolicy: {
+      resolveTopicAffinityId: () => "market_weather",
+    },
+    marketShortTermContext: null,
+    marketShortTermContextSnapshot: null,
+    userContextId: "user-13",
+    conversationId: "thread-13",
+    sessionKey: "agent:nova:hud:user:user-13:dm:thread-13",
+    activeChatRuntime: { provider: "gemini" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
+      executeHints = hints;
+      return { route: "weather", ok: true, reply: "Weather loaded." };
+    },
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "weather");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "weather");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "market");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "market_weather");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+  assert.equal(executeHints?.operatorLane?.executorKind, "market");
+  assert.equal(executeHints?.forceWebSearchPreload, true);
+});
+
+await run("P24-C14 files route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "list files in workspace",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: false,
+    shouldRouteToFiles: true,
+    filesShortTermFollowUp: true,
+    filesPolicy: {
+      resolveTopicAffinityId: () => "files_search",
+    },
+    filesShortTermContext: null,
+    filesShortTermContextSnapshot: null,
+    userContextId: "user-14",
+    conversationId: "thread-14",
+    sessionKey: "agent:nova:hud:user:user-14:dm:thread-14",
+    activeChatRuntime: { provider: "openai" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "files", ok: true, reply: "Files listed." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "files");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "files");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "files");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "files_search");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C15 diagnostics route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "run diagnostics",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: false,
+    shouldRouteToFiles: false,
+    shouldRouteToDiagnostics: true,
+    diagnosticsShortTermFollowUp: true,
+    diagnosticsPolicy: {
+      resolveTopicAffinityId: () => "diagnostics_latency",
+    },
+    diagnosticsShortTermContext: null,
+    diagnosticsShortTermContextSnapshot: null,
+    userContextId: "user-15",
+    conversationId: "thread-15",
+    sessionKey: "agent:nova:hud:user:user-15:dm:thread-15",
+    activeChatRuntime: { provider: "claude" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "diagnostic", ok: true, reply: "Diagnostics complete." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "diagnostic");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "diagnostic");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "diagnostics");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "diagnostics_latency");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C16 voice route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "mute voice",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: false,
+    shouldRouteToFiles: false,
+    shouldRouteToDiagnostics: false,
+    shouldRouteToVoice: true,
+    voiceShortTermFollowUp: true,
+    voicePolicy: {
+      resolveTopicAffinityId: () => "voice_mute_toggle",
+    },
+    voiceShortTermContext: null,
+    voiceShortTermContextSnapshot: null,
+    userContextId: "user-16",
+    conversationId: "thread-16",
+    sessionKey: "agent:nova:hud:user:user-16:dm:thread-16",
+    activeChatRuntime: { provider: "openai" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "voice", ok: true, reply: "Voice settings updated." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "voice");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "voice");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "voice");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "voice_mute_toggle");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C17 tts route delegates through org-chart worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "read this aloud",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: false,
+    shouldRouteToFiles: false,
+    shouldRouteToDiagnostics: false,
+    shouldRouteToVoice: false,
+    shouldRouteToTts: true,
+    ttsShortTermFollowUp: true,
+    ttsPolicy: {
+      resolveTopicAffinityId: () => "tts_read_aloud",
+    },
+    ttsShortTermContext: null,
+    ttsShortTermContextSnapshot: null,
+    userContextId: "user-17",
+    conversationId: "thread-17",
+    sessionKey: "agent:nova:hud:user:user-17:dm:thread-17",
+    activeChatRuntime: { provider: "claude" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "tts", ok: true, reply: "Reading aloud now." }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "tts");
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "tts");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "tts");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "tts_read_aloud");
+  assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C18 default worker lanes receive operator lane request hints without mutating input hints", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  const baseRequestHints = { fastLaneSimpleChat: false };
+  let executeHints = null;
+  const out = await routeOperatorDispatch({
+    text: "show gmail inbox",
+    ctx: {},
+    llmCtx: {},
+    requestHints: baseRequestHints,
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: true,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: false,
+    shouldRouteToFiles: false,
+    shouldRouteToDiagnostics: false,
+    shouldRouteToVoice: false,
+    shouldRouteToTts: false,
+    gmailShortTermFollowUp: false,
+    gmailPolicy: null,
+    gmailShortTermContext: null,
+    gmailShortTermContextSnapshot: null,
+    userContextId: "user-18",
+    conversationId: "thread-18",
+    sessionKey: "agent:nova:hud:user:user-18:dm:thread-18",
+    activeChatRuntime: { provider: "openai" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    handleSpotify: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
+      executeHints = hints;
+      return { route: "gmail", ok: true, reply: "Gmail routed." };
+    },
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "gmail");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "gmail");
+  assert.equal(executeHints?.operatorLane?.id, "gmail");
+  assert.equal(executeHints?.operatorLane?.domainId, "gmail");
+  assert.equal("operatorLane" in baseRequestHints, false);
+  assert.equal(contextUpdates.length, 1);
+});
+
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;
 const skipCount = results.filter((r) => r.status === "SKIP").length;
 for (const result of results) summarize(result);
 console.log(`\nSummary: pass=${passCount} fail=${failCount} skip=${skipCount}`);
 if (failCount > 0) process.exit(1);
-

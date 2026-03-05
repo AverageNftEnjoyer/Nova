@@ -1,19 +1,44 @@
+import {
+  OPERATOR_LANE_SEQUENCE,
+  resolveOperatorLaneKeyPrefix,
+} from "../operator-lane-config/index.js";
+import { resolveOperatorWorkerExecutor } from "../operator-worker-executors/index.js";
+
+function resolveTopicAffinityId({
+  policy = null,
+  text = "",
+  shortTermContext = null,
+  shortTermContextSnapshot = null,
+  defaultTopicAffinityId = "general",
+}) {
+  return (
+    String(
+      policy?.resolveTopicAffinityId?.(text, shortTermContext || shortTermContextSnapshot || {})
+      || shortTermContext?.topicAffinityId
+      || shortTermContextSnapshot?.topicAffinityId
+      || defaultTopicAffinityId,
+    ).trim()
+    || defaultTopicAffinityId
+  );
+}
+
+function resolveLaneRuntimeState(input, lane) {
+  const followUpKeyPrefix = resolveOperatorLaneKeyPrefix(lane);
+  return {
+    enabled: input[lane.shouldRouteFlag] === true,
+    shortTermFollowUp: input[lane.shortTermFollowUpFlag] === true,
+    policy: input[`${followUpKeyPrefix}Policy`] || null,
+    shortTermContext: input[`${followUpKeyPrefix}ShortTermContext`] || null,
+    shortTermContextSnapshot: input[`${followUpKeyPrefix}ShortTermContextSnapshot`] || null,
+  };
+}
+
 export async function routeOperatorDispatch(input = {}) {
   const {
     text,
     ctx,
     llmCtx,
     requestHints,
-    shouldRouteToSpotify = false,
-    spotifyShortTermFollowUp = false,
-    spotifyPolicy = null,
-    spotifyShortTermContext = null,
-    spotifyShortTermContextSnapshot = null,
-    shouldRouteToYouTube = false,
-    youtubeShortTermFollowUp = false,
-    youtubePolicy = null,
-    youtubeShortTermContext = null,
-    youtubeShortTermContextSnapshot = null,
     userContextId = "",
     conversationId = "",
     sessionKey = "",
@@ -28,12 +53,6 @@ export async function routeOperatorDispatch(input = {}) {
   if (typeof delegateToOrgChartWorker !== "function") {
     throw new Error("routeOperatorDispatch requires delegateToOrgChartWorker");
   }
-  if (typeof handleSpotify !== "function") {
-    throw new Error("routeOperatorDispatch requires handleSpotify");
-  }
-  if (shouldRouteToYouTube && typeof handleYouTube !== "function") {
-    throw new Error("routeOperatorDispatch requires handleYouTube");
-  }
   if (typeof executeChatRequest !== "function") {
     throw new Error("routeOperatorDispatch requires executeChatRequest");
   }
@@ -41,76 +60,60 @@ export async function routeOperatorDispatch(input = {}) {
     throw new Error("routeOperatorDispatch requires upsertShortTermContextState");
   }
 
-  if (shouldRouteToSpotify) {
-    const spotifyResult = await delegateToOrgChartWorker({
-      routeHint: "spotify",
-      responseRoute: "spotify",
-      text,
-      toolCalls: ["spotify"],
-      provider: String(activeChatRuntime?.provider || ""),
-      providerSource: "chat-runtime-selected",
-      userContextId,
-      conversationId,
-      sessionKey,
-      run: async () => handleSpotify(text, ctx, llmCtx),
-    });
-    if (spotifyResult?.ok !== false) {
-      const resolvedTopicAffinityId = String(
-        spotifyPolicy?.resolveTopicAffinityId?.(text, spotifyShortTermContext || spotifyShortTermContextSnapshot || {})
-        || spotifyShortTermContext?.topicAffinityId
-        || spotifyShortTermContextSnapshot?.topicAffinityId
-        || "spotify_general",
-      ).trim() || "spotify_general";
-      upsertShortTermContextState({
-        userContextId,
-        conversationId,
-        domainId: "spotify",
-        topicAffinityId: resolvedTopicAffinityId,
-        slots: {
-          lastUserText: String(text || "").trim().slice(0, 320),
-          lastAssistantReply: String(spotifyResult?.reply || "").trim().slice(0, 320),
-          lastRoute: "spotify",
-          followUpResolved: spotifyShortTermFollowUp === true,
-        },
-      });
-    }
-    return spotifyResult;
-  }
+  const provider = String(activeChatRuntime?.provider || "");
 
-  if (shouldRouteToYouTube) {
-    const youtubeResult = await delegateToOrgChartWorker({
-      routeHint: "youtube",
-      responseRoute: "youtube",
+  for (const lane of OPERATOR_LANE_SEQUENCE) {
+    const laneState = resolveLaneRuntimeState(input, lane);
+    if (!laneState.enabled) continue;
+
+    const runLaneExecutor = resolveOperatorWorkerExecutor({
+      lane,
       text,
-      toolCalls: ["youtube_home_control"],
-      provider: String(activeChatRuntime?.provider || ""),
+      ctx,
+      llmCtx,
+      requestHints,
+      handleSpotify,
+      handleYouTube,
+      executeChatRequest,
+    });
+
+    const laneResult = await delegateToOrgChartWorker({
+      routeHint: lane.routeHint,
+      responseRoute: lane.responseRoute,
+      text,
+      toolCalls: lane.toolCalls,
+      provider,
       providerSource: "chat-runtime-selected",
       userContextId,
       conversationId,
       sessionKey,
-      run: async () => handleYouTube(text, ctx, llmCtx),
+      run: runLaneExecutor,
     });
-    if (youtubeResult?.ok !== false) {
-      const resolvedTopicAffinityId = String(
-        youtubePolicy?.resolveTopicAffinityId?.(text, youtubeShortTermContext || youtubeShortTermContextSnapshot || {})
-        || youtubeShortTermContext?.topicAffinityId
-        || youtubeShortTermContextSnapshot?.topicAffinityId
-        || "youtube_general",
-      ).trim() || "youtube_general";
+
+    if (laneResult?.ok !== false) {
+      const resolvedTopicAffinityId = resolveTopicAffinityId({
+        policy: laneState.policy,
+        text,
+        shortTermContext: laneState.shortTermContext,
+        shortTermContextSnapshot: laneState.shortTermContextSnapshot,
+        defaultTopicAffinityId: lane.defaultTopicAffinityId,
+      });
+
       upsertShortTermContextState({
         userContextId,
         conversationId,
-        domainId: "youtube",
+        domainId: lane.domainId,
         topicAffinityId: resolvedTopicAffinityId,
         slots: {
           lastUserText: String(text || "").trim().slice(0, 320),
-          lastAssistantReply: String(youtubeResult?.reply || "").trim().slice(0, 320),
-          lastRoute: "youtube",
-          followUpResolved: youtubeShortTermFollowUp === true,
+          lastAssistantReply: String(laneResult?.reply || "").trim().slice(0, 320),
+          lastRoute: lane.resultRoute,
+          followUpResolved: laneState.shortTermFollowUp,
         },
       });
     }
-    return youtubeResult;
+
+    return laneResult;
   }
 
   return await delegateToOrgChartWorker({
@@ -118,7 +121,7 @@ export async function routeOperatorDispatch(input = {}) {
     responseRoute: "chat",
     text,
     toolCalls: [],
-    provider: String(activeChatRuntime?.provider || ""),
+    provider,
     providerSource: "chat-runtime-selected",
     userContextId,
     conversationId,

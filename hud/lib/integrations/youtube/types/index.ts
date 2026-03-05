@@ -104,6 +104,9 @@ export interface YouTubeFeedOptions {
   maxResults?: number
   preferredSources?: string[]
   historyChannelIds?: string[]
+  requiredSources?: string[]
+  strictTopic?: boolean
+  strictSources?: boolean
 }
 
 export interface YouTubeFeedResult {

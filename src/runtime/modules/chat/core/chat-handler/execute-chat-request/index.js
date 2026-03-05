@@ -156,6 +156,43 @@ import { resolveOrgChartRoutingEnvelope } from "../../../routing/org-chart-routi
 
 
 
+function normalizeOperatorLaneHint(value) {
+  if (!value || typeof value !== "object") return null;
+  const laneId = String(value.id || "").trim().toLowerCase();
+  if (!laneId) return null;
+  return {
+    id: laneId,
+    routeHint: String(value.routeHint || "").trim().toLowerCase(),
+    responseRoute: String(value.responseRoute || "").trim().toLowerCase(),
+    domainId: String(value.domainId || "").trim().toLowerCase(),
+    resultRoute: String(value.resultRoute || "").trim().toLowerCase(),
+    executorKind: String(value.executorKind || "").trim().toLowerCase(),
+  };
+}
+
+function normalizeOperatorWorkerHint(value) {
+  if (!value || typeof value !== "object") return null;
+  const agentId = String(value.agentId || "").trim().toLowerCase();
+  if (!agentId) return null;
+  return {
+    agentId,
+    laneId: String(value.laneId || "").trim().toLowerCase(),
+    routeHint: String(value.routeHint || "").trim().toLowerCase(),
+    domainId: String(value.domainId || "").trim().toLowerCase(),
+    executorKind: String(value.executorKind || "").trim().toLowerCase(),
+    reasoningMode: String(value.reasoningMode || "").trim().toLowerCase(),
+  };
+}
+
+function normalizeOperatorExecutionControls(value) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    forceToolLoopAllowed: value.forceToolLoopAllowed === true,
+    forceWebSearchPreloadAllowed: value.forceWebSearchPreloadAllowed === true,
+    forceWebFetchPreloadAllowed: value.forceWebFetchPreloadAllowed === true,
+  };
+}
+
 // ===== Core chat request =====
 export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId, conversationId,
@@ -178,9 +215,25 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     latencyTelemetry: inboundLatencyTelemetry,
   } = llmCtx;
   const fastLaneSimpleChat = requestHints.fastLaneSimpleChat === true;
-  const shouldPreloadWebSearchForTurn = executionPolicy?.shouldPreloadWebSearch === true;
-  const shouldPreloadWebFetchForTurn = executionPolicy?.shouldPreloadWebFetch === true;
+  const forceWebSearchPreload = requestHints?.forceWebSearchPreload === true;
+  const forceWebFetchPreload = requestHints?.forceWebFetchPreload === true;
+  const forceToolLoop = requestHints?.forceToolLoop === true;
+  const operatorLaneHint = normalizeOperatorLaneHint(requestHints?.operatorLane);
+  const operatorWorkerHint = normalizeOperatorWorkerHint(requestHints?.operatorWorker);
+  const operatorExecutionControls = normalizeOperatorExecutionControls(requestHints?.operatorExecutionControls);
+  const shouldPreloadWebSearchForTurn = executionPolicy?.shouldPreloadWebSearch === true || forceWebSearchPreload;
+  const shouldPreloadWebFetchForTurn = executionPolicy?.shouldPreloadWebFetch === true || forceWebFetchPreload;
   const shouldAttemptMemoryRecallForTurn = executionPolicy?.shouldAttemptMemoryRecall === true;
+  const shouldRunToolLoop = Boolean(
+    canRunToolLoop
+    || (
+      forceToolLoop
+      && TOOL_LOOP_ENABLED
+      && typeof runtimeTools?.executeToolUse === "function"
+      && Array.isArray(availableTools)
+      && availableTools.length > 0
+    ),
+  );
   const outputConstraints = parseOutputConstraints(text);
   const hasStrictOutputRequirements = outputConstraints.enabled === true && Boolean(outputConstraints.instructions);
   const requestedOpenAiMaxCompletionTokens = resolveAdaptiveOpenAiMaxCompletionTokens(text, {
@@ -259,8 +312,14 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       identityToolAffinityUpdated: 0,
       latencyPolicy: turnPolicy?.fastLaneSimpleChat === true ? "fast_lane" : "default",
       openAiMaxCompletionTokens: openAiMaxCompletionTokens,
+      forceWebSearchPreload,
+      forceWebFetchPreload,
+      forceToolLoop,
+      ...(operatorLaneHint ? { operatorLane: operatorLaneHint } : {}),
+      ...(operatorWorkerHint ? { operatorWorker: operatorWorkerHint } : {}),
+      ...(operatorExecutionControls ? { operatorExecutionControls } : {}),
     },
-    canRunToolLoop,
+    canRunToolLoop: shouldRunToolLoop,
     canRunWebSearch,
     canRunWebFetch,
     responseRoute,
@@ -446,7 +505,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         promptTokens = claudeDirect.promptTokens;
         completionTokens = claudeDirect.completionTokens;
         emittedAssistantDelta = emittedAssistantDelta || claudeDirect.emittedAssistantDelta === true;
-      } else if (canRunToolLoop) {
+      } else if (shouldRunToolLoop) {
         llmStartedAt = Date.now();
         responseRoute = "tool_loop";
         const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
@@ -791,4 +850,3 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 }
 
 // ===== Main dispatcher =====
-

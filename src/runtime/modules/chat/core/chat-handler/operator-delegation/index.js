@@ -58,6 +58,13 @@ export async function delegateToOrgChartWorker({
     envelopes: Array.isArray(delegation.envelopes) ? delegation.envelopes : [],
     hops: Array.isArray(delegation.hops) ? delegation.hops : [],
   };
+  if (delegation.delegationError && typeof delegation.delegationError === "object") {
+    requestHints.delegationError = {
+      stage: String(delegation.delegationError.stage || "worker_execution"),
+      code: String(delegation.delegationError.code || "worker_execution_failed"),
+      message: String(delegation.delegationError.message || "Worker execution failed."),
+    };
+  }
   summary.requestHints = requestHints;
   return summary;
 }
@@ -81,4 +88,3 @@ export function ensureSummaryRequestHintsWithOrgChart(summary, fallback = {}) {
   }
   return summaryRequestHints;
 }
-

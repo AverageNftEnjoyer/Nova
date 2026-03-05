@@ -385,6 +385,7 @@ export function useNovaState() {
       "calendar:event:updated",
       "calendar:rescheduled",
       "calendar:conflict",
+      "youtube:home:updated",
     ])
 
     const isScopedEventForOtherUser = (payload: Record<string, unknown>): boolean => {
@@ -536,6 +537,69 @@ export function useNovaState() {
             conflicts: data.conflicts.map((item: unknown) => String(item || "").trim()).filter(Boolean),
             ts: Number(data.ts || Date.now()),
           })
+          return
+        }
+
+        if (data.type === "youtube:home:updated") {
+          const topic = String(data.topic || "").trim()
+          const commandNonce = Number.isFinite(Number(data.commandNonce)) ? Number(data.commandNonce) : 0
+          type YouTubeUpdatedItem = {
+            videoId: string
+            title: string
+            channelId: string
+            channelTitle: string
+            publishedAt: string
+            thumbnailUrl: string
+            description: string
+            score: number
+            reason: string
+          }
+          const rawItems: unknown[] = Array.isArray(data.items) ? data.items : []
+          const items: YouTubeUpdatedItem[] = rawItems
+            .map((entry: unknown): YouTubeUpdatedItem | null => {
+              const item = entry && typeof entry === "object" ? entry as Record<string, unknown> : null
+              if (!item) return null
+              const videoId = String(item.videoId || "").trim()
+              if (!videoId) return null
+              return {
+                videoId,
+                title: String(item.title || "").trim(),
+                channelId: String(item.channelId || "").trim(),
+                channelTitle: String(item.channelTitle || "").trim(),
+                publishedAt: String(item.publishedAt || "").trim(),
+                thumbnailUrl: String(item.thumbnailUrl || "").trim(),
+                description: String(item.description || "").trim(),
+                score: Number.isFinite(Number(item.score)) ? Number(item.score) : 0,
+                reason: String(item.reason || "").trim(),
+              }
+            })
+            .filter((entry: YouTubeUpdatedItem | null): entry is YouTubeUpdatedItem => entry !== null)
+            .slice(0, 8)
+          const selected = data.selected && typeof data.selected === "object"
+            ? {
+                videoId: String((data.selected as { videoId?: unknown }).videoId || "").trim(),
+                title: String((data.selected as { title?: unknown }).title || "").trim(),
+                channelId: String((data.selected as { channelId?: unknown }).channelId || "").trim(),
+                channelTitle: String((data.selected as { channelTitle?: unknown }).channelTitle || "").trim(),
+                publishedAt: String((data.selected as { publishedAt?: unknown }).publishedAt || "").trim(),
+                thumbnailUrl: String((data.selected as { thumbnailUrl?: unknown }).thumbnailUrl || "").trim(),
+                description: String((data.selected as { description?: unknown }).description || "").trim(),
+                score: Number.isFinite(Number((data.selected as { score?: unknown }).score))
+                  ? Number((data.selected as { score?: unknown }).score)
+                  : 0,
+                reason: String((data.selected as { reason?: unknown }).reason || "").trim(),
+              }
+            : null
+          window.dispatchEvent(
+            new CustomEvent("nova:youtube-home-updated", {
+              detail: {
+                topic,
+                commandNonce,
+                items,
+                selected,
+              },
+            }),
+          )
           return
         }
 

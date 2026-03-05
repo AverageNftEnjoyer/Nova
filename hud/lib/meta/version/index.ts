@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.42 Alpha (2026-03-05): YouTube single-call guardrails + Polymarket top-row live-odds placeholder
+ *     - Enforced YouTube single-request behavior per explicit user action by removing secondary feed fallbacks and background enrichment calls.
+ *     - Tightened home-module fetch behavior so YouTube only refreshes on explicit command/refresh pathways, with scoped dedupe/rate-limit protections retained.
+ *     - Added Polymarket Live Lines placeholder module and moved it into the top row to the left of Integrations.
+ *     - Updated Polymarket placeholder UI to show live-odds style YES/NO percentages with green/red treatment and split probability bars.
+ *
  * - V.41 Alpha (2026-03-04): YouTube integration rollout + architecture-agent overhaul
  *     - Added YouTube integration wiring across Integrations and Home surfaces, including connected-state visibility and setup flow hydration.
  *     - Expanded integration runtime surface for YouTube channel context, permissions, and token-configured state handling.
@@ -266,6 +272,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.41 Alpha"
+export const NOVA_VERSION = "V.42 Alpha"
 
 

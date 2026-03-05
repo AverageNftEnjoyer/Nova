@@ -200,6 +200,44 @@ function normalizeToolLoopGuardrails(value) {
   };
 }
 
+function normalizeOperatorRouting(requestHints) {
+  if (!requestHints || typeof requestHints !== "object") return null;
+  const lane = requestHints.operatorLane && typeof requestHints.operatorLane === "object"
+    ? requestHints.operatorLane
+    : null;
+  const worker = requestHints.operatorWorker && typeof requestHints.operatorWorker === "object"
+    ? requestHints.operatorWorker
+    : null;
+  const controls = requestHints.operatorExecutionControls && typeof requestHints.operatorExecutionControls === "object"
+    ? requestHints.operatorExecutionControls
+    : null;
+
+  const normalized = {};
+  if (lane && String(lane.id || "").trim()) {
+    normalized.lane = {
+      id: String(lane.id || "").trim().toLowerCase(),
+      executorKind: String(lane.executorKind || "").trim().toLowerCase(),
+      routeHint: String(lane.routeHint || "").trim().toLowerCase(),
+      domainId: String(lane.domainId || "").trim().toLowerCase(),
+    };
+  }
+  if (worker && String(worker.agentId || "").trim()) {
+    normalized.worker = {
+      agentId: String(worker.agentId || "").trim().toLowerCase(),
+      reasoningMode: String(worker.reasoningMode || "").trim().toLowerCase(),
+    };
+  }
+  if (controls) {
+    normalized.controls = {
+      forceToolLoopAllowed: controls.forceToolLoopAllowed === true,
+      forceWebSearchPreloadAllowed: controls.forceWebSearchPreloadAllowed === true,
+      forceWebFetchPreloadAllowed: controls.forceWebFetchPreloadAllowed === true,
+    };
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
 function evaluateToolLoopGuardrailAlerts({ userContextId, toolLoopGuardrails, route, tsMs }) {
   if (!toolLoopGuardrails || typeof toolLoopGuardrails !== "object") {
     return {
@@ -407,6 +445,7 @@ export function appendDevConversationLog(event = {}) {
     const model = String(event.model || "").trim();
     const requestHints =
       event.requestHints && typeof event.requestHints === "object" ? event.requestHints : {};
+    const operatorRouting = normalizeOperatorRouting(requestHints);
     const retries = Array.isArray(event.retries) ? event.retries : [];
     const latencyMs = Number.isFinite(Number(event.latencyMs)) ? Number(event.latencyMs) : 0;
     const latencyStages = normalizeLatencyStages(event.latencyStages);
@@ -436,6 +475,7 @@ export function appendDevConversationLog(event = {}) {
         provider,
         model,
         requestHints,
+        operator: operatorRouting,
         canRunToolLoop: event.canRunToolLoop === true,
         canRunWebSearch: event.canRunWebSearch === true,
         canRunWebFetch: event.canRunWebFetch === true,

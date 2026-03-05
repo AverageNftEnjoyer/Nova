@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { getActiveUserId } from "@/lib/auth/active-user"
 import { useTheme } from "@/lib/context/theme-context"
 import { loadUserSettings, normalizeResponseTone } from "@/lib/settings/userSettings"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
@@ -16,6 +17,14 @@ import { useHomeNewsFeed } from "./use-home-news-feed"
 import { useHomeVisuals } from "./use-home-visuals"
 
 const GREETING_COOLDOWN_MS = 60_000
+const HOME_COMMAND_CONVERSATION_ID = "home-command-surface"
+
+function buildHomeCommandSessionKey(userId: string): string {
+  const normalizedUserId = String(userId || "").trim()
+  if (!normalizedUserId) return ""
+  return `agent:nova:hud:user:${normalizedUserId}:dm:${HOME_COMMAND_CONVERSATION_ID}`
+}
+
 export function useHomeMainScreenState() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -23,7 +32,9 @@ export function useHomeMainScreenState() {
 
   const {
     state: novaState,
+    thinkingStatus,
     connected,
+    sendToAgent,
     sendGreeting,
     setVoicePreference,
     setMuted,
@@ -46,6 +57,48 @@ export function useHomeMainScreenState() {
   const dayInHistory = useHomeDayInHistory()
   const newsFeed = useHomeNewsFeed({ enabled: integrations.newsConnected })
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
+
+  const latestHomeCommandReply = (() => {
+    for (let idx = agentMessages.length - 1; idx >= 0; idx -= 1) {
+      const message = agentMessages[idx]
+      if (message.role !== "assistant") continue
+      if (String(message.conversationId || "").trim() !== HOME_COMMAND_CONVERSATION_ID) continue
+      const content = String(message.content || "").trim()
+      if (!content) continue
+      return {
+        content,
+        ts: Number.isFinite(Number(message.ts)) ? Number(message.ts) : 0,
+      }
+    }
+    return null
+  })()
+
+  const handleSendHomeCommand = useCallback((finalText: string) => {
+    const text = finalText.trim()
+    if (!text || !connected) return
+
+    const userId = String(getActiveUserId() || "").trim()
+    if (!userId) return
+
+    const settings = loadUserSettings()
+    const sessionKey = buildHomeCommandSessionKey(userId)
+
+    sendToAgent(text, settings.app.voiceEnabled, settings.app.ttsVoice, {
+      conversationId: HOME_COMMAND_CONVERSATION_ID,
+      sender: "hud-user",
+      ...(sessionKey ? { sessionKey } : {}),
+      userId,
+      assistantName: settings.personalization.assistantName,
+      communicationStyle: settings.personalization.communicationStyle,
+      tone: settings.personalization.tone,
+      customInstructions: settings.personalization.customInstructions,
+      proactivity: settings.personalization.proactivity,
+      humor_level: settings.personalization.humor_level,
+      risk_tolerance: settings.personalization.risk_tolerance,
+      structure_preference: settings.personalization.structure_preference,
+      challenge_level: settings.personalization.challenge_level,
+    })
+  }, [connected, sendToAgent])
 
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
@@ -116,6 +169,7 @@ export function useHomeMainScreenState() {
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
   const openAgents = useCallback(() => router.push("/agents"), [router])
+  const openChat = useCallback(() => router.push("/chat"), [router])
 
   const liveActivity = [
     { id: "evt-openai", service: "OpenAI", action: "Reasoning turn completed", timeAgo: "14s", status: "success" as const },
@@ -144,9 +198,14 @@ export function useHomeMainScreenState() {
     orbPalette: visuals.orbPalette,
     welcomeMessage: visuals.welcomeMessage,
     handleSend: conversationState.handleSend,
+    handleSendToChat: conversationState.handleSendToChat,
+    handleSendHomeCommand,
     isMuted,
     handleMuteToggle,
     muteHydrated,
+    thinkingStatus,
+    latestHomeCommandReply: latestHomeCommandReply?.content || "",
+    latestHomeCommandReplyTs: latestHomeCommandReply?.ts || 0,
     homeShellRef: visuals.homeShellRef,
     pipelineSectionRef: visuals.pipelineSectionRef,
     scheduleSectionRef: visuals.scheduleSectionRef,
@@ -172,6 +231,7 @@ export function useHomeMainScreenState() {
     openIntegrations,
     openDevLogs,
     openAgents,
+    openChat,
     liveActivity,
     devToolsMetrics: devTools.devToolsMetrics,
     integrationBadgeClass: integrations.integrationBadgeClass,

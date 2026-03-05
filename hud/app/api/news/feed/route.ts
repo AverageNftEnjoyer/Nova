@@ -13,8 +13,8 @@ const DEFAULT_LIMIT = 10
 const NEWSDATA_BASE_URL = "https://newsdata.io/api/1/latest"
 const CACHE_TTL_MS = (() => {
   const parsed = Number.parseInt(String(process.env.NOVA_NEWS_FEED_CACHE_TTL_MS || "").trim(), 10)
-  if (!Number.isFinite(parsed)) return 8 * 60_000
-  return Math.max(30_000, Math.min(20 * 60_000, parsed))
+  if (!Number.isFinite(parsed)) return 60 * 60_000
+  return Math.max(5 * 60_000, Math.min(6 * 60 * 60_000, parsed))
 })()
 
 const CRYPTO_TOPICS = new Set(["crypto", "bitcoin", "ethereum", "defi", "altcoins", "nft", "web3"])

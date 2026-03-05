@@ -62,6 +62,14 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         tags: ["playback", "favorites"],
       },
       {
+        id: "youtube-agent",
+        name: "YouTube Agent",
+        role: "Feed + channel controls",
+        provider: "gemini",
+        status: "online",
+        tags: ["videos", "channel"],
+      },
+      {
         id: "voice-agent",
         name: "Voice Agent",
         role: "Voice controls",
@@ -100,6 +108,14 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
         provider: "openai",
         status: "busy",
         tags: ["balances", "P&L"],
+      },
+      {
+        id: "polymarket-agent",
+        name: "Polymarket Agent",
+        role: "Prediction markets + odds scans",
+        provider: "grok",
+        status: "online",
+        tags: ["odds", "contracts"],
       },
       {
         id: "market-agent",

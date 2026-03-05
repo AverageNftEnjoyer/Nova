@@ -39,10 +39,8 @@
 }
 
 .home-spotlight-card--hover:hover {
-  box-shadow:
-    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
-    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03));
-  border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha));
+  box-shadow: none;
+  border-color: inherit;
 }
 
 .home-module-surface {
@@ -217,10 +215,8 @@
 }
 
 .mission-builder-popup-no-glow .mission-builder-hover-gleam.home-spotlight-card--hover:hover {
-  box-shadow:
-    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
-    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.03)) !important;
-  border-color: rgba(var(--spotlight-rgb), var(--spotlight-border-alpha)) !important;
+  box-shadow: none !important;
+  border-color: inherit !important;
 }
 
 .mission-builder-popup-no-glow .mission-builder-hover-gleam.home-border-glow::after {
@@ -229,11 +225,8 @@
 
 /* Default dynamic spotlight variant for interactive cards (use with .home-spotlight-card + .home-border-glow). */
 .home-spotlight-dynamic {
-  box-shadow:
-    0 8px 24px rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.08)),
-    0 0 14px rgba(var(--spotlight-rgb), calc(var(--glow-intensity) * 0.12));
+  box-shadow: none;
   transition:
-    box-shadow 140ms ease,
     border-color 140ms ease,
     background-color 140ms ease;
 }
@@ -289,9 +282,7 @@
 }
 
 .mission-spotlight-card.home-spotlight-card--hover:hover {
-  box-shadow:
-    0 5px 14px rgba(255, 255, 255, 0.06),
-    0 0 8px rgba(255, 255, 255, 0.09);
+  box-shadow: none;
 }
 
 .fx-spotlight-shell {
@@ -342,17 +333,12 @@
 }
 
 .fx-spotlight-card--hover:hover {
-  box-shadow:
-    0 8px 24px rgba(var(--spotlight-rgb), var(--spotlight-hover-alpha)),
-    0 0 14px rgba(var(--spotlight-rgb), calc(var(--spotlight-hover-alpha) + 0.02));
+  box-shadow: none;
 }
 
 .fx-spotlight-dynamic {
-  box-shadow:
-    0 8px 24px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.08)),
-    0 0 14px rgba(255, 255, 255, calc(var(--glow-intensity) * 0.12));
+  box-shadow: none;
   transition:
-    box-shadow 140ms ease,
     border-color 140ms ease,
     background-color 140ms ease;
 }

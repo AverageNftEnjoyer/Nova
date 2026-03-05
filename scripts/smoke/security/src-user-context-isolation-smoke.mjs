@@ -324,11 +324,16 @@ await run("Gateway enforces scoped conversation ownership and scoped-only broadc
     path.join(process.cwd(), "src/runtime/infrastructure/hud-gateway/index.js"),
     "utf8",
   );
+  const hudGatewayMessageHandlerSource = fs.readFileSync(
+    path.join(process.cwd(), "src/runtime/infrastructure/hud-gateway/message-handler/index.js"),
+    "utf8",
+  );
+  const gatewaySource = `${hudGatewaySource}\n${hudGatewayMessageHandlerSource}`;
   assert.equal(hudGatewaySource.includes("SCOPED_ONLY_EVENT_TYPES"), true);
   assert.equal(hudGatewaySource.includes("if (!targetUserContextId && SCOPED_ONLY_EVENT_TYPES.has(eventType)) return;"), true);
   assert.equal(hudGatewaySource.includes('status: "conflict"'), true);
   assert.equal(hudGatewaySource.includes("meta.conflicted === true"), true);
-  assert.equal(hudGatewaySource.includes("missing conversation context"), true);
+  assert.equal(gatewaySource.includes("missing conversation context"), true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

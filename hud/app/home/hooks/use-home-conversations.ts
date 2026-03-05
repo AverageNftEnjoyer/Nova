@@ -205,7 +205,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     }
   }, [agentMessages, conversations, persistConversations, clearAgentMessages, router])
 
-  const handleSend = useCallback((finalText: string) => {
+  const handleSendToChat = useCallback((finalText: string) => {
     const text = finalText.trim()
     if (!text || !connected) return
 
@@ -261,9 +261,25 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     router.push("/chat")
   }, [conversations, ensureServerConversation, router])
 
-  const handleNewChat = useCallback(() => {
-    // Home screen "New chat" should not navigate or create a conversation.
-  }, [])
+  const handleNewChat = useCallback(async () => {
+    let nextConversation: Conversation
+    try {
+      nextConversation = await createServerConversation(DEFAULT_CONVERSATION_TITLE)
+      const cached = threadsFetchCacheRef.current ?? []
+      threadsFetchCacheRef.current = [nextConversation, ...cached.filter((entry) => entry.id !== nextConversation.id)]
+      threadsFetchLastAtRef.current = Date.now()
+    } catch {
+      nextConversation = createConversation()
+    }
+
+    const next = [nextConversation, ...conversations.filter((entry) => entry.id !== nextConversation.id)]
+    persistConversations(next)
+    setActiveId(nextConversation.id)
+    try {
+      sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
+    } catch {}
+    router.push("/chat")
+  }, [conversations, createServerConversation, persistConversations, router])
 
   const handleDeleteConvo = useCallback(async (id: string) => {
     const previous = conversations
@@ -305,7 +321,8 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
 
   return {
     conversations,
-    handleSend,
+    handleSend: handleSendToChat,
+    handleSendToChat,
     handleSelectConvo,
     handleNewChat,
     handleDeleteConvo,

@@ -198,7 +198,7 @@ export function NewsFeedModule({
             title="Refresh news now"
             aria-label="Refresh news now"
           >
-            <RefreshCw className="w-3.5 h-3.5 transition-transform duration-200 group-hover/news-refresh:rotate-90" />
+            <RefreshCw className="w-3.5 h-3.5 text-s-50 transition-transform duration-200 group-hover/news-refresh:text-accent group-hover/news-refresh:rotate-90" />
           </button>
           {!connected && (
             <button
@@ -217,7 +217,7 @@ export function NewsFeedModule({
       <div className="mt-2 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 pr-1">
         {!connected ? (
           <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
-            Connect News integration to enable a 10-minute Home feed poll.
+            Connect News integration to enable hourly cached Home headlines.
           </div>
         ) : loading ? (
           <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
@@ -248,18 +248,18 @@ export function NewsFeedModule({
                 onFocus={handleArticleFocus}
                 onBlur={handleArticleBlur}
                 className={cn(
-                  "block rounded-md border p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-dynamic",
+                  "block rounded-md border p-2 transition-colors home-spotlight-card home-border-glow",
                   subPanelClass,
                 )}
               >
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={cn("min-w-0 flex-1 truncate text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
                     {article.source}
                   </span>
                   {displayTag ? (
                     <span
                       className={cn(
-                        "rounded-sm border px-1 py-[1px] text-[8px] leading-none font-semibold uppercase tracking-[0.06em]",
+                        "ml-auto shrink-0 rounded-sm border px-1 py-[1px] text-[8px] leading-none font-semibold uppercase tracking-[0.06em]",
                         tagToneClass(displayTag, isLight),
                       )}
                     >

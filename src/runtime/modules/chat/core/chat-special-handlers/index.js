@@ -1,6 +1,5 @@
-import fs from "fs";
+﻿import fs from "fs";
 import path from "path";
-import { exec } from "child_process";
 import crypto from "crypto";
 import {
   COMMAND_ACKS,
@@ -15,6 +14,7 @@ import { extractMemoryUpdateFact, buildMemoryFactMetadata, upsertMemoryFactInMar
 import { shouldDraftOnlyWorkflow } from "../../routing/intent-router/index.js";
 import { speak, stopSpeaking } from "../../../audio/voice/index.js";
 import {
+  broadcast,
   broadcastState,
   broadcastThinkingStatus,
   broadcastMessage,
@@ -30,15 +30,27 @@ import {
   withTimeout,
 } from "../../../llm/providers/index.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../quality/reply-normalizer/index.js";
-
-const HUD_API_BASE_URL = String(process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
-  .trim()
-  .replace(/\/+$/, "");
-const WORKFLOW_BUILD_TIMEOUT_MS = Number.parseInt(process.env.NOVA_WORKFLOW_BUILD_TIMEOUT_MS || "45000", 10);
-const RUNTIME_SHARED_TOKEN = String(process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
-const RUNTIME_SHARED_TOKEN_HEADER = String(process.env.NOVA_RUNTIME_SHARED_TOKEN_HEADER || "x-nova-runtime-token")
-  .trim()
-  .toLowerCase() || "x-nova-runtime-token";
+import {
+  normalizeSpotifyAction,
+  normalizeSpotifyIntentFallback,
+  runDesktopSpotifyAction,
+  buildDesktopSpotifyFallbackReply,
+  isDeviceUnavailableError,
+  shouldSuppressSpotifyTts,
+  buildSpotifyLaunchReply,
+  buildSpotifyPlayConfirmation,
+  shouldFallbackToDesktopSpotify,
+} from "./spotify-runtime-utils/index.js";
+import {
+  sanitizeYouTubeTopic,
+  sanitizeYouTubeSource,
+  normalizeYouTubeIntentFallback,
+} from "./youtube-intent-utils/index.js";
+import {
+  runSpotifyViaHudApi,
+  runYouTubeHomeControlViaHudApi,
+  runMissionBuildViaHudApi,
+} from "./integration-api-bridge/index.js";
 
 function buildMissionBuildIdempotencyKey({ userContextId, conversationId, prompt, deploy }) {
   const payload = JSON.stringify({
@@ -207,413 +219,7 @@ export async function handleShutdown(ctx) {
   process.exit(0);
 }
 
-const VALID_SPOTIFY_ACTIONS = new Set([
-  "open", "play", "pause", "next", "previous",
-  "now_playing", "play_liked", "play_smart", "seek", "restart",
-  "volume", "shuffle", "repeat",
-  "queue", "like", "unlike",
-  "list_devices", "transfer",
-  "play_recommended", "save_playlist", "set_favorite_playlist", "clear_favorite_playlist", "add_to_playlist",
-]);
-
-function normalizeSpotifyAction(action) {
-  const normalized = String(action || "").trim().toLowerCase();
-  return VALID_SPOTIFY_ACTIONS.has(normalized) ? normalized : "open";
-}
-
-function normalizeSpotifyIntentFallback(text) {
-  const input = String(text || "").trim().toLowerCase();
-  const setPlaylistToQueryMatch = input.match(
-    /\b(?:change|set|switch|update|make)\s+(?:my\s+)?(?:spotify\s+)?(?:favorite\s+)?playlist\s+(?:to|as|called)\s+(.+)$/i,
-  );
-  if (setPlaylistToQueryMatch?.[1]) {
-    const query = String(setPlaylistToQueryMatch[1]).trim().replace(/\s+playlist$/i, "").trim();
-    if (query) return { action: "set_favorite_playlist", query, response: `Saved ${query} as your favorite playlist.` };
-  }
-  const switchToQueryMatch = input.match(/\b(?:switch|change)\s+(?:the\s+)?(?:song|track|music)\s+(?:to|into)\s+(.+)$/i);
-  if (switchToQueryMatch?.[1]) {
-    const query = String(switchToQueryMatch[1]).trim();
-    if (query) return { action: "play", query, response: `Switching to ${query}.` };
-  }
-  const switchArtistQueryMatch = input.match(/\b(?:switch|change)\s+to\s+(.+\s+by\s+.+)$/i);
-  if (switchArtistQueryMatch?.[1]) {
-    const query = String(switchArtistQueryMatch[1]).trim();
-    if (query) return { action: "play", query, response: `Switching to ${query}.` };
-  }
-  if (/\b(now playing|what.*playing|what am i listening|what'?s playing|what song.*playing|song is this.*playing|song.*playing currently)\b/i.test(input)) {
-    return { action: "now_playing", query: "", response: "Checking what's playing on Spotify." };
-  }
-  if (/\b(you(?:'| a)?re|your)\s+the\s+one\s+playing\s+it\b/i.test(input)) {
-    return { action: "now_playing", query: "", response: "Checking what's playing now." };
-  }
-  if (/\bplay\b.*\b(my\s+)?(favorite|saved|default)\s+playlist\b/i.test(input)) {
-    return { action: "play_smart", query: "", response: "Playing your favorite playlist." };
-  }
-  if (/\bplay\b.*\b(i like|from my liked|my liked songs?|my favorites?|one of my favorites?)\b/i.test(input)) {
-    return { action: "play_liked", query: "", response: "Playing something you like from Spotify." };
-  }
-  if (/\b(previous|go back|last song|prev)\b/i.test(input)) {
-    return { action: "previous", query: "", response: "Going back to the previous track." };
-  }
-  if (/\b(next|skip)\b/i.test(input)) {
-    return { action: "next", query: "", response: "Skipping to the next track." };
-  }
-  if (/\b(restart|replay|start over|from the beginning)\b/i.test(input) || (/\bretreat\b/i.test(input) && /\b(song|track|music)\b/i.test(input))) {
-    return { action: "restart", query: "", response: "Restarting the track." };
-  }
-  if (/\b(resume|continue|unpause)\b/i.test(input)) {
-    return { action: "play", query: "", response: "Resuming Spotify playback." };
-  }
-  if (/\b(pause|stop music|stop song)\b/i.test(input)) {
-    return { action: "pause", query: "", response: "Pausing Spotify." };
-  }
-  if (/\bshuffle (on|off)\b/i.test(input)) {
-    const on = /\bshuffle on\b/i.test(input);
-    return { action: "shuffle", query: "", shuffleOn: on, response: on ? "Shuffle on." : "Shuffle off." };
-  }
-  if (/\brepeat (off|track|song|playlist|context)\b/i.test(input)) {
-    const m = input.match(/\brepeat (off|track|song|playlist|context)\b/i);
-    const raw = (m?.[1] || "off").toLowerCase();
-    const mode = raw === "song" ? "track" : raw === "playlist" ? "context" : raw;
-    return { action: "repeat", query: "", repeatMode: mode, response: `Repeat ${mode}.` };
-  }
-  if (/\blike (this|the song|current|it)\b|\blike this song\b/i.test(input)) {
-    return { action: "like", query: "", response: "Liking this track." };
-  }
-  if (/\bunlike|remove.*liked\b/i.test(input)) {
-    return { action: "unlike", query: "", response: "Removing from liked songs." };
-  }
-  if (/\b(list|show|what) (devices?|available)\b/i.test(input)) {
-    return { action: "list_devices", query: "", response: "Fetching your Spotify devices." };
-  }
-  const setFavoriteNamedMatch = input.match(/\b(?:my\s+favorite\s+playlist\s+is(?:\s+called)?|set\s+(?:my\s+)?favorite\s+playlist\s+to|make)\s+(.+)$/i);
-  if (setFavoriteNamedMatch?.[1]) {
-    const query = String(setFavoriteNamedMatch[1]).trim().replace(/\s+playlist$/i, "").trim();
-    if (query) return { action: "set_favorite_playlist", query, response: `Saved ${query} as your favorite playlist.` };
-  }
-  if (/\b(?:clear|remove|unset|forget)\s+(?:my\s+)?favorite\s+playlist\b/i.test(input) || /\bunfavorite\s+(?:my\s+)?playlist\b/i.test(input)) {
-    return { action: "clear_favorite_playlist", query: "", response: "Cleared your favorite playlist." };
-  }
-  if (/\b(favorite|save|remember|bookmark)\s+(this\s+)?(playlist|album|this music)\b/i.test(input) && !/\bsong\b|\btrack\b|\bto\s+(my|a)\s+playlist\b/i.test(input)) {
-    return { action: "save_playlist", query: "", response: "Saving this as your favorite playlist." };
-  }
-  const addToPlaylistNamedMatch = input.match(/\badd\s+(?:this|current|this song|this track|song|track)?\s*(?:to|into)\s+(?:my\s+)?playlist\s+(.+)$/i);
-  if (addToPlaylistNamedMatch?.[1]) {
-    const query = String(addToPlaylistNamedMatch[1]).trim();
-    if (query) return { action: "add_to_playlist", query, response: `Adding this track to ${query}.` };
-  }
-  if (/\badd\s+(?:this|current|this song|this track|song|track)\s+(?:to|into)\s+(?:my\s+)?playlist\b/i.test(input)) {
-    return { action: "add_to_playlist", query: "", response: "Adding this track to your favorite playlist." };
-  }
-  if (/\bplay\b.*\b(random|any)\b.*\b(from|off|on)\b.*\b(my\s+)?(favorite|saved|default)\s+playlist\b/i.test(input)) {
-    return { action: "play_smart", query: "", response: "Playing from your favorite playlist." };
-  }
-  if (/\bplay\s+(some\s+)?music\b/i.test(input) && !/\bplay\s+\w+\s+music\b/i.test(input)) {
-    return { action: "play_smart", query: "", response: "Putting on some music for you." };
-  }
-  if (/\b(play|put on)\b/i.test(input)) {
-    return { action: "play", query: "", response: "Playing Spotify." };
-  }
-  return { action: "open", query: "", response: "Opening Spotify." };
-}
-
-function runDesktopSpotifyAction(action, query) {
-  const run = (command) => {
-    try {
-      exec(command, (error) => {
-        if (error) {
-          console.warn("[Spotify] Desktop fallback command failed:", error?.message || error);
-        }
-      });
-    } catch (error) {
-      console.warn("[Spotify] Desktop fallback command threw:", error?.message || error);
-    }
-  };
-  if (action === "open") {
-    run("start spotify:");
-    return;
-  }
-  if (action === "pause") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
-    return;
-  }
-  if (action === "next") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB0)"');
-    return;
-  }
-  if (action === "previous") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB1)"');
-    return;
-  }
-  if (action === "play" && query) {
-    const encoded = encodeURIComponent(query);
-    run(`start "spotify" "spotify:search:${encoded}" && timeout /t 2 >nul && powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"`);
-    return;
-  }
-  if (action === "play") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
-    return;
-  }
-  run("start spotify:");
-}
-
-function buildDesktopSpotifyFallbackReply(action) {
-  if (action === "now_playing") {
-    return "I opened Spotify, but I need Spotify OAuth connected to read your current track.";
-  }
-  if (action === "play_liked") {
-    return "I opened Spotify. Connect Spotify in Integrations and I can play from your Liked Songs directly.";
-  }
-  if (action === "pause") return "Paused Spotify using desktop media controls.";
-  if (action === "next") return "Skipped to the next track using desktop controls.";
-  if (action === "previous") return "Went back to the previous track using desktop controls.";
-  if (action === "play") return "Playing Spotify using desktop controls.";
-  return "Opening Spotify.";
-}
-
-function isDeviceUnavailableError(errorCode) {
-  const code = String(errorCode || "").trim().toLowerCase();
-  return code === "spotify.device_unavailable";
-}
-
-const SPOTIFY_LAUNCH_REPLIES = [
-  "Launching Spotify now — what would you like to hear?",
-  "Opening Spotify for you. Just tell me what to play!",
-  "Spotify is starting up — let me know what you'd like to listen to.",
-  "Absolutely, launching Spotify now. What should I put on?",
-  "On it — Spotify is opening. What are we listening to?",
-];
-
-const SPOTIFY_PLAY_CONFIRMATIONS = [
-  "Absolutely, playing QUERY now.",
-  "You got it — playing QUERY.",
-  "On it, putting on QUERY.",
-  "Playing QUERY for you.",
-  "QUERY coming right up.",
-];
-
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-const SPOTIFY_TTS_DEDUPE_WINDOW_MS = 12_000;
 const SPOTIFY_MIN_THINKING_MS = 650;
-const spotifyLastSpokenByUser = new Map();
-
-function shouldSuppressSpotifyTts(userContextId, replyText) {
-  const userKey = String(userContextId || "").trim().toLowerCase();
-  // Without a valid user scope we cannot safely dedup — skip suppression entirely
-  // rather than collapsing all anonymous users into one shared bucket.
-  if (!userKey) return false;
-  const normalizedReply = String(replyText || "")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-  if (!normalizedReply) return false;
-  const now = Date.now();
-  const existing = spotifyLastSpokenByUser.get(userKey);
-  if (existing && existing.reply === normalizedReply && now - Number(existing.ts || 0) <= SPOTIFY_TTS_DEDUPE_WINDOW_MS) {
-    return true;
-  }
-  spotifyLastSpokenByUser.set(userKey, { reply: normalizedReply, ts: now });
-  if (spotifyLastSpokenByUser.size > 500) {
-    for (const [key, value] of spotifyLastSpokenByUser.entries()) {
-      if (now - Number(value?.ts || 0) > SPOTIFY_TTS_DEDUPE_WINDOW_MS * 4) {
-        spotifyLastSpokenByUser.delete(key);
-      }
-    }
-  }
-  return false;
-}
-
-function buildSpotifyLaunchReply() {
-  return pickRandom(SPOTIFY_LAUNCH_REPLIES);
-}
-
-function buildSpotifyPlayConfirmation(query) {
-  if (!query) return "Playing now.";
-  return pickRandom(SPOTIFY_PLAY_CONFIRMATIONS).replace(/QUERY/g, query);
-}
-
-function shouldFallbackToDesktopSpotify(errorCode) {
-  const code = String(errorCode || "").trim().toLowerCase();
-  return (
-    code === "spotify.not_connected"
-    || code === "spotify.device_unavailable"
-    || code === "spotify.not_found"
-    || code === "spotify.token_missing"
-    || code === "spotify.unauthorized"
-    || code === "spotify.forbidden"
-    || code === "spotify.internal"
-    || code === "spotify.transient"
-    || code === "spotify.network"
-    || code === "spotify.timeout"
-    || code === "spotify.cancelled"
-  );
-}
-
-async function runSpotifyViaHudApi(action, intent, ctx) {
-  const token = String(ctx?.supabaseAccessToken || "").trim();
-  const normalizedUserContextId = String(ctx?.userContextId || "").trim();
-  if (!token || !normalizedUserContextId || action === "open") {
-    return { attempted: false, ok: false, message: "", code: "", fallbackRecommended: true };
-  }
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  };
-  if (RUNTIME_SHARED_TOKEN) headers[RUNTIME_SHARED_TOKEN_HEADER] = RUNTIME_SHARED_TOKEN;
-  const body = {
-    action,
-    query: String(intent?.query || "").trim(),
-    userContextId: normalizedUserContextId,
-  };
-  if (intent?.type) body.type = intent.type;
-  if (intent?.positionMs != null) body.positionMs = Number(intent.positionMs);
-  if (intent?.volumePercent != null) body.volumePercent = Number(intent.volumePercent);
-  if (intent?.shuffleOn != null) body.shuffleOn = Boolean(intent.shuffleOn);
-  if (intent?.repeatMode) body.repeatMode = String(intent.repeatMode);
-  if (intent?.deviceId) body.deviceId = String(intent.deviceId);
-  if (intent?.deviceName) body.deviceName = String(intent.deviceName);
-  try {
-    const res = await fetch(`${HUD_API_BASE_URL}/api/integrations/spotify/playback`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data?.ok === true) {
-      return {
-        attempted: true,
-        ok: true,
-        message: String(data?.message || "").trim(),
-        code: "",
-        fallbackRecommended: data?.fallbackRecommended === true,
-        nowPlaying: data?.nowPlaying || null,
-      };
-    }
-    return {
-      attempted: true,
-      ok: false,
-      message: String(data?.error || "").trim() || `Spotify playback request failed (${res.status}).`,
-      code: String(data?.code || "").trim(),
-      fallbackRecommended: data?.fallbackRecommended === true,
-      nowPlaying: data?.nowPlaying || null,
-    };
-  } catch (err) {
-    return {
-      attempted: true,
-      ok: false,
-      message: describeUnknownError(err),
-      code: "spotify.network",
-      fallbackRecommended: true,
-    };
-  }
-}
-
-function sanitizeYouTubeTopic(value) {
-  const normalized = String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-  return normalized || "news";
-}
-
-function extractYouTubeTopic(text) {
-  const input = String(text || "").trim();
-  if (!input) return "news";
-  const patterns = [
-    /\bshow\s+me\s+info\s+on\s+(.+)$/i,
-    /\b(?:show|find|get|pull)\s+(?:me\s+)?(?:news|video|videos|broadcast|broadcasts)\s+(?:about|on|for)\s+(.+)$/i,
-    /\b(?:youtube|you\s*tube)\s+(?:news|video|videos|broadcast|broadcasts)\s+(?:about|on|for)\s+(.+)$/i,
-    /\b(?:switch|change)\s+(?:the\s+)?(?:youtube\s+)?topic\s+(?:to|about)\s+(.+)$/i,
-    /\b(?:watch|show)\s+(?:me\s+)?(.+)\s+(?:on|in)\s+youtube$/i,
-  ];
-  for (const pattern of patterns) {
-    const match = input.match(pattern);
-    if (!match?.[1]) continue;
-    const topic = sanitizeYouTubeTopic(match[1]);
-    if (topic) return topic;
-  }
-
-  const youtubePrefixMatch = input.match(/\b(?:youtube|you\s*tube)\s+(.+)$/i);
-  if (youtubePrefixMatch?.[1]) {
-    const topic = sanitizeYouTubeTopic(youtubePrefixMatch[1]);
-    if (topic) return topic;
-  }
-  return "news";
-}
-
-function normalizeYouTubeIntentFallback(text) {
-  const input = String(text || "").trim().toLowerCase();
-  if (!input) {
-    return { action: "set_topic", topic: "news", response: "Switching YouTube to news." };
-  }
-  if (/\b(next|another|different)\s+(video|news|clip|broadcast)\b/i.test(input) || /\b(refresh|update)\s+youtube\b/i.test(input)) {
-    return { action: "refresh", topic: "", response: "Refreshing your YouTube feed." };
-  }
-  const topic = extractYouTubeTopic(text);
-  const replyTopic = topic.replace(/-/g, " ");
-  return { action: "set_topic", topic, response: `Switching YouTube to ${replyTopic}.` };
-}
-
-async function runYouTubeHomeControlViaHudApi(intent, ctx) {
-  const token = String(ctx?.supabaseAccessToken || "").trim();
-  const normalizedUserContextId = String(ctx?.userContextId || "").trim();
-  if (!token || !normalizedUserContextId) {
-    return {
-      attempted: false,
-      ok: false,
-      message: "I need your authenticated Nova session before I can control YouTube.",
-      code: "youtube.unauthorized",
-    };
-  }
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  };
-  if (RUNTIME_SHARED_TOKEN) headers[RUNTIME_SHARED_TOKEN_HEADER] = RUNTIME_SHARED_TOKEN;
-  const body = {
-    action: intent.action === "refresh" ? "refresh" : "set_topic",
-    topic: intent.topic ? sanitizeYouTubeTopic(intent.topic) : undefined,
-    userContextId: normalizedUserContextId,
-  };
-  try {
-    const res = await fetch(`${HUD_API_BASE_URL}/api/integrations/youtube/home-control`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && data?.ok === true) {
-      return {
-        attempted: true,
-        ok: true,
-        message: String(data?.message || "").trim(),
-        topic: String(data?.topic || "").trim(),
-        code: "",
-      };
-    }
-    return {
-      attempted: true,
-      ok: false,
-      message: String(data?.error || "").trim() || `YouTube control request failed (${res.status}).`,
-      code: String(data?.code || "").trim(),
-      topic: String(data?.topic || "").trim(),
-    };
-  } catch (err) {
-    return {
-      attempted: true,
-      ok: false,
-      message: describeUnknownError(err),
-      code: "youtube.network",
-      topic: "",
-    };
-  }
-}
 
 // ===== YouTube sub-handler =====
 export async function handleYouTube(text, ctx) {
@@ -707,6 +313,56 @@ export async function handleYouTube(text, ctx) {
     if (hudResult.ok) {
       const topicLabel = sanitizeYouTubeTopic(hudResult.topic || intent.topic).replace(/-/g, " ");
       reply = hudResult.message || `Switched YouTube to ${topicLabel}.`;
+      if (userContextId) {
+        broadcast(
+          {
+            type: "youtube:home:updated",
+            topic: sanitizeYouTubeTopic(hudResult.topic || intent.topic),
+            commandNonce: Number.isFinite(Number(hudResult.commandNonce)) ? Number(hudResult.commandNonce) : 0,
+            preferredSources: Array.isArray(hudResult.preferredSources)
+              ? hudResult.preferredSources.map((entry) => sanitizeYouTubeSource(entry)).filter(Boolean).slice(0, 4)
+              : [],
+            strictTopic: hudResult.strictTopic === true,
+            strictSources: hudResult.strictSources === true,
+            items: Array.isArray(hudResult.items)
+              ? hudResult.items
+                .map((entry) => {
+                  if (!entry || typeof entry !== "object") return null;
+                  const videoId = String(entry.videoId || "").trim();
+                  if (!videoId) return null;
+                  return {
+                    videoId,
+                    title: String(entry.title || "").trim(),
+                    channelId: String(entry.channelId || "").trim(),
+                    channelTitle: String(entry.channelTitle || "").trim(),
+                    publishedAt: String(entry.publishedAt || "").trim(),
+                    thumbnailUrl: String(entry.thumbnailUrl || "").trim(),
+                    description: String(entry.description || "").trim(),
+                    score: Number.isFinite(Number(entry.score)) ? Number(entry.score) : 0,
+                    reason: String(entry.reason || "").trim(),
+                  };
+                })
+                .filter(Boolean)
+                .slice(0, 8)
+              : [],
+            selected: hudResult.selected && typeof hudResult.selected === "object"
+              ? {
+                  videoId: String(hudResult.selected.videoId || "").trim(),
+                  title: String(hudResult.selected.title || "").trim(),
+                  channelId: String(hudResult.selected.channelId || "").trim(),
+                  channelTitle: String(hudResult.selected.channelTitle || "").trim(),
+                  publishedAt: String(hudResult.selected.publishedAt || "").trim(),
+                  thumbnailUrl: String(hudResult.selected.thumbnailUrl || "").trim(),
+                  description: String(hudResult.selected.description || "").trim(),
+                  score: Number.isFinite(Number(hudResult.selected.score)) ? Number(hudResult.selected.score) : 0,
+                  reason: String(hudResult.selected.reason || "").trim(),
+                }
+              : null,
+            ts: Date.now(),
+          },
+          { userContextId },
+        );
+      }
     } else {
       summary.ok = false;
       summary.error = hudResult.message || "I couldn't update YouTube right now.";
@@ -809,7 +465,7 @@ export async function handleSpotify(text, ctx, llmCtx) {
     return normalized.text;
   }
 
-  const spotifySystemPrompt = `You are a Spotify command parser. Given user input, respond with ONLY a valid JSON object — no markdown, no explanation.
+  const spotifySystemPrompt = `You are a Spotify command parser. Given user input, respond with ONLY a valid JSON object â€” no markdown, no explanation.
 
 Schema:
 {
@@ -821,7 +477,7 @@ Schema:
   "shuffleOn": true|false (only when action=shuffle),
   "repeatMode": "off"|"track"|"context" (only when action=repeat),
   "deviceName": "device name string" (only when action=transfer),
-  "response": "short TTS-friendly confirmation under 14 words — be natural and enthusiastic"
+  "response": "short TTS-friendly confirmation under 14 words â€” be natural and enthusiastic"
 }
 
 CRITICAL RULES:
@@ -832,11 +488,11 @@ CRITICAL RULES:
 - For "skip forward 30s", positionMs=-1 for relative forward, query="30".
 - For "rewind 15s", positionMs=-2 for relative backward, query="15".
 - For volume "louder"/"quieter" use volumePercent=75 or 30.
-- The "response" field must be warm, natural, and varied. Don't always say "Playing X." — use variations like "You got it, putting on X." or "Great choice, playing X now." or "On it!".
+- The "response" field must be warm, natural, and varied. Don't always say "Playing X." â€” use variations like "You got it, putting on X." or "Great choice, playing X now." or "On it!".
 
 Examples:
 - "pause" -> { "action": "pause", "query": "", "response": "Paused." }
-- "play Dark Side of the Moon" -> { "action": "play", "query": "Dark Side of the Moon", "type": "album", "response": "Great choice — putting on Dark Side of the Moon." }
+- "play Dark Side of the Moon" -> { "action": "play", "query": "Dark Side of the Moon", "type": "album", "response": "Great choice â€” putting on Dark Side of the Moon." }
 - "play Kanye West" -> { "action": "play", "query": "Kanye West", "type": "artist", "response": "Playing Kanye West for you." }
 - "play Bohemian Rhapsody" -> { "action": "play", "query": "Bohemian Rhapsody", "type": "track", "response": "Bohemian Rhapsody, coming right up." }
 - "play something chill" -> { "action": "play_recommended", "query": "chill", "response": "Finding something chill for you." }
@@ -863,7 +519,7 @@ Output ONLY valid JSON, nothing else.`;
 
   try {
     ensureSpotifyAssistantStreamStarted();
-    // Fast path: skip LLM for unambiguous commands — saves 300–800ms on pause/next/prev etc.
+    // Fast path: skip LLM for unambiguous commands â€” saves 300â€“800ms on pause/next/prev etc.
     broadcastThinkingStatus("Parsing Spotify command", userContextId);
     const fastIntent = normalizeSpotifyIntentFallback(text);
     const needsLlm = fastIntent.action === "play" || fastIntent.action === "open";
@@ -1069,29 +725,21 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
       engine,
       deploy,
     });
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), Math.max(5000, WORKFLOW_BUILD_TIMEOUT_MS));
-    const headers = { "Content-Type": "application/json" };
-    headers["X-Idempotency-Key"] = buildMissionBuildIdempotencyKey({
-      userContextId,
-      conversationId,
+    const missionBuildResult = await runMissionBuildViaHudApi({
       prompt: text,
       deploy,
+      engine,
+      supabaseAccessToken,
+      idempotencyKey: buildMissionBuildIdempotencyKey({
+        userContextId,
+        conversationId,
+        prompt: text,
+        deploy,
+      }),
     });
-    if (String(supabaseAccessToken || "").trim()) {
-      headers.Authorization = `Bearer ${String(supabaseAccessToken).trim()}`;
-    }
-    if (RUNTIME_SHARED_TOKEN) {
-      headers[RUNTIME_SHARED_TOKEN_HEADER] = RUNTIME_SHARED_TOKEN;
-    }
-    const res = await fetch(`${HUD_API_BASE_URL}/api/missions/build`, {
-      method: "POST",
-      headers,
-      signal: abortController.signal,
-      body: JSON.stringify({ prompt: text, deploy, engine }),
-    }).finally(() => clearTimeout(timeoutId));
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 202 && data?.pending) {
+    const responseStatus = Number(missionBuildResult?.status || 0);
+    const data = missionBuildResult?.data || {};
+    if (responseStatus === 202 && data?.pending) {
       const retryAfterMs = Number(data?.retryAfterMs || 0);
       const retryAfterNote = retryAfterMs > 0
         ? ` I will keep this in progress and you can retry in about ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`
@@ -1101,7 +749,14 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
       summary.ok = true;
       return summary;
     }
-    if (!res.ok || !data?.ok) throw new Error(data?.error || `Workflow build failed (${res.status}).`);
+    if (!missionBuildResult?.ok) {
+      const missionBuildError = String(
+        missionBuildResult?.error
+        || data?.error
+        || `Workflow build failed (${responseStatus || "request"}).`,
+      ).trim();
+      throw new Error(missionBuildError || "Workflow build failed.");
+    }
 
     const label = data?.missionSummary?.label || data?.mission?.label || "Generated Workflow";
     const provider = data?.provider || "LLM";
@@ -1155,3 +810,6 @@ export async function handleWorkflowBuild(text, ctx, options = {}) {
   }
   return summary;
 }
+
+
+

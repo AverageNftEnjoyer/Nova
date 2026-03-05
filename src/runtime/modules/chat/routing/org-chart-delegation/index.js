@@ -45,6 +45,22 @@ function buildHop(fromAgentId, toAgentId, context, stage) {
   };
 }
 
+function normalizeDelegationError(error) {
+  const code = String(error?.code || "worker_execution_failed")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "_")
+    .slice(0, 64);
+  const message = String(error?.message || "Worker execution failed.")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 280);
+  return {
+    code: code || "worker_execution_failed",
+    message: message || "Worker execution failed.",
+  };
+}
+
 function workerSummaryToEnvelope(workerAgentId, workerSummary, context, orgChartPath, latencyMs) {
   const summary = workerSummary && typeof workerSummary === "object"
     ? workerSummary
@@ -160,7 +176,29 @@ export async function executeOrgChartDelegation(input = {}) {
   });
 
   const workerStartedAt = Date.now();
-  const workerSummary = await input.executeWorker({ orgChartPath });
+  let workerSummary = null;
+  let delegationError = null;
+  try {
+    workerSummary = await input.executeWorker({ orgChartPath });
+  } catch (error) {
+    const normalizedError = normalizeDelegationError(error);
+    delegationError = {
+      stage: "worker_execution",
+      code: normalizedError.code,
+      message: normalizedError.message,
+    };
+    workerSummary = {
+      route: responseRoute || routeHint || "unclassified",
+      responseRoute: responseRoute || "",
+      ok: false,
+      error: normalizedError.code,
+      errorMessage: normalizedError.message,
+      provider: String(orgChartPath.providerSelector?.provider || provider || ""),
+      totalTokens: 0,
+      latencyMs: Math.max(0, Date.now() - workerStartedAt),
+      toolCalls: [],
+    };
+  }
   const workerEnvelope = workerSummaryToEnvelope(
     orgChartPath.workerAgentId,
     workerSummary,
@@ -189,6 +227,6 @@ export async function executeOrgChartDelegation(input = {}) {
     envelopes,
     hops,
     workerSummary,
+    delegationError,
   };
 }
-

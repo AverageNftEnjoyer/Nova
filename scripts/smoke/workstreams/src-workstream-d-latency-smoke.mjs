@@ -128,6 +128,9 @@ await run("WSD6 chat handler + dev log are wired for latency staging", async () 
   const requiredExecuteTokens = [
     "runSummary.latencyStages = latencySnapshot.stageMs || {};",
     "runSummary.correctionPassCount = Number.isFinite(Number(latencySnapshot.counters?.output_constraint_correction_passes))",
+    "const operatorLaneHint = normalizeOperatorLaneHint(requestHints?.operatorLane);",
+    "const operatorWorkerHint = normalizeOperatorWorkerHint(requestHints?.operatorWorker);",
+    "const operatorExecutionControls = normalizeOperatorExecutionControls(requestHints?.operatorExecutionControls);",
   ];
   for (const token of requiredExecuteTokens) {
     assert.equal(
@@ -139,10 +142,12 @@ await run("WSD6 chat handler + dev log are wired for latency staging", async () 
 
   const requiredLogTokens = [
     "function normalizeLatencyStages(value)",
+    "function normalizeOperatorRouting(requestHints)",
     "timing: {",
     "stages: latencyStages,",
     "hotPath: latencyHotPath,",
     "correctionPassCount,",
+    "operator: operatorRouting,",
     "latencyStages: payload.timing.stages,",
   ];
   for (const token of requiredLogTokens) {

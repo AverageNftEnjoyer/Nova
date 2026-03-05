@@ -1,10 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties } from "react"
+import { useEffect, useMemo, useRef, useState, type ComponentType, type CSSProperties, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { Bot, Brain, Compass, GitBranch, Network, Settings, ShieldCheck, Workflow } from "lucide-react"
+import { Bot, Brain, Compass, Copy, GitBranch, Network, Settings, ShieldCheck, Sparkles, Workflow } from "lucide-react"
 
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { BraveIcon, CoinbaseIcon, DiscordIcon, GmailCalendarIcon, GmailIcon, NewsIcon, SpotifyIcon, TelegramIcon, YouTubeIcon } from "@/components/icons"
+import { generateHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
 import { useTheme } from "@/lib/context/theme-context"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
@@ -21,6 +23,7 @@ import {
   PROVIDER_RAIL,
   type AgentStatus,
   type DomainManagerNode,
+  type WorkerAgentNode,
 } from "../agent-chart-data"
 
 function statusClass(status: AgentStatus): string {
@@ -64,6 +67,124 @@ const COUNCIL_ICON_BY_ID: Record<string, ComponentType<{ className?: string }>> 
   "planning-council": GitBranch,
 }
 
+type WorkerNodeWithManager = WorkerAgentNode & {
+  managerId: string
+  managerLabel: string
+  managerAccent: DomainManagerNode["accent"]
+}
+
+type WorkerInteraction = {
+  summary: string
+  primaryActionLabel: string
+  primaryPath: string
+  secondaryActionLabel: string
+  secondaryPath: string
+  samplePrompts: string[]
+}
+
+const PINNED_AGENT_IDS = ["spotify-agent", "youtube-agent", "coinbase-agent", "calendar-agent"] as const
+const FALLBACK_WORKER_ID =
+  NOVA_DOMAIN_MANAGERS.flatMap((manager) => manager.workers).find((worker) => worker.id === "spotify-agent")?.id ||
+  NOVA_DOMAIN_MANAGERS.flatMap((manager) => manager.workers)[0]?.id ||
+  ""
+
+const WORKER_INTERACTIONS: Record<string, WorkerInteraction> = {
+  "spotify-agent": {
+    summary: "Controls playback, favorites, and smart queue actions.",
+    primaryActionLabel: "Open Home Controls",
+    primaryPath: "/home",
+    secondaryActionLabel: "Open Integrations",
+    secondaryPath: "/integrations",
+    samplePrompts: [
+      "Spotify: play my favorites.",
+      "Spotify: skip this track.",
+      "Spotify: start a chill mix.",
+    ],
+  },
+  "youtube-agent": {
+    summary: "Curates and refreshes your YouTube home topic feed.",
+    primaryActionLabel: "Open Home Feed",
+    primaryPath: "/home",
+    secondaryActionLabel: "Open Integrations",
+    secondaryPath: "/integrations",
+    samplePrompts: [
+      "Show YouTube news on AI.",
+      "Refresh my YouTube feed.",
+      "Switch YouTube to crypto updates.",
+    ],
+  },
+  "coinbase-agent": {
+    summary: "Handles portfolio reads, balances, and P&L summaries.",
+    primaryActionLabel: "Open Missions",
+    primaryPath: "/missions",
+    secondaryActionLabel: "Open Integrations",
+    secondaryPath: "/integrations",
+    samplePrompts: [
+      "Show my Coinbase portfolio summary.",
+      "What changed in my holdings today?",
+      "Give me a quick P&L update.",
+    ],
+  },
+  "calendar-agent": {
+    summary: "Manages event reads, scheduling, and rescheduling flows.",
+    primaryActionLabel: "Open Home",
+    primaryPath: "/home",
+    secondaryActionLabel: "Open Integrations",
+    secondaryPath: "/integrations",
+    samplePrompts: [
+      "What is on my calendar today?",
+      "Move my 3pm meeting by 30 minutes.",
+      "Find an open slot for tomorrow morning.",
+    ],
+  },
+  "missions-agent": {
+    summary: "Builds and runs multi-step mission workflows.",
+    primaryActionLabel: "Open Missions",
+    primaryPath: "/missions",
+    secondaryActionLabel: "Open Home",
+    secondaryPath: "/home",
+    samplePrompts: [
+      "Build a morning briefing mission.",
+      "Run my report mission now.",
+      "Show mission run status.",
+    ],
+  },
+}
+
+function workerIcon(workerId: string): ReactNode {
+  if (workerId === "spotify-agent") return <SpotifyIcon className="h-3.5 w-3.5" />
+  if (workerId === "youtube-agent") return <YouTubeIcon className="h-3.5 w-3.5" />
+  if (workerId === "coinbase-agent") return <CoinbaseIcon className="h-3.5 w-3.5" />
+  if (workerId === "gmail-agent") return <GmailIcon className="h-3.5 w-3.5" />
+  if (workerId === "calendar-agent") return <GmailCalendarIcon className="h-3.5 w-3.5" />
+  if (workerId === "telegram-agent") return <TelegramIcon className="h-3.5 w-3.5" />
+  if (workerId === "discord-agent") return <DiscordIcon className="h-3.5 w-3.5" />
+  if (workerId === "crypto-agent") return <NewsIcon className="h-3.5 w-3.5" />
+  if (workerId === "web-research-agent") return <BraveIcon className="h-3.5 w-3.5" />
+  return <Bot className="h-3.5 w-3.5" />
+}
+
+function defaultWorkerInteraction(worker: WorkerNodeWithManager): WorkerInteraction {
+  const lowerLabel = worker.managerLabel.toLowerCase()
+  const primaryPath = lowerLabel.includes("productivity")
+    ? "/missions"
+    : lowerLabel.includes("system")
+      ? "/agents"
+      : "/home"
+  return {
+    summary: `Interact with ${worker.name} for ${worker.role.toLowerCase()}.`,
+    primaryActionLabel: "Open Work Surface",
+    primaryPath,
+    secondaryActionLabel: "Open Integrations",
+    secondaryPath: "/integrations",
+    samplePrompts: [
+      `Use ${worker.name} for this request.`,
+      `${worker.name}: start now.`,
+      `${worker.name}: show current status.`,
+    ],
+  }
+}
+
 export function AgentsScreen() {
   const router = useRouter()
   const pageActive = usePageActive()
@@ -79,13 +200,18 @@ export function AgentsScreen() {
 
   useEffect(() => {
     const sync = () => {
-      const settings = loadUserSettings()
-      const cached = readShellUiCache()
-      const nextOrbColor = cached.orbColor ?? settings.app.orbColor
-      const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
-      setOrbColor(nextOrbColor)
-      setSpotlightEnabled(nextSpotlight)
-      writeShellUiCache({ orbColor: nextOrbColor, spotlightEnabled: nextSpotlight })
+      try {
+        const settings = loadUserSettings()
+        const cached = readShellUiCache()
+        const nextOrbColor = cached.orbColor ?? settings.app.orbColor
+        const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
+        setOrbColor(nextOrbColor)
+        setSpotlightEnabled(nextSpotlight)
+        writeShellUiCache({ orbColor: nextOrbColor, spotlightEnabled: nextSpotlight })
+      } catch {
+        setOrbColor("violet")
+        setSpotlightEnabled(true)
+      }
     }
 
     sync()
@@ -118,6 +244,33 @@ export function AgentsScreen() {
       ),
     [],
   )
+  const workerNodes = useMemo<WorkerNodeWithManager[]>(
+    () =>
+      NOVA_DOMAIN_MANAGERS.flatMap((manager) =>
+        manager.workers.map((worker) => ({
+          ...worker,
+          managerId: manager.id,
+          managerLabel: manager.label,
+          managerAccent: manager.accent,
+        })),
+      ),
+    [],
+  )
+  const pinnedWorkers = useMemo(
+    () => PINNED_AGENT_IDS.map((id) => workerNodes.find((worker) => worker.id === id)).filter((worker): worker is WorkerNodeWithManager => Boolean(worker)),
+    [workerNodes],
+  )
+  const [selectedWorkerId, setSelectedWorkerId] = useState(FALLBACK_WORKER_ID)
+  const [interactionFeedback, setInteractionFeedback] = useState("")
+
+  const selectedWorker = useMemo(
+    () => workerNodes.find((worker) => worker.id === selectedWorkerId) || workerNodes[0] || null,
+    [selectedWorkerId, workerNodes],
+  )
+  const selectedInteraction = useMemo(() => {
+    if (!selectedWorker) return null
+    return WORKER_INTERACTIONS[selectedWorker.id] || defaultWorkerInteraction(selectedWorker)
+  }, [selectedWorker])
 
   const panelClass = isLight
     ? "rounded-2xl border border-[#d9e0ea] bg-white"
@@ -134,10 +287,40 @@ export function AgentsScreen() {
     "--home-orb-rgb-bg": hexToRgbTriplet(palette.bg),
   } as CSSProperties
 
+  const openWorkerPrimary = (worker: WorkerNodeWithManager) => {
+    const interaction = WORKER_INTERACTIONS[worker.id] || defaultWorkerInteraction(worker)
+    router.push(interaction.primaryPath)
+  }
+
+  const sendStarterToChat = (prompt: string) => {
+    const content = String(prompt || "").trim()
+    if (!content) return
+    try {
+      sessionStorage.setItem(
+        PENDING_CHAT_SESSION_KEY,
+        JSON.stringify({
+          content,
+          opToken: generateHandoffOperationToken(),
+          createdAt: Date.now(),
+        }),
+      )
+    } catch {}
+    router.push("/chat")
+  }
+
+  const copyPrompt = async (prompt: string) => {
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setInteractionFeedback(`Copied: ${prompt}`)
+    } catch {
+      setInteractionFeedback("Copy failed. Clipboard permission is blocked.")
+    }
+  }
+
   return (
     <div
       style={panelStyle}
-      className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}
+      className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-[#0a0a0f] text-slate-100")}
     >
       <div className="relative z-10 flex h-full w-full flex-col overflow-hidden px-4 py-4 sm:px-6">
         <header className="mb-4">
@@ -196,91 +379,231 @@ export function AgentsScreen() {
         </section>
 
         <section ref={chartRef} className={cn(panelClass, "home-spotlight-shell min-h-0 flex-1 overflow-auto p-4")}>
-          <div className="mx-auto min-w-[980px] max-w-[1320px] pb-4">
-            <div className="flex flex-col items-center">
-              <div className={cn("home-spotlight-card home-border-glow w-[320px] rounded-xl border px-4 py-3 text-center", railPanelClass)}>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-accent">Operator</p>
-                <p className={cn("mt-1 text-lg font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{NOVA_OPERATOR_NODE.name}</p>
-                <p className={cn("mt-1 text-xs", isLight ? "text-s-50" : "text-slate-400")}>{NOVA_OPERATOR_NODE.role}</p>
-              </div>
-
-              <div className={cn("h-8 w-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
-
-              <div className="relative w-full px-12">
-                <div className={cn("pointer-events-none absolute left-[14%] right-[14%] top-0 h-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
-                <div className="grid grid-cols-3 gap-3 pt-4">
-                  {NOVA_COUNCIL_NODES.map((council) => {
-                    const CouncilIcon = COUNCIL_ICON_BY_ID[council.id] || Workflow
-                    return (
-                      <div key={council.id} className={cn("home-spotlight-card home-border-glow rounded-xl border p-3", railPanelClass)}>
-                        <div className="flex items-start gap-2">
-                          <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md border border-accent-30 bg-accent-10 text-accent")}>
-                            <CouncilIcon className="h-3.5 w-3.5" />
-                          </span>
-                          <div className="min-w-0">
-                            <p className={cn("text-xs font-semibold uppercase tracking-[0.14em]", isLight ? "text-s-80" : "text-slate-200")}>{council.label}</p>
-                            <p className={cn("mt-1 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>{council.summary}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
+          <div className="mx-auto grid max-w-[1520px] grid-cols-1 gap-4 pb-4 xl:grid-cols-[minmax(980px,1fr)_340px]">
+            <div className="min-w-[980px]">
+              <div className="flex flex-col items-center">
+                <div className={cn("home-spotlight-card home-border-glow w-[320px] rounded-xl border px-4 py-3 text-center", railPanelClass)}>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-accent">Operator</p>
+                  <p className={cn("mt-1 text-lg font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{NOVA_OPERATOR_NODE.name}</p>
+                  <p className={cn("mt-1 text-xs", isLight ? "text-s-50" : "text-slate-400")}>{NOVA_OPERATOR_NODE.role}</p>
                 </div>
-              </div>
 
-              <div className={cn("h-8 w-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
+                <div className={cn("h-8 w-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
 
-              <div className="relative w-full">
-                <div className={cn("pointer-events-none absolute left-[8%] right-[8%] top-0 h-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
-                <div className="grid grid-cols-3 gap-3 pt-4">
-                  {NOVA_DOMAIN_MANAGERS.map((manager) => (
-                    <section
-                      key={manager.id}
-                      className={cn(
-                        "home-spotlight-card home-border-glow rounded-2xl border p-3",
-                        railPanelClass,
-                        managerAccentClass(manager.accent),
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className={cn("text-[11px] uppercase tracking-[0.16em] text-accent")}>{manager.label}</p>
-                          <p className={cn("mt-0.5 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>{manager.objective}</p>
-                        </div>
-                        <span className={cn("inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/15 bg-white/5 text-accent")}>
-                          <GitBranch className="h-3.5 w-3.5" />
-                        </span>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {manager.workers.map((worker) => (
-                          <div key={worker.id} className={cn("home-spotlight-card home-border-glow rounded-xl border p-2.5", subPanelClass)}>
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className={cn("text-[12px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{worker.name}</p>
-                                <p className={cn("mt-0.5 text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>{worker.role}</p>
-                              </div>
-                              <span className={cn("shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]", statusClass(worker.status))}>
-                                {worker.status}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              <span className={cn("rounded-md border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em]", providerClass(worker.provider))}>
-                                {worker.provider}
-                              </span>
-                              {worker.tags.map((tag) => (
-                                <span key={`${worker.id}-${tag}`} className={cn("rounded-md border px-1.5 py-0.5 text-[9px]", isLight ? "border-[#cdd9ea] bg-[#edf2fb] text-s-60" : "border-white/10 bg-white/5 text-slate-300")}>
-                                  {tag}
-                                </span>
-                              ))}
+                <div className="relative w-full px-12">
+                  <div className={cn("pointer-events-none absolute left-[14%] right-[14%] top-0 h-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
+                  <div className="grid grid-cols-3 gap-3 pt-4">
+                    {NOVA_COUNCIL_NODES.map((council) => {
+                      const CouncilIcon = COUNCIL_ICON_BY_ID[council.id] || Workflow
+                      return (
+                        <div key={council.id} className={cn("home-spotlight-card home-border-glow rounded-xl border p-3", railPanelClass)}>
+                          <div className="flex items-start gap-2">
+                            <span className={cn("inline-flex h-7 w-7 items-center justify-center rounded-md border border-accent-30 bg-accent-10 text-accent")}>
+                              <CouncilIcon className="h-3.5 w-3.5" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className={cn("text-xs font-semibold uppercase tracking-[0.14em]", isLight ? "text-s-80" : "text-slate-200")}>{council.label}</p>
+                              <p className={cn("mt-1 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>{council.summary}</p>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className={cn("h-8 w-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
+
+                <div className="relative w-full px-8">
+                  <div className={cn("pointer-events-none absolute left-[10%] right-[10%] top-0 h-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
+                  <div className="grid grid-cols-4 gap-3 pt-4">
+                    {pinnedWorkers.map((worker) => {
+                      const interaction = WORKER_INTERACTIONS[worker.id] || defaultWorkerInteraction(worker)
+                      const selected = selectedWorkerId === worker.id
+                      return (
+                        <button
+                          key={`pinned-${worker.id}`}
+                          onClick={() => setSelectedWorkerId(worker.id)}
+                          className={cn(
+                            "home-spotlight-card home-border-glow rounded-xl border p-3 text-left transition-colors",
+                            railPanelClass,
+                            selected && "border-accent-30 bg-accent-10",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-accent-30 bg-accent-10 text-accent">
+                              {workerIcon(worker.id)}
+                            </span>
+                            <span className={cn("rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]", statusClass(worker.status))}>
+                              {worker.status}
+                            </span>
+                          </div>
+                          <p className={cn("mt-2 text-[12px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{worker.name}</p>
+                          <p className={cn("mt-0.5 text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>{interaction.summary}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className={cn("h-8 w-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
+
+                <div className="relative w-full">
+                  <div className={cn("pointer-events-none absolute left-[8%] right-[8%] top-0 h-px", isLight ? "bg-[#c4d3e9]" : "bg-white/20")} />
+                  <div className="grid grid-cols-3 gap-3 pt-4">
+                    {NOVA_DOMAIN_MANAGERS.map((manager) => (
+                      <section
+                        key={manager.id}
+                        className={cn(
+                          "home-spotlight-card home-border-glow rounded-2xl border p-3",
+                          railPanelClass,
+                          managerAccentClass(manager.accent),
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className={cn("text-[11px] uppercase tracking-[0.16em] text-accent")}>{manager.label}</p>
+                            <p className={cn("mt-0.5 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>{manager.objective}</p>
+                          </div>
+                          <span className={cn("inline-flex h-6 w-6 items-center justify-center rounded-md border border-white/15 bg-white/5 text-accent")}>
+                            <GitBranch className="h-3.5 w-3.5" />
+                          </span>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {manager.workers.map((worker) => {
+                            const selected = selectedWorkerId === worker.id
+                            return (
+                              <button
+                                key={worker.id}
+                                onClick={() => setSelectedWorkerId(worker.id)}
+                                className={cn(
+                                  "home-spotlight-card home-border-glow w-full rounded-xl border p-2.5 text-left transition-colors",
+                                  subPanelClass,
+                                  selected && "border-accent-30 bg-accent-10",
+                                )}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <p className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>
+                                      <span className="text-accent">{workerIcon(worker.id)}</span>
+                                      {worker.name}
+                                    </p>
+                                    <p className={cn("mt-0.5 text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>{worker.role}</p>
+                                  </div>
+                                  <span className={cn("shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]", statusClass(worker.status))}>
+                                    {worker.status}
+                                  </span>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1">
+                                  <span className={cn("rounded-md border px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em]", providerClass(worker.provider))}>
+                                    {worker.provider}
+                                  </span>
+                                  {worker.tags.map((tag) => (
+                                    <span key={`${worker.id}-${tag}`} className={cn("rounded-md border px-1.5 py-0.5 text-[9px]", isLight ? "border-[#cdd9ea] bg-[#edf2fb] text-s-60" : "border-white/10 bg-white/5 text-slate-300")}>
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
+
+            <aside className={cn(panelClass, "home-spotlight-shell p-3 xl:sticky xl:top-0 h-fit")}>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-accent">Agent Inspector</p>
+                  <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>Select an agent node to interact.</p>
+                </div>
+                <span className={cn("rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em]", selectedWorker ? statusClass(selectedWorker.status) : "border-white/20 bg-white/5 text-slate-300")}>
+                  {selectedWorker?.status || "offline"}
+                </span>
+              </div>
+
+              {selectedWorker && selectedInteraction ? (
+                <div className={cn("home-spotlight-card home-border-glow rounded-xl border p-3", railPanelClass)}>
+                  <p className={cn("inline-flex items-center gap-1.5 text-[14px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>
+                    <span className="text-accent">{workerIcon(selectedWorker.id)}</span>
+                    {selectedWorker.name}
+                  </p>
+                  <p className={cn("mt-1 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>{selectedWorker.role}</p>
+                  <p className={cn("mt-1 text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-400")}>
+                    Manager: {selectedWorker.managerLabel}
+                  </p>
+                  <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-300")}>{selectedInteraction.summary}</p>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <button
+                      onClick={() => sendStarterToChat(selectedInteraction.samplePrompts[0] || `${selectedWorker.name}: show current status.`)}
+                      className={cn(
+                        "h-9 rounded-lg border px-3 text-xs font-semibold tracking-[0.12em] transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "border-[#c8d6ed] bg-[#ecf2fd] text-s-70" : "border-white/15 bg-white/10 text-slate-100",
+                      )}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5 text-accent" />
+                        Run Starter In Chat
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => openWorkerPrimary(selectedWorker)}
+                      className={cn(
+                        "h-9 rounded-lg border px-3 text-xs font-semibold tracking-[0.12em] transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70" : "border-white/15 bg-black/25 text-slate-300",
+                      )}
+                    >
+                      {selectedInteraction.primaryActionLabel}
+                    </button>
+                    <button
+                      onClick={() => router.push(selectedInteraction.secondaryPath)}
+                      className={cn(
+                        "h-9 rounded-lg border px-3 text-xs font-semibold tracking-[0.12em] transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70" : "border-white/15 bg-black/25 text-slate-300",
+                      )}
+                    >
+                      {selectedInteraction.secondaryActionLabel}
+                    </button>
+                  </div>
+
+                  <div className="mt-3">
+                    <p className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-400")}>Suggested Prompts</p>
+                    <div className="mt-2 space-y-1.5">
+                      {selectedInteraction.samplePrompts.map((prompt) => (
+                        <button
+                          key={`${selectedWorker.id}-${prompt}`}
+                          onClick={() => void copyPrompt(prompt)}
+                          className={cn(
+                            "w-full rounded-md border px-2 py-1.5 text-left text-[10px] leading-4 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                            isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70" : "border-white/10 bg-white/5 text-slate-300",
+                          )}
+                        >
+                          <span className="inline-flex items-start gap-1.5">
+                            <Copy className="mt-0.5 h-3 w-3 shrink-0 text-accent" />
+                            <span>{prompt}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className={cn("home-spotlight-card home-border-glow rounded-xl border p-3 text-[11px]", railPanelClass)}>
+                  Select a worker node to inspect actions.
+                </div>
+              )}
+
+              {interactionFeedback ? (
+                <p className={cn("mt-2 rounded-md border px-2 py-1 text-[10px]", isLight ? "border-[#c8d6ed] bg-[#ecf2fd] text-s-70" : "border-white/15 bg-white/10 text-slate-300")}>
+                  {interactionFeedback}
+                </p>
+              ) : null}
+            </aside>
           </div>
         </section>
 

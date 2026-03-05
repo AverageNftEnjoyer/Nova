@@ -1,13 +1,67 @@
+import {
+  OPERATOR_LANE_SEQUENCE,
+  resolveOperatorLaneKeyPrefix,
+} from "../operator-lane-config/index.js";
+
+function matchesIntent(intentFn, text) {
+  return typeof intentFn === "function" && intentFn(text) === true;
+}
+
+function buildLaneState({
+  lane,
+  input,
+  text,
+  userContextId,
+  conversationId,
+  applyShortTermContextTurnClassification,
+  readShortTermContextState,
+}) {
+  const keyPrefix = resolveOperatorLaneKeyPrefix(lane);
+  const turnClassification = applyShortTermContextTurnClassification({
+    userContextId,
+    conversationId,
+    domainId: lane.domainId,
+    text,
+  });
+  const shortTermContext = readShortTermContextState({
+    userContextId,
+    conversationId,
+    domainId: lane.domainId,
+  });
+  const directIntent = matchesIntent(input[lane.directIntentFnKey], text);
+  const contextualFollowUpIntent = matchesIntent(input[lane.contextualFollowUpIntentFnKey], text);
+  const shortTermFollowUp =
+    Boolean(shortTermContext)
+    && !directIntent
+    && (turnClassification.isNonCriticalFollowUp || contextualFollowUpIntent)
+    && !turnClassification.isCancel
+    && !turnClassification.isNewTopic;
+
+  return {
+    lane,
+    keyPrefix,
+    turnClassification,
+    shortTermContext,
+    shortTermFollowUp,
+  };
+}
+
+function buildLaneRequestHintsTemplate() {
+  const hints = {};
+  for (const lane of OPERATOR_LANE_SEQUENCE) {
+    const keyPrefix = resolveOperatorLaneKeyPrefix(lane);
+    hints[`${keyPrefix}ShortTermFollowUp`] = false;
+    hints[`${keyPrefix}ShortTermContextSummary`] = "";
+  }
+  return hints;
+}
+
 export function buildOperatorContextHints(input = {}) {
   const {
     text = "",
     turnPolicy = {},
     userContextId = "",
     conversationId = "",
-    isSpotifyDirectIntent,
-    isSpotifyContextualFollowUpIntent,
-    isYouTubeDirectIntent,
-    isYouTubeContextualFollowUpIntent,
     applyShortTermContextTurnClassification,
     readShortTermContextState,
     clearShortTermContextState,
@@ -38,55 +92,22 @@ export function buildOperatorContextHints(input = {}) {
     conversationId,
     domainId: "assistant",
   });
-  const spotifyTurnClassification = applyShortTermContextTurnClassification({
-    userContextId,
-    conversationId,
-    domainId: "spotify",
+
+  const laneStates = OPERATOR_LANE_SEQUENCE.map((lane) => buildLaneState({
+    lane,
+    input,
     text,
-  });
-  const spotifyShortTermContext = readShortTermContextState({
     userContextId,
     conversationId,
-    domainId: "spotify",
-  });
-  const youtubeTurnClassification = applyShortTermContextTurnClassification({
-    userContextId,
-    conversationId,
-    domainId: "youtube",
-    text,
-  });
-  const youtubeShortTermContext = readShortTermContextState({
-    userContextId,
-    conversationId,
-    domainId: "youtube",
-  });
-  const spotifyShortTermFollowUp =
-    Boolean(spotifyShortTermContext)
-    && !(typeof isSpotifyDirectIntent === "function" && isSpotifyDirectIntent(text))
-    && (
-      spotifyTurnClassification.isNonCriticalFollowUp
-      || (typeof isSpotifyContextualFollowUpIntent === "function" && isSpotifyContextualFollowUpIntent(text))
-    )
-    && !spotifyTurnClassification.isCancel
-    && !spotifyTurnClassification.isNewTopic;
-  const youtubeShortTermFollowUp =
-    Boolean(youtubeShortTermContext)
-    && !(typeof isYouTubeDirectIntent === "function" && isYouTubeDirectIntent(text))
-    && (
-      youtubeTurnClassification.isNonCriticalFollowUp
-      || (typeof isYouTubeContextualFollowUpIntent === "function" && isYouTubeContextualFollowUpIntent(text))
-    )
-    && !youtubeTurnClassification.isCancel
-    && !youtubeTurnClassification.isNewTopic;
+    applyShortTermContextTurnClassification,
+    readShortTermContextState,
+  }));
 
   const requestHints = {
     fastLaneSimpleChat: turnPolicy.fastLaneSimpleChat === true,
     assistantShortTermFollowUp: false,
     assistantShortTermContextSummary: "",
-    spotifyShortTermFollowUp: false,
-    spotifyShortTermContextSummary: "",
-    youtubeShortTermFollowUp: false,
-    youtubeShortTermContextSummary: "",
+    ...buildLaneRequestHintsTemplate(),
   };
 
   if (!turnPolicy.weatherIntent && !turnPolicy.cryptoIntent) {
@@ -97,27 +118,29 @@ export function buildOperatorContextHints(input = {}) {
       requestHints.assistantShortTermContextSummary = summarizeShortTermContextForPrompt(assistantShortTermContext, 520);
       requestHints.assistantTopicAffinityId = String(assistantShortTermContext.topicAffinityId || "");
     }
-    if (spotifyShortTermFollowUp && spotifyShortTermContext) {
-      requestHints.spotifyShortTermFollowUp = true;
-      requestHints.spotifyShortTermContextSummary = summarizeShortTermContextForPrompt(spotifyShortTermContext, 320);
-      requestHints.spotifyTopicAffinityId = String(spotifyShortTermContext.topicAffinityId || "");
-    }
-    if (youtubeShortTermFollowUp && youtubeShortTermContext) {
-      requestHints.youtubeShortTermFollowUp = true;
-      requestHints.youtubeShortTermContextSummary = summarizeShortTermContextForPrompt(youtubeShortTermContext, 320);
-      requestHints.youtubeTopicAffinityId = String(youtubeShortTermContext.topicAffinityId || "");
+
+    for (const laneState of laneStates) {
+      if (!(laneState.shortTermFollowUp && laneState.shortTermContext)) continue;
+      requestHints[`${laneState.keyPrefix}ShortTermFollowUp`] = true;
+      requestHints[`${laneState.keyPrefix}ShortTermContextSummary`] = summarizeShortTermContextForPrompt(
+        laneState.shortTermContext,
+        320,
+      );
+      requestHints[`${laneState.keyPrefix}TopicAffinityId`] = String(
+        laneState.shortTermContext.topicAffinityId || "",
+      );
     }
   }
 
-  return {
+  const output = {
     requestHints,
-    spotifyShortTermFollowUp,
-    spotifyShortTermContext,
-    youtubeShortTermFollowUp,
-    youtubeShortTermContext,
     assistantShortTermContext,
     assistantTurnClassification,
-    spotifyTurnClassification,
-    youtubeTurnClassification,
   };
+  for (const laneState of laneStates) {
+    output[`${laneState.keyPrefix}ShortTermFollowUp`] = laneState.shortTermFollowUp;
+    output[`${laneState.keyPrefix}ShortTermContext`] = laneState.shortTermContext;
+    output[`${laneState.keyPrefix}TurnClassification`] = laneState.turnClassification;
+  }
+  return output;
 }

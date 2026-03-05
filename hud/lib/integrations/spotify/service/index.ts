@@ -1,6 +1,6 @@
 import { buildSpotifyOAuthUrl as buildOAuthUrl, parseSpotifyOAuthState as parseOAuthState } from "../auth/index"
 import { assertSpotifyOk, readSpotifyErrorMessage, spotifyFetchWithRetry } from "../client/index"
-import { spotifyError } from "../errors/index"
+import { SpotifyServiceError, spotifyError } from "../errors/index"
 import {
   disconnectSpotify,
   exchangeCodeForSpotifyTokens,
@@ -869,7 +869,35 @@ export async function controlSpotifyPlayback(
   if (action === "pause" || action === "next" || action === "previous") {
     // Fire and return — don't wait for a now-playing fetch, saves ~300ms.
     // UI applies optimistic state immediately; the polling interval will sync truth.
-    await sendPlayerCommand(action, null, scope)
+    if (action === "previous") {
+      try {
+        await sendPlayerCommand("previous", null, scope)
+      } catch (error) {
+        // Spotify can return 403 when there is no previous track in context.
+        // In that case, restart the current track instead of surfacing an error.
+        if (error instanceof SpotifyServiceError && error.code === "spotify.forbidden") {
+          const restartEndpoint = `${SPOTIFY_API_BASE}/me/player/seek?position_ms=0`
+          const restartResponse = await spotifyApiRequest(
+            restartEndpoint,
+            { method: "PUT" },
+            "spotify_restart_after_previous_forbidden",
+            scope,
+          )
+          if (restartResponse.status === 204 || restartResponse.status === 202 || restartResponse.ok) {
+            return {
+              ok: true,
+              action: "previous",
+              message: "Restarted the current track.",
+              skipNowPlayingRefresh: true,
+            }
+          }
+          await throwPlaybackError(restartResponse, "Spotify restart failed.")
+        }
+        throw error
+      }
+    } else {
+      await sendPlayerCommand(action, null, scope)
+    }
     return {
       ok: true,
       action,

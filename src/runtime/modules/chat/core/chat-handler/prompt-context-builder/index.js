@@ -250,6 +250,37 @@ export async function buildPromptContextForTurn({
       : `${systemPrompt}\n\n## Short-Term Context\n${sectionBody}`;
   }
 
+  const operatorLane = requestHints?.operatorLane && typeof requestHints.operatorLane === "object"
+    ? requestHints.operatorLane
+    : null;
+  const operatorWorker = requestHints?.operatorWorker && typeof requestHints.operatorWorker === "object"
+    ? requestHints.operatorWorker
+    : null;
+  if (operatorLane) {
+    const sectionBody = [
+      operatorLane.id ? `lane_id: ${String(operatorLane.id)}` : "",
+      operatorLane.domainId ? `domain_id: ${String(operatorLane.domainId)}` : "",
+      operatorLane.routeHint ? `route_hint: ${String(operatorLane.routeHint)}` : "",
+      operatorLane.responseRoute ? `response_route: ${String(operatorLane.responseRoute)}` : "",
+      operatorLane.executorKind ? `executor_kind: ${String(operatorLane.executorKind)}` : "",
+      operatorWorker?.agentId ? `worker_agent_id: ${String(operatorWorker.agentId)}` : "",
+      operatorWorker?.reason ? `worker_reason: ${String(operatorWorker.reason)}` : "",
+    ].filter(Boolean).join("\n");
+    if (sectionBody) {
+      const appended = appendBudgetedPromptSection({
+        ...promptBudgetOptions,
+        prompt: systemPrompt,
+        sectionTitle: "Operator Routing Contract",
+        sectionBody,
+      });
+      systemPrompt = appended.included
+        ? appended.prompt
+        : `${systemPrompt}\n\n## Operator Routing Contract\n${sectionBody}`;
+      runSummary.requestHints.operatorLaneId = String(operatorLane.id || "");
+      runSummary.requestHints.operatorWorkerAgentId = String(operatorWorker?.agentId || "");
+    }
+  }
+
   const allowContextEnrichment = !fastLaneSimpleChat;
   let usedMemoryRecall = false;
   let usedWebSearchPreload = false;

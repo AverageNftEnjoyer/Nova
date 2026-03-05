@@ -54,6 +54,7 @@ await run("P20-C1 release gate scripts are present", async () => {
     "smoke:src-prompt",
     "smoke:src-missions",
     "smoke:src-scheduler",
+    "smoke:src-scheduler-soak-latency",
     "smoke:src-discord-delivery",
     "smoke:src-telegram-delivery",
     "smoke:src-transport",
@@ -103,6 +104,15 @@ await run("P20-C1d release gate includes Discord delivery hard gate", async () =
   );
 });
 
+await run("P20-C1e release gate includes scheduler soak latency hard gate", async () => {
+  const releaseScript = String(packageJson?.scripts?.["smoke:src-release"] || "");
+  assert.equal(
+    releaseScript.includes("smoke:src-scheduler-soak-latency"),
+    true,
+    "missing scheduler soak latency gate in smoke:src-release",
+  );
+});
+
 await run("P20-C2 verify script points to a real file", async () => {
   const verifyScript = String(packageJson?.scripts?.["verify:release-readiness"] || "").trim();
   const match = /^node\s+(.+)$/.exec(verifyScript);
@@ -134,6 +144,9 @@ await run("P20-C4 env docs include operational hardening knobs", async () => {
     "NOVA_MEMORY_MMR_LAMBDA",
     "NOVA_MEMORY_DECAY_HALF_LIFE_DAYS",
     "NOVA_TOOL_CAPABILITY_ENFORCE",
+    "NOVA_OPERATOR_FORCE_TOOL_LOOP",
+    "NOVA_OPERATOR_FORCE_WEB_SEARCH_PRELOAD",
+    "NOVA_OPERATOR_FORCE_WEB_FETCH_PRELOAD",
   ];
   for (const envKey of requiredEnvKeys) {
     assert.equal(envExample.includes(`${envKey}=`), true, `missing env key doc: ${envKey}`);

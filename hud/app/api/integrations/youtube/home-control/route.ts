@@ -15,6 +15,9 @@ const controlBodySchema = z.object({
   action: z.enum(["set_topic", "refresh"]).default("set_topic"),
   topic: z.string().trim().optional(),
   userContextId: z.string().trim().optional(),
+  preferredSources: z.union([z.string().trim(), z.array(z.string().trim())]).optional(),
+  strictTopic: z.boolean().optional(),
+  strictSources: z.boolean().optional(),
 })
 
 function normalizeUserContextId(value: unknown): string {
@@ -29,6 +32,30 @@ function normalizeTopic(value: unknown): string {
     .trim()
     .slice(0, 80)
   return normalized || "news"
+}
+
+function normalizeSourceLabel(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s.&'/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 64)
+}
+
+function normalizePreferredSources(value: unknown): string[] {
+  if (!value) return []
+  const values = Array.isArray(value) ? value : [value]
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const entry of values) {
+    const normalized = normalizeSourceLabel(entry)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    out.push(normalized)
+    if (out.length >= 4) break
+  }
+  return out
 }
 
 export async function GET(req: Request) {
@@ -65,7 +92,7 @@ export async function POST(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeSearch)
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeSearch, 2)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
@@ -105,6 +132,9 @@ export async function POST(req: Request) {
       ? normalizeTopic(config.youtube.homeTopic || "news")
       : normalizeTopic(parsed.data.topic || config.youtube.homeTopic || "news")
     const nextNonce = Math.max(0, Math.floor(Number(config.youtube.homeCommandNonce || 0))) + 1
+    const requestedSources = normalizePreferredSources(parsed.data.preferredSources)
+    const strictSources = parsed.data.strictSources === true || requestedSources.length > 0
+    const strictTopic = parsed.data.strictTopic === true || strictSources
 
     await updateIntegrationsConfig(
       {
@@ -119,12 +149,16 @@ export async function POST(req: Request) {
     const preferredSources = Array.isArray(config.news.preferredSources)
       ? config.news.preferredSources.map((source) => String(source).trim()).filter(Boolean)
       : []
+    const mergedPreferredSources = Array.from(new Set([...requestedSources, ...preferredSources])).slice(0, 8)
     const feed = await getYouTubeFeed(
       {
-        mode: "personalized",
+        mode: requestedSources.length > 0 ? "sources" : "personalized",
         topic: nextTopic,
-        maxResults: 6,
-        preferredSources,
+        maxResults: 8,
+        preferredSources: mergedPreferredSources,
+        requiredSources: requestedSources,
+        strictTopic,
+        strictSources,
         historyChannelIds: [],
       },
       verified,
@@ -132,9 +166,14 @@ export async function POST(req: Request) {
 
     const lead = feed.items[0] || null
     const topicForReply = nextTopic.replace(/-/g, " ")
+    const sourceSuffix = requestedSources.length > 0
+      ? ` from ${requestedSources.join(", ")}`
+      : ""
     const message = lead?.title
-      ? `Switched YouTube to ${topicForReply}. Now showing ${lead.title}.`
-      : `Switched YouTube to ${topicForReply}.`
+      ? `Switched YouTube to ${topicForReply}${sourceSuffix}. Now showing ${lead.title}.`
+      : requestedSources.length > 0
+        ? `I couldn't find a strong match for ${topicForReply} from ${requestedSources.join(", ")}. Try a different channel or broaden the topic.`
+        : `I couldn't find a strong match for ${topicForReply}. Try a more specific topic or add a channel.`
 
     logYouTubeApi("home_control.success", {
       userContextId: verified.user.id,
@@ -142,18 +181,31 @@ export async function POST(req: Request) {
       action: parsed.data.action,
       itemCount: feed.items.length,
       commandNonce: nextNonce,
+      strictTopic,
+      strictSources,
+      requestedSources,
     })
 
     return NextResponse.json({
       ok: true,
       topic: nextTopic,
       commandNonce: nextNonce,
+      strictTopic,
+      strictSources,
+      preferredSources: requestedSources,
       message,
+      items: feed.items,
       selected: lead
         ? {
             videoId: lead.videoId,
             title: lead.title,
+            channelId: lead.channelId,
             channelTitle: lead.channelTitle,
+            publishedAt: lead.publishedAt,
+            thumbnailUrl: lead.thumbnailUrl,
+            description: lead.description,
+            score: lead.score,
+            reason: lead.reason,
           }
         : null,
     })

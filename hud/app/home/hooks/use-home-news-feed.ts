@@ -46,8 +46,10 @@ type NewsFeedApiResponse = {
 }
 
 const TOPIC_STORAGE_KEY_PREFIX = "nova_home_news_topic"
+const FEED_STORAGE_KEY_PREFIX = "nova_home_news_feed"
 const DEFAULT_TOPIC = "all"
-const POLL_INTERVAL_MS = 10 * 60_000
+const POLL_INTERVAL_MS = 60 * 60_000
+const FEED_CACHE_TTL_MS = 60 * 60_000
 const DEFAULT_TOPICS = ["all", "world", "business", "technology", "markets", "crypto"]
 const TAG_BLOCKLIST_SNIPPETS = [
   "only-available",
@@ -104,6 +106,74 @@ function buildStoryDedupKey(title: string): string {
 function topicStorageKey(): string {
   const userId = getActiveUserId()
   return userId ? `${TOPIC_STORAGE_KEY_PREFIX}:${userId}` : TOPIC_STORAGE_KEY_PREFIX
+}
+
+function feedStorageKey(topic: string): string {
+  const normalizedTopic = normalizeTopicId(topic)
+  const userId = getActiveUserId()
+  const scoped = userId ? `${FEED_STORAGE_KEY_PREFIX}:${userId}` : FEED_STORAGE_KEY_PREFIX
+  return `${scoped}:${normalizedTopic}`
+}
+
+function isFreshFetchedAt(value: unknown): boolean {
+  const ts = Date.parse(String(value || "").trim())
+  if (!Number.isFinite(ts)) return false
+  return Date.now() - ts <= FEED_CACHE_TTL_MS
+}
+
+function readPersistedFeed(topic: string): {
+  topics: HomeNewsTopic[]
+  articles: HomeNewsArticle[]
+  stale: boolean
+  fetchedAt: string
+} | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem(feedStorageKey(topic))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as {
+      availableTopics?: unknown
+      articles?: unknown
+      stale?: unknown
+      fetchedAt?: unknown
+    }
+    const fetchedAt = String(parsed?.fetchedAt || "").trim()
+    if (!fetchedAt) return null
+    return {
+      topics: normalizeTopics(parsed?.availableTopics),
+      articles: normalizeArticles(
+        Array.isArray(parsed?.articles) ? (parsed.articles as NewsFeedApiResponse["articles"]) : [],
+        normalizeTopicId(topic),
+      ),
+      stale: Boolean(parsed?.stale),
+      fetchedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writePersistedFeed(input: {
+  topic: string
+  availableTopics: HomeNewsTopic[]
+  articles: HomeNewsArticle[]
+  stale: boolean
+  fetchedAt: string
+}): void {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(
+      feedStorageKey(input.topic),
+      JSON.stringify({
+        availableTopics: input.availableTopics.map((topic) => topic.id),
+        articles: input.articles,
+        stale: input.stale,
+        fetchedAt: input.fetchedAt,
+      }),
+    )
+  } catch {
+    // no-op
+  }
 }
 
 function readPersistedTopic(): string {
@@ -230,6 +300,19 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
     }
     if (!silent) setLoading(true)
     try {
+      if (!forceRefresh) {
+        const cached = readPersistedFeed(selectedTopicValid)
+        if (cached && isFreshFetchedAt(cached.fetchedAt)) {
+          setTopics(cached.topics)
+          setArticles(cached.articles)
+          setStale(cached.stale)
+          setFetchedAt(cached.fetchedAt)
+          setError(null)
+          if (!silent) setLoading(false)
+          return
+        }
+      }
+
       const params = new URLSearchParams({
         topic: selectedTopicValid,
         limit: "12",
@@ -268,6 +351,13 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
       setStale(Boolean(data.stale))
       setFetchedAt(String(data.fetchedAt || ""))
       setError(null)
+      writePersistedFeed({
+        topic: selectedTopicValid,
+        availableTopics: nextTopics,
+        articles: normalized,
+        stale: Boolean(data.stale),
+        fetchedAt: String(data.fetchedAt || ""),
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch News feed.")
     } finally {

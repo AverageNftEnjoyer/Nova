@@ -15,7 +15,7 @@ export async function GET(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeFeedRead)
+  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeFeedRead, 2)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {

@@ -308,13 +308,13 @@ export function ScheduleBriefing({
     <>
       <section ref={sectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 min-h-0 h-full flex flex-col`}>
         <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-2 text-s-80">
-          <div className="h-8 w-8" aria-hidden="true" />
+          <div className="h-7 w-7" aria-hidden="true" />
           <h2 className={cn("min-w-0 text-center text-sm uppercase tracking-[0.16em] font-semibold whitespace-nowrap", isLight ? "text-s-90" : "text-slate-200")}>
             Calendar
           </h2>
           <button
             onClick={onOpenCalendar}
-            className={cn("h-8 w-8 justify-self-end rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group group/sched-cal", subPanelClass)}
+            className={cn("h-7 w-7 justify-self-end rounded-md transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group group/sched-cal", subPanelClass)}
             aria-label="Open calendar"
           >
             <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover:text-accent group-hover:rotate-90 group-hover/sched-cal:text-accent group-hover/sched-cal:rotate-90 transition-transform duration-200" />

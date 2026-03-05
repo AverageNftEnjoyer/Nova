@@ -21,7 +21,6 @@ import {
   YouTubeIcon,
   XAIIcon,
 } from "@/components/icons"
-import { Composer } from "@/components/chat/composer"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { cn } from "@/lib/shared/utils"
@@ -35,6 +34,7 @@ import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
 import { NewsFeedModule } from "./news-feed-module"
 import { YouTubeHomeModule } from "./youtube-home-module"
+import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 
 const FALLBACK_CRYPTO_ASSETS = [
   { symbol: "BTC", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
@@ -58,9 +58,6 @@ export function HomeMainScreen() {
     isLight: rawIsLight,
     novaState,
     connected,
-    handleSend,
-    isMuted,
-    handleMuteToggle,
     muteHydrated,
     homeShellRef,
     pipelineSectionRef,
@@ -227,15 +224,17 @@ export function HomeMainScreen() {
     onClick,
     label,
     groupName,
+    hoverGlow = true,
   }: {
     onClick: () => void
     label: string
     groupName: string
+    hoverGlow?: boolean
   }) => (
     <button
       onClick={onClick}
       className={cn(
-        `h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover group group/${groupName}`,
+        `h-7 w-7 rounded-md transition-colors home-spotlight-card home-border-glow ${hoverGlow ? "home-spotlight-card--hover" : ""} group group/${groupName}`,
         subPanelClass,
       )}
       aria-label={label}
@@ -272,7 +271,7 @@ export function HomeMainScreen() {
     >
       <div ref={homeShellRef} className="flex-1 relative overflow-hidden home-spotlight-shell">
         {/* ── 3-zone flex layout ─────────────────────────────────────────── */}
-        <div className="relative z-10 h-full w-full px-4 pt-3 pb-4 flex flex-col gap-3">
+        <div className="relative z-10 h-full w-full px-4 pt-3 pb-4 flex flex-col gap-1.5">
           <header className="shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <button
@@ -340,10 +339,10 @@ export function HomeMainScreen() {
               </div>
           </header>
 
-          <div className="flex-1 min-h-0 flex gap-3">
+          <div className="flex-1 min-h-0 flex gap-1.5">
 
             {/* ── ZONE 1: Schedule (left column) ─────────────────────────── */}
-            <div className="w-[15.5rem] shrink-0 min-h-0 grid grid-rows-2 gap-3">
+            <div className="w-[15.5rem] shrink-0 min-h-0 grid grid-rows-2 gap-1.5">
               <div className="min-h-0">
                 <ScheduleBriefing
                   isLight={isLight}
@@ -363,7 +362,12 @@ export function HomeMainScreen() {
                 {renderPanelHeader({
                   icon: <Pin className="w-4 h-4 text-accent" />,
                   title: "Missions Hub",
-                  action: renderGearButton({ onClick: openMissions, label: "Open mission settings", groupName: "mission-gear" }),
+                  action: renderGearButton({
+                    onClick: openMissions,
+                    label: "Open mission settings",
+                    groupName: "mission-gear",
+                    hoverGlow: false,
+                  }),
                 })}
                 <div className="mt-1 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
                   {missions.length === 0 && (
@@ -375,7 +379,7 @@ export function HomeMainScreen() {
                     <div
                       key={mission.id}
                       className={cn(
-                        `${subPanelClass} p-2 transition-colors`,
+                        `${subPanelClass} p-2 home-spotlight-card home-border-glow`,
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -443,60 +447,25 @@ export function HomeMainScreen() {
             </div>
 
             {/* ── ZONE 2: Center column ──────────────────────────────────── */}
-            <div className="flex-1 flex flex-col gap-3 min-w-0 min-h-0">
-              {/* ── NOVA CHAT bar ── */}
-              <div
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-4 pt-3 pb-3 shrink-0`}
-            >
-              <div className="flex items-center justify-between mb-2.5">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-accent" />
-                  <span
-                    className={cn(
-                      "text-sm uppercase tracking-[0.22em] font-semibold",
-                      isLight ? "text-s-90" : "text-slate-200",
-                    )}
-                  >
-                    Nova Chat
-                  </span>
-                </div>
-                {(!connected || isMuted) && (
-                  <span
-                    className={cn(
-                      "text-[10px] uppercase tracking-[0.14em] px-2 py-0.5 rounded-full border",
-                      !connected
-                        ? isLight
-                          ? "border-rose-300 bg-rose-50 text-rose-600"
-                          : "border-rose-400/40 bg-rose-500/15 text-rose-400"
-                        : isLight
-                          ? "border-amber-300 bg-amber-50 text-amber-600"
-                          : "border-amber-400/40 bg-amber-500/15 text-amber-400",
-                    )}
-                  >
-                    {!connected ? "offline" : "muted"}
-                  </span>
-                )}
-              </div>
-              <Composer
-                onSend={handleSend}
-                isStreaming={false}
-                disabled={!connected}
-                isMuted={isMuted}
-                onToggleMute={handleMuteToggle}
-                muteHydrated={muteHydrated}
+            <div className="flex-1 flex flex-col gap-1.5 min-w-0 min-h-0">
+            {/* ── Top row: YouTube + Spotify + Polymarket (left of Integrations) ── */}
+            <div className="shrink-0 min-h-0 flex flex-col xl:flex-row xl:items-stretch gap-1.5 xl:h-[clamp(15rem,30vh,18.5rem)]">
+              <YouTubeHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                className="w-full xl:w-[24rem] 2xl:w-[26rem] min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full shrink-0"
+                connected={youtubeConnected}
+                onOpenIntegrations={openIntegrations}
               />
-            </div>
-
-            {/* ── Main module row: Spotify + open expansion slots ── */}
-            <div className="flex-1 flex gap-3 min-h-0">
               <SpotifyHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
                 sectionRef={spotifyModuleSectionRef}
-                className="flex w-67 h-[16rem] shrink-0 self-start"
+                className="w-full xl:w-67 min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full shrink-0"
                 connected={spotifyConnected}
                 nowPlaying={spotifyNowPlaying}
                 error={spotifyError}
@@ -508,19 +477,20 @@ export function HomeMainScreen() {
                 onPlaySmart={spotifyPlaySmart}
                 onSeek={seekSpotify}
               />
-              <YouTubeHomeModule
+              <PolymarketLiveLinesModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
-                className="flex-1 min-w-0 h-[16rem] self-start"
-                connected={youtubeConnected}
+                className="w-full xl:flex-1 min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full"
                 onOpenIntegrations={openIntegrations}
               />
             </div>
 
+            <div className="flex-1 min-h-0" aria-hidden="true" />
+
             {/* ── Bottom row: market + dev + history panels ── */}
-            <div className="grid grid-cols-4 gap-3 shrink-0 h-47">
+            <div className="grid grid-cols-4 gap-1.5 shrink-0 h-47">
 
               {/* Crypto Prices */}
               <section
@@ -647,14 +617,19 @@ export function HomeMainScreen() {
                 {renderPanelHeader({
                   icon: <Activity className="w-4 h-4 text-accent" />,
                   title: "Dev Tools",
-                  action: renderGearButton({ onClick: openDevLogs, label: "Open dev logs", groupName: "macro-dev-gear" }),
+                  action: renderGearButton({
+                    onClick: openDevLogs,
+                    label: "Open dev logs",
+                    groupName: "macro-dev-gear",
+                    hoverGlow: false,
+                  }),
                 })}
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
                   {devMetricTiles.map(({ label, value, color }) => (
                     <div
                       key={label}
                       className={cn(
-                        "px-2 py-1.5 rounded-sm border text-center home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        "px-2 py-1.5 rounded-sm border text-center home-spotlight-card home-border-glow",
                         subPanelClass,
                       )}
                     >
@@ -668,75 +643,78 @@ export function HomeMainScreen() {
               </section>
 
               {/* Day in History */}
-              {(() => {
-                const now = new Date()
-                const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-                const todayLabel = `${monthNames[now.getMonth()]} ${now.getDate()}`
-                return (
-                  <section
-                    style={panelStyle}
-                    className={`${panelClass} home-spotlight-shell px-3 py-2 flex flex-col`}
-                  >
-                    {renderPanelHeader({
-                      icon: <History className="w-4 h-4 text-accent" />,
-                      title: "On This Day",
-                    })}
-                    {dayInHistoryLoading && (
-                      <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>Loading...</p>
-                    )}
-                    {dayInHistoryError && !dayInHistoryLoading && (
-                      <p className="text-[11px] mt-2 text-center text-rose-400">{dayInHistoryError}</p>
-                    )}
-                    {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length > 0 && (
-                      <div className="mt-1.5 flex flex-col gap-1.5">
-                        {dayInHistoryEvents.map((evt, i) => (
+              <section
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell px-3 py-2 flex flex-col`}
+              >
+                {renderPanelHeader({
+                  icon: <History className="w-4 h-4 text-accent" />,
+                  title: "On This Day",
+                })}
+                {dayInHistoryLoading && (
+                  <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>Loading...</p>
+                )}
+                {dayInHistoryError && !dayInHistoryLoading && (
+                  <p className="text-[11px] mt-2 text-center text-rose-400">{dayInHistoryError}</p>
+                )}
+                {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length > 0 && (
+                  <div className="mt-1.5 flex flex-col gap-1.5">
+                    {dayInHistoryEvents.map((evt, i) => {
+                      const monthIndex = Number.isFinite(Number(evt.month))
+                        ? Math.min(12, Math.max(1, Math.floor(Number(evt.month))))
+                        : 1
+                      const day = Number.isFinite(Number(evt.day))
+                        ? Math.min(31, Math.max(1, Math.floor(Number(evt.day))))
+                        : 1
+                      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+                      const eventLabel = `${monthNames[monthIndex - 1]} ${day}`
+                      return (
                           <div
-                            key={i}
-                            className={cn(
-                              "px-2.5 py-2 rounded-md border home-spotlight-card home-border-glow home-spotlight-dynamic",
-                              subPanelClass,
-                            )}
-                          >
-                            <p className={cn("text-[12px] font-semibold tabular-nums", isLight ? "text-s-90" : "text-slate-100")}>
-                              {todayLabel}, {evt.year}
-                            </p>
-                            <p className={cn(
-                              "text-[11px] mt-0.5 leading-normal",
-                              isLight ? "text-s-80" : "text-slate-300",
-                            )}>
-                              {evt.event}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length === 0 && (
-                      <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>
-                        No events found for today.
-                      </p>
-                    )}
-                  </section>
-                )
-              })()}
+                          key={i}
+                          className={cn(
+                            "px-2.5 py-2 rounded-md border home-spotlight-card home-border-glow",
+                            subPanelClass,
+                          )}
+                        >
+                          <p className={cn("text-[12px] font-semibold tabular-nums", isLight ? "text-s-90" : "text-slate-100")}>
+                            {eventLabel}, {evt.year}
+                          </p>
+                          <p className={cn(
+                            "text-[11px] mt-0.5 leading-normal",
+                            isLight ? "text-s-80" : "text-slate-300",
+                          )}>
+                            {evt.event}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {!dayInHistoryLoading && !dayInHistoryError && dayInHistoryEvents.length === 0 && (
+                  <p className={cn("text-[11px] mt-2 text-center", isLight ? "text-s-50" : "text-slate-400")}>
+                    No events found for today.
+                  </p>
+                )}
+              </section>
 
             </div>
             </div>
 
           {/* ── ZONE 3: Right column (Integrations / News / Agent Chart) ── */}
-          <div className="w-67 shrink-0 flex flex-col gap-3 min-h-0">
+          <div className="w-67 shrink-0 flex flex-col gap-1.5 min-h-0">
 
             {/* Integrations */}
             <section
               ref={integrationsSectionRef}
               style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 pb-2 pt-2.5 flex flex-col shrink-0`}
+              className={`${panelClass} home-spotlight-shell h-[clamp(15rem,30vh,18.5rem)] px-3 pb-2 pt-2.5 flex flex-col shrink-0`}
             >
               {renderPanelHeader({
                 icon: <Blocks className="w-4 h-4 text-accent" />,
                 title: "Integrations",
                 action: renderGearButton({ onClick: openIntegrations, label: "Open integrations", groupName: "integrations-gear" }),
               })}
-              <div className={cn("mt-1 p-1.5 rounded-lg", subPanelClass)}>
+              <div className={cn("mt-4.5 p-1.5 rounded-lg", subPanelClass)}>
                 <div className="grid grid-cols-5 gap-1" style={{ gridTemplateRows: "repeat(5, 2rem)" }}>
                   {integrationNodes.map(({ icon, connected, label }) => (
                     <button
@@ -787,17 +765,22 @@ export function HomeMainScreen() {
             <section
               ref={agentModuleSectionRef}
               style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 pb-2.5 pt-2.5 shrink-0 flex flex-col`}
+              className={`${panelClass} home-spotlight-shell h-47 px-3 py-2 shrink-0 flex flex-col`}
             >
               {renderPanelHeader({
                 icon: <Network className="w-4 h-4 text-accent" />,
                 title: "Agent Chart",
-                action: renderGearButton({ onClick: openAgents, label: "Open agent chart", groupName: "agents-gear" }),
+                action: renderGearButton({
+                  onClick: openAgents,
+                  label: "Open agent chart",
+                  groupName: "agents-gear",
+                  hoverGlow: false,
+                }),
               })}
-              <div className={cn("mt-0.5 rounded-lg p-2 border", subPanelClass)}>
+              <div className="mt-2.5">
                 <div
                   className={cn(
-                    "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow",
                     isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                   )}
                 >
@@ -819,7 +802,7 @@ export function HomeMainScreen() {
                       key={manager.id}
                       onClick={openAgents}
                       className={cn(
-                        "rounded-md border px-1.5 py-1 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                        "rounded-md border px-1.5 py-1 text-left transition-colors home-spotlight-card home-border-glow",
                         isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                       )}
                     >
@@ -835,7 +818,7 @@ export function HomeMainScreen() {
                 <div className="mt-2 grid grid-cols-2 gap-1.5">
                   <div
                     className={cn(
-                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
                       isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                     )}
                   >
@@ -844,7 +827,7 @@ export function HomeMainScreen() {
                   </div>
                   <div
                     className={cn(
-                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
                       isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
                     )}
                   >

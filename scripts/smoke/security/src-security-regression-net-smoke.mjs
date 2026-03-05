@@ -96,6 +96,7 @@ await run("P20-C5 release smoke chain includes security, memory, routing, and is
     "smoke:src-security",
     "smoke:src-memory",
     "smoke:src-routing",
+    "smoke:src-scheduler-soak-latency",
     "smoke:src-plugin-isolation",
     "smoke:src-release-readiness",
   ];

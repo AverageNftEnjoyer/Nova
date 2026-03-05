@@ -28,6 +28,7 @@ function read(relativePath) {
 }
 
 const srcHudGatewayPath = "src/runtime/infrastructure/hud-gateway/index.js";
+const srcHudGatewayMessageHandlerPath = "src/runtime/infrastructure/hud-gateway/message-handler/index.js";
 const srcVoiceLoopPath = "src/runtime/audio/voice-loop/index.js";
 const srcEntrypointPath = "src/runtime/core/entrypoint/index.js";
 const srcChatHandlerPath = "src/runtime/modules/chat/core/chat-handler/index.js";
@@ -38,6 +39,7 @@ const srcVoiceModulePath = "src/runtime/modules/audio/voice/index.js";
 const rootLauncherPath = "nova.js";
 
 const srcHudGateway = read(srcHudGatewayPath);
+const srcHudGatewayMessageHandler = read(srcHudGatewayMessageHandlerPath);
 const srcVoiceLoop = read(srcVoiceLoopPath);
 const srcEntrypoint = read(srcEntrypointPath);
 const srcChatHandler = read(srcChatHandlerPath);
@@ -167,7 +169,8 @@ await run("P14-C7 wake word follows assistant-name updates and STT hint wiring",
   assert.equal(hasWakeHintTranscribeCall, true);
   assert.equal(srcVoiceModule.includes("The wake word is"), true);
   assert.equal(srcVoiceModule.includes("wakeWordHint"), true);
-  assert.equal(srcHudGateway.includes("wakeWordRuntime.setAssistantName"), true);
+  const wakeWordUpdateSource = `${srcHudGateway}\n${srcHudGatewayMessageHandler}`;
+  assert.equal(wakeWordUpdateSource.includes("wakeWordRuntime.setAssistantName"), true);
 });
 
 await run("P14-C8 voice/session paths do not hardcode local-mic fallback", async () => {

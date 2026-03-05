@@ -73,11 +73,47 @@ import { preprocessInboundText } from "./operator-preprocess/index.js";
 import { selectChatRuntimeForTurn } from "./operator-runtime-selection/index.js";
 import { routeOperatorDispatch } from "./operator-dispatch-routing/index.js";
 import { buildOperatorContextHints } from "./operator-context-hints/index.js";
+import { buildOperatorRouteDecisions } from "./operator-route-decisions/index.js";
+import { buildOperatorDispatchInput } from "./operator-dispatch-input/index.js";
+import { buildOperatorLanePolicies } from "./operator-lane-policies/index.js";
+import { hasFollowUpContinuationCue } from "./operator-followup-cue/index.js";
+import {
+  readOperatorLaneShortTermContextSnapshots,
+  isMissionContextPrimary,
+} from "./operator-lane-snapshots/index.js";
 import {
   isSpotifyDirectIntent,
   isSpotifyContextualFollowUpIntent,
   isYouTubeDirectIntent,
   isYouTubeContextualFollowUpIntent,
+  isPolymarketDirectIntent,
+  isPolymarketContextualFollowUpIntent,
+  isCoinbaseDirectIntent,
+  isCoinbaseContextualFollowUpIntent,
+  isGmailDirectIntent,
+  isGmailContextualFollowUpIntent,
+  isTelegramDirectIntent,
+  isTelegramContextualFollowUpIntent,
+  isDiscordDirectIntent,
+  isDiscordContextualFollowUpIntent,
+  isCalendarDirectIntent,
+  isCalendarContextualFollowUpIntent,
+  isReminderDirectIntent,
+  isReminderContextualFollowUpIntent,
+  isWebResearchDirectIntent,
+  isWebResearchContextualFollowUpIntent,
+  isCryptoDirectIntent,
+  isCryptoContextualFollowUpIntent,
+  isMarketDirectIntent,
+  isMarketContextualFollowUpIntent,
+  isFilesDirectIntent,
+  isFilesContextualFollowUpIntent,
+  isDiagnosticsDirectIntent,
+  isDiagnosticsContextualFollowUpIntent,
+  isVoiceDirectIntent,
+  isVoiceContextualFollowUpIntent,
+  isTtsDirectIntent,
+  isTtsContextualFollowUpIntent,
 } from "../../routing/operator-intent-signals/index.js";
 import { executeChatRequest } from "./execute-chat-request/index.js";
 
@@ -120,15 +156,15 @@ async function handleInputCore(text, opts = {}) {
   const hudOpToken = String(opts.hudOpToken || "").trim();
   const normalizedTextForRouting = String(text || "").trim().toLowerCase();
   const missionPolicy = getShortTermContextPolicy("mission_task");
-  const cryptoPolicy = getShortTermContextPolicy("crypto");
   const assistantPolicyForDedupe = getShortTermContextPolicy("assistant");
-  const spotifyPolicy = getShortTermContextPolicy("spotify");
-  const youtubePolicy = getShortTermContextPolicy("youtube");
-  const followUpContinuationCue = [missionPolicy, cryptoPolicy, assistantPolicyForDedupe, spotifyPolicy, youtubePolicy].some((policy) => {
-    if (!policy) return false;
-    return policy.isNonCriticalFollowUp(normalizedTextForRouting)
-      && !policy.isCancel(normalizedTextForRouting)
-      && !policy.isNewTopic(normalizedTextForRouting);
+  const lanePolicies = buildOperatorLanePolicies(getShortTermContextPolicy);
+  const followUpContinuationCue = hasFollowUpContinuationCue({
+    normalizedTextForRouting,
+    policies: [
+      missionPolicy,
+      assistantPolicyForDedupe,
+      ...Object.values(lanePolicies),
+    ],
   });
   const duplicateMayBeCryptoReport = isExplicitCryptoReportRequest(text)
     || (isCryptoRequestText(text) && /\b(report|summary|pnl|daily|weekly)\b/i.test(text));
@@ -283,26 +319,15 @@ async function handleInputCore(text, opts = {}) {
     conversationId,
     domainId: "mission_task",
   });
-  const cryptoShortTermContext = readShortTermContextState({
+  const operatorLaneSnapshots = readOperatorLaneShortTermContextSnapshots({
     userContextId,
     conversationId,
-    domainId: "crypto",
+    readShortTermContextState,
   });
-  const spotifyShortTermContextSnapshot = readShortTermContextState({
-    userContextId,
-    conversationId,
-    domainId: "spotify",
+  const missionContextIsPrimary = isMissionContextPrimary({
+    missionShortTermContext,
+    operatorLaneSnapshots,
   });
-  const youtubeShortTermContextSnapshot = readShortTermContextState({
-    userContextId,
-    conversationId,
-    domainId: "youtube",
-  });
-  const missionContextIsPrimary =
-    missionShortTermContext
-    && Number(missionShortTermContext.ts || 0) >= Number(cryptoShortTermContext?.ts || 0)
-    && Number(missionShortTermContext.ts || 0) >= Number(spotifyShortTermContextSnapshot?.ts || 0)
-    && Number(missionShortTermContext.ts || 0) >= Number(youtubeShortTermContextSnapshot?.ts || 0);
   const missionContextRouteResult = await handleMissionContextRouting({
     text,
     normalizedTextForRouting,
@@ -357,6 +382,34 @@ async function handleInputCore(text, opts = {}) {
     isSpotifyContextualFollowUpIntent,
     isYouTubeDirectIntent,
     isYouTubeContextualFollowUpIntent,
+    isPolymarketDirectIntent,
+    isPolymarketContextualFollowUpIntent,
+    isCoinbaseDirectIntent,
+    isCoinbaseContextualFollowUpIntent,
+    isGmailDirectIntent,
+    isGmailContextualFollowUpIntent,
+    isTelegramDirectIntent,
+    isTelegramContextualFollowUpIntent,
+    isDiscordDirectIntent,
+    isDiscordContextualFollowUpIntent,
+    isCalendarDirectIntent,
+    isCalendarContextualFollowUpIntent,
+    isReminderDirectIntent,
+    isReminderContextualFollowUpIntent,
+    isWebResearchDirectIntent,
+    isWebResearchContextualFollowUpIntent,
+    isCryptoDirectIntent,
+    isCryptoContextualFollowUpIntent,
+    isMarketDirectIntent,
+    isMarketContextualFollowUpIntent,
+    isFilesDirectIntent,
+    isFilesContextualFollowUpIntent,
+    isDiagnosticsDirectIntent,
+    isDiagnosticsContextualFollowUpIntent,
+    isVoiceDirectIntent,
+    isVoiceContextualFollowUpIntent,
+    isTtsDirectIntent,
+    isTtsContextualFollowUpIntent,
     applyShortTermContextTurnClassification,
     readShortTermContextState,
     clearShortTermContextState,
@@ -364,9 +417,21 @@ async function handleInputCore(text, opts = {}) {
   });
   const requestHints = contextHints.requestHints;
   const spotifyShortTermFollowUp = contextHints.spotifyShortTermFollowUp;
-  const spotifyShortTermContext = contextHints.spotifyShortTermContext;
   const youtubeShortTermFollowUp = contextHints.youtubeShortTermFollowUp;
-  const youtubeShortTermContext = contextHints.youtubeShortTermContext;
+  const polymarketShortTermFollowUp = contextHints.polymarketShortTermFollowUp;
+  const coinbaseShortTermFollowUp = contextHints.coinbaseShortTermFollowUp;
+  const gmailShortTermFollowUp = contextHints.gmailShortTermFollowUp;
+  const telegramShortTermFollowUp = contextHints.telegramShortTermFollowUp;
+  const discordShortTermFollowUp = contextHints.discordShortTermFollowUp;
+  const calendarShortTermFollowUp = contextHints.calendarShortTermFollowUp;
+  const remindersShortTermFollowUp = contextHints.remindersShortTermFollowUp;
+  const webResearchShortTermFollowUp = contextHints.webResearchShortTermFollowUp;
+  const cryptoShortTermFollowUp = contextHints.cryptoShortTermFollowUp;
+  const marketShortTermFollowUp = contextHints.marketShortTermFollowUp;
+  const filesShortTermFollowUp = contextHints.filesShortTermFollowUp;
+  const diagnosticsShortTermFollowUp = contextHints.diagnosticsShortTermFollowUp;
+  const voiceShortTermFollowUp = contextHints.voiceShortTermFollowUp;
+  const ttsShortTermFollowUp = contextHints.ttsShortTermFollowUp;
 
   let runtimeTools = null;
   let availableTools = [];
@@ -414,26 +479,67 @@ async function handleInputCore(text, opts = {}) {
     executionPolicy,
     latencyTelemetry,
   };
-  const shouldRouteToSpotify = isSpotifyDirectIntent(text) || spotifyShortTermFollowUp;
-  const shouldRouteToYouTube =
-    !shouldRouteToSpotify &&
-    (isYouTubeDirectIntent(text) || youtubeShortTermFollowUp);
+  const routeDecisions = buildOperatorRouteDecisions({
+    text,
+    spotifyShortTermFollowUp,
+    youtubeShortTermFollowUp,
+    polymarketShortTermFollowUp,
+    coinbaseShortTermFollowUp,
+    gmailShortTermFollowUp,
+    telegramShortTermFollowUp,
+    discordShortTermFollowUp,
+    calendarShortTermFollowUp,
+    remindersShortTermFollowUp,
+    webResearchShortTermFollowUp,
+    cryptoShortTermFollowUp,
+    marketShortTermFollowUp,
+    filesShortTermFollowUp,
+    diagnosticsShortTermFollowUp,
+    voiceShortTermFollowUp,
+    ttsShortTermFollowUp,
+    isSpotifyDirectIntent,
+    isYouTubeDirectIntent,
+    isPolymarketDirectIntent,
+    isCoinbaseDirectIntent,
+    isGmailDirectIntent,
+    isTelegramDirectIntent,
+    isDiscordDirectIntent,
+    isCalendarDirectIntent,
+    isReminderDirectIntent,
+    isWebResearchDirectIntent,
+    isCryptoDirectIntent,
+    isMarketDirectIntent,
+    isFilesDirectIntent,
+    isDiagnosticsDirectIntent,
+    isVoiceDirectIntent,
+    isTtsDirectIntent,
+  });
+  const shouldRouteToSpotify = routeDecisions.shouldRouteToSpotify;
+  const shouldRouteToYouTube = routeDecisions.shouldRouteToYouTube;
+  const shouldRouteToPolymarket = routeDecisions.shouldRouteToPolymarket;
+  const shouldRouteToCoinbase = routeDecisions.shouldRouteToCoinbase;
+  const shouldRouteToGmail = routeDecisions.shouldRouteToGmail;
+  const shouldRouteToTelegram = routeDecisions.shouldRouteToTelegram;
+  const shouldRouteToDiscord = routeDecisions.shouldRouteToDiscord;
+  const shouldRouteToCalendar = routeDecisions.shouldRouteToCalendar;
+  const shouldRouteToReminders = routeDecisions.shouldRouteToReminders;
+  const shouldRouteToWebResearch = routeDecisions.shouldRouteToWebResearch;
+  const shouldRouteToCrypto = routeDecisions.shouldRouteToCrypto;
+  const shouldRouteToMarket = routeDecisions.shouldRouteToMarket;
+  const shouldRouteToFiles = routeDecisions.shouldRouteToFiles;
+  const shouldRouteToDiagnostics = routeDecisions.shouldRouteToDiagnostics;
+  const shouldRouteToVoice = routeDecisions.shouldRouteToVoice;
+  const shouldRouteToTts = routeDecisions.shouldRouteToTts;
 
-  return await routeOperatorDispatch({
+  return await routeOperatorDispatch(buildOperatorDispatchInput({
     text,
     ctx,
     llmCtx,
     requestHints,
-    shouldRouteToSpotify,
-    spotifyShortTermFollowUp,
-    spotifyPolicy,
-    spotifyShortTermContext,
-    spotifyShortTermContextSnapshot,
-    shouldRouteToYouTube,
-    youtubeShortTermFollowUp,
-    youtubePolicy,
-    youtubeShortTermContext,
-    youtubeShortTermContextSnapshot,
+    routeDecisions,
+    contextHints,
+    lanePolicies,
+    operatorLaneSnapshots,
     userContextId,
     conversationId,
     sessionKey,
@@ -443,7 +549,7 @@ async function handleInputCore(text, opts = {}) {
     handleYouTube,
     executeChatRequest,
     upsertShortTermContextState,
-  });
+  }));
 }
 
 export async function handleInput(text, opts = {}) {

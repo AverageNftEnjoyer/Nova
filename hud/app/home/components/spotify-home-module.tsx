@@ -90,6 +90,8 @@ export function SpotifyHomeModule({
   const [repeatTrack, setRepeatTrack] = useState(false)
   const [seekDragPct, setSeekDragPct] = useState<number | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
+  const moduleInnerRef = useRef<HTMLDivElement>(null)
+  const [moduleInnerSize, setModuleInnerSize] = useState({ width: 0, height: 0 })
   const [currentArtUrl, setCurrentArtUrl] = useState(() => nowPlaying?.albumArtUrl || "")
   const [pendingArtUrl, setPendingArtUrl] = useState<string | null>(null)
   const [pendingArtVisible, setPendingArtVisible] = useState(false)
@@ -342,6 +344,23 @@ export function SpotifyHomeModule({
     }
   }, [])
 
+  useEffect(() => {
+    const node = moduleInnerRef.current
+    if (!node || typeof ResizeObserver === "undefined") return
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      const nextWidth = Math.max(0, Math.round(entry.contentRect.width))
+      const nextHeight = Math.max(0, Math.round(entry.contentRect.height))
+      setModuleInnerSize((prev) => {
+        if (prev.width === nextWidth && prev.height === nextHeight) return prev
+        return { width: nextWidth, height: nextHeight }
+      })
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
   const pctFromEvent = useCallback((e: React.MouseEvent | MouseEvent): number => {
     const bar = progressBarRef.current
     if (!bar) return 0
@@ -371,6 +390,20 @@ export function SpotifyHomeModule({
   const artistName = nowPlaying?.artistName || (connected ? "Start playback on a Spotify device." : "Connect Spotify in Integrations.")
   const albumArtUrl = currentArtUrl || pendingArtUrl || ""
   const isDeviceUnavailable = Boolean(error && /device|playback device/i.test(error))
+  const isCompactUi = moduleInnerSize.width > 0 && moduleInnerSize.height > 0
+    ? moduleInnerSize.width <= 290 || moduleInnerSize.height <= 255
+    : false
+  const isTimeoutError = Boolean(error && /timed out/i.test(error))
+  const albumArtSizePx = useMemo(() => {
+    const width = moduleInnerSize.width || 320
+    const height = moduleInnerSize.height || 260
+    const minSize = isCompactUi ? 104 : 128
+    const maxSize = isCompactUi ? 154 : 188
+    const reservedHeight = isCompactUi ? 118 : 128
+    const byHeight = Math.max(minSize, height - reservedHeight)
+    const byWidth = Math.floor(width * (isCompactUi ? 0.56 : 0.62))
+    return Math.max(minSize, Math.min(maxSize, Math.min(byHeight, byWidth)))
+  }, [isCompactUi, moduleInnerSize.height, moduleInnerSize.width])
 
   const handlePlayPause = useCallback(() => {
     onTogglePlayPause()
@@ -388,7 +421,23 @@ export function SpotifyHomeModule({
         className="relative flex h-full min-h-0 w-full flex-col rounded-[inherit] transition-all duration-700"
         style={ambientShellStyle}
       >
-        <div className="relative z-10 flex h-full min-h-0 flex-col px-2.5 pt-2.5 pb-2.5">
+        <div
+          ref={moduleInnerRef}
+          className={cn(
+            "relative z-10 flex h-full min-h-0 flex-col",
+            isCompactUi ? "px-2 pt-2 pb-2" : "px-2.5 pt-2.5 pb-2.5",
+          )}
+        >
+          {connected && isTimeoutError ? (
+            <div
+              className={cn(
+                "pointer-events-none absolute right-2 top-2 z-20 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                isLight ? "bg-[#edf3fb]/90 text-s-70" : "bg-black/35 text-slate-300",
+              )}
+            >
+              Reconnecting Spotify...
+            </div>
+          ) : null}
           {!connected ? (
             <div className="flex items-center justify-between">
               <div className="flex min-w-0 items-center gap-2">
@@ -411,17 +460,25 @@ export function SpotifyHomeModule({
 
           {connected ? (
             <>
-              <div className="flex items-center h-4">
+              <div className={cn("flex min-h-0 flex-1 flex-col", isCompactUi ? "gap-1" : "gap-1.5")}>
+              <div className={cn("flex items-center", isCompactUi ? "h-3.5" : "h-4")}>
                 <span className="inline-flex items-center justify-center text-accent">
                   <EqualizerBars
                     isPlaying={nowPlayingState}
-                    className="h-4"
+                    className={isCompactUi ? "h-3.5" : "h-4"}
                     barStyle={{ "--eq-bar-color": "#f8fafc" } as CSSProperties}
                   />
                 </span>
               </div>
               <div className="flex shrink-0 flex-col">
-                <div className="relative h-[7.5rem] w-[7.5rem] shrink-0 self-center">
+                <div className={cn("min-w-0", isCompactUi ? "mb-1 mt-0.5" : "mb-1.5 mt-0.5")}>
+                  <p className={cn(isCompactUi ? "truncate text-xs font-semibold leading-tight" : "truncate text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{trackTitle}</p>
+                  <p className={cn(isCompactUi ? "mt-0.5 truncate text-[11px]" : "mt-0.5 truncate text-xs", isLight ? "text-s-60" : "text-slate-400")}>{artistName}</p>
+                </div>
+                <div
+                  className="relative shrink-0 self-center"
+                  style={{ width: `${albumArtSizePx}px`, height: `${albumArtSizePx}px` }}
+                >
                   {/* Render glow only while actively playing */}
                   {nowPlayingState ? (
                     <div className={cn("pointer-events-none absolute -inset-5 -z-10 overflow-visible", glowVariantClass)}>
@@ -482,7 +539,12 @@ export function SpotifyHomeModule({
                       />
                     </div>
                   ) : null}
-                  <div className={cn("relative h-full w-full overflow-hidden rounded-xl border", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25")}>
+                  <div
+                    className={cn(
+                      "relative h-full w-full overflow-hidden rounded-xl border transition-transform duration-300 will-change-transform hover:scale-[1.04]",
+                      isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25",
+                    )}
+                  >
                     {albumArtUrl ? (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -523,18 +585,14 @@ export function SpotifyHomeModule({
                       </>
                     ) : (
                       <div className="flex h-full w-full items-center justify-center text-slate-300">
-                        <SpotifyIcon className="h-9 w-9" />
+                        <SpotifyIcon className={isCompactUi ? "h-7 w-7" : "h-9 w-9"} />
                       </div>
                     )}
                   </div>
                 </div>
-                <div className="mt-1.5 min-w-0">
-                  <p className={cn("truncate text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{trackTitle}</p>
-                  <p className={cn("mt-0.5 truncate text-xs", isLight ? "text-s-60" : "text-slate-400")}>{artistName}</p>
-                </div>
               </div>
 
-              <div className="mt-1.5">
+              <div className={cn(isCompactUi ? "mt-2" : "mt-2.5")}>
                 {/* Seek bar — drag anywhere to jump */}
                 <div
                   ref={progressBarRef}
@@ -545,7 +603,8 @@ export function SpotifyHomeModule({
                   aria-valuemax={100}
                   onMouseDown={handleSeekMouseDown}
                   className={cn(
-                    "group relative h-1.5 rounded-full border cursor-pointer select-none transition-transform duration-100",
+                    "group relative rounded-full border cursor-pointer select-none transition-transform duration-100",
+                    isCompactUi ? "h-1.25" : "h-1.5",
                     isLight ? "border-[#d5dce8] bg-[#edf3fb]" : "border-white/10 bg-white/10",
                     seekDragPct !== null ? "scale-y-125" : "hover:scale-y-125",
                   )}
@@ -560,24 +619,25 @@ export function SpotifyHomeModule({
                   {/* Thumb — visible on hover/drag */}
                   <div
                     className={cn(
-                      "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-2.5 w-2.5 rounded-full bg-white shadow transition-opacity duration-100",
+                      "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full bg-white shadow transition-opacity duration-100",
+                      isCompactUi ? "h-2 w-2" : "h-2.5 w-2.5",
                       seekDragPct !== null ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                     )}
                     style={{ left: `${seekDragPct !== null ? seekDragPct * 100 : progress}%` }}
                   />
                 </div>
-                <div className={cn("mt-1 flex items-center justify-between text-[10px] tabular-nums", isLight ? "text-s-60" : "text-slate-300")}>
+                <div className={cn(isCompactUi ? "mt-1 flex items-center justify-between text-[9px] tabular-nums" : "mt-1 flex items-center justify-between text-[10px] tabular-nums", isLight ? "text-s-60" : "text-slate-300")}>
                   <span>{formatTimeFromMs(seekDragPct !== null ? Math.floor(seekDragPct * (nowPlaying?.durationMs || 0)) : displayProgressMs)}</span>
                   <span>{formatTimeFromMs(nowPlaying?.durationMs || 0)}</span>
                 </div>
               </div>
 
-              <div className="mt-1 grid w-full grid-cols-[1fr_auto_1fr] items-center">
+              <div className={cn("grid w-full grid-cols-[1fr_auto_1fr] items-center", isCompactUi ? "-mt-1.5" : "-mt-1")}>
                 <button
                   onClick={onPlaySmart}
                   disabled={Boolean(busyAction)}
                   className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center transition-colors",
+                    isCompactUi ? "inline-flex h-6 w-6 items-center justify-center transition-colors" : "inline-flex h-7 w-7 items-center justify-center transition-colors",
                     isLight ? "text-s-60 hover:text-s-90" : "text-slate-300 hover:text-slate-100",
                     busyAction ? "opacity-70" : "",
                   )}
@@ -585,26 +645,26 @@ export function SpotifyHomeModule({
                   aria-label="Play from favorite playlist"
                   title="Play from favorite playlist"
                 >
-                  <Shuffle className="h-3.5 w-3.5" />
+                  <Shuffle className={isCompactUi ? "h-3 w-3" : "h-3.5 w-3.5"} />
                 </button>
-                <div className="flex items-center gap-1">
+                <div className={cn("flex items-center", isCompactUi ? "gap-0.5" : "gap-1")}>
                   <button
                     onClick={onPrevious}
                     disabled={Boolean(busyAction)}
                     className={cn(
-                      "inline-flex h-7 w-7 items-center justify-center transition-colors",
+                      isCompactUi ? "inline-flex h-6 w-6 items-center justify-center transition-colors" : "inline-flex h-7 w-7 items-center justify-center transition-colors",
                       isLight ? "text-s-60 hover:text-s-90" : "text-slate-300 hover:text-slate-100",
                       busyAction ? "opacity-70" : "",
                     )}
                     aria-label="Previous track"
                   >
-                    <SkipBack className="h-4 w-4" />
+                    <SkipBack className={isCompactUi ? "h-3.5 w-3.5" : "h-4 w-4"} />
                   </button>
                   <button
                     onClick={handlePlayPause}
                     disabled={Boolean(busyAction) && !isDeviceUnavailable}
                     className={cn(
-                      "inline-flex h-8 w-8 items-center justify-center rounded-full text-black hover:scale-[1.03] active:scale-[0.98]",
+                      isCompactUi ? "inline-flex h-8 w-8 -translate-y-0.5 items-center justify-center rounded-full text-black hover:scale-[1.03] active:scale-[0.98]" : "inline-flex h-9 w-9 -translate-y-0.5 items-center justify-center rounded-full text-black hover:scale-[1.03] active:scale-[0.98]",
                       busyAction && !isDeviceUnavailable ? "opacity-70" : "",
                     )}
                     style={{
@@ -617,14 +677,14 @@ export function SpotifyHomeModule({
                     title={isDeviceUnavailable ? "Launch Spotify" : undefined}
                   >
                     {isDeviceUnavailable ? (
-                      <SpotifyIcon className="h-4 w-4" />
+                      <SpotifyIcon className={isCompactUi ? "h-3.5 w-3.5" : "h-4 w-4"} />
                     ) : nowPlayingState ? (
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className={isCompactUi ? "h-4 w-4 fill-current" : "h-5 w-5 fill-current"} aria-hidden="true">
                         <rect x="6" y="5" width="4.5" height="14" rx="1" />
                         <rect x="13.5" y="5" width="4.5" height="14" rx="1" />
                       </svg>
                     ) : (
-                      <svg viewBox="0 0 24 24" className="h-5 w-5 translate-x-px fill-current" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" className={isCompactUi ? "h-4 w-4 translate-x-px fill-current" : "h-5 w-5 translate-x-px fill-current"} aria-hidden="true">
                         <path d="M8 5.5v13l10-6.5z" />
                       </svg>
                     )}
@@ -633,13 +693,13 @@ export function SpotifyHomeModule({
                     onClick={onNext}
                     disabled={Boolean(busyAction)}
                     className={cn(
-                      "inline-flex h-7 w-7 items-center justify-center transition-colors",
+                      isCompactUi ? "inline-flex h-6 w-6 items-center justify-center transition-colors" : "inline-flex h-7 w-7 items-center justify-center transition-colors",
                       isLight ? "text-s-60 hover:text-s-90" : "text-slate-300 hover:text-slate-100",
                       busyAction ? "opacity-70" : "",
                     )}
                     aria-label="Next track"
                   >
-                    <SkipForward className="h-4 w-4" />
+                    <SkipForward className={isCompactUi ? "h-3.5 w-3.5" : "h-4 w-4"} />
                   </button>
                 </div>
                 <button
@@ -647,7 +707,7 @@ export function SpotifyHomeModule({
                   disabled={!connected}
                   style={{ justifySelf: "end" }}
                   className={cn(
-                    "inline-flex h-7 w-7 items-center justify-center transition-colors",
+                    isCompactUi ? "inline-flex h-6 w-6 items-center justify-center transition-colors" : "inline-flex h-7 w-7 items-center justify-center transition-colors",
                     repeatTrack
                       ? "text-accent"
                       : isLight ? "text-s-60 hover:text-s-90" : "text-slate-300 hover:text-slate-100",
@@ -656,8 +716,9 @@ export function SpotifyHomeModule({
                   aria-label={repeatTrack ? "Disable repeat" : "Repeat song"}
                   title={repeatTrack ? "Repeat: on" : "Repeat: off"}
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
+                  <RefreshCw className={isCompactUi ? "h-3 w-3" : "h-3.5 w-3.5"} />
                 </button>
+              </div>
               </div>
             </>
           ) : (
@@ -684,7 +745,7 @@ export function SpotifyHomeModule({
                   Launch
                 </a>
               </div>
-            ) : (
+            ) : isTimeoutError ? null : (
               <p className={cn("mt-1 truncate text-[11px]", isLight ? "text-rose-700" : "text-rose-300")}>
                 {error}
               </p>

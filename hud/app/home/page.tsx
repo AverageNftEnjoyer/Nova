@@ -1,5 +1,5 @@
-import { HomeMainScreen } from "./components/home-main-screen"
+import { HomeMainScreenClient } from "./components/home-main-screen-client"
 
 export default function HomePage() {
-  return <HomeMainScreen />
+  return <HomeMainScreenClient />
 }
