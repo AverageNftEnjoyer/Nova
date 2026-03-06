@@ -10,16 +10,18 @@ export async function handleWeatherConfirmationRouting(input = {}) {
   const {
     text,
     sessionKey,
+    userContextId,
+    conversationId,
     ctx,
     sendDirectAssistantReply,
     runWeatherLookup: runWeatherLookupOverride = null,
   } = input;
 
-  const pendingWeather = readPendingWeatherConfirmation(sessionKey);
+  const pendingWeather = readPendingWeatherConfirmation({ userContextId, conversationId });
   if (!pendingWeather) return null;
 
   if (isWeatherConfirmationRejected(text)) {
-    clearPendingWeatherConfirmation(sessionKey);
+    clearPendingWeatherConfirmation({ userContextId, conversationId });
     const reply = await sendDirectAssistantReply(
       text,
       "Okay. I will not run that location. Share the correct city and I will fetch weather immediately.",
@@ -37,7 +39,7 @@ export async function handleWeatherConfirmationRouting(input = {}) {
     const runWeatherLookupRef = typeof runWeatherLookupOverride === "function"
       ? runWeatherLookupOverride
       : runWeatherLookup;
-    clearPendingWeatherConfirmation(sessionKey);
+    clearPendingWeatherConfirmation({ userContextId, conversationId });
     const confirmedWeatherResult = await runWeatherLookupRef({
       text: pendingWeather.prompt,
       forcedLocation: pendingWeather.suggestedLocation,
@@ -55,6 +57,6 @@ export async function handleWeatherConfirmationRouting(input = {}) {
 
   // If the user moved on or asked a fresh weather question, do not trap the
   // session in a yes/no loop. Clear stale confirmation and continue routing.
-  clearPendingWeatherConfirmation(sessionKey);
+  clearPendingWeatherConfirmation({ userContextId, conversationId });
   return null;
 }

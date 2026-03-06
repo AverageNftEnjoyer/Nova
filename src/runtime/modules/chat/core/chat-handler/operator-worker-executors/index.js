@@ -144,6 +144,13 @@ const EXECUTOR_HINT_STRATEGIES = Object.freeze({
       reasoningMode: "tts-runtime-control",
     },
   },
+  shutdown: {
+    fastLaneSimpleChat: false,
+    worker: {
+      reasoningMode: "system-shutdown-control",
+      requiresScopedContext: true,
+    },
+  },
 });
 
 function resolveExecutorKindForLane(lane = {}) {
@@ -307,9 +314,10 @@ const EXECUTOR_KIND_HANDLERS = {
     const runMemoryWorker = typeof memoryWorker === "function" ? memoryWorker : handleMemoryWorker;
     return async () => runMemoryWorker(text, ctx);
   },
-  shutdown: ({ text, ctx, shutdownWorker }) => {
+  shutdown: ({ text, ctx, llmCtx, requestHints, lane, executorKind, shutdownWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
     const runShutdownWorker = typeof shutdownWorker === "function" ? shutdownWorker : handleShutdownWorker;
-    return async () => runShutdownWorker(text, ctx);
+    return async () => runShutdownWorker(text, ctx, llmCtx, laneRequestHints);
   },
   diagnostics: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
     const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);

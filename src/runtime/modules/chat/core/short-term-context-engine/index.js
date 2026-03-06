@@ -10,19 +10,12 @@ import {
   upsertPersistentFollowUpState,
 } from "../../../services/follow-up-state/index.js";
 
-const stateByScopedDomain = new Map();
-
 function normalizeId(value, fallback = "") {
   return String(value || "").trim().toLowerCase() || fallback;
 }
 
 function usesPersistentReminderState(domainId = "") {
   return normalizeId(domainId) === "reminders";
-}
-
-function usesPersistentFollowUpState(domainId = "") {
-  const normalized = normalizeId(domainId);
-  return normalized === "calendar" || normalized === "voice" || normalized === "tts";
 }
 
 export function buildShortTermContextKey({ userContextId, conversationId, domainId }) {
@@ -34,17 +27,7 @@ export function buildShortTermContextKey({ userContextId, conversationId, domain
 }
 
 export function pruneShortTermContextState(nowMs = Date.now()) {
-  for (const [key, state] of stateByScopedDomain.entries()) {
-    if (!state || !Number.isFinite(Number(state.ts))) {
-      stateByScopedDomain.delete(key);
-      continue;
-    }
-    const policy = getShortTermContextPolicy(state.domainId);
-    const ttlMs = Math.max(1000, Number(policy.ttlMs || 120000));
-    if (nowMs - Number(state.ts || 0) > ttlMs) {
-      stateByScopedDomain.delete(key);
-    }
-  }
+  return nowMs;
 }
 
 export function readShortTermContextState({ userContextId, conversationId, domainId }) {
@@ -55,18 +38,11 @@ export function readShortTermContextState({ userContextId, conversationId, domai
       domainId,
     });
   }
-  if (usesPersistentFollowUpState(domainId)) {
-    return readPersistentFollowUpState({
-      userContextId,
-      conversationId,
-      domainId,
-    });
-  }
-  pruneShortTermContextState();
-  const key = buildShortTermContextKey({ userContextId, conversationId, domainId });
-  if (!key) return null;
-  const value = stateByScopedDomain.get(key);
-  return value ? { ...value, slots: { ...(value.slots || {}) } } : null;
+  return readPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId,
+  });
 }
 
 export function clearShortTermContextState({ userContextId, conversationId, domainId }) {
@@ -77,16 +53,11 @@ export function clearShortTermContextState({ userContextId, conversationId, doma
       domainId,
     });
   }
-  if (usesPersistentFollowUpState(domainId)) {
-    return clearPersistentFollowUpState({
-      userContextId,
-      conversationId,
-      domainId,
-    });
-  }
-  const key = buildShortTermContextKey({ userContextId, conversationId, domainId });
-  if (!key) return false;
-  return stateByScopedDomain.delete(key);
+  return clearPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId,
+  });
 }
 
 export function upsertShortTermContextState({
@@ -107,35 +78,22 @@ export function upsertShortTermContextState({
       ttlMs: Number(policy.ttlMs || 120000),
     });
   }
-  if (usesPersistentFollowUpState(domainId)) {
-    return upsertPersistentFollowUpState({
-      userContextId,
-      conversationId,
-      domainId: policy.domainId,
-      topicAffinityId,
-      slots,
-      ttlMs: Number(policy.ttlMs || 120000),
-    });
-  }
-  const key = buildShortTermContextKey({ userContextId, conversationId, domainId });
-  if (!key) return null;
-  const existing = stateByScopedDomain.get(key) || {};
-  const resolvedTopicAffinityId = String(
-    topicAffinityId || policy.resolveTopicAffinityId?.("", existing) || existing.topicAffinityId || "",
-  ).trim();
-  const next = {
+  const existing = readPersistentFollowUpState({
+    userContextId,
+    conversationId,
     domainId: policy.domainId,
-    userContextId: normalizeId(userContextId),
-    conversationId: normalizeId(conversationId, "_default"),
+  });
+  const resolvedTopicAffinityId = String(
+    topicAffinityId || policy.resolveTopicAffinityId?.("", existing || {}) || existing?.topicAffinityId || "",
+  ).trim();
+  return upsertPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: policy.domainId,
     topicAffinityId: resolvedTopicAffinityId,
-    slots: {
-      ...(existing.slots || {}),
-      ...(slots && typeof slots === "object" ? slots : {}),
-    },
-    ts: Date.now(),
-  };
-  stateByScopedDomain.set(key, next);
-  return { ...next, slots: { ...next.slots } };
+    slots,
+    ttlMs: Number(policy.ttlMs || 120000),
+  });
 }
 
 export function applyShortTermContextTurnClassification({ userContextId, conversationId, domainId, text }) {

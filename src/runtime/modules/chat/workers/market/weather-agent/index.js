@@ -122,17 +122,22 @@ export async function handleWeatherWorker(text, ctx, llmCtx = {}) {
     const weatherResult = await runWeatherLookup({ text });
     const suggestedLocation = String(weatherResult?.suggestedLocation || "").trim();
     if (weatherResult?.needsConfirmation && suggestedLocation) {
-      writePendingWeatherConfirmation(sessionKey, text, suggestedLocation);
+      writePendingWeatherConfirmation({
+        userContextId,
+        conversationId,
+        prompt: text,
+        suggestedLocation,
+      });
       broadcastThinkingStatus("Confirming location", userContextId);
     } else {
-      clearPendingWeatherConfirmation(sessionKey);
+      clearPendingWeatherConfirmation({ userContextId, conversationId });
       broadcastThinkingStatus("Summarizing weather", userContextId);
     }
     summary.reply = await emitAssistantReply(
       String(weatherResult?.reply || "I couldn't fetch weather right now. Please retry.").trim(),
     );
   } catch (error) {
-    clearPendingWeatherConfirmation(sessionKey);
+    clearPendingWeatherConfirmation({ userContextId, conversationId });
     summary.ok = false;
     summary.error = String(error instanceof Error ? error.message : describeUnknownError(error));
     summary.errorMessage = summary.error;

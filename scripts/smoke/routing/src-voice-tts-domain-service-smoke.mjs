@@ -125,7 +125,7 @@ await run("VOICE-TTS-DOMAIN-2 tts commands set voice and speak without generic d
   );
   const stop = await runTtsDomainService(
     {
-      text: "stop tts",
+      text: "stop reading aloud",
       ctx,
       executeChatRequest: async () => {
         genericCalled = true;
@@ -201,6 +201,51 @@ await run("VOICE-TTS-DOMAIN-3 unsupported voice and tts prompts stay on-lane wit
   assert.equal(tts.responseRoute, "tts");
   assert.equal(String(tts.code || ""), "tts.unsupported_command");
   assert.equal(tts.reply.includes("TTS can"), true);
+  assert.equal(genericCalled, false);
+});
+
+await run("VOICE-TTS-DOMAIN-4 tts speak failures return explicit scoped errors", async () => {
+  let genericCalled = false;
+  const providerAdapter = {
+    id: "tts-failure-adapter",
+    getScopedState: () => ({
+      userContextId: "tts-user",
+      ttsVoice: "default",
+      voiceEnabled: true,
+      muted: false,
+      assistantName: "",
+    }),
+    async speakText() {
+      throw new Error("speaker unavailable");
+    },
+    stopSpeaking() {},
+    updateVoiceState() {
+      throw new Error("unexpected update");
+    },
+  };
+  const ctx = {
+    userContextId: "tts-user",
+    conversationId: "tts-thread",
+    sessionKey: "agent:nova:hud:user:tts-user:dm:tts-thread",
+  };
+
+  const out = await runTtsDomainService(
+    {
+      text: "read this aloud: Ship the scoped audio fix",
+      ctx,
+      executeChatRequest: async () => {
+        genericCalled = true;
+        return { ok: true, route: "chat", responseRoute: "chat", reply: "fallback" };
+      },
+    },
+    { providerAdapter },
+  );
+
+  assert.equal(out.ok, false);
+  assert.equal(out.route, "tts");
+  assert.equal(out.responseRoute, "tts");
+  assert.equal(String(out.code || ""), "tts.speak_failed");
+  assert.equal(out.reply.includes("couldn't start TTS playback"), true);
   assert.equal(genericCalled, false);
 });
 

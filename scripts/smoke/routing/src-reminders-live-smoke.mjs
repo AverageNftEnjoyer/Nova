@@ -75,6 +75,10 @@ const configModule = await import(
 );
 const { handleInput } = chatHandlerModule;
 const { sessionRuntime } = configModule;
+const remindersStateModule = await import(
+  pathToFileURL(path.join(workspaceRoot, "src/runtime/modules/services/reminders/follow-up-state/index.js")).href,
+);
+const { upsertReminderFollowUpState } = remindersStateModule;
 
 async function runUserReminderFlow({ userContextId, conversationId, capturedHints }) {
   const sessionKeyHint = `agent:nova:hud:user:${userContextId}:dm:${conversationId}`;
@@ -137,6 +141,40 @@ async function runUserReminderFlow({ userContextId, conversationId, capturedHint
       sessionKeyHint,
       runtimeSelectionOverride,
       remindersWorker,
+    });
+    assert.equal(String(out?.route || ""), "reminder", "expected reminder route");
+    assert.equal(String(out?.responseRoute || ""), "reminder", "expected reminder responseRoute");
+    assert.equal(String(out?.sessionKey || ""), sessionKeyHint, "session key drifted");
+    assert.equal(String(out?.reply || "").trim().length > 0, true, "empty reply");
+  }
+
+  return sessionKeyHint;
+}
+
+async function runRealReminderFlow({ userContextId, conversationId, prompts }) {
+  const sessionKeyHint = `agent:nova:hud:user:${userContextId}:dm:${conversationId}`;
+  const runtimeSelectionOverride = {
+    activeChatRuntime: {
+      provider: "smoke-test",
+      connected: true,
+      apiKey: "smoke-test-key",
+      model: "smoke-test-model",
+      routeReason: "smoke-override",
+      rankedCandidates: ["smoke-test"],
+    },
+    activeOpenAiCompatibleClient: null,
+    selectedChatModel: "smoke-test-model",
+  };
+
+  for (const prompt of prompts) {
+    const out = await handleInput(prompt, {
+      source: "hud",
+      sender: "hud-user",
+      voice: false,
+      userContextId,
+      conversationId,
+      sessionKeyHint,
+      runtimeSelectionOverride,
     });
     assert.equal(String(out?.route || ""), "reminder", "expected reminder route");
     assert.equal(String(out?.responseRoute || ""), "reminder", "expected reminder responseRoute");
@@ -216,6 +254,52 @@ await run("REM-LIVE-2 reminders artifacts and persisted follow-up state stay use
 
   console.log(`Reminder artifact root A: ${rootA}`);
   console.log(`Reminder artifact root B: ${rootB}`);
+});
+
+await run("REM-LIVE-3 real reminders worker writes scoped transcripts and logs", async () => {
+  const userContextId = `smoke-reminders-real-${Date.now()}`;
+  const conversationId = "reminders-real-thread";
+  upsertReminderFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: "reminders",
+    topicAffinityId: "reminder_create",
+    slots: {
+      reminderId: "rem-live-1",
+      reminderText: "review the report at 5pm",
+      lastAction: "create",
+    },
+    ttlMs: 180000,
+  });
+  const sessionKeyHint = await runRealReminderFlow({
+    userContextId,
+    conversationId,
+    prompts: [
+      "reminder status",
+      "reminder status",
+    ],
+  });
+
+  const root = resolveScopedRoot(workspaceRoot, userContextId, sessionKeyHint);
+  const sessions = readJson(path.join(root, "state", "sessions.json"), {});
+  const sessionId = String(sessions?.[sessionKeyHint]?.sessionId || "").trim();
+  assert.equal(sessionId.length > 0, true, "real reminder session missing");
+
+  const transcriptPath = path.join(root, "transcripts", `${sessionId}.jsonl`);
+  assert.equal(fs.existsSync(transcriptPath), true, "real reminder transcript missing");
+  const transcriptLines = readJsonl(transcriptPath);
+  assert.equal(
+    transcriptLines.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyHint),
+    true,
+    "real reminder transcript missing scoped session key",
+  );
+
+  const convoLines = readJsonl(path.join(root, "logs", "conversation-dev.jsonl"))
+    .filter((line) => String(line?.sessionKey || "") === sessionKeyHint);
+  assert.equal(convoLines.some((line) => String(line?.route || "") === "reminder"), true, "real reminder log missing reminder route");
+
+  console.log(`Reminder real-worker artifact root: ${root}`);
+  console.log(`Reminder real-worker transcript: ${transcriptPath}`);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

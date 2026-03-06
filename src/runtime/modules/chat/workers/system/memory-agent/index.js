@@ -11,6 +11,7 @@ import {
 } from "../../../../../../memory/runtime-compat/index.js";
 import { describeUnknownError } from "../../../../llm/providers/index.js";
 import { sendDirectAssistantReply } from "../../shared/direct-assistant-reply/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 export async function handleMemoryWorker(text, ctx) {
   const { source, userContextId, conversationId } = ctx;
@@ -110,5 +111,13 @@ export async function handleMemoryWorker(text, ctx) {
     summary.latencyMs = Date.now() - startedAt;
   }
 
-  return summary;
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "memory_update",
+    fallbackResponseRoute: "memory_update",
+    fallbackProvider: "",
+    fallbackLatencyMs: summary.latencyMs,
+    userContextId: String(userContextId || ""),
+    conversationId: String(conversationId || ""),
+    sessionKey: String(ctx?.sessionKey || ""),
+  });
 }

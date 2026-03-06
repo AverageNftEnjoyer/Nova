@@ -217,10 +217,25 @@ await run("P24-C5 coinbase route delegates through org-chart worker and updates 
 await run("P24-C6 gmail route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let genericCalled = false;
   const out = await routeOperatorDispatch({
     text: "check my gmail inbox",
     ctx: {},
-    llmCtx: {},
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return {
+            content: JSON.stringify({
+              ok: true,
+              count: 1,
+              messages: [{ id: "msg-1", from: "ceo@example.com", subject: "Inbox loaded" }],
+            }),
+          };
+        },
+      },
+      availableTools: [{ name: "gmail_list_messages" }],
+      activeChatRuntime: { provider: "claude" },
+    },
     requestHints: {},
     shouldRouteToSpotify: false,
     shouldRouteToYouTube: false,
@@ -242,11 +257,15 @@ await run("P24-C6 gmail route delegates through org-chart worker and updates con
       return await payload.run();
     },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "Inbox loaded." }),
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "gmail", ok: true, reply: "Inbox loaded." };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "gmail");
   assert.equal(out?.ok, true);
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "gmail");
   assert.equal(contextUpdates.length, 1);
@@ -527,11 +546,20 @@ await run("P24-C10 reminders route delegates through org-chart worker and update
 await run("P24-C11 web research route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
-  let executeHints = null;
+  let genericCalled = false;
   const out = await routeOperatorDispatch({
     text: "research latest AI safety papers with citations",
     ctx: {},
-    llmCtx: {},
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return {
+            content: "[1] AI Safety Source\nhttps://example.com/safety\nSummary line.",
+          };
+        },
+      },
+      availableTools: [{ name: "web_search" }],
+    },
     requestHints: {},
     shouldRouteToSpotify: false,
     shouldRouteToYouTube: false,
@@ -558,23 +586,25 @@ await run("P24-C11 web research route delegates through org-chart worker and upd
       return await payload.run();
     },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      executeHints = hints;
-      return { route: "web_research", ok: true, reply: "Research summary ready." };
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
     },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "web_research");
   assert.equal(out?.ok, true);
+  assert.equal(out?.provider, "web_search");
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "web_research");
   assert.equal(contextUpdates.length, 1);
   assert.equal(contextUpdates[0]?.domainId, "web_research");
   assert.equal(contextUpdates[0]?.topicAffinityId, "web_research_citations");
   assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
-  assert.equal(executeHints?.operatorLane?.executorKind, "web_research");
-  assert.equal(executeHints?.forceWebSearchPreload, true);
-  assert.equal(executeHints?.forceWebFetchPreload, true);
+  assert.equal(out?.requestHints?.operatorLane?.executorKind, "web_research");
+  assert.equal(out?.requestHints?.forceWebSearchPreload, true);
+  assert.equal(out?.requestHints?.forceWebFetchPreload, true);
 });
 
 await run("P24-C12 crypto route delegates through org-chart worker and updates context", async () => {
@@ -804,10 +834,18 @@ await run("P24-C13b non-weather market route delegates through dedicated market 
 await run("P24-C14 files route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let genericCalled = false;
   const out = await routeOperatorDispatch({
     text: "list files in workspace",
     ctx: {},
-    llmCtx: {},
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return { content: "f README.md\nf package.json\nd src" };
+        },
+      },
+      availableTools: [{ name: "ls" }],
+    },
     requestHints: {},
     shouldRouteToSpotify: false,
     shouldRouteToYouTube: false,
@@ -837,11 +875,16 @@ await run("P24-C14 files route delegates through org-chart worker and updates co
       return await payload.run();
     },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "files", ok: true, reply: "Files listed." }),
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "files");
   assert.equal(out?.ok, true);
+  assert.equal(out?.provider, "tool_runtime");
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "files");
   assert.equal(contextUpdates.length, 1);
@@ -1029,11 +1072,24 @@ await run("P24-C18 default worker lanes receive operator lane request hints with
   const calls = [];
   const contextUpdates = [];
   const baseRequestHints = { fastLaneSimpleChat: false };
-  let executeHints = null;
   const out = await routeOperatorDispatch({
     text: "show gmail inbox",
     ctx: {},
-    llmCtx: {},
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return {
+            content: JSON.stringify({
+              ok: true,
+              count: 1,
+              messages: [{ id: "msg-1", from: "ceo@example.com", subject: "Gmail routed" }],
+            }),
+          };
+        },
+      },
+      availableTools: [{ name: "gmail_list_messages" }],
+      activeChatRuntime: { provider: "openai" },
+    },
     requestHints: baseRequestHints,
     shouldRouteToSpotify: false,
     shouldRouteToYouTube: false,
@@ -1064,17 +1120,14 @@ await run("P24-C18 default worker lanes receive operator lane request hints with
       return await payload.run();
     },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      executeHints = hints;
-      return { route: "gmail", ok: true, reply: "Gmail routed." };
-    },
+    executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "unexpected" }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "gmail");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "gmail");
-  assert.equal(executeHints?.operatorLane?.id, "gmail");
-  assert.equal(executeHints?.operatorLane?.domainId, "gmail");
+  assert.equal(out?.requestHints?.operatorLane?.id, "gmail");
+  assert.equal(out?.requestHints?.operatorLane?.domainId, "gmail");
   assert.equal("operatorLane" in baseRequestHints, false);
   assert.equal(contextUpdates.length, 1);
 });
@@ -1083,9 +1136,17 @@ await run("P24-C19 policy gate signal is forwarded with persisted approval grant
   const calls = [];
   let consumeCalls = 0;
   const out = await routeOperatorDispatch({
-    text: "forward this email",
+    text: "gmail status",
     ctx: {},
-    llmCtx: {},
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return { content: JSON.stringify({ ok: true, data: { connected: true, email: "user@example.com", scopes: [], missingScopes: [] } }) };
+        },
+      },
+      availableTools: [{ name: "gmail_capabilities" }],
+      activeChatRuntime: { provider: "claude" },
+    },
     requestHints: {
       enforcePolicyGate: true,
     },
@@ -1110,7 +1171,7 @@ await run("P24-C19 policy gate signal is forwarded with persisted approval grant
       calls.push(payload);
       return await payload.run();
     },
-    executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "ok" }),
+    executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "unexpected" }),
     upsertShortTermContextState: () => {},
   });
 

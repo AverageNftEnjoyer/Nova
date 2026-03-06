@@ -6,8 +6,13 @@ import {
   readShortTermContextState,
   upsertShortTermContextState,
 } from "../../../../core/short-term-context-engine/index.js";
+import {
+  clearPersistentFollowUpState,
+  readPersistentFollowUpState,
+  upsertPersistentFollowUpState,
+} from "../../../../../services/follow-up-state/index.js";
 
-const coinbaseFollowUpStateByConversation = new Map();
+const COINBASE_FOLLOW_UP_DOMAIN_ID = "coinbase_followup";
 
 export function getCoinbaseFollowUpKey(userContextId, conversationId) {
   const user = String(userContextId || "").trim().toLowerCase();
@@ -15,33 +20,52 @@ export function getCoinbaseFollowUpKey(userContextId, conversationId) {
   return `${user}::${convo}`;
 }
 
-function pruneCoinbaseFollowUpState() {
-  const now = Date.now();
-  for (const [key, entry] of coinbaseFollowUpStateByConversation.entries()) {
-    if (!entry || now - Number(entry.ts || 0) > COINBASE_FOLLOW_UP_TTL_MS) {
-      coinbaseFollowUpStateByConversation.delete(key);
-    }
-  }
+function parseCoinbaseFollowUpKey(key = "") {
+  const [userContextId = "", conversationId = "_default"] = String(key || "").trim().toLowerCase().split("::");
+  return { userContextId, conversationId };
 }
 
 export function readCoinbaseFollowUpState(key) {
-  pruneCoinbaseFollowUpState();
-  return coinbaseFollowUpStateByConversation.get(key) || null;
+  const { userContextId, conversationId } = parseCoinbaseFollowUpKey(key);
+  const record = readPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: COINBASE_FOLLOW_UP_DOMAIN_ID,
+  });
+  const errorCode = String(record?.slots?.errorCode || "").trim().toUpperCase();
+  if (!errorCode) return null;
+  return {
+    ts: Number(record?.ts || 0),
+    errorCode,
+    guidance: String(record?.slots?.guidance || "").trim(),
+    safeMessage: String(record?.slots?.safeMessage || "").trim(),
+  };
 }
 
 export function updateCoinbaseFollowUpState(key, payload) {
-  if (!key) return;
+  const { userContextId, conversationId } = parseCoinbaseFollowUpKey(key);
+  if (!userContextId) return;
   if (payload?.ok) {
-    coinbaseFollowUpStateByConversation.delete(key);
+    clearPersistentFollowUpState({
+      userContextId,
+      conversationId,
+      domainId: COINBASE_FOLLOW_UP_DOMAIN_ID,
+    });
     return;
   }
   const errorCode = String(payload?.errorCode || "").trim().toUpperCase();
   if (!errorCode) return;
-  coinbaseFollowUpStateByConversation.set(key, {
-    ts: Date.now(),
-    errorCode,
-    guidance: String(payload?.guidance || "").trim(),
-    safeMessage: String(payload?.safeMessage || "").trim(),
+  upsertPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: COINBASE_FOLLOW_UP_DOMAIN_ID,
+    topicAffinityId: COINBASE_FOLLOW_UP_DOMAIN_ID,
+    slots: {
+      errorCode,
+      guidance: String(payload?.guidance || "").trim(),
+      safeMessage: String(payload?.safeMessage || "").trim(),
+    },
+    ttlMs: COINBASE_FOLLOW_UP_TTL_MS,
   });
 }
 

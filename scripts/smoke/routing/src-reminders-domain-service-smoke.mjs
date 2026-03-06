@@ -113,7 +113,7 @@ await run("P34-C1 reminders service handles primary create/update/remove path wi
   assert.equal(delegatedCalls, 0);
 });
 
-await run("P34-C1b reminders service keeps delegated fallback for unknown reminder-adjacent prompts", async () => {
+await run("P34-C1b reminders service keeps unknown prompts on-lane without delegated fallback", async () => {
   let delegatedCalls = 0;
   const out = await runRemindersDomainService({
     text: "help me think through my priorities this afternoon",
@@ -145,8 +145,10 @@ await run("P34-C1b reminders service keeps delegated fallback for unknown remind
   assert.equal(out.ok, true);
   assert.equal(out.route, "reminder");
   assert.equal(out.responseRoute, "reminder");
-  assert.equal(String(out.reply || "").includes("Delegated"), true);
-  assert.equal(delegatedCalls, 1);
+  assert.equal(String(out.code || ""), "reminders.unsupported_prompt");
+  assert.equal(out.requestHints?.remindersUnsupportedPrompt, true);
+  assert.equal(String(out.reply || "").includes("I can create, update, remove, or show reminders"), true);
+  assert.equal(delegatedCalls, 0);
 });
 
 await run("P34-C2 shared short-term context engine persists reminder follow-up state across fresh module load", async () => {

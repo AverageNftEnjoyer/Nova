@@ -14,6 +14,7 @@ import { describeUnknownError, withTimeout } from "../../../../llm/providers/ind
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
 import { cacheRecentCryptoReport } from "../../../core/crypto-report-dedupe/index.js";
 import { runCryptoRequest } from "../crypto-service/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 const CRYPTO_TTS_TIMEOUT_MS = 10_000;
 
@@ -143,5 +144,13 @@ export async function handleCryptoWorker(text, ctx, llmCtx = {}) {
     summary.latencyMs = Date.now() - startedAt;
   }
 
-  return summary;
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "crypto",
+    fallbackResponseRoute: "crypto",
+    fallbackProvider: "",
+    fallbackLatencyMs: summary.latencyMs,
+    userContextId: String(userContextId || ""),
+    conversationId: String(conversationId || ""),
+    sessionKey: String(sessionKey || ""),
+  });
 }

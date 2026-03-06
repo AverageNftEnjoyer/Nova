@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.45 Alpha (2026-03-06): Platform-contract hardening + domain service extraction sweep
+ *     - Extracted additional runtime capabilities into dedicated domain services and provider adapters across missions, Gmail, diagnostics, files, shutdown, web research, and Coinbase integration paths.
+ *     - Expanded routing and live verification coverage with new platform-contract, domain-service, reminders, and voice/TTS smoke gates wired into the routing release chain.
+ *     - Tightened operator intent/routing behavior for TTS versus voice requests and removed stale mission-confirm imports while preserving scoped mission follow-up state by `userContextId` plus `conversationId`.
+ *     - Replaced delegated reminder fallback behavior with explicit lane-owned unsupported-action replies to keep reminder handling deterministic inside the reminders domain.
+ *
  * - V.44 Alpha (2026-03-06): Voice/TTS closure + release hardening sweep
  *     - Closed Voice and TTS lanes to 100% with user-scoped runtime audio state, lane-owned unsupported-command handling, and live worker-path validation.
  *     - Hardened HUD voice runtime propagation so scoped `speak` and `stopSpeaking` behavior stays bound to the active user context.
@@ -284,6 +290,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.44 Alpha"
+export const NOVA_VERSION = "V.45 Alpha"
 
 

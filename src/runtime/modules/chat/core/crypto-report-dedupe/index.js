@@ -1,42 +1,37 @@
+import {
+  readPersistentFollowUpState,
+  upsertPersistentFollowUpState,
+} from "../../../services/follow-up-state/index.js";
+
 const CRYPTO_REPORT_REPLAY_TTL_MS = Number.parseInt(
   process.env.NOVA_CRYPTO_REPORT_REPLAY_TTL_MS || "600000",
   10,
 );
 
-const recentCryptoReportByConversation = new Map();
-
-function buildScopedConversationKey(userContextId, conversationId) {
-  const user = String(userContextId || "").trim().toLowerCase();
-  const convo = String(conversationId || "").trim().toLowerCase() || "_default";
-  return `${user}::${convo}`;
-}
-
-function pruneRecentCryptoReportCache(nowMs = Date.now()) {
-  for (const [key, entry] of recentCryptoReportByConversation.entries()) {
-    if (!entry || nowMs - Number(entry.ts || 0) > CRYPTO_REPORT_REPLAY_TTL_MS) {
-      recentCryptoReportByConversation.delete(key);
-    }
-  }
-}
+const CRYPTO_REPORT_REPLAY_DOMAIN_ID = "crypto_report_replay";
 
 export function readRecentCryptoReport(userContextId, conversationId) {
-  const key = buildScopedConversationKey(userContextId, conversationId);
-  if (!key) return "";
-  pruneRecentCryptoReportCache();
-  const entry = recentCryptoReportByConversation.get(key);
-  const reply = String(entry?.reply || "").trim();
+  const record = readPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: CRYPTO_REPORT_REPLAY_DOMAIN_ID,
+  });
+  const reply = String(record?.slots?.reply || "").trim();
   return reply || "";
 }
 
 export function cacheRecentCryptoReport(userContextId, conversationId, reply) {
   const value = String(reply || "").trim();
   if (!value) return;
-  const key = buildScopedConversationKey(userContextId, conversationId);
-  if (!key) return;
-  pruneRecentCryptoReportCache();
-  recentCryptoReportByConversation.set(key, {
-    ts: Date.now(),
-    reply: value,
+  upsertPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: CRYPTO_REPORT_REPLAY_DOMAIN_ID,
+    topicAffinityId: CRYPTO_REPORT_REPLAY_DOMAIN_ID,
+    slots: {
+      reply: value,
+    },
+    ttlMs: CRYPTO_REPORT_REPLAY_TTL_MS,
   });
 }
 

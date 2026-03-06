@@ -5,16 +5,7 @@ import {
   readReminderFollowUpState,
   upsertReminderFollowUpState,
 } from "./follow-up-state/index.js";
-import { runDelegatedDomainService } from "../shared/delegated-domain-service/index.js";
 
-const REMINDERS_TIMEOUT_MS = Math.max(
-  3_000,
-  Number.parseInt(process.env.NOVA_REMINDERS_WORKER_TIMEOUT_MS || "30000", 10) || 30_000,
-);
-const REMINDERS_RETRY_COUNT = Math.max(
-  0,
-  Number.parseInt(process.env.NOVA_REMINDERS_WORKER_RETRY_COUNT || "1", 10) || 1,
-);
 const REMINDER_FOLLOW_UP_TTL_MS = Math.max(
   60_000,
   Number.parseInt(process.env.NOVA_REMINDERS_FOLLOW_UP_TTL_MS || "180000", 10) || 180_000,
@@ -135,33 +126,6 @@ function resolveContext(input = {}) {
   };
 }
 
-function withDelegatedFallback(input = {}, startedAt = Date.now()) {
-  return runDelegatedDomainService(
-    {
-      ...input,
-      domainId: "reminders",
-      route: "reminder",
-      responseRoute: "reminder",
-      timeoutMs: REMINDERS_TIMEOUT_MS,
-      retryCount: REMINDERS_RETRY_COUNT,
-      degradedReply: "I couldn't complete that reminder request right now. Please retry in a moment.",
-    },
-    {},
-  ).then((result) => ({
-    ...result,
-    followUpState: {
-      persistent: true,
-      scope: "user-context-conversation",
-      store: "reminders-follow-up-state",
-    },
-    latencyMs: Number(result?.latencyMs || Math.max(0, Date.now() - startedAt)),
-    telemetry: {
-      ...(result?.telemetry && typeof result.telemetry === "object" ? result.telemetry : {}),
-      domain: "reminders",
-    },
-  }));
-}
-
 export async function runRemindersDomainService(input = {}) {
   const startedAt = Date.now();
   const {
@@ -188,13 +152,20 @@ export async function runRemindersDomainService(input = {}) {
 
   const action = resolveReminderAction(text, requestHints);
   if (action === "unknown") {
-    return await withDelegatedFallback({
-      ...input,
+    return buildResponse({
+      ok: true,
+      code: "reminders.unsupported_prompt",
+      message: "Reminder lane could not map the prompt to a supported reminder action.",
+      reply: "I can create, update, remove, or show reminders in this thread. Try: \"set a reminder to...\", \"update reminder to...\", or \"cancel this reminder.\"",
+      requestHints: {
+        ...requestHints,
+        remindersUnsupportedPrompt: true,
+      },
       userContextId,
       conversationId,
       sessionKey,
-      requestHints,
-    }, startedAt);
+      startedAt,
+    });
   }
 
   const existing = readReminderFollowUpState({
@@ -348,12 +319,18 @@ export async function runRemindersDomainService(input = {}) {
       startedAt,
     });
   }
-
-  return await withDelegatedFallback({
-    ...input,
+  return buildResponse({
+    ok: true,
+    code: "reminders.unsupported_prompt",
+    message: "Reminder lane could not map the prompt to a supported reminder action.",
+    reply: "I can create, update, remove, or show reminders in this thread. Try: \"set a reminder to...\", \"update reminder to...\", or \"cancel this reminder.\"",
+    requestHints: {
+      ...requestHints,
+      remindersUnsupportedPrompt: true,
+    },
     userContextId,
     conversationId,
     sessionKey,
-    requestHints,
-  }, startedAt);
+    startedAt,
+  });
 }

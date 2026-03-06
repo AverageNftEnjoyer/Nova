@@ -18,6 +18,7 @@ import {
   normalizeYouTubeIntentFallback,
 } from "./intent-utils/index.js";
 import { runYouTubeHomeControlViaHudApi } from "../../shared/integration-api-bridge/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 export async function handleYouTubeWorker(text, ctx) {
   const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
@@ -175,5 +176,13 @@ export async function handleYouTubeWorker(text, ctx) {
     broadcastState("idle", userContextId);
     summary.latencyMs = Date.now() - startedAt;
   }
-  return summary;
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "youtube",
+    fallbackResponseRoute: "youtube",
+    fallbackProvider: String(summary.provider || ""),
+    fallbackLatencyMs: Number(summary.latencyMs || 0),
+    userContextId: String(userContextId || ""),
+    conversationId: String(conversationId || ""),
+    sessionKey: String(sessionKey || ""),
+  });
 }

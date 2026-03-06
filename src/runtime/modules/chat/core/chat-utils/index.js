@@ -2,9 +2,14 @@ import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
 import { ensureMemoryTemplate, upsertMemoryFactInMarkdown } from "../../../../../memory/runtime-compat/index.js";
+import {
+  clearPersistentFollowUpState,
+  readPersistentFollowUpState,
+  upsertPersistentFollowUpState,
+} from "../../../services/follow-up-state/index.js";
 
 const MISSION_CONFIRM_TTL_MS = Number.parseInt(process.env.NOVA_MISSION_CONFIRM_TTL_MS || "600000", 10);
-const missionConfirmBySession = new Map();
+const MISSION_CONFIRM_DOMAIN_ID = "mission_confirmation";
 
 export function applyMemoryFactsToWorkspace(personaWorkspaceDir, facts) {
   if (!Array.isArray(facts) || facts.length === 0) return 0;
@@ -43,35 +48,39 @@ export function summarizeToolResultPreview(value) {
   return `${text.slice(0, 360)}...`;
 }
 
-function cleanupMissionConfirmStore() {
-  const now = Date.now();
-  for (const [key, value] of missionConfirmBySession.entries()) {
-    if (!value || now - Number(value.ts || 0) > MISSION_CONFIRM_TTL_MS) {
-      missionConfirmBySession.delete(key);
-    }
-  }
+export function getPendingMissionConfirm({ userContextId = "", conversationId = "" } = {}) {
+  const value = readPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: MISSION_CONFIRM_DOMAIN_ID,
+  });
+  const prompt = String(value?.slots?.prompt || "").trim();
+  if (!prompt) return null;
+  return {
+    prompt,
+    ts: Number(value?.ts || 0),
+  };
 }
 
-export function getPendingMissionConfirm(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return null;
-  cleanupMissionConfirmStore();
-  const value = missionConfirmBySession.get(key);
-  if (!value || !String(value.prompt || "").trim()) return null;
-  return value;
-}
-
-export function setPendingMissionConfirm(sessionKey, prompt) {
-  const key = String(sessionKey || "").trim();
+export function setPendingMissionConfirm({ userContextId = "", conversationId = "", prompt = "" } = {}) {
   const normalizedPrompt = String(prompt || "").trim();
-  if (!key || !normalizedPrompt) return;
-  missionConfirmBySession.set(key, { prompt: normalizedPrompt, ts: Date.now() });
+  if (!normalizedPrompt) return null;
+  return upsertPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: MISSION_CONFIRM_DOMAIN_ID,
+    topicAffinityId: MISSION_CONFIRM_DOMAIN_ID,
+    slots: { prompt: normalizedPrompt },
+    ttlMs: MISSION_CONFIRM_TTL_MS,
+  });
 }
 
-export function clearPendingMissionConfirm(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return;
-  missionConfirmBySession.delete(key);
+export function clearPendingMissionConfirm({ userContextId = "", conversationId = "" } = {}) {
+  return clearPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: MISSION_CONFIRM_DOMAIN_ID,
+  });
 }
 
 function parseConversationIdFromSessionKey(sessionKey) {

@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 
-import { runCalendarDomainService } from "../../../src/runtime/modules/services/calendar/index.js";
-import { runVoiceDomainService } from "../../../src/runtime/modules/services/voice/index.js";
-import { runTtsDomainService } from "../../../src/runtime/modules/services/tts/index.js";
-import { runRemindersDomainService } from "../../../src/runtime/modules/services/reminders/index.js";
+import { runDelegatedDomainService } from "../../../src/runtime/modules/services/shared/delegated-domain-service/index.js";
 
 const results = [];
 
@@ -20,58 +17,92 @@ async function run(name, fn) {
   }
 }
 
-await run("Delegated lane services normalize context and route metadata", async () => {
-  const executeChatRequest = async () => ({
-    ok: true,
-    route: "chat",
-    responseRoute: "chat",
-    reply: "ack",
-    telemetry: {},
-  });
+await run("Delegated domain service normalizes scoped summary metadata", async () => {
   const ctx = {
     userContextId: "smoke-user",
     conversationId: "smoke-thread",
     sessionKey: "agent:nova:hud:user:smoke-user:dm:smoke-thread",
   };
   const requestHints = { testHint: true };
+  let executedText = "";
+  const providerAdapter = {
+    id: "delegated-smoke-adapter",
+    timeoutMs: 2500,
+    async execute(input) {
+      executedText = String(input?.text || "");
+      return {
+        ok: true,
+        attemptCount: 1,
+        summary: {
+          ok: true,
+          route: "reminder",
+          responseRoute: "reminder",
+          reply: "Reminder delegated successfully.",
+          requestHints: { ...requestHints, adapterEcho: true },
+          telemetry: {
+            provider: "delegated-provider",
+          },
+        },
+      };
+    },
+  };
 
-  const calendar = await runCalendarDomainService({ text: "calendar status", ctx, requestHints, executeChatRequest });
-  const voice = await runVoiceDomainService({ text: "voice status", ctx, requestHints, executeChatRequest });
-  const tts = await runTtsDomainService({ text: "tts status", ctx, requestHints, executeChatRequest });
-  const reminders = await runRemindersDomainService({ text: "reminder status", ctx, requestHints, executeChatRequest });
+  const delegated = await runDelegatedDomainService({
+    domainId: "reminders",
+    route: "reminder",
+    responseRoute: "reminder",
+    degradedReply: "Reminder request degraded.",
+    text: "reminder status",
+    ctx,
+    requestHints,
+  }, { providerAdapter });
 
-  assert.equal(calendar.ok, true);
-  assert.equal(voice.ok, true);
-  assert.equal(tts.ok, true);
-  assert.equal(reminders.ok, true);
-  assert.equal(String(calendar.telemetry?.domain || ""), "calendar");
-  assert.equal(String(voice.telemetry?.domain || ""), "voice");
-  assert.equal(String(tts.telemetry?.domain || ""), "tts");
-  assert.equal(String(reminders.telemetry?.domain || ""), "reminders");
-  assert.equal(String(reminders.followUpState?.persistent || false), "true");
+  assert.equal(executedText, "reminder status");
+  assert.equal(delegated.ok, true);
+  assert.equal(delegated.route, "reminder");
+  assert.equal(delegated.responseRoute, "reminder");
+  assert.equal(String(delegated.telemetry?.domain || ""), "reminders");
+  assert.equal(String(delegated.telemetry?.provider || ""), "delegated-provider");
+  assert.equal(String(delegated.telemetry?.adapterId || ""), "delegated-smoke-adapter");
+  assert.equal(String(delegated.telemetry?.userContextId || ""), "smoke-user");
+  assert.equal(delegated.requestHints?.adapterEcho, true);
 });
 
-await run("Calendar domain service surfaces explicit failure metadata from its scoped provider adapter", async () => {
+await run("Delegated domain service degrades with explicit scoped failure metadata", async () => {
   const ctx = {
     userContextId: "smoke-user",
     conversationId: "smoke-thread",
     sessionKey: "agent:nova:hud:user:smoke-user:dm:smoke-thread",
   };
   const providerAdapter = {
-    id: "calendar-smoke-adapter",
-    providerId: "calendar-smoke-adapter",
-    describeWindow: () => "this week",
-    formatWhen: () => "soon",
-    async listAgenda() {
-      return { ok: false, events: [] };
+    id: "delegated-smoke-adapter",
+    timeoutMs: 2500,
+    async execute() {
+      return {
+        ok: false,
+        code: "network_unreachable",
+        message: "delegated provider timed out",
+        attemptCount: 2,
+        timeoutMs: 2500,
+      };
     },
   };
 
-  const calendar = await runCalendarDomainService({ text: "calendar", ctx }, { providerAdapter });
-  assert.equal(calendar.ok, false);
-  assert.equal(String(calendar.code || ""), "calendar.agenda_failed");
-  assert.equal(String(calendar.reply || "").length > 0, true);
-  assert.equal(String(calendar.telemetry?.provider || ""), "calendar-smoke-adapter");
+  const delegated = await runDelegatedDomainService({
+    domainId: "reminders",
+    route: "reminder",
+    responseRoute: "reminder",
+    degradedReply: "Reminder request degraded.",
+    text: "reminder status",
+    ctx,
+  }, { providerAdapter });
+
+  assert.equal(delegated.ok, false);
+  assert.equal(String(delegated.code || ""), "reminders.network_unreachable");
+  assert.equal(String(delegated.reply || ""), "Reminder request degraded.");
+  assert.equal(Number(delegated.telemetry?.attemptCount || 0), 2);
+  assert.equal(Number(delegated.telemetry?.timeoutMs || 0), 2500);
+  assert.equal(String(delegated.telemetry?.adapterId || ""), "delegated-smoke-adapter");
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

@@ -1,3 +1,9 @@
+import {
+  clearPersistentFollowUpState,
+  readPersistentFollowUpState,
+  upsertPersistentFollowUpState,
+} from "../../../../services/follow-up-state/index.js";
+
 export function isWeatherRequestText(text) {
   return /\b(weather|forecast|temperature|rain|snow|precipitation)\b/i.test(String(text || ""));
 }
@@ -15,45 +21,48 @@ const WEATHER_FORECAST_DAYS = 8;
 const weatherReplyCache = new Map();
 const WEATHER_DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const WEATHER_CONFIRM_TTL_MS = 600_000;
-const weatherConfirmationStore = new Map();
+const WEATHER_CONFIRM_DOMAIN_ID = "weather_confirmation";
 
-function cleanupWeatherConfirmationStore() {
-  const now = Date.now();
-  for (const [key, value] of weatherConfirmationStore.entries()) {
-    if (!value || now - Number(value.ts || 0) > WEATHER_CONFIRM_TTL_MS) {
-      weatherConfirmationStore.delete(key);
-    }
-  }
-}
-
-export function readPendingWeatherConfirmation(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return null;
-  cleanupWeatherConfirmationStore();
-  const value = weatherConfirmationStore.get(key);
-  if (!value) return null;
-  const prompt = String(value.prompt || "").trim();
-  const suggestedLocation = String(value.suggestedLocation || "").trim();
+export function readPendingWeatherConfirmation({ userContextId = "", conversationId = "" } = {}) {
+  const value = readPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: WEATHER_CONFIRM_DOMAIN_ID,
+  });
+  const prompt = String(value?.slots?.prompt || "").trim();
+  const suggestedLocation = String(value?.slots?.suggestedLocation || "").trim();
   if (!prompt || !suggestedLocation) return null;
-  return { prompt, suggestedLocation, ts: Number(value.ts || 0) };
+  return { prompt, suggestedLocation, ts: Number(value?.ts || 0) };
 }
 
-export function writePendingWeatherConfirmation(sessionKey, prompt, suggestedLocation) {
-  const key = String(sessionKey || "").trim();
+export function writePendingWeatherConfirmation({
+  userContextId = "",
+  conversationId = "",
+  prompt = "",
+  suggestedLocation = "",
+} = {}) {
   const normalizedPrompt = String(prompt || "").trim();
   const normalizedLocation = String(suggestedLocation || "").trim();
-  if (!key || !normalizedPrompt || !normalizedLocation) return;
-  weatherConfirmationStore.set(key, {
-    prompt: normalizedPrompt,
-    suggestedLocation: normalizedLocation,
-    ts: Date.now(),
+  if (!normalizedPrompt || !normalizedLocation) return null;
+  return upsertPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: WEATHER_CONFIRM_DOMAIN_ID,
+    topicAffinityId: WEATHER_CONFIRM_DOMAIN_ID,
+    slots: {
+      prompt: normalizedPrompt,
+      suggestedLocation: normalizedLocation,
+    },
+    ttlMs: WEATHER_CONFIRM_TTL_MS,
   });
 }
 
-export function clearPendingWeatherConfirmation(sessionKey) {
-  const key = String(sessionKey || "").trim();
-  if (!key) return;
-  weatherConfirmationStore.delete(key);
+export function clearPendingWeatherConfirmation({ userContextId = "", conversationId = "" } = {}) {
+  return clearPersistentFollowUpState({
+    userContextId,
+    conversationId,
+    domainId: WEATHER_CONFIRM_DOMAIN_ID,
+  });
 }
 
 export function isWeatherConfirmationAccepted(text) {

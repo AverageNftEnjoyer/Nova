@@ -13,6 +13,7 @@ import { withTimeout } from "../../../../llm/providers/index.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
 import { cacheRecentCryptoReport } from "../../../core/crypto-report-dedupe/index.js";
 import { runCoinbaseAccountRequest } from "../../../../services/coinbase/account-service/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 const COINBASE_TTS_TIMEOUT_MS = 10_000;
 
@@ -138,5 +139,13 @@ export async function handleCoinbaseWorker(text, ctx, llmCtx = {}) {
     summary.latencyMs = Date.now() - startedAt;
   }
 
-  return summary;
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "coinbase",
+    fallbackResponseRoute: "coinbase",
+    fallbackProvider: "",
+    fallbackLatencyMs: summary.latencyMs,
+    userContextId: String(userContextId || ""),
+    conversationId: String(conversationId || ""),
+    sessionKey: String(sessionKey || ""),
+  });
 }

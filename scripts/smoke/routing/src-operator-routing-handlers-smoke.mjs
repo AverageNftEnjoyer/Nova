@@ -45,8 +45,10 @@ const {
 } = weatherServiceModule;
 
 await run("P20-C1 mission context cancel clears pending state and short-term context", async () => {
+  const userContextId = "test-user";
+  const conversationId = "mission-cancel";
   const sessionKey = "agent:nova:hud:user:test-user:dm:mission-cancel";
-  setPendingMissionConfirm(sessionKey, "build me a mission");
+  setPendingMissionConfirm({ userContextId, conversationId, prompt: "build me a mission" });
   const clearCalls = [];
   const result = await handleMissionContextRouting({
     text: "cancel",
@@ -58,8 +60,8 @@ await run("P20-C1 mission context cancel clears pending state and short-term con
       isNonCriticalFollowUp: () => false,
       isNewTopic: () => false,
     },
-    userContextId: "test-user",
-    conversationId: "mission-cancel",
+    userContextId,
+    conversationId,
     sessionKey,
     ctx: {},
     sendDirectAssistantReply: async () => "cleared",
@@ -68,22 +70,24 @@ await run("P20-C1 mission context cancel clears pending state and short-term con
   });
   assert.equal(result?.route, "mission_context_canceled");
   assert.equal(result?.ok, true);
-  assert.equal(getPendingMissionConfirm(sessionKey), null);
+  assert.equal(getPendingMissionConfirm({ userContextId, conversationId }), null);
   assert.equal(clearCalls.length, 1);
   assert.equal(clearCalls[0]?.domainId, "mission_task");
 });
 
 await run("P20-C2 mission confirm yes delegates merged prompt to workflow build path", async () => {
+  const userContextId = "test-user";
+  const conversationId = "mission-confirm";
   const sessionKey = "agent:nova:hud:user:test-user:dm:mission-confirm";
-  setPendingMissionConfirm(sessionKey, "Create a daily BTC digest");
+  setPendingMissionConfirm({ userContextId, conversationId, prompt: "Create a daily BTC digest" });
   let delegatedText = "";
   let delegatedRouteHint = "";
   let delegatedToolCalls = [];
   let missionWorkerCalled = false;
   const result = await handleMissionBuildRouting({
     text: "yes at 9am on telegram",
-    userContextId: "test-user",
-    conversationId: "mission-confirm",
+    userContextId,
+    conversationId,
     sessionKey,
     ctx: {},
     delegateToOrgChartWorker: async (payload) => {
@@ -107,42 +111,54 @@ await run("P20-C2 mission confirm yes delegates merged prompt to workflow build 
   assert.equal(delegatedRouteHint, "workflow");
   assert.deepEqual(delegatedToolCalls, ["mission"]);
   assert.equal(missionWorkerCalled, false);
-  assert.equal(getPendingMissionConfirm(sessionKey), null);
+  assert.equal(getPendingMissionConfirm({ userContextId, conversationId }), null);
 });
 
 await run("P20-C3 weather confirm no declines and clears pending confirmation", async () => {
+  const userContextId = "test-user";
+  const conversationId = "weather-no";
   const sessionKey = "agent:nova:hud:user:test-user:dm:weather-no";
-  writePendingWeatherConfirmation(sessionKey, "weather in paris", "Paris, France");
+  writePendingWeatherConfirmation({ userContextId, conversationId, prompt: "weather in paris", suggestedLocation: "Paris, France" });
   const result = await handleWeatherConfirmationRouting({
     text: "no",
     sessionKey,
+    userContextId,
+    conversationId,
     ctx: {},
     sendDirectAssistantReply: async () => "declined",
   });
   assert.equal(result?.route, "weather_confirm_declined");
   assert.equal(result?.ok, true);
-  assert.equal(readPendingWeatherConfirmation(sessionKey), null);
+  assert.equal(readPendingWeatherConfirmation({ userContextId, conversationId }), null);
 });
 
 await run("P20-C4 weather non-confirm text clears stale pending confirmation", async () => {
+  const userContextId = "test-user";
+  const conversationId = "weather-stale";
   const sessionKey = "agent:nova:hud:user:test-user:dm:weather-stale";
-  writePendingWeatherConfirmation(sessionKey, "weather in tokyo", "Tokyo, Japan");
+  writePendingWeatherConfirmation({ userContextId, conversationId, prompt: "weather in tokyo", suggestedLocation: "Tokyo, Japan" });
   const result = await handleWeatherConfirmationRouting({
     text: "new question",
     sessionKey,
+    userContextId,
+    conversationId,
     ctx: {},
     sendDirectAssistantReply: async () => "",
   });
   assert.equal(result, null);
-  assert.equal(readPendingWeatherConfirmation(sessionKey), null);
+  assert.equal(readPendingWeatherConfirmation({ userContextId, conversationId }), null);
 });
 
 await run("P20-C5 weather confirm yes resolves through shared weather lookup", async () => {
+  const userContextId = "test-user";
+  const conversationId = "weather-yes";
   const sessionKey = "agent:nova:hud:user:test-user:dm:weather-yes";
-  writePendingWeatherConfirmation(sessionKey, "weather in paris", "Paris, France");
+  writePendingWeatherConfirmation({ userContextId, conversationId, prompt: "weather in paris", suggestedLocation: "Paris, France" });
   const result = await handleWeatherConfirmationRouting({
     text: "yes",
     sessionKey,
+    userContextId,
+    conversationId,
     ctx: {},
     runWeatherLookup: async (input) => {
       assert.equal(input?.forcedLocation, "Paris, France");
@@ -154,14 +170,14 @@ await run("P20-C5 weather confirm yes resolves through shared weather lookup", a
   assert.equal(result?.route, "weather_confirm_accepted");
   assert.equal(result?.ok, true);
   assert.equal(result?.reply, "confirmed");
-  assert.equal(readPendingWeatherConfirmation(sessionKey), null);
+  assert.equal(readPendingWeatherConfirmation({ userContextId, conversationId }), null);
 });
 
-clearPendingMissionConfirm("agent:nova:hud:user:test-user:dm:mission-cancel");
-clearPendingMissionConfirm("agent:nova:hud:user:test-user:dm:mission-confirm");
-clearPendingWeatherConfirmation("agent:nova:hud:user:test-user:dm:weather-no");
-clearPendingWeatherConfirmation("agent:nova:hud:user:test-user:dm:weather-stale");
-clearPendingWeatherConfirmation("agent:nova:hud:user:test-user:dm:weather-yes");
+clearPendingMissionConfirm({ userContextId: "test-user", conversationId: "mission-cancel" });
+clearPendingMissionConfirm({ userContextId: "test-user", conversationId: "mission-confirm" });
+clearPendingWeatherConfirmation({ userContextId: "test-user", conversationId: "weather-no" });
+clearPendingWeatherConfirmation({ userContextId: "test-user", conversationId: "weather-stale" });
+clearPendingWeatherConfirmation({ userContextId: "test-user", conversationId: "weather-yes" });
 
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;

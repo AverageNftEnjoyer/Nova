@@ -94,14 +94,10 @@ const workspaceRoot = process.cwd();
 const chatHandlerModule = await import(
   pathToFileURL(path.join(workspaceRoot, "src/runtime/modules/chat/core/chat-handler/index.js")).href,
 );
-const configModule = await import(
-  pathToFileURL(path.join(workspaceRoot, "src/runtime/modules/infrastructure/config/index.js")).href,
-);
 const shortTermContextModule = await import(
   pathToFileURL(path.join(workspaceRoot, "src/runtime/modules/chat/core/short-term-context-engine/index.js")).href,
 );
 const { handleInput } = chatHandlerModule;
-const { sessionRuntime } = configModule;
 const { readShortTermContextState } = shortTermContextModule;
 
 function createRuntimeSelectionOverride() {
@@ -128,46 +124,6 @@ async function runLaneFlow({
   const sessionKeyHint = `agent:nova:hud:user:${userContextId}:dm:${conversationId}`;
   const runtimeSelectionOverride = createRuntimeSelectionOverride();
   const outputs = [];
-  const voiceWorker = lane === "voice"
-    ? async (text, ctx, _llmCtx, requestHints) => {
-      const reply = /status/i.test(String(text || "")) ? "Voice is muted." : "Voice muted.";
-      if (ctx?.sessionId) {
-        sessionRuntime.appendTranscriptTurn(ctx.sessionId, "user", String(ctx.raw_text || text || ""), {
-          source: ctx.source,
-          sender: ctx.sender || null,
-          sessionKey: ctx.sessionKey || undefined,
-          conversationId: ctx.conversationId || undefined,
-        });
-        sessionRuntime.appendTranscriptTurn(ctx.sessionId, "assistant", reply, {
-          source: ctx.source,
-          sender: "nova",
-          sessionKey: ctx.sessionKey || undefined,
-          conversationId: ctx.conversationId || undefined,
-        });
-      }
-      return { route: "voice", responseRoute: "voice", ok: true, reply, requestHints };
-    }
-    : undefined;
-  const ttsWorker = lane === "tts"
-    ? async (text, ctx, _llmCtx, requestHints) => {
-      const reply = /stop/i.test(String(text || "")) ? "Stopped TTS playback." : "TTS is ready.";
-      if (ctx?.sessionId) {
-        sessionRuntime.appendTranscriptTurn(ctx.sessionId, "user", String(ctx.raw_text || text || ""), {
-          source: ctx.source,
-          sender: ctx.sender || null,
-          sessionKey: ctx.sessionKey || undefined,
-          conversationId: ctx.conversationId || undefined,
-        });
-        sessionRuntime.appendTranscriptTurn(ctx.sessionId, "assistant", reply, {
-          source: ctx.source,
-          sender: "nova",
-          sessionKey: ctx.sessionKey || undefined,
-          conversationId: ctx.conversationId || undefined,
-        });
-      }
-      return { route: "tts", responseRoute: "tts", ok: true, reply, requestHints };
-    }
-    : undefined;
 
   for (const prompt of prompts) {
     const out = await handleInput(prompt, {
@@ -178,8 +134,6 @@ async function runLaneFlow({
       conversationId,
       sessionKeyHint,
       runtimeSelectionOverride,
-      voiceWorker,
-      ttsWorker,
     });
 
     assert.equal(String(out?.sessionKey || ""), sessionKeyHint, "session key drifted");
@@ -215,7 +169,7 @@ await run("VT-LIVE-2 tts lane routes through the real tts worker/service path wi
   const { outputs } = await runLaneFlow({
     userContextId,
     conversationId,
-    prompts: ["tts status", "stop tts"],
+    prompts: ["set tts voice to peter", "stop tts"],
     lane: "tts",
   });
 
@@ -225,10 +179,34 @@ await run("VT-LIVE-2 tts lane routes through the real tts worker/service path wi
 await run("VT-LIVE-3 voice and tts artifacts remain user-scoped across shared conversation ids", async () => {
   const sharedConversationId = "voice-tts-shared-thread";
   const expectations = [
-    { userContextId: `${baseUserContextId}-voice-a`, lane: "voice", prompt: "mute voice", domainId: "voice" },
-    { userContextId: `${baseUserContextId}-voice-b`, lane: "voice", prompt: "mute voice", domainId: "voice" },
-    { userContextId: `${baseUserContextId}-tts-a`, lane: "tts", prompt: "tts status", domainId: "tts" },
-    { userContextId: `${baseUserContextId}-tts-b`, lane: "tts", prompt: "stop tts", domainId: "tts" },
+    {
+      userContextId: `${baseUserContextId}-voice-a`,
+      lane: "voice",
+      prompt: "mute voice",
+      domainId: "voice",
+      expectedState: { muted: true },
+    },
+    {
+      userContextId: `${baseUserContextId}-voice-b`,
+      lane: "voice",
+      prompt: "enable voice replies",
+      domainId: "voice",
+      expectedState: { voiceEnabled: true },
+    },
+    {
+      userContextId: `${baseUserContextId}-tts-a`,
+      lane: "tts",
+      prompt: "set tts voice to peter",
+      domainId: "tts",
+      expectedState: { ttsVoice: "peter" },
+    },
+    {
+      userContextId: `${baseUserContextId}-tts-b`,
+      lane: "tts",
+      prompt: "change tts voice to ultron",
+      domainId: "tts",
+      expectedState: { ttsVoice: "ultron" },
+    },
   ];
 
   for (const expected of expectations) {
@@ -263,6 +241,34 @@ await run("VT-LIVE-3 voice and tts artifacts remain user-scoped across shared co
       `conversation log missing ${expected.lane} route for ${expected.userContextId}`,
     );
 
+    const scopedVoiceState = readJson(path.join(root, "state", "voice-user-settings.json"), {});
+    assert.equal(
+      String(scopedVoiceState?.settings?.userContextId || ""),
+      expected.userContextId.toLowerCase(),
+      `voice state user mismatch for ${expected.userContextId}`,
+    );
+    if (Object.hasOwn(expected.expectedState, "muted")) {
+      assert.equal(
+        scopedVoiceState?.settings?.muted,
+        expected.expectedState.muted,
+        `muted state mismatch for ${expected.userContextId}`,
+      );
+    }
+    if (Object.hasOwn(expected.expectedState, "voiceEnabled")) {
+      assert.equal(
+        scopedVoiceState?.settings?.voiceEnabled,
+        expected.expectedState.voiceEnabled,
+        `voiceEnabled mismatch for ${expected.userContextId}`,
+      );
+    }
+    if (Object.hasOwn(expected.expectedState, "ttsVoice")) {
+      assert.equal(
+        String(scopedVoiceState?.settings?.ttsVoice || ""),
+        expected.expectedState.ttsVoice,
+        `ttsVoice mismatch for ${expected.userContextId}`,
+      );
+    }
+
     const shortTermState = readShortTermContextState({
       userContextId: expected.userContextId,
       conversationId: sharedConversationId,
@@ -272,6 +278,7 @@ await run("VT-LIVE-3 voice and tts artifacts remain user-scoped across shared co
     assert.equal(String(shortTermState?.userContextId || ""), expected.userContextId.toLowerCase(), `short-term state user mismatch for ${expected.userContextId}`);
 
     console.log(`Voice/TTS artifact root (${expected.userContextId}): ${root}`);
+    console.log(`Voice/TTS transcript (${expected.userContextId}): ${transcriptPath}`);
   }
 });
 

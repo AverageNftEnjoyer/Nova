@@ -49,7 +49,7 @@ export async function handleMissionContextRouting(input = {}) {
   if (!missionContextIsPrimary || !missionPolicy) return null;
 
   if (missionPolicy.isCancel(normalizedTextForRouting)) {
-    clearPendingMissionConfirm(sessionKey);
+    clearPendingMissionConfirm({ userContextId, conversationId });
     clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
     const reply = await sendDirectAssistantReply(
       text,
@@ -68,11 +68,11 @@ export async function handleMissionContextRouting(input = {}) {
     missionPolicy.isNonCriticalFollowUp(normalizedTextForRouting)
     && !missionPolicy.isNewTopic(normalizedTextForRouting)
     && !missionPolicy.isCancel(normalizedTextForRouting);
-  if (missionIsFollowUpRefine && !getPendingMissionConfirm(sessionKey)) {
+  if (missionIsFollowUpRefine && !getPendingMissionConfirm({ userContextId, conversationId })) {
     const basePrompt = String(missionShortTermContext?.slots?.pendingPrompt || "").trim();
     const mergedPrompt = mergeMissionPrompt(basePrompt, text);
     if (mergedPrompt) {
-      setPendingMissionConfirm(sessionKey, mergedPrompt);
+      setPendingMissionConfirm({ userContextId, conversationId, prompt: mergedPrompt });
       upsertShortTermContextState({
         userContextId,
         conversationId,
@@ -114,10 +114,10 @@ export async function handleMissionBuildRouting(input = {}) {
     clearShortTermContextState,
   } = input;
 
-  const pendingMission = getPendingMissionConfirm(sessionKey);
+  const pendingMission = getPendingMissionConfirm({ userContextId, conversationId });
   if (pendingMission) {
     if (isMissionConfirmNo(text)) {
-      clearPendingMissionConfirm(sessionKey);
+      clearPendingMissionConfirm({ userContextId, conversationId });
       clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
       const reply = await sendDirectAssistantReply(
         text,
@@ -134,7 +134,7 @@ export async function handleMissionBuildRouting(input = {}) {
     if (isMissionConfirmYes(text)) {
       const details = stripMissionConfirmPrefix(text);
       const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, details);
-      clearPendingMissionConfirm(sessionKey);
+      clearPendingMissionConfirm({ userContextId, conversationId });
       clearShortTermContextState({ userContextId, conversationId, domainId: "mission_task" });
       return await delegateToOrgChartWorker({
         routeHint: "workflow",
@@ -152,7 +152,7 @@ export async function handleMissionBuildRouting(input = {}) {
 
     if (MISSION_FOLLOWUP_DETAIL_PATTERN.test(text)) {
       const mergedPrompt = mergeMissionPrompt(pendingMission.prompt, text);
-      setPendingMissionConfirm(sessionKey, mergedPrompt);
+      setPendingMissionConfirm({ userContextId, conversationId, prompt: mergedPrompt });
       upsertShortTermContextState({
         userContextId,
         conversationId,
@@ -174,7 +174,7 @@ export async function handleMissionBuildRouting(input = {}) {
   }
 
   if (shouldBuildWorkflowFromPrompt(text)) {
-    clearPendingMissionConfirm(sessionKey);
+    clearPendingMissionConfirm({ userContextId, conversationId });
     upsertShortTermContextState({
       userContextId,
       conversationId,
@@ -202,7 +202,7 @@ export async function handleMissionBuildRouting(input = {}) {
 
   if (shouldConfirmWorkflowFromPrompt(text)) {
     const candidatePrompt = stripAssistantInvocation(text) || text;
-    setPendingMissionConfirm(sessionKey, candidatePrompt);
+    setPendingMissionConfirm({ userContextId, conversationId, prompt: candidatePrompt });
     upsertShortTermContextState({
       userContextId,
       conversationId,

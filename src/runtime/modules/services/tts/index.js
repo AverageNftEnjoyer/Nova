@@ -38,7 +38,10 @@ function parseTtsCommand(text = "") {
   const normalized = String(text || "").trim();
   const lowered = normalized.toLowerCase();
   if (!lowered) return { kind: "unknown" };
-  if (/\b(stop|quiet|silence|cancel)\b/.test(lowered) && /\b(read|speak|tts|voice)\b/.test(lowered)) {
+  if (
+    /\b(stop|quiet|silence|cancel)\b/.test(lowered)
+    && /\b(read|reading|speak|speaking|tts|voice|aloud)\b/.test(lowered)
+  ) {
     return { kind: "stop" };
   }
   if (/\b(status|state|settings?)\b/.test(lowered) && /\b(tts|voice|read)\b/.test(lowered)) {
@@ -95,6 +98,9 @@ export async function runTtsDomainService(input = {}, deps = {}) {
 
     let state = providerAdapter.getScopedState(userContextId);
     let reply = `TTS voice is ${state.ttsVoice}.`;
+    let ok = true;
+    let code = "";
+    let error = "";
 
     if (parsedCommand.kind === "set_voice") {
       state = providerAdapter.updateVoiceState({
@@ -106,14 +112,24 @@ export async function runTtsDomainService(input = {}, deps = {}) {
       reply = `TTS voice set to ${state.ttsVoice}.`;
     } else if (parsedCommand.kind === "read_aloud") {
       if (!parsedCommand.text) {
+        ok = false;
+        code = "tts.text_missing";
+        error = "tts.text_missing";
         reply = "Tell me what to read aloud after the TTS command.";
       } else {
-        state = await providerAdapter.speakText({
-          userContextId,
-          text: parsedCommand.text,
-          ttsVoice: parsedCommand.ttsVoice || state.ttsVoice,
-        });
-        reply = `Reading aloud with the ${state.ttsVoice} voice.`;
+        try {
+          state = await providerAdapter.speakText({
+            userContextId,
+            text: parsedCommand.text,
+            ttsVoice: parsedCommand.ttsVoice || state.ttsVoice,
+          });
+          reply = `Reading aloud with the ${state.ttsVoice} voice.`;
+        } catch {
+          ok = false;
+          code = "tts.speak_failed";
+          error = "tts.speak_failed";
+          reply = "I couldn't start TTS playback for this user right now.";
+        }
       }
     } else if (parsedCommand.kind === "stop") {
       providerAdapter.stopSpeaking({ userContextId });
@@ -123,8 +139,10 @@ export async function runTtsDomainService(input = {}, deps = {}) {
     }
 
     return buildTtsSummary({
-      ok: true,
+      ok,
       reply,
+      error,
+      code,
       requestHints,
       telemetry: {
         domain: "tts",

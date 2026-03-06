@@ -87,16 +87,9 @@ import { createChatLatencyTelemetry } from "../../../telemetry/latency-telemetry
 import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
 import {
   applyMemoryFactsToWorkspace,
-  buildMissionConfirmReply,
-  clearPendingMissionConfirm,
-  getPendingMissionConfirm,
   hashShadowPayload,
-  isMissionConfirmNo,
-  isMissionConfirmYes,
   resolveConversationId,
-  setPendingMissionConfirm,
   stripAssistantInvocation,
-  stripMissionConfirmPrefix,
   summarizeToolResultPreview,
 } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";

@@ -34,6 +34,7 @@ import {
 } from "./runtime-utils/index.js";
 import { runSpotifyViaHudApi } from "../../shared/integration-api-bridge/index.js";
 import { runDirectSpotifyNowPlaying } from "./direct-now-playing/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 const SPOTIFY_MIN_THINKING_MS = 650;
 
@@ -328,5 +329,13 @@ Output ONLY valid JSON, nothing else.`;
     broadcastState("idle", userContextId);
     summary.latencyMs = Date.now() - startedAt;
   }
-  return summary;
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "spotify",
+    fallbackResponseRoute: "spotify",
+    fallbackProvider: String(activeChatRuntime?.provider || ""),
+    fallbackLatencyMs: Number(summary.latencyMs || 0),
+    userContextId: String(userContextId || ""),
+    conversationId: String(conversationId || ""),
+    sessionKey: String(sessionKey || ""),
+  });
 }

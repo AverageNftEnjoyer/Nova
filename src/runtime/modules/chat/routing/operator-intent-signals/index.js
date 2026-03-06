@@ -129,6 +129,13 @@ function isLikelyDiagnosticsPrompt(normalized) {
 }
 
 function isLikelyVoicePrompt(normalized) {
+  if (
+    /\b(text to speech|tts)\b/i.test(normalized)
+    || /\b(read|speak)\b.*\b(aloud|out loud)\b/i.test(normalized)
+    || /\b(stop|quiet|silence|cancel)\b.*\b(tts|read(?:ing)?|speak(?:ing)?|aloud)\b/i.test(normalized)
+  ) {
+    return false;
+  }
   return (
     /\bvoice\b/i.test(normalized)
     || /\bmic(rophone)?\b/i.test(normalized)
@@ -141,8 +148,12 @@ function isLikelyTtsPrompt(normalized) {
     /\btext to speech|tts\b/i.test(normalized)
     || /\bread\s+(this|that)\s+aloud\b/i.test(normalized)
     || /\bspeak\s+this\b/i.test(normalized)
+    || /\b(read|speak)\b.*\b(aloud|out loud)\b/i.test(normalized)
+    || /\b(stop|quiet|silence|cancel)\b.*\b(tts|read(?:ing)?|speak(?:ing)?|aloud)\b/i.test(normalized)
     || /\b(set|use|switch|change)\s+(the\s+)?(?:tts\s+)?voice\s+(to|as)\b/i.test(normalized)
-    || /\b(tts|voice)\s+(status|settings)\b/i.test(normalized)
+    || /\b(set|use|switch|change)\s+(the\s+)?tts\s+to\b/i.test(normalized)
+    || /\b(tts|text to speech)\s+(status|settings)\b/i.test(normalized)
+    || /\b(status|state|settings?)\b.*\b(tts|text to speech)\b/i.test(normalized)
   );
 }
 

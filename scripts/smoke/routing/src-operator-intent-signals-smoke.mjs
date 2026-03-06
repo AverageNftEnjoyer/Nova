@@ -50,6 +50,9 @@ await run("P29-C3 media lane direct intents are detected", async () => {
   assert.equal(signals.isVoiceDirectIntent("mute microphone"), true);
   assert.equal(signals.isTtsDirectIntent("read this aloud"), true);
   assert.equal(signals.isTtsDirectIntent("set tts voice to peter"), true);
+  assert.equal(signals.isTtsDirectIntent("change tts voice to ultron"), true);
+  assert.equal(signals.isTtsDirectIntent("stop reading aloud"), true);
+  assert.equal(signals.isVoiceDirectIntent("set tts voice to peter"), false);
 });
 
 await run("P29-C4 finance lane direct intents are detected", async () => {

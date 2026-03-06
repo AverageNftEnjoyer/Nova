@@ -1,12 +1,31 @@
-import { runDelegatedChatWorker } from "../../shared/delegated-chat-worker/index.js";
+import { runDiagnosticsDomainService } from "../../../../services/diagnostics/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
+import { appendScopedTranscriptExchange } from "../../shared/scoped-transcript/index.js";
 
-export async function handleDiagnosticsWorker(text, ctx, llmCtx = {}, requestHints = {}, executeChatRequest) {
-  return await runDelegatedChatWorker({
+export async function handleDiagnosticsWorker(text, ctx, llmCtx = {}, requestHints = {}, _executeChatRequest) {
+  const summary = await runDiagnosticsDomainService({
     text,
     ctx,
     llmCtx,
     requestHints,
-    executeChatRequest,
-    route: "diagnostic",
+    userContextId: String(ctx?.userContextId || ""),
+    conversationId: String(ctx?.conversationId || ""),
+    sessionKey: String(ctx?.sessionKey || ""),
+  });
+
+  appendScopedTranscriptExchange(
+    ctx,
+    String(ctx?.raw_text || text || ""),
+    String(summary?.reply || ""),
+  );
+
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "diagnostic",
+    fallbackResponseRoute: "diagnostic",
+    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    fallbackLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
+    userContextId: String(ctx?.userContextId || ""),
+    conversationId: String(ctx?.conversationId || ""),
+    sessionKey: String(ctx?.sessionKey || ""),
   });
 }

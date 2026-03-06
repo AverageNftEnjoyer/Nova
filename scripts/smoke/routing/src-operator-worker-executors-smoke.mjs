@@ -64,28 +64,40 @@ await run("P30-C1b operator execution controls default to enabled", async () => 
   assert.equal(controls.forceWebFetchPreloadAllowed, true);
 });
 
-await run("P30-C2 gmail executor injects operator lane + worker hints", async () => {
+await run("P30-C2 gmail executor routes to dedicated worker with operator lane + worker hints", async () => {
   const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "gmail");
-  const baseHints = { fastLaneSimpleChat: false };
-  let resolvedHints = null;
+  let genericCalled = false;
   const runExecutor = resolveOperatorWorkerExecutor({
     lane,
     text: "check gmail",
-    ctx: {},
-    llmCtx: {},
-    requestHints: baseHints,
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      resolvedHints = hints;
+    ctx: {
+      userContextId: "gmail-user",
+      conversationId: "gmail-thread",
+      sessionKey: "agent:nova:hud:user:gmail-user:dm:gmail-thread",
+    },
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return { content: JSON.stringify({ ok: true, data: { connected: true, email: "user@example.com", scopes: [], missingScopes: [] } }) };
+        },
+      },
+      availableTools: [{ name: "gmail_capabilities" }],
+      activeChatRuntime: { provider: "openai" },
+    },
+    requestHints: { fastLaneSimpleChat: false },
+    executeChatRequest: async () => {
+      genericCalled = true;
       return { ok: true };
     },
   });
-  await runExecutor();
-  assert.equal(resolvedHints?.operatorLane?.id, "gmail");
-  assert.equal(resolvedHints?.operatorLane?.executorKind, "gmail");
-  assert.equal(resolvedHints?.operatorWorker?.agentId, "gmail-agent");
-  assert.equal(resolvedHints?.operatorWorker?.routeHint, "gmail");
-  assert.equal(resolvedHints?.forceToolLoop, true);
-  assert.equal("operatorLane" in baseHints, false);
+  const out = await runExecutor();
+  assert.equal(out?.route, "gmail");
+  assert.equal(genericCalled, false);
+  assert.equal(out?.requestHints?.operatorLane?.id, "gmail");
+  assert.equal(out?.requestHints?.operatorLane?.executorKind, "gmail");
+  assert.equal(out?.requestHints?.operatorWorker?.agentId, "gmail-agent");
+  assert.equal(out?.requestHints?.operatorWorker?.routeHint, "gmail");
+  assert.equal(out?.requestHints?.forceToolLoop, true);
 });
 
 await run("P30-C2b telegram executor routes to dedicated worker and never calls executeChatRequest", async () => {
@@ -203,25 +215,38 @@ await run("P30-C6 coinbase executor uses specialized worker handler", async () =
   assert.equal(called, true);
 });
 
-await run("P30-C7 web research executor enforces web preload hints", async () => {
+await run("P30-C7 web research executor enforces web preload hints and avoids generic fallback", async () => {
   const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "web_research");
-  let resolvedHints = null;
+  let genericCalled = false;
   const runExecutor = resolveOperatorWorkerExecutor({
     lane,
     text: "research sources for latest model release",
-    ctx: {},
-    llmCtx: {},
+    ctx: {
+      userContextId: "wr-user",
+      conversationId: "wr-thread",
+      sessionKey: "agent:nova:hud:user:wr-user:dm:wr-thread",
+    },
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return { content: "[1] Example Source\nhttps://example.com\nSummary." };
+        },
+      },
+      availableTools: [{ name: "web_search" }],
+    },
     requestHints: {},
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      resolvedHints = hints;
-      return { ok: true, route: "web_research" };
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
     },
   });
   const out = await runExecutor();
   assert.equal(out?.route, "web_research");
-  assert.equal(resolvedHints?.operatorLane?.executorKind, "web_research");
-  assert.equal(resolvedHints?.forceWebSearchPreload, true);
-  assert.equal(resolvedHints?.forceWebFetchPreload, true);
+  assert.equal(out?.provider, "web_search");
+  assert.equal(genericCalled, false);
+  assert.equal(out?.requestHints?.operatorLane?.executorKind, "web_research");
+  assert.equal(out?.requestHints?.forceWebSearchPreload, true);
+  assert.equal(out?.requestHints?.forceWebFetchPreload, true);
 });
 
 await run("P30-C8 crypto executor uses specialized worker handler", async () => {
@@ -446,6 +471,68 @@ await run("P30-C9h tts executor uses dedicated tts worker and never calls generi
   assert.equal(receivedHints?.operatorWorker?.agentId, "tts-agent");
 });
 
+await run("P30-C9i diagnostics executor uses dedicated diagnostics worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "diagnostics");
+  let genericCalled = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "run diagnostics",
+    ctx: {
+      userContextId: "diag-user",
+      conversationId: "diag-thread",
+      sessionKey: "agent:nova:hud:user:diag-user:dm:diag-thread",
+    },
+    llmCtx: {
+      selectedChatModel: "gpt-5",
+      activeChatRuntime: { provider: "openai" },
+      availableTools: [{ name: "web_search" }],
+      turnPolicy: {},
+      executionPolicy: {},
+    },
+    requestHints: {},
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "diagnostic");
+  assert.equal(genericCalled, false);
+  assert.equal(out?.provider, "runtime_diagnostics");
+});
+
+await run("P30-C9j files executor uses dedicated files worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "files");
+  let genericCalled = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "list files in .",
+    ctx: {
+      userContextId: "files-user",
+      conversationId: "files-thread",
+      sessionKey: "agent:nova:hud:user:files-user:dm:files-thread",
+    },
+    llmCtx: {
+      runtimeTools: {
+        async executeToolUse() {
+          return { content: "f README.md\nf package.json\nd src" };
+        },
+      },
+      availableTools: [{ name: "ls" }],
+      activeChatRuntime: { provider: "openai" },
+    },
+    requestHints: {},
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "files");
+  assert.equal(genericCalled, false);
+  assert.equal(out?.provider, "tool_runtime");
+});
+
 await run("P30-C10 operator execution controls can disable force flags", async () => {
   const previous = {
     toolLoop: process.env.NOVA_OPERATOR_FORCE_TOOL_LOOP,
@@ -466,26 +553,33 @@ await run("P30-C10 operator execution controls can disable force flags", async (
     assert.equal(controls.forceWebFetchPreloadAllowed, false);
 
     const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "web_research");
-    let resolvedHints = null;
     const runExecutor = resolveWithDisabledForceFlags({
       lane,
       text: "research latest routing updates",
-      ctx: {},
-      llmCtx: {},
-      requestHints: {},
-      executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-        resolvedHints = hints;
-        return { ok: true, route: "web_research" };
+      ctx: {
+        userContextId: "wr-controls-user",
+        conversationId: "wr-controls-thread",
+        sessionKey: "agent:nova:hud:user:wr-controls-user:dm:wr-controls-thread",
       },
+      llmCtx: {
+        runtimeTools: {
+          async executeToolUse() {
+            return { content: "[1] Controls Check\nhttps://example.com\nControl-path validation." };
+          },
+        },
+        availableTools: [{ name: "web_search" }],
+      },
+      requestHints: {},
+      executeChatRequest: async () => ({ ok: true, route: "chat" }),
     });
     const out = await runExecutor();
     assert.equal(out?.route, "web_research");
-    assert.equal(Boolean(resolvedHints?.forceToolLoop), false);
-    assert.equal(Boolean(resolvedHints?.forceWebSearchPreload), false);
-    assert.equal(Boolean(resolvedHints?.forceWebFetchPreload), false);
-    assert.equal(resolvedHints?.operatorExecutionControls?.forceToolLoopAllowed, false);
-    assert.equal(resolvedHints?.operatorExecutionControls?.forceWebSearchPreloadAllowed, false);
-    assert.equal(resolvedHints?.operatorExecutionControls?.forceWebFetchPreloadAllowed, false);
+    assert.equal(Boolean(out?.requestHints?.forceToolLoop), false);
+    assert.equal(Boolean(out?.requestHints?.forceWebSearchPreload), false);
+    assert.equal(Boolean(out?.requestHints?.forceWebFetchPreload), false);
+    assert.equal(out?.requestHints?.operatorExecutionControls?.forceToolLoopAllowed, false);
+    assert.equal(out?.requestHints?.operatorExecutionControls?.forceWebSearchPreloadAllowed, false);
+    assert.equal(out?.requestHints?.operatorExecutionControls?.forceWebFetchPreloadAllowed, false);
   } finally {
     if (typeof previous.toolLoop === "undefined") delete process.env.NOVA_OPERATOR_FORCE_TOOL_LOOP;
     else process.env.NOVA_OPERATOR_FORCE_TOOL_LOOP = previous.toolLoop;
