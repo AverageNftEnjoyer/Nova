@@ -49,8 +49,8 @@ const accountDeleteRoute = await read("hud/app/api/account/delete/route.ts");
 const conversationsHook = await read("hud/lib/chat/hooks/useConversations.ts");
 const hudGateway = await read("src/runtime/infrastructure/hud-gateway/index.js");
 const runtimeConstants = await read("src/runtime/core/constants/index.js");
-const sessionStore = await read("src/session/store.ts");
-const sessionRuntimeCompat = await read("src/session/runtime-compat.js");
+const sessionStore = await read("src/session/store/index.ts");
+const sessionRuntimeCompat = await read("src/session/runtime-compat/index.js");
 
 await run("R1 thread reads are user-scoped and message IDs are stabilized", async () => {
   assert.equal(threadsRoute.includes('.eq("user_id", userId)'), true);
@@ -77,6 +77,8 @@ await run("R4 websocket broadcast path enforces userContext scoping for chat eve
   assert.equal(hudGateway.includes('"assistant_stream_delta"'), true);
   assert.equal(hudGateway.includes('"assistant_stream_done"'), true);
   assert.equal(hudGateway.includes("resolveEventUserContextId"), true);
+  assert.equal(hudGateway.includes("hasScopedConversationContext"), true);
+  assert.equal(hudGateway.includes("if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;"), true);
   assert.equal(hudGateway.includes("if (!targetUserContextId && SCOPED_ONLY_EVENT_TYPES.has(eventType)) return;"), true);
 });
 

@@ -121,6 +121,8 @@ await run("P24-C3 spotify route does not update context on failure", async () =>
 await run("P24-C4 polymarket route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let polymarketWorkerCalled = false;
+  let genericCalled = false;
   const out = await routeOperatorDispatch({
     text: "show polymarket odds for election",
     ctx: {},
@@ -143,12 +145,21 @@ await run("P24-C4 polymarket route delegates through org-chart worker and update
       calls.push(payload);
       return await payload.run();
     },
+    polymarketWorker: async () => {
+      polymarketWorkerCalled = true;
+      return { route: "polymarket", ok: true, reply: "Odds loaded." };
+    },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "polymarket", ok: true, reply: "Odds loaded." }),
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "polymarket");
   assert.equal(out?.ok, true);
+  assert.equal(polymarketWorkerCalled, true);
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "polymarket");
   assert.equal(contextUpdates.length, 1);
@@ -160,7 +171,7 @@ await run("P24-C4 polymarket route delegates through org-chart worker and update
 await run("P24-C5 coinbase route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
-  let executeHints = null;
+  let coinbaseWorkerCalled = false;
   const out = await routeOperatorDispatch({
     text: "refresh my coinbase balances",
     ctx: {},
@@ -184,23 +195,23 @@ await run("P24-C5 coinbase route delegates through org-chart worker and updates 
       calls.push(payload);
       return await payload.run();
     },
-    spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      executeHints = hints;
+    coinbaseWorker: async () => {
+      coinbaseWorkerCalled = true;
       return { route: "coinbase", ok: true, reply: "Balances synced." };
     },
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
+    executeChatRequest: async () => ({ route: "chat", ok: false }),
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "coinbase");
   assert.equal(out?.ok, true);
+  assert.equal(coinbaseWorkerCalled, true);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "coinbase");
   assert.equal(contextUpdates.length, 1);
   assert.equal(contextUpdates[0]?.domainId, "coinbase");
   assert.equal(contextUpdates[0]?.topicAffinityId, "coinbase_portfolio");
   assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
-  assert.equal(executeHints?.operatorLane?.executorKind, "coinbase");
-  assert.equal(executeHints?.forceToolLoop, true);
 });
 
 await run("P24-C6 gmail route delegates through org-chart worker and updates context", async () => {
@@ -247,6 +258,8 @@ await run("P24-C6 gmail route delegates through org-chart worker and updates con
 await run("P24-C7 telegram route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let executeChatRequestCalled = false;
+  let telegramWorkerCalled = false;
   const out = await routeOperatorDispatch({
     text: "send this to telegram",
     ctx: {},
@@ -273,11 +286,20 @@ await run("P24-C7 telegram route delegates through org-chart worker and updates 
       return await payload.run();
     },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "telegram", ok: true, reply: "Telegram message queued." }),
+    telegramWorker: async () => {
+      telegramWorkerCalled = true;
+      return { route: "telegram", ok: true, reply: "Telegram message queued." };
+    },
+    executeChatRequest: async () => {
+      executeChatRequestCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "telegram");
   assert.equal(out?.ok, true);
+  assert.equal(telegramWorkerCalled, true);
+  assert.equal(executeChatRequestCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "telegram");
   assert.equal(contextUpdates.length, 1);
@@ -286,9 +308,49 @@ await run("P24-C7 telegram route delegates through org-chart worker and updates 
   assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
 });
 
+await run("P24-C7b telegram route does not update short-term context on normalized worker failure", async () => {
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "send this to telegram",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: true,
+    telegramShortTermFollowUp: true,
+    telegramPolicy: {
+      resolveTopicAffinityId: () => "telegram_send",
+    },
+    telegramShortTermContext: null,
+    telegramShortTermContextSnapshot: null,
+    userContextId: "user-7b",
+    conversationId: "thread-7b",
+    sessionKey: "agent:nova:hud:user:user-7b:dm:thread-7b",
+    activeChatRuntime: { provider: "grok" },
+    delegateToOrgChartWorker: async (payload) => await payload.run(),
+    telegramWorker: async () => ({
+      route: "telegram",
+      ok: false,
+      error: "telegram.message_missing",
+      errorMessage: "Telegram send command requires a message payload.",
+    }),
+    executeChatRequest: async () => ({ route: "chat", ok: true }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.ok, false);
+  assert.equal(out?.error, "telegram.message_missing");
+  assert.equal(contextUpdates.length, 0);
+});
+
 await run("P24-C8 discord route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let genericCalled = false;
+  let discordCalled = false;
   const out = await routeOperatorDispatch({
     text: "post this to discord",
     ctx: {},
@@ -316,17 +378,61 @@ await run("P24-C8 discord route delegates through org-chart worker and updates c
       return await payload.run();
     },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "discord", ok: true, reply: "Discord post queued." }),
+    discordWorker: async () => {
+      discordCalled = true;
+      return { route: "discord", ok: true, reply: "Discord post queued." };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "generic" };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "discord");
   assert.equal(out?.ok, true);
+  assert.equal(discordCalled, true);
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "discord");
   assert.equal(contextUpdates.length, 1);
   assert.equal(contextUpdates[0]?.domainId, "discord");
   assert.equal(contextUpdates[0]?.topicAffinityId, "discord_send");
   assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
+});
+
+await run("P24-C8b discord route does not persist context when domain execution fails", async () => {
+  const contextUpdates = [];
+  const out = await routeOperatorDispatch({
+    text: "post this to discord",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: true,
+    discordShortTermFollowUp: true,
+    discordPolicy: {
+      resolveTopicAffinityId: () => "discord_send",
+    },
+    discordShortTermContext: null,
+    discordShortTermContextSnapshot: null,
+    userContextId: "user-8b",
+    conversationId: "thread-8b",
+    sessionKey: "agent:nova:hud:user:user-8b:dm:thread-8b",
+    activeChatRuntime: { provider: "claude" },
+    delegateToOrgChartWorker: async (payload) => await payload.run(),
+    spotifyWorker: async () => ({ route: "spotify", ok: true }),
+    discordWorker: async () => ({ route: "discord", ok: false, error: "discord_delivery_all_failed" }),
+    executeChatRequest: async () => ({ route: "chat", ok: true }),
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "discord");
+  assert.equal(out?.ok, false);
+  assert.equal(contextUpdates.length, 0);
 });
 
 await run("P24-C9 calendar route delegates through org-chart worker and updates context", async () => {
@@ -577,6 +683,124 @@ await run("P24-C13 market route delegates through org-chart worker and updates c
   assert.equal(contextUpdates[0]?.slots?.followUpResolved, true);
 });
 
+await run("P24-C13a market route keeps weather dispatch when short-term market context is weather", async () => {
+  const calls = [];
+  let weatherCalled = false;
+  let marketCalled = false;
+  const out = await routeOperatorDispatch({
+    text: "refresh",
+    ctx: {},
+    llmCtx: { turnPolicy: { weatherIntent: false } },
+    requestHints: {},
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: true,
+    marketShortTermFollowUp: true,
+    marketPolicy: {
+      resolveTopicAffinityId: () => "market_weather",
+    },
+    marketShortTermContext: { topicAffinityId: "market_weather" },
+    marketShortTermContextSnapshot: null,
+    userContextId: "user-13a",
+    conversationId: "thread-13a",
+    sessionKey: "agent:nova:hud:user:user-13a:dm:thread-13a",
+    activeChatRuntime: { provider: "gemini" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    weatherWorker: async () => {
+      weatherCalled = true;
+      return { route: "weather", ok: true, reply: "Weather refreshed." };
+    },
+    marketWorker: async () => {
+      marketCalled = true;
+      return { route: "market", ok: true, reply: "unexpected" };
+    },
+    executeChatRequest: async () => ({ route: "chat", ok: false }),
+    upsertShortTermContextState: () => {},
+  });
+  assert.equal(out?.route, "weather");
+  assert.equal(out?.ok, true);
+  assert.equal(weatherCalled, true);
+  assert.equal(marketCalled, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "weather");
+});
+
+await run("P24-C13b non-weather market route delegates through dedicated market worker and updates context", async () => {
+  const calls = [];
+  const contextUpdates = [];
+  let marketCalled = false;
+  let weatherCalled = false;
+  let genericCalled = false;
+  const out = await routeOperatorDispatch({
+    text: "show stock market trend today",
+    ctx: {},
+    llmCtx: { turnPolicy: { weatherIntent: false } },
+    requestHints: { marketTopicAffinityId: "market_equities" },
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: false,
+    shouldRouteToTelegram: false,
+    shouldRouteToDiscord: false,
+    shouldRouteToCalendar: false,
+    shouldRouteToReminders: false,
+    shouldRouteToWebResearch: false,
+    shouldRouteToCrypto: false,
+    shouldRouteToMarket: true,
+    marketShortTermFollowUp: true,
+    marketPolicy: {
+      resolveTopicAffinityId: () => "market_equities",
+    },
+    marketShortTermContext: null,
+    marketShortTermContextSnapshot: null,
+    userContextId: "user-13b",
+    conversationId: "thread-13b",
+    sessionKey: "agent:nova:hud:user:user-13b:dm:thread-13b",
+    activeChatRuntime: { provider: "gemini" },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    marketWorker: async () => {
+      marketCalled = true;
+      return { route: "market", ok: true, reply: "Market loaded." };
+    },
+    weatherWorker: async () => {
+      weatherCalled = true;
+      return { route: "weather", ok: true, reply: "unexpected" };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
+    },
+    upsertShortTermContextState: (payload) => contextUpdates.push(payload),
+  });
+  assert.equal(out?.route, "market");
+  assert.equal(out?.ok, true);
+  assert.equal(marketCalled, true);
+  assert.equal(weatherCalled, false);
+  assert.equal(genericCalled, false);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.routeHint, "market");
+  assert.equal(contextUpdates.length, 1);
+  assert.equal(contextUpdates[0]?.domainId, "market");
+  assert.equal(contextUpdates[0]?.topicAffinityId, "market_equities");
+  assert.equal(contextUpdates[0]?.slots?.lastRoute, "market");
+});
+
 await run("P24-C14 files route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
@@ -679,6 +903,8 @@ await run("P24-C15 diagnostics route delegates through org-chart worker and upda
 await run("P24-C16 voice route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let genericCalled = false;
+  let voiceWorkerCalled = false;
   const out = await routeOperatorDispatch({
     text: "mute voice",
     ctx: {},
@@ -713,12 +939,21 @@ await run("P24-C16 voice route delegates through org-chart worker and updates co
       calls.push(payload);
       return await payload.run();
     },
+    voiceWorker: async () => {
+      voiceWorkerCalled = true;
+      return { route: "voice", ok: true, reply: "Voice settings updated." };
+    },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "voice", ok: true, reply: "Voice settings updated." }),
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "voice");
   assert.equal(out?.ok, true);
+  assert.equal(voiceWorkerCalled, true);
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "voice");
   assert.equal(contextUpdates.length, 1);
@@ -730,6 +965,8 @@ await run("P24-C16 voice route delegates through org-chart worker and updates co
 await run("P24-C17 tts route delegates through org-chart worker and updates context", async () => {
   const calls = [];
   const contextUpdates = [];
+  let genericCalled = false;
+  let ttsWorkerCalled = false;
   const out = await routeOperatorDispatch({
     text: "read this aloud",
     ctx: {},
@@ -765,12 +1002,21 @@ await run("P24-C17 tts route delegates through org-chart worker and updates cont
       calls.push(payload);
       return await payload.run();
     },
+    ttsWorker: async () => {
+      ttsWorkerCalled = true;
+      return { route: "tts", ok: true, reply: "Reading aloud now." };
+    },
     spotifyWorker: async () => ({ route: "spotify", ok: true }),
-    executeChatRequest: async () => ({ route: "tts", ok: true, reply: "Reading aloud now." }),
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { route: "chat", ok: true, reply: "unexpected" };
+    },
     upsertShortTermContextState: (payload) => contextUpdates.push(payload),
   });
   assert.equal(out?.route, "tts");
   assert.equal(out?.ok, true);
+  assert.equal(ttsWorkerCalled, true);
+  assert.equal(genericCalled, false);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.routeHint, "tts");
   assert.equal(contextUpdates.length, 1);
@@ -831,6 +1077,48 @@ await run("P24-C18 default worker lanes receive operator lane request hints with
   assert.equal(executeHints?.operatorLane?.domainId, "gmail");
   assert.equal("operatorLane" in baseRequestHints, false);
   assert.equal(contextUpdates.length, 1);
+});
+
+await run("P24-C19 policy gate signal is forwarded with persisted approval grant consumption", async () => {
+  const calls = [];
+  let consumeCalls = 0;
+  const out = await routeOperatorDispatch({
+    text: "forward this email",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {
+      enforcePolicyGate: true,
+    },
+    shouldRouteToSpotify: false,
+    shouldRouteToYouTube: false,
+    shouldRouteToPolymarket: false,
+    shouldRouteToCoinbase: false,
+    shouldRouteToGmail: true,
+    gmailShortTermFollowUp: false,
+    gmailPolicy: null,
+    gmailShortTermContext: null,
+    gmailShortTermContextSnapshot: null,
+    userContextId: "user-19",
+    conversationId: "thread-19",
+    sessionKey: "agent:nova:hud:user:user-19:dm:thread-19",
+    activeChatRuntime: { provider: "claude" },
+    consumePolicyApprovalGrant: () => {
+      consumeCalls += 1;
+      return true;
+    },
+    delegateToOrgChartWorker: async (payload) => {
+      calls.push(payload);
+      return await payload.run();
+    },
+    executeChatRequest: async () => ({ route: "gmail", ok: true, reply: "ok" }),
+    upsertShortTermContextState: () => {},
+  });
+
+  assert.equal(out?.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(consumeCalls, 1);
+  assert.equal(calls[0]?.policyGate?.enabled, true);
+  assert.equal(calls[0]?.policyGate?.approvalGranted, true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

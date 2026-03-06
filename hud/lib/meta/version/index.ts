@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.44 Alpha (2026-03-06): Voice/TTS closure + release hardening sweep
+ *     - Closed Voice and TTS lanes to 100% with user-scoped runtime audio state, lane-owned unsupported-command handling, and live worker-path validation.
+ *     - Hardened HUD voice runtime propagation so scoped `speak` and `stopSpeaking` behavior stays bound to the active user context.
+ *     - Added runtime/isolation/live smoke coverage for voice, tts, calendar, and release-readiness verification.
+ *     - Cleared pre-push lint blockers and revalidated routing, isolation, and release-readiness gates across the dirty workspace.
+ *
  * - V.43 Alpha (2026-03-05): Agentic runtime service ownership + mission stack extraction
  *     - Removed remaining operator-owned system action handlers by moving workflow build, memory update, and shutdown into dedicated workers.
  *     - Eliminated legacy weather and crypto fast paths in favor of dedicated workers and shared runtime-owned services.
@@ -278,6 +284,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.43 Alpha"
+export const NOVA_VERSION = "V.44 Alpha"
 
 

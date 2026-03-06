@@ -2,8 +2,23 @@ import { OPERATOR_LANE_SEQUENCE } from "../operator-lane-config/index.js";
 import { DOMAIN_WORKER_RULES } from "../../../routing/org-chart-routing/registry.js";
 import { handleSpotifyWorker } from "../../../workers/media/spotify-agent/index.js";
 import { handleYouTubeWorker } from "../../../workers/media/youtube-agent/index.js";
+import { handleVoiceWorker } from "../../../workers/media/voice-agent/index.js";
+import { handleTtsWorker } from "../../../workers/media/tts-agent/index.js";
+import { handleCoinbaseWorker } from "../../../workers/finance/coinbase-agent/index.js";
+import { handlePolymarketWorker } from "../../../workers/finance/polymarket-agent/index.js";
 import { handleCryptoWorker } from "../../../workers/finance/crypto-agent/index.js";
+import { handleGmailWorker } from "../../../workers/comms/gmail-agent/index.js";
+import { handleTelegramWorker } from "../../../workers/comms/telegram-agent/index.js";
+import { handleDiscordWorker } from "../../../workers/comms/discord-agent/index.js";
+import { handleCalendarWorker } from "../../../workers/productivity/calendar-agent/index.js";
+import { handleRemindersWorker } from "../../../workers/productivity/reminders-agent/index.js";
+import { handleMarketWorker } from "../../../workers/market/market-agent/index.js";
 import { handleWeatherWorker } from "../../../workers/market/weather-agent/index.js";
+import { handleWebResearchWorker } from "../../../workers/system/web-research-agent/index.js";
+import { handleFilesWorker } from "../../../workers/system/files-agent/index.js";
+import { handleMemoryWorker } from "../../../workers/system/memory-agent/index.js";
+import { handleShutdownWorker } from "../../../workers/system/shutdown-agent/index.js";
+import { handleDiagnosticsWorker } from "../../../workers/system/diagnostics-agent/index.js";
 
 const DEFAULT_EXECUTOR_KIND = "default";
 const EXECUTOR_KIND_CANDIDATES = OPERATOR_LANE_SEQUENCE.flatMap((lane) => [
@@ -206,6 +221,15 @@ function buildLaneRequestHints(requestHints, lane, executorKind = DEFAULT_EXECUT
   };
 }
 
+function isWeatherExecutionForMarketLane(text, llmCtx = {}, requestHints = {}) {
+  const dispatchRouteHint = String(requestHints?.operatorDispatchRouteHint || "").trim().toLowerCase();
+  if (dispatchRouteHint === "weather") return true;
+  if (dispatchRouteHint === "market") return false;
+  if (llmCtx?.turnPolicy?.weatherIntent === true) return true;
+  if (String(requestHints?.marketTopicAffinityId || "").trim() === "market_weather") return true;
+  return /\b(weather|forecast|temperature|rain|snow|precipitation)\b/i.test(String(text || ""));
+}
+
 const EXECUTOR_KIND_HANDLERS = {
   spotify: ({ text, ctx, llmCtx, spotifyWorker }) => {
     const runSpotifyWorker = typeof spotifyWorker === "function" ? spotifyWorker : handleSpotifyWorker;
@@ -215,17 +239,91 @@ const EXECUTOR_KIND_HANDLERS = {
     const runYouTubeWorker = typeof youtubeWorker === "function" ? youtubeWorker : handleYouTubeWorker;
     return async () => runYouTubeWorker(text, ctx);
   },
+  polymarket: ({ text, ctx, llmCtx, requestHints, lane, executorKind, polymarketWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runPolymarketWorker = typeof polymarketWorker === "function" ? polymarketWorker : handlePolymarketWorker;
+    return async () => runPolymarketWorker(text, ctx, llmCtx, laneRequestHints);
+  },
+  coinbase: ({ text, ctx, llmCtx, coinbaseWorker }) => {
+    const runCoinbaseWorker = typeof coinbaseWorker === "function" ? coinbaseWorker : handleCoinbaseWorker;
+    return async () => runCoinbaseWorker(text, ctx, llmCtx);
+  },
   crypto: ({ text, ctx, llmCtx, cryptoWorker }) => {
     const runCryptoWorker = typeof cryptoWorker === "function" ? cryptoWorker : handleCryptoWorker;
     return async () => runCryptoWorker(text, ctx, llmCtx);
   },
-  market: ({ text, ctx, llmCtx, weatherWorker, requestHints, lane, executorKind, executeChatRequest }) => {
-    if (String(lane?.routeHint || "").trim().toLowerCase() === "weather") {
+  gmail: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    return async () => handleGmailWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  telegram: ({ text, ctx, llmCtx, requestHints, lane, executorKind, telegramWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runTelegramWorker = typeof telegramWorker === "function" ? telegramWorker : handleTelegramWorker;
+    return async () => runTelegramWorker(text, ctx, llmCtx, laneRequestHints);
+  },
+  discord: ({ text, ctx, llmCtx, requestHints, lane, executorKind, discordWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runDiscordWorker = typeof discordWorker === "function" ? discordWorker : handleDiscordWorker;
+    return async () => runDiscordWorker(text, ctx, llmCtx, laneRequestHints);
+  },
+  calendar: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest, calendarWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runCalendarWorker = typeof calendarWorker === "function" ? calendarWorker : handleCalendarWorker;
+    return async () => runCalendarWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  reminders: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest, remindersWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runRemindersWorker = typeof remindersWorker === "function" ? remindersWorker : handleRemindersWorker;
+    return async () => runRemindersWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  web_research: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    return async () => handleWebResearchWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  market: ({ text, ctx, llmCtx, weatherWorker, marketWorker, requestHints, lane, executorKind }) => {
+    if (isWeatherExecutionForMarketLane(text, llmCtx, requestHints)) {
       const runWeatherWorker = typeof weatherWorker === "function" ? weatherWorker : handleWeatherWorker;
       return async () => runWeatherWorker(text, ctx, llmCtx);
     }
     const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
-    return async () => executeChatRequest(text, ctx, llmCtx, laneRequestHints);
+    laneRequestHints.operatorLane = {
+      ...(laneRequestHints.operatorLane || {}),
+      routeHint: "market",
+      responseRoute: "market",
+      resultRoute: "market",
+    };
+    laneRequestHints.operatorWorker = {
+      ...(laneRequestHints.operatorWorker || {}),
+      routeHint: "market",
+    };
+    const runMarketWorker = typeof marketWorker === "function" ? marketWorker : handleMarketWorker;
+    return async () => runMarketWorker(text, ctx, llmCtx, laneRequestHints);
+  },
+  files: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    return async () => handleFilesWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  memory: ({ text, ctx, memoryWorker }) => {
+    const runMemoryWorker = typeof memoryWorker === "function" ? memoryWorker : handleMemoryWorker;
+    return async () => runMemoryWorker(text, ctx);
+  },
+  shutdown: ({ text, ctx, shutdownWorker }) => {
+    const runShutdownWorker = typeof shutdownWorker === "function" ? shutdownWorker : handleShutdownWorker;
+    return async () => runShutdownWorker(text, ctx);
+  },
+  diagnostics: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    return async () => handleDiagnosticsWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  voice: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest, voiceWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runVoiceWorker = typeof voiceWorker === "function" ? voiceWorker : handleVoiceWorker;
+    return async () => runVoiceWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
+  },
+  tts: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest, ttsWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runTtsWorker = typeof ttsWorker === "function" ? ttsWorker : handleTtsWorker;
+    return async () => runTtsWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
   },
   default: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest }) => {
     const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
@@ -242,8 +340,19 @@ export function resolveOperatorWorkerExecutor(input = {}) {
     requestHints,
     spotifyWorker,
     youtubeWorker,
+    polymarketWorker,
+    calendarWorker,
+    remindersWorker,
+    memoryWorker,
+    shutdownWorker,
+    coinbaseWorker,
     cryptoWorker,
+    telegramWorker,
+    marketWorker,
     weatherWorker,
+    discordWorker,
+    voiceWorker,
+    ttsWorker,
     executeChatRequest,
   } = input;
 
@@ -256,17 +365,34 @@ export function resolveOperatorWorkerExecutor(input = {}) {
 
   const executorKind = EXECUTOR_KIND_BY_LANE_ID[lane.id];
   const handler = EXECUTOR_KIND_HANDLERS[executorKind] || EXECUTOR_KIND_HANDLERS.default;
+  const normalizedCtx = {
+    ...(ctx && typeof ctx === "object" ? ctx : {}),
+    userContextId: String(ctx?.userContextId || input.userContextId || ""),
+    conversationId: String(ctx?.conversationId || input.conversationId || ""),
+    sessionKey: String(ctx?.sessionKey || input.sessionKey || ""),
+  };
   return handler({
     lane,
     executorKind: executorKind || DEFAULT_EXECUTOR_KIND,
     text,
-    ctx,
+    ctx: normalizedCtx,
     llmCtx,
     requestHints,
     spotifyWorker,
     youtubeWorker,
+    polymarketWorker,
+    calendarWorker,
+    remindersWorker,
+    memoryWorker,
+    shutdownWorker,
+    coinbaseWorker,
     cryptoWorker,
+    telegramWorker,
+    marketWorker,
     weatherWorker,
+    discordWorker,
+    voiceWorker,
+    ttsWorker,
     executeChatRequest,
   });
 }

@@ -31,6 +31,7 @@ export async function delegateToOrgChartWorker({
   userContextId = "",
   conversationId = "",
   sessionKey = "",
+  policyGate = null,
   run,
 }) {
   const delegation = await executeOrgChartDelegation({
@@ -43,6 +44,7 @@ export async function delegateToOrgChartWorker({
     userContextId,
     conversationId,
     sessionKey,
+    ...(policyGate && typeof policyGate === "object" ? { policyGate } : {}),
     executeWorker: async ({ orgChartPath }) => run(orgChartPath),
   });
   const summary = attachOrgChartPathToSummary(

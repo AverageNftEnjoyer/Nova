@@ -5,8 +5,8 @@ import {
 import {
   normalizeCoinbaseCommandText,
   resolveEnabledCoinbaseCommandCategories,
-} from "../coinbase-command-parser/index.js";
-import { resolveCoinbaseRolloutAccess } from "../coinbase-rollout-policy/index.js";
+} from "../../../../services/coinbase/command-parser/index.js";
+import { resolveCoinbaseRolloutAccess } from "../../../../services/coinbase/rollout-policy/index.js";
 import {
   COINBASE_CONSENT_AFFIRM_REGEX,
   COINBASE_WHY_REGEX,

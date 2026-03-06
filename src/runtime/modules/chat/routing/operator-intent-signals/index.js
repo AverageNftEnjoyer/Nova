@@ -141,6 +141,25 @@ function isLikelyTtsPrompt(normalized) {
     /\btext to speech|tts\b/i.test(normalized)
     || /\bread\s+(this|that)\s+aloud\b/i.test(normalized)
     || /\bspeak\s+this\b/i.test(normalized)
+    || /\b(set|use|switch|change)\s+(the\s+)?(?:tts\s+)?voice\s+(to|as)\b/i.test(normalized)
+    || /\b(tts|voice)\s+(status|settings)\b/i.test(normalized)
+  );
+}
+
+function isLikelyMemoryPrompt(normalized) {
+  return (
+    /\bremember this\b/i.test(normalized)
+    || /\bupdate (your )?memory\b/i.test(normalized)
+    || /\bsave this to memory\b/i.test(normalized)
+    || /\bstore this\b/i.test(normalized)
+  );
+}
+
+function isLikelyShutdownPrompt(normalized) {
+  return (
+    /\bshutdown nova\b/i.test(normalized)
+    || /\bnova shut ?down\b/i.test(normalized)
+    || /\bshutdown\b/i.test(normalized)
   );
 }
 
@@ -199,6 +218,8 @@ const DIRECT_INTENT_MATCHERS = {
   market: [isLikelyMarketPrompt, /\b(market)\s+(refresh|update|scan)\b/i],
   files: [isLikelyFilesPrompt, /\b(files?)\s+(refresh|scan|index)\b/i],
   diagnostics: [isLikelyDiagnosticsPrompt, /\b(run|check)\s+diagnostics\b/i],
+  memory: [isLikelyMemoryPrompt, /\b(memory)\s+(update|save|store)\b/i],
+  shutdown: [isLikelyShutdownPrompt, /\b(power|system)\s+down\b/i],
   voice: [isLikelyVoicePrompt, /\b(voice)\s+(refresh|status|settings)\b/i],
   tts: [isLikelyTtsPrompt, /\b(tts)\s+(refresh|status|settings)\b/i],
 };
@@ -266,6 +287,16 @@ const FOLLOW_UP_INTENT_MATCHERS = {
     /\bmore\s+(detail|details)\b/i,
     /\b(error|latency|trace)\b/i,
   ],
+  memory: [
+    /\bremember (that|this)\b/i,
+    /\bupdate memory\b/i,
+    /\bsave (it|that|this)\b/i,
+  ],
+  shutdown: [
+    /\byes\b/i,
+    /\bconfirm\b/i,
+    /\bdo it\b/i,
+  ],
   voice: [
     /\b(mute|unmute|mic|microphone)\b/i,
     /\bmore\s+(detail|details)\b/i,
@@ -300,6 +331,10 @@ export const isFilesDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.fi
 export const isFilesContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.files);
 export const isDiagnosticsDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.diagnostics);
 export const isDiagnosticsContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.diagnostics);
+export const isMemoryDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.memory);
+export const isMemoryContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.memory);
+export const isShutdownDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.shutdown);
+export const isShutdownContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.shutdown);
 export const isVoiceDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.voice);
 export const isVoiceContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.voice);
 export const isTtsDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.tts);

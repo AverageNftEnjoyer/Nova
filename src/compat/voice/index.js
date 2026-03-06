@@ -2,6 +2,7 @@
 export {
   VOICE_MAP,
   initVoiceBroadcast,
+  withVoiceRuntimeContext,
   getBusy,
   setBusy,
   getMuted,

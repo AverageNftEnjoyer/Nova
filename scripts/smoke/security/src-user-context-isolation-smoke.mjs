@@ -331,9 +331,23 @@ await run("Gateway enforces scoped conversation ownership and scoped-only broadc
   const gatewaySource = `${hudGatewaySource}\n${hudGatewayMessageHandlerSource}`;
   assert.equal(hudGatewaySource.includes("SCOPED_ONLY_EVENT_TYPES"), true);
   assert.equal(hudGatewaySource.includes("if (!targetUserContextId && SCOPED_ONLY_EVENT_TYPES.has(eventType)) return;"), true);
+  assert.equal(hudGatewaySource.includes("hasScopedConversationContext"), true);
+  assert.equal(hudGatewaySource.includes("if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;"), true);
   assert.equal(hudGatewaySource.includes('status: "conflict"'), true);
   assert.equal(hudGatewaySource.includes("meta.conflicted === true"), true);
   assert.equal(gatewaySource.includes("missing conversation context"), true);
+});
+
+await run("Org-chart delegation enforces required scoped context identifiers", async () => {
+  const orgChartDelegationSource = fs.readFileSync(
+    path.join(process.cwd(), "src/runtime/modules/chat/routing/org-chart-delegation/index.js"),
+    "utf8",
+  );
+  assert.equal(orgChartDelegationSource.includes("function assertScopedContext"), true);
+  assert.equal(orgChartDelegationSource.includes("requires userContextId"), true);
+  assert.equal(orgChartDelegationSource.includes("requires conversationId"), true);
+  assert.equal(orgChartDelegationSource.includes("requires sessionKey"), true);
+  assert.equal(orgChartDelegationSource.includes("assertScopedContext(context);"), true);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

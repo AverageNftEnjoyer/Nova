@@ -59,6 +59,14 @@ await run("P18-C1 delegation emits operator/council/manager/provider/worker enve
   assert.equal(out.hops.every((hop) => hop.userContextId === "tenant-alpha"), true);
   assert.equal(out.envelopes[3]?.agentId, "provider-selector");
   assert.equal(out.envelopes[4]?.agentId, "spotify-agent");
+  const councilEnvelope = out.envelopes[1];
+  assert.equal(councilEnvelope?.agentId, "routing-council");
+  assert.equal(councilEnvelope?.result?.selectedDomainManagerId, "media-manager");
+  assert.equal(councilEnvelope?.result?.selectedWorkerAgentId, "spotify-agent");
+  assert.equal(councilEnvelope?.result?.decisionType, "default_fallback");
+  assert.equal(councilEnvelope?.result?.matchedRuleId, "");
+  assert.equal(councilEnvelope?.result?.policy?.approvalRequired, false);
+  assert.equal(councilEnvelope?.result?.policy?.riskTier, "standard");
 });
 
 await run("P18-C1b youtube delegation resolves media-manager and youtube worker", async () => {
@@ -340,6 +348,31 @@ await run("P18-C1l market/weather delegation resolves finance-manager and market
   assert.equal(out.envelopes[4]?.agentId, "market-agent");
 });
 
+await run("P18-C1l2 market delegation resolves finance-manager and market worker", async () => {
+  const out = await executeOrgChartDelegation({
+    routeHint: "market",
+    responseRoute: "market",
+    text: "show stock market trend",
+    toolCalls: ["market"],
+    provider: "gemini",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-market-nonweather",
+    conversationId: "thread-market-nonweather",
+    sessionKey: "agent:nova:hud:user:tenant-market-nonweather:dm:thread-market-nonweather",
+    executeWorker: async () => ({
+      route: "market",
+      ok: true,
+      provider: "gemini",
+      totalTokens: 17,
+      latencyMs: 27,
+      toolCalls: ["market"],
+    }),
+  });
+  assert.equal(out.orgChartPath.domainManagerId, "finance-manager");
+  assert.equal(out.orgChartPath.workerAgentId, "market-agent");
+  assert.equal(out.envelopes[4]?.agentId, "market-agent");
+});
+
 await run("P18-C1m files delegation resolves system-manager and files worker", async () => {
   const out = await executeOrgChartDelegation({
     routeHint: "files",
@@ -498,6 +531,95 @@ await run("P18-C2b thrown worker errors are normalized into failure summary + te
   assert.equal(Number(workerEnvelope?.telemetry?.latencyMs || 0) >= 0, true);
 });
 
+await run("P18-C2c planning council delegation preserves council rule-match metadata", async () => {
+  const out = await executeOrgChartDelegation({
+    routeHint: "workflow_build",
+    responseRoute: "workflow_build",
+    text: "build mission workflow",
+    toolCalls: ["workflow_build"],
+    provider: "claude",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-planning",
+    conversationId: "thread-planning",
+    sessionKey: "agent:nova:hud:user:tenant-planning:dm:thread-planning",
+    executeWorker: async () => ({
+      route: "workflow_build",
+      ok: true,
+      provider: "claude",
+      totalTokens: 11,
+      latencyMs: 17,
+      toolCalls: [],
+    }),
+  });
+  const councilEnvelope = out.envelopes[1];
+  assert.equal(out.orgChartPath?.councilId, "planning-council");
+  assert.equal(out.orgChartPath?.councilDecision?.decisionType, "rule_match");
+  assert.equal(out.orgChartPath?.councilDecision?.matchedRuleId, "planning-council");
+  assert.equal(councilEnvelope?.agentId, "planning-council");
+  assert.equal(councilEnvelope?.result?.decisionType, "rule_match");
+  assert.equal(councilEnvelope?.result?.matchedRuleId, "planning-council");
+  assert.equal(councilEnvelope?.result?.selectedDomainManagerId, "productivity-manager");
+  assert.equal(councilEnvelope?.result?.selectedWorkerAgentId, "missions-agent");
+  assert.equal(councilEnvelope?.result?.policy?.approvalRequired, false);
+});
+
+await run("P18-C2d policy metadata marks sensitive tool call approval requirement", async () => {
+  const out = await executeOrgChartDelegation({
+    routeHint: "gmail",
+    responseRoute: "gmail",
+    text: "forward this email",
+    toolCalls: ["gmail_forward_message"],
+    provider: "claude",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-policy",
+    conversationId: "thread-policy",
+    sessionKey: "agent:nova:hud:user:tenant-policy:dm:thread-policy",
+    executeWorker: async () => ({
+      route: "gmail",
+      ok: true,
+      provider: "claude",
+      totalTokens: 10,
+      latencyMs: 16,
+      toolCalls: ["gmail_forward_message"],
+    }),
+  });
+
+  const councilEnvelope = out.envelopes[1];
+  assert.equal(councilEnvelope?.result?.policy?.approvalRequired, true);
+  assert.equal(councilEnvelope?.result?.policy?.riskTier, "high");
+  assert.equal(councilEnvelope?.result?.policy?.reason, "sensitive_tool_call");
+  assert.equal(councilEnvelope?.result?.policy?.matchedSensitiveToolCall, "gmail_forward_message");
+});
+
+await run("P18-C2e enabled policy gate blocks sensitive worker execution without approval", async () => {
+  let workerCalled = false;
+  const out = await executeOrgChartDelegation({
+    routeHint: "gmail",
+    responseRoute: "gmail",
+    text: "forward this email",
+    toolCalls: ["gmail_forward_message"],
+    provider: "claude",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-policy-gate",
+    conversationId: "thread-policy-gate",
+    sessionKey: "agent:nova:hud:user:tenant-policy-gate:dm:thread-policy-gate",
+    policyGate: {
+      enabled: true,
+      approvalGranted: false,
+    },
+    executeWorker: async () => {
+      workerCalled = true;
+      return { route: "gmail", ok: true };
+    },
+  });
+
+  assert.equal(workerCalled, false);
+  assert.equal(out.workerSummary?.ok, false);
+  assert.equal(out.workerSummary?.error, "policy_approval_required");
+  assert.equal(out.delegationError?.stage, "policy_gate");
+  assert.equal(out.delegationError?.code, "policy_approval_required");
+});
+
 await run("P18-C3 delegation requires executeWorker callback", async () => {
   let threw = false;
   try {
@@ -512,6 +634,130 @@ await run("P18-C3 delegation requires executeWorker callback", async () => {
     assert.equal(String(error?.message || "").includes("executeWorker"), true);
   }
   assert.equal(threw, true);
+});
+
+await run("P18-C3b delegation rejects missing scoped context identifiers", async () => {
+  let missingUserContextError = "";
+  let missingConversationError = "";
+  let missingSessionKeyError = "";
+
+  try {
+    await executeOrgChartDelegation({
+      routeHint: "chat",
+      responseRoute: "chat",
+      text: "hello",
+      toolCalls: [],
+      conversationId: "thread-x",
+      sessionKey: "agent:nova:hud:user:u:dm:thread-x",
+      executeWorker: async () => ({ route: "chat", ok: true }),
+    });
+  } catch (error) {
+    missingUserContextError = String(error?.message || "");
+  }
+
+  try {
+    await executeOrgChartDelegation({
+      routeHint: "chat",
+      responseRoute: "chat",
+      text: "hello",
+      toolCalls: [],
+      userContextId: "tenant-x",
+      sessionKey: "agent:nova:hud:user:tenant-x:dm:thread-x",
+      executeWorker: async () => ({ route: "chat", ok: true }),
+    });
+  } catch (error) {
+    missingConversationError = String(error?.message || "");
+  }
+
+  try {
+    await executeOrgChartDelegation({
+      routeHint: "chat",
+      responseRoute: "chat",
+      text: "hello",
+      toolCalls: [],
+      userContextId: "tenant-x",
+      conversationId: "thread-x",
+      executeWorker: async () => ({ route: "chat", ok: true }),
+    });
+  } catch (error) {
+    missingSessionKeyError = String(error?.message || "");
+  }
+
+  assert.equal(missingUserContextError.includes("userContextId"), true);
+  assert.equal(missingConversationError.includes("conversationId"), true);
+  assert.equal(missingSessionKeyError.includes("sessionKey"), true);
+});
+
+await run("P18-C4 string worker result is normalized to canonical worker summary contract", async () => {
+  const out = await executeOrgChartDelegation({
+    routeHint: "chat",
+    responseRoute: "chat",
+    text: "hello",
+    toolCalls: [],
+    provider: "openai",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-contract",
+    conversationId: "thread-contract",
+    sessionKey: "agent:nova:hud:user:tenant-contract:dm:thread-contract",
+    executeWorker: async () => "plain reply",
+  });
+
+  const summary = out.workerSummary;
+  assert.equal(summary.ok, true);
+  assert.equal(summary.route, "chat");
+  assert.equal(summary.responseRoute, "chat");
+  assert.equal(summary.reply, "plain reply");
+  assert.equal(Array.isArray(summary.toolCalls), true);
+  assert.equal(Array.isArray(summary.toolExecutions), true);
+  assert.equal(Array.isArray(summary.retries), true);
+  assert.equal(summary.sessionKey, "agent:nova:hud:user:tenant-contract:dm:thread-contract");
+  assert.equal(typeof summary.requestHints, "object");
+  assert.equal(typeof summary.telemetry, "object");
+  assert.equal(summary.telemetry.userContextId, "tenant-contract");
+  assert.equal(summary.telemetry.conversationId, "thread-contract");
+  assert.equal(summary.telemetry.sessionKey, "agent:nova:hud:user:tenant-contract:dm:thread-contract");
+  assert.equal(typeof summary.canRunToolLoop, "boolean");
+  assert.equal(typeof summary.canRunWebSearch, "boolean");
+  assert.equal(typeof summary.canRunWebFetch, "boolean");
+  assert.equal(Number(summary.totalTokens) >= 0, true);
+  assert.equal(Number(summary.latencyMs) >= 0, true);
+});
+
+await run("P18-C5 parallel delegations keep user-scoped envelopes and hops isolated", async () => {
+  const runA = executeOrgChartDelegation({
+    routeHint: "spotify",
+    responseRoute: "spotify",
+    text: "play spotify",
+    toolCalls: ["spotify"],
+    provider: "openai",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-a",
+    conversationId: "thread-a",
+    sessionKey: "agent:nova:hud:user:tenant-a:dm:thread-a",
+    executeWorker: async () => ({ route: "spotify", ok: true, reply: "A" }),
+  });
+
+  const runB = executeOrgChartDelegation({
+    routeHint: "gmail",
+    responseRoute: "gmail",
+    text: "open gmail",
+    toolCalls: ["gmail"],
+    provider: "claude",
+    providerSource: "chat-runtime-selected",
+    userContextId: "tenant-b",
+    conversationId: "thread-b",
+    sessionKey: "agent:nova:hud:user:tenant-b:dm:thread-b",
+    executeWorker: async () => ({ route: "gmail", ok: true, reply: "B" }),
+  });
+
+  const [outA, outB] = await Promise.all([runA, runB]);
+
+  assert.equal(outA.envelopes.every((envelope) => envelope?.result?.userContextId === "tenant-a"), true);
+  assert.equal(outB.envelopes.every((envelope) => envelope?.result?.userContextId === "tenant-b"), true);
+  assert.equal(outA.hops.every((hop) => hop.userContextId === "tenant-a"), true);
+  assert.equal(outB.hops.every((hop) => hop.userContextId === "tenant-b"), true);
+  assert.equal(outA.envelopes.some((envelope) => envelope?.result?.userContextId === "tenant-b"), false);
+  assert.equal(outB.envelopes.some((envelope) => envelope?.result?.userContextId === "tenant-a"), false);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

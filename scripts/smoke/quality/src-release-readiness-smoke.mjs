@@ -62,11 +62,17 @@ await run("P20-C1 release gate scripts are present", async () => {
     "smoke:src-security",
     "smoke:src-memory",
     "smoke:src-routing",
+    "smoke:src-telegram-lane-isolation",
     "smoke:src-plugin-isolation",
     "smoke:src-security-regression",
     "smoke:src-coinbase-ci",
     "smoke:src-coinbase-readiness",
     "smoke:src-latency-gate",
+    "smoke:src-delegated-domain",
+    "smoke:src-short-term-context-persistence",
+    "smoke:src-policy-approval-store",
+    "smoke:src-retention-isolation",
+    "smoke:src-isolation-closure",
     "smoke:src-release-readiness",
     "smoke:src-release",
     "verify:release-readiness",
@@ -110,6 +116,24 @@ await run("P20-C1e release gate includes scheduler soak latency hard gate", asyn
     releaseScript.includes("smoke:src-scheduler-soak-latency"),
     true,
     "missing scheduler soak latency gate in smoke:src-release",
+  );
+});
+
+await run("P20-C1f routing gate includes telegram lane isolation stress smoke", async () => {
+  const routingScript = String(packageJson?.scripts?.["smoke:src-routing"] || "");
+  assert.equal(
+    routingScript.includes("smoke:src-telegram-lane-isolation"),
+    true,
+    "missing telegram lane isolation stress gate in smoke:src-routing",
+  );
+});
+
+await run("P20-C1g release gate includes isolation closure hard gate", async () => {
+  const releaseScript = String(packageJson?.scripts?.["smoke:src-release"] || "");
+  assert.equal(
+    releaseScript.includes("smoke:src-isolation-closure"),
+    true,
+    "missing isolation closure gate in smoke:src-release",
   );
 });
 

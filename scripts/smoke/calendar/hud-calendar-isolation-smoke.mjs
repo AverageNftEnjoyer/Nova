@@ -48,12 +48,14 @@ await run("Reschedule store persists per-user overrides under user-context path"
 
 await run("Calendar websocket event types are scoped-only and user-bound", () => {
   const gateway = read("src/runtime/infrastructure/hud-gateway/index.js");
+  const gatewayMessageHandler = read("src/runtime/infrastructure/hud-gateway/message-handler/index.js");
+  const combinedGateway = `${gateway}\n${gatewayMessageHandler}`;
   assert.equal(gateway.includes('"calendar:event:updated"'), true);
   assert.equal(gateway.includes('"calendar:rescheduled"'), true);
   assert.equal(gateway.includes('"calendar:conflict"'), true);
-  assert.equal(gateway.includes('if (data.type === "calendar_emit")'), true);
-  assert.equal(gateway.includes("ensureSocketUserContextBinding(ws"), true);
-  assert.equal(gateway.includes("userContextId: emitBind.userContextId"), true);
+  assert.equal(combinedGateway.includes('if (data.type === "calendar_emit")'), true);
+  assert.equal(combinedGateway.includes("ensureSocketUserContextBinding(ws"), true);
+  assert.equal(combinedGateway.includes("userContextId: emitBind.userContextId"), true);
 });
 
 const pass = results.filter((row) => row.status === "PASS").length;

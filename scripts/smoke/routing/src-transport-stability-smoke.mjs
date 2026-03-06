@@ -62,7 +62,7 @@ await run("P14-C1 src runtime shell entrypoint wiring exists", async () => {
   assert.equal(srcEntrypoint.includes("startGateway();"), true);
   assert.equal(srcEntrypoint.includes("await startVoiceLoop({"), true);
   assert.equal(srcEntrypoint.includes("registerHandleInput(runtimeHandleInput);"), true);
-  assert.equal(srcEntrypoint.includes("initVoiceBroadcast(broadcastState);"), true);
+  assert.equal(srcEntrypoint.includes("initVoiceBroadcast(broadcastState, getVoiceRoutingUserContextId);"), true);
 });
 
 await run("P14-C2 HUD protocol compatibility (state + stream event contracts)", async () => {
@@ -80,8 +80,8 @@ await run("P14-C2 HUD protocol compatibility (state + stream event contracts)", 
 
 await run("P14-C3 Voice-loop reliability guard rails remain", async () => {
   const required = [
-    "if (getMuted())",
-    "if (getBusy())",
+    "if (getMuted({ userContextId: voiceUserContextId }))",
+    "if (getBusy({ userContextId: voiceUserContextId }))",
     'broadcastState("listening", voiceUserContextId)',
     "wakeWordRuntime.containsWakeWord(text)",
     "VOICE_DUPLICATE_TEXT_COOLDOWN_MS",
@@ -172,7 +172,10 @@ await run("P14-C7 wake word follows assistant-name updates and STT hint wiring",
   assert.equal(srcVoiceModule.includes("The wake word is"), true);
   assert.equal(srcVoiceModule.includes("wakeWordHint"), true);
   const wakeWordUpdateSource = `${srcHudGateway}\n${srcHudGatewayMessageHandler}`;
-  assert.equal(wakeWordUpdateSource.includes("wakeWordRuntime.setAssistantName"), true);
+  const hasWakeWordUpdatePath =
+    wakeWordUpdateSource.includes("wakeWordRuntime.setAssistantName")
+    || wakeWordUpdateSource.includes("patch: { assistantName: data.assistantName }");
+  assert.equal(hasWakeWordUpdatePath, true);
 });
 
 await run("P14-C8 voice/session paths do not hardcode local-mic fallback", async () => {

@@ -14,6 +14,8 @@ $suites = @(
   "src-operator-route-decisions-smoke.mjs",
   "src-operator-context-hints-smoke.mjs",
   "src-operator-dispatch-smoke.mjs",
+  "src-telegram-domain-service-smoke.mjs",
+  "src-telegram-lane-isolation-stress-smoke.mjs",
   "src-org-chart-routing-registry-smoke.mjs",
   "src-org-chart-delegation-smoke.mjs",
   "src-operator-routing-handlers-smoke.mjs",

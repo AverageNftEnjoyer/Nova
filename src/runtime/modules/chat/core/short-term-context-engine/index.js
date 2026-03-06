@@ -1,9 +1,28 @@
 import { classifyShortTermContextTurn, getShortTermContextPolicy } from "../short-term-context-policies/index.js";
+import {
+  clearReminderFollowUpState,
+  readReminderFollowUpState,
+  upsertReminderFollowUpState,
+} from "../../../services/reminders/follow-up-state/index.js";
+import {
+  clearPersistentFollowUpState,
+  readPersistentFollowUpState,
+  upsertPersistentFollowUpState,
+} from "../../../services/follow-up-state/index.js";
 
 const stateByScopedDomain = new Map();
 
 function normalizeId(value, fallback = "") {
   return String(value || "").trim().toLowerCase() || fallback;
+}
+
+function usesPersistentReminderState(domainId = "") {
+  return normalizeId(domainId) === "reminders";
+}
+
+function usesPersistentFollowUpState(domainId = "") {
+  const normalized = normalizeId(domainId);
+  return normalized === "calendar" || normalized === "voice" || normalized === "tts";
 }
 
 export function buildShortTermContextKey({ userContextId, conversationId, domainId }) {
@@ -29,6 +48,20 @@ export function pruneShortTermContextState(nowMs = Date.now()) {
 }
 
 export function readShortTermContextState({ userContextId, conversationId, domainId }) {
+  if (usesPersistentReminderState(domainId)) {
+    return readReminderFollowUpState({
+      userContextId,
+      conversationId,
+      domainId,
+    });
+  }
+  if (usesPersistentFollowUpState(domainId)) {
+    return readPersistentFollowUpState({
+      userContextId,
+      conversationId,
+      domainId,
+    });
+  }
   pruneShortTermContextState();
   const key = buildShortTermContextKey({ userContextId, conversationId, domainId });
   if (!key) return null;
@@ -37,6 +70,20 @@ export function readShortTermContextState({ userContextId, conversationId, domai
 }
 
 export function clearShortTermContextState({ userContextId, conversationId, domainId }) {
+  if (usesPersistentReminderState(domainId)) {
+    return clearReminderFollowUpState({
+      userContextId,
+      conversationId,
+      domainId,
+    });
+  }
+  if (usesPersistentFollowUpState(domainId)) {
+    return clearPersistentFollowUpState({
+      userContextId,
+      conversationId,
+      domainId,
+    });
+  }
   const key = buildShortTermContextKey({ userContextId, conversationId, domainId });
   if (!key) return false;
   return stateByScopedDomain.delete(key);
@@ -49,9 +96,29 @@ export function upsertShortTermContextState({
   topicAffinityId = "",
   slots = {},
 }) {
+  const policy = getShortTermContextPolicy(domainId);
+  if (usesPersistentReminderState(domainId)) {
+    return upsertReminderFollowUpState({
+      userContextId,
+      conversationId,
+      domainId,
+      topicAffinityId,
+      slots,
+      ttlMs: Number(policy.ttlMs || 120000),
+    });
+  }
+  if (usesPersistentFollowUpState(domainId)) {
+    return upsertPersistentFollowUpState({
+      userContextId,
+      conversationId,
+      domainId: policy.domainId,
+      topicAffinityId,
+      slots,
+      ttlMs: Number(policy.ttlMs || 120000),
+    });
+  }
   const key = buildShortTermContextKey({ userContextId, conversationId, domainId });
   if (!key) return null;
-  const policy = getShortTermContextPolicy(domainId);
   const existing = stateByScopedDomain.get(key) || {};
   const resolvedTopicAffinityId = String(
     topicAffinityId || policy.resolveTopicAffinityId?.("", existing) || existing.topicAffinityId || "",
@@ -95,4 +162,3 @@ export function summarizeShortTermContextForPrompt(state, maxChars = 600) {
   if (summary.length <= maxChars) return summary;
   return `${summary.slice(0, Math.max(0, maxChars - 3)).trim()}...`;
 }
-

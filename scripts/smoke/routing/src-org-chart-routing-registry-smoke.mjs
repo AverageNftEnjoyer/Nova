@@ -222,6 +222,20 @@ await run("P19-C1l market/weather request resolves finance-manager and market wo
   assert.equal(envelope.providerSelector.adapterId, "gemini-adapter");
 });
 
+await run("P19-C1l2 market request resolves finance-manager and market worker", async () => {
+  const envelope = resolveOrgChartRoutingEnvelope({
+    route: "market",
+    responseRoute: "market",
+    text: "show stock market trend",
+    toolCalls: ["market"],
+    provider: "gemini",
+    providerSource: "chat-runtime-selected",
+  });
+  assert.equal(envelope.domainManagerId, "finance-manager");
+  assert.equal(envelope.workerAgentId, "market-agent");
+  assert.equal(envelope.providerSelector.adapterId, "gemini-adapter");
+});
+
 await run("P19-C1m files request resolves system-manager and files worker", async () => {
   const envelope = resolveOrgChartRoutingEnvelope({
     route: "files",
@@ -288,6 +302,9 @@ await run("P19-C2 mission request resolves planning council and missions worker"
     providerSource: "chat-runtime-selected",
   });
   assert.equal(envelope.councilId, "planning-council");
+  assert.equal(envelope.councilDecision?.decisionType, "rule_match");
+  assert.equal(envelope.councilDecision?.matchedRuleId, "planning-council");
+  assert.equal(envelope.councilDecision?.evidence?.routeMatched, true);
   assert.equal(envelope.domainManagerId, "productivity-manager");
   assert.equal(envelope.workerAgentId, "missions-agent");
   assert.equal(envelope.providerSelector.adapterId, "claude-adapter");
@@ -302,6 +319,10 @@ await run("P19-C3 unmatched route falls back to system diagnostics", async () =>
     provider: "",
     providerSource: "",
   });
+  assert.equal(envelope.councilId, "routing-council");
+  assert.equal(envelope.councilDecision?.decisionType, "default_fallback");
+  assert.equal(envelope.councilDecision?.matchedRuleId, "");
+  assert.equal(envelope.councilDecision?.evidence?.routeMatched, false);
   assert.equal(envelope.domainManagerId, "system-manager");
   assert.equal(envelope.workerAgentId, "diagnostics-agent");
   assert.equal(envelope.providerSelector.adapterId, "none");

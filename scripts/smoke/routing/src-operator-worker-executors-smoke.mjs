@@ -88,6 +88,32 @@ await run("P30-C2 gmail executor injects operator lane + worker hints", async ()
   assert.equal("operatorLane" in baseHints, false);
 });
 
+await run("P30-C2b telegram executor routes to dedicated worker and never calls executeChatRequest", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "telegram");
+  let executeChatRequestCalled = false;
+  let receivedHints = null;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "send this to telegram",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    telegramWorker: async (_text, _ctx, _llmCtx, hints) => {
+      receivedHints = hints;
+      return { ok: true, route: "telegram" };
+    },
+    executeChatRequest: async () => {
+      executeChatRequestCalled = true;
+      return { ok: false, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "telegram");
+  assert.equal(executeChatRequestCalled, false);
+  assert.equal(receivedHints?.operatorLane?.id, "telegram");
+  assert.equal(receivedHints?.operatorLane?.executorKind, "telegram");
+});
+
 await run("P30-C3 spotify executor uses specialized handler", async () => {
   const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "spotify");
   let called = false;
@@ -126,48 +152,55 @@ await run("P30-C4 youtube executor uses specialized handler", async () => {
   assert.equal(out?.route, "youtube");
 });
 
-await run("P30-C5 polymarket executor uses dedicated hints and executor kind", async () => {
+await run("P30-C5 polymarket executor uses dedicated worker and never calls generic execute", async () => {
   const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "polymarket");
   const baseHints = { fastLaneSimpleChat: true };
   let resolvedHints = null;
+  let polymarketCalled = false;
+  let genericCalled = false;
   const runExecutor = resolveOperatorWorkerExecutor({
     lane,
     text: "scan polymarket odds",
     ctx: {},
     llmCtx: {},
     requestHints: baseHints,
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
+    polymarketWorker: async (_text, _ctx, _llmCtx, hints) => {
+      polymarketCalled = true;
       resolvedHints = hints;
       return { ok: true, route: "polymarket" };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
     },
   });
   const out = await runExecutor();
   assert.equal(out?.route, "polymarket");
+  assert.equal(polymarketCalled, true);
+  assert.equal(genericCalled, false);
   assert.equal(resolvedHints?.operatorLane?.executorKind, "polymarket");
   assert.equal(resolvedHints?.operatorWorker?.agentId, "polymarket-agent");
   assert.equal(resolvedHints?.fastLaneSimpleChat, false);
   assert.equal(baseHints.fastLaneSimpleChat, true);
 });
 
-await run("P30-C6 coinbase executor uses dedicated tool-loop hints", async () => {
+await run("P30-C6 coinbase executor uses specialized worker handler", async () => {
   const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "coinbase");
-  let resolvedHints = null;
+  let called = false;
   const runExecutor = resolveOperatorWorkerExecutor({
     lane,
     text: "refresh coinbase holdings",
     ctx: {},
     llmCtx: {},
-    requestHints: {},
-    executeChatRequest: async (_text, _ctx, _llmCtx, hints) => {
-      resolvedHints = hints;
+    coinbaseWorker: async () => {
+      called = true;
       return { ok: true, route: "coinbase" };
     },
+    executeChatRequest: async () => ({ ok: false, route: "chat" }),
   });
   const out = await runExecutor();
   assert.equal(out?.route, "coinbase");
-  assert.equal(resolvedHints?.operatorLane?.executorKind, "coinbase");
-  assert.equal(resolvedHints?.forceToolLoop, true);
-  assert.equal(resolvedHints?.fastLaneSimpleChat, false);
+  assert.equal(called, true);
 });
 
 await run("P30-C7 web research executor enforces web preload hints", async () => {
@@ -227,6 +260,190 @@ await run("P30-C9 market executor uses specialized weather handler for weather l
   const out = await runExecutor();
   assert.equal(out?.route, "weather");
   assert.equal(called, true);
+});
+
+await run("P30-C9c market executor uses dedicated market worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "market");
+  let marketCalled = false;
+  let genericCalled = false;
+  let receivedHints = null;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "show stock market trend",
+    ctx: {},
+    llmCtx: { turnPolicy: { weatherIntent: false } },
+    requestHints: { marketTopicAffinityId: "market_equities" },
+    marketWorker: async (_text, _ctx, _llmCtx, hints) => {
+      marketCalled = true;
+      receivedHints = hints;
+      return { ok: true, route: "market" };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "market");
+  assert.equal(marketCalled, true);
+  assert.equal(genericCalled, false);
+  assert.equal(receivedHints?.operatorLane?.routeHint, "market");
+  assert.equal(receivedHints?.operatorLane?.responseRoute, "market");
+});
+
+await run("P30-C9d market executor honors dispatch-selected weather route over text heuristics", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "market");
+  let weatherCalled = false;
+  let marketCalled = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "refresh",
+    ctx: {},
+    llmCtx: { turnPolicy: { weatherIntent: false } },
+    requestHints: { operatorDispatchRouteHint: "weather" },
+    weatherWorker: async () => {
+      weatherCalled = true;
+      return { ok: true, route: "weather" };
+    },
+    marketWorker: async () => {
+      marketCalled = true;
+      return { ok: true, route: "market" };
+    },
+    executeChatRequest: async () => ({ ok: false, route: "chat" }),
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "weather");
+  assert.equal(weatherCalled, true);
+  assert.equal(marketCalled, false);
+});
+
+await run("P30-C9b discord executor uses dedicated discord worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "discord");
+  let discordCalled = false;
+  let genericCalled = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "post update to discord",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    discordWorker: async () => {
+      discordCalled = true;
+      return { ok: true, route: "discord" };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "discord");
+  assert.equal(discordCalled, true);
+  assert.equal(genericCalled, false);
+});
+
+await run("P30-C9e calendar executor uses dedicated calendar worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "calendar");
+  let genericCalled = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "calendar update",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "calendar");
+  assert.equal(genericCalled, false);
+});
+
+await run("P30-C9f reminders executor uses dedicated reminders worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "reminders");
+  let genericCalled = false;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "set reminder",
+    ctx: {},
+    llmCtx: {},
+    requestHints: {},
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "reminder");
+  assert.equal(genericCalled, false);
+});
+
+await run("P30-C9g voice executor uses dedicated voice worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "voice");
+  let genericCalled = false;
+  let voiceWorkerCalled = false;
+  let receivedHints = null;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "voice settings",
+    ctx: {
+      userContextId: "voice-user",
+      conversationId: "voice-thread",
+      sessionKey: "agent:nova:hud:user:voice-user:dm:voice-thread",
+    },
+    llmCtx: {},
+    requestHints: {},
+    voiceWorker: async (_text, _ctx, _llmCtx, hints) => {
+      voiceWorkerCalled = true;
+      receivedHints = hints;
+      return { ok: true, route: "voice" };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "voice");
+  assert.equal(voiceWorkerCalled, true);
+  assert.equal(genericCalled, false);
+  assert.equal(receivedHints?.operatorLane?.id, "voice");
+  assert.equal(receivedHints?.operatorWorker?.agentId, "voice-agent");
+});
+
+await run("P30-C9h tts executor uses dedicated tts worker and never calls generic execute", async () => {
+  const lane = OPERATOR_LANE_SEQUENCE.find((entry) => entry.id === "tts");
+  let genericCalled = false;
+  let ttsWorkerCalled = false;
+  let receivedHints = null;
+  const runExecutor = resolveOperatorWorkerExecutor({
+    lane,
+    text: "tts settings",
+    ctx: {
+      userContextId: "tts-user",
+      conversationId: "tts-thread",
+      sessionKey: "agent:nova:hud:user:tts-user:dm:tts-thread",
+    },
+    llmCtx: {},
+    requestHints: {},
+    ttsWorker: async (_text, _ctx, _llmCtx, hints) => {
+      ttsWorkerCalled = true;
+      receivedHints = hints;
+      return { ok: true, route: "tts" };
+    },
+    executeChatRequest: async () => {
+      genericCalled = true;
+      return { ok: true, route: "chat" };
+    },
+  });
+  const out = await runExecutor();
+  assert.equal(out?.route, "tts");
+  assert.equal(ttsWorkerCalled, true);
+  assert.equal(genericCalled, false);
+  assert.equal(receivedHints?.operatorLane?.id, "tts");
+  assert.equal(receivedHints?.operatorWorker?.agentId, "tts-agent");
 });
 
 await run("P30-C10 operator execution controls can disable force flags", async () => {

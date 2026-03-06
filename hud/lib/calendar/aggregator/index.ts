@@ -9,7 +9,7 @@
 
 import "server-only"
 
-import { loadMissions } from "@/lib/missions/store"
+import { loadMissions } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { loadRescheduleOverrides } from "../reschedule-store"

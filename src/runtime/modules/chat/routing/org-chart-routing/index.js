@@ -1,10 +1,9 @@
 import {
-  COUNCIL_RULES,
-  DEFAULT_COUNCIL_ID,
   DOMAIN_WORKER_RULES,
   DEFAULT_DOMAIN_WORKER_RULE,
   PROVIDER_ADAPTER_BY_PROVIDER,
 } from "./registry.js";
+import { resolveCouncilDecision } from "../org-chart-council/index.js";
 
 function normalizeText(value) {
   return String(value || "").trim().toLowerCase();
@@ -36,13 +35,6 @@ function ruleMatches(rule, context) {
   const textMatch = includesAnyToken(context.text, rule.textTokens || []);
   const toolCallMatch = includesAnyToolCall(context.toolCalls, rule.toolCallTokens || []);
   return routeMatch || responseRouteMatch || textMatch || toolCallMatch;
-}
-
-function resolveCouncil(context) {
-  for (const rule of COUNCIL_RULES) {
-    if (ruleMatches(rule, context)) return rule.id;
-  }
-  return DEFAULT_COUNCIL_ID;
 }
 
 function resolveDomainAndWorker(context) {
@@ -80,12 +72,18 @@ export function resolveOrgChartRoutingEnvelope(input = {}) {
     text: normalizeText(input.text),
     toolCalls: normalizeToolCalls(input.toolCalls),
   };
-  const councilId = resolveCouncil(context);
+  const councilDecision = resolveCouncilDecision({
+    route: context.route,
+    responseRoute: context.responseRoute,
+    text: context.text,
+    toolCalls: context.toolCalls,
+  });
   const domainWorker = resolveDomainAndWorker(context);
 
   return {
     operatorId: "nova-operator",
-    councilId,
+    councilId: councilDecision.selectedCouncilId,
+    councilDecision,
     domainManagerId: domainWorker.domainManagerId,
     workerAgentId: domainWorker.workerAgentId,
     providerSelector: resolveProviderRail(input.provider, input.providerSource),
@@ -97,4 +95,3 @@ export function resolveOrgChartRoutingEnvelope(input = {}) {
     signal: domainWorker.reason,
   };
 }
-

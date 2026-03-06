@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { loadMissions, upsertMission, deleteMission } from "@/lib/missions/store"
+import { loadMissions, upsertMission, deleteMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { getTemplate, instantiateTemplate } from "@/lib/missions/templates"
 import type { Mission } from "@/lib/missions/types"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"

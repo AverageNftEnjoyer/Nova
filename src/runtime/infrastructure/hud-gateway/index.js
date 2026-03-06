@@ -8,6 +8,8 @@ import { sessionRuntime, wakeWordRuntime } from "../../core/config/index.js";
 import { WebSocketServer } from "ws";
 import { createRequestScheduler } from "../request-scheduler/index.js";
 import { handleHudGatewayMessage } from "./message-handler/index.js";
+import { grantPolicyApproval } from "../../modules/chat/routing/policy-approval-store/index.js";
+import { createVoiceProviderAdapter } from "../../modules/services/voice/provider-adapter/index.js";
 import {
   VOICE_MAP,
   getBusy,
@@ -39,7 +41,11 @@ const HUD_SENSITIVE_ACTIONS = new Set([
   "gmail_reply_draft",
 ]);
 const hudRequestScheduler = createRequestScheduler();
-let hudWorkInFlight = 0;
+const voiceProviderAdapter = createVoiceProviderAdapter({
+  broadcastState,
+  getActiveUserContextId: () => getVoiceRoutingUserContextId(),
+});
+const hudWorkInFlightByUser = new Map();
 
 const WS_MAX_PAYLOAD_BYTES = Math.max(
   8 * 1024,
@@ -263,6 +269,7 @@ function bindSocketToUserContext(ws, userContextId) {
   targetSet.add(ws);
   wsContextBySocket.set(ws, nextContextId);
   voiceRoutingUserContextId = nextContextId;
+  voiceProviderAdapter.syncRuntimeForUser(nextContextId, { broadcastRuntimeState: true });
   return nextContextId;
 }
 
@@ -279,6 +286,9 @@ function unbindSocketFromUserContext(ws) {
       if (normalizeUserContextId(voiceRoutingUserContextId) === currentContextId) {
         const next = wsByUserContext.keys().next();
         voiceRoutingUserContextId = next.done ? "" : next.value;
+        if (voiceRoutingUserContextId) {
+          voiceProviderAdapter.syncRuntimeForUser(voiceRoutingUserContextId, { broadcastRuntimeState: true });
+        }
       }
     }
   }
@@ -344,14 +354,28 @@ function resolveEventUserContextId(userContextId, conversationId = "") {
   return resolveConversationOwner(normalizedConversationId);
 }
 
-function markHudWorkStart() {
-  hudWorkInFlight += 1;
-  if (!getBusy()) setBusy(true);
+function resolveHudWorkUserContextId(userContextId = "") {
+  return normalizeUserContextId(userContextId || getVoiceRoutingUserContextId());
 }
 
-function markHudWorkEnd() {
-  hudWorkInFlight = Math.max(0, hudWorkInFlight - 1);
-  if (hudWorkInFlight === 0) setBusy(false);
+function markHudWorkStart(userContextId = "") {
+  const scopedUserContextId = resolveHudWorkUserContextId(userContextId);
+  const nextCount = Number(hudWorkInFlightByUser.get(scopedUserContextId) || 0) + 1;
+  hudWorkInFlightByUser.set(scopedUserContextId, nextCount);
+  if (!getBusy({ userContextId: scopedUserContextId })) {
+    setBusy(true, { userContextId: scopedUserContextId });
+  }
+}
+
+function markHudWorkEnd(userContextId = "") {
+  const scopedUserContextId = resolveHudWorkUserContextId(userContextId);
+  const nextCount = Math.max(0, Number(hudWorkInFlightByUser.get(scopedUserContextId) || 0) - 1);
+  if (nextCount === 0) {
+    hudWorkInFlightByUser.delete(scopedUserContextId);
+    setBusy(false, { userContextId: scopedUserContextId });
+    return;
+  }
+  hudWorkInFlightByUser.set(scopedUserContextId, nextCount);
 }
 
 function checkWindowRateLimit(state, nowMs, max, windowMs) {
@@ -584,6 +608,10 @@ function normalizeConversationId(value) {
   return normalized || "";
 }
 
+function hasScopedConversationContext(userContextId = "", conversationId = "") {
+  return Boolean(normalizeUserContextId(userContextId) && normalizeConversationId(conversationId));
+}
+
 function classifyHudRequestLane(text) {
   const normalized = String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
   if (!normalized) return "default";
@@ -609,6 +637,7 @@ export function broadcastMessage(
 ) {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
+  if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
   const safeMeta = meta && typeof meta === "object" ? meta : undefined;
   broadcast(
     {
@@ -632,6 +661,7 @@ export function createAssistantStreamId() {
 export function broadcastAssistantStreamStart(id, source = "hud", sender = undefined, conversationId = undefined, userContextId = "") {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
+  if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
   broadcast(
     {
       type: "assistant_stream_start",
@@ -649,6 +679,7 @@ export function broadcastAssistantStreamStart(id, source = "hud", sender = undef
 export function broadcastAssistantStreamDelta(id, content, source = "hud", sender = undefined, conversationId = undefined, userContextId = "") {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
+  if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
   broadcast(
     {
       type: "assistant_stream_delta",
@@ -667,6 +698,7 @@ export function broadcastAssistantStreamDelta(id, content, source = "hud", sende
 export function broadcastAssistantStreamDone(id, source = "hud", sender = undefined, conversationId = undefined, userContextId = "") {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
+  if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
   broadcast(
     {
       type: "assistant_stream_done",
@@ -884,6 +916,7 @@ export function startGateway() {
           broadcastThinkingStatus,
           HUD_MIN_THINKING_PRESENCE_MS,
           markHudOpTokenAccepted,
+          grantPolicyApproval,
           markHudWorkStart,
           markHudWorkEnd,
           handleInput: _handleInput,
@@ -895,6 +928,7 @@ export function startGateway() {
           setSuppressVoiceWakeUntilMs,
           broadcast,
           describeUnknownError,
+          voiceProviderAdapter,
         },
       });
     });

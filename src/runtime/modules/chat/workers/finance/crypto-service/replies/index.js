@@ -8,7 +8,7 @@ import {
   PERSONALITY_PNL_TRIGGER_REGEX,
   REPORT_REPEAT_CUE_REGEX,
 } from "../constants/index.js";
-import { normalizeCoinbaseCommandText } from "../../coinbase-command-parser/index.js";
+import { normalizeCoinbaseCommandText } from "../../../../../services/coinbase/command-parser/index.js";
 
 const personaMetaCache = new Map();
 

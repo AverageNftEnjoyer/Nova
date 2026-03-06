@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { describeUnknownError } from "../../../../llm/providers/index.js";
 import { sanitizeYouTubeSource, sanitizeYouTubeTopic } from "../../media/youtube-agent/intent-utils/index.js";
-import { normalizeMissionBuildInput } from "../../../../services/missions/build-service/index.js";
 
 const DEFAULT_BRIDGE_TIMEOUT_MS = 7_500;
 const DEFAULT_BRIDGE_RETRY_COUNT = 1;
@@ -111,51 +110,6 @@ async function fetchWithTimeoutAndRetry(url, init, options = {}) {
     }
   }
   throw lastError || new Error("Integration bridge request failed.");
-}
-
-export async function runMissionBuildViaHudApi(input = {}, options = {}) {
-  const normalizedInput = normalizeMissionBuildInput(input);
-  const headers = buildJsonHeaders(options);
-  const token = String(input?.supabaseAccessToken || "").trim();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const idempotencyKey = String(input?.idempotencyKey || "").trim();
-  if (idempotencyKey) headers["X-Idempotency-Key"] = idempotencyKey;
-
-  try {
-    const res = await fetchWithTimeoutAndRetry(
-      `${resolveHudApiBaseUrl(options.hudApiBaseUrl)}/api/missions/build`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          prompt: normalizedInput.prompt,
-          deploy: normalizedInput.deploy,
-          engine: normalizedInput.engine,
-          ...(normalizedInput.timezone ? { timezone: normalizedInput.timezone } : {}),
-          enabled: normalizedInput.enabled,
-        }),
-      },
-      options,
-    );
-    const data = await res.json().catch(() => ({}));
-    return {
-      attempted: true,
-      ok: res.ok && data?.ok === true,
-      status: Number(res.status || 0),
-      data,
-      error: "",
-      code: "",
-    };
-  } catch (err) {
-    return {
-      attempted: true,
-      ok: false,
-      status: 0,
-      data: null,
-      error: describeUnknownError(err),
-      code: isAbortError(err) ? "missions.timeout" : "missions.network",
-    };
-  }
 }
 
 export async function runSpotifyViaHudApi(action, intent, ctx, options = {}) {

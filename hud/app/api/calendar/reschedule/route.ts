@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { loadMissions } from "@/lib/missions/store"
+import { loadMissions } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { setRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { aggregateCalendarEvents } from "@/lib/calendar/aggregator"
 import { hasConflict } from "@/lib/calendar/conflict-detector"

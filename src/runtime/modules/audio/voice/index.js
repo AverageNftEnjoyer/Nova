@@ -6,6 +6,7 @@
 import fs from "fs";
 import path from "path";
 import { spawn, spawnSync } from "child_process";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "url";
 import { FishAudioClient } from "fish-audio";
 import {
@@ -45,32 +46,99 @@ export const VOICE_MAP = {
   ultron: ULTRON_ID,
 };
 
-// ===== Shared state (Bug Fix 3: centralized with accessors) =====
-let _busy = false;
-let _currentVoice = "default";
-let _voiceEnabled = false;
-let _muted = true;
-let _suppressVoiceWakeUntilMs = 0;
-let _currentPlayer = null;
+function normalizeUserContextId(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function createVoiceRuntimeState() {
+  return {
+    busy: false,
+    currentVoice: "default",
+    voiceEnabled: false,
+    muted: true,
+    suppressVoiceWakeUntilMs: 0,
+    currentPlayer: null,
+  };
+}
+
+const GLOBAL_VOICE_RUNTIME_KEY = "__global__";
+const _voiceRuntimeStateByUser = new Map();
+const _voiceRuntimeContext = new AsyncLocalStorage();
 
 // Injected broadcast function to break hud-gateway circular dep
 let _broadcastState = () => {};
-export function initVoiceBroadcast(fn) { _broadcastState = fn; }
+let _resolveVoiceBroadcastUserContextId = () => "";
+export function initVoiceBroadcast(fn, resolveUserContextId = null) {
+  _broadcastState = typeof fn === "function" ? fn : () => {};
+  _resolveVoiceBroadcastUserContextId =
+    typeof resolveUserContextId === "function" ? resolveUserContextId : () => "";
+}
 
-export function getBusy() { return _busy; }
-export function setBusy(val) { _busy = Boolean(val); }
+function resolveVoiceBroadcastUserContextId() {
+  try {
+    return normalizeUserContextId(_resolveVoiceBroadcastUserContextId());
+  } catch {
+    return "";
+  }
+}
 
-export function getCurrentVoice() { return _currentVoice; }
-export function setCurrentVoice(v) { _currentVoice = String(v || "default"); }
+export function withVoiceRuntimeContext(userContextId = "", fn) {
+  if (typeof fn !== "function") {
+    throw new Error("withVoiceRuntimeContext requires a function");
+  }
+  return _voiceRuntimeContext.run(
+    { userContextId: normalizeUserContextId(userContextId) },
+    fn,
+  );
+}
 
-export function getVoiceEnabled() { return _voiceEnabled; }
-export function setVoiceEnabled(v) { _voiceEnabled = Boolean(v); }
+function resolveContextualUserContextId() {
+  try {
+    return normalizeUserContextId(_voiceRuntimeContext.getStore()?.userContextId || "");
+  } catch {
+    return "";
+  }
+}
 
-export function getMuted() { return _muted; }
-export function setMuted(v) { _muted = Boolean(v); }
+function resolveVoiceEventUserContextId(options = {}) {
+  const explicit = normalizeUserContextId(options?.userContextId || "");
+  return explicit || resolveContextualUserContextId() || resolveVoiceBroadcastUserContextId();
+}
 
-export function getSuppressVoiceWakeUntilMs() { return _suppressVoiceWakeUntilMs; }
-export function setSuppressVoiceWakeUntilMs(v) { _suppressVoiceWakeUntilMs = Number(v) || 0; }
+function resolveVoiceRuntimeStateKey(userContextId = "") {
+  return normalizeUserContextId(userContextId) || GLOBAL_VOICE_RUNTIME_KEY;
+}
+
+function getVoiceRuntimeState(options = {}) {
+  const stateKey = resolveVoiceRuntimeStateKey(resolveVoiceEventUserContextId(options));
+  if (!_voiceRuntimeStateByUser.has(stateKey)) {
+    _voiceRuntimeStateByUser.set(stateKey, createVoiceRuntimeState());
+  }
+  return _voiceRuntimeStateByUser.get(stateKey);
+}
+
+export function getBusy(options = {}) { return getVoiceRuntimeState(options).busy; }
+export function setBusy(val, options = {}) { getVoiceRuntimeState(options).busy = Boolean(val); }
+
+export function getCurrentVoice(options = {}) { return getVoiceRuntimeState(options).currentVoice; }
+export function setCurrentVoice(v, options = {}) {
+  getVoiceRuntimeState(options).currentVoice = String(v || "default");
+}
+
+export function getVoiceEnabled(options = {}) { return getVoiceRuntimeState(options).voiceEnabled; }
+export function setVoiceEnabled(v, options = {}) {
+  getVoiceRuntimeState(options).voiceEnabled = Boolean(v);
+}
+
+export function getMuted(options = {}) { return getVoiceRuntimeState(options).muted; }
+export function setMuted(v, options = {}) { getVoiceRuntimeState(options).muted = Boolean(v); }
+
+export function getSuppressVoiceWakeUntilMs(options = {}) {
+  return getVoiceRuntimeState(options).suppressVoiceWakeUntilMs;
+}
+export function setSuppressVoiceWakeUntilMs(v, options = {}) {
+  getVoiceRuntimeState(options).suppressVoiceWakeUntilMs = Number(v) || 0;
+}
 
 // ===== Mic capture =====
 export function createMicCapturePath() {
@@ -125,11 +193,12 @@ export async function transcribe(micFile, wakeWordHint = "nova", userContextId =
 }
 
 // ===== Playback control =====
-export function stopSpeaking() {
-  if (_currentPlayer) {
-    _currentPlayer.kill("SIGKILL");
-    _currentPlayer = null;
-    _broadcastState("idle");
+export function stopSpeaking(options = {}) {
+  const state = getVoiceRuntimeState(options);
+  if (state.currentPlayer) {
+    state.currentPlayer.kill("SIGKILL");
+    state.currentPlayer = null;
+    _broadcastState("idle", resolveVoiceEventUserContextId(options));
   }
 }
 
@@ -158,7 +227,7 @@ function normalizeTtsText(input) {
   return text;
 }
 
-export async function speak(text, voiceId = "default") {
+export async function speak(text, voiceId = "default", options = {}) {
   const fishAudio = getFishAudioClient();
   if (!fishAudio) {
     throw new Error("Voice TTS unavailable: missing or invalid FISH_API_KEY.");
@@ -171,9 +240,11 @@ export async function speak(text, voiceId = "default") {
   const audio = await fishAudio.textToSpeech.convert({ text: normalizedText, reference_id: referenceId });
 
   // Stream audio to mpv stdin for immediate playback while writing to disk for cleanup.
-  _broadcastState("speaking");
+  const eventUserContextId = resolveVoiceEventUserContextId(options);
+  const state = getVoiceRuntimeState({ userContextId: eventUserContextId });
+  _broadcastState("speaking", eventUserContextId);
   const player = spawn(MPV_PATH, ["-", "--no-video", "--really-quiet", "--keep-open=no"], { stdio: ["pipe", "ignore", "ignore"] });
-  _currentPlayer = player;
+  state.currentPlayer = player;
 
   const writeStream = fs.createWriteStream(out);
   const reader = audio instanceof ReadableStream
@@ -206,9 +277,9 @@ export async function speak(text, voiceId = "default") {
 
   await new Promise((resolve) => { player.on("exit", resolve); });
 
-  if (_currentPlayer === player) _currentPlayer = null;
-  _broadcastState("idle");
-  _suppressVoiceWakeUntilMs = Date.now() + Math.max(0, VOICE_AFTER_TTS_SUPPRESS_MS);
+  if (state.currentPlayer === player) state.currentPlayer = null;
+  _broadcastState("idle", eventUserContextId);
+  state.suppressVoiceWakeUntilMs = Date.now() + Math.max(0, VOICE_AFTER_TTS_SUPPRESS_MS);
 
   try { fs.unlinkSync(out); } catch {}
 }

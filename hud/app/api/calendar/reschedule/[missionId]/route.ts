@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
-import { loadMissions } from "@/lib/missions/store"
+import { loadMissions } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"

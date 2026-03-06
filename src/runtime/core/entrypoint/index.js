@@ -58,7 +58,7 @@ import { createRequire } from "module";
 const __filename = fileURLToPath(import.meta.url);
 
 export async function startNovaRuntime() {
-  initVoiceBroadcast(broadcastState);
+  initVoiceBroadcast(broadcastState, getVoiceRoutingUserContextId);
 
   let runtimeHandleInput = async () => "Nova runtime is starting. Chat handler unavailable.";
   try {
@@ -93,7 +93,11 @@ export async function startNovaRuntime() {
   await new Promise((r) => setTimeout(r, 15000));
   cleanupAudioArtifacts();
   console.log("Nova online.");
-  broadcastState(getMuted() ? "muted" : "idle");
+  const startupVoiceUserContextId = getVoiceRoutingUserContextId();
+  broadcastState(
+    getMuted({ userContextId: startupVoiceUserContextId }) ? "muted" : "idle",
+    startupVoiceUserContextId,
+  );
 
   await startVoiceLoop({
     handleInput: runtimeHandleInput,

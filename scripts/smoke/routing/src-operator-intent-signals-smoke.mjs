@@ -49,6 +49,7 @@ await run("P29-C3 media lane direct intents are detected", async () => {
   assert.equal(signals.isYouTubeDirectIntent("show youtube videos about ai"), true);
   assert.equal(signals.isVoiceDirectIntent("mute microphone"), true);
   assert.equal(signals.isTtsDirectIntent("read this aloud"), true);
+  assert.equal(signals.isTtsDirectIntent("set tts voice to peter"), true);
 });
 
 await run("P29-C4 finance lane direct intents are detected", async () => {

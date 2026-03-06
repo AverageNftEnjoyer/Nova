@@ -18,6 +18,8 @@ const REMINDER_CONTINUE_REGEX = /\b(when|at|on|tomorrow|today|tonight|update|cha
 const WEB_RESEARCH_CONTINUE_REGEX = /\b(more\s+sources|add\s+citations?|dig\s+deeper|refresh\s+search|latest\s+update)\b/i;
 const MARKET_CONTINUE_REGEX = /\b(refresh|update|again|latest|more\s+detail|market|stocks?|indices?|weather|trend)\b/i;
 const FILES_CONTINUE_REGEX = /\b(open|read|show|list|search|next\s+file|more\s+detail)\b/i;
+const MEMORY_CONTINUE_REGEX = /\b(remember|save|store|update|that memory|this memory|more\s+detail)\b/i;
+const SHUTDOWN_CONTINUE_REGEX = /\b(confirm|yes|do it|cancel|stop|nevermind)\b/i;
 const DIAGNOSTICS_CONTINUE_REGEX = /\b(refresh|rerun|again|latest|more\s+detail|error|latency|trace)\b/i;
 const VOICE_CONTINUE_REGEX = /\b(mute|unmute|mic|microphone|voice|more\s+detail)\b/i;
 const TTS_CONTINUE_REGEX = /\b(read|speak|voice|tts|more\s+detail)\b/i;
@@ -219,6 +221,18 @@ const LANE_POLICY_DEFINITIONS = {
       if (/\b(list|search|find)\b/.test(normalized)) return "files_search";
       return String(existing.topicAffinityId || "files_general");
     },
+  },
+  memory: {
+    ttlEnvKey: "NOVA_STC_TTL_MEMORY_MS",
+    ttlDefaultMs: 120000,
+    continueRegex: MEMORY_CONTINUE_REGEX,
+    resolveTopicAffinityId: (_text, existing = {}) => String(existing.topicAffinityId || "memory_general"),
+  },
+  shutdown: {
+    ttlEnvKey: "NOVA_STC_TTL_SHUTDOWN_MS",
+    ttlDefaultMs: 60000,
+    continueRegex: SHUTDOWN_CONTINUE_REGEX,
+    resolveTopicAffinityId: (_text, existing = {}) => String(existing.topicAffinityId || "shutdown_general"),
   },
   diagnostics: {
     ttlEnvKey: "NOVA_STC_TTL_DIAGNOSTICS_MS",

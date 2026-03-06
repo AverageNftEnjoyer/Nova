@@ -14,7 +14,7 @@ import {
 import { isMemoryUpdateRequest } from "../../../../../memory/runtime-compat/index.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../../context/skill-preferences/index.js";
 import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt } from "../../routing/intent-router/index.js";
-import { normalizeRuntimeTone } from "../../../audio/voice/index.js";
+import { normalizeRuntimeTone, withVoiceRuntimeContext } from "../../../audio/voice/index.js";
 import {
   createAssistantStreamId,
   broadcastAssistantStreamStart,
@@ -35,6 +35,9 @@ import {
 import { handleMemoryWorker } from "../../workers/system/memory-agent/index.js";
 import { handleShutdownWorker } from "../../workers/system/shutdown-agent/index.js";
 import { handleMissionBuildWorker } from "../../workers/productivity/missions-agent/index.js";
+import { handleCoinbaseWorker } from "../../workers/finance/coinbase-agent/index.js";
+import { handlePolymarketWorker } from "../../workers/finance/polymarket-agent/index.js";
+import { handleMarketWorker } from "../../workers/market/market-agent/index.js";
 import {
   isWeatherRequestText,
 } from "../../workers/market/weather-service/index.js";
@@ -106,6 +109,10 @@ import {
   isMarketContextualFollowUpIntent,
   isFilesDirectIntent,
   isFilesContextualFollowUpIntent,
+  isMemoryDirectIntent,
+  isMemoryContextualFollowUpIntent,
+  isShutdownDirectIntent,
+  isShutdownContextualFollowUpIntent,
   isDiagnosticsDirectIntent,
   isDiagnosticsContextualFollowUpIntent,
   isVoiceDirectIntent,
@@ -414,6 +421,10 @@ async function handleInputCore(text, opts = {}) {
     isMarketContextualFollowUpIntent,
     isFilesDirectIntent,
     isFilesContextualFollowUpIntent,
+    isMemoryDirectIntent,
+    isMemoryContextualFollowUpIntent,
+    isShutdownDirectIntent,
+    isShutdownContextualFollowUpIntent,
     isDiagnosticsDirectIntent,
     isDiagnosticsContextualFollowUpIntent,
     isVoiceDirectIntent,
@@ -439,6 +450,8 @@ async function handleInputCore(text, opts = {}) {
   const cryptoShortTermFollowUp = contextHints.cryptoShortTermFollowUp;
   const marketShortTermFollowUp = contextHints.marketShortTermFollowUp;
   const filesShortTermFollowUp = contextHints.filesShortTermFollowUp;
+  const memoryShortTermFollowUp = contextHints.memoryShortTermFollowUp;
+  const shutdownShortTermFollowUp = contextHints.shutdownShortTermFollowUp;
   const diagnosticsShortTermFollowUp = contextHints.diagnosticsShortTermFollowUp;
   const voiceShortTermFollowUp = contextHints.voiceShortTermFollowUp;
   const ttsShortTermFollowUp = contextHints.ttsShortTermFollowUp;
@@ -463,18 +476,32 @@ async function handleInputCore(text, opts = {}) {
   const canRunToolLoop = executionPolicy.canRunToolLoop;
 
   // Resolve provider + model + client for this turn.
+  const runtimeSelectionOverride = opts.runtimeSelectionOverride
+    && typeof opts.runtimeSelectionOverride === "object"
+    ? opts.runtimeSelectionOverride
+    : null;
   const {
     activeChatRuntime,
     activeOpenAiCompatibleClient,
     selectedChatModel,
-  } = await selectChatRuntimeForTurn({
-    userContextId,
-    supabaseAccessToken: ctx.supabaseAccessToken,
-    canRunToolLoop,
-    sessionKey,
-    source,
-    latencyTelemetry,
-  });
+  } = runtimeSelectionOverride && runtimeSelectionOverride.activeChatRuntime
+    ? {
+        activeChatRuntime: runtimeSelectionOverride.activeChatRuntime,
+        activeOpenAiCompatibleClient: runtimeSelectionOverride.activeOpenAiCompatibleClient || null,
+        selectedChatModel: String(
+          runtimeSelectionOverride.selectedChatModel
+          || runtimeSelectionOverride.activeChatRuntime?.model
+          || "smoke-test-model"
+        ),
+      }
+    : await selectChatRuntimeForTurn({
+      userContextId,
+      supabaseAccessToken: ctx.supabaseAccessToken,
+      canRunToolLoop,
+      sessionKey,
+      source,
+      latencyTelemetry,
+    });
 
   const llmCtx = {
     activeChatRuntime,
@@ -504,6 +531,8 @@ async function handleInputCore(text, opts = {}) {
     cryptoShortTermFollowUp,
     marketShortTermFollowUp,
     filesShortTermFollowUp,
+    memoryShortTermFollowUp,
+    shutdownShortTermFollowUp,
     diagnosticsShortTermFollowUp,
     voiceShortTermFollowUp,
     ttsShortTermFollowUp,
@@ -520,6 +549,8 @@ async function handleInputCore(text, opts = {}) {
     isCryptoDirectIntent,
     isMarketDirectIntent,
     isFilesDirectIntent,
+    isMemoryDirectIntent,
+    isShutdownDirectIntent,
     isDiagnosticsDirectIntent,
     isVoiceDirectIntent,
     isTtsDirectIntent,
@@ -537,6 +568,8 @@ async function handleInputCore(text, opts = {}) {
   const shouldRouteToCrypto = routeDecisions.shouldRouteToCrypto;
   const shouldRouteToMarket = routeDecisions.shouldRouteToMarket;
   const shouldRouteToFiles = routeDecisions.shouldRouteToFiles;
+  const shouldRouteToMemory = routeDecisions.shouldRouteToMemory;
+  const shouldRouteToShutdown = routeDecisions.shouldRouteToShutdown;
   const shouldRouteToDiagnostics = routeDecisions.shouldRouteToDiagnostics;
   const shouldRouteToVoice = routeDecisions.shouldRouteToVoice;
   const shouldRouteToTts = routeDecisions.shouldRouteToTts;
@@ -555,6 +588,15 @@ async function handleInputCore(text, opts = {}) {
     sessionKey,
     activeChatRuntime,
     delegateToOrgChartWorker,
+    polymarketWorker: typeof opts.polymarketWorker === "function" ? opts.polymarketWorker : handlePolymarketWorker,
+    calendarWorker: typeof opts.calendarWorker === "function" ? opts.calendarWorker : undefined,
+    remindersWorker: typeof opts.remindersWorker === "function" ? opts.remindersWorker : undefined,
+    marketWorker: typeof opts.marketWorker === "function" ? opts.marketWorker : handleMarketWorker,
+    voiceWorker: typeof opts.voiceWorker === "function" ? opts.voiceWorker : undefined,
+    ttsWorker: typeof opts.ttsWorker === "function" ? opts.ttsWorker : undefined,
+    memoryWorker: typeof opts.memoryWorker === "function" ? opts.memoryWorker : handleMemoryWorker,
+    shutdownWorker: typeof opts.shutdownWorker === "function" ? opts.shutdownWorker : handleShutdownWorker,
+    coinbaseWorker: typeof opts.coinbaseWorker === "function" ? opts.coinbaseWorker : handleCoinbaseWorker,
     executeChatRequest,
     upsertShortTermContextState,
   }));
@@ -570,7 +612,8 @@ export async function handleInput(text, opts = {}) {
   let caughtError = null;
 
   try {
-    result = await handleInputCore(text, opts);
+    const voiceRuntimeUserContextId = sessionRuntime.resolveUserContextId(opts);
+    result = await withVoiceRuntimeContext(voiceRuntimeUserContextId, async () => handleInputCore(text, opts));
     return result;
   } catch (err) {
     caughtError = err;

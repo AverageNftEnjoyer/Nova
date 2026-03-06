@@ -19,9 +19,7 @@ export async function handleHudGatewayMessage({
     broadcastCalendarEventUpdated,
     broadcastCalendarRescheduled,
     broadcastCalendarConflict,
-    wakeWordRuntime,
     VOICE_MAP,
-    setCurrentVoice,
     getCurrentVoice,
     getVoiceEnabled,
     getBusy,
@@ -41,17 +39,17 @@ export async function handleHudGatewayMessage({
     broadcastThinkingStatus,
     HUD_MIN_THINKING_PRESENCE_MS,
     markHudOpTokenAccepted,
+    grantPolicyApproval,
     markHudWorkStart,
     markHudWorkEnd,
     handleInput,
     releaseHudOpTokenReservation,
     toErrorDetails,
-    setVoiceEnabled,
-    setMuted,
     getMuted,
     setSuppressVoiceWakeUntilMs,
     broadcast,
     describeUnknownError,
+    voiceProviderAdapter,
   } = deps;
 
   try {
@@ -82,7 +80,7 @@ export async function handleHudGatewayMessage({
       });
       if (!interruptBind.ok) return;
       console.log("[HUD] Interrupt received.");
-      stopSpeaking();
+      stopSpeaking({ userContextId: interruptBind.userContextId });
       return;
     }
 
@@ -186,24 +184,31 @@ export async function handleHudGatewayMessage({
         return;
       }
       console.log("[HUD] Greeting requested. voiceEnabled:", data.voiceEnabled);
-      if (typeof data.assistantName === "string" && data.assistantName.trim()) {
-        wakeWordRuntime.setAssistantName(data.assistantName);
-      }
-      if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
-        setCurrentVoice(data.ttsVoice);
-        console.log("[Voice] Preference updated to:", getCurrentVoice());
-      }
-      if (data.voiceEnabled === false || getVoiceEnabled() === false) return;
-      if (!getBusy()) {
-        setBusy(true);
+      const scopedUserContextId = normalizeUserContextId(wsContextBySocket.get(ws) || "");
+      voiceProviderAdapter.updateUserState({
+        userContextId: scopedUserContextId,
+        patch: {
+          ...(typeof data.assistantName === "string" ? { assistantName: data.assistantName } : null),
+          ...(data.ttsVoice && VOICE_MAP[data.ttsVoice] ? { ttsVoice: data.ttsVoice } : null),
+          ...(typeof data.voiceEnabled === "boolean" ? { voiceEnabled: data.voiceEnabled } : null),
+        },
+        syncRuntime: true,
+        broadcastRuntimeState: false,
+      });
+      if (data.voiceEnabled === false || getVoiceEnabled({ userContextId: scopedUserContextId }) === false) return;
+      if (!getBusy({ userContextId: scopedUserContextId })) {
+        setBusy(true, { userContextId: scopedUserContextId });
         try {
           const greetingText = data.text || "Hello! What are we working on today?";
-          const scopedUserContextId = normalizeUserContextId(wsContextBySocket.get(ws) || "");
           broadcastState("speaking", scopedUserContextId);
-          await speak(greetingText, getCurrentVoice());
+          await speak(
+            greetingText,
+            getCurrentVoice({ userContextId: scopedUserContextId }),
+            { userContextId: scopedUserContextId },
+          );
           broadcastState("idle", scopedUserContextId);
         } finally {
-          setBusy(false);
+          setBusy(false, { userContextId: scopedUserContextId });
         }
       }
       return;
@@ -224,10 +229,6 @@ export async function handleHudGatewayMessage({
         return;
       }
 
-      if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
-        setCurrentVoice(data.ttsVoice);
-        console.log("[Voice] Preference updated to:", getCurrentVoice());
-      }
       const conversationId = typeof data.conversationId === "string" ? data.conversationId.trim() : "";
       const incomingUserId = sessionRuntime.normalizeUserContextId(
         typeof data.userId === "string" ? data.userId : "",
@@ -249,7 +250,7 @@ export async function handleHudGatewayMessage({
       }
       const redactedLen = String(data.content || "").length;
       console.log("[HUD ->] chars:", redactedLen, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
-      if (data.voice !== false) stopSpeaking();
+      if (data.voice !== false) stopSpeaking({ userContextId: incomingUserId });
 
       if (!incomingUserId) {
         sendHudStreamError(
@@ -272,6 +273,23 @@ export async function handleHudGatewayMessage({
         );
         broadcastState("idle", incomingUserId);
         return;
+      }
+      if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
+        voiceProviderAdapter.updateUserState({
+          userContextId: incomingUserId,
+          patch: { ttsVoice: data.ttsVoice },
+          syncRuntime: true,
+          broadcastRuntimeState: false,
+        });
+        console.log("[Voice] Preference updated to:", getCurrentVoice({ userContextId: incomingUserId }));
+      }
+      if (typeof data.assistantName === "string" && data.assistantName.trim()) {
+        voiceProviderAdapter.updateUserState({
+          userContextId: incomingUserId,
+          patch: { assistantName: data.assistantName },
+          syncRuntime: true,
+          broadcastRuntimeState: false,
+        });
       }
       trackConversationOwner(conversationId, incomingUserId);
 
@@ -309,6 +327,9 @@ export async function handleHudGatewayMessage({
 
       try {
         const lane = classifyHudRequestLane(data.content);
+        const sessionKeyHint = typeof data.sessionKey === "string" && data.sessionKey.trim()
+          ? data.sessionKey
+          : `agent:nova:hud:user:${incomingUserId}:dm:${conversationId}`;
         broadcastState("thinking", incomingUserId);
         broadcastThinkingStatus("Analyzing request", incomingUserId);
         const thinkingShownAt = Date.now();
@@ -325,6 +346,14 @@ export async function handleHudGatewayMessage({
             if (opToken && reservedOpTokenKey && !opTokenAccepted) {
               markHudOpTokenAccepted(reservedOpTokenKey, conversationId);
               opTokenAccepted = true;
+              if (typeof grantPolicyApproval === "function") {
+                grantPolicyApproval({
+                  userContextId: incomingUserId,
+                  conversationId,
+                  sessionKey: sessionKeyHint,
+                  source: "hud_op_token",
+                });
+              }
               sendHudMessageAck(ws, {
                 opToken,
                 conversationId,
@@ -332,11 +361,11 @@ export async function handleHudGatewayMessage({
                 duplicate: false,
               });
             }
-            markHudWorkStart();
+            markHudWorkStart(incomingUserId);
             try {
               await handleInput(data.content, {
                 voice: data.voice !== false,
-                ttsVoice: data.ttsVoice || getCurrentVoice(),
+                ttsVoice: data.ttsVoice || getCurrentVoice({ userContextId: incomingUserId }),
                 source: "hud",
                 sender: typeof data.sender === "string" ? data.sender : "hud-user",
                 inboundMessageId:
@@ -357,13 +386,10 @@ export async function handleHudGatewayMessage({
                 nlpBypass: data.nlpBypass === true,
                 conversationId: conversationId || undefined,
                 hudOpToken: opToken || "",
-                sessionKeyHint:
-                  typeof data.sessionKey === "string" && data.sessionKey.trim()
-                    ? data.sessionKey
-                    : `agent:nova:hud:user:${incomingUserId}:dm:${conversationId}`,
+                sessionKeyHint,
               });
             } finally {
-              markHudWorkEnd();
+              markHudWorkEnd(incomingUserId);
             }
           },
         });
@@ -429,17 +455,19 @@ export async function handleHudGatewayMessage({
         }
         return;
       }
-      if (typeof data.assistantName === "string" && data.assistantName.trim()) {
-        wakeWordRuntime.setAssistantName(data.assistantName);
-      }
-      if (data.ttsVoice && VOICE_MAP[data.ttsVoice]) {
-        setCurrentVoice(data.ttsVoice);
-        console.log("[Voice] TTS voice set to:", getCurrentVoice());
-      }
-      if (typeof data.voiceEnabled === "boolean") {
-        setVoiceEnabled(data.voiceEnabled);
-        console.log("[Voice] Voice responses enabled:", getVoiceEnabled());
-      }
+      const scopedUserContextId = normalizeUserContextId(wsContextBySocket.get(ws) || "");
+      const nextVoiceState = voiceProviderAdapter.updateUserState({
+        userContextId: scopedUserContextId,
+        patch: {
+          ...(typeof data.assistantName === "string" ? { assistantName: data.assistantName } : null),
+          ...(data.ttsVoice && VOICE_MAP[data.ttsVoice] ? { ttsVoice: data.ttsVoice } : null),
+          ...(typeof data.voiceEnabled === "boolean" ? { voiceEnabled: data.voiceEnabled } : null),
+        },
+        syncRuntime: true,
+        broadcastRuntimeState: false,
+      });
+      console.log("[Voice] TTS voice set to:", nextVoiceState.ttsVoice);
+      console.log("[Voice] Voice responses enabled:", nextVoiceState.voiceEnabled);
     }
 
     if (data.type === "set_mute") {
@@ -458,15 +486,20 @@ export async function handleHudGatewayMessage({
         }
         return;
       }
-      setMuted(data.muted === true);
-      console.log("[Nova] Muted:", getMuted());
-      if (typeof data.assistantName === "string" && data.assistantName.trim()) {
-        wakeWordRuntime.setAssistantName(data.assistantName);
-      }
       const scopedUserContextId = normalizeUserContextId(wsContextBySocket.get(ws) || "");
-      if (!getMuted()) {
+      const nextVoiceState = voiceProviderAdapter.updateUserState({
+        userContextId: scopedUserContextId,
+        patch: {
+          muted: data.muted === true,
+          ...(typeof data.assistantName === "string" ? { assistantName: data.assistantName } : null),
+        },
+        syncRuntime: true,
+        broadcastRuntimeState: true,
+      });
+      console.log("[Nova] Muted:", nextVoiceState.muted);
+      if (!getMuted({ userContextId: scopedUserContextId })) {
         const UNMUTE_SUPPRESS_MS = 1200;
-        setSuppressVoiceWakeUntilMs(Date.now() + UNMUTE_SUPPRESS_MS);
+        setSuppressVoiceWakeUntilMs(Date.now() + UNMUTE_SUPPRESS_MS, { userContextId: scopedUserContextId });
         broadcast(
           {
             type: "transcript",
@@ -477,7 +510,6 @@ export async function handleHudGatewayMessage({
           { userContextId: scopedUserContextId },
         );
       }
-      broadcastState(getMuted() ? "muted" : "idle", scopedUserContextId);
     }
   } catch (e) {
     console.error("[WS] Bad message from HUD:", describeUnknownError(e));

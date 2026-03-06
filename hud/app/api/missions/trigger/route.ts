@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 
-import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
+import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { enqueueMissionRunForQueue, isMissionQueueModeEnabled } from "@/lib/missions/workflow/queue-mode"
-import { loadMissions, upsertMission } from "@/lib/missions/store"
+import { loadMissions, upsertMission } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
@@ -14,6 +14,7 @@ import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import type { NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 import { resolveTimezone } from "@/lib/shared/timezone"
+import { ensureMissionSchedulerStarted } from "../../../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
   if (!limit.allowed) return rateLimitExceededResponse(limit)
   const userId = verified.user.id
 
-  ensureMissionSchedulerStarted()
+  ensureMissionSchedulerStarted({ startScheduler: ensureHudMissionSchedulerStarted })
 
   try {
     const body = await req.json()

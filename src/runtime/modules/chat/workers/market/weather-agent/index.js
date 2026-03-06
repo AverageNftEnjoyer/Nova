@@ -11,6 +11,7 @@ import {
 } from "../../../../infrastructure/hud-gateway/index.js";
 import { describeUnknownError, withTimeout } from "../../../../llm/providers/index.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
+import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 import {
   clearPendingWeatherConfirmation,
   runWeatherLookup,
@@ -43,9 +44,11 @@ export async function handleWeatherWorker(text, ctx, llmCtx = {}) {
   const assistantStreamId = createAssistantStreamId();
   const summary = {
     route: "weather",
+    responseRoute: "weather",
     ok: true,
     reply: "",
     error: "",
+    errorMessage: "",
     sessionKey: sessionKey || "",
     provider: "",
     model: "",
@@ -64,6 +67,16 @@ export async function handleWeatherWorker(text, ctx, llmCtx = {}) {
     canRunWebSearch: false,
     canRunWebFetch: false,
     latencyMs: 0,
+    telemetry: {
+      domain: "weather",
+      userContextId: String(userContextId || "").trim(),
+      conversationId: String(conversationId || "").trim(),
+      sessionKey: String(sessionKey || "").trim(),
+      provider: "",
+      toolCalls: 0,
+      tokens: 0,
+      latencyMs: 0,
+    },
   };
   const startedAt = Date.now();
   let assistantStreamStarted = false;
@@ -122,12 +135,22 @@ export async function handleWeatherWorker(text, ctx, llmCtx = {}) {
     clearPendingWeatherConfirmation(sessionKey);
     summary.ok = false;
     summary.error = String(error instanceof Error ? error.message : describeUnknownError(error));
+    summary.errorMessage = summary.error;
     summary.reply = await emitAssistantReply("I couldn't fetch weather right now. Please retry.");
   } finally {
     broadcastThinkingStatus("", userContextId);
     broadcastState("idle", userContextId);
     summary.latencyMs = Date.now() - startedAt;
+    summary.telemetry.latencyMs = summary.latencyMs;
   }
 
-  return summary;
+  return normalizeWorkerSummary(summary, {
+    fallbackRoute: "weather",
+    fallbackResponseRoute: "weather",
+    fallbackProvider: "",
+    fallbackLatencyMs: summary.latencyMs,
+    userContextId: String(userContextId || ""),
+    conversationId: String(conversationId || ""),
+    sessionKey: String(sessionKey || ""),
+  });
 }

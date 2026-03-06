@@ -1,18 +1,24 @@
 import { NextResponse } from "next/server"
 
 import { buildMissionFromPrompt } from "@/lib/missions/runtime"
-import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
-import { upsertMission } from "@/lib/missions/store"
+import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
-import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-schedule-mirror"
+import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import { createCalendarEvent, deleteCalendarEvent } from "@/lib/integrations/google-calendar/service"
+import { estimateDurationMs, toIsoInTimezone } from "@/lib/calendar/schedule-utils"
+import { getLocalParts } from "@/lib/missions/workflow/time"
 import {
   finalizeMissionBuildRequest,
   reserveMissionBuildRequest,
 } from "../../../../../src/runtime/modules/services/missions/build-idempotency/index.js"
 import { runMissionBuildRequest } from "../../../../../src/runtime/modules/services/missions/build-execution/index.js"
+import { upsertMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
+import { ensureMissionSchedulerStarted } from "../../../../../src/runtime/modules/services/missions/scheduler/index.js"
+import { syncMissionScheduleToGoogleCalendar } from "../../../../../src/runtime/modules/services/missions/calendar-mirror/index.js"
+import { resolveTimezone } from "../../../../../src/runtime/modules/services/shared/timezone/index.js"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -43,12 +49,26 @@ export async function POST(req: Request) {
       scope: verified,
     },
     {
-      ensureMissionSchedulerStarted,
+      ensureMissionSchedulerStarted: () => ensureMissionSchedulerStarted({
+        startScheduler: ensureHudMissionSchedulerStarted,
+      }),
       reserveMissionBuildRequest,
       finalizeMissionBuildRequest,
       buildMissionFromPrompt,
       upsertMission,
-      syncMissionScheduleToGoogleCalendar,
+      syncMissionScheduleToGoogleCalendar: (params: { mission: unknown; scope?: unknown }) => (
+        syncMissionScheduleToGoogleCalendar(params, {
+          loadIntegrationsConfig,
+          createCalendarEvent,
+          deleteCalendarEvent,
+          estimateDurationMs,
+          toIsoInTimezone,
+          getLocalParts,
+          resolveTimezone,
+          warn: console.warn,
+          info: console.info,
+        })
+      ),
       emitTelemetry: emitMissionTelemetryEvent,
       warn: console.warn,
     },

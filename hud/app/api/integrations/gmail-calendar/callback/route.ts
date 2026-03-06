@@ -4,7 +4,7 @@ import { syncMissionScheduleToGoogleCalendar } from "@/lib/calendar/google-sched
 import { exchangeCodeForGmailCalendarTokens, parseGmailCalendarOAuthState } from "@/lib/integrations/google-calendar/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
 import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
-import { loadMissions } from "@/lib/missions/store"
+import { loadMissions } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { logGmailCalendarApi } from "../_shared"
 
 export const runtime = "nodejs"

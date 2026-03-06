@@ -41,11 +41,13 @@ await run("IAB-3 youtube bridge maps aborts to timeout code", async () => {
   assert.equal(source.includes('code: errorCode'), true);
 });
 
-await run("IAB-4 mission bridge posts with idempotency support", async () => {
+await run("IAB-4 mission lane removed from shared bridge and owned by missions-agent", async () => {
   const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
-  assert.equal(source.includes("runMissionBuildViaHudApi"), true);
-  assert.equal(source.includes("/api/missions/build"), true);
-  assert.equal(source.includes('headers["X-Idempotency-Key"] = idempotencyKey'), true);
+  assert.equal(source.includes("runMissionBuildViaHudApi"), false);
+  const missionWorkerSource = read("src/runtime/modules/chat/workers/productivity/missions-agent/index.js");
+  assert.equal(missionWorkerSource.includes("runMissionBuildViaHudApi"), true);
+  assert.equal(missionWorkerSource.includes("/api/missions/build"), true);
+  assert.equal(missionWorkerSource.includes('headers["X-Idempotency-Key"] = idempotencyKey'), true);
 });
 
 const passCount = results.filter((result) => result.status === "PASS").length;

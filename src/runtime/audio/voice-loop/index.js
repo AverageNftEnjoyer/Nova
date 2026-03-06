@@ -49,34 +49,33 @@ export async function startVoiceLoop(deps) {
 
   while (true) {
     try {
-      if (getMuted()) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
-        continue;
-      }
-
-      if (getBusy()) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
-        continue;
-      }
-
-      if (Date.now() < getSuppressVoiceWakeUntilMs()) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
-        continue;
-      }
-
-      if (getMuted()) continue;
       const voiceUserContextId = resolveVoiceUserContextId();
       if (!voiceUserContextId) {
-        if (!getBusy() && !getMuted()) broadcastState("idle");
         await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
         continue;
       }
+
+      if (getMuted({ userContextId: voiceUserContextId })) {
+        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        continue;
+      }
+
+      if (getBusy({ userContextId: voiceUserContextId })) {
+        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        continue;
+      }
+
+      if (Date.now() < getSuppressVoiceWakeUntilMs({ userContextId: voiceUserContextId })) {
+        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        continue;
+      }
+      if (getMuted({ userContextId: voiceUserContextId })) continue;
       broadcastState("listening", voiceUserContextId);
 
       const micCapturePath = createMicCapturePath();
       recordMic(micCapturePath, MIC_RECORD_SECONDS);
 
-      if (getBusy() || getMuted()) {
+      if (getBusy({ userContextId: voiceUserContextId }) || getMuted({ userContextId: voiceUserContextId })) {
         try { fs.unlinkSync(micCapturePath); } catch {}
         continue;
       }
@@ -91,7 +90,7 @@ export async function startVoiceLoop(deps) {
       if (!text || !text.trim()) {
         const retryPath = createMicCapturePath();
         recordMic(retryPath, MIC_RETRY_SECONDS);
-        if (getBusy() || getMuted()) {
+        if (getBusy({ userContextId: voiceUserContextId }) || getMuted({ userContextId: voiceUserContextId })) {
           try { fs.unlinkSync(retryPath); } catch {}
           continue;
         }
@@ -99,9 +98,11 @@ export async function startVoiceLoop(deps) {
         try { fs.unlinkSync(retryPath); } catch {}
       }
 
-      if (!text || getBusy() || getMuted()) {
-        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
-        if (!getBusy() && !getMuted()) {
+      if (!text || getBusy({ userContextId: voiceUserContextId }) || getMuted({ userContextId: voiceUserContextId })) {
+        if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
+          broadcastState("idle", voiceUserContextId);
+        }
+        if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
           broadcast(
             { type: "transcript", text: "", userContextId: voiceUserContextId, ts: Date.now() },
             { userContextId: voiceUserContextId },
@@ -123,7 +124,9 @@ export async function startVoiceLoop(deps) {
         normalizedHeard === lastVoiceTextHandled &&
         now - lastVoiceTextHandledAt < VOICE_DUPLICATE_TEXT_COOLDOWN_MS
       ) {
-        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
+        if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
+          broadcastState("idle", voiceUserContextId);
+        }
         broadcast(
           { type: "transcript", text: "", userContextId: voiceUserContextId, ts: Date.now() },
           { userContextId: voiceUserContextId },
@@ -132,12 +135,16 @@ export async function startVoiceLoop(deps) {
       }
 
       if (!wakeWordRuntime.containsWakeWord(text)) {
-        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
+        if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
+          broadcastState("idle", voiceUserContextId);
+        }
         continue;
       }
 
       if (now - lastWakeHandledAt < VOICE_WAKE_COOLDOWN_MS) {
-        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
+        if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
+          broadcastState("idle", voiceUserContextId);
+        }
         continue;
       }
 
@@ -152,15 +159,19 @@ export async function startVoiceLoop(deps) {
       lastVoiceTextHandledAt = now;
 
       if (!cleanedVoiceInput) {
-        if (!getMuted() && getVoiceEnabled() && typeof speak === "function") {
-          setBusy(true);
+        if (
+          !getMuted({ userContextId: voiceUserContextId })
+          && getVoiceEnabled({ userContextId: voiceUserContextId })
+          && typeof speak === "function"
+        ) {
+          setBusy(true, { userContextId: voiceUserContextId });
           try {
-            await speak("Yes?", getCurrentVoice());
+            await speak("Yes?", getCurrentVoice({ userContextId: voiceUserContextId }), { userContextId: voiceUserContextId });
           } catch {}
           finally {
-            setBusy(false);
+            setBusy(false, { userContextId: voiceUserContextId });
           }
-        } else if (!getBusy() && !getMuted()) {
+        } else if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
           broadcastState("idle", voiceUserContextId);
         }
         continue;
@@ -170,24 +181,32 @@ export async function startVoiceLoop(deps) {
         cleanedVoiceInput === lastVoiceCommandHandled &&
         now - lastVoiceCommandHandledAt < VOICE_DUPLICATE_COMMAND_COOLDOWN_MS
       ) {
-        if (!getBusy() && !getMuted()) broadcastState("idle", voiceUserContextId);
+        if (!getBusy({ userContextId: voiceUserContextId }) && !getMuted({ userContextId: voiceUserContextId })) {
+          broadcastState("idle", voiceUserContextId);
+        }
         continue;
       }
 
       if (VOICE_AFTER_WAKE_SUPPRESS_MS > 0) {
-        setSuppressVoiceWakeUntilMs(Math.max(getSuppressVoiceWakeUntilMs(), Date.now() + VOICE_AFTER_WAKE_SUPPRESS_MS));
+        setSuppressVoiceWakeUntilMs(
+          Math.max(
+            getSuppressVoiceWakeUntilMs({ userContextId: voiceUserContextId }),
+            Date.now() + VOICE_AFTER_WAKE_SUPPRESS_MS,
+          ),
+          { userContextId: voiceUserContextId },
+        );
       }
 
-      stopSpeaking();
+      stopSpeaking({ userContextId: voiceUserContextId });
       console.log("Heard:", cleanedVoiceInput);
-      setBusy(true);
+      setBusy(true, { userContextId: voiceUserContextId });
       lastVoiceCommandHandled = cleanedVoiceInput;
       lastVoiceCommandHandledAt = now;
 
       try {
         await handleInput(cleanedVoiceInput, {
-          voice: getVoiceEnabled(),
-          ttsVoice: getCurrentVoice(),
+          voice: getVoiceEnabled({ userContextId: voiceUserContextId }),
+          ttsVoice: getCurrentVoice({ userContextId: voiceUserContextId }),
           source: "voice",
           sender: voiceUserContextId,
           userContextId: voiceUserContextId || undefined,
@@ -196,7 +215,7 @@ export async function startVoiceLoop(deps) {
             : undefined,
         });
       } finally {
-        setBusy(false);
+        setBusy(false, { userContextId: voiceUserContextId });
       }
 
       if (VOICE_POST_RESPONSE_GRACE_MS > 0) {
@@ -204,8 +223,9 @@ export async function startVoiceLoop(deps) {
       }
     } catch (e) {
       console.error("Loop error:", e);
-      setBusy(false);
-      if (!getMuted()) broadcastState("idle", resolveVoiceUserContextId());
+      const voiceUserContextId = resolveVoiceUserContextId();
+      setBusy(false, { userContextId: voiceUserContextId });
+      if (!getMuted({ userContextId: voiceUserContextId })) broadcastState("idle", voiceUserContextId);
     }
   }
 }

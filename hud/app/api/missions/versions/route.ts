@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { loadMissions, upsertMission } from "@/lib/missions/store"
+import { loadMissions, upsertMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"

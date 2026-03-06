@@ -12,7 +12,7 @@
 import "server-only"
 
 import { jobLedger } from "../job-ledger/store"
-import { loadMissions, upsertMission } from "../store"
+import { loadMissions, upsertMission } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { executeMission } from "./execute-mission"
 import { makePreClaimedSlot } from "./execution-guard"

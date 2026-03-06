@@ -1,14 +1,15 @@
-import { ensureMissionSchedulerStarted } from "@/lib/notifications/scheduler"
+import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { enqueueMissionRunForQueue, isMissionQueueModeEnabled } from "@/lib/missions/workflow/queue-mode"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
-import { loadMissions } from "@/lib/missions/store"
+import { loadMissions } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
+import { ensureMissionSchedulerStarted } from "../../../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -77,7 +78,7 @@ export async function GET(req: Request) {
     return new Response("Missing missionId", { status: 400 })
   }
 
-  ensureMissionSchedulerStarted()
+  ensureMissionSchedulerStarted({ startScheduler: ensureHudMissionSchedulerStarted })
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

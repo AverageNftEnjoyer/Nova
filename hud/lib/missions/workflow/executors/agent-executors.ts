@@ -12,7 +12,7 @@ import type {
   NodeOutput,
   ProviderSelectorNode,
 } from "../../types/index"
-import { loadMissions } from "../../store"
+import { loadMissions } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 
 interface AgentExecutionEnvelope {
   ok: boolean

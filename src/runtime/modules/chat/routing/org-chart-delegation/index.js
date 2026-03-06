@@ -1,4 +1,6 @@
 import { resolveOrgChartRoutingEnvelope } from "../org-chart-routing/index.js";
+import { executeCouncilStage } from "../org-chart-council-execution/index.js";
+import { normalizeWorkerSummary } from "../../workers/shared/worker-contract/index.js";
 
 function normalizeNumber(value, fallback = 0) {
   const numeric = Number(value);
@@ -12,6 +14,18 @@ function buildContext(input = {}) {
     conversationId: String(input.conversationId || "").trim(),
     sessionKey: String(input.sessionKey || "").trim(),
   };
+}
+
+function assertScopedContext(context = {}) {
+  if (!String(context.userContextId || "").trim()) {
+    throw new Error("executeOrgChartDelegation requires userContextId.");
+  }
+  if (!String(context.conversationId || "").trim()) {
+    throw new Error("executeOrgChartDelegation requires conversationId.");
+  }
+  if (!String(context.sessionKey || "").trim()) {
+    throw new Error("executeOrgChartDelegation requires sessionKey.");
+  }
 }
 
 function buildEnvelope({ ok = true, agentId = "", result = {}, error = "", telemetry = {}, context = {} }) {
@@ -61,15 +75,30 @@ function normalizeDelegationError(error) {
   };
 }
 
+function resolvePolicyGate(input = {}) {
+  const gate = input?.policyGate;
+  if (!gate || typeof gate !== "object") {
+    return {
+      enabled: false,
+      approvalGranted: false,
+    };
+  }
+  return {
+    enabled: gate.enabled === true,
+    approvalGranted: gate.approvalGranted === true,
+  };
+}
+
 function workerSummaryToEnvelope(workerAgentId, workerSummary, context, orgChartPath, latencyMs) {
-  const summary = workerSummary && typeof workerSummary === "object"
-    ? workerSummary
-    : {
-        route: "unclassified",
-        ok: true,
-        reply: typeof workerSummary === "string" ? workerSummary : "",
-        error: "",
-      };
+  const summary = normalizeWorkerSummary(workerSummary, {
+    fallbackRoute: "unclassified",
+    fallbackResponseRoute: "unclassified",
+    fallbackProvider: String(orgChartPath?.providerSelector?.provider || ""),
+    fallbackLatencyMs: latencyMs,
+    userContextId: context.userContextId,
+    conversationId: context.conversationId,
+    sessionKey: context.sessionKey,
+  });
   const toolCalls = Array.isArray(summary.toolCalls) ? summary.toolCalls.length : 0;
   return buildEnvelope({
     ok: summary.ok !== false,
@@ -96,12 +125,14 @@ export async function executeOrgChartDelegation(input = {}) {
   }
 
   const context = buildContext(input);
+  assertScopedContext(context);
   const routeHint = String(input.routeHint || "unclassified");
   const responseRoute = String(input.responseRoute || "");
   const text = String(input.text || "");
   const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
   const provider = String(input.provider || "");
   const providerSource = String(input.providerSource || "chat-runtime-fallback");
+  const policyGate = resolvePolicyGate(input);
 
   const orgChartPath = resolveOrgChartRoutingEnvelope({
     route: routeHint,
@@ -131,12 +162,28 @@ export async function executeOrgChartDelegation(input = {}) {
     },
     context,
   });
+  const councilStage = executeCouncilStage({
+    councilId: orgChartPath.councilId,
+    councilDecision: orgChartPath.councilDecision,
+    domainManagerId: orgChartPath.domainManagerId,
+    workerAgentId: orgChartPath.workerAgentId,
+    signal: orgChartPath.signal,
+    routeHint,
+    responseRoute,
+    text,
+    toolCalls,
+  });
   const councilEnvelope = buildEnvelope({
-    ok: true,
-    agentId: orgChartPath.councilId,
+    ok: councilStage.ok === true,
+    agentId: councilStage.councilId,
     result: {
-      selectedDomainManagerId: orgChartPath.domainManagerId,
-      signal: orgChartPath.signal,
+      selectedDomainManagerId: councilStage.selectedDomainManagerId,
+      selectedWorkerAgentId: councilStage.selectedWorkerAgentId,
+      signal: councilStage.signal,
+      decisionType: String(councilStage?.decision?.decisionType || ""),
+      matchedRuleId: String(councilStage?.decision?.matchedRuleId || ""),
+      evidence: councilStage?.decision?.evidence || null,
+      policy: councilStage?.policy || null,
     },
     telemetry: {
       latencyMs: 0,
@@ -178,27 +225,67 @@ export async function executeOrgChartDelegation(input = {}) {
   const workerStartedAt = Date.now();
   let workerSummary = null;
   let delegationError = null;
-  try {
-    workerSummary = await input.executeWorker({ orgChartPath });
-  } catch (error) {
-    const normalizedError = normalizeDelegationError(error);
+  if (policyGate.enabled && councilStage?.policy?.approvalRequired === true && policyGate.approvalGranted !== true) {
     delegationError = {
-      stage: "worker_execution",
-      code: normalizedError.code,
-      message: normalizedError.message,
+      stage: "policy_gate",
+      code: "policy_approval_required",
+      message: "Policy council approval is required before worker execution.",
     };
-    workerSummary = {
+    workerSummary = normalizeWorkerSummary({
       route: responseRoute || routeHint || "unclassified",
       responseRoute: responseRoute || "",
       ok: false,
-      error: normalizedError.code,
-      errorMessage: normalizedError.message,
+      error: "policy_approval_required",
+      errorMessage: "Policy council approval is required before worker execution.",
       provider: String(orgChartPath.providerSelector?.provider || provider || ""),
-      totalTokens: 0,
-      latencyMs: Math.max(0, Date.now() - workerStartedAt),
       toolCalls: [],
-    };
+    }, {
+      fallbackRoute: responseRoute || routeHint || "unclassified",
+      fallbackResponseRoute: responseRoute || "",
+      fallbackProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
+      fallbackLatencyMs: Math.max(0, Date.now() - workerStartedAt),
+      userContextId: context.userContextId,
+      conversationId: context.conversationId,
+      sessionKey: context.sessionKey,
+    });
+  } else {
+    try {
+      workerSummary = await input.executeWorker({ orgChartPath });
+    } catch (error) {
+      const normalizedError = normalizeDelegationError(error);
+      delegationError = {
+        stage: "worker_execution",
+        code: normalizedError.code,
+        message: normalizedError.message,
+      };
+      workerSummary = normalizeWorkerSummary({
+        route: responseRoute || routeHint || "unclassified",
+        responseRoute: responseRoute || "",
+        ok: false,
+        error: normalizedError.code,
+        errorMessage: normalizedError.message,
+        provider: String(orgChartPath.providerSelector?.provider || provider || ""),
+        toolCalls: [],
+      }, {
+        fallbackRoute: responseRoute || routeHint || "unclassified",
+        fallbackResponseRoute: responseRoute || "",
+        fallbackProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
+        fallbackLatencyMs: Math.max(0, Date.now() - workerStartedAt),
+        userContextId: context.userContextId,
+        conversationId: context.conversationId,
+        sessionKey: context.sessionKey,
+      });
+    }
   }
+  workerSummary = normalizeWorkerSummary(workerSummary, {
+    fallbackRoute: responseRoute || routeHint || "unclassified",
+    fallbackResponseRoute: responseRoute || "",
+    fallbackProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
+    fallbackLatencyMs: Math.max(0, Date.now() - workerStartedAt),
+    userContextId: context.userContextId,
+    conversationId: context.conversationId,
+    sessionKey: context.sessionKey,
+  });
   const workerEnvelope = workerSummaryToEnvelope(
     orgChartPath.workerAgentId,
     workerSummary,
