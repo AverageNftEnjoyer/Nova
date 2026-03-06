@@ -1,7 +1,7 @@
 import fs from "fs"
 import path from "path"
 
-// The HUD process runs with cwd = C:\Nova\hud, but the .agent directory lives at the repo root.
+// The HUD process runs with cwd = C:\Nova\hud, but the .user directory lives at the repo root.
 // Resolve upward from cwd: if cwd ends with "hud", go up one level. Otherwise trust cwd.
 function resolveNovaRoot(): string {
   const cwd = process.cwd()

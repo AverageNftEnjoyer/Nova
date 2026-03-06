@@ -15,19 +15,16 @@ const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
 export function LoginBackgroundLayer() {
   const pathname = usePathname()
-  const [orbColor, setOrbColor] = useState<OrbColor>(() => {
-    const cached = readShellUiCache().orbColor
-    if (cached) return cached
-    if (typeof window === "undefined") return "violet"
-    return loadUserSettings().app.orbColor
-  })
+  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
 
   useEffect(() => {
     const refresh = () => {
-      const next = loadUserSettings().app.orbColor
+      const cached = readShellUiCache().orbColor
+      const next = cached || loadUserSettings().app.orbColor
       setOrbColor(next)
       writeShellUiCache({ orbColor: next })
     }
+    refresh()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
   }, [])

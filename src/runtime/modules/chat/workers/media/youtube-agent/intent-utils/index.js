@@ -1,21 +1,6 @@
-export function sanitizeYouTubeTopic(value) {
-  const normalized = String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-  return normalized || "news";
-}
+import { sanitizeYouTubeSource, sanitizeYouTubeTopic } from "../../../../../services/youtube/normalization.js";
 
-export function sanitizeYouTubeSource(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s.&'/-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 64);
-}
+export { sanitizeYouTubeSource, sanitizeYouTubeTopic };
 
 function stripYouTubeSourceClause(value) {
   const input = String(value || "").trim();

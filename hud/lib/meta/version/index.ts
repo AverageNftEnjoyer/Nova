@@ -10,6 +10,17 @@
  *
  * Version History:
  *
+ * - V.47 Alpha (2026-03-06): HUD hydration mismatch guardrails
+ *     - Fixed layout-level hydration mismatches by making auth-gate first render deterministic between server and client.
+ *     - Moved login background persisted orb-color restoration behind mount so `/login` no longer diverges during hydration.
+ *     - Preserved post-mount auth/session recovery and saved visual preferences without changing the broader HUD routing flow.
+ *
+ * - V.46 Alpha (2026-03-06): Phantom wallet verification integration
+ *     - Added Phantom-first HUD integration for connect, signed-message wallet verification, verified-state display, account-change invalidation, and clean disconnect.
+ *     - Added restart-safe user-scoped Phantom challenge/session state, secure nonce replay protections, and durable wallet metadata persistence through the encrypted integrations store.
+ *     - Extended runtime snapshots, runtime loaders, catalog visibility, and a safe `phantom_capabilities` tool so Nova agents can read verified wallet context without any custody or trade execution path.
+ *     - Added targeted Phantom tests for challenge issuance, signature verification helpers, replay/stale-session rejection, disconnect invalidation, runtime snapshot safety, and multi-user runtime/tool isolation.
+ *
  * - V.45 Alpha (2026-03-06): Platform-contract hardening + domain service extraction sweep
  *     - Extracted additional runtime capabilities into dedicated domain services and provider adapters across missions, Gmail, diagnostics, files, shutdown, web research, and Coinbase integration paths.
  *     - Expanded routing and live verification coverage with new platform-contract, domain-service, reminders, and voice/TTS smoke gates wired into the routing release chain.
@@ -290,6 +301,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.45 Alpha"
+export const NOVA_VERSION = "V.47 Alpha"
 
 

@@ -1,2 +1,2 @@
-export * from "../../../dist/providers/runtime.js";
+export * from "../../../dist/providers/runtime/index.js";
 

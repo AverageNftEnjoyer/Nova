@@ -1,21 +1,6 @@
 import type { ReactNode } from "react"
 import { cn } from "@/lib/shared/utils"
-
-export type IntegrationSetupKey =
-  | "telegram"
-  | "discord"
-  | "slack"
-  | "brave"
-  | "news"
-  | "coinbase"
-  | "openai"
-  | "claude"
-  | "grok"
-  | "gemini"
-  | "spotify"
-  | "youtube"
-  | "gmail"
-  | "gmail-calendar"
+import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 
 interface ConnectivityGridProps {
   isLight: boolean

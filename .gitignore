@@ -7,10 +7,13 @@
 !.env.example
 .claude/
 .user/
+src/.user/
+src/.agent/
 
 # local runtime data
 data/
 hud/data/
+hud/.tmp/
 memory.json
 nova_memory.json
 telegram_history.json

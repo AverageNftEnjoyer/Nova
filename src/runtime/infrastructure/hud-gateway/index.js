@@ -32,6 +32,7 @@ let wss = null;
 const wsUserRateWindow = new Map();
 const wsByUserContext = new Map();
 const wsContextBySocket = new WeakMap();
+const pendingAssistantStreamDeltas = new Map();
 let voiceRoutingUserContextId = "";
 const wsAuthByToken = new Map();
 const conversationOwnerById = new Map();
@@ -120,6 +121,20 @@ const HUD_MIN_THINKING_PRESENCE_MS = Math.max(
   Math.min(
     5_000,
     Number.parseInt(process.env.NOVA_HUD_MIN_THINKING_PRESENCE_MS || "320", 10) || 320,
+  ),
+);
+const WS_STREAM_DELTA_BATCH_MS = Math.max(
+  10,
+  Math.min(
+    250,
+    Number.parseInt(process.env.NOVA_WS_STREAM_DELTA_BATCH_MS || "35", 10) || 35,
+  ),
+);
+const WS_BUFFERED_AMOUNT_SOFT_LIMIT_BYTES = Math.max(
+  64 * 1024,
+  Math.min(
+    8 * 1024 * 1024,
+    Number.parseInt(process.env.NOVA_WS_BUFFERED_AMOUNT_SOFT_LIMIT_BYTES || String(512 * 1024), 10) || 512 * 1024,
   ),
 );
 const SCOPED_ONLY_EVENT_TYPES = new Set([
@@ -540,7 +555,7 @@ function sendHudMessageAck(ws, {
   if (!normalizedOpToken || !ws || ws.readyState !== 1) return;
   const normalizedConversationId = normalizeConversationId(conversationId);
   const normalizedUserContextId = normalizeUserContextId(userContextId);
-  ws.send(JSON.stringify({
+  sendWsPayload(ws, JSON.stringify({
     type: "hud_message_ack",
     opToken: normalizedOpToken,
     ...(normalizedConversationId ? { conversationId: normalizedConversationId } : {}),
@@ -566,11 +581,11 @@ export function broadcast(payload, opts = {}) {
     const scopedSockets = wsByUserContext.get(targetUserContextId);
     if (!scopedSockets || scopedSockets.size === 0) return;
     for (const socket of scopedSockets) {
-      if (socket?.readyState === 1) socket.send(msg);
+      sendWsPayload(socket, msg);
     }
     return;
   }
-  wss.clients.forEach((c) => { if (c.readyState === 1) c.send(msg); });
+  wss.clients.forEach((c) => { sendWsPayload(c, msg); });
 }
 
 export function getVoiceRoutingUserContextId() {
@@ -662,6 +677,7 @@ export function broadcastAssistantStreamStart(id, source = "hud", sender = undef
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
   if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
+  clearPendingAssistantStreamDelta(id, normalizedConversationId, resolvedUserContextId);
   broadcast(
     {
       type: "assistant_stream_start",
@@ -680,25 +696,21 @@ export function broadcastAssistantStreamDelta(id, content, source = "hud", sende
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
   if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
-  broadcast(
-    {
-      type: "assistant_stream_delta",
-      id,
-      content,
-      source,
-      sender,
-      ...(normalizedConversationId ? { conversationId: normalizedConversationId } : {}),
-      ...(resolvedUserContextId ? { userContextId: resolvedUserContextId } : {}),
-      ts: Date.now(),
-    },
-    { userContextId: resolvedUserContextId, conversationId: normalizedConversationId },
-  );
+  queueAssistantStreamDelta({
+    id,
+    content,
+    source,
+    sender,
+    conversationId: normalizedConversationId,
+    userContextId: resolvedUserContextId,
+  });
 }
 
 export function broadcastAssistantStreamDone(id, source = "hud", sender = undefined, conversationId = undefined, userContextId = "") {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
   if (!hasScopedConversationContext(resolvedUserContextId, normalizedConversationId)) return;
+  flushPendingAssistantStreamDelta(id, normalizedConversationId, resolvedUserContextId);
   broadcast(
     {
       type: "assistant_stream_done",
@@ -711,6 +723,91 @@ export function broadcastAssistantStreamDone(id, source = "hud", sender = undefi
     },
     { userContextId: resolvedUserContextId, conversationId: normalizedConversationId },
   );
+}
+
+function makeAssistantStreamDeltaKey(id, conversationId, userContextId) {
+  return `${normalizeUserContextId(userContextId)}::${normalizeConversationId(conversationId)}::${String(id || "")}`;
+}
+
+function clearPendingAssistantStreamDelta(id, conversationId, userContextId) {
+  const key = makeAssistantStreamDeltaKey(id, conversationId, userContextId);
+  const pending = pendingAssistantStreamDeltas.get(key);
+  if (!pending) return;
+  if (pending.timer) clearTimeout(pending.timer);
+  pendingAssistantStreamDeltas.delete(key);
+}
+
+function flushPendingAssistantStreamDelta(id, conversationId, userContextId) {
+  const key = makeAssistantStreamDeltaKey(id, conversationId, userContextId);
+  const pending = pendingAssistantStreamDeltas.get(key);
+  if (!pending) return;
+  if (pending.timer) clearTimeout(pending.timer);
+  pendingAssistantStreamDeltas.delete(key);
+  if (!pending.content) return;
+  broadcast(
+    {
+      type: "assistant_stream_delta",
+      id: pending.id,
+      content: pending.content,
+      source: pending.source,
+      sender: pending.sender,
+      ...(pending.conversationId ? { conversationId: pending.conversationId } : {}),
+      ...(pending.userContextId ? { userContextId: pending.userContextId } : {}),
+      ts: Date.now(),
+    },
+    { userContextId: pending.userContextId, conversationId: pending.conversationId },
+  );
+}
+
+function queueAssistantStreamDelta({
+  id,
+  content,
+  source = "hud",
+  sender = undefined,
+  conversationId = "",
+  userContextId = "",
+} = {}) {
+  const deltaContent = String(content || "");
+  if (!deltaContent) return;
+  const key = makeAssistantStreamDeltaKey(id, conversationId, userContextId);
+  const existing = pendingAssistantStreamDeltas.get(key);
+  if (existing) {
+    existing.content += deltaContent;
+    existing.sender = sender ?? existing.sender;
+    existing.source = source || existing.source;
+    pendingAssistantStreamDeltas.set(key, existing);
+    return;
+  }
+  const pending = {
+    id,
+    content: deltaContent,
+    source,
+    sender,
+    conversationId,
+    userContextId,
+    timer: setTimeout(() => {
+      flushPendingAssistantStreamDelta(id, conversationId, userContextId);
+    }, WS_STREAM_DELTA_BATCH_MS),
+  };
+  pendingAssistantStreamDeltas.set(key, pending);
+}
+
+function sendWsPayload(ws, payload) {
+  if (!ws || ws.readyState !== 1) return false;
+  if (Number(ws.bufferedAmount || 0) > WS_BUFFERED_AMOUNT_SOFT_LIMIT_BYTES) {
+    try {
+      ws.close(1013, "slow_consumer");
+    } catch {}
+    unbindSocketFromUserContext(ws);
+    return false;
+  }
+  try {
+    ws.send(payload);
+    return true;
+  } catch {
+    unbindSocketFromUserContext(ws);
+    return false;
+  }
 }
 
 function sanitizeCalendarEventId(value) {
@@ -813,11 +910,11 @@ function sendHudStreamError(conversationId, text, ws = null, retryAfterMs = 0, u
   if (!resolvedUserContextId && ws && ws.readyState === 1) {
     const streamId = createAssistantStreamId();
     const ts = Date.now();
-    ws.send(JSON.stringify({ type: "assistant_stream_start", id: streamId, source: "hud", ...(conversationId ? { conversationId } : {}), ts }));
-    ws.send(JSON.stringify({ type: "assistant_stream_delta", id: streamId, content: String(text || "Request failed."), source: "hud", ...(conversationId ? { conversationId } : {}), ts: Date.now() }));
-    ws.send(JSON.stringify({ type: "assistant_stream_done", id: streamId, source: "hud", ...(conversationId ? { conversationId } : {}), ts: Date.now() }));
+    sendWsPayload(ws, JSON.stringify({ type: "assistant_stream_start", id: streamId, source: "hud", ...(conversationId ? { conversationId } : {}), ts }));
+    sendWsPayload(ws, JSON.stringify({ type: "assistant_stream_delta", id: streamId, content: String(text || "Request failed."), source: "hud", ...(conversationId ? { conversationId } : {}), ts: Date.now() }));
+    sendWsPayload(ws, JSON.stringify({ type: "assistant_stream_done", id: streamId, source: "hud", ...(conversationId ? { conversationId } : {}), ts: Date.now() }));
     if (retryAfterMs > 0) {
-      ws.send(JSON.stringify({
+      sendWsPayload(ws, JSON.stringify({
         type: "busy",
         retryAfterMs: Math.max(0, Number(retryAfterMs || 0)),
         ts: Date.now(),
@@ -830,7 +927,7 @@ function sendHudStreamError(conversationId, text, ws = null, retryAfterMs = 0, u
   broadcastAssistantStreamDelta(streamId, String(text || "Request failed."), "hud", undefined, conversationId, resolvedUserContextId);
   broadcastAssistantStreamDone(streamId, "hud", undefined, conversationId, resolvedUserContextId);
   if (ws && ws.readyState === 1 && retryAfterMs > 0) {
-    ws.send(JSON.stringify({
+    sendWsPayload(ws, JSON.stringify({
       type: "busy",
       retryAfterMs: Math.max(0, Number(retryAfterMs || 0)),
       ts: Date.now(),
@@ -857,7 +954,7 @@ export function startGateway() {
     void getSystemMetrics()
       .then((metrics) => {
         if (!metrics || ws.readyState !== 1) return;
-        ws.send(JSON.stringify({
+        sendWsPayload(ws, JSON.stringify({
           type: "system_metrics",
           metrics,
           scheduler: hudRequestScheduler.getSnapshot(),

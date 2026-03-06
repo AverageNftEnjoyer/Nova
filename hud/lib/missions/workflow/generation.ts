@@ -20,14 +20,6 @@ export function promptRequestsImmediateOutput(prompt: string): boolean {
   return /\b(now|immediately|immediate|right away|asap)\b/.test(text)
 }
 
-function normalizePromptTextForExtraction(prompt: string): string {
-  return cleanText(String(prompt || ""))
-    .replace(/\bhey\s+nova\b/gi, " ")
-    .replace(/\bnova\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
 export function buildPromptGroundedAiPrompt(prompt: string): string {
   const dynamicAiPrompt = detectTopicsInPrompt(prompt).aiPrompt
   const userIntent = cleanText(String(prompt || "")).slice(0, 220)

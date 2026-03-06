@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createCipheriv, randomBytes } from "node:crypto";
-import { describeUnknownError, getEncryptionKeyMaterials, unwrapStoredSecret } from "../../../../../llm/providers/index.js";
+import { describeUnknownError, getEncryptionKeyMaterials, unwrapStoredSecret } from "../../../../llm/providers/index.js";
 
 const SPOTIFY_TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 const SPOTIFY_NOW_PLAYING_ENDPOINT = "https://api.spotify.com/v1/me/player/currently-playing?additional_types=track";
@@ -227,7 +227,7 @@ async function fetchNowPlaying(accessToken) {
   });
 }
 
-export async function runDirectSpotifyNowPlaying(userContextId) {
+async function runDirectSpotifyNowPlaying(userContextId) {
   try {
     const scopedConfig = await fetchUserSpotifyConfig(userContextId);
     const { normalizedUserContextId, supabaseUrl, supabaseServiceRoleKey, config, spotify } = scopedConfig;
@@ -322,4 +322,25 @@ export async function runDirectSpotifyNowPlaying(userContextId) {
       nowPlaying: emptyNowPlaying(false),
     };
   }
+}
+
+export function createSpotifyDirectNowPlayingAdapter() {
+  return Object.freeze({
+    id: "spotify-direct-now-playing-adapter",
+    async execute(input = {}) {
+      const action = String(input.action || "").trim();
+      const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
+      if (action !== "now_playing") {
+        return {
+          attempted: false,
+          ok: false,
+          message: `Spotify direct adapter cannot execute "${action}".`,
+          code: "spotify.unsupported_action",
+          fallbackRecommended: false,
+          nowPlaying: emptyNowPlaying(false),
+        };
+      }
+      return runDirectSpotifyNowPlaying(ctx.userContextId);
+    },
+  });
 }

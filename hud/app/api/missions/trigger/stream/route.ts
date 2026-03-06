@@ -104,7 +104,7 @@ export async function GET(req: Request) {
       }
       void (async () => {
         try {
-          const missions = await loadMissions({ userId })
+          const missions = (await loadMissions({ userId })) as Mission[]
           const mission = missions.find((row) => row.id === missionId) || null
           if (!mission) {
             safeStreamPayload({ type: "error", error: "mission not found" })

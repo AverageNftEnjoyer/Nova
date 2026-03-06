@@ -4,6 +4,13 @@ import { decryptSecret, decryptSecretWithMeta, encryptSecret } from "@/lib/secur
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import {
+  DEFAULT_PHANTOM_INTEGRATION_CONFIG,
+  normalizePhantomIntegrationConfig,
+  type PhantomIntegrationConfig,
+} from "../phantom/types"
+
+export type { PhantomIntegrationConfig } from "../phantom/types"
 
 export interface TelegramIntegrationConfig {
   connected: boolean
@@ -185,6 +192,7 @@ export interface IntegrationsConfig {
   brave: BraveIntegrationConfig
   news: NewsIntegrationConfig
   coinbase: CoinbaseIntegrationConfig
+  phantom: PhantomIntegrationConfig
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
   grok: GrokIntegrationConfig
@@ -283,6 +291,9 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     reportTimezone: getRuntimeTimezone(),
     reportCurrency: "USD",
     reportCadence: "daily",
+  },
+  phantom: {
+    ...DEFAULT_PHANTOM_INTEGRATION_CONFIG,
   },
   openai: {
     connected: false,
@@ -564,6 +575,7 @@ function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined
           ? raw.coinbase.reportCadence
           : DEFAULT_CONFIG.coinbase.reportCadence,
     },
+    phantom: normalizePhantomIntegrationConfig((raw as { phantom?: unknown } | null | undefined)?.phantom),
     openai: {
       connected: raw?.openai?.connected ?? DEFAULT_CONFIG.openai.connected,
       apiKey: unwrapStoredSecret(raw?.openai?.apiKey),
@@ -782,6 +794,9 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
       apiKey: wrapStoredSecret(config.coinbase.apiKey),
       apiSecret: wrapStoredSecret(config.coinbase.apiSecret),
     },
+    phantom: {
+      ...normalizePhantomIntegrationConfig(config.phantom),
+    },
     claude: {
       ...config.claude,
       apiKey: wrapStoredSecret(config.claude.apiKey),
@@ -885,6 +900,18 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: DeepParti
     coinbase: {
       ...current.coinbase,
       ...(partial.coinbase || {}),
+    },
+    phantom: {
+      ...current.phantom,
+      ...(partial.phantom || {}),
+      preferences: {
+        ...current.phantom.preferences,
+        ...(partial.phantom?.preferences || {}),
+      },
+      capabilities: {
+        ...current.phantom.capabilities,
+        ...(partial.phantom?.capabilities || {}),
+      },
     },
     claude: {
       ...current.claude,

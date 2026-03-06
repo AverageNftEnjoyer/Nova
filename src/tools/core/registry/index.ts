@@ -1,6 +1,7 @@
 import type { ToolsConfig } from "../../../config/types/index.js";
 import { createCoinbaseTools } from "../../builtin/coinbase-tools/index.js";
 import { createGmailTools } from "../../builtin/gmail-tools/index.js";
+import { createPhantomTools } from "../../builtin/phantom-tools/index.js";
 import type { MemoryIndexManager } from "../../../memory/manager/index.js";
 import { createExecTool } from "../../builtin/exec/index.js";
 import { createBrowserAgentTool } from "../../builtin/browser-agent/index.js";
@@ -28,6 +29,10 @@ const GMAIL_TOOL_NAMES = [
   "gmail_classify_importance",
   "gmail_forward_message",
   "gmail_reply_draft",
+] as const;
+
+const PHANTOM_TOOL_NAMES = [
+  "phantom_capabilities",
 ] as const;
 
 function normalizeToolName(name: string): string {
@@ -94,6 +99,14 @@ export function createToolRegistry(
 
   if (hasAnyEnabled(enabled, GMAIL_TOOL_NAMES)) {
     for (const tool of createGmailTools({ workspaceDir: params.workspaceDir })) {
+      if (enabled.has(tool.name)) {
+        registry.push(tool);
+      }
+    }
+  }
+
+  if (hasAnyEnabled(enabled, PHANTOM_TOOL_NAMES)) {
+    for (const tool of createPhantomTools({ workspaceDir: params.workspaceDir })) {
       if (enabled.has(tool.name)) {
         registry.push(tool);
       }

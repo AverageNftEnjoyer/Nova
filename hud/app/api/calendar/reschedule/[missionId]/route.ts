@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
+import type { Mission } from "@/lib/missions/types"
 import { loadMissions } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
 
 export const runtime = "nodejs"
@@ -34,7 +35,7 @@ export async function DELETE(
   const missionId = String(rawMissionId).trim().slice(0, 256)
 
   // Verify mission belongs to this user before touching their data
-  const missions = await loadMissions({ userId })
+  const missions = (await loadMissions({ userId })) as Mission[]
   const owns = missions.some((m) => m.id === missionId)
   if (!owns) {
     return NextResponse.json({ ok: false, error: "Mission not found." }, { status: 404 })

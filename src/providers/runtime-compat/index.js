@@ -40,6 +40,15 @@ function resolveWorkspaceRoot(workspaceRootInput = "") {
   return cwd;
 }
 
+function assertWorkspaceUserRoot(root) {
+  const normalizedRoot = path.resolve(root);
+  const invalidUserRoot = path.join(normalizedRoot, "src", ".user");
+  if (fs.existsSync(invalidUserRoot)) {
+    throw new Error(`Invalid duplicate user state root detected at ${invalidUserRoot}. Use ${path.join(normalizedRoot, ".user")} only.`);
+  }
+  return normalizedRoot;
+}
+
 // ===== Error Helpers =====
 export function describeUnknownError(err) {
   if (err instanceof Error) return err.message;
@@ -107,7 +116,7 @@ function resolveEncryptionKeyCandidates() {
       candidates.push(entry);
     }
   }
-  const root = resolveWorkspaceRoot();
+  const root = assertWorkspaceUserRoot(resolveWorkspaceRoot());
   const dotenvPaths = [
     path.join(root, ".env"),
     path.join(root, ".env.local"),
@@ -316,6 +325,48 @@ function parseSpotifyRuntime(value) {
   };
 }
 
+function parsePhantomRuntime(value) {
+  const integration = value && typeof value === "object" ? value : {};
+  const preferences = integration.preferences && typeof integration.preferences === "object"
+    ? integration.preferences
+    : {};
+  const capabilities = integration.capabilities && typeof integration.capabilities === "object"
+    ? integration.capabilities
+    : {};
+  const connected = integration.connected === true;
+  const verifiedAt = String(integration.verifiedAt || "").trim();
+  const evmAddress = String(integration.evmAddress || "").trim();
+  return {
+    connected,
+    provider: "phantom",
+    chain: "solana",
+    walletAddress: String(integration.walletAddress || "").trim(),
+    walletLabel: String(integration.walletLabel || "").trim(),
+    connectedAt: String(integration.connectedAt || "").trim(),
+    verifiedAt,
+    lastDisconnectedAt: String(integration.lastDisconnectedAt || "").trim(),
+    evmAddress,
+    evmLabel: String(integration.evmLabel || "").trim(),
+    evmChainId: String(integration.evmChainId || "").trim(),
+    evmConnectedAt: String(integration.evmConnectedAt || "").trim(),
+    preferences: {
+      allowAgentWalletContext: preferences.allowAgentWalletContext !== false,
+      allowAgentEvmContext: preferences.allowAgentEvmContext !== false,
+      allowApprovalGatedPolymarket: preferences.allowApprovalGatedPolymarket !== false,
+    },
+    capabilities: {
+      signMessage: capabilities.signMessage !== false,
+      walletOwnershipProof: capabilities.walletOwnershipProof !== false,
+      solanaConnected: capabilities.solanaConnected === true || connected,
+      solanaVerified: capabilities.solanaVerified === true || (connected && verifiedAt.length > 0),
+      evmAvailable: capabilities.evmAvailable === true || evmAddress.length > 0,
+      approvalGatedPolymarket: capabilities.approvalGatedPolymarket !== false,
+      approvalGatedPolymarketReady: capabilities.approvalGatedPolymarketReady === true || (connected && evmAddress.length > 0),
+      autonomousTrading: capabilities.autonomousTrading === true,
+    },
+  };
+}
+
 export function loadIntegrationsRuntime(options = {}) {
   const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
@@ -326,6 +377,7 @@ export function loadIntegrationsRuntime(options = {}) {
     const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
     const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
     const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
+    const phantomIntegration = parsePhantomRuntime(parsed?.phantom);
     const spotifyIntegration = parseSpotifyRuntime(parsed?.spotify);
     const gmailIntegration = parseGmailRuntime(parsed?.gmail);
     const activeProvider = parsed?.activeLlmProvider === "claude"
@@ -378,6 +430,7 @@ export function loadIntegrationsRuntime(options = {}) {
           ? geminiIntegration.defaultModel.trim()
           : DEFAULT_GEMINI_MODEL
       },
+      phantom: phantomIntegration,
       spotify: spotifyIntegration,
       gmail: gmailIntegration
     };
@@ -390,6 +443,35 @@ export function loadIntegrationsRuntime(options = {}) {
       claude: { connected: false, apiKey: "", baseURL: DEFAULT_CLAUDE_BASE_URL, model: DEFAULT_CLAUDE_MODEL },
       grok: { connected: false, apiKey: "", baseURL: DEFAULT_GROK_BASE_URL, model: DEFAULT_GROK_MODEL },
       gemini: { connected: false, apiKey: "", baseURL: DEFAULT_GEMINI_BASE_URL, model: DEFAULT_GEMINI_MODEL },
+      phantom: {
+        connected: false,
+        provider: "phantom",
+        chain: "solana",
+        walletAddress: "",
+        walletLabel: "",
+        connectedAt: "",
+        verifiedAt: "",
+        lastDisconnectedAt: "",
+        evmAddress: "",
+        evmLabel: "",
+        evmChainId: "",
+        evmConnectedAt: "",
+        preferences: {
+          allowAgentWalletContext: true,
+          allowAgentEvmContext: true,
+          allowApprovalGatedPolymarket: true,
+        },
+        capabilities: {
+          signMessage: true,
+          walletOwnershipProof: true,
+          solanaConnected: false,
+          solanaVerified: false,
+          evmAvailable: false,
+          approvalGatedPolymarket: true,
+          approvalGatedPolymarketReady: false,
+          autonomousTrading: false,
+        },
+      },
       spotify: {
         connected: false,
         spotifyUserId: "",

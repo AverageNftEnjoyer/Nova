@@ -1,3 +1,9 @@
+import {
+  DEFAULT_PHANTOM_INTEGRATION_CONFIG,
+  normalizePhantomIntegrationConfig,
+  type PhantomIntegrationConfig,
+} from "../phantom/types"
+
 export interface TelegramIntegrationSettings {
   connected: boolean
   botToken: string
@@ -173,6 +179,8 @@ export interface GmailCalendarIntegrationSettings {
   tokenConfigured?: boolean
 }
 
+export type PhantomIntegrationSettings = PhantomIntegrationConfig
+
 export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
 export interface IntegrationsSettings {
@@ -182,6 +190,7 @@ export interface IntegrationsSettings {
   brave: BraveIntegrationSettings
   news: NewsIntegrationSettings
   coinbase: CoinbaseIntegrationSettings
+  phantom: PhantomIntegrationSettings
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
@@ -270,6 +279,9 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
     apiKeyMasked: "",
     apiSecretConfigured: false,
     apiSecretMasked: "",
+  },
+  phantom: {
+    ...DEFAULT_PHANTOM_INTEGRATION_CONFIG,
   },
   openai: {
     connected: false,
@@ -465,6 +477,7 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
             ? parsed.coinbase.reportCadence
             : DEFAULT_SETTINGS.coinbase.reportCadence,
       },
+      phantom: normalizePhantomIntegrationConfig((parsed as { phantom?: unknown }).phantom),
       openai: {
         ...DEFAULT_SETTINGS.openai,
         ...(parsed.openai || {}),
@@ -611,6 +624,9 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
       apiKey: "",
       apiSecret: "",
     },
+    phantom: {
+      ...normalizePhantomIntegrationConfig(settings.phantom),
+    },
     openai: {
       ...settings.openai,
       apiKey: "",
@@ -733,6 +749,28 @@ export function updateCoinbaseIntegrationSettings(partial: Partial<CoinbaseInteg
       ...current.coinbase,
       ...partial,
     },
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updatePhantomIntegrationSettings(partial: Partial<PhantomIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    phantom: normalizePhantomIntegrationConfig({
+      ...current.phantom,
+      ...partial,
+      preferences: {
+        ...current.phantom.preferences,
+        ...(partial.preferences || {}),
+      },
+      capabilities: {
+        ...current.phantom.capabilities,
+        ...(partial.capabilities || {}),
+      },
+    }),
     updatedAt: new Date().toISOString(),
   }
   saveIntegrationsSettings(updated)

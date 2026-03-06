@@ -1,11 +1,16 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { Blocks, Settings, User } from "lucide-react"
 
 import { useTheme } from "@/lib/context/theme-context"
+import {
+  buildIntegrationsHref,
+  readIntegrationSetupParam,
+  type IntegrationSetupKey,
+} from "@/lib/integrations/navigation"
 import { cn } from "@/lib/shared/utils"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
@@ -15,7 +20,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -46,9 +51,11 @@ import {
   useGeminiSetup,
   useGmailSetup,
   useGmailCalendarSetup,
+  usePhantomSetup,
   useSpotifySetup,
   useYouTubeSetup,
   normalizeGmailAccountsForUi,
+  normalizePhantomSettingsForUi,
   type IntegrationsSaveStatus,
   type IntegrationsSaveTarget,
 } from "./hooks"
@@ -57,7 +64,6 @@ import {
 import {
   SaveStatusToast,
   ConnectivityGrid,
-  type IntegrationSetupKey,
 } from "./components"
 import {
   COINBASE_ERROR_COPY,
@@ -84,6 +90,8 @@ export default function IntegrationsPage() {
     return `${r}, ${g}, ${b}`
   }
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedSetup = readIntegrationSetupParam(searchParams.get("setup"))
   const [orbHovered, setOrbHovered] = useState(false)
   const { theme } = useTheme()
   const pageActive = usePageActive()
@@ -126,7 +134,8 @@ export default function IntegrationsPage() {
     accessTier: "Model Unset",
   })
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [activeSetup, setActiveSetup] = useState<IntegrationSetupKey>("telegram")
+  const [selectedSetup, setSelectedSetup] = useState<IntegrationSetupKey>(requestedSetup ?? "telegram")
+  const activeSetup = requestedSetup ?? selectedSetup
   const [isSavingTarget, setIsSavingTarget] = useState<IntegrationsSaveTarget>(null)
   const [coinbasePendingAction, setCoinbasePendingAction] = useState<CoinbasePendingAction | null>(null)
   const [coinbasePrivacy, setCoinbasePrivacy] = useState<CoinbasePrivacySettings>(DEFAULT_COINBASE_PRIVACY)
@@ -143,6 +152,7 @@ export default function IntegrationsPage() {
   const braveSetupSectionRef = useRef<HTMLElement | null>(null)
   const newsSetupSectionRef = useRef<HTMLElement | null>(null)
   const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
+  const phantomSetupSectionRef = useRef<HTMLElement | null>(null)
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -152,6 +162,12 @@ export default function IntegrationsPage() {
   const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
   const gmailCalendarSetupSectionRef = useRef<HTMLElement | null>(null)
   const activeStatusSectionRef = useRef<HTMLElement | null>(null)
+
+  const handleSelectSetup = (setup: IntegrationSetupKey) => {
+    setSelectedSetup(setup)
+    if (requestedSetup === setup) return
+    router.replace(buildIntegrationsHref(setup), { scroll: false })
+  }
 
   const openAISetup = useOpenAISetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
   const claudeSetup = useClaudeSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
@@ -177,6 +193,12 @@ export default function IntegrationsPage() {
     setIsSavingTarget,
     onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
+  const phantomSetup = usePhantomSetup({
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
+  })
   const youtubeSetup = useYouTubeSetup({
     setSettings,
     setSaveStatus,
@@ -189,6 +211,7 @@ export default function IntegrationsPage() {
   const hydrateGeminiSetup = geminiSetup.hydrate
   const hydrateGmailSetup = gmailSetup.hydrate
   const hydrateSpotifySetup = spotifySetup.hydrate
+  const hydratePhantomSetup = phantomSetup.hydrate
   const hydrateYouTubeSetup = youtubeSetup.hydrate
 
   useEffect(() => {
@@ -240,6 +263,7 @@ export default function IntegrationsPage() {
           hydrateGrokSetup(fallback)
           hydrateGeminiSetup(fallback)
           hydrateSpotifySetup(fallback)
+          hydratePhantomSetup(fallback)
           hydrateYouTubeSetup(fallback)
           hydrateGmailSetup(fallback)
           setActiveLlmProvider(fallback.activeLlmProvider || "openai")
@@ -341,6 +365,7 @@ export default function IntegrationsPage() {
             apiSecretConfigured: Boolean(config.coinbase?.apiSecretConfigured),
             apiSecretMasked: typeof config.coinbase?.apiSecretMasked === "string" ? config.coinbase.apiSecretMasked : "",
           },
+          phantom: normalizePhantomSettingsForUi(config.phantom),
           openai: {
             connected: Boolean(config.openai?.connected),
             apiKey: config.openai?.apiKey || "",
@@ -492,6 +517,7 @@ export default function IntegrationsPage() {
         hydrateGrokSetup(normalized)
         hydrateGeminiSetup(normalized)
         hydrateSpotifySetup(normalized)
+        hydratePhantomSetup(normalized)
         hydrateYouTubeSetup(normalized)
         hydrateGmailSetup(normalized)
         setActiveLlmProvider(normalized.activeLlmProvider || "openai")
@@ -529,6 +555,7 @@ export default function IntegrationsPage() {
         hydrateGrokSetup(fallback)
         hydrateGeminiSetup(fallback)
         hydrateSpotifySetup(fallback)
+        hydratePhantomSetup(fallback)
         hydrateYouTubeSetup(fallback)
         hydrateGmailSetup(fallback)
         setActiveLlmProvider(fallback.activeLlmProvider || "openai")
@@ -537,7 +564,7 @@ export default function IntegrationsPage() {
     return () => {
       cancelled = true
     }
-  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydrateSpotifySetup, hydrateYouTubeSetup, router])
+  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydratePhantomSetup, hydrateSpotifySetup, hydrateYouTubeSetup, router])
 
   useEffect(() => {
     const refresh = () => {
@@ -573,6 +600,7 @@ export default function IntegrationsPage() {
       { ref: braveSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: newsSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: coinbaseSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: phantomSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: openaiSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: claudeSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: grokSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
@@ -663,6 +691,7 @@ export default function IntegrationsPage() {
     { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
     { key: "news" as const, connected: settings.news.connected, icon: <NewsIcon className="w-3.5 h-3.5" />, ariaLabel: "Open News setup" },
     { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
+    { key: "phantom" as const, connected: settings.phantom.connected, icon: <PhantomIcon className="w-4 h-4" />, ariaLabel: "Open Phantom setup" },
   ]
   const activeProviderDefinition = useProviderDefinitions({
     settings,
@@ -812,7 +841,7 @@ export default function IntegrationsPage() {
                 isLight={isLight}
                 activeSetup={activeSetup}
                 integrationBadgeClass={integrationBadgeClass}
-                onSelect={setActiveSetup}
+                onSelect={handleSelectSetup}
                 items={connectivityItems}
               />
             </div>
@@ -894,8 +923,32 @@ export default function IntegrationsPage() {
             providerDefinition={activeProviderDefinition}
             gmailSetup={gmailSetup}
             gmailCalendarSetup={gmailCalendarSetup}
+            phantomSetup={{
+              walletAddress: phantomSetup.walletAddress,
+              walletLabel: phantomSetup.walletLabel,
+              connectedAt: phantomSetup.connectedAt,
+              verifiedAt: phantomSetup.verifiedAt,
+              lastDisconnectedAt: phantomSetup.lastDisconnectedAt,
+              evmAddress: phantomSetup.evmAddress,
+              evmLabel: phantomSetup.evmLabel,
+              evmChainId: phantomSetup.evmChainId,
+              evmConnectedAt: phantomSetup.evmConnectedAt,
+              evmAvailable: phantomSetup.evmAvailable,
+              providerInstalled: phantomSetup.providerInstalled,
+              providerReady: phantomSetup.providerReady,
+              providerSupportedContext: phantomSetup.providerSupportedContext,
+              providerContextReason: phantomSetup.providerContextReason,
+              trustedReconnectReady: phantomSetup.trustedReconnectReady,
+              openBrowserConnect: phantomSetup.openBrowserConnect,
+              openPhantomInstall: phantomSetup.openPhantomInstall,
+              refreshProviderState: phantomSetup.refreshProviderState,
+              savePhantomPreferences: phantomSetup.savePhantomPreferences,
+              connectPhantom: phantomSetup.connectPhantom,
+              disconnectPhantom: () => phantomSetup.disconnectPhantom(),
+            }}
             spotifySetup={spotifySetup}
             youtubeSetup={youtubeSetup}
+            phantomSetupSectionRef={phantomSetupSectionRef}
             spotifySetupSectionRef={spotifySetupSectionRef}
             youtubeSetupSectionRef={youtubeSetupSectionRef}
             gmailCalendarSetupSectionRef={gmailCalendarSetupSectionRef}
@@ -983,6 +1036,7 @@ export default function IntegrationsPage() {
                 { name: "Brave", active: settings.brave.connected },
                 { name: "News", active: settings.news.connected },
                 { name: "Coinbase", active: settings.coinbase.connected },
+                { name: "Phantom", active: settings.phantom.connected },
               ].map((item) => (
                 <div
                   key={item.name}

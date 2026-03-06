@@ -13,6 +13,7 @@
 import "server-only"
 
 import { listMissionTelemetryEvents } from "@/lib/missions/telemetry/store"
+import type { Mission } from "@/lib/missions/types"
 import { loadMissions } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { estimateDurationMs } from "../schedule-utils"
 import type { AgentCalendarEvent } from "../types"
@@ -44,7 +45,7 @@ export async function loadAgentTaskEvents(
       sinceTs: rangeStart.toISOString(),
       limit: 2000,
     }),
-    loadMissions({ userId }),
+    loadMissions({ userId }) as Promise<Mission[]>,
   ])
 
   const rangeStartMs = rangeStart.getTime()

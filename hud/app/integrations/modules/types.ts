@@ -1,7 +1,7 @@
 import type { CSSProperties, Dispatch, MutableRefObject, SetStateAction } from "react"
 
+import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import type { IntegrationsSettings, LlmProvider } from "@/lib/integrations/store/client-store"
-import type { IntegrationSetupKey } from "../components"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "../hooks"
 import type { CoinbasePendingAction, CoinbasePersistedSnapshot, CoinbasePrivacySettings } from "./coinbase/meta"
 
@@ -221,6 +221,30 @@ export type IntegrationsMainPanelProps = {
     testYouTubeConnection: () => Promise<void>
     updateYouTubePermissions: (patch: Partial<IntegrationsSettings["youtube"]["permissions"]>) => Promise<void>
   }
+  phantomSetup: {
+    walletAddress: string
+    walletLabel: string
+    connectedAt: string
+    verifiedAt: string
+    lastDisconnectedAt: string
+    evmAddress: string
+    evmLabel: string
+    evmChainId: string
+    evmConnectedAt: string
+    evmAvailable: boolean
+    providerInstalled: boolean
+    providerReady: boolean
+    providerSupportedContext: boolean
+    providerContextReason: string
+    trustedReconnectReady: boolean
+    openBrowserConnect: () => Promise<boolean>
+    openPhantomInstall: () => Promise<boolean>
+    refreshProviderState: () => Promise<void>
+    savePhantomPreferences: (patch: Partial<IntegrationsSettings["phantom"]["preferences"]>) => Promise<void>
+    connectPhantom: () => Promise<void>
+    disconnectPhantom: () => Promise<void>
+  }
+  phantomSetupSectionRef: MutableRefObject<HTMLElement | null>
   spotifySetupSectionRef: MutableRefObject<HTMLElement | null>
   youtubeSetupSectionRef: MutableRefObject<HTMLElement | null>
   gmailCalendarSetupSectionRef: MutableRefObject<HTMLElement | null>

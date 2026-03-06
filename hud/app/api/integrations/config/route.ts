@@ -7,6 +7,7 @@ import {
   type BraveIntegrationConfig,
   type NewsIntegrationConfig,
   type CoinbaseIntegrationConfig,
+  type PhantomIntegrationConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
   type SlackIntegrationConfig,
@@ -21,6 +22,7 @@ import {
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/store/server-store"
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
+import { normalizePhantomIntegrationConfig } from "@/lib/integrations/phantom/types"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { isValidSlackWebhookUrl, redactSlackWebhookUrl } from "@/lib/notifications/slack"
@@ -338,6 +340,23 @@ function normalizeCoinbaseInput(raw: unknown, current: CoinbaseIntegrationConfig
   }
 }
 
+function normalizePhantomInput(raw: unknown, current: PhantomIntegrationConfig): PhantomIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const phantom = raw as Partial<PhantomIntegrationConfig>
+  return normalizePhantomIntegrationConfig({
+    ...current,
+    ...phantom,
+    preferences: {
+      ...current.preferences,
+      ...(phantom.preferences || {}),
+    },
+    capabilities: {
+      ...current.capabilities,
+      ...(phantom.capabilities || {}),
+    },
+  })
+}
+
 function normalizeClaudeInput(raw: unknown, current: ClaudeIntegrationConfig): ClaudeIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const claude = raw as Partial<ClaudeIntegrationConfig>
@@ -631,6 +650,9 @@ function toClientConfig(config: IntegrationsConfig) {
       apiSecretConfigured: config.coinbase.apiSecret.trim().length > 0,
       apiSecretMasked: maskSecret(config.coinbase.apiSecret),
     },
+    phantom: {
+      ...config.phantom,
+    },
     claude: {
       ...config.claude,
       apiKey: "",
@@ -751,6 +773,7 @@ export async function PATCH(req: Request) {
       brave?: Partial<BraveIntegrationConfig>
       news?: Partial<NewsIntegrationConfig> & { defaultTopics?: string[] | string; preferredSources?: string[] | string }
       coinbase?: Partial<CoinbaseIntegrationConfig>
+      phantom?: Partial<PhantomIntegrationConfig>
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
@@ -769,6 +792,7 @@ export async function PATCH(req: Request) {
     const hasBravePatch = Object.prototype.hasOwnProperty.call(body, "brave")
     const hasNewsPatch = Object.prototype.hasOwnProperty.call(body, "news")
     const hasCoinbasePatch = Object.prototype.hasOwnProperty.call(body, "coinbase")
+    const hasPhantomPatch = Object.prototype.hasOwnProperty.call(body, "phantom")
     const hasOpenAIPatch = Object.prototype.hasOwnProperty.call(body, "openai")
     const hasClaudePatch = Object.prototype.hasOwnProperty.call(body, "claude")
     const hasGrokPatch = Object.prototype.hasOwnProperty.call(body, "grok")
@@ -785,6 +809,7 @@ export async function PATCH(req: Request) {
     const brave = hasBravePatch ? normalizeBraveInput(body.brave, current.brave) : current.brave
     const news = hasNewsPatch ? normalizeNewsInput(body.news, current.news) : current.news
     const coinbase = hasCoinbasePatch ? normalizeCoinbaseInput(body.coinbase, current.coinbase) : current.coinbase
+    const phantom = hasPhantomPatch ? normalizePhantomInput(body.phantom, current.phantom) : current.phantom
     const shouldValidateCoinbaseApiPair =
       hasCoinbasePatch &&
       coinbase.connectionMode === "api_key_pair" &&
@@ -815,6 +840,7 @@ export async function PATCH(req: Request) {
       brave,
       news,
       coinbase,
+      phantom,
       openai,
       claude,
       grok,

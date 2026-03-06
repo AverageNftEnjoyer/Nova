@@ -53,7 +53,6 @@ function readJsonl(filePath) {
 function resolveUserContextRootCandidates(baseDir, userContextId) {
   return [
     path.join(baseDir, ".user", "user-context", userContextId),
-    path.join(baseDir, "src", ".user", "user-context", userContextId),
   ];
 }
 

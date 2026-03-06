@@ -60,22 +60,63 @@ export async function runMissionScheduleTick(dependencies = {}) {
   const now = new Date();
   let enqueueCount = 0;
   const enqueueCountByUser = new Map();
+  const liveMissionsByUser = new Map();
   const activeMissions = allMissions.filter((mission) => mission.status === "active");
+  const activeMissionIdsByUser = new Map();
   const dueCount = activeMissions.length;
+  const roundRobinUsers = [];
+
+  for (const mission of activeMissions) {
+    const liveUserId = String(mission.userId || "").trim();
+    const missionId = String(mission.id || "").trim();
+    if (!liveUserId || !missionId) continue;
+    let missionIds = activeMissionIdsByUser.get(liveUserId);
+    if (!missionIds) {
+      missionIds = [];
+      activeMissionIdsByUser.set(liveUserId, missionIds);
+      roundRobinUsers.push(liveUserId);
+    }
+    missionIds.push(missionId);
+  }
+
+  await Promise.all(
+    roundRobinUsers.map(async (userId) => {
+      const liveMissions = await loadMissions({ userId });
+      const missionMap = new Map(
+        liveMissions
+          .filter((item) => item && typeof item === "object" && String(item.id || "").trim())
+          .map((item) => [String(item.id || "").trim(), item]),
+      );
+      liveMissionsByUser.set(userId, missionMap);
+    }),
+  );
 
   try {
-    for (const mission of activeMissions) {
-      if (enqueueCount >= SCHEDULER_MAX_RUNS_PER_TICK) break;
-      const userKey = sanitizeSchedulerUserId(mission.userId || "") || "__global__";
+    let userCursor = 0;
+    while (enqueueCount < SCHEDULER_MAX_RUNS_PER_TICK && roundRobinUsers.length > 0) {
+      const liveUserId = roundRobinUsers[userCursor % roundRobinUsers.length];
+      const userKey = sanitizeSchedulerUserId(liveUserId || "") || "__global__";
       const perUserEnqueues = enqueueCountByUser.get(userKey) || 0;
-      if (perUserEnqueues >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) continue;
+      const missionIds = activeMissionIdsByUser.get(liveUserId) || [];
+
+      if (missionIds.length === 0 || perUserEnqueues >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) {
+        activeMissionIdsByUser.delete(liveUserId);
+        roundRobinUsers.splice(userCursor % roundRobinUsers.length, 1);
+        if (roundRobinUsers.length === 0) break;
+        continue;
+      }
+
+      const missionId = missionIds.shift();
+      if (missionIds.length === 0) {
+        activeMissionIdsByUser.delete(liveUserId);
+        roundRobinUsers.splice(userCursor % roundRobinUsers.length, 1);
+      } else {
+        userCursor = (userCursor + 1) % roundRobinUsers.length;
+      }
 
       try {
-        const liveUserId = String(mission.userId || "").trim();
-        const missionId = String(mission.id || "").trim();
-        if (!liveUserId || !missionId) continue;
-        const liveMissions = await loadMissions({ userId: liveUserId });
-        const liveMission = liveMissions.find((item) => item.id === missionId) ?? null;
+        if (!missionId) continue;
+        const liveMission = liveMissionsByUser.get(liveUserId)?.get(missionId) ?? null;
         if (!liveMission || liveMission.status !== "active") continue;
 
         const rescheduleOverride = liveMission.userId
@@ -140,7 +181,7 @@ export async function runMissionScheduleTick(dependencies = {}) {
           warn(`[Scheduler] Failed to enqueue mission ${liveMission.id}:`, enqueueResult.error);
         }
       } catch (err) {
-        error(`[Scheduler] Error processing mission ${mission.id}: ${err instanceof Error ? err.message : "unknown"}`);
+        error(`[Scheduler] Error processing mission ${missionId || "unknown"}: ${err instanceof Error ? err.message : "unknown"}`);
       }
     }
   } catch (err) {

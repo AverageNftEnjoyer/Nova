@@ -9,6 +9,7 @@
 
 import "server-only"
 
+import type { Mission } from "@/lib/missions/types"
 import { loadMissions } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
@@ -36,7 +37,7 @@ export async function aggregateCalendarEvents(
   const gcalendarConnected = Boolean(integrationsConfig?.gcalendar?.connected)
 
   const [missions, overrides, agentTaskEvents, gmailCalendarEvents] = await Promise.all([
-    loadMissions({ userId }),
+    loadMissions({ userId }) as Promise<Mission[]>,
     loadRescheduleOverrides(userId),
     loadAgentTaskEvents(userId, rangeStart, rangeEnd),
     loadGmailCalendarEvents(userId, rangeStart, rangeEnd, gcalendarConnected, integrationScope),

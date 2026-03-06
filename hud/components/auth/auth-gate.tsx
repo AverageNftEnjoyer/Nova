@@ -17,16 +17,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const isLoginRoute = pathname === "/login"
-  // Keep initial render deterministic between server and client.
-  const [ready, setReady] = useState(() => {
-    if (isLoginRoute) return true
-    if (typeof window === "undefined") return false
-    return Boolean(getActiveUserId())
-  })
+  const [ready, setReady] = useState(isLoginRoute)
 
   useEffect(() => {
     const localUserId = getActiveUserId()
     const hasLocalUser = Boolean(localUserId)
+
+    setReady(isLoginRoute || hasLocalUser)
 
     const loginParams = isLoginRoute ? new URLSearchParams(window.location.search) : null
     const loginMode = String(loginParams?.get("mode") || "").trim()

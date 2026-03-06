@@ -96,15 +96,24 @@ export function createRequestScheduler(options = {}) {
   const { weights: laneWeights, roundRobin: laneRoundRobin } = buildLaneWeights(options.laneWeights || {});
 
   let inFlightGlobal = 0;
+  let queuedGlobal = 0;
   const inFlightByUser = new Map();
   const inFlightByConversation = new Map();
+  const queuedByUser = new Map();
   const laneQueues = {
     fast: [],
     default: [],
     tool: [],
     background: [],
   };
+  const laneUserCursors = {
+    fast: 0,
+    default: 0,
+    tool: 0,
+    background: 0,
+  };
   let laneCursor = 0;
+  let dispatchScheduled = false;
   const counters = {
     enqueued: 0,
     started: 0,
@@ -133,16 +142,21 @@ export function createRequestScheduler(options = {}) {
   }
 
   function getTotalQueued() {
-    return SCHEDULER_LANES.reduce((sum, lane) => sum + laneQueues[lane].length, 0);
+    return queuedGlobal;
   }
 
   function getQueuedForUser(userId) {
-    if (!userId) return 0;
-    let total = 0;
-    for (const lane of SCHEDULER_LANES) {
-      total += laneQueues[lane].reduce((sum, job) => sum + (job?.userId === userId ? 1 : 0), 0);
-    }
-    return total;
+    return getMapCount(queuedByUser, userId);
+  }
+
+  function markJobQueued(job) {
+    queuedGlobal += 1;
+    bumpMapCount(queuedByUser, job.userId, 1);
+  }
+
+  function markJobDequeued(job) {
+    queuedGlobal = Math.max(0, queuedGlobal - 1);
+    bumpMapCount(queuedByUser, job.userId, -1);
   }
 
   function canRunJob(job) {
@@ -176,6 +190,7 @@ export function createRequestScheduler(options = {}) {
           continue;
         }
         q.splice(idx, 1);
+        if (job) markJobDequeued(job);
         counters.queueStale += 1;
         job.reject(createSchedulerError("queue_stale", "Request expired in queue. Please retry.", 0));
       }
@@ -191,6 +206,7 @@ export function createRequestScheduler(options = {}) {
         const job = q[i];
         if (!job || job.supersedeKey !== supersedeKey) continue;
         q.splice(i, 1);
+        if (job) markJobDequeued(job);
         counters.superseded += 1;
         removed += 1;
         job.reject(createSchedulerError("superseded", "Request superseded by a newer request in this conversation."));
@@ -201,8 +217,30 @@ export function createRequestScheduler(options = {}) {
 
   function pickRunnableFromLane(lane) {
     const q = laneQueues[lane];
+    if (q.length === 0) return null;
+
+    const userOrder = [];
+    const seenUsers = new Set();
     for (let i = 0; i < q.length; i += 1) {
-      if (canRunJob(q[i])) return { lane, index: i };
+      const job = q[i];
+      const userKey = job?.userId || `__anon__:${job?.conversationScope || i}`;
+      if (seenUsers.has(userKey)) continue;
+      seenUsers.add(userKey);
+      userOrder.push(userKey);
+    }
+    if (userOrder.length === 0) return null;
+
+    const cursor = laneUserCursors[lane] % userOrder.length;
+    for (let offset = 0; offset < userOrder.length; offset += 1) {
+      const targetUserKey = userOrder[(cursor + offset) % userOrder.length];
+      for (let i = 0; i < q.length; i += 1) {
+        const job = q[i];
+        const userKey = job?.userId || `__anon__:${job?.conversationScope || i}`;
+        if (userKey !== targetUserKey) continue;
+        if (!canRunJob(job)) continue;
+        laneUserCursors[lane] = (cursor + offset + 1) % userOrder.length;
+        return { lane, index: i };
+      }
     }
     return null;
   }
@@ -223,6 +261,7 @@ export function createRequestScheduler(options = {}) {
   }
 
   function dispatch() {
+    dispatchScheduled = false;
     pruneStaleJobs();
     while (inFlightGlobal < maxInFlightGlobal && getTotalQueued() > 0) {
       const candidate = pickNextRunnable();
@@ -231,6 +270,7 @@ export function createRequestScheduler(options = {}) {
       const job = q.splice(candidate.index, 1)[0];
       if (!job) break;
 
+      markJobDequeued(job);
       markJobStart(job);
       counters.started += 1;
       Promise.resolve()
@@ -245,9 +285,15 @@ export function createRequestScheduler(options = {}) {
         })
         .finally(() => {
           markJobEnd(job);
-          dispatch();
+          requestDispatch();
         });
     }
+  }
+
+  function requestDispatch() {
+    if (dispatchScheduled) return;
+    dispatchScheduled = true;
+    queueMicrotask(dispatch);
   }
 
   function enqueue(params = {}) {
@@ -286,7 +332,7 @@ export function createRequestScheduler(options = {}) {
 
     return new Promise((resolve, reject) => {
       removeQueuedBySupersedeKey(supersedeKey);
-      laneQueues[lane].push({
+      const job = {
         enqueuedAt: Date.now(),
         lane,
         userId,
@@ -296,9 +342,11 @@ export function createRequestScheduler(options = {}) {
         run,
         resolve,
         reject,
-      });
+      };
+      laneQueues[lane].push(job);
+      markJobQueued(job);
       counters.enqueued += 1;
-      dispatch();
+      requestDispatch();
     });
   }
 
@@ -323,6 +371,7 @@ export function createRequestScheduler(options = {}) {
       supersedeQueuedByKey,
       laneWeights: { ...laneWeights },
       activeUsers: inFlightByUser.size,
+      queuedUsers: queuedByUser.size,
       activeConversations: inFlightByConversation.size,
       counters: { ...counters },
     };

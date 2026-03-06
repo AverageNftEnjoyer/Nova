@@ -1,1 +1,1 @@
-export * from "../../../../dist/tools/core/registry.js";
+export * from "../../../../dist/tools/core/registry/index.js";

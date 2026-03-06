@@ -588,7 +588,7 @@ export async function executeAgentSubworkflow(
       errorCode: "AGENT_SUBWORKFLOW_SELF_REFERENCE",
     }
   }
-  const missions = await loadMissions({ userId: userContextId })
+  const missions = (await loadMissions({ userId: userContextId })) as Mission[]
   const targetMission = missions.find((mission) => mission.id === node.missionId)
   if (!targetMission) {
     return {

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { enqueueMissionRunForQueue, isMissionQueueModeEnabled } from "@/lib/missions/workflow/queue-mode"
-import { loadMissions, upsertMission } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
+import { loadMissions, upsertMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
 import { appendRunLogForExecution, type MissionRunRecord } from "@/lib/notifications/run-metrics"
 import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
@@ -12,9 +12,9 @@ import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notificatio
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
-import type { NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
+import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 import { resolveTimezone } from "@/lib/shared/timezone"
-import { ensureMissionSchedulerStarted } from "../../../../../../src/runtime/modules/services/missions/scheduler/index.js"
+import { ensureMissionSchedulerStarted } from "../../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
 
     // ── Run a saved mission by ID via the DAG engine ───────────────────────────
     if (missionId) {
-      const allMissions = await loadMissions({ userId })
+      const allMissions = (await loadMissions({ userId })) as Mission[]
       const mission = allMissions.find((m) => m.id === missionId)
       if (!mission) {
         return NextResponse.json({ error: "Mission not found." }, { status: 404 })

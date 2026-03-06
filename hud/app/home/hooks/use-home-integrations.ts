@@ -8,6 +8,7 @@ import {
   type IntegrationsSettings,
   type LlmProvider,
 } from "@/lib/integrations/store/client-store"
+import { buildIntegrationsHref, type IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { compareMissionPriority } from "../helpers"
@@ -179,6 +180,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [braveConnected, setBraveConnected] = useState(false)
   const [newsConnected, setNewsConnected] = useState(false)
   const [coinbaseConnected, setCoinbaseConnected] = useState(false)
+  const [phantomConnected, setPhantomConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
@@ -215,6 +217,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     setBraveConnected(settings.brave.connected)
     setNewsConnected(Boolean(settings.news?.connected))
     setCoinbaseConnected(Boolean(settings.coinbase?.connected))
+    setPhantomConnected(Boolean(settings.phantom?.connected))
     setOpenaiConnected(settings.openai.connected)
     setClaudeConnected(settings.claude.connected)
     setGrokConnected(settings.grok.connected)
@@ -620,7 +623,9 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     void runSpotifyPlayback("play_smart")
   }, [runSpotifyPlayback])
 
-  const goToIntegrations = useCallback(() => router.push("/integrations"), [router])
+  const goToIntegrations = useCallback((setup?: IntegrationSetupKey) => {
+    router.push(buildIntegrationsHref(setup))
+  }, [router])
 
   const missions = useMemo<MissionSummary[]>(() => {
     const grouped = new Map<string, MissionSummary>()
@@ -689,6 +694,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     braveConnected,
     newsConnected,
     coinbaseConnected,
+    phantomConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,

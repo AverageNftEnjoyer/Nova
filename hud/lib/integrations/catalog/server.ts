@@ -88,6 +88,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "phantom",
+      label: "Phantom",
+      kind: "api",
+      connected: config.phantom.connected && config.phantom.walletAddress.trim().length > 0,
+      source: "core",
+      capabilities: ["fetch"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "spotify",
       label: "Spotify",
       kind: "api",

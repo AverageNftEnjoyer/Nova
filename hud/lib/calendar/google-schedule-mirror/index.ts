@@ -9,7 +9,7 @@ import { resolveTimezone } from "@/lib/shared/timezone"
 import {
   syncMissionScheduleToGoogleCalendar as syncMissionScheduleToGoogleCalendarRuntime,
   removeMissionScheduleFromGoogleCalendar as removeMissionScheduleFromGoogleCalendarRuntime,
-} from "../../../../../src/runtime/modules/services/missions/calendar-mirror/index.js"
+} from "../../../../src/runtime/modules/services/missions/calendar-mirror/index.js"
 
 export async function syncMissionScheduleToGoogleCalendar(params: {
   mission: Mission

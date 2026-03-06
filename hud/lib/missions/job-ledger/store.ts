@@ -13,8 +13,6 @@ import type {
   SchedulerLeaseResult,
 } from "./types"
 
-// ─── env helpers ────────────────────────────────────────────────────────────
-
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = String(process.env[name] || "").trim()
   if (!raw) return fallback
@@ -31,15 +29,37 @@ function concurrencyPolicy() {
   }
 }
 
-// ─── id helpers ─────────────────────────────────────────────────────────────
-
 function generateId(prefix: string): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 10)
   return `${prefix}_${ts}_${rand}`
 }
 
-// ─── store implementation ────────────────────────────────────────────────────
+function mapClaimFailureReason(reason: string, jobRunId: string, policy: ReturnType<typeof concurrencyPolicy>) {
+  if (reason === "not_found") {
+    return { ok: false as const, reason: `Job run not found: ${jobRunId}` }
+  }
+  if (reason.startsWith("not_pending:")) {
+    const status = reason.slice("not_pending:".length) || "unknown"
+    return { ok: false as const, reason: `Job run ${jobRunId} is not pending (status=${status}).` }
+  }
+  if (reason === "global_limit") {
+    return {
+      ok: false as const,
+      reason: `Mission execution concurrency exceeded global in-flight cap (${policy.globalInflightLimit}).`,
+    }
+  }
+  if (reason === "per_user_limit") {
+    return {
+      ok: false as const,
+      reason: `Mission execution concurrency exceeded per-user cap (${policy.perUserInflightLimit}).`,
+    }
+  }
+  if (reason === "claim_raced") {
+    return { ok: false as const, reason: "Failed to claim job run - may have been claimed by another worker." }
+  }
+  return { ok: false as const, reason: `Failed to claim job run: ${reason || "unknown claim error"}` }
+}
 
 export const jobLedger: JobLedgerStore = {
   async enqueue(input: EnqueueJobInput) {
@@ -70,7 +90,6 @@ export const jobLedger: JobLedgerStore = {
       .single()
 
     if (error) {
-      // Unique constraint violation on idempotency_key → not an error, just a dup
       if (error.code === "23505") {
         return { ok: false, error: "duplicate_idempotency_key" }
       }
@@ -83,72 +102,32 @@ export const jobLedger: JobLedgerStore = {
   async claimRun(input: { jobRunId: string; leaseDurationMs: number }) {
     const db = createSupabaseAdminClient()
     const policy = concurrencyPolicy()
-    const now = new Date()
-    const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs).toISOString()
     const leaseToken = generateId("lt")
+    const { data: rpcData, error: rpcError } = await db.rpc("claim_job_run_with_limits", {
+      p_job_run_id: input.jobRunId,
+      p_lease_token: leaseToken,
+      p_lease_duration_ms: input.leaseDurationMs,
+      p_global_inflight_limit: policy.globalInflightLimit,
+      p_per_user_inflight_limit: policy.perUserInflightLimit,
+    })
 
-    // Check global inflight count (claimed + running)
-    const { count: globalCount, error: globalErr } = await db
-      .from("job_runs")
-      .select("id", { count: "exact", head: true })
-      .in("status", ["claimed", "running"])
-
-    if (globalErr) return { ok: false, reason: `DB error checking global inflight: ${globalErr.message}` }
-    if ((globalCount ?? 0) >= policy.globalInflightLimit) {
-      return {
-        ok: false,
-        reason: `Mission execution concurrency exceeded global in-flight cap (${policy.globalInflightLimit}).`,
-      }
+    if (rpcError) {
+      return { ok: false, reason: `DB error claiming job run: ${rpcError.message}` }
     }
 
-    // Fetch the target run to get user_id for per-user check
-    const { data: target, error: fetchErr } = await db
-      .from("job_runs")
-      .select("user_id, status, attempt, max_attempts")
-      .eq("id", input.jobRunId)
-      .single()
-
-    if (fetchErr || !target) {
-      return { ok: false, reason: `Job run not found: ${input.jobRunId}` }
+    const rpcResult = Array.isArray(rpcData) ? rpcData[0] : null
+    if (!rpcResult) {
+      return { ok: false, reason: "Failed to claim job run: empty RPC response." }
     }
-    if (target.status !== "pending") {
-      return { ok: false, reason: `Job run ${input.jobRunId} is not pending (status=${target.status}).` }
+    if (!rpcResult.ok) {
+      return mapClaimFailureReason(String(rpcResult.reason || ""), input.jobRunId, policy)
     }
 
-    // Check per-user inflight count
-    const { count: userCount, error: userErr } = await db
-      .from("job_runs")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", target.user_id)
-      .in("status", ["claimed", "running"])
-
-    if (userErr) return { ok: false, reason: `DB error checking user inflight: ${userErr.message}` }
-    if ((userCount ?? 0) >= policy.perUserInflightLimit) {
-      return {
-        ok: false,
-        reason: `Mission execution concurrency exceeded per-user cap (${policy.perUserInflightLimit}).`,
-      }
+    return {
+      ok: true,
+      leaseToken: String(rpcResult.lease_token || leaseToken),
+      jobRun: rpcResult.job_run as JobRun,
     }
-
-    // Atomic claim: UPDATE WHERE status = 'pending' to prevent races
-    const { data: claimed, error: claimErr } = await db
-      .from("job_runs")
-      .update({
-        status: "claimed",
-        lease_token: leaseToken,
-        lease_expires_at: leaseExpiresAt,
-        heartbeat_at: now.toISOString(),
-      })
-      .eq("id", input.jobRunId)
-      .eq("status", "pending") // optimistic lock
-      .select("*")
-      .single()
-
-    if (claimErr || !claimed) {
-      return { ok: false, reason: "Failed to claim job run — may have been claimed by another worker." }
-    }
-
-    return { ok: true, leaseToken, jobRun: claimed as JobRun }
   },
 
   async heartbeat(input: { jobRunId: string; leaseToken: string; leaseDurationMs: number }) {
@@ -182,7 +161,6 @@ export const jobLedger: JobLedgerStore = {
   async completeRun(input: FinishJobInput) {
     const db = createSupabaseAdminClient()
 
-    // Fetch started_at to compute duration
     const { data: row } = await db
       .from("job_runs")
       .select("started_at")
@@ -227,12 +205,10 @@ export const jobLedger: JobLedgerStore = {
     const nextAttempt = (row.attempt ?? 0) + 1
     const isDead = nextAttempt >= (row.max_attempts ?? 1)
 
-    // Compute exponential backoff for the next retry row.
     const backoffBase = readIntEnv("NOVA_SCHEDULER_RETRY_BASE_MS", 60_000, 1_000, 3_600_000)
     const backoffMax = readIntEnv("NOVA_SCHEDULER_RETRY_MAX_MS", 900_000, 10_000, 86_400_000)
     const nextBackoffMs = computeRetryDelayMs(nextAttempt, backoffBase, backoffMax, true)
 
-    // Mark current run as failed/dead.
     const { error: failErr } = await db
       .from("job_runs")
       .update({
@@ -269,7 +245,6 @@ export const jobLedger: JobLedgerStore = {
       return { ok: true }
     }
 
-    // If retrying, enqueue a new pending run.
     const retryId = generateId("jr")
     const scheduledFor = new Date(Date.now() + nextBackoffMs).toISOString()
     const { error: retryInsertErr } = await db.from("job_runs").insert({
@@ -340,9 +315,6 @@ export const jobLedger: JobLedgerStore = {
 
   async reclaimExpiredLeases() {
     const db = createSupabaseAdminClient()
-
-    // Use server-side RPC so the expiry comparison uses Postgres now(),
-    // not JavaScript Date.now() which can skew vs. the DB clock.
     const { data, error } = await db.rpc("reclaim_expired_job_leases")
 
     if (error) {
@@ -390,8 +362,6 @@ export const jobLedger: JobLedgerStore = {
     await db.from("job_audit_events").insert(row)
   },
 
-  // ─── Scheduler leader-election (Phase 2) ──────────────────────────────────
-
   async acquireSchedulerLease(input: {
     scope: string
     holderId: string
@@ -410,7 +380,6 @@ export const jobLedger: JobLedgerStore = {
       return { acquired: false, reason: "db_error" }
     }
 
-    // The SQL function always returns exactly 1 row (the current lease state).
     const row = (data as Array<{
       scope: string
       holder_id: string
@@ -443,8 +412,6 @@ export const jobLedger: JobLedgerStore = {
   }): Promise<{ ok: boolean }> {
     const db = createSupabaseAdminClient()
 
-    // Use server-side RPC so expiry uses Postgres now() (no JS clock skew).
-    // Returns TRUE if this holderId still owns the lease; FALSE if stolen.
     const { data, error } = await db.rpc("renew_scheduler_lease", {
       p_scope: input.scope,
       p_holder_id: input.holderId,
@@ -478,8 +445,6 @@ export const jobLedger: JobLedgerStore = {
 
     return { ok: true }
   },
-
-  // ─── Job-driven tick (Phase 2) ────────────────────────────────────────────
 
   async getPendingRuns(input: GetPendingRunsInput): Promise<JobRun[]> {
     const db = createSupabaseAdminClient()

@@ -240,6 +240,7 @@ export function useHomeMainScreenState() {
     braveConnected: integrations.braveConnected,
     newsConnected: integrations.newsConnected,
     coinbaseConnected: integrations.coinbaseConnected,
+    phantomConnected: integrations.phantomConnected,
     openaiConnected: integrations.openaiConnected,
     claudeConnected: integrations.claudeConnected,
     grokConnected: integrations.grokConnected,

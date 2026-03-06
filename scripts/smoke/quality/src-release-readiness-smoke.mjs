@@ -71,6 +71,8 @@ await run("P20-C1 release gate scripts are present", async () => {
     "smoke:src-delegated-domain",
     "smoke:src-short-term-context-persistence",
     "smoke:src-policy-approval-store",
+    "smoke:runtime-hud-policy-approval-handoff",
+    "smoke:src-org-chart-live",
     "smoke:src-retention-isolation",
     "smoke:src-isolation-closure",
     "smoke:src-release-readiness",
@@ -134,6 +136,20 @@ await run("P20-C1g release gate includes isolation closure hard gate", async () 
     releaseScript.includes("smoke:src-isolation-closure"),
     true,
     "missing isolation closure gate in smoke:src-release",
+  );
+});
+
+await run("P20-C1h isolation closure includes org-chart live and HUD approval handoff gates", async () => {
+  const isolationScript = String(packageJson?.scripts?.["smoke:src-isolation-closure"] || "");
+  assert.equal(
+    isolationScript.includes("smoke:runtime-hud-policy-approval-handoff"),
+    true,
+    "missing HUD approval handoff gate in smoke:src-isolation-closure",
+  );
+  assert.equal(
+    isolationScript.includes("smoke:src-org-chart-live"),
+    true,
+    "missing org-chart live gate in smoke:src-isolation-closure",
   );
 });
 

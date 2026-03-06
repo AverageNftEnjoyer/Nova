@@ -7,4 +7,4 @@ export { SaveStatusToast, type SaveStatus, type SaveStatusToastProps } from "./S
 export { LlmSetupPanel } from "./LlmSetupPanel"
 export { GmailSetupPanel } from "./GmailSetupPanel"
 export { GmailCalendarSetupPanel } from "./GmailCalendarSetupPanel"
-export { ConnectivityGrid, type IntegrationSetupKey } from "./ConnectivityGrid"
+export { ConnectivityGrid } from "./ConnectivityGrid"

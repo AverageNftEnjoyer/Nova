@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import type { Mission } from "@/lib/missions/types"
 import { loadMissions, upsertMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/server"
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
   if (!missionId || !versionId) {
     return NextResponse.json({ ok: false, error: "missionId and versionId are required." }, { status: 400 })
   }
-  const missions = await loadMissions({ userId })
+  const missions = (await loadMissions({ userId })) as Mission[]
   const currentMission = missions.find((row) => row.id === missionId)
   if (!currentMission) {
     return NextResponse.json({ ok: false, error: "Mission not found." }, { status: 404 })

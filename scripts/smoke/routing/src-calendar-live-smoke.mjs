@@ -173,7 +173,6 @@ async function ask(text) {
 function resolveUserContextRootCandidates(baseDir, uid) {
   return [
     path.join(baseDir, ".user", "user-context", uid),
-    path.join(baseDir, "src", ".user", "user-context", uid),
   ];
 }
 

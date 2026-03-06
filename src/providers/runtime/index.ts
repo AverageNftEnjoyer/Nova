@@ -18,6 +18,7 @@ export interface IntegrationsRuntime {
   claude: ProviderRuntime;
   grok: ProviderRuntime;
   gemini: ProviderRuntime;
+  phantom: PhantomRuntime;
   spotify: SpotifyRuntime;
   gmail: GmailRuntime;
 }
@@ -46,6 +47,36 @@ export interface GmailRuntime {
   accounts: GmailAccountRuntime[];
   accessToken?: string;
   tokenExpiry?: number;
+}
+
+export interface PhantomRuntime {
+  connected: boolean;
+  provider: "phantom";
+  chain: "solana";
+  walletAddress: string;
+  walletLabel: string;
+  connectedAt: string;
+  verifiedAt: string;
+  lastDisconnectedAt: string;
+  evmAddress: string;
+  evmLabel: string;
+  evmChainId: string;
+  evmConnectedAt: string;
+  preferences: {
+    allowAgentWalletContext: boolean;
+    allowAgentEvmContext: boolean;
+    allowApprovalGatedPolymarket: boolean;
+  };
+  capabilities: {
+    signMessage: boolean;
+    walletOwnershipProof: boolean;
+    solanaConnected: boolean;
+    solanaVerified: boolean;
+    evmAvailable: boolean;
+    approvalGatedPolymarket: boolean;
+    approvalGatedPolymarketReady: boolean;
+    autonomousTrading: boolean;
+  };
 }
 
 export interface ResolvedChatRuntime extends ProviderRuntime {
@@ -102,6 +133,15 @@ function resolveWorkspaceRoot(workspaceRootInput?: string): string {
   const parent = path.resolve(cwd, "..");
   if (fs.existsSync(path.join(parent, "hud")) && fs.existsSync(path.join(parent, "src"))) return parent;
   return cwd;
+}
+
+function assertWorkspaceUserRoot(root: string): string {
+  const normalizedRoot = path.resolve(root);
+  const invalidUserRoot = path.join(normalizedRoot, "src", ".user");
+  if (fs.existsSync(invalidUserRoot)) {
+    throw new Error(`Invalid duplicate user state root detected at ${invalidUserRoot}. Use ${path.join(normalizedRoot, ".user")} only.`);
+  }
+  return normalizedRoot;
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
@@ -167,7 +207,7 @@ export function toErrorDetails(err: unknown): ErrorDetails {
 }
 
 export function resolveRuntimePaths(workspaceRoot?: string): RuntimePaths {
-  const root = resolveWorkspaceRoot(workspaceRoot);
+  const root = assertWorkspaceUserRoot(resolveWorkspaceRoot(workspaceRoot));
   const integrationsConfigPath = path.join(root, "hud", "data", "integrations-config.json");
   const hudRoot = path.dirname(integrationsConfigPath);
   return {
@@ -369,6 +409,38 @@ function createDefaultSpotifyRuntime(): SpotifyRuntime {
   };
 }
 
+function createDefaultPhantomRuntime(): PhantomRuntime {
+  return {
+    connected: false,
+    provider: "phantom",
+    chain: "solana",
+    walletAddress: "",
+    walletLabel: "",
+    connectedAt: "",
+    verifiedAt: "",
+    lastDisconnectedAt: "",
+    evmAddress: "",
+    evmLabel: "",
+    evmChainId: "",
+    evmConnectedAt: "",
+    preferences: {
+      allowAgentWalletContext: true,
+      allowAgentEvmContext: true,
+      allowApprovalGatedPolymarket: true,
+    },
+    capabilities: {
+      signMessage: true,
+      walletOwnershipProof: true,
+      solanaConnected: false,
+      solanaVerified: false,
+      evmAvailable: false,
+      approvalGatedPolymarket: true,
+      approvalGatedPolymarketReady: false,
+      autonomousTrading: false,
+    },
+  };
+}
+
 function parseSpotifyRuntime(value: unknown): SpotifyRuntime {
   const integration = toRecord(value);
   return {
@@ -376,6 +448,44 @@ function parseSpotifyRuntime(value: unknown): SpotifyRuntime {
     spotifyUserId: toNonEmptyString(integration.spotifyUserId),
     displayName: toNonEmptyString(integration.displayName),
     scopes: toStringArray(integration.scopes),
+  };
+}
+
+function parsePhantomRuntime(value: unknown): PhantomRuntime {
+  const integration = toRecord(value);
+  const preferences = toRecord(integration.preferences);
+  const capabilities = toRecord(integration.capabilities);
+  const connected = boolFlag(integration.connected);
+  const verifiedAt = toNonEmptyString(integration.verifiedAt);
+  const evmAddress = toNonEmptyString(integration.evmAddress);
+  return {
+    connected,
+    provider: "phantom",
+    chain: "solana",
+    walletAddress: toNonEmptyString(integration.walletAddress),
+    walletLabel: toNonEmptyString(integration.walletLabel),
+    connectedAt: toNonEmptyString(integration.connectedAt),
+    verifiedAt,
+    lastDisconnectedAt: toNonEmptyString(integration.lastDisconnectedAt),
+    evmAddress,
+    evmLabel: toNonEmptyString(integration.evmLabel),
+    evmChainId: toNonEmptyString(integration.evmChainId),
+    evmConnectedAt: toNonEmptyString(integration.evmConnectedAt),
+    preferences: {
+      allowAgentWalletContext: preferences.allowAgentWalletContext !== false,
+      allowAgentEvmContext: preferences.allowAgentEvmContext !== false,
+      allowApprovalGatedPolymarket: preferences.allowApprovalGatedPolymarket !== false,
+    },
+    capabilities: {
+      signMessage: capabilities.signMessage !== false,
+      walletOwnershipProof: capabilities.walletOwnershipProof !== false,
+      solanaConnected: capabilities.solanaConnected === true || connected,
+      solanaVerified: capabilities.solanaVerified === true || (connected && verifiedAt.length > 0),
+      evmAvailable: capabilities.evmAvailable === true || evmAddress.length > 0,
+      approvalGatedPolymarket: capabilities.approvalGatedPolymarket !== false,
+      approvalGatedPolymarketReady: capabilities.approvalGatedPolymarketReady === true || (connected && evmAddress.length > 0),
+      autonomousTrading: capabilities.autonomousTrading === true,
+    },
   };
 }
 
@@ -553,6 +663,7 @@ export function loadIntegrationsRuntime(options?: {
     const claudeIntegration = toRecord(parsed.claude);
     const grokIntegration = toRecord(parsed.grok);
     const geminiIntegration = toRecord(parsed.gemini);
+    const phantomIntegration = parsePhantomRuntime(parsed.phantom);
     const spotifyIntegration = parseSpotifyRuntime(parsed.spotify);
     const gmailIntegration = parseGmailRuntime(parsed.gmail, paths);
 
@@ -589,6 +700,7 @@ export function loadIntegrationsRuntime(options?: {
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
         model: parseProviderModel(geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
       },
+      phantom: phantomIntegration,
       spotify: spotifyIntegration,
       gmail: gmailIntegration,
     };
@@ -621,6 +733,7 @@ export function loadIntegrationsRuntime(options?: {
         baseURL: DEFAULT_GEMINI_BASE_URL,
         model: DEFAULT_GEMINI_MODEL,
       },
+      phantom: createDefaultPhantomRuntime(),
       spotify: createDefaultSpotifyRuntime(),
       gmail: createDefaultGmailRuntime(),
     };

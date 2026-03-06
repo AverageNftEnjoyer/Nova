@@ -13,6 +13,7 @@ const SAFE_TOOL_NAMES = new Set([
   "coinbase_portfolio_snapshot",
   "coinbase_recent_transactions",
   "coinbase_portfolio_report",
+  "phantom_capabilities",
   "gmail_capabilities",
   "gmail_list_accounts",
   "gmail_scope_check",

@@ -17,6 +17,7 @@ const DEFAULT_TOOL_CAPABILITIES: Record<string, string[]> = {
   coinbase_portfolio_snapshot: ["network.crypto", "finance.portfolio.read"],
   coinbase_recent_transactions: ["network.crypto", "finance.transactions.read"],
   coinbase_portfolio_report: ["network.crypto", "finance.portfolio.read", "finance.transactions.read"],
+  phantom_capabilities: ["integration.wallet.read"],
   gmail_capabilities: ["integration.gmail.read"],
   gmail_list_accounts: ["integration.gmail.read"],
   gmail_scope_check: ["integration.gmail.read"],

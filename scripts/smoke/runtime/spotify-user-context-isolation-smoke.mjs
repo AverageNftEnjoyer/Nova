@@ -34,17 +34,22 @@ await run("RSI-2 Playback route enforces runtime shared token verification", asy
   assert.equal(routeSource.includes("runtimeSharedTokenErrorResponse"), true);
 });
 
-await run("RSI-3 Runtime Spotify handler forwards userContextId to playback API", async () => {
-  const bridgeSource = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
-  assert.equal(bridgeSource.includes("/api/integrations/spotify/playback"), true);
-  assert.equal(bridgeSource.includes("userContextId: normalizedUserContextId"), true);
+await run("RSI-3 Runtime Spotify service keeps playback routing inside the lane adapter", async () => {
+  const serviceSource = read("src/runtime/modules/services/spotify/index.js");
+  const adapterSource = read("src/runtime/modules/services/spotify/provider-adapter/hud-http/index.js");
+  assert.equal(serviceSource.includes("resolveSpotifyProviderId"), true);
+  assert.equal(adapterSource.includes("/api/integrations/spotify/playback"), true);
+  assert.equal(adapterSource.includes("userContextId: normalizedUserContextId"), true);
 });
 
-await run("RSI-4 Runtime Spotify handler attaches runtime token header when configured", async () => {
-  const bridgeSource = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
-  assert.equal(bridgeSource.includes("resolveRuntimeSharedTokenHeader"), true);
-  assert.equal(bridgeSource.includes("resolveRuntimeSharedToken"), true);
-  assert.equal(bridgeSource.includes("Authorization: `Bearer ${token}`"), true);
+await run("RSI-4 Runtime Spotify service adapters preserve scoped auth and direct lookup handling", async () => {
+  const adapterSource = read("src/runtime/modules/services/spotify/provider-adapter/hud-http/index.js");
+  const directSource = read("src/runtime/modules/services/spotify/provider-adapter/direct-now-playing/index.js");
+  assert.equal(adapterSource.includes("resolveRuntimeSharedTokenHeader"), true);
+  assert.equal(adapterSource.includes("resolveRuntimeSharedToken"), true);
+  assert.equal(adapterSource.includes("Authorization: `Bearer ${token}`"), true);
+  assert.equal(directSource.includes("Spotify runtime direct lookup requires userContextId."), true);
+  assert.equal(directSource.includes("Authorization: `Bearer ${supabaseServiceRoleKey}`"), true);
 });
 
 await run("RSI-5 Runtime/provider snapshot contract includes spotify runtime block", async () => {

@@ -7,6 +7,7 @@ export { useGrokSetup } from "./use-grok-setup"
 export { useGeminiSetup } from "./use-gemini-setup"
 export { useGmailSetup } from "./use-gmail-setup"
 export { useGmailCalendarSetup } from "./use-gmail-calendar-setup"
+export { usePhantomSetup } from "./use-phantom-setup"
 export { useSpotifySetup } from "./use-spotify-setup"
 export { useYouTubeSetup } from "./use-youtube-setup"
 export type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
@@ -20,3 +21,4 @@ export {
 
 // Gmail utilities
 export { normalizeGmailAccountsForUi, type GmailAccountForUi } from "./gmail-utils"
+export { normalizePhantomSettingsForUi } from "./phantom-utils"

@@ -42,9 +42,18 @@ await run("SIR-2 Operator worker executors route spotify/youtube lanes to worker
 await run("SIR-3 Spotify worker owns runtime flow and fallback logic", async () => {
   const workerSource = read("src/runtime/modules/chat/workers/media/spotify-agent/index.js");
   assert.equal(workerSource.includes("normalizeSpotifyIntentFallback(text)"), true);
-  assert.equal(workerSource.includes("runSpotifyViaHudApi(action, sanitizedIntent, ctx)"), true);
+  assert.equal(workerSource.includes("runSpotifyDomainService({"), true);
+  assert.equal(workerSource.includes("runSpotifyViaHudApi("), false);
+  assert.equal(workerSource.includes("runDirectSpotifyNowPlaying("), false);
   assert.equal(workerSource.includes("runDesktopSpotifyAction(action, intentQuery)"), true);
   assert.equal(workerSource.includes("shouldSuppressSpotifyTts(userContextId, normalized.text)"), true);
+});
+
+await run("SIR-3b YouTube worker owns runtime flow through the lane service boundary", async () => {
+  const workerSource = read("src/runtime/modules/chat/workers/media/youtube-agent/index.js");
+  assert.equal(workerSource.includes("normalizeYouTubeIntentFallback(text)"), true);
+  assert.equal(workerSource.includes("runYouTubeDomainService({"), true);
+  assert.equal(workerSource.includes("runYouTubeHomeControlViaHudApi("), false);
 });
 
 await run("SIR-4 Desktop Spotify fallback wraps exec errors without crashing runtime", async () => {

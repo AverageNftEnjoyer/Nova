@@ -113,7 +113,6 @@ function createRuntimeSelectionOverride() {
 function resolveScopedRoot(baseDir, scopedUserContextId) {
   const candidates = [
     path.join(baseDir, ".user", "user-context", scopedUserContextId),
-    path.join(baseDir, "src", ".user", "user-context", scopedUserContextId),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
 }

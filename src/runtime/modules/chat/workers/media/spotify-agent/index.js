@@ -32,8 +32,7 @@ import {
   buildSpotifyPlayConfirmation,
   shouldFallbackToDesktopSpotify,
 } from "./runtime-utils/index.js";
-import { runSpotifyViaHudApi } from "../../shared/integration-api-bridge/index.js";
-import { runDirectSpotifyNowPlaying } from "./direct-now-playing/index.js";
+import { runSpotifyDomainService } from "../../../../services/spotify/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 const SPOTIFY_MIN_THINKING_MS = 650;
@@ -251,9 +250,11 @@ Output ONLY valid JSON, nothing else.`;
       "queue",
     ]);
     broadcastThinkingStatus("Applying Spotify command", userContextId);
-    const hudResult = action === "now_playing" && !String(ctx?.supabaseAccessToken || "").trim()
-      ? await runDirectSpotifyNowPlaying(userContextId)
-      : await runSpotifyViaHudApi(action, sanitizedIntent, ctx);
+    const hudResult = await runSpotifyDomainService({
+      action,
+      intent: sanitizedIntent,
+      ctx,
+    });
     const intentQuery = rawQuery;
 
     if (hudResult.ok) {

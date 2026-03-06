@@ -17,7 +17,7 @@ import {
   sanitizeYouTubeSource,
   normalizeYouTubeIntentFallback,
 } from "./intent-utils/index.js";
-import { runYouTubeHomeControlViaHudApi } from "../../shared/integration-api-bridge/index.js";
+import { runYouTubeDomainService } from "../../../../services/youtube/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 export async function handleYouTubeWorker(text, ctx) {
@@ -106,7 +106,10 @@ export async function handleYouTubeWorker(text, ctx) {
   try {
     const intent = normalizeYouTubeIntentFallback(text);
     broadcastThinkingStatus("Applying YouTube update", userContextId);
-    const hudResult = await runYouTubeHomeControlViaHudApi(intent, ctx);
+    const hudResult = await runYouTubeDomainService({
+      intent,
+      ctx,
+    });
     let reply = String(intent.response || "Updating YouTube.").trim();
     if (hudResult.ok) {
       const topicLabel = sanitizeYouTubeTopic(hudResult.topic || intent.topic).replace(/-/g, " ");

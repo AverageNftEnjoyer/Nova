@@ -15,11 +15,12 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
     newsDefaultTopics, setNewsDefaultTopics, newsPreferredSources, setNewsPreferredSources,
     coinbaseNeedsKeyWarning, coinbasePendingAction, coinbaseSyncBadgeClass, coinbaseSyncLabel,
     coinbaseLastSyncText, coinbaseFreshnessText, coinbaseErrorText, coinbaseHasKeys, coinbaseScopeSummary, coinbasePrivacy, coinbasePrivacyHydrated, coinbasePrivacySaving, coinbasePrivacyError,
-    coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
-    coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
-    coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
-    spotifySetup, youtubeSetup,
-    telegramSetupSectionRef,
+	    coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
+	    coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
+	    coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
+	    phantomSetup, phantomSetupSectionRef,
+	    spotifySetup, youtubeSetup,
+	    telegramSetupSectionRef,
     discordSetupSectionRef, slackSetupSectionRef, braveSetupSectionRef, newsSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
     spotifySetupSectionRef, youtubeSetupSectionRef, gmailCalendarSetupSectionRef, setBotToken,
     botToken, botTokenConfigured, botTokenMasked, setChatIds, chatIds, setDiscordWebhookUrls, discordWebhookUrls,
@@ -40,6 +41,28 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
   const gmailHasCredentials =
     Boolean(settings.gmail.oauthClientId?.trim()) &&
     (Boolean(settings.gmail.oauthClientSecretConfigured) || Boolean(settings.gmail.oauthClientSecret?.trim()))
+  const phantomCanConnectHere = phantomSetup.providerSupportedContext && phantomSetup.providerInstalled
+  const phantomRuntimeStatus = [
+    settings.phantom.preferences.allowAgentWalletContext
+      ? `Runtime wallet context is enabled${phantomSetup.walletLabel ? ` for ${phantomSetup.walletLabel}` : ""}.`
+      : "Runtime wallet address exposure is disabled.",
+    settings.phantom.preferences.allowAgentEvmContext
+      ? (phantomSetup.evmAddress
+          ? `EVM readiness context is enabled for ${phantomSetup.evmLabel || phantomSetup.evmAddress}.`
+          : "EVM readiness context is enabled, but no Phantom EVM address is detected yet.")
+      : "EVM readiness context is disabled.",
+    settings.phantom.preferences.allowApprovalGatedPolymarket
+      ? (settings.phantom.capabilities.approvalGatedPolymarketReady
+          ? "Approval-gated Polymarket preparation is enabled and ready."
+          : "Approval-gated Polymarket preparation is enabled but waiting on Phantom EVM readiness.")
+      : "Approval-gated Polymarket preparation is disabled.",
+  ]
+  const phantomHardLimits = [
+    !phantomSetup.providerSupportedContext ? "Phantom cannot connect inside this embedded Nova desktop/webview context. Open Nova in a real browser first." : "",
+    phantomSetup.providerSupportedContext && !phantomSetup.providerInstalled ? "Phantom cannot connect until the extension is installed in that browser profile." : "",
+    phantomCanConnectHere && !phantomSetup.providerReady && !settings.phantom.connected ? "Phantom cannot sign until the wallet is unlocked and a Solana account is selected." : "",
+    "Phantom cannot trade autonomously, export private keys, or bypass your explicit approval.",
+  ].filter(Boolean)
 
   return (
     <div className="space-y-4">
@@ -894,11 +917,218 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   </div>
                 </div>
               </div>
+	            </section>
+	            )}
+
+            {activeSetup === "phantom" && (
+            <section ref={phantomSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Phantom Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Launch Nova in your external desktop browser, verify wallet ownership with a signed message, and control exactly what verified Phantom context Nova can use.
+                  </p>
+                </div>
+	                <div className="flex flex-wrap items-center gap-2">
+	                  {!settings.phantom.connected && (
+	                    <button
+	                      onClick={phantomSetup.openBrowserConnect}
+                      disabled={isSavingTarget !== null}
+                      className={cn(
+                        "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                      )}
+                    >
+                      Open in Browser
+                    </button>
+                  )}
+                  {!settings.phantom.connected && (
+                    <button
+                      onClick={phantomSetup.openPhantomInstall}
+                      disabled={isSavingTarget !== null}
+                      className={cn(
+                        "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                      )}
+	                    >
+	                      Install Phantom
+	                    </button>
+	                  )}
+	                  {!settings.phantom.connected && (
+	                    <button
+	                      onClick={() => void phantomSetup.refreshProviderState()}
+	                      disabled={isSavingTarget !== null}
+	                      className={cn(
+	                        "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+	                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+	                      )}
+	                    >
+	                      Refresh Detection
+	                    </button>
+	                  )}
+	                  <button
+	                    onClick={settings.phantom.connected ? (() => void phantomSetup.disconnectPhantom()) : (() => void phantomSetup.connectPhantom())}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.phantom.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.phantom.connected ? "Disconnect" : "Connect"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Wallet and Runtime Status</p>
+                    <span className={cn(
+                      "rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]",
+                      settings.phantom.connected
+                        ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
+                        : "border-amber-300/40 bg-amber-500/15 text-amber-200",
+                    )}>
+                      {settings.phantom.connected ? "Verified" : "Not Verified"}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr,1fr]">
+                    <div className="space-y-1 text-[11px] leading-4">
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Browser context: <span className="font-mono">{phantomSetup.providerSupportedContext ? "supported" : "open in browser required"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Phantom extension: <span className="font-mono">{phantomSetup.providerInstalled ? "detected" : "not installed in this browser"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Solana wallet: <span className="font-mono">{phantomSetup.walletLabel || "not connected"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Solana signer state: <span className="font-mono">{phantomSetup.providerReady ? "ready" : "locked or disconnected"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Verified at: <span className="font-mono">{phantomSetup.verifiedAt || "n/a"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Connected at: <span className="font-mono">{phantomSetup.connectedAt || "n/a"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        EVM wallet: <span className="font-mono">{phantomSetup.evmLabel || "not detected"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        EVM chain: <span className="font-mono">{phantomSetup.evmChainId || "n/a"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Trusted reconnect: <span className="font-mono">{phantomSetup.trustedReconnectReady ? "ready" : "waiting"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Last disconnected: <span className="font-mono">{phantomSetup.lastDisconnectedAt || "n/a"}</span>
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      <div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-white/80" : "border-white/10 bg-black/20")}>
+                        <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-s-80" : "text-slate-200")}>Saved Phantom Settings</p>
+                        <div className="mt-2 space-y-2">
+                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-[#f7f9fe]" : "border-white/10 bg-white/5")}>
+                            <div>
+                              <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Agent Wallet Context</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let Nova runtime and tools read the verified Solana wallet label and address.</p>
+                            </div>
+                            <NovaSwitch
+                              size="sm"
+                              checked={Boolean(settings.phantom.preferences.allowAgentWalletContext)}
+                              disabled={isSavingTarget !== null}
+                              onChange={(checked) => void phantomSetup.savePhantomPreferences({ allowAgentWalletContext: checked })}
+                            />
+                          </div>
+                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-[#f7f9fe]" : "border-white/10 bg-white/5")}>
+                            <div>
+                              <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>EVM Readiness Context</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let Nova read Phantom&apos;s EVM address and chain as safe readiness metadata.</p>
+                            </div>
+                            <NovaSwitch
+                              size="sm"
+                              checked={Boolean(settings.phantom.preferences.allowAgentEvmContext)}
+                              disabled={isSavingTarget !== null}
+                              onChange={(checked) => void phantomSetup.savePhantomPreferences({ allowAgentEvmContext: checked })}
+                            />
+                          </div>
+                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-[#f7f9fe]" : "border-white/10 bg-white/5")}>
+                            <div>
+                              <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Approval-Gated Polymarket Prep</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to prepare future Polymarket actions that still require your explicit approval.</p>
+                            </div>
+                            <NovaSwitch
+                              size="sm"
+                              checked={Boolean(settings.phantom.preferences.allowApprovalGatedPolymarket)}
+                              disabled={isSavingTarget !== null}
+                              onChange={(checked) => void phantomSetup.savePhantomPreferences({ allowApprovalGatedPolymarket: checked })}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className={cn("rounded-lg border p-3", isLight ? "border-emerald-200 bg-emerald-50" : "border-emerald-500/20 bg-emerald-500/10")}>
+                        <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-emerald-800" : "text-emerald-200")}>Current Runtime Status</p>
+                        <ul className={cn("mt-2 space-y-1 text-[11px] leading-4", isLight ? "text-emerald-900" : "text-emerald-100")}>
+                          {phantomRuntimeStatus.map((item) => (
+                            <li key={item}>- {item}</li>
+                          ))}
+                        </ul>
+                        <p className={cn("mt-2 text-[10px] uppercase tracking-[0.14em]", isLight ? "text-emerald-700" : "text-emerald-300")}>
+                          Saved toggles apply to the user-scoped runtime snapshot immediately.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {!phantomSetup.providerSupportedContext && (
+                  <div className={cn(
+                    "rounded-lg border p-3 text-xs",
+                    isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+                  )}>
+                    {phantomSetup.providerContextReason || "Phantom wallet connect requires a top-level https or localhost page."} Click <span className="font-mono">Open in Browser</span> to continue in a standard browser window.
+                  </div>
+                )}
+
+	                {phantomSetup.providerSupportedContext && !phantomSetup.providerInstalled && (
+	                  <div className={cn(
+	                    "rounded-lg border p-3 text-xs",
+	                    isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+	                  )}>
+	                    Phantom is not detected in this browser profile. If it is already installed in Chrome, open the Phantom extension menu and allow site access on <span className="font-mono">localhost</span> or <span className="font-mono">all sites</span>, then click <span className="font-mono">Refresh Detection</span>. If it is not installed yet, click <span className="font-mono">Install Phantom</span>.
+	                  </div>
+	                )}
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Desktop Connect Path</p>
+                  <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>1. If you are in the Nova desktop HUD or another embedded view, click <span className="font-mono">Open in Browser</span>. Nova now asks the local machine to open your external browser directly and prefers Chrome on Windows when available.</li>
+                    <li>2. In that browser, click <span className="font-mono">Install Phantom</span> if the extension is missing, then unlock Phantom and select the wallet you want Nova to use.</li>
+                    <li>3. Back in the browser tab running Nova, click <span className="font-mono">Connect</span> and approve account access.</li>
+                    <li>4. Approve the signed wallet verification message. Nova stores only wallet metadata and your saved Phantom settings, never a seed phrase or private key.</li>
+                  </ol>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Hard Limits</p>
+                  <ul className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    {phantomHardLimits.map((item) => (
+                      <li key={item}>- {item}</li>
+                    ))}
+                    <li>- This is wallet connect plus signed-message authentication, not OAuth.</li>
+                  </ul>
+                </div>
+              </div>
             </section>
             )}
 
-            {activeSetup === "spotify" && (
-            <section ref={spotifySetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+	            {activeSetup === "spotify" && (
+	            <section ref={spotifySetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>

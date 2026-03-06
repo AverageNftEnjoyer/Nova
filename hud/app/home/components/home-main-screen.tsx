@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History } from "lucide-react"
@@ -15,6 +15,7 @@ import {
   GmailIcon,
   NewsIcon,
   OpenAIIcon,
+  PhantomIcon,
   SlackIcon,
   SpotifyIcon,
   TelegramIcon,
@@ -23,6 +24,7 @@ import {
 } from "@/components/icons"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { SettingsModal } from "@/components/settings/settings-modal"
+import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { cn } from "@/lib/shared/utils"
 import { NOVA_DOMAIN_MANAGERS } from "@/app/agents/agent-chart-data"
 import { NOVA_VERSION } from "@/lib/meta/version"
@@ -88,6 +90,7 @@ export function HomeMainScreen() {
     braveConnected,
     newsConnected,
     coinbaseConnected,
+    phantomConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -167,21 +170,22 @@ export function HomeMainScreen() {
     { id: "7d", label: "7D" },
   ] as const
 
-  const integrationNodes = [
-    { icon: <TelegramIcon className="w-4 h-4" />, connected: telegramConnected, label: "Telegram" },
-    { icon: <DiscordIcon className="w-4 h-4" />, connected: discordConnected, label: "Discord" },
-    { icon: <SlackIcon className="w-4 h-4" />, connected: slackConnected, label: "Slack" },
-    { icon: <OpenAIIcon className="w-4.5 h-4.5" />, connected: openaiConnected, label: "OpenAI" },
-    { icon: <ClaudeIcon className="w-4.5 h-4.5" />, connected: claudeConnected, label: "Claude" },
-    { icon: <XAIIcon size={16} />, connected: grokConnected, label: "Grok" },
-    { icon: <GeminiIcon size={16} />, connected: geminiConnected, label: "Gemini" },
-    { icon: <SpotifyIcon className="w-4.5 h-4.5" />, connected: spotifyConnected, label: "Spotify" },
-    { icon: <YouTubeIcon className="w-4 h-4" />, connected: youtubeConnected, label: "YouTube" },
-    { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail" },
-    { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar" },
-    { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave" },
-    { icon: <NewsIcon className="w-4 h-4" />, connected: newsConnected, label: "News" },
-    { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase" },
+  const integrationNodes: Array<{ icon: ReactNode; connected: boolean; label: string; setup: IntegrationSetupKey }> = [
+    { icon: <TelegramIcon className="w-4 h-4" />, connected: telegramConnected, label: "Telegram", setup: "telegram" },
+    { icon: <DiscordIcon className="w-4 h-4" />, connected: discordConnected, label: "Discord", setup: "discord" },
+    { icon: <SlackIcon className="w-4 h-4" />, connected: slackConnected, label: "Slack", setup: "slack" },
+    { icon: <OpenAIIcon className="w-4.5 h-4.5" />, connected: openaiConnected, label: "OpenAI", setup: "openai" },
+    { icon: <ClaudeIcon className="w-4.5 h-4.5" />, connected: claudeConnected, label: "Claude", setup: "claude" },
+    { icon: <XAIIcon size={16} />, connected: grokConnected, label: "Grok", setup: "grok" },
+    { icon: <GeminiIcon size={16} />, connected: geminiConnected, label: "Gemini", setup: "gemini" },
+    { icon: <SpotifyIcon className="w-4.5 h-4.5" />, connected: spotifyConnected, label: "Spotify", setup: "spotify" },
+    { icon: <YouTubeIcon className="w-4 h-4" />, connected: youtubeConnected, label: "YouTube", setup: "youtube" },
+    { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail", setup: "gmail" },
+    { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar", setup: "gmail-calendar" },
+    { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave", setup: "brave" },
+    { icon: <NewsIcon className="w-4 h-4" />, connected: newsConnected, label: "News", setup: "news" },
+    { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase", setup: "coinbase" },
+    { icon: <PhantomIcon className="w-4 h-4" />, connected: phantomConnected, label: "Phantom", setup: "phantom" },
   ] as const
 
   const previewManagers = NOVA_DOMAIN_MANAGERS.slice(0, 3)
@@ -679,10 +683,10 @@ export function HomeMainScreen() {
               })}
               <div className={cn("mt-4.5 p-1.5 rounded-lg", subPanelClass)}>
                 <div className="grid grid-cols-5 gap-1" style={{ gridTemplateRows: "repeat(5, 2rem)" }}>
-                  {integrationNodes.map(({ icon, connected, label }) => (
+                  {integrationNodes.map(({ icon, connected, label, setup }) => (
                     <button
                       key={label}
-                      onClick={goToIntegrations}
+                      onClick={() => goToIntegrations(setup)}
                       className={cn(
                         "h-8 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
                         integrationBadgeClass(connected),

@@ -1,7 +1,7 @@
-import { createSpotifyProviderRegistry } from "./provider-adapter/hud-http/index.js";
+import { createSpotifyProviderRegistry, resolveSpotifyProviderId } from "./provider-adapter/index.js";
 
 export async function runSpotifyDomainService(input = {}, deps = {}) {
-  const providerId = String(input.providerId || "spotify-hud-http-adapter").trim() || "spotify-hud-http-adapter";
+  const providerId = resolveSpotifyProviderId(input);
   const registry = deps.providerRegistry && typeof deps.providerRegistry === "object"
     ? deps.providerRegistry
     : createSpotifyProviderRegistry();

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { loadMissions, upsertMission, deleteMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
+import { loadMissions, upsertMission, deleteMission } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { getTemplate, instantiateTemplate } from "@/lib/missions/templates"
 import type { Mission } from "@/lib/missions/types"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
   const offsetParam = url.searchParams.get("offset")
 
   try {
-    const missions = await loadMissions({ userId })
+    const missions = (await loadMissions({ userId })) as Mission[]
     if (id) {
       const mission = missions.find((m) => m.id === id) ?? null
       if (!mission) {
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
 
   if (missionId && requestedOperations) {
     try {
-      const missions = await loadMissions({ userId })
+      const missions = (await loadMissions({ userId })) as Mission[]
       const current = missions.find((row) => row.id === missionId)
       if (!current) {
         return NextResponse.json({ ok: false, error: "Mission not found." }, { status: 404 })
@@ -344,7 +344,7 @@ export async function POST(req: Request) {
   }).catch(() => {})
 
   try {
-    const missions = await loadMissions({ userId })
+    const missions = (await loadMissions({ userId })) as Mission[]
     const current = missions.find((row) => row.id === mission.id)
     if (current) {
       const operations = deriveDiffOperationsFromMissionSnapshot(current, {

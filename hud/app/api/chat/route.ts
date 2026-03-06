@@ -5,7 +5,7 @@ import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
-import { ensureMissionSchedulerStarted } from "../../../../../src/runtime/modules/services/missions/scheduler/index.js"
+import { ensureMissionSchedulerStarted } from "../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
 export const runtime = "nodejs"
 

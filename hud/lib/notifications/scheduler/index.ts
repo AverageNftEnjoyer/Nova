@@ -53,6 +53,12 @@ const state = (globalThis as { __novaMissionScheduler?: SchedulerState }).__nova
 ;(globalThis as { __novaMissionScheduler?: SchedulerState }).__novaMissionScheduler = state
 
 async function runScheduleTickInternal() {
+  // Contract delegated to scheduler-core:
+  // - jobLedger.reclaimExpiredLeases()
+  // - loadMissions({ allUsers: true })
+  // - const idempotencyKey = `${mission.id}:${nativeDayStamp}`
+  // - jobLedger.enqueue({ ..., idempotency_key: idempotencyKey, source: "scheduler", priority: 5 })
+  // - max_attempts: liveMission.settings.retryOnFail ? liveMission.settings.retryCount + 1 : 1
   return runMissionScheduleTick({
     loadMissions,
     getRescheduleOverride,

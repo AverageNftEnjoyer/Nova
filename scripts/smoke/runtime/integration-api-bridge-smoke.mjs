@@ -21,29 +21,29 @@ function read(relPath) {
   return fs.readFileSync(path.join(process.cwd(), relPath), "utf8");
 }
 
-await run("IAB-1 bridge enforces timeout + retry controls", async () => {
-  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
+await run("IAB-1 shared integration bridge has been deleted after lane extraction", async () => {
+  assert.equal(fs.existsSync(path.join(process.cwd(), "src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js")), false);
+});
+
+await run("IAB-2 spotify service owns timeout + retry controls inside the lane adapter", async () => {
+  const source = read("src/runtime/modules/services/spotify/provider-adapter/hud-http/index.js");
   assert.equal(source.includes("fetchWithTimeoutAndRetry"), true);
   assert.equal(source.includes("AbortController"), true);
   assert.equal(source.includes("NOVA_INTEGRATION_BRIDGE_TIMEOUT_MS"), true);
   assert.equal(source.includes("NOVA_INTEGRATION_BRIDGE_RETRY_COUNT"), true);
-});
-
-await run("IAB-2 spotify bridge maps aborts to timeout code", async () => {
-  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
-  assert.equal(source.includes('code: errorCode'), true);
   assert.equal(source.includes('"spotify.timeout"'), true);
 });
 
-await run("IAB-3 youtube bridge maps aborts to timeout code", async () => {
-  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
+await run("IAB-3 youtube service owns timeout + retry controls inside the lane adapter", async () => {
+  const source = read("src/runtime/modules/services/youtube/provider-adapter/index.js");
+  assert.equal(source.includes("fetchWithTimeoutAndRetry"), true);
+  assert.equal(source.includes("AbortController"), true);
+  assert.equal(source.includes("NOVA_INTEGRATION_BRIDGE_TIMEOUT_MS"), true);
+  assert.equal(source.includes("NOVA_INTEGRATION_BRIDGE_RETRY_COUNT"), true);
   assert.equal(source.includes('"youtube.timeout"'), true);
-  assert.equal(source.includes('code: errorCode'), true);
 });
 
 await run("IAB-4 mission lane uses missions service/provider adapter boundary", async () => {
-  const source = read("src/runtime/modules/chat/workers/shared/integration-api-bridge/index.js");
-  assert.equal(source.includes("runMissionBuildViaHudApi"), false);
   const missionWorkerSource = read("src/runtime/modules/chat/workers/productivity/missions-agent/index.js");
   assert.equal(missionWorkerSource.includes("runMissionBuildViaHudApi"), false);
   assert.equal(missionWorkerSource.includes("runMissionsDomainService"), true);

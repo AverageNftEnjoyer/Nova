@@ -79,7 +79,6 @@ const sessionKeyHint = `agent:nova:hud:user:${userContextId}:dm:${conversationId
 function resolveUserContextRootCandidates(baseDir, uid) {
   return [
     path.join(baseDir, ".user", "user-context", uid),
-    path.join(baseDir, "src", ".user", "user-context", uid),
   ];
 }
 

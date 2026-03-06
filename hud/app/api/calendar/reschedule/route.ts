@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
+import type { Mission } from "@/lib/missions/types"
 import { loadMissions } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { setRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { aggregateCalendarEvents } from "@/lib/calendar/aggregator"
@@ -53,7 +54,7 @@ export async function PATCH(req: Request) {
   }
 
   // Verify the mission belongs to this user
-  const missions = await loadMissions({ userId })
+  const missions = (await loadMissions({ userId })) as Mission[]
   const mission = missions.find((m) => m.id === missionId)
   if (!mission) {
     return NextResponse.json({ ok: false, error: "Mission not found." }, { status: 404 })
