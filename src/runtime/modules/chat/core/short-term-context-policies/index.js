@@ -4,7 +4,7 @@ const GENERIC_CANCEL_REGEX = /\b(cancel|never\s*mind|nevermind|stop|forget\s+it|
 const GENERIC_NEW_TOPIC_REGEX = /\b(new\s+topic|switch\s+topic|different\s+topic|let'?s\s+talk\s+about|talk\s+about\s+something\s+else)\b/i;
 
 const CRYPTO_CONTINUE_REGEX = /\b(again|same|more\s+detail|more|expand|expanded|drill\s+down|break\s*down|oh\s+wait|wait|also|refresh|rerun|repeat)\b/i;
-const ASSISTANT_CONTINUE_REGEX = /\b(oh\s+wait|wait|also|and|more\s+detail|expand|go\s+on|continue|that\s+one|same\s+thing|clarify)\b/i;
+const ASSISTANT_CONTINUE_REGEX = /\b(oh\s+wait|wait|also|and|more\s+detail|expand|go\s+on|continue|that\s+one|same\s+thing|clarify|at\s+the\s+start|earlier|before|what\s+did\s+i\s+(say|tell\s+you|share|ask)|what\s+.*\b(?:earlier|before|at\s+the\s+start)\b)\b/i;
 const MISSION_CONTINUE_REGEX = /\b(also|and|add|change|update|more\s+detail|details|at|am|pm|tomorrow|daily|weekly|weekday|channel|discord|telegram)\b/i;
 const SPOTIFY_CONTINUE_REGEX = /\b(what(?:'s| is)\s+(?:this|that|it)\s+(?:song|track)|what\s+(?:song|track)\s+(?:is\s+)?(?:this|that|it)|what\s+am\s+i\s+listening\s+to|currently\s+playing|playing\s+currently|that\s+(?:song|track)|this\s+(?:song|track)|the\s+song\s+playing|you(?:'| a)?re\s+the\s+one\s+playing\s+it|your\s+the\s+one\s+playing\s+it|playing\s+it)\b/i;
 const YOUTUBE_CONTINUE_REGEX = /\b(next|another|different|more)\s+(video|clip|broadcast|news)\b|\bmore\s+(on|about)\b/i;

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
+import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 import { normalizeMissionBuildInput } from "../build-service/index.js";
 
 const PENDING_TTL_MS = 120000;
@@ -40,13 +41,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function resolveWorkspaceRoot() {
-  const cwd = process.cwd();
-  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd;
-}
-
 function resolveUserContextRoot() {
-  return path.join(resolveWorkspaceRoot(), ".user", "user-context");
+  return USER_CONTEXT_ROOT;
 }
 
 function resolveScopedDataFile(userContextId) {

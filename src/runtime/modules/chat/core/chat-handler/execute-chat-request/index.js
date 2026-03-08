@@ -139,6 +139,25 @@ function normalizeOperatorLaneHint(value) {
   };
 }
 
+function buildRecentUserFacts(previousAssistantContext, userText) {
+  const previousFacts = Array.isArray(previousAssistantContext?.slots?.recentUserFacts)
+    ? previousAssistantContext.slots.recentUserFacts
+        .map((fact) => String(fact || "").trim().slice(0, 160))
+        .filter(Boolean)
+    : [];
+  const nextFacts = extractAutoMemoryFacts(userText)
+    .map((candidate) => String(candidate?.fact || "").trim().slice(0, 160))
+    .filter(Boolean);
+  const mergedFacts = [];
+  for (const fact of [...previousFacts, ...nextFacts]) {
+    const normalized = fact.toLowerCase();
+    const existingIndex = mergedFacts.findIndex((entry) => entry.toLowerCase() === normalized);
+    if (existingIndex >= 0) mergedFacts.splice(existingIndex, 1);
+    mergedFacts.push(fact);
+  }
+  return mergedFacts.slice(-4);
+}
+
 function normalizeOperatorWorkerHint(value) {
   if (!value || typeof value !== "object") return null;
   const agentId = String(value.agentId || "").trim().toLowerCase();
@@ -558,6 +577,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           lastUserText: String(uiText || "").slice(0, 400),
           lastAssistantReply: String(reply || "").slice(0, 500),
           lastResponseRoute: String(responseRoute || "").trim(),
+          recentUserFacts: buildRecentUserFacts(previousAssistantContext, uiText),
           followUpActive: requestHints?.assistantShortTermFollowUp === true,
         },
       });

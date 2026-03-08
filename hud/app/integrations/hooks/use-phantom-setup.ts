@@ -7,6 +7,7 @@ import {
   readObservedPhantomEvmState,
   resolvePhantomContextSupport,
 } from "@/lib/integrations/phantom/browser"
+import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { maskPhantomWalletAddress, normalizePhantomIntegrationConfig, type PhantomUserSettings } from "@/lib/integrations/phantom/types"
 import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
@@ -242,8 +243,7 @@ export function usePhantomSetup({
 
   const openBrowserConnect = useCallback(async () => {
     if (typeof window === "undefined") return false
-    const target = new URL("/integrations", window.location.origin)
-    target.hash = "phantom"
+    const target = new URL(buildIntegrationsHref("phantom"), window.location.origin)
     return openExternalBrowser(
       "connect",
       target.toString(),
@@ -518,10 +518,10 @@ export function usePhantomSetup({
 
   useEffect(() => {
     if (typeof window === "undefined") return
-    const handleFocus = () => void refreshObservedProviderState({ waitForInjection: true })
+    const handleFocus = () => void refreshFromServer()
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        void refreshObservedProviderState({ waitForInjection: true })
+        void refreshFromServer()
       }
     }
     window.addEventListener("focus", handleFocus)
@@ -530,7 +530,7 @@ export function usePhantomSetup({
       window.removeEventListener("focus", handleFocus)
       document.removeEventListener("visibilitychange", handleVisibility)
     }
-  }, [refreshObservedProviderState])
+  }, [refreshFromServer])
 
   const connectPhantom = useCallback(async () => {
     const contextSupport = resolvePhantomContextSupport(typeof window === "undefined" ? null : window)
@@ -640,7 +640,7 @@ export function usePhantomSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, openBrowserConnect, openPhantomInstall, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [onRequireLogin, openBrowserConnect, refreshFromServer, refreshObservedProviderState, setIsSavingTarget, setSaveStatus])
 
   return {
     hydrate,

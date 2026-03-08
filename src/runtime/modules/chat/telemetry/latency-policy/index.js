@@ -35,7 +35,14 @@ const TOOL_LOOP_NEGATED_WEB_INTENT = /\b(do\s+not|don't|dont|without|no)\s+(brow
 const TOOL_LOOP_COMMAND_INTENT = /\b(run|execute|terminal|shell|command|script|npm|node|python|git|build)\b/;
 const TOOL_LOOP_REPO_INTENT = /\b(file|folder|directory|read|write|edit|patch|code|refactor|repository|repo)\b/;
 const TOOL_LOOP_TOOL_INTENT = /\b(tool|tool call|web fetch|web search|memory search|memory get)\b/;
-const MEMORY_RECALL_INTENT = /\b(remember|earlier|before|preference|profile|context|resume|continue|project|my)\b/;
+const MEMORY_RECALL_PATTERNS = [
+  /\b(remember|earlier|before|previously|preference|preferences|profile|memory|history)\b/,
+  /\bwhat\s+did\s+i\s+(say|tell you|mention|share|ask)\b/,
+  /\bwhat\s+(was|is)\s+the\b.*\b(i\s+(said|told you|mentioned|shared)|earlier|before)\b/,
+  /\bcontinue\b.*\b(where|from)\b/,
+  /\bresume\b.*\b(conversation|chat|thread|context|work)\b/,
+  /\bpick\s+up\s+where\b/,
+];
 
 export function normalizeLatencyTurnText(text) {
   return String(text || "")
@@ -83,9 +90,7 @@ export function shouldAttemptMemoryRecallTurn(text, opts = {}) {
   if (opts.fastLaneSimpleChat === true) return false;
   if (opts.weatherIntent === true) return false;
   if (opts.cryptoIntent === true) return false;
-  const tokenCount = normalized.split(/\s+/g).filter(Boolean).length;
-  if (tokenCount >= MEMORY_RECALL_MIN_WORDS) return true;
-  return MEMORY_RECALL_INTENT.test(normalized);
+  return MEMORY_RECALL_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
 export function buildLatencyTurnPolicy(text, opts = {}) {

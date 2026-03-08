@@ -1,9 +1,9 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { getActiveUserId, setActiveUserId } from "@/lib/auth/active-user"
+import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId, setActiveUserId } from "@/lib/auth/active-user"
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 
 function sanitizeNextPath(raw: string | null): string {
@@ -13,24 +13,31 @@ function sanitizeNextPath(raw: string | null): string {
   return value
 }
 
+function subscribeToActiveUserChange(callback: () => void): () => void {
+  if (typeof window === "undefined") return () => {}
+  const listener = () => callback()
+  window.addEventListener(ACTIVE_USER_CHANGED_EVENT, listener)
+  return () => window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, listener)
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const isLoginRoute = pathname === "/login"
+  const hasCachedUser = useSyncExternalStore(
+    subscribeToActiveUserChange,
+    () => Boolean(getActiveUserId()),
+    () => false,
+  )
   const [ready, setReady] = useState(isLoginRoute)
 
   useEffect(() => {
-    const localUserId = getActiveUserId()
-    const hasLocalUser = Boolean(localUserId)
-
-    setReady(isLoginRoute || hasLocalUser)
-
     const loginParams = isLoginRoute ? new URLSearchParams(window.location.search) : null
     const loginMode = String(loginParams?.get("mode") || "").trim()
     const allowLoginWhileAuthed = isLoginRoute && (loginMode === "signup" || loginParams?.get("switch") === "1")
     let cancelled = false
     if (!hasSupabaseClientConfig || !supabaseBrowser) {
-      if (isLoginRoute || hasLocalUser) return
+      if (isLoginRoute || hasCachedUser) return
       router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`)
       return
     }
@@ -87,9 +94,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
       cancelled = true
       sub.subscription.unsubscribe()
     }
-  }, [isLoginRoute, pathname, router])
+  }, [hasCachedUser, isLoginRoute, pathname, router])
 
-  if (!ready && !isLoginRoute) {
+  if (!ready && !hasCachedUser) {
     return null
   }
 

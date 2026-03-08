@@ -114,10 +114,15 @@ function isLikelyMarketPrompt(normalized) {
   );
 }
 
+const FILE_PATH_HINT_REGEX = /(?:\.\.?[\\/]|[a-z]:[\\/]|[a-z0-9_.-]+\.(?:md|txt|js|ts|tsx|json|yaml|yml|mjs|cjs|py|go|rs|java|css|html))(?:[\w./\\-]*)/i;
+
 function isLikelyFilesPrompt(normalized) {
   return (
-    /\b(file|files|folder|directory|workspace|project)\b/i.test(normalized)
-    || /\b(read|open|list|search)\s+(file|folder|directory)\b/i.test(normalized)
+    /\b(list|show|scan|index)\b.*\b(files?|folders?|directories|workspace)\b/i.test(normalized)
+    || /\b(read|open|show|cat)\b\s+(?:the\s+)?(?:file\s+)?/i.test(normalized) && FILE_PATH_HINT_REGEX.test(normalized)
+    || /\b(search|grep|find)\b.+\b(?:in|under)\b.+/i.test(normalized)
+      && /\b(files?|folders?|directories|workspace|repo|repository|path)\b/i.test(normalized)
+    || /\b(write|create)\b\s+(?:file\s+)?[^\s:]+\s*:/i.test(normalized)
   );
 }
 

@@ -4,11 +4,76 @@ import path from "node:path";
 import type { Config } from "./types/index.js";
 
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".myagent", "config.json");
+const RESERVED_SRC_USER_ENTRY = ".user";
+const RESERVED_SRC_USER_SENTINEL = [
+  "Reserved path: Nova user state must live at /.user, never at /src/.user.",
+  "Do not replace this file with a directory.",
+  "",
+].join("\n");
+
+function resolveWorkspaceRoot(startPath: string): string {
+  const fallback = path.resolve(String(startPath || process.cwd() || "."));
+  let current = fallback;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (fs.existsSync(path.join(current, "hud")) && fs.existsSync(path.join(current, "src"))) return current;
+    const parent = path.dirname(current);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  return fallback;
+}
+
+function resolveReservedSrcUserPath(workspaceRoot: string): string {
+  return path.join(path.resolve(workspaceRoot), "src", RESERVED_SRC_USER_ENTRY);
+}
+
+function normalizePathForCompare(value: string): string {
+  return path.resolve(String(value || ""))
+    .replace(/\//g, path.sep)
+    .toLowerCase();
+}
+
+function isReservedPathOrChild(candidatePath: string, reservedPath: string): boolean {
+  const normalizedCandidate = normalizePathForCompare(candidatePath);
+  const normalizedReserved = normalizePathForCompare(reservedPath);
+  return normalizedCandidate === normalizedReserved || normalizedCandidate.startsWith(`${normalizedReserved}${path.sep}`);
+}
+
+function assertWorkspaceUserRoot(workspaceRoot: string): string {
+  const normalizedRoot = path.resolve(workspaceRoot);
+  const reservedSrcUserPath = resolveReservedSrcUserPath(normalizedRoot);
+  if (fs.existsSync(reservedSrcUserPath)) {
+    const stat = fs.lstatSync(reservedSrcUserPath);
+    if (stat.isDirectory()) {
+      throw new Error(`Invalid duplicate user state root detected at ${reservedSrcUserPath}. Use ${path.join(normalizedRoot, ".user")} only.`);
+    }
+    if (!stat.isFile()) {
+      throw new Error(`Reserved workspace path ${reservedSrcUserPath} must remain a file.`);
+    }
+  } else {
+    fs.writeFileSync(reservedSrcUserPath, RESERVED_SRC_USER_SENTINEL, {
+      encoding: "utf8",
+      flag: "wx",
+    });
+  }
+  return normalizedRoot;
+}
+
+function assertNotUnderReservedSrcUserPath(candidatePath: string, workspaceRoot: string, label: string): string {
+  const resolvedPath = path.resolve(candidatePath);
+  const reservedSrcUserPath = resolveReservedSrcUserPath(workspaceRoot);
+  if (isReservedPathOrChild(resolvedPath, reservedSrcUserPath)) {
+    throw new Error(`${label} may not resolve under ${reservedSrcUserPath}. Nova user state must stay under ${path.join(workspaceRoot, ".user")}.`);
+  }
+  return resolvedPath;
+}
+
+const DEFAULT_WORKSPACE_ROOT = assertWorkspaceUserRoot(resolveWorkspaceRoot(process.cwd()));
 
 const DEFAULT_CONFIG: Config = {
   agent: {
     name: "nova",
-    workspace: process.cwd(),
+    workspace: DEFAULT_WORKSPACE_ROOT,
     model: "claude-sonnet-4-5-20250514",
     maxTokens: 2048,
     apiKey: "",
@@ -18,9 +83,9 @@ const DEFAULT_CONFIG: Config = {
   session: {
     scope: "per-channel-peer",
     dmScope: "main",
-    storePath: path.join(process.cwd(), ".user", "sessions.json"),
-    transcriptDir: path.join(process.cwd(), ".user", "transcripts"),
-    userContextRoot: path.join(process.cwd(), ".user", "user-context"),
+    storePath: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "sessions.json"),
+    transcriptDir: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "transcripts"),
+    userContextRoot: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "user-context"),
     mainKey: "main",
     resetMode: "idle",
     resetAtHour: 4,
@@ -33,7 +98,7 @@ const DEFAULT_CONFIG: Config = {
   },
   memory: {
     enabled: false,
-    dbPath: path.join(process.cwd(), ".user", "memory.db"),
+    dbPath: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "memory.db"),
     embeddingProvider: "openai",
     embeddingModel: "text-embedding-3-small",
     embeddingApiKey: "",
@@ -43,7 +108,7 @@ const DEFAULT_CONFIG: Config = {
     hybridBm25Weight: 0.3,
     topK: 5,
     syncOnSessionStart: true,
-    sourceDirs: [path.join(process.cwd(), "memory")],
+    sourceDirs: [path.join(DEFAULT_WORKSPACE_ROOT, "memory")],
   },
   tools: {
     enabledTools: ["read", "write", "edit", "ls", "grep", "exec", "browser_agent", "web_search", "web_fetch"],
@@ -257,7 +322,7 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
 }
 
 function normalizePaths(config: Config): Config {
-  const workspace = path.resolve(config.agent.workspace);
+  const workspace = assertWorkspaceUserRoot(resolveWorkspaceRoot(config.agent.workspace));
   return {
     ...config,
     agent: {
@@ -266,14 +331,14 @@ function normalizePaths(config: Config): Config {
     },
     session: {
       ...config.session,
-      storePath: path.resolve(config.session.storePath),
-      transcriptDir: path.resolve(config.session.transcriptDir),
-      userContextRoot: path.resolve(config.session.userContextRoot),
+      storePath: assertNotUnderReservedSrcUserPath(config.session.storePath, workspace, "session.storePath"),
+      transcriptDir: assertNotUnderReservedSrcUserPath(config.session.transcriptDir, workspace, "session.transcriptDir"),
+      userContextRoot: assertNotUnderReservedSrcUserPath(config.session.userContextRoot, workspace, "session.userContextRoot"),
     },
     memory: {
       ...config.memory,
-      dbPath: path.resolve(config.memory.dbPath),
-      sourceDirs: config.memory.sourceDirs.map((dir) => path.resolve(workspace, dir)),
+      dbPath: assertNotUnderReservedSrcUserPath(config.memory.dbPath, workspace, "memory.dbPath"),
+      sourceDirs: config.memory.sourceDirs.map((dir) => assertNotUnderReservedSrcUserPath(path.resolve(workspace, dir), workspace, "memory.sourceDirs")),
     },
   };
 }

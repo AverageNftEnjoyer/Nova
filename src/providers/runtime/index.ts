@@ -124,22 +124,45 @@ const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
 
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
 const USER_CONTEXT_STATE_DIR = "state";
+const RESERVED_SRC_USER_ENTRY = ".user";
+const RESERVED_SRC_USER_SENTINEL = [
+  "Reserved path: Nova user state must live at /.user, never at /src/.user.",
+  "Do not replace this file with a directory.",
+  "",
+].join("\n");
 
 function resolveWorkspaceRoot(workspaceRootInput?: string): string {
-  if (toNonEmptyString(workspaceRootInput)) return path.resolve(String(workspaceRootInput));
-  const cwd = path.resolve(process.cwd());
-  if (fs.existsSync(path.join(cwd, "hud")) && fs.existsSync(path.join(cwd, "src"))) return cwd;
-  if (path.basename(cwd).toLowerCase() === "hud") return path.resolve(cwd, "..");
-  const parent = path.resolve(cwd, "..");
-  if (fs.existsSync(path.join(parent, "hud")) && fs.existsSync(path.join(parent, "src"))) return parent;
-  return cwd;
+  const fallback = path.resolve(String(workspaceRootInput || process.cwd() || "."));
+  let current = fallback;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (fs.existsSync(path.join(current, "hud")) && fs.existsSync(path.join(current, "src"))) return current;
+    const parent = path.dirname(current);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  return fallback;
+}
+
+function resolveReservedSrcUserPath(workspaceRoot: string): string {
+  return path.join(path.resolve(workspaceRoot), "src", RESERVED_SRC_USER_ENTRY);
 }
 
 function assertWorkspaceUserRoot(root: string): string {
   const normalizedRoot = path.resolve(root);
-  const invalidUserRoot = path.join(normalizedRoot, "src", ".user");
-  if (fs.existsSync(invalidUserRoot)) {
-    throw new Error(`Invalid duplicate user state root detected at ${invalidUserRoot}. Use ${path.join(normalizedRoot, ".user")} only.`);
+  const reservedSrcUserPath = resolveReservedSrcUserPath(normalizedRoot);
+  if (fs.existsSync(reservedSrcUserPath)) {
+    const stat = fs.lstatSync(reservedSrcUserPath);
+    if (stat.isDirectory()) {
+      throw new Error(`Invalid duplicate user state root detected at ${reservedSrcUserPath}. Use ${path.join(normalizedRoot, ".user")} only.`);
+    }
+    if (!stat.isFile()) {
+      throw new Error(`Reserved workspace path ${reservedSrcUserPath} must remain a file.`);
+    }
+  } else {
+    fs.writeFileSync(reservedSrcUserPath, RESERVED_SRC_USER_SENTINEL, {
+      encoding: "utf8",
+      flag: "wx",
+    });
   }
   return normalizedRoot;
 }

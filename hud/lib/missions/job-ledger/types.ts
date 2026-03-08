@@ -43,6 +43,12 @@ export type JobRun = {
   duration_ms: number | null
 }
 
+/** Narrow row shape needed by execution-tick pending scans. */
+export type PendingJobRun = Pick<
+  JobRun,
+  "id" | "user_id" | "mission_id" | "priority" | "scheduled_for" | "attempt" | "source" | "input_snapshot"
+>
+
 /** Mirror of the job_audit_events table row */
 export type JobAuditEvent = {
   id: string
@@ -70,7 +76,7 @@ export type EnqueueJobInput = {
 
 /** Result of a claim attempt */
 export type ClaimResult =
-  | { ok: true; leaseToken: string; jobRun: JobRun }
+  | { ok: true; leaseToken: string }
   | { ok: false; reason: string }
 
 /** Concurrency check result */
@@ -78,11 +84,18 @@ export type ConcurrencyCheckResult =
   | { ok: true }
   | { ok: false; reason: string }
 
-/** Complete/fail input */
-export type FinishJobInput = {
+/** Complete input */
+export type CompleteJobInput = {
   jobRunId: string
   leaseToken: string
   outputSummary?: Record<string, unknown>
+}
+
+/** Fail input */
+export type FailJobInput = {
+  jobRunId: string
+  leaseToken: string
+  startedAt?: string | null
   errorCode?: string
   errorDetail?: string
 }
@@ -110,7 +123,7 @@ export interface JobLedgerStore {
    * Enqueue a new job run in status=pending.
    * Returns error if idempotency_key already exists.
    */
-  enqueue(input: EnqueueJobInput): Promise<{ ok: true; jobRun: JobRun } | { ok: false; error: string }>
+  enqueue(input: EnqueueJobInput): Promise<{ ok: true } | { ok: false; error: string }>
 
   /**
    * Atomically check per-user and global concurrency caps,
@@ -138,18 +151,18 @@ export interface JobLedgerStore {
   startRun(input: {
     jobRunId: string
     leaseToken: string
-  }): Promise<{ ok: boolean }>
+  }): Promise<{ ok: boolean; startedAt: string | null }>
 
   /**
    * Transition running → succeeded. Sets finished_at and duration_ms.
    */
-  completeRun(input: FinishJobInput): Promise<{ ok: boolean }>
+  completeRun(input: CompleteJobInput): Promise<{ ok: boolean }>
 
   /**
    * Transition running → failed (or → dead if attempt >= max_attempts).
    * If retrying: re-enqueues with incremented attempt and backoff delay.
    */
-  failRun(input: FinishJobInput): Promise<{ ok: boolean }>
+  failRun(input: FailJobInput): Promise<{ ok: boolean }>
 
   /**
    * Cancel a job from any non-terminal status → cancelled.
@@ -225,5 +238,5 @@ export interface JobLedgerStore {
    * Ordered by priority DESC, scheduled_for ASC.
    * Does NOT claim them — call claimRun() per item.
    */
-  getPendingRuns(input: GetPendingRunsInput): Promise<JobRun[]>
+  getPendingRuns(input: GetPendingRunsInput): Promise<PendingJobRun[]>
 }

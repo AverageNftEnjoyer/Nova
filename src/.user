@@ -1,0 +1,2 @@
+Reserved path: Nova user state must live at /.user, never at /src/.user.
+Do not replace this file with a directory.

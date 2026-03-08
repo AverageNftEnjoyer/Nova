@@ -1,6 +1,7 @@
 import path from "node:path";
 import { mkdir, readFile, rename, writeFile, copyFile, readdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 
 const MISSIONS_FILE_NAME = "missions.json";
 const STATE_DIR_NAME = "state";
@@ -9,13 +10,8 @@ const MISSIONS_SCHEMA_VERSION = 1;
 const writesByPath = new Map();
 const upsertLocksByUserId = new Map();
 
-function resolveWorkspaceRoot() {
-  const cwd = process.cwd();
-  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd;
-}
-
 function resolveUserContextRoot() {
-  return path.join(resolveWorkspaceRoot(), ".user", "user-context");
+  return USER_CONTEXT_ROOT;
 }
 
 function sanitizeUserId(value) {

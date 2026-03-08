@@ -155,17 +155,24 @@ export async function buildPromptContextForTurn({
     sectionMaxTokens: promptBudgetProfile.sectionMaxTokens,
     debug: PROMPT_BUDGET_DEBUG,
   };
+  const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
+  const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
 
-  if (preferencePrompt) {
+  function applyBudgetedSection(sectionTitle, sectionBody) {
     const appended = appendBudgetedPromptSection({
       ...promptBudgetOptions,
       prompt: systemPrompt,
-      sectionTitle: "User Preference Memory",
-      sectionBody: preferencePrompt,
+      sectionTitle,
+      sectionBody,
     });
-    systemPrompt = appended.included
-      ? appended.prompt
-      : `${systemPrompt}\n\n## User Preference Memory\n${preferencePrompt}`;
+    if (appended.included) {
+      systemPrompt = appended.prompt;
+    }
+    return appended;
+  }
+
+  if (preferencePrompt) {
+    applyBudgetedSection("User Preference Memory", preferencePrompt);
   }
 
   const identitySync = syncIdentityIntelligenceFromTurn({
@@ -187,16 +194,8 @@ export async function buildPromptContextForTurn({
   const identityRejectedSignals = Array.isArray(identitySync?.rejectedSignals) ? identitySync.rejectedSignals.length : 0;
   let identityPromptIncluded = false;
   if (identityPrompt) {
-    const appended = appendBudgetedPromptSection({
-      ...promptBudgetOptions,
-      prompt: systemPrompt,
-      sectionTitle: "Identity Intelligence",
-      sectionBody: identityPrompt,
-    });
-    systemPrompt = appended.included
-      ? appended.prompt
-      : `${systemPrompt}\n\n## Identity Intelligence\n${identityPrompt}`;
-    identityPromptIncluded = true;
+    const appended = applyBudgetedSection("Identity Intelligence", identityPrompt);
+    identityPromptIncluded = appended.included === true;
   }
   runSummary.requestHints.identityProfileActive = Boolean(identityPromptIncluded || identityAppliedSignals > 0);
   runSummary.requestHints.identityAppliedSignals = identityAppliedSignals;
@@ -220,17 +219,20 @@ export async function buildPromptContextForTurn({
   });
   const personalityPrompt = String(personalitySync?.promptSection || "").trim();
   if (personalityPrompt) {
-    const appended = appendBudgetedPromptSection({
-      ...promptBudgetOptions,
-      prompt: systemPrompt,
-      sectionTitle: "Personality Calibration",
-      sectionBody: personalityPrompt,
-    });
-    systemPrompt = appended.included
-      ? appended.prompt
-      : `${systemPrompt}\n\n## Personality Calibration\n${personalityPrompt}`;
+    applyBudgetedSection("Personality Calibration", personalityPrompt);
   }
   runSummary.requestHints.personalityAppliedSignals = personalitySync?.appliedSignals || 0;
+
+  if (rawHistoryMessages.length > 0) {
+    applyBudgetedSection(
+      "Conversation Continuity",
+      [
+        "When the user asks about earlier messages, the start of this chat, or what they said before, answer from the current conversation transcript first.",
+        "When current-chat transcript details conflict with saved memory or profile data, prefer the current chat for this conversation.",
+        "Only ask whether they mean saved memory, profile data, or settings if they explicitly mention memory, profile, settings, or saved preferences.",
+      ].join("\n"),
+    );
+  }
 
   const shortTermContextSummary = String(requestHints?.assistantShortTermContextSummary || "").trim();
   if (shortTermContextSummary) {
@@ -239,15 +241,7 @@ export async function buildPromptContextForTurn({
       requestHints?.assistantTopicAffinityId ? `topic_affinity_id: ${String(requestHints.assistantTopicAffinityId)}` : "",
       shortTermContextSummary,
     ].filter(Boolean).join("\n");
-    const appended = appendBudgetedPromptSection({
-      ...promptBudgetOptions,
-      prompt: systemPrompt,
-      sectionTitle: "Short-Term Context",
-      sectionBody,
-    });
-    systemPrompt = appended.included
-      ? appended.prompt
-      : `${systemPrompt}\n\n## Short-Term Context\n${sectionBody}`;
+    applyBudgetedSection("Short-Term Context", sectionBody);
   }
 
   const operatorLane = requestHints?.operatorLane && typeof requestHints.operatorLane === "object"
@@ -267,15 +261,7 @@ export async function buildPromptContextForTurn({
       operatorWorker?.reason ? `worker_reason: ${String(operatorWorker.reason)}` : "",
     ].filter(Boolean).join("\n");
     if (sectionBody) {
-      const appended = appendBudgetedPromptSection({
-        ...promptBudgetOptions,
-        prompt: systemPrompt,
-        sectionTitle: "Operator Routing Contract",
-        sectionBody,
-      });
-      systemPrompt = appended.included
-        ? appended.prompt
-        : `${systemPrompt}\n\n## Operator Routing Contract\n${sectionBody}`;
+      applyBudgetedSection("Operator Routing Contract", sectionBody);
       runSummary.requestHints.operatorLaneId = String(operatorLane.id || "");
       runSummary.requestHints.operatorWorkerAgentId = String(operatorWorker?.agentId || "");
     }
@@ -442,23 +428,13 @@ export async function buildPromptContextForTurn({
   }
 
   if (hasStrictOutputRequirements) {
-    const appended = appendBudgetedPromptSection({
-      ...promptBudgetOptions,
-      prompt: systemPrompt,
-      sectionTitle: "Strict Output Requirements",
-      sectionBody: outputConstraints.instructions,
-    });
-    systemPrompt = appended.included
-      ? appended.prompt
-      : `${systemPrompt}\n\n## Strict Output Requirements\n${outputConstraints.instructions}`;
+    applyBudgetedSection("Strict Output Requirements", outputConstraints.instructions);
   }
 
   const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
   broadcastThinkingStatus("Planning response", userContextId);
   console.log(`[Prompt] Tokens - persona: ${tokenBreakdown.persona}, user: ${tokenInfo.userTokens}`);
 
-  const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
-  const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
   const computedHistoryTokenBudget = computeHistoryTokenBudget({
     maxPromptTokens: promptBudgetProfile.maxPromptTokens,
     responseReserveTokens: promptBudgetProfile.responseReserveTokens,
@@ -470,6 +446,9 @@ export async function buildPromptContextForTurn({
   });
   const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, computedHistoryTokenBudget);
   const historyMessages = historyBudget.messages;
+  runSummary.requestHints.historyTokenBudget = computedHistoryTokenBudget;
+  runSummary.requestHints.historyMessagesInjected = historyMessages.length;
+  runSummary.requestHints.historyMessagesTrimmed = historyBudget.trimmed;
   console.log(
     `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens} history_budget=${computedHistoryTokenBudget}`,
   );

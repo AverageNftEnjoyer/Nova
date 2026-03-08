@@ -39,6 +39,10 @@ const runDeadLetterSource = read("hud/lib/missions/job-ledger/dead-letter.ts")
 const migrationV1 = read("hud/supabase/migrations/20260301_job_runner.sql")
 const migrationV2 = read("hud/supabase/migrations/20260302_scheduler_lease_procedures.sql")
 const migrationV3 = read("hud/supabase/migrations/20260303_execution_tick_running_reclaim.sql")
+const migrationV4 = read("hud/supabase/migrations/20260307_fail_job_run_with_retry.sql")
+const migrationV5 = read("hud/supabase/migrations/20260307_claim_job_run_lease_with_limits.sql")
+const migrationV6 = read("hud/supabase/migrations/20260307_heartbeat_job_run_lease.sql")
+const migrationV7 = read("hud/supabase/migrations/20260307_complete_job_run.sql")
 const executionTickRouteSource = read("hud/app/api/missions/execution-tick/route.ts")
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -186,6 +190,39 @@ await run("JL-M3 Phase 2 migration creates acquire_scheduler_lease procedure", (
   assert.ok(migrationV2.includes("WHERE scheduler_leases.expires_at < now()"))
   assert.ok(migrationV2.includes("SECURITY DEFINER"))
   assert.ok(migrationV2.includes("GRANT EXECUTE"))
+})
+
+await run("JL-M4 Phase 4 migration creates fail_job_run_with_retry procedure", () => {
+  assert.ok(migrationV4.includes("CREATE OR REPLACE FUNCTION fail_job_run_with_retry"))
+  assert.ok(migrationV4.includes("FOR UPDATE"))
+  assert.ok(migrationV4.includes("INSERT INTO job_runs"))
+  assert.ok(migrationV4.includes("RETRY_ENQUEUE_FAILED"))
+  assert.ok(migrationV4.includes("GRANT EXECUTE"))
+})
+
+await run("JL-M5 Phase 6 migration creates lean claim_job_run_lease_with_limits procedure", () => {
+  assert.ok(migrationV5.includes("CREATE OR REPLACE FUNCTION claim_job_run_lease_with_limits"))
+  assert.ok(migrationV5.includes("FOR UPDATE"))
+  assert.ok(migrationV5.includes("lease_token TEXT"))
+  assert.ok(!migrationV5.includes("job_run JSONB"))
+  assert.ok(migrationV5.includes("GRANT EXECUTE"))
+})
+
+await run("JL-M6 Phase 8 migration creates heartbeat_job_run_lease procedure", () => {
+  assert.ok(migrationV6.includes("CREATE OR REPLACE FUNCTION heartbeat_job_run_lease"))
+  assert.ok(migrationV6.includes("heartbeat_at = now()"))
+  assert.ok(migrationV6.includes("lease_expires_at = now() +"))
+  assert.ok(migrationV6.includes("status IN ('claimed', 'running')"))
+  assert.ok(migrationV6.includes("GRANT EXECUTE"))
+})
+
+await run("JL-M7 Phase 9 migration creates complete_job_run procedure", () => {
+  assert.ok(migrationV7.includes("CREATE OR REPLACE FUNCTION complete_job_run"))
+  assert.ok(migrationV7.includes("FOR UPDATE"))
+  assert.ok(migrationV7.includes("status = 'running'"))
+  assert.ok(migrationV7.includes("v_finished_at := now()"))
+  assert.ok(migrationV7.includes("duration_ms = GREATEST"))
+  assert.ok(migrationV7.includes("GRANT EXECUTE"))
 })
 
 // ─── Retry policy ────────────────────────────────────────────────────────────

@@ -10,6 +10,20 @@
  *
  * Version History:
  *
+ * - V.50 Alpha (2026-03-08): Nova-native login shell overhaul
+ *     - Rebuilt `/login` into a full Nova shell surface with orb-aligned spotlight panels, responsive split layout, and stronger session-routing context across sign-in, sign-up, forgot, and reset modes.
+ *     - Added a dedicated login background layer that reuses Nova's atmospheric gradients and floating-line treatment so authentication feels integrated with the HUD instead of detached.
+ *     - Preserved existing auth contracts, Google OAuth flow, boot-right redirect behavior, and hydration-safe theme/orb synchronization while modernizing the access experience.
+ *
+ * - V.49 Alpha (2026-03-07): Job-ledger completion RPC cutover
+ *     - Replaced the last client-side `completeRun()` write path with a single server-side RPC so job completion timestamps and duration accounting now use the database clock.
+ *     - Removed the old JavaScript completion timestamp/duration logic and rewired all execution release paths to the singular RPC-backed completion contract.
+ *     - Extended scheduler ledger smoke coverage for the new completion procedure while preserving user-scoped run execution behavior.
+ *
+ * - V.48 Alpha (2026-03-07): Boot-right hydration mismatch fix
+ *     - Removed the auth gate's render-time dependency on `window`/local user cache so protected routes hydrate with the same first-pass HTML on server and client.
+ *     - Preserved post-mount cached-user/session recovery behavior so authenticated HUD routes still unlock immediately after hydration without reintroducing SSR divergence.
+ *
  * - V.47 Alpha (2026-03-06): HUD hydration mismatch guardrails
  *     - Fixed layout-level hydration mismatches by making auth-gate first render deterministic between server and client.
  *     - Moved login background persisted orb-color restoration behind mount so `/login` no longer diverges during hydration.
@@ -301,6 +315,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.47 Alpha"
+export const NOVA_VERSION = "V.50 Alpha"
 
 

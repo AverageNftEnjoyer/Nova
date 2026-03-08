@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { enforceWorkspaceUserStateInvariant } from "../workspace-user-root/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,7 +31,8 @@ function readLowerCsvEnv(name, fallbackCsv = "") {
 
 // ===== Base Paths =====
 export const ROOT_DIR = path.join(__dirname, "..");
-export const ROOT_WORKSPACE_DIR = path.join(__dirname, "..", "..", "..");
+const WORKSPACE_PATHS = enforceWorkspaceUserStateInvariant(__dirname);
+export const ROOT_WORKSPACE_DIR = WORKSPACE_PATHS.workspaceRoot;
 export const USER_DATA_DIR = ".user";
 export const INTEGRATIONS_CONFIG_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", "integrations-config.json");
 
@@ -255,7 +258,7 @@ export const MEMORY_FACT_MAX_CHARS = readIntEnv("NOVA_MEMORY_FACT_MAX_CHARS", 28
 export const STT_MODEL = String(process.env.NOVA_STT_MODEL || "whisper-1").trim();
 
 // ===== User Context & Bootstrap =====
-export const USER_CONTEXT_ROOT = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "user-context");
+export const USER_CONTEXT_ROOT = WORKSPACE_PATHS.userContextRoot;
 export const BOOTSTRAP_BASELINE_DIR = path.join(ROOT_WORKSPACE_DIR, "templates");
 export const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "IDENTITY.md"];
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { PHANTOM_APP_URL } from "@/lib/integrations/phantom/browser"
 import { openExternalBrowser } from "@/lib/integrations/phantom/external-browser"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
@@ -14,7 +15,7 @@ function resolveTargetUrl(req: Request, target: PhantomBrowserTarget): string {
     return PHANTOM_APP_URL
   }
   const base = new URL(req.url)
-  return new URL("/integrations#phantom", base).toString()
+  return new URL(buildIntegrationsHref("phantom"), base).toString()
 }
 
 export async function POST(req: Request) {

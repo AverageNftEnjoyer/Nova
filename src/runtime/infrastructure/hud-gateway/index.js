@@ -33,6 +33,7 @@ const wsUserRateWindow = new Map();
 const wsByUserContext = new Map();
 const wsContextBySocket = new WeakMap();
 const pendingAssistantStreamDeltas = new Map();
+const recentHudStateEvents = new Map();
 let voiceRoutingUserContextId = "";
 const wsAuthByToken = new Map();
 const conversationOwnerById = new Map();
@@ -121,6 +122,20 @@ const HUD_MIN_THINKING_PRESENCE_MS = Math.max(
   Math.min(
     5_000,
     Number.parseInt(process.env.NOVA_HUD_MIN_THINKING_PRESENCE_MS || "320", 10) || 320,
+  ),
+);
+const HUD_STATE_COMPACT_WINDOW_MS = Math.max(
+  0,
+  Math.min(
+    5_000,
+    Number.parseInt(process.env.NOVA_HUD_STATE_COMPACT_WINDOW_MS || "150", 10) || 150,
+  ),
+);
+const HUD_THINKING_STATUS_COMPACT_WINDOW_MS = Math.max(
+  0,
+  Math.min(
+    5_000,
+    Number.parseInt(process.env.NOVA_HUD_THINKING_STATUS_COMPACT_WINDOW_MS || "120", 10) || 120,
   ),
 );
 const WS_STREAM_DELTA_BATCH_MS = Math.max(
@@ -594,6 +609,7 @@ export function getVoiceRoutingUserContextId() {
 
 export function broadcastState(state, userContextId = "") {
   const resolvedUserContextId = resolveEventUserContextId(userContextId);
+  if (shouldSuppressHudStateEvent("state", state, resolvedUserContextId, HUD_STATE_COMPACT_WINDOW_MS)) return;
   broadcast(
     {
       type: "state",
@@ -607,6 +623,14 @@ export function broadcastState(state, userContextId = "") {
 
 export function broadcastThinkingStatus(status = "", userContextId = "") {
   const resolvedUserContextId = resolveEventUserContextId(userContextId);
+  if (
+    shouldSuppressHudStateEvent(
+      "thinking_status",
+      status,
+      resolvedUserContextId,
+      HUD_THINKING_STATUS_COMPACT_WINDOW_MS,
+    )
+  ) return;
   broadcast(
     {
       type: "thinking_status",
@@ -621,6 +645,20 @@ export function broadcastThinkingStatus(status = "", userContextId = "") {
 function normalizeConversationId(value) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized || "";
+}
+
+function shouldSuppressHudStateEvent(type, value, userContextId = "", windowMs = 0) {
+  const normalizedUserContextId = normalizeUserContextId(userContextId);
+  if (!normalizedUserContextId || windowMs <= 0) return false;
+  const key = `${type}:${normalizedUserContextId}`;
+  const now = Date.now();
+  const nextValue = String(value || "");
+  const previous = recentHudStateEvents.get(key);
+  if (previous && previous.value === nextValue && now - Number(previous.ts || 0) < windowMs) {
+    return true;
+  }
+  recentHudStateEvents.set(key, { value: nextValue, ts: now });
+  return false;
 }
 
 function hasScopedConversationContext(userContextId = "", conversationId = "") {
@@ -792,7 +830,7 @@ function queueAssistantStreamDelta({
   pendingAssistantStreamDeltas.set(key, pending);
 }
 
-function sendWsPayload(ws, payload) {
+export function sendWsPayload(ws, payload) {
   if (!ws || ws.readyState !== 1) return false;
   if (Number(ws.bufferedAmount || 0) > WS_BUFFERED_AMOUNT_SOFT_LIMIT_BYTES) {
     try {
@@ -809,6 +847,42 @@ function sendWsPayload(ws, payload) {
     return false;
   }
 }
+
+function resetHudGatewayTestState() {
+  for (const pending of pendingAssistantStreamDeltas.values()) {
+    if (pending?.timer) clearTimeout(pending.timer);
+  }
+  pendingAssistantStreamDeltas.clear();
+  recentHudStateEvents.clear();
+  wss = null;
+  wsUserRateWindow.clear();
+  wsByUserContext.clear();
+  wsAuthByToken.clear();
+  conversationOwnerById.clear();
+  hudOpTokenStateByKey.clear();
+  hudWorkInFlightByUser.clear();
+  voiceRoutingUserContextId = "";
+}
+
+export const __hudGatewayTestUtils = {
+  bindSocketToUserContext,
+  unbindSocketFromUserContext,
+  clearPendingAssistantStreamDelta,
+  flushPendingAssistantStreamDelta,
+  makeAssistantStreamDeltaKey,
+  queueAssistantStreamDelta,
+  resetState: resetHudGatewayTestState,
+  setServer(server = null) {
+    wss = server;
+  },
+  getPendingAssistantStreamDeltaCount() {
+    return pendingAssistantStreamDeltas.size;
+  },
+  getScopedSocketCount(userContextId = "") {
+    return wsByUserContext.get(normalizeUserContextId(userContextId))?.size || 0;
+  },
+  shouldSuppressHudStateEvent,
+};
 
 function sanitizeCalendarEventId(value) {
   const normalized = String(value || "").trim();
@@ -1026,6 +1100,7 @@ export function startGateway() {
           broadcast,
           describeUnknownError,
           voiceProviderAdapter,
+          sendWsPayload,
         },
       });
     });

@@ -92,8 +92,9 @@ export async function acquireMissionExecutionSlot(input: {
   }
 
   // 3. Transition claimed → running
-  await jobLedger.startRun({ jobRunId: missionRunId, leaseToken: claimResult.leaseToken }).catch((err) => {
+  const startResult = await jobLedger.startRun({ jobRunId: missionRunId, leaseToken: claimResult.leaseToken }).catch((err) => {
     console.warn("[ExecutionGuard] Failed to transition job run to running:", err)
+    return { ok: false, startedAt: null }
   })
 
   // Fail-safe default: if release() is called without reportOutcome(), mark failed.
@@ -124,6 +125,7 @@ export async function acquireMissionExecutionSlot(input: {
           await jobLedger.failRun({
             jobRunId: missionRunId,
             leaseToken: claimResult.leaseToken,
+            startedAt: startResult.startedAt,
             errorDetail: outcomeErrorDetail,
           }).catch(() => {})
         }
@@ -158,17 +160,20 @@ function makeNoopSlot(): MissionExecutionSlot {
 export function makePreClaimedSlot(
   jobRunId: string,
   leaseToken: string,
-  heartbeatConfig?: { intervalMs: number; onBeat: () => Promise<void> },
+  options?: {
+    heartbeatConfig?: { intervalMs: number; onBeat: () => Promise<void> }
+    startedAt?: string | null
+  },
 ): MissionExecutionSlot {
   let outcomeSuccess = false
   let outcomeErrorDetail: string | undefined
   let outcomeReported = false
 
   let heartbeatTimer: NodeJS.Timeout | null = null
-  if (heartbeatConfig) {
+  if (options?.heartbeatConfig) {
     heartbeatTimer = setInterval(
-      () => { heartbeatConfig.onBeat().catch(() => {}) },
-      heartbeatConfig.intervalMs,
+      () => { options.heartbeatConfig?.onBeat().catch(() => {}) },
+      options.heartbeatConfig.intervalMs,
     )
   }
 
@@ -189,7 +194,12 @@ export function makePreClaimedSlot(
       if (outcomeSuccess) {
         await jobLedger.completeRun({ jobRunId, leaseToken }).catch(() => {})
       } else {
-        await jobLedger.failRun({ jobRunId, leaseToken, errorDetail: outcomeErrorDetail }).catch(() => {})
+        await jobLedger.failRun({
+          jobRunId,
+          leaseToken,
+          startedAt: options?.startedAt,
+          errorDetail: outcomeErrorDetail,
+        }).catch(() => {})
       }
     },
   }

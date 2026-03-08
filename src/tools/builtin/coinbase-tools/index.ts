@@ -75,6 +75,18 @@ type CoinbaseToolErrorPayload = {
   requiredScopes: string[];
 };
 
+function resolveWorkspaceRoot(workspaceDir: string): string {
+  const fallback = path.resolve(workspaceDir || process.cwd());
+  let current = fallback;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (fs.existsSync(path.join(current, "hud")) && fs.existsSync(path.join(current, "src"))) return current;
+    const parent = path.dirname(current);
+    if (!parent || parent === current) break;
+    current = parent;
+  }
+  return fallback;
+}
+
 function rolloutBlockedError(kind: string, userContextId: string): CoinbaseToolErrorPayload {
   const access = resolveCoinbaseRolloutAccess(userContextId);
   return {
@@ -211,7 +223,7 @@ function parseIncludedAssetsFromText(raw: string): string[] {
 function loadCoinbaseReportSkillPrefs(workspaceDir: string, userContextId: string): CoinbaseReportSkillPrefs | null {
   const normalizedUserContextId = toUserContextId(userContextId);
   if (!normalizedUserContextId) return null;
-  const root = path.resolve(workspaceDir || process.cwd());
+  const root = resolveWorkspaceRoot(workspaceDir);
   const candidates = [
     path.join(root, ".user", "user-context", normalizedUserContextId, "skills", "coinbase", "SKILL.md"),
     path.join(root, ".user", "user-context", normalizedUserContextId, "skills.md"),
@@ -516,7 +528,7 @@ function createRequestContext(input: Record<string, unknown>): CoinbaseRequestCo
 }
 
 function getService(workspaceDir: string, userContextId: string): CoinbaseProvider {
-  const root = path.resolve(workspaceDir || process.cwd());
+  const root = resolveWorkspaceRoot(workspaceDir);
   const normalizedUserContextId = toUserContextId(userContextId);
   if (!normalizedUserContextId) throw new Error("Missing userContextId.");
   const key = `${root}::${normalizedUserContextId}`;
@@ -539,7 +551,7 @@ function getService(workspaceDir: string, userContextId: string): CoinbaseProvid
 }
 
 function getDataStore(workspaceDir: string, userContextId: string): CoinbaseDataStore | null {
-  const root = path.resolve(workspaceDir || process.cwd());
+  const root = resolveWorkspaceRoot(workspaceDir);
   const normalizedUserContextId = toUserContextId(userContextId);
   if (!normalizedUserContextId) return null;
   const existing = serviceByWorkspaceAndUser.get(`${root}::${normalizedUserContextId}`);
@@ -570,7 +582,7 @@ function getPrivacySettings(workspaceDir: string, userContextId: string): {
       transactionHistoryConsentGranted: settings.transactionHistoryConsentGranted,
     };
   }
-  const root = path.resolve(workspaceDir || process.cwd());
+  const root = resolveWorkspaceRoot(workspaceDir);
   const directStore = new CoinbaseDataStore(coinbaseDbPathForUserContext(normalizedUserContextId, root));
   try {
     const settings = directStore.getPrivacySettings(normalizedUserContextId);
@@ -712,7 +724,7 @@ function resolvePersonaMetaFromWorkspace(workspaceDir: string, userContextId: st
   tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed";
 } {
   const uid = toUserContextId(userContextId);
-  const root = path.resolve(workspaceDir || process.cwd());
+  const root = resolveWorkspaceRoot(workspaceDir);
   if (!uid) return { assistantName: "Nova", tone: "neutral" };
   const cacheKey = `${root}::${uid}`;
   const now = Date.now();

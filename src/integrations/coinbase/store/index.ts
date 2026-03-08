@@ -697,7 +697,17 @@ export function coinbaseDbPathForUserContext(userContextIdInput: string, workspa
   if (!userContextId) {
     throw new Error("Missing userContextId for Coinbase DB path.");
   }
-  const workspaceRoot = path.resolve(workspaceRootInput || process.cwd());
+  const fallback = path.resolve(workspaceRootInput || process.cwd());
+  let workspaceRoot = fallback;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (fs.existsSync(path.join(workspaceRoot, "hud")) && fs.existsSync(path.join(workspaceRoot, "src"))) break;
+    const parent = path.dirname(workspaceRoot);
+    if (!parent || parent === workspaceRoot) {
+      workspaceRoot = fallback;
+      break;
+    }
+    workspaceRoot = parent;
+  }
   return path.join(workspaceRoot, ".user", "user-context", userContextId, "coinbase", "coinbase.sqlite");
 }
 

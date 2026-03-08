@@ -26,6 +26,10 @@ test("phantom challenge issuance binds nonce/message to user context, wallet, an
   assert.equal(challenge.expiresAt, "2026-03-06T15:05:00.000Z")
   assert.match(challenge.message, /^localhost:3000 wants you to sign in with your Solana account:/)
   assert.match(challenge.message, /URI: http:\/\/localhost:3000\/integrations/)
+  assert.deepEqual(challenge.resources, [
+    "http://localhost:3000/integrations?setup=phantom",
+    "http://localhost:3000/integrations#polymarket",
+  ])
   assert.match(challenge.message, /Chain ID: solana:mainnet/)
   assert.match(challenge.message, /Request ID: nova-phantom-auth/)
   assert.ok(challenge.nonce.length > 10)

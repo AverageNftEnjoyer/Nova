@@ -16,6 +16,7 @@ import {
   OPENAI_MODEL_PRICING_USD_PER_1M,
   CLAUDE_MODEL_PRICING_USD_PER_1M
 } from "../../runtime/core/constants/index.js";
+import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace-user-root/index.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
@@ -28,26 +29,6 @@ const USER_CONTEXT_INTEGRATIONS_ROOT = path.join(
 );
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
 const USER_CONTEXT_STATE_DIR = "state";
-
-function resolveWorkspaceRoot(workspaceRootInput = "") {
-  const provided = String(workspaceRootInput || "").trim();
-  if (provided) return path.resolve(provided);
-  const cwd = path.resolve(process.cwd());
-  if (fs.existsSync(path.join(cwd, "hud")) && fs.existsSync(path.join(cwd, "src"))) return cwd;
-  if (path.basename(cwd).toLowerCase() === "hud") return path.resolve(cwd, "..");
-  const parent = path.resolve(cwd, "..");
-  if (fs.existsSync(path.join(parent, "hud")) && fs.existsSync(path.join(parent, "src"))) return parent;
-  return cwd;
-}
-
-function assertWorkspaceUserRoot(root) {
-  const normalizedRoot = path.resolve(root);
-  const invalidUserRoot = path.join(normalizedRoot, "src", ".user");
-  if (fs.existsSync(invalidUserRoot)) {
-    throw new Error(`Invalid duplicate user state root detected at ${invalidUserRoot}. Use ${path.join(normalizedRoot, ".user")} only.`);
-  }
-  return normalizedRoot;
-}
 
 // ===== Error Helpers =====
 export function describeUnknownError(err) {
@@ -116,7 +97,7 @@ function resolveEncryptionKeyCandidates() {
       candidates.push(entry);
     }
   }
-  const root = assertWorkspaceUserRoot(resolveWorkspaceRoot());
+  const { workspaceRoot: root } = enforceWorkspaceUserStateInvariant();
   const dotenvPaths = [
     path.join(root, ".env"),
     path.join(root, ".env.local"),

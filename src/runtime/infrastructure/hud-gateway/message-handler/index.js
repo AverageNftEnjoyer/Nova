@@ -50,7 +50,15 @@ export async function handleHudGatewayMessage({
     broadcast,
     describeUnknownError,
     voiceProviderAdapter,
+    sendWsPayload,
   } = deps;
+  const writeWsPayload = typeof sendWsPayload === "function"
+    ? sendWsPayload
+    : (socket, payload) => {
+      if (!socket || socket.readyState !== 1) return false;
+      socket.send(payload);
+      return true;
+    };
 
   try {
     const connRate = checkWindowRateLimit(
@@ -61,7 +69,7 @@ export async function handleHudGatewayMessage({
     );
     if (!connRate.allowed) {
       if (ws.readyState === 1) {
-        ws.send(JSON.stringify({
+        writeWsPayload(ws, JSON.stringify({
           type: "rate_limited",
           scope: "connection",
           retryAfterMs: connRate.retryAfterMs,
@@ -87,7 +95,7 @@ export async function handleHudGatewayMessage({
     if (data.type === "request_system_metrics") {
       const metrics = await getSystemMetrics();
       if (metrics && ws.readyState === 1) {
-        ws.send(JSON.stringify({
+        writeWsPayload(ws, JSON.stringify({
           type: "system_metrics",
           metrics,
           scheduler: hudRequestScheduler.getSnapshot(),
@@ -105,7 +113,7 @@ export async function handleHudGatewayMessage({
       });
       if (!emitBind.ok) {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({
+          writeWsPayload(ws, JSON.stringify({
             type: "auth_error",
             code: emitBind.code,
             message: emitBind.message,
@@ -118,7 +126,7 @@ export async function handleHudGatewayMessage({
       const eventType = String(data.eventType || "").trim().toLowerCase();
       if (!CALENDAR_EMIT_EVENT_TYPES.has(eventType)) {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({
+          writeWsPayload(ws, JSON.stringify({
             type: "calendar_emit_ack",
             ok: false,
             error: "unsupported_event_type",
@@ -156,7 +164,7 @@ export async function handleHudGatewayMessage({
       }
 
       if (ws.readyState === 1) {
-        ws.send(JSON.stringify({
+        writeWsPayload(ws, JSON.stringify({
           type: "calendar_emit_ack",
           ok: true,
           eventType,
@@ -174,7 +182,7 @@ export async function handleHudGatewayMessage({
       });
       if (!greetingBind.ok) {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({
+          writeWsPayload(ws, JSON.stringify({
             type: "auth_error",
             code: greetingBind.code,
             message: greetingBind.message,
@@ -218,7 +226,7 @@ export async function handleHudGatewayMessage({
       const userRate = checkWsUserRateLimit(typeof data.userId === "string" ? data.userId : "");
       if (!userRate.allowed) {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({
+          writeWsPayload(ws, JSON.stringify({
             type: "rate_limited",
             scope: "user",
             retryAfterMs: userRate.retryAfterMs,
@@ -446,7 +454,7 @@ export async function handleHudGatewayMessage({
       });
       if (!voiceBind.ok) {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({
+          writeWsPayload(ws, JSON.stringify({
             type: "auth_error",
             code: voiceBind.code,
             message: voiceBind.message,
@@ -477,7 +485,7 @@ export async function handleHudGatewayMessage({
       });
       if (!muteBind.ok) {
         if (ws.readyState === 1) {
-          ws.send(JSON.stringify({
+          writeWsPayload(ws, JSON.stringify({
             type: "auth_error",
             code: muteBind.code,
             message: muteBind.message,

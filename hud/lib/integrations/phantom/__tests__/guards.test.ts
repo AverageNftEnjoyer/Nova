@@ -24,7 +24,7 @@ function buildAuthState(): PhantomWalletAuthState {
       statement: "Sign in to Nova",
       versionLabel: "1",
       chainId: "solana:mainnet",
-      resources: ["http://localhost:3000/integrations#phantom"],
+      resources: ["http://localhost:3000/integrations?setup=phantom"],
       issuedAt: "2026-03-06T15:00:00.000Z",
       expiresAt: "2026-03-06T15:05:00.000Z",
       accessTokenHash: "token-hash-a",

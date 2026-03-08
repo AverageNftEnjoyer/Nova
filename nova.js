@@ -2,14 +2,16 @@ import { spawn, exec, execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { enforceWorkspaceUserStateInvariant } from "./src/runtime/core/workspace-user-root/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const WORKSPACE_PATHS = enforceWorkspaceUserStateInvariant(__dirname);
 
 const children = [];
 let hudBaseUrl = "http://localhost:3000";
 let shuttingDown = false;
-const HUD_DIR = path.join(__dirname, "hud");
+const HUD_DIR = path.join(WORKSPACE_PATHS.workspaceRoot, "hud");
 const HUD_MODE_ENV = String(process.env.NOVA_HUD_MODE || "").trim().toLowerCase();
 const HUD_MODE_ARG = process.argv.some((arg) => String(arg || "").trim().toLowerCase() === "--dev");
 const HUD_MODE = HUD_MODE_ENV === "dev" || HUD_MODE_ARG ? "dev" : "start";

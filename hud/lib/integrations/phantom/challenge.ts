@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 
+import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import {
   PHANTOM_SOLANA_SIGN_IN_CHAIN_ID,
   PHANTOM_SOLANA_SIGN_IN_VERSION,
@@ -88,7 +89,7 @@ export function createPhantomAuthChallenge(params: {
   const statement =
     "Sign in to Nova to verify wallet ownership. This signs a message only and does not authorize custody, transactions, or autonomous trading."
   const resources = [
-    `${origin.replace(/\/+$/, "")}/integrations#phantom`,
+    `${origin.replace(/\/+$/, "")}${buildIntegrationsHref("phantom")}`,
     `${origin.replace(/\/+$/, "")}/integrations#polymarket`,
   ]
   const message = buildPhantomChallengeMessage({

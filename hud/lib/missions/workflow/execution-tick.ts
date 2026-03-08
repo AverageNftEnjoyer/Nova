@@ -16,9 +16,13 @@ import { loadMissions, upsertMission } from "../../../../src/runtime/modules/ser
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { executeMission } from "./execute-mission"
 import { makePreClaimedSlot } from "./execution-guard"
+import {
+  createTickMissionSnapshotCache as createSharedTickMissionSnapshotCache,
+  planExecutionTickCandidates as planSharedExecutionTickCandidates,
+} from "./execution-tick-helpers.mjs"
 import { getLocalParts } from "./time"
 import { resolveTimezone } from "@/lib/shared/timezone"
-import type { JobRun } from "../job-ledger/types"
+import type { PendingJobRun } from "../job-ledger/types"
 import type { Mission } from "../types"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,6 +39,22 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
 
 /** Max pending runs to dequeue per execution-tick invocation. */
 const EXECUTION_TICK_BATCH_SIZE = readIntEnv("NOVA_EXECUTION_TICK_BATCH_SIZE", 10, 1, 50)
+
+/** How many pending rows to scan before selecting a fair per-user batch. */
+const EXECUTION_TICK_SCAN_LIMIT = readIntEnv(
+  "NOVA_EXECUTION_TICK_SCAN_LIMIT",
+  EXECUTION_TICK_BATCH_SIZE * 4,
+  EXECUTION_TICK_BATCH_SIZE,
+  200,
+)
+
+/** Soft fairness cap: avoid letting one user monopolize a single execution tick. */
+const EXECUTION_TICK_MAX_RUNS_PER_USER = readIntEnv(
+  "NOVA_MISSION_EXECUTION_MAX_INFLIGHT_PER_USER",
+  3,
+  1,
+  100,
+)
 
 /** How long the execution-tick holds a lease on a claimed run (default 10 min). */
 const EXECUTION_TICK_LEASE_MS = readIntEnv("NOVA_EXECUTION_TICK_LEASE_MS", 10 * 60_000, 60_000, 30 * 60_000)
@@ -66,6 +86,10 @@ type ExecutionTickState = {
   lastTickError?: string
 }
 
+type TickMissionSnapshotCache = {
+  getMission: (userId: string, missionId: string) => Promise<Mission | null>
+}
+
 const etState = (
   (globalThis as { __novaExecutionTick?: ExecutionTickState }).__novaExecutionTick ??
   ({
@@ -87,7 +111,11 @@ const etState = (
 // Single-run executor
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed" | "skipped"> {
+async function executeRun(
+  run: PendingJobRun,
+  now: Date,
+  cache: TickMissionSnapshotCache,
+): Promise<"completed" | "failed" | "skipped"> {
   // Atomically claim the run - prevents double-execution when multiple workers overlap.
   const claimResult = await jobLedger.claimRun({
     jobRunId: run.id,
@@ -100,7 +128,7 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
   const startResult = await jobLedger.startRun({ jobRunId: run.id, leaseToken: claimResult.leaseToken }).catch((err) => {
     startErrorDetail = err instanceof Error ? err.message : String(err)
     console.warn("[ExecutionTick] startRun failed:", run.id, startErrorDetail)
-    return { ok: false }
+    return { ok: false, startedAt: null }
   })
 
   if (!startResult.ok) {
@@ -109,6 +137,7 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
       .failRun({
         jobRunId: run.id,
         leaseToken: claimResult.leaseToken,
+        startedAt: startResult.startedAt,
         errorCode: "START_RUN_FAILED",
         errorDetail: detail,
       })
@@ -119,115 +148,134 @@ async function executeRun(run: JobRun, now: Date): Promise<"completed" | "failed
   }
 
   try {
-    // Load the mission fresh from the store.
-    let missions: Mission[]
     try {
-      missions = await loadMissions({ userId: run.user_id })
+      const mission = await cache.getMission(run.user_id, run.mission_id)
+      if (!mission) {
+        await jobLedger.failRun({
+          jobRunId: run.id,
+          leaseToken: claimResult.leaseToken,
+          startedAt: startResult.startedAt,
+          errorCode: "MISSION_NOT_FOUND",
+          errorDetail: "Mission " + run.mission_id + " not found for user " + run.user_id,
+        }).catch(() => {})
+        return "failed"
+      }
+
+      // Apply scheduledAtOverride from input_snapshot (set by scheduler when a
+      // calendar reschedule override was active at enqueue time).
+      const scheduledAtOverride =
+        typeof run.input_snapshot?.scheduledAtOverride === "string" ? run.input_snapshot.scheduledAtOverride : undefined
+      const missionToRun: Mission = scheduledAtOverride ? { ...mission, scheduledAtOverride } : mission
+
+      // Build a pre-claimed slot - executeMissionCore will use it instead of re-enqueuing.
+      // Heartbeat is managed by the slot and cleared in slot.release().
+      const slot = makePreClaimedSlot(run.id, claimResult.leaseToken, {
+        startedAt: startResult.startedAt,
+        heartbeatConfig: {
+          intervalMs: Math.floor(EXECUTION_TICK_LEASE_MS / 3),
+          onBeat: () =>
+            jobLedger
+              .heartbeat({ jobRunId: run.id, leaseToken: claimResult.leaseToken, leaseDurationMs: EXECUTION_TICK_LEASE_MS })
+              .then(() => {}),
+        },
+      })
+
+      const scope = mission.userId
+        ? { userId: mission.userId, allowServiceRole: true as const, serviceRoleReason: "execution-tick" as const }
+        : undefined
+
+      const source: "scheduler" | "trigger" | "manual" =
+        run.source === "manual" ? "manual" : run.source === "webhook" ? "trigger" : "scheduler"
+
+      try {
+        const conversationId = `mission-scheduler:${mission.id}`
+        const sessionKey = `agent:nova:scheduler:user:${run.user_id}:dm:${conversationId}`
+        const result = await executeMission({
+          mission: missionToRun,
+          source,
+          now,
+          missionRunId: run.id,
+          userContextId: run.user_id,
+          conversationId,
+          sessionKey,
+          attempt: (run.attempt ?? 0) + 1,
+          scope,
+          preClaimedSlot: slot,
+        })
+
+        if (!result.skipped) {
+          // Compute day stamp for the day-lock so the scheduler won't re-enqueue today.
+          const triggerNode = mission.nodes.find((n) => n.type === "schedule-trigger") as
+            | { triggerMode?: string; triggerTimezone?: string }
+            | undefined
+          const mode = String(triggerNode?.triggerMode || "daily")
+          const tz = resolveTimezone(triggerNode?.triggerTimezone, mission.settings?.timezone)
+          const local = getLocalParts(now, tz)
+          const dayStamp =
+            (mode === "daily" || mode === "weekly" || mode === "once") && local?.dayStamp ? local.dayStamp : undefined
+
+          await upsertMission(
+            {
+              ...mission,
+              lastRunAt: now.toISOString(),
+              lastSentLocalDate: dayStamp ?? mission.lastSentLocalDate,
+              runCount: (mission.runCount || 0) + 1,
+              successCount: result.ok ? (mission.successCount || 0) + 1 : mission.successCount || 0,
+              failureCount: result.ok ? mission.failureCount || 0 : (mission.failureCount || 0) + 1,
+              lastRunStatus: result.ok ? ("success" as const) : ("error" as const),
+              scheduledAtOverride: undefined,
+            },
+            mission.userId || "",
+          ).catch((err) => {
+            console.warn("[ExecutionTick] upsertMission failed:", mission.id, err instanceof Error ? err.message : err)
+          })
+
+          // Clean up the calendar reschedule override now that execution succeeded.
+          if (result.ok && scheduledAtOverride && mission.userId) {
+            deleteRescheduleOverride(mission.userId, mission.id).catch(() => {})
+          }
+
+          return result.ok ? "completed" : "failed"
+        }
+
+        return "skipped"
+      } catch (err) {
+        console.error("[ExecutionTick] Mission execution threw:", run.mission_id, err instanceof Error ? err.message : err)
+        return "failed"
+      }
     } catch (err) {
       console.error("[ExecutionTick] loadMissions threw for run:", run.id, err instanceof Error ? err.message : err)
       await jobLedger.failRun({
         jobRunId: run.id,
         leaseToken: claimResult.leaseToken,
+        startedAt: startResult.startedAt,
         errorCode: "LOAD_MISSIONS_ERROR",
         errorDetail: err instanceof Error ? err.message : String(err),
       }).catch(() => {})
       return "failed"
     }
-
-    const mission = missions.find((m) => m.id === run.mission_id)
-
-    if (!mission) {
-      await jobLedger.failRun({
-        jobRunId: run.id,
-        leaseToken: claimResult.leaseToken,
-        errorCode: "MISSION_NOT_FOUND",
-        errorDetail: "Mission " + run.mission_id + " not found for user " + run.user_id,
-      }).catch(() => {})
-      return "failed"
-    }
-
-    // Apply scheduledAtOverride from input_snapshot (set by scheduler when a
-    // calendar reschedule override was active at enqueue time).
-    const scheduledAtOverride =
-      typeof run.input_snapshot?.scheduledAtOverride === "string" ? run.input_snapshot.scheduledAtOverride : undefined
-    const missionToRun: Mission = scheduledAtOverride ? { ...mission, scheduledAtOverride } : mission
-
-    // Build a pre-claimed slot - executeMissionCore will use it instead of re-enqueuing.
-    // Heartbeat is managed by the slot and cleared in slot.release().
-    const slot = makePreClaimedSlot(run.id, claimResult.leaseToken, {
-      intervalMs: Math.floor(EXECUTION_TICK_LEASE_MS / 3),
-      onBeat: () =>
-        jobLedger
-          .heartbeat({ jobRunId: run.id, leaseToken: claimResult.leaseToken, leaseDurationMs: EXECUTION_TICK_LEASE_MS })
-          .then(() => {}),
-    })
-
-    const scope = mission.userId
-      ? { userId: mission.userId, allowServiceRole: true as const, serviceRoleReason: "execution-tick" as const }
-      : undefined
-
-    const source: "scheduler" | "trigger" | "manual" =
-      run.source === "manual" ? "manual" : run.source === "webhook" ? "trigger" : "scheduler"
-
-    try {
-      const conversationId = `mission-scheduler:${mission.id}`
-      const sessionKey = `agent:nova:scheduler:user:${run.user_id}:dm:${conversationId}`
-      const result = await executeMission({
-        mission: missionToRun,
-        source,
-        now,
-        missionRunId: run.id,
-        userContextId: run.user_id,
-        conversationId,
-        sessionKey,
-        attempt: (run.attempt ?? 0) + 1,
-        scope,
-        preClaimedSlot: slot,
-      })
-
-      if (!result.skipped) {
-        // Compute day stamp for the day-lock so the scheduler won't re-enqueue today.
-        const triggerNode = mission.nodes.find((n) => n.type === "schedule-trigger") as
-          | { triggerMode?: string; triggerTimezone?: string }
-          | undefined
-        const mode = String(triggerNode?.triggerMode || "daily")
-        const tz = resolveTimezone(triggerNode?.triggerTimezone, mission.settings?.timezone)
-        const local = getLocalParts(now, tz)
-        const dayStamp =
-          (mode === "daily" || mode === "weekly" || mode === "once") && local?.dayStamp ? local.dayStamp : undefined
-
-        await upsertMission(
-          {
-            ...mission,
-            lastRunAt: now.toISOString(),
-            lastSentLocalDate: dayStamp ?? mission.lastSentLocalDate,
-            runCount: (mission.runCount || 0) + 1,
-            successCount: result.ok ? (mission.successCount || 0) + 1 : mission.successCount || 0,
-            failureCount: result.ok ? mission.failureCount || 0 : (mission.failureCount || 0) + 1,
-            lastRunStatus: result.ok ? ("success" as const) : ("error" as const),
-            scheduledAtOverride: undefined,
-          },
-          mission.userId || "",
-        ).catch((err) => {
-          console.warn("[ExecutionTick] upsertMission failed:", mission.id, err instanceof Error ? err.message : err)
-        })
-
-        // Clean up the calendar reschedule override now that execution succeeded.
-        if (result.ok && scheduledAtOverride && mission.userId) {
-          deleteRescheduleOverride(mission.userId, mission.id).catch(() => {})
-        }
-
-        return result.ok ? "completed" : "failed"
-      }
-
-      return "skipped"
-    } catch (err) {
-      console.error("[ExecutionTick] Mission execution threw:", run.mission_id, err instanceof Error ? err.message : err)
-      return "failed"
-    }
   } finally {
     // Heartbeat lifecycle is managed by makePreClaimedSlot.release().
   }
+}
+
+export function planExecutionTickCandidates(
+  pendingRuns: PendingJobRun[],
+  options: {
+    batchSize?: number
+    perUserLimit?: number
+  } = {},
+): PendingJobRun[] {
+  return planSharedExecutionTickCandidates(pendingRuns, {
+    batchSize: options.batchSize || EXECUTION_TICK_BATCH_SIZE,
+    perUserLimit: options.perUserLimit || EXECUTION_TICK_MAX_RUNS_PER_USER,
+  }) as PendingJobRun[]
+}
+
+export function createTickMissionSnapshotCache(
+  loadUserMissions: typeof loadMissions = loadMissions,
+): TickMissionSnapshotCache {
+  return createSharedTickMissionSnapshotCache(loadUserMissions) as TickMissionSnapshotCache
 }
 
 export type ExecutionTickResult = {
@@ -251,9 +299,14 @@ async function runExecutionTickInternal(): Promise<ExecutionTickResult> {
   const now = new Date()
 
   const pendingRuns = await jobLedger.getPendingRuns({
-    limit: EXECUTION_TICK_BATCH_SIZE,
+    limit: EXECUTION_TICK_SCAN_LIMIT,
     now,
   })
+  const runnableRuns = planExecutionTickCandidates(pendingRuns, {
+    batchSize: EXECUTION_TICK_BATCH_SIZE,
+    perUserLimit: EXECUTION_TICK_MAX_RUNS_PER_USER,
+  })
+  const missionCache = createTickMissionSnapshotCache()
 
   let claimed = 0
   let completed = 0
@@ -261,8 +314,8 @@ async function runExecutionTickInternal(): Promise<ExecutionTickResult> {
   let skipped = 0
 
   await Promise.all(
-    pendingRuns.map(async (run) => {
-      const outcome = await executeRun(run, now)
+    runnableRuns.map(async (run) => {
+      const outcome = await executeRun(run, now, missionCache)
       if (outcome === "skipped") {
         skipped++
       } else {

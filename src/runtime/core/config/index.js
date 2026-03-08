@@ -3,8 +3,6 @@
 // Runtime constants are owned by src/runtime/core/constants/index.js.
 
 import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
 import { createSessionRuntime } from "../../../session/runtime-compat/index.js";
 import { createToolRuntime } from "../../../tools/runtime/runtime-compat/index.js";
 import { createWakeWordRuntime } from "../../audio/wake-runtime-compat/index.js";
@@ -37,11 +35,8 @@ import {
   WAKE_WORD_VARIANTS,
 } from "../constants/index.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 // Load .env from project root (makes env vars available to any dynamic reads)
-dotenv.config({ path: path.join(__dirname, "..", "..", "..", ".env") });
+dotenv.config({ path: `${ROOT_WORKSPACE_DIR}/.env` });
 
 export const sessionRuntime = createSessionRuntime({
   sessionStorePath: SESSION_STORE_PATH,

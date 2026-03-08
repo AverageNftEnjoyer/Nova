@@ -2,6 +2,7 @@ import path from "node:path";
 import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 
+import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 import { loadMissions } from "../../missions/persistence/index.js";
 import { resolveTimezone } from "../../shared/timezone/index.js";
 
@@ -50,13 +51,8 @@ function normalizeMissionQuery(value = "") {
     .replace(/\s+/g, " ");
 }
 
-function resolveWorkspaceRoot() {
-  const cwd = process.cwd();
-  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd;
-}
-
 function resolveUserContextRoot() {
-  return path.join(resolveWorkspaceRoot(), ".user", "user-context");
+  return USER_CONTEXT_ROOT;
 }
 
 function resolveOverridesFile(userId = "") {

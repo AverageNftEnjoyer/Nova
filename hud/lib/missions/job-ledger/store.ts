@@ -1,15 +1,16 @@
 import "server-only"
 
 import { createSupabaseAdminClient } from "@/lib/supabase/server"
-import { computeRetryDelayMs } from "../retry-policy"
 import { appendMissionRunDeadLetter } from "./dead-letter"
 import type {
+  CompleteJobInput,
   EnqueueJobInput,
-  FinishJobInput,
+  FailJobInput,
   GetPendingRunsInput,
   JobAuditEvent,
   JobLedgerStore,
   JobRun,
+  PendingJobRun,
   SchedulerLeaseResult,
 } from "./types"
 
@@ -33,6 +34,19 @@ function generateId(prefix: string): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 10)
   return `${prefix}_${ts}_${rand}`
+}
+
+type FailRunRpcResult = {
+  ok: boolean
+  final_status: string | null
+  user_id: string | null
+  mission_id: string | null
+  source: string | null
+  next_attempt: number | null
+  max_attempts: number | null
+  retry_backoff_ms: number | null
+  error_code: string | null
+  error_detail: string | null
 }
 
 function mapClaimFailureReason(reason: string, jobRunId: string, policy: ReturnType<typeof concurrencyPolicy>) {
@@ -83,11 +97,9 @@ export const jobLedger: JobLedgerStore = {
       created_at: now,
     }
 
-    const { data, error } = await db
+    const { error } = await db
       .from("job_runs")
       .insert(row)
-      .select("*")
-      .single()
 
     if (error) {
       if (error.code === "23505") {
@@ -96,14 +108,14 @@ export const jobLedger: JobLedgerStore = {
       return { ok: false, error: error.message }
     }
 
-    return { ok: true, jobRun: data as JobRun }
+    return { ok: true }
   },
 
   async claimRun(input: { jobRunId: string; leaseDurationMs: number }) {
     const db = createSupabaseAdminClient()
     const policy = concurrencyPolicy()
     const leaseToken = generateId("lt")
-    const { data: rpcData, error: rpcError } = await db.rpc("claim_job_run_with_limits", {
+    const { data: rpcData, error: rpcError } = await db.rpc("claim_job_run_lease_with_limits", {
       p_job_run_id: input.jobRunId,
       p_lease_token: leaseToken,
       p_lease_duration_ms: input.leaseDurationMs,
@@ -126,170 +138,101 @@ export const jobLedger: JobLedgerStore = {
     return {
       ok: true,
       leaseToken: String(rpcResult.lease_token || leaseToken),
-      jobRun: rpcResult.job_run as JobRun,
     }
   },
 
   async heartbeat(input: { jobRunId: string; leaseToken: string; leaseDurationMs: number }) {
     const db = createSupabaseAdminClient()
-    const now = new Date()
-    const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs).toISOString()
+    const { data, error } = await db.rpc("heartbeat_job_run_lease", {
+      p_job_run_id: input.jobRunId,
+      p_lease_token: input.leaseToken,
+      p_lease_duration_ms: input.leaseDurationMs,
+    })
 
-    const { error } = await db
-      .from("job_runs")
-      .update({ heartbeat_at: now.toISOString(), lease_expires_at: leaseExpiresAt })
-      .eq("id", input.jobRunId)
-      .eq("lease_token", input.leaseToken)
-      .in("status", ["claimed", "running"])
-
-    return { ok: !error }
+    if (error) return { ok: false }
+    return { ok: data === true }
   },
 
   async startRun(input: { jobRunId: string; leaseToken: string }) {
     const db = createSupabaseAdminClient()
+    const startedAt = new Date().toISOString()
 
     const { error } = await db
       .from("job_runs")
-      .update({ status: "running", started_at: new Date().toISOString() })
+      .update({ status: "running", started_at: startedAt })
       .eq("id", input.jobRunId)
       .eq("lease_token", input.leaseToken)
       .eq("status", "claimed")
 
-    return { ok: !error }
+    return { ok: !error, startedAt: error ? null : startedAt }
   },
 
-  async completeRun(input: FinishJobInput) {
+  async completeRun(input: CompleteJobInput) {
     const db = createSupabaseAdminClient()
+    const { data, error } = await db.rpc("complete_job_run", {
+      p_job_run_id: input.jobRunId,
+      p_lease_token: input.leaseToken,
+      p_output_summary: input.outputSummary ?? null,
+    })
 
-    const { data: row } = await db
-      .from("job_runs")
-      .select("started_at")
-      .eq("id", input.jobRunId)
-      .single()
-
-    const finishedAt = new Date()
-    const startedAt = row?.started_at ? new Date(row.started_at) : finishedAt
-    const durationMs = finishedAt.getTime() - startedAt.getTime()
-
-    const { error } = await db
-      .from("job_runs")
-      .update({
-        status: "succeeded",
-        finished_at: finishedAt.toISOString(),
-        duration_ms: durationMs,
-        output_summary: input.outputSummary ?? null,
-        lease_token: null,
-        lease_expires_at: null,
-      })
-      .eq("id", input.jobRunId)
-      .eq("lease_token", input.leaseToken)
-
-    return { ok: !error }
+    if (error) return { ok: false }
+    return { ok: data === true }
   },
 
-  async failRun(input: FinishJobInput) {
+  async failRun(input: FailJobInput) {
     const db = createSupabaseAdminClient()
-
-    const { data: row } = await db
-      .from("job_runs")
-      .select("started_at, attempt, max_attempts, backoff_ms, user_id, mission_id, source, run_key, input_snapshot, priority")
-      .eq("id", input.jobRunId)
-      .single()
-
-    if (!row) return { ok: false }
-
-    const finishedAt = new Date()
-    const startedAt = row.started_at ? new Date(row.started_at) : finishedAt
-    const durationMs = finishedAt.getTime() - startedAt.getTime()
-
-    const nextAttempt = (row.attempt ?? 0) + 1
-    const isDead = nextAttempt >= (row.max_attempts ?? 1)
-
     const backoffBase = readIntEnv("NOVA_SCHEDULER_RETRY_BASE_MS", 60_000, 1_000, 3_600_000)
     const backoffMax = readIntEnv("NOVA_SCHEDULER_RETRY_MAX_MS", 900_000, 10_000, 86_400_000)
-    const nextBackoffMs = computeRetryDelayMs(nextAttempt, backoffBase, backoffMax, true)
+    const { data: rpcData, error: rpcError } = await db.rpc("fail_job_run_with_retry", {
+      p_job_run_id: input.jobRunId,
+      p_lease_token: input.leaseToken,
+      p_finished_at: new Date().toISOString(),
+      p_started_at: input.startedAt ?? null,
+      p_error_code: input.errorCode ?? null,
+      p_error_detail: input.errorDetail ?? null,
+      p_retry_id: generateId("jr"),
+      p_backoff_base_ms: backoffBase,
+      p_backoff_max_ms: backoffMax,
+      p_backoff_jitter: true,
+    })
 
-    const { error: failErr } = await db
-      .from("job_runs")
-      .update({
-        status: isDead ? "dead" : "failed",
-        finished_at: finishedAt.toISOString(),
-        duration_ms: durationMs,
-        backoff_ms: isDead ? row.backoff_ms ?? 0 : nextBackoffMs,
-        error_code: input.errorCode ?? null,
-        error_detail: input.errorDetail ?? null,
-        lease_token: null,
-        lease_expires_at: null,
-      })
-      .eq("id", input.jobRunId)
-      .eq("lease_token", input.leaseToken)
+    if (rpcError) return { ok: false }
 
-    if (failErr) return { ok: false }
+    const result = (Array.isArray(rpcData) ? rpcData[0] : null) as FailRunRpcResult | null
+    if (!result?.final_status) return { ok: false }
 
-    if (isDead) {
+    if (result.final_status === "dead") {
       await appendMissionRunDeadLetter({
-        userId: String(row.user_id || ""),
-        missionId: String(row.mission_id || ""),
+        userId: String(result.user_id || ""),
+        missionId: String(result.mission_id || ""),
         jobRunId: input.jobRunId,
-        attempt: nextAttempt,
-        maxAttempts: Math.max(1, Number(row.max_attempts ?? 1)),
-        source: String(row.source || "scheduler") as JobRun["source"],
+        attempt: Math.max(1, Number(result.next_attempt ?? 1)),
+        maxAttempts: Math.max(1, Number(result.max_attempts ?? 1)),
+        source: String(result.source || "scheduler") as JobRun["source"],
         status: "dead",
         reason: "max_attempts_exhausted",
-        errorCode: input.errorCode ?? undefined,
-        errorDetail: input.errorDetail ?? undefined,
-        retryBackoffMs: row.backoff_ms ?? 0,
+        errorCode: result.error_code ?? undefined,
+        errorDetail: result.error_detail ?? undefined,
+        retryBackoffMs: Number(result.retry_backoff_ms ?? 0),
       }).catch((err) => {
         console.warn("[JobLedger] appendMissionRunDeadLetter failed:", err instanceof Error ? err.message : err)
       })
       return { ok: true }
     }
 
-    const retryId = generateId("jr")
-    const scheduledFor = new Date(Date.now() + nextBackoffMs).toISOString()
-    const { error: retryInsertErr } = await db.from("job_runs").insert({
-      id: retryId,
-      user_id: row.user_id,
-      mission_id: row.mission_id,
-      status: "pending",
-      priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 5,
-      scheduled_for: scheduledFor,
-      attempt: nextAttempt,
-      max_attempts: row.max_attempts,
-      backoff_ms: nextBackoffMs,
-      source: "retry",
-      run_key: row.run_key ?? null,
-      input_snapshot: row.input_snapshot ?? null,
-      created_at: finishedAt.toISOString(),
-    })
-
-    if (retryInsertErr) {
-      const enqueueFailureDetail = `Retry enqueue failed for ${input.jobRunId}: ${retryInsertErr.message}`
-      const { error: markDeadErr } = await db
-        .from("job_runs")
-        .update({
-          status: "dead",
-          error_code: "RETRY_ENQUEUE_FAILED",
-          error_detail: enqueueFailureDetail,
-        })
-        .eq("id", input.jobRunId)
-        .eq("status", "failed")
-      if (markDeadErr) {
-        console.warn("[JobLedger] Failed to mark job run dead after retry enqueue failure:", markDeadErr.message)
-      }
-
+    if (result.final_status === "retry_enqueue_failed") {
       await appendMissionRunDeadLetter({
-        userId: String(row.user_id || ""),
-        missionId: String(row.mission_id || ""),
+        userId: String(result.user_id || ""),
+        missionId: String(result.mission_id || ""),
         jobRunId: input.jobRunId,
-        attempt: nextAttempt,
-        maxAttempts: Math.max(1, Number(row.max_attempts ?? 1)),
-        source: String(row.source || "scheduler") as JobRun["source"],
+        attempt: Math.max(1, Number(result.next_attempt ?? 1)),
+        maxAttempts: Math.max(1, Number(result.max_attempts ?? 1)),
+        source: String(result.source || "scheduler") as JobRun["source"],
         status: "retry_enqueue_failed",
         reason: "retry_enqueue_failed",
-        errorCode: "RETRY_ENQUEUE_FAILED",
-        errorDetail: enqueueFailureDetail,
-        retryBackoffMs: nextBackoffMs,
+        errorCode: result.error_code ?? "RETRY_ENQUEUE_FAILED",
+        errorDetail: result.error_detail ?? undefined,
+        retryBackoffMs: Number(result.retry_backoff_ms ?? 0),
       }).catch((err) => {
         console.warn("[JobLedger] appendMissionRunDeadLetter failed:", err instanceof Error ? err.message : err)
       })
@@ -297,7 +240,7 @@ export const jobLedger: JobLedgerStore = {
       return { ok: false }
     }
 
-    return { ok: true }
+    return { ok: Boolean(result.ok) }
   },
 
   async cancelRun(input: { jobRunId: string; userId: string }) {
@@ -446,13 +389,13 @@ export const jobLedger: JobLedgerStore = {
     return { ok: true }
   },
 
-  async getPendingRuns(input: GetPendingRunsInput): Promise<JobRun[]> {
+  async getPendingRuns(input: GetPendingRunsInput): Promise<PendingJobRun[]> {
     const db = createSupabaseAdminClient()
     const cutoff = (input.now ?? new Date()).toISOString()
 
     let query = db
       .from("job_runs")
-      .select("*")
+      .select("id, user_id, mission_id, priority, scheduled_for, attempt, source, input_snapshot")
       .eq("status", "pending")
       .lte("scheduled_for", cutoff)
       .order("priority", { ascending: false })
@@ -470,6 +413,6 @@ export const jobLedger: JobLedgerStore = {
       return []
     }
 
-    return data as JobRun[]
+    return data as PendingJobRun[]
   },
 }
