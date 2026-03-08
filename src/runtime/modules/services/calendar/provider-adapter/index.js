@@ -5,10 +5,13 @@ import { randomBytes } from "node:crypto";
 import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 import { loadMissions } from "../../missions/persistence/index.js";
 import { resolveTimezone } from "../../shared/timezone/index.js";
+import { createGoogleCalendarHudHttpAdapter } from "./google-events-hud-http/index.js";
 
 const CALENDAR_DIR_NAME = "calendar";
 const OVERRIDES_FILE_NAME = "calendar-overrides.json";
 const DEFAULT_CALENDAR_WINDOW_DAYS = 7;
+const DEFAULT_GOOGLE_EVENT_LOOKUP_PAST_DAYS = 365;
+const DEFAULT_GOOGLE_EVENT_LOOKUP_FUTURE_DAYS = 365;
 const MAX_CALENDAR_ITEMS = 8;
 const SCHEDULER_MAX_RUNS_PER_TICK = Math.max(
   1,
@@ -119,6 +122,13 @@ function overlaps(startA, endA, startB, endB) {
   return startA < endB && startB < endA;
 }
 
+function normalizeEventTitle(value = "") {
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+/g, " ");
+}
+
 function describeWindow(windowKey = "week") {
   if (windowKey === "today") return "today";
   if (windowKey === "tomorrow") return "tomorrow";
@@ -139,6 +149,47 @@ function formatWhen(startAt, timezone) {
   } catch {
     return new Date(startAt).toISOString();
   }
+}
+
+function buildGoogleLookupWindow(matchStartAt = "") {
+  if (Date.parse(matchStartAt)) {
+    const center = new Date(matchStartAt);
+    return {
+      start: new Date(center.getTime() - 36 * 60 * 60 * 1000),
+      end: new Date(center.getTime() + 36 * 60 * 60 * 1000),
+    };
+  }
+  const start = new Date();
+  start.setDate(start.getDate() - DEFAULT_GOOGLE_EVENT_LOOKUP_PAST_DAYS);
+  const end = new Date();
+  end.setDate(end.getDate() + DEFAULT_GOOGLE_EVENT_LOOKUP_FUTURE_DAYS);
+  return { start, end };
+}
+
+function normalizeGoogleEvent(raw = {}) {
+  const eventId = normalizeText(raw?.id);
+  if (!eventId) return null;
+  const startAt = normalizeText(raw?.start?.dateTime || raw?.start?.date);
+  const endAt = normalizeText(raw?.end?.dateTime || raw?.end?.date);
+  const timeZone = normalizeText(raw?.start?.timeZone || raw?.end?.timeZone || "UTC") || "UTC";
+  const normalizedStartAt = Date.parse(startAt)
+    ? new Date(startAt).toISOString()
+    : "";
+  const normalizedEndAt = Date.parse(endAt)
+    ? new Date(endAt).toISOString()
+    : (normalizedStartAt ? new Date(new Date(normalizedStartAt).getTime() + 60 * 60 * 1000).toISOString() : "");
+  return {
+    id: `gcal::${eventId}`,
+    externalId: eventId,
+    title: normalizeText(raw?.summary || "(No title)"),
+    description: normalizeText(raw?.description || ""),
+    startAt: normalizedStartAt,
+    endAt: normalizedEndAt,
+    timezone: timeZone,
+    conflict: false,
+    provider: "gcalendar",
+    status: normalizeText(raw?.status || "confirmed") || "confirmed",
+  };
 }
 
 async function atomicWriteJson(filePath, payload) {
@@ -366,6 +417,40 @@ function markConflicts(events = []) {
   return sorted;
 }
 
+function findMatchingStandaloneGoogleEvent(events = [], input = {}) {
+  const title = normalizeEventTitle(input.title);
+  const matchStartAt = normalizeText(input.matchStartAt);
+  if (!title) return { event: null, code: "calendar.event_title_required", message: "Calendar event title is required." };
+
+  const candidates = events.filter((event) => normalizeEventTitle(event.title) === title);
+  if (candidates.length === 0) {
+    return {
+      event: null,
+      code: "calendar.event_not_found",
+      message: `I couldn't find a Google Calendar event named "${input.title}".`,
+    };
+  }
+
+  if (matchStartAt) {
+    const dated = candidates.filter((event) => event.startAt && event.startAt.slice(0, 10) === matchStartAt.slice(0, 10));
+    if (dated.length === 1) return { event: dated[0], code: "", message: "" };
+    if (dated.length > 1) {
+      return {
+        event: null,
+        code: "calendar.event_ambiguous",
+        message: `I found multiple "${input.title}" events on that day. Be more specific about the time.`,
+      };
+    }
+  }
+
+  if (candidates.length === 1) return { event: candidates[0], code: "", message: "" };
+  return {
+    event: null,
+    code: "calendar.event_ambiguous",
+    message: `I found multiple Google Calendar events named "${input.title}". Include the date so I can pick the right one.`,
+  };
+}
+
 function resolveMission(missions = [], missionQuery = "") {
   const normalizedQuery = normalizeMissionQuery(missionQuery).toLowerCase();
   if (!normalizedQuery) return null;
@@ -386,6 +471,9 @@ export function createCalendarProviderAdapter(deps = {}) {
   const broadcastCalendarConflict = typeof deps.broadcastCalendarConflict === "function"
     ? deps.broadcastCalendarConflict
     : () => {};
+  const googleCalendarHudAdapter = deps.googleCalendarHudAdapter && typeof deps.googleCalendarHudAdapter === "object"
+    ? deps.googleCalendarHudAdapter
+    : createGoogleCalendarHudHttpAdapter();
 
   return {
     id: "runtime-calendar-provider-adapter",
@@ -397,14 +485,26 @@ export function createCalendarProviderAdapter(deps = {}) {
       const missions = await loadMissions({ userId: userContextId });
       const overrides = await loadRescheduleOverrides(userContextId);
       const overridesByMissionId = new Map(overrides.map((entry) => [entry.missionId, entry]));
-      const events = markConflicts(
-        missions.flatMap((mission) => buildMissionOccurrences(mission, overridesByMissionId, range)),
-      ).slice(0, MAX_CALENDAR_ITEMS);
+      const missionEvents = missions.flatMap((mission) => buildMissionOccurrences(mission, overridesByMissionId, range));
+      let personalEvents = [];
+      const googleEvents = await googleCalendarHudAdapter.list({
+        userContextId,
+        startAt: range.start.toISOString(),
+        endAt: range.end.toISOString(),
+        ctx: input.ctx,
+      });
+      if (googleEvents?.ok === true) {
+        personalEvents = (Array.isArray(googleEvents.events) ? googleEvents.events : [])
+          .map((event) => normalizeGoogleEvent(event))
+          .filter(Boolean);
+      }
+      const events = markConflicts([...missionEvents, ...personalEvents]).slice(0, MAX_CALENDAR_ITEMS);
       return {
         ok: true,
         events,
         windowKey,
         totalMissionCount: missions.filter((mission) => mission.status === "active").length,
+        partial: googleEvents?.ok !== true,
       };
     },
     async rescheduleMission(input = {}) {
@@ -525,6 +625,180 @@ export function createCalendarProviderAdapter(deps = {}) {
         deleted,
         mission,
       };
+    },
+    async createStandaloneEvent(input = {}) {
+      const userContextId = normalizeUserId(input.userContextId);
+      const title = normalizeText(input.title);
+      const startAt = normalizeText(input.startAt);
+      const endAt = normalizeText(input.endAt);
+      const timeZone = resolveTimezone(input.timeZone);
+      if (!userContextId || !title || !Date.parse(startAt) || !Date.parse(endAt) || Date.parse(endAt) <= Date.parse(startAt)) {
+        return {
+          ok: false,
+          code: "calendar.create_invalid",
+          message: "Calendar event creation requires a title plus valid start and end times.",
+        };
+      }
+      const created = await googleCalendarHudAdapter.create({
+        userContextId,
+        title,
+        description: normalizeText(input.description),
+        startAt,
+        endAt,
+        timeZone,
+        ctx: input.ctx,
+      });
+      if (!created?.ok || !created?.event) {
+        return {
+          ok: false,
+          code: normalizeText(created?.code) || "calendar.create_failed",
+          message: normalizeText(created?.message) || "I couldn't create that Google Calendar event.",
+        };
+      }
+      const event = normalizeGoogleEvent(created.event);
+      if (event) {
+        broadcastCalendarEventUpdated({
+          userContextId,
+          eventId: event.id,
+          patch: {
+            title: event.title,
+            startAt: event.startAt,
+            endAt: event.endAt,
+            status: "scheduled",
+          },
+        });
+      }
+      return { ok: true, event };
+    },
+    async updateStandaloneEvent(input = {}) {
+      const userContextId = normalizeUserId(input.userContextId);
+      const title = normalizeText(input.title);
+      const startAt = normalizeText(input.startAt);
+      const endAt = normalizeText(input.endAt);
+      if (!userContextId || !title || !Date.parse(startAt) || !Date.parse(endAt) || Date.parse(endAt) <= Date.parse(startAt)) {
+        return {
+          ok: false,
+          code: "calendar.update_invalid",
+          message: "Calendar event updates require an event title and valid new start and end times.",
+        };
+      }
+
+      const lookupWindow = buildGoogleLookupWindow(input.matchStartAt);
+      const listed = await googleCalendarHudAdapter.list({
+        userContextId,
+        startAt: lookupWindow.start.toISOString(),
+        endAt: lookupWindow.end.toISOString(),
+        ctx: input.ctx,
+      });
+      if (!listed?.ok) {
+        return {
+          ok: false,
+          code: normalizeText(listed?.code) || "calendar.event_lookup_failed",
+          message: normalizeText(listed?.message) || "I couldn't load Google Calendar events to update that item.",
+        };
+      }
+
+      const events = (Array.isArray(listed.events) ? listed.events : [])
+        .map((event) => normalizeGoogleEvent(event))
+        .filter(Boolean);
+      const matched = findMatchingStandaloneGoogleEvent(events, { title, matchStartAt: input.matchStartAt });
+      if (!matched.event) {
+        return {
+          ok: false,
+          code: matched.code,
+          message: matched.message,
+        };
+      }
+
+      const updated = await googleCalendarHudAdapter.update({
+        userContextId,
+        eventId: matched.event.externalId,
+        title: matched.event.title,
+        description: matched.event.description,
+        startAt,
+        endAt,
+        timeZone: resolveTimezone(input.timeZone, matched.event.timezone),
+        ctx: input.ctx,
+      });
+      if (!updated?.ok || !updated?.event) {
+        return {
+          ok: false,
+          code: normalizeText(updated?.code) || "calendar.update_failed",
+          message: normalizeText(updated?.message) || "I couldn't update that Google Calendar event.",
+        };
+      }
+      const event = normalizeGoogleEvent(updated.event);
+      if (event) {
+        broadcastCalendarEventUpdated({
+          userContextId,
+          eventId: event.id,
+          patch: {
+            title: event.title,
+            startAt: event.startAt,
+            endAt: event.endAt,
+            status: "scheduled",
+          },
+        });
+      }
+      return { ok: true, event };
+    },
+    async deleteStandaloneEvent(input = {}) {
+      const userContextId = normalizeUserId(input.userContextId);
+      const title = normalizeText(input.title);
+      if (!userContextId || !title) {
+        return {
+          ok: false,
+          code: "calendar.delete_invalid",
+          message: "Calendar event deletion requires an event title.",
+        };
+      }
+
+      const lookupWindow = buildGoogleLookupWindow(input.matchStartAt);
+      const listed = await googleCalendarHudAdapter.list({
+        userContextId,
+        startAt: lookupWindow.start.toISOString(),
+        endAt: lookupWindow.end.toISOString(),
+        ctx: input.ctx,
+      });
+      if (!listed?.ok) {
+        return {
+          ok: false,
+          code: normalizeText(listed?.code) || "calendar.event_lookup_failed",
+          message: normalizeText(listed?.message) || "I couldn't load Google Calendar events to delete that item.",
+        };
+      }
+      const events = (Array.isArray(listed.events) ? listed.events : [])
+        .map((event) => normalizeGoogleEvent(event))
+        .filter(Boolean);
+      const matched = findMatchingStandaloneGoogleEvent(events, { title, matchStartAt: input.matchStartAt });
+      if (!matched.event) {
+        return {
+          ok: false,
+          code: matched.code,
+          message: matched.message,
+        };
+      }
+      const deleted = await googleCalendarHudAdapter.delete({
+        userContextId,
+        eventId: matched.event.externalId,
+        ctx: input.ctx,
+      });
+      if (!deleted?.ok) {
+        return {
+          ok: false,
+          code: normalizeText(deleted?.code) || "calendar.delete_failed",
+          message: normalizeText(deleted?.message) || "I couldn't delete that Google Calendar event.",
+        };
+      }
+      broadcastCalendarEventUpdated({
+        userContextId,
+        eventId: matched.event.id,
+        patch: {
+          status: "cancelled",
+          title: matched.event.title,
+        },
+      });
+      return { ok: true, event: matched.event };
     },
     async getSyncStatus(input = {}) {
       const userContextId = normalizeUserId(input.userContextId);

@@ -16,6 +16,7 @@ import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-sto
 import { loadRescheduleOverrides } from "../reschedule-store"
 import { loadAgentTaskEvents } from "../agent-task-source"
 import { loadGmailCalendarEvents } from "../gmail-calendar-source"
+import { reconcileDeletedMissionSchedulesFromGoogleCalendar } from "../google-schedule-mirror"
 import { expandDates, toIsoInTimezone, estimateDurationMs } from "../schedule-utils"
 import type { MissionCalendarEvent, CalendarEvent } from "../types"
 import { resolveTimezone } from "@/lib/shared/timezone"
@@ -35,6 +36,17 @@ export async function aggregateCalendarEvents(
     return null
   })
   const gcalendarConnected = Boolean(integrationsConfig?.gcalendar?.connected)
+
+  if (gcalendarConnected) {
+    await reconcileDeletedMissionSchedulesFromGoogleCalendar({
+      userId,
+      scope: integrationScope,
+    }).catch((error) => {
+      console.warn(
+        `[aggregator][gcalendar_reconcile] user=${userId} reason=${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+  }
 
   const [missions, overrides, agentTaskEvents, gmailCalendarEvents] = await Promise.all([
     loadMissions({ userId }) as Promise<Mission[]>,

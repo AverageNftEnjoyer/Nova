@@ -1,10 +1,10 @@
 "use client"
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useLayoutEffect, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { readShellUiCache, writeShellUiCache, type DevToolsMetricsCacheItem } from "@/lib/settings/shell-ui-cache"
 
-const POLL_MS = 5000
+const REFRESH_COOLDOWN_MS = 15_000
 
 type DevLogTurn = {
   status?: { ok?: boolean } | null
@@ -44,6 +44,7 @@ function deriveStatus(turn: DevLogTurn): "ok" | "warn" | "error" {
 
 export function useHomeDevTools() {
   const [metrics, setMetrics] = useState<DevToolsMetricsCacheItem>(EMPTY_METRICS)
+  const lastFetchAtRef = useRef(0)
 
   useLayoutEffect(() => {
     const cached = readShellUiCache().devToolsMetrics
@@ -59,6 +60,7 @@ export function useHomeDevTools() {
   }, [])
 
   const fetchData = useCallback(async () => {
+    lastFetchAtRef.current = Date.now()
     try {
       const res = await fetch("/api/dev-logs?limit=120", { cache: "no-store" })
       const payload = (await res.json().catch(() => ({}))) as Partial<DevLogsResponse> & { error?: string }
@@ -88,9 +90,21 @@ export function useHomeDevTools() {
   }, [])
 
   useEffect(() => {
-    fetchData()
-    const timer = window.setInterval(fetchData, POLL_MS)
-    return () => window.clearInterval(timer)
+    void fetchData()
+
+    const refreshIfStale = () => {
+      const isVisible = !document.hidden && document.hasFocus()
+      if (!isVisible) return
+      if (Date.now() - lastFetchAtRef.current < REFRESH_COOLDOWN_MS) return
+      void fetchData()
+    }
+
+    document.addEventListener("visibilitychange", refreshIfStale)
+    window.addEventListener("focus", refreshIfStale)
+    return () => {
+      document.removeEventListener("visibilitychange", refreshIfStale)
+      window.removeEventListener("focus", refreshIfStale)
+    }
   }, [fetchData])
 
   return { devToolsMetrics: metrics }

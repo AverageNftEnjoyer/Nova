@@ -3,6 +3,11 @@ import {
   normalizePhantomIntegrationConfig,
   type PhantomIntegrationConfig,
 } from "../phantom/types"
+import {
+  DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
+  normalizePolymarketIntegrationConfig,
+  type PolymarketIntegrationConfig,
+} from "../polymarket/types"
 
 export interface TelegramIntegrationSettings {
   connected: boolean
@@ -180,6 +185,7 @@ export interface GmailCalendarIntegrationSettings {
 }
 
 export type PhantomIntegrationSettings = PhantomIntegrationConfig
+export type PolymarketIntegrationSettings = PolymarketIntegrationConfig
 
 export type LlmProvider = "openai" | "claude" | "grok" | "gemini"
 
@@ -191,6 +197,7 @@ export interface IntegrationsSettings {
   news: NewsIntegrationSettings
   coinbase: CoinbaseIntegrationSettings
   phantom: PhantomIntegrationSettings
+  polymarket: PolymarketIntegrationSettings
   openai: OpenAIIntegrationSettings
   claude: ClaudeIntegrationSettings
   grok: GrokIntegrationSettings
@@ -282,6 +289,9 @@ const DEFAULT_SETTINGS: IntegrationsSettings = {
   },
   phantom: {
     ...DEFAULT_PHANTOM_INTEGRATION_CONFIG,
+  },
+  polymarket: {
+    ...DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
   },
   openai: {
     connected: false,
@@ -478,6 +488,7 @@ export function loadIntegrationsSettings(): IntegrationsSettings {
             : DEFAULT_SETTINGS.coinbase.reportCadence,
       },
       phantom: normalizePhantomIntegrationConfig((parsed as { phantom?: unknown }).phantom),
+      polymarket: normalizePolymarketIntegrationConfig((parsed as { polymarket?: unknown }).polymarket),
       openai: {
         ...DEFAULT_SETTINGS.openai,
         ...(parsed.openai || {}),
@@ -627,6 +638,9 @@ export function saveIntegrationsSettings(settings: IntegrationsSettings): void {
     phantom: {
       ...normalizePhantomIntegrationConfig(settings.phantom),
     },
+    polymarket: {
+      ...normalizePolymarketIntegrationConfig(settings.polymarket),
+    },
     openai: {
       ...settings.openai,
       apiKey: "",
@@ -770,6 +784,20 @@ export function updatePhantomIntegrationSettings(partial: Partial<PhantomIntegra
         ...current.phantom.capabilities,
         ...(partial.capabilities || {}),
       },
+    }),
+    updatedAt: new Date().toISOString(),
+  }
+  saveIntegrationsSettings(updated)
+  return updated
+}
+
+export function updatePolymarketIntegrationSettings(partial: Partial<PolymarketIntegrationSettings>): IntegrationsSettings {
+  const current = loadIntegrationsSettings()
+  const updated: IntegrationsSettings = {
+    ...current,
+    polymarket: normalizePolymarketIntegrationConfig({
+      ...current.polymarket,
+      ...partial,
     }),
     updatedAt: new Date().toISOString(),
   }

@@ -244,7 +244,14 @@ export type IntegrationsMainPanelProps = {
     connectPhantom: () => Promise<void>
     disconnectPhantom: () => Promise<void>
   }
+  polymarketSetup: {
+    connectPolymarket: () => Promise<void>
+    disconnectPolymarket: () => Promise<void>
+    openPolymarketWorkspace: () => void
+    setLiveTradingEnabled: (enabled: boolean) => Promise<void>
+  }
   phantomSetupSectionRef: MutableRefObject<HTMLElement | null>
+  polymarketSetupSectionRef: MutableRefObject<HTMLElement | null>
   spotifySetupSectionRef: MutableRefObject<HTMLElement | null>
   youtubeSetupSectionRef: MutableRefObject<HTMLElement | null>
   gmailCalendarSetupSectionRef: MutableRefObject<HTMLElement | null>

@@ -10,6 +10,25 @@
  *
  * Version History:
  *
+ * - V.54 Alpha (2026-03-08): News feed loading-motion polish
+ *     - Replaced the static Home news loading copy with an animated headline skeleton so the module feels active while fresh stories load.
+ *     - Removed the relative publish-time row from Home news cards to avoid repetitive stale-looking timestamps dominating the feed UI.
+ *
+ * - V.53 Alpha (2026-03-08): News topic classification hardening
+ *     - Fixed Home news feed topic pollution where requested-topic labels could be injected into article tags and surface off-topic stories inside user-selected categories.
+ *     - Added shared content-based news topic classification so finance/equity headlines no longer inherit a misleading `sports` badge from noisy upstream metadata.
+ *     - Hardened cached-feed normalization and Home badge rendering so saved topic filters continue to reject mismatched articles after deploy.
+ *
+ * - V.52 Alpha (2026-03-08): Post-rollout regression cleanup
+ *     - Cleared newly introduced Home news module/filter lint regressions by removing unused props and tightening the filter modal copy.
+ *     - Revalidated the current Polymarket, calendar, retention, and runtime surfaces with targeted typecheck, lint, unit, and smoke coverage after the rollout.
+ *     - Advanced the exported HUD version constant so the live badge matches the latest shipped history entry.
+ *
+ * - V.51 Alpha (2026-03-08): Polymarket live trading rollout + wallet-binding hardening
+ *     - Replaced the old placeholder/search-based Polymarket path with a Nova HUD workspace, user-scoped API routes, runtime snapshots, and live market/portfolio trading flows.
+ *     - Bound Polymarket connectivity and live-trading enablement to the user's verified Phantom EVM wallet so client-posted wallet spoofing cannot attach a different trading identity.
+ *     - Added automatic Polymarket reset behavior when Phantom verification changes or disconnects, plus targeted guard regression tests and live routing/domain smoke coverage.
+ *
  * - V.50 Alpha (2026-03-08): Nova-native login shell overhaul
  *     - Rebuilt `/login` into a full Nova shell surface with orb-aligned spotlight panels, responsive split layout, and stronger session-routing context across sign-in, sign-up, forgot, and reset modes.
  *     - Added a dedicated login background layer that reuses Nova's atmospheric gradients and floating-line treatment so authentication feels integrated with the HUD instead of detached.
@@ -315,6 +334,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.50 Alpha"
+export const NOVA_VERSION = "V.54 Alpha"
 
 

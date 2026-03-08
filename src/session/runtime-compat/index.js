@@ -39,8 +39,8 @@ export function createSessionRuntime({
   sessionIdleMinutes,
   sessionMainKey,
   transcriptsEnabled = true,
-  maxTranscriptLines = 0,
-  transcriptRetentionDays = 0,
+  maxTranscriptLines = 400,
+  transcriptRetentionDays = 30,
 }) {
   let lastTranscriptPruneAt = 0;
   const sessionUserContextCache = new Map();

@@ -1,8 +1,11 @@
+import { isStandaloneCalendarCrudPrompt } from "../../../services/calendar/direct-google-events/index.js";
+
 // ===== Intent Detection Helpers =====
 // Pure string functions - no imports required.
 
 export function shouldBuildWorkflowFromPrompt(text) {
   const n = String(text || "").toLowerCase();
+  if (isStandaloneCalendarCrudPrompt(n)) return false;
   const asksBuild = /(build|create|setup|set up|make|generate|deploy)/.test(n);
   const workflowScope = /(workflow|mission|automation|pipeline|schedule|daily report|notification)/.test(n);
   return asksBuild && workflowScope;
@@ -11,6 +14,7 @@ export function shouldBuildWorkflowFromPrompt(text) {
 export function shouldConfirmWorkflowFromPrompt(text) {
   const n = String(text || "").toLowerCase().trim();
   if (!n) return false;
+  if (isStandaloneCalendarCrudPrompt(n)) return false;
   if (shouldBuildWorkflowFromPrompt(n)) return false;
 
   const reminderLike = /\b(remind me to|reminder to|set a reminder|remember to|dont let me forget|don't let me forget)\b/.test(n);

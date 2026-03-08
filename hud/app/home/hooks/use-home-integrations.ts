@@ -181,6 +181,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [newsConnected, setNewsConnected] = useState(false)
   const [coinbaseConnected, setCoinbaseConnected] = useState(false)
   const [phantomConnected, setPhantomConnected] = useState(false)
+  const [polymarketConnected, setPolymarketConnected] = useState(false)
   const [openaiConnected, setOpenaiConnected] = useState(false)
   const [claudeConnected, setClaudeConnected] = useState(false)
   const [grokConnected, setGrokConnected] = useState(false)
@@ -218,6 +219,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     setNewsConnected(Boolean(settings.news?.connected))
     setCoinbaseConnected(Boolean(settings.coinbase?.connected))
     setPhantomConnected(Boolean(settings.phantom?.connected))
+    setPolymarketConnected(Boolean(settings.polymarket?.connected))
     setOpenaiConnected(settings.openai.connected)
     setClaudeConnected(settings.claude.connected)
     setGrokConnected(settings.grok.connected)
@@ -695,6 +697,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     newsConnected,
     coinbaseConnected,
     phantomConnected,
+    polymarketConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,

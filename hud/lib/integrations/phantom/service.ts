@@ -4,6 +4,11 @@ import { createHash } from "node:crypto"
 
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import { shouldResetPolymarketForPhantomIdentity } from "@/lib/integrations/polymarket/guards"
+import {
+  DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
+  normalizePolymarketIntegrationConfig,
+} from "@/lib/integrations/polymarket/types"
 import type { VerifiedSupabaseRequest } from "@/lib/supabase/server"
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import { readPhantomWalletAuthState, updatePhantomWalletAuthState } from "./auth-state.ts"
@@ -195,6 +200,12 @@ export async function verifyPhantomChallenge(params: {
     const currentConfig = await loadIntegrationsConfig(params.verified)
     const previousPhantom = normalizePhantomIntegrationConfig((currentConfig as typeof currentConfig & { phantom?: unknown }).phantom)
     const now = new Date().toISOString()
+    const shouldResetPolymarket = shouldResetPolymarketForPhantomIdentity(currentConfig.polymarket, {
+      ...previousPhantom,
+      connected: true,
+      verifiedAt: now,
+      evmAddress,
+    })
     const nextPhantom = {
       connected: true,
       provider: PHANTOM_PROVIDER_ID,
@@ -231,6 +242,14 @@ export async function verifyPhantomChallenge(params: {
     const nextConfig = await updateIntegrationsConfig(
       {
         phantom: nextPhantom,
+        ...(shouldResetPolymarket
+          ? {
+              polymarket: normalizePolymarketIntegrationConfig({
+                ...DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
+                lastProfileSyncAt: currentConfig.polymarket.lastProfileSyncAt,
+              }),
+            }
+          : {}),
       } as never,
       params.verified,
     )
@@ -276,6 +295,14 @@ export async function disconnectPhantomBinding(params: {
           },
           lastDisconnectedAt: now,
         },
+        ...(currentConfig.polymarket.connected
+          ? {
+              polymarket: normalizePolymarketIntegrationConfig({
+                ...DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
+                lastProfileSyncAt: currentConfig.polymarket.lastProfileSyncAt,
+              }),
+            }
+          : {}),
       } as never,
       params.verified,
     )

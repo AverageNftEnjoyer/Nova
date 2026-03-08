@@ -107,6 +107,96 @@ await run("CAL-DOM-3 calendar service returns deterministic scoped error when co
   assert.equal(out.responseRoute, "calendar");
 });
 
+await run("CAL-DOM-4 standalone Google Calendar create stays on calendar lane", async () => {
+  let called = false;
+  const out = await runCalendarDomainService({
+    text: "add dentist appointment Friday at 3 PM to my Google Calendar",
+    userContextId: "calendar-c",
+    conversationId: "thread-c",
+    sessionKey: "agent:nova:hud:user:calendar-c:dm:thread-c",
+  }, {
+    providerAdapter: {
+      providerId: "runtime_calendar",
+      formatWhen: () => "Fri, Mar 13, 3:00 PM",
+      async createStandaloneEvent(input) {
+        called = true;
+        assert.equal(input.title, "dentist appointment");
+        return {
+          ok: true,
+          event: {
+            id: "gcal::abc123",
+            title: "dentist appointment",
+            startAt: "2026-03-13T19:00:00.000Z",
+            endAt: "2026-03-13T20:00:00.000Z",
+            timezone: "America/New_York",
+          },
+        };
+      },
+    },
+  });
+
+  assert.equal(called, true);
+  assert.equal(out.ok, true);
+  assert.equal(out.telemetry.action, "create_event");
+  assert.equal(out.reply.includes("Added dentist appointment"), true);
+});
+
+await run("CAL-DOM-5 standalone Google Calendar update failure returns provider message", async () => {
+  const out = await runCalendarDomainService({
+    text: "move dentist appointment Friday at 3 PM on my calendar to Friday at 4 PM",
+    userContextId: "calendar-d",
+    conversationId: "thread-d",
+    sessionKey: "agent:nova:hud:user:calendar-d:dm:thread-d",
+  }, {
+    providerAdapter: {
+      providerId: "runtime_calendar",
+      formatWhen: () => "Fri, Mar 13, 4:00 PM",
+      async updateStandaloneEvent() {
+        return {
+          ok: false,
+          code: "calendar.event_ambiguous",
+          message: "I found multiple matching events.",
+        };
+      },
+    },
+  });
+
+  assert.equal(out.ok, false);
+  assert.equal(out.code, "calendar.event_ambiguous");
+  assert.equal(out.reply, "I found multiple matching events.");
+});
+
+await run("CAL-DOM-6 agenda reply is generic for mixed calendar events", async () => {
+  const out = await runCalendarDomainService({
+    text: "show my calendar today",
+    userContextId: "calendar-e",
+    conversationId: "thread-e",
+    sessionKey: "agent:nova:hud:user:calendar-e:dm:thread-e",
+  }, {
+    providerAdapter: {
+      providerId: "runtime_calendar",
+      describeWindow: () => "today",
+      formatWhen: () => "Fri, Mar 13, 3:00 PM",
+      async listAgenda() {
+        return {
+          ok: true,
+          events: [{
+            id: "gcal::abc123",
+            title: "dentist appointment",
+            startAt: "2026-03-13T19:00:00.000Z",
+            timezone: "America/New_York",
+            conflict: false,
+          }],
+        };
+      },
+    },
+  });
+
+  assert.equal(out.ok, true);
+  assert.equal(/mission/i.test(out.reply), false);
+  assert.equal(out.reply.includes("dentist appointment"), true);
+});
+
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;
 const skipCount = results.filter((r) => r.status === "SKIP").length;

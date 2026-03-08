@@ -112,6 +112,16 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_COINBASE_MARKET_READ_PER_MIN", 24, 1, 500),
     windowMs: 60_000,
   },
+  polymarketRead: {
+    bucket: "polymarket-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_POLYMARKET_READ_PER_MIN", 40, 1, 500),
+    windowMs: 60_000,
+  },
+  polymarketWrite: {
+    bucket: "polymarket-write",
+    limit: readIntEnv("NOVA_RATE_LIMIT_POLYMARKET_WRITE_PER_MIN", 20, 1, 500),
+    windowMs: 60_000,
+  },
   spotifyNowPlaying: {
     bucket: "spotify-now-playing",
     // 2s polling = 30/min nominal; 90/min allows 3x burst without blocking normal clients.

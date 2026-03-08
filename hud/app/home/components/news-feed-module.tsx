@@ -1,7 +1,7 @@
 "use client"
 
-import type { CSSProperties, FocusEvent, MouseEvent, RefObject } from "react"
-import { RefreshCw } from "lucide-react"
+import type { CSSProperties, FocusEvent as ReactFocusEvent, MouseEvent as ReactMouseEvent, RefObject } from "react"
+import { RefreshCw, Settings } from "lucide-react"
 
 import { cn } from "@/lib/shared/utils"
 import type { HomeNewsArticle } from "../hooks/use-home-news-feed"
@@ -14,42 +14,15 @@ interface NewsFeedModuleProps {
   sectionRef?: RefObject<HTMLElement | null>
   className?: string
   connected: boolean
+  selectedTopics: string[]
   articles: HomeNewsArticle[]
   loading: boolean
   error: string | null
   stale: boolean
   fetchedAt: string
   onOpenIntegrations: () => void
+  onOpenFilters: () => void
   onRefresh: () => void
-}
-
-const RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" })
-
-function formatRelativeTimestamp(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return "time unknown"
-  const diffMs = parsed.getTime() - Date.now()
-  const absMs = Math.abs(diffMs)
-
-  if (absMs < 60_000) return "just now"
-  if (absMs < 3_600_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 60_000), "minute")
-  if (absMs < 86_400_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 3_600_000), "hour")
-  if (absMs < 604_800_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 86_400_000), "day")
-  if (absMs < 2_592_000_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 604_800_000), "week")
-  if (absMs < 31_536_000_000) return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 2_592_000_000), "month")
-  return RELATIVE_TIME_FORMATTER.format(Math.round(diffMs / 31_536_000_000), "year")
-}
-
-function formatAbsoluteTimestamp(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return "Unknown publish time"
-  return parsed.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  })
 }
 
 function formatTagLabel(value: string): string {
@@ -139,6 +112,15 @@ function updateArticleSpotlight(element: HTMLElement, clientX: number, clientY: 
   element.style.setProperty("--glow-radius", "120px")
 }
 
+function articleMatchesSelection(article: HomeNewsArticle, selectedTopics: string[]): boolean {
+  if (selectedTopics.includes("all")) return true
+  const selected = new Set(selectedTopics)
+  if (selected.has(article.topic)) return true
+  return article.tags.some((tag) => selected.has(tag))
+}
+
+const LOADING_PLACEHOLDER_ROWS = [0, 1, 2] as const
+
 export function NewsFeedModule({
   isLight,
   panelClass,
@@ -147,21 +129,25 @@ export function NewsFeedModule({
   sectionRef,
   className,
   connected,
+  selectedTopics,
   articles,
   loading,
   error,
   onOpenIntegrations,
+  onOpenFilters,
   onRefresh,
 }: NewsFeedModuleProps) {
-  const handleArticleMouseMove = (event: MouseEvent<HTMLAnchorElement>) => {
+  const visibleArticles = articles.filter((article) => articleMatchesSelection(article, selectedTopics))
+
+  const handleArticleMouseMove = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     updateArticleSpotlight(event.currentTarget, event.clientX, event.clientY)
   }
 
-  const handleArticleMouseLeave = (event: MouseEvent<HTMLAnchorElement>) => {
+  const handleArticleMouseLeave = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     event.currentTarget.style.setProperty("--glow-intensity", "0")
   }
 
-  const handleArticleFocus = (event: FocusEvent<HTMLAnchorElement>) => {
+  const handleArticleFocus = (event: ReactFocusEvent<HTMLAnchorElement>) => {
     const element = event.currentTarget
     const rect = element.getBoundingClientRect()
     const centerX = rect.left + rect.width / 2
@@ -169,7 +155,7 @@ export function NewsFeedModule({
     updateArticleSpotlight(element, centerX, centerY)
   }
 
-  const handleArticleBlur = (event: FocusEvent<HTMLAnchorElement>) => {
+  const handleArticleBlur = (event: ReactFocusEvent<HTMLAnchorElement>) => {
     event.currentTarget.style.setProperty("--glow-intensity", "0")
   }
 
@@ -189,6 +175,18 @@ export function NewsFeedModule({
           Live News
         </h2>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenFilters}
+            className={cn(
+              "group/news-settings h-7 w-7 rounded-md border grid place-items-center transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+              subPanelClass,
+            )}
+            title="News category filters"
+            aria-label="News category filters"
+          >
+            <Settings className="w-3.5 h-3.5 text-s-50 transition-transform duration-200 group-hover/news-settings:text-accent group-hover/news-settings:rotate-90" />
+          </button>
           <button
             onClick={onRefresh}
             className={cn(
@@ -220,22 +218,63 @@ export function NewsFeedModule({
             Connect News integration to enable hourly cached Home headlines.
           </div>
         ) : loading ? (
-          <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
-            Loading live headlines...
+          <div className={cn("rounded-md border p-2.5", subPanelClass)}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
+                  Loading headlines
+                </p>
+                <p className={cn("mt-1 text-[11px] leading-4", isLight ? "text-s-80" : "text-slate-300")}>
+                  Pulling fresh stories for your saved categories.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {LOADING_PLACEHOLDER_ROWS.map((index) => (
+                  <span
+                    key={index}
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full animate-pulse",
+                      isLight ? "bg-[#4d8dff]/80" : "bg-accent/80",
+                    )}
+                    style={{ animationDelay: `${index * 160}ms` }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 space-y-2">
+              {LOADING_PLACEHOLDER_ROWS.map((index) => (
+                <div key={`news-loading-${index}`} className={cn("rounded-md border p-2", subPanelClass)}>
+                  <div
+                    className={cn(
+                      "h-2.5 rounded-full animate-pulse",
+                      isLight ? "bg-[#d8e5fb]" : "bg-white/10",
+                    )}
+                    style={{ width: `${72 - (index * 11)}%`, animationDelay: `${index * 120}ms` }}
+                  />
+                  <div
+                    className={cn(
+                      "mt-2 h-2 rounded-full animate-pulse",
+                      isLight ? "bg-[#e7eefb]" : "bg-white/8",
+                    )}
+                    style={{ width: `${88 - (index * 7)}%`, animationDelay: `${index * 120 + 80}ms` }}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ) : error ? (
           <div className={cn("rounded-md border p-2 text-[11px] leading-4 border-rose-300/40 bg-rose-500/10 text-rose-300")}>
             {error}
           </div>
-        ) : articles.length === 0 ? (
+        ) : visibleArticles.length === 0 ? (
           <div className={cn("rounded-md border p-2 text-[11px] leading-4", subPanelClass)}>
-            No headlines returned for this topic.
+            No headlines match the saved categories for this user.
           </div>
         ) : (
-          articles.slice(0, 6).map((article) => {
-            const primaryTag = article.tags.find((tag) => shouldRenderTag(tag))
+          visibleArticles.slice(0, 6).map((article) => {
             const fallbackTopic = shouldRenderTag(article.topic) ? article.topic : ""
-            const displayTag = primaryTag || fallbackTopic
+            const primaryTag = article.tags.find((tag) => shouldRenderTag(tag) && tag !== fallbackTopic)
+            const displayTag = fallbackTopic || primaryTag
 
             return (
               <a
@@ -270,13 +309,6 @@ export function NewsFeedModule({
                 <p className={cn("mt-1 text-[11px] font-medium leading-4 line-clamp-2", isLight ? "text-s-90" : "text-slate-100")}>
                   {article.title}
                 </p>
-                <div className="mt-1 flex items-center justify-end gap-2">
-                  <span className={cn("text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>
-                    <time dateTime={article.publishedAt || undefined} title={formatAbsoluteTimestamp(article.publishedAt)}>
-                      {formatRelativeTimestamp(article.publishedAt)}
-                    </time>
-                  </span>
-                </div>
               </a>
             )
           })

@@ -7,7 +7,9 @@ import { buildGmailCalendarOAuthUrl as buildOAuthUrl, parseGmailCalendarOAuthSta
 import {
   createGmailCalendarEvent as createEvent,
   deleteGmailCalendarEvent as deleteEvent,
+  getGmailCalendarEvent as getEvent,
   listAllGmailCalendarEvents as listAllEvents,
+  updateGmailCalendarEvent as updateEvent,
 } from "../events/index.ts"
 import {
   disconnectGmailCalendar as disconnectTokens,
@@ -64,6 +66,17 @@ export async function createCalendarEvent(
   return createEvent(event, options)
 }
 
+export async function getCalendarEvent(
+  eventId: string,
+  options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: GmailCalendarScope
+  },
+): Promise<GmailCalendarEventItem | null> {
+  return getEvent(eventId, options)
+}
+
 export async function deleteCalendarEvent(
   eventId: string,
   options?: {
@@ -73,5 +86,24 @@ export async function deleteCalendarEvent(
   },
 ): Promise<void> {
   return deleteEvent(eventId, options)
+}
+
+export async function updateCalendarEvent(
+  eventId: string,
+  patch: {
+    summary?: string
+    description?: string
+    startAt?: Date
+    endAt?: Date
+    timeZone?: string
+    recurrence?: string[]
+  },
+  options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: GmailCalendarScope
+  },
+): Promise<GmailCalendarEventItem> {
+  return updateEvent(eventId, patch, options)
 }
 

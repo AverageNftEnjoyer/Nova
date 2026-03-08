@@ -18,6 +18,10 @@ export function PhantomIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/phantom.png" alt="Phantom" width={16} height={16} className={className} unoptimized />
 }
 
+export function PolymarketIcon({ className = "w-4 h-4" }: BraveIconProps) {
+  return <Image src="/images/polymarket.png" alt="Polymarket" width={16} height={16} className={className} unoptimized />
+}
+
 export function SpotifyIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/spotify.svg" alt="Spotify" width={16} height={16} className={className} unoptimized />
 }

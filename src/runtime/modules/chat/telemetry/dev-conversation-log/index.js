@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { createHash, randomUUID } from "crypto";
-import { ROOT_WORKSPACE_DIR, USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
+import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 import { sessionRuntime } from "../../../infrastructure/config/index.js";
 import { describeUnknownError } from "../../../llm/providers/index.js";
 
@@ -17,16 +17,6 @@ const DEV_CONVERSATION_LOG_HASH_SALT = String(process.env.NOVA_DEV_CONVERSATION_
 const DEV_CONVERSATION_LOG_FILENAME = String(
   process.env.NOVA_DEV_CONVERSATION_LOG_FILENAME || "conversation-dev.jsonl",
 ).trim() || "conversation-dev.jsonl";
-const DEV_CONVERSATION_GLOBAL_LOG_ENABLED =
-  String(process.env.NOVA_DEV_CONVERSATION_GLOBAL_LOG_ENABLED || "1").trim() !== "0";
-const DEV_CONVERSATION_GLOBAL_LOG_PATH = path.join(
-  ROOT_WORKSPACE_DIR,
-  ".user",
-  "logs",
-  "conversation-dev-all.jsonl",
-);
-const DEV_CONVERSATION_GLOBAL_ARCHIVE_MIRROR_ENABLED =
-  String(process.env.NOVA_DEV_CONVERSATION_GLOBAL_ARCHIVE_MIRROR_ENABLED || "1").trim() !== "0";
 const DEV_CONVERSATION_SCAN_WARN_ENABLED =
   String(process.env.NOVA_DEV_CONVERSATION_SCAN_WARN_ENABLED || "1").trim() !== "0";
 const DEV_CONVERSATION_SCAN_WARN_SCORE = Math.max(
@@ -114,15 +104,8 @@ function captureText(value) {
 
 function resolveLogPath(userContextId) {
   const scopedUserContextId = normalizeUserContextId(userContextId);
-  if (!scopedUserContextId) {
-    return path.join(ROOT_WORKSPACE_DIR, "archive", "logs", "conversation-dev-anonymous.jsonl");
-  }
+  if (!scopedUserContextId) return "";
   return path.join(USER_CONTEXT_ROOT, scopedUserContextId, "logs", DEV_CONVERSATION_LOG_FILENAME);
-}
-
-function resolveGlobalArchiveMirrorPath(tsIso) {
-  const day = String(tsIso || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
-  return path.join(ROOT_WORKSPACE_DIR, ".user", "logs", "archive", `conversation-dev-all-${day}.jsonl`);
 }
 
 function normalizeList(value) {
@@ -557,29 +540,12 @@ export function appendDevConversationLog(event = {}) {
     });
 
     const targetPath = resolveLogPath(userContextId);
+    if (!targetPath) return;
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     fs.appendFileSync(targetPath, `${JSON.stringify(payload)}\n`, "utf8");
     if (!ANNOUNCED_LOG_PATHS.has(targetPath)) {
       ANNOUNCED_LOG_PATHS.add(targetPath);
       console.log(`[DevConversationLog] writing logs to ${targetPath}`);
-    }
-
-    if (DEV_CONVERSATION_GLOBAL_LOG_ENABLED) {
-      fs.mkdirSync(path.dirname(DEV_CONVERSATION_GLOBAL_LOG_PATH), { recursive: true });
-      fs.appendFileSync(DEV_CONVERSATION_GLOBAL_LOG_PATH, `${JSON.stringify(payload)}\n`, "utf8");
-      if (!ANNOUNCED_LOG_PATHS.has(DEV_CONVERSATION_GLOBAL_LOG_PATH)) {
-        ANNOUNCED_LOG_PATHS.add(DEV_CONVERSATION_GLOBAL_LOG_PATH);
-        console.log(`[DevConversationLog] writing aggregate logs to ${DEV_CONVERSATION_GLOBAL_LOG_PATH}`);
-      }
-      if (DEV_CONVERSATION_GLOBAL_ARCHIVE_MIRROR_ENABLED) {
-        const mirrorPath = resolveGlobalArchiveMirrorPath(ts);
-        fs.mkdirSync(path.dirname(mirrorPath), { recursive: true });
-        fs.appendFileSync(mirrorPath, `${JSON.stringify(payload)}\n`, "utf8");
-        if (!ANNOUNCED_LOG_PATHS.has(mirrorPath)) {
-          ANNOUNCED_LOG_PATHS.add(mirrorPath);
-          console.log(`[DevConversationLog] writing aggregate archive mirror to ${mirrorPath}`);
-        }
-      }
     }
 
     if (DEV_CONVERSATION_SCAN_WARN_ENABLED) {

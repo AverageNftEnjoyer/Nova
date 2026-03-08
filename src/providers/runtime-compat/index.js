@@ -348,6 +348,30 @@ function parsePhantomRuntime(value) {
   };
 }
 
+function parsePolymarketRuntime(value) {
+  const integration = value && typeof value === "object" ? value : {};
+  const connected = integration.connected === true;
+  const walletAddress = String(integration.walletAddress || "").trim().toLowerCase();
+  const profileAddress = String(integration.profileAddress || "").trim().toLowerCase();
+  const positionsAddress = String(integration.positionsAddress || profileAddress || walletAddress).trim().toLowerCase();
+  const signatureType = Number.isFinite(Number(integration.signatureType))
+    ? Math.max(0, Math.min(2, Math.floor(Number(integration.signatureType))))
+    : 0;
+  return {
+    connected,
+    walletAddress: connected ? walletAddress : "",
+    profileAddress: connected ? profileAddress : "",
+    positionsAddress: connected ? positionsAddress : "",
+    username: connected ? String(integration.username || "").trim() : "",
+    pseudonym: connected ? String(integration.pseudonym || "").trim() : "",
+    profileImageUrl: connected ? String(integration.profileImageUrl || "").trim() : "",
+    signatureType,
+    liveTradingEnabled: connected && integration.liveTradingEnabled === true,
+    lastConnectedAt: connected ? String(integration.lastConnectedAt || "").trim() : "",
+    lastProfileSyncAt: connected ? String(integration.lastProfileSyncAt || "").trim() : "",
+  };
+}
+
 export function loadIntegrationsRuntime(options = {}) {
   const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
@@ -359,6 +383,7 @@ export function loadIntegrationsRuntime(options = {}) {
     const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
     const geminiIntegration = parsed?.gemini && typeof parsed.gemini === "object" ? parsed.gemini : {};
     const phantomIntegration = parsePhantomRuntime(parsed?.phantom);
+    const polymarketIntegration = parsePolymarketRuntime(parsed?.polymarket);
     const spotifyIntegration = parseSpotifyRuntime(parsed?.spotify);
     const gmailIntegration = parseGmailRuntime(parsed?.gmail);
     const activeProvider = parsed?.activeLlmProvider === "claude"
@@ -412,6 +437,7 @@ export function loadIntegrationsRuntime(options = {}) {
           : DEFAULT_GEMINI_MODEL
       },
       phantom: phantomIntegration,
+      polymarket: polymarketIntegration,
       spotify: spotifyIntegration,
       gmail: gmailIntegration
     };
@@ -452,6 +478,19 @@ export function loadIntegrationsRuntime(options = {}) {
           approvalGatedPolymarketReady: false,
           autonomousTrading: false,
         },
+      },
+      polymarket: {
+        connected: false,
+        walletAddress: "",
+        profileAddress: "",
+        positionsAddress: "",
+        username: "",
+        pseudonym: "",
+        profileImageUrl: "",
+        signatureType: 0,
+        liveTradingEnabled: false,
+        lastConnectedAt: "",
+        lastProfileSyncAt: "",
       },
       spotify: {
         connected: false,

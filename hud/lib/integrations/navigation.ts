@@ -6,6 +6,7 @@ export const INTEGRATION_SETUP_KEYS = [
   "news",
   "coinbase",
   "phantom",
+  "polymarket",
   "openai",
   "claude",
   "grok",

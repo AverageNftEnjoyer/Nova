@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react"
 
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user"
+import {
+  matchesRequestedNewsTopics,
+  normalizeNewsTopicToken,
+  resolveNewsArticleClassification,
+  shouldIgnoreNewsTag,
+} from "@/lib/news/topic-classification"
 
 export type HomeNewsArticle = {
   id: string
@@ -28,6 +34,7 @@ interface UseHomeNewsFeedInput {
 type NewsFeedApiResponse = {
   ok?: boolean
   topic?: unknown
+  topics?: unknown
   availableTopics?: unknown
   fetchedAt?: unknown
   stale?: unknown
@@ -45,12 +52,29 @@ type NewsFeedApiResponse = {
   error?: unknown
 }
 
-const TOPIC_STORAGE_KEY_PREFIX = "nova_home_news_topic"
+const TOPIC_STORAGE_KEY_PREFIX = "nova_home_news_topics"
 const FEED_STORAGE_KEY_PREFIX = "nova_home_news_feed"
 const DEFAULT_TOPIC = "all"
+const DEFAULT_TOPIC_SELECTION = [DEFAULT_TOPIC]
 const POLL_INTERVAL_MS = 60 * 60_000
 const FEED_CACHE_TTL_MS = 60 * 60_000
-const DEFAULT_TOPICS = ["all", "world", "business", "technology", "markets", "crypto"]
+const DEFAULT_TOPICS = [
+  "all",
+  "top",
+  "world",
+  "business",
+  "technology",
+  "science",
+  "health",
+  "sports",
+  "entertainment",
+  "politics",
+  "environment",
+  "food",
+  "tourism",
+  "markets",
+  "crypto",
+]
 const TAG_BLOCKLIST_SNIPPETS = [
   "only-available",
   "available-only",
@@ -68,12 +92,7 @@ const TAG_BLOCKLIST_SNIPPETS = [
 ]
 
 function normalizeTagToken(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
+  return normalizeNewsTopicToken(value)
 }
 
 function normalizeTopicId(value: unknown): string {
@@ -81,13 +100,32 @@ function normalizeTopicId(value: unknown): string {
   return normalized || DEFAULT_TOPIC
 }
 
+function normalizeTopicSelection(raw: unknown, allowedTopics?: string[]): string[] {
+  const allowed = new Set((allowedTopics || []).map((topic) => normalizeTopicId(topic)))
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw
+          .replace(/^\[|\]$/g, "")
+          .split(",")
+          .map((value) => value.trim().replace(/^"|"$/g, ""))
+      : []
+  const selected: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    const topic = normalizeTopicId(value)
+    if (allowed.size > 0 && !allowed.has(topic)) continue
+    if (seen.has(topic)) continue
+    seen.add(topic)
+    selected.push(topic)
+  }
+  if (selected.length === 0 || selected.includes(DEFAULT_TOPIC)) return [...DEFAULT_TOPIC_SELECTION]
+  return selected
+}
+
 function shouldIgnoreTag(value: string): boolean {
   const normalized = normalizeTagToken(value)
-  if (!normalized || normalized === DEFAULT_TOPIC) return true
-  if (normalized.length < 2 || normalized.length > 24) return true
-  const words = normalized.split("-").filter(Boolean)
-  if (words.length === 0 || words.length > 3) return true
-  if (words.every((word) => /^\d+$/.test(word))) return true
+  if (shouldIgnoreNewsTag(normalized)) return true
   for (const snippet of TAG_BLOCKLIST_SNIPPETS) {
     if (normalized.includes(snippet)) return true
   }
@@ -108,11 +146,16 @@ function topicStorageKey(): string {
   return userId ? `${TOPIC_STORAGE_KEY_PREFIX}:${userId}` : TOPIC_STORAGE_KEY_PREFIX
 }
 
-function feedStorageKey(topic: string): string {
-  const normalizedTopic = normalizeTopicId(topic)
+function topicSelectionCacheKey(topics: string[]): string {
+  const normalized = normalizeTopicSelection(topics)
+  if (normalized.length === 1 && normalized[0] === DEFAULT_TOPIC) return DEFAULT_TOPIC
+  return [...normalized].sort().join(",")
+}
+
+function feedStorageKey(topics: string[]): string {
   const userId = getActiveUserId()
   const scoped = userId ? `${FEED_STORAGE_KEY_PREFIX}:${userId}` : FEED_STORAGE_KEY_PREFIX
-  return `${scoped}:${normalizedTopic}`
+  return `${scoped}:${topicSelectionCacheKey(topics)}`
 }
 
 function isFreshFetchedAt(value: unknown): boolean {
@@ -121,7 +164,7 @@ function isFreshFetchedAt(value: unknown): boolean {
   return Date.now() - ts <= FEED_CACHE_TTL_MS
 }
 
-function readPersistedFeed(topic: string): {
+function readPersistedFeed(topics: string[]): {
   topics: HomeNewsTopic[]
   articles: HomeNewsArticle[]
   stale: boolean
@@ -129,7 +172,7 @@ function readPersistedFeed(topic: string): {
 } | null {
   if (typeof window === "undefined") return null
   try {
-    const raw = localStorage.getItem(feedStorageKey(topic))
+    const raw = localStorage.getItem(feedStorageKey(topics))
     if (!raw) return null
     const parsed = JSON.parse(raw) as {
       availableTopics?: unknown
@@ -143,7 +186,7 @@ function readPersistedFeed(topic: string): {
       topics: normalizeTopics(parsed?.availableTopics),
       articles: normalizeArticles(
         Array.isArray(parsed?.articles) ? (parsed.articles as NewsFeedApiResponse["articles"]) : [],
-        normalizeTopicId(topic),
+        normalizeTopicSelection(topics),
       ),
       stale: Boolean(parsed?.stale),
       fetchedAt,
@@ -154,7 +197,7 @@ function readPersistedFeed(topic: string): {
 }
 
 function writePersistedFeed(input: {
-  topic: string
+  topics: string[]
   availableTopics: HomeNewsTopic[]
   articles: HomeNewsArticle[]
   stale: boolean
@@ -163,7 +206,7 @@ function writePersistedFeed(input: {
   if (typeof window === "undefined") return
   try {
     localStorage.setItem(
-      feedStorageKey(input.topic),
+      feedStorageKey(input.topics),
       JSON.stringify({
         availableTopics: input.availableTopics.map((topic) => topic.id),
         articles: input.articles,
@@ -176,19 +219,25 @@ function writePersistedFeed(input: {
   }
 }
 
-function readPersistedTopic(): string {
-  if (typeof window === "undefined") return DEFAULT_TOPIC
+function readPersistedTopic(): string[] {
+  if (typeof window === "undefined") return [...DEFAULT_TOPIC_SELECTION]
   try {
-    return normalizeTopicId(localStorage.getItem(topicStorageKey()))
+    const raw = localStorage.getItem(topicStorageKey())
+    if (!raw) return [...DEFAULT_TOPIC_SELECTION]
+    try {
+      return normalizeTopicSelection(JSON.parse(raw))
+    } catch {
+      return normalizeTopicSelection(raw)
+    }
   } catch {
-    return DEFAULT_TOPIC
+    return [...DEFAULT_TOPIC_SELECTION]
   }
 }
 
-function writePersistedTopic(topic: string): void {
+function writePersistedTopic(topics: string[]): void {
   if (typeof window === "undefined") return
   try {
-    localStorage.setItem(topicStorageKey(), normalizeTopicId(topic))
+    localStorage.setItem(topicStorageKey(), JSON.stringify(normalizeTopicSelection(topics)))
   } catch {
     // no-op
   }
@@ -204,7 +253,7 @@ function toTopicLabel(topic: string): string {
 
 function normalizeTopics(raw: unknown): HomeNewsTopic[] {
   const seen = new Set<string>()
-  const items = Array.isArray(raw) ? raw : DEFAULT_TOPICS
+  const items = [...DEFAULT_TOPICS, ...(Array.isArray(raw) ? raw : [])]
   const topics: HomeNewsTopic[] = []
   for (const value of items) {
     const id = normalizeTopicId(value)
@@ -218,7 +267,7 @@ function normalizeTopics(raw: unknown): HomeNewsTopic[] {
   return topics
 }
 
-function normalizeArticles(raw: NewsFeedApiResponse["articles"], fallbackTopic: string): HomeNewsArticle[] {
+function normalizeArticles(raw: NewsFeedApiResponse["articles"], requestedTopics: string[]): HomeNewsArticle[] {
   if (!Array.isArray(raw)) return []
   const articles: HomeNewsArticle[] = []
   const seenStoryKeys = new Set<string>()
@@ -237,8 +286,17 @@ function normalizeArticles(raw: NewsFeedApiResponse["articles"], fallbackTopic: 
           .map((value) => normalizeTagToken(value))
           .filter(Boolean)
     const dedupedTags = Array.from(new Set(tags)).filter((tag) => !shouldIgnoreTag(tag))
-    const resolvedTopic = normalizeTopicId(item?.topic || dedupedTags[0] || fallbackTopic)
-    if (!dedupedTags.length && resolvedTopic !== DEFAULT_TOPIC) dedupedTags.push(resolvedTopic)
+    const classification = resolveNewsArticleClassification({
+      title,
+      summary: String(item?.summary || "").trim(),
+      rawTopic: item?.topic || dedupedTags[0] || requestedTopics[0] || DEFAULT_TOPIC,
+      rawTags: dedupedTags,
+      fallbackTopic: requestedTopics[0] || DEFAULT_TOPIC,
+    })
+    if (!matchesRequestedNewsTopics(requestedTopics, classification)) continue
+    const resolvedTopic = normalizeTopicId(classification.topic)
+    const normalizedTags = Array.from(new Set(classification.tags)).filter((tag) => !shouldIgnoreTag(tag))
+    if (!normalizedTags.length && resolvedTopic !== DEFAULT_TOPIC) normalizedTags.push(resolvedTopic)
     articles.push({
       id,
       title,
@@ -247,7 +305,7 @@ function normalizeArticles(raw: NewsFeedApiResponse["articles"], fallbackTopic: 
       url,
       publishedAt: String(item?.publishedAt || "").trim(),
       topic: resolvedTopic,
-      tags: dedupedTags,
+      tags: normalizedTags,
       imageUrl: String(item?.imageUrl || "").trim(),
     })
   }
@@ -255,7 +313,7 @@ function normalizeArticles(raw: NewsFeedApiResponse["articles"], fallbackTopic: 
 }
 
 export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
-  const [selectedTopic, setSelectedTopicState] = useState(DEFAULT_TOPIC)
+  const [selectedTopics, setSelectedTopicsState] = useState<string[]>(() => [...DEFAULT_TOPIC_SELECTION])
   const [topics, setTopics] = useState<HomeNewsTopic[]>(() => normalizeTopics(DEFAULT_TOPICS))
   const [articles, setArticles] = useState<HomeNewsArticle[]>([])
   const [loading, setLoading] = useState(true)
@@ -263,24 +321,32 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
   const [stale, setStale] = useState(false)
   const [fetchedAt, setFetchedAt] = useState("")
 
-  const selectedTopicValid = useMemo(() => {
-    return topics.some((topic) => topic.id === selectedTopic) ? selectedTopic : DEFAULT_TOPIC
-  }, [selectedTopic, topics])
+  const selectedTopicsValid = useMemo(() => {
+    return normalizeTopicSelection(
+      selectedTopics,
+      topics.map((topic) => topic.id),
+    )
+  }, [selectedTopics, topics])
+  const selectedTopicsKey = useMemo(() => topicSelectionCacheKey(selectedTopicsValid), [selectedTopicsValid])
+  const selectedTopicsParam = useMemo(
+    () => (selectedTopicsKey === DEFAULT_TOPIC ? DEFAULT_TOPIC : selectedTopicsKey),
+    [selectedTopicsKey],
+  )
 
-  const setSelectedTopic = useCallback((topic: string) => {
-    const normalized = normalizeTopicId(topic)
-    setSelectedTopicState(normalized)
+  const setSelectedTopics = useCallback((nextTopics: string[]) => {
+    const normalized = normalizeTopicSelection(nextTopics)
+    setSelectedTopicsState(normalized)
     writePersistedTopic(normalized)
   }, [])
 
   useLayoutEffect(() => {
-    setSelectedTopicState(readPersistedTopic())
+    setSelectedTopicsState(readPersistedTopic())
   }, [])
 
   useEffect(() => {
     const handleActiveUserChanged = () => {
-      const topic = readPersistedTopic()
-      setSelectedTopicState(topic)
+      const nextTopics = readPersistedTopic()
+      setSelectedTopicsState(nextTopics)
       setArticles([])
       setError(null)
       setStale(false)
@@ -291,6 +357,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
   }, [])
 
   const refreshNewsFeed = useCallback(async (silent = false, forceRefresh = false) => {
+    const currentSelectedTopics = normalizeTopicSelection(selectedTopicsParam)
     if (!enabled) {
       setError(null)
       setStale(false)
@@ -301,7 +368,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
     if (!silent) setLoading(true)
     try {
       if (!forceRefresh) {
-        const cached = readPersistedFeed(selectedTopicValid)
+        const cached = readPersistedFeed(currentSelectedTopics)
         if (cached && isFreshFetchedAt(cached.fetchedAt)) {
           setTopics(cached.topics)
           setArticles(cached.articles)
@@ -314,7 +381,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
       }
 
       const params = new URLSearchParams({
-        topic: selectedTopicValid,
+        topics: selectedTopicsParam,
         limit: "12",
       })
       if (forceRefresh) {
@@ -329,7 +396,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
 
       if (forceRefresh && res.status === 429) {
         const fallbackParams = new URLSearchParams({
-          topic: selectedTopicValid,
+          topics: selectedTopicsParam,
           limit: "12",
         })
         res = await fetch(`/api/news/feed?${fallbackParams.toString()}`, {
@@ -344,15 +411,22 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
         throw new Error(String(data?.error || "Failed to fetch News feed."))
       }
       const nextTopics = normalizeTopics(data.availableTopics)
-      const requestedTopic = normalizeTopicId(data.topic || selectedTopicValid)
-      const normalized = normalizeArticles(data.articles, requestedTopic)
+      const requestedTopics = normalizeTopicSelection(
+        data.topics ?? data.topic ?? selectedTopicsParam,
+        nextTopics.map((topic) => topic.id),
+      )
+      const normalized = normalizeArticles(data.articles, requestedTopics)
       setTopics(nextTopics)
+      if (topicSelectionCacheKey(requestedTopics) !== selectedTopicsKey) {
+        setSelectedTopicsState(requestedTopics)
+        writePersistedTopic(requestedTopics)
+      }
       setArticles(normalized)
       setStale(Boolean(data.stale))
       setFetchedAt(String(data.fetchedAt || ""))
       setError(null)
       writePersistedFeed({
-        topic: selectedTopicValid,
+        topics: requestedTopics,
         availableTopics: nextTopics,
         articles: normalized,
         stale: Boolean(data.stale),
@@ -363,7 +437,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [enabled, selectedTopicValid])
+  }, [enabled, selectedTopicsKey, selectedTopicsParam])
 
   useEffect(() => {
     void refreshNewsFeed(false)
@@ -393,8 +467,8 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
 
   return {
     newsTopics: topics,
-    selectedNewsTopic: selectedTopicValid,
-    setSelectedNewsTopic: setSelectedTopic,
+    selectedNewsTopics: selectedTopicsValid,
+    setSelectedNewsTopics: setSelectedTopics,
     newsArticles: articles,
     newsLoading: loading,
     newsError: error,

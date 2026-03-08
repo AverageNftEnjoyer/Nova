@@ -9,8 +9,14 @@ import {
   normalizePhantomIntegrationConfig,
   type PhantomIntegrationConfig,
 } from "../phantom/types"
+import {
+  DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
+  normalizePolymarketIntegrationConfig,
+  type PolymarketIntegrationConfig,
+} from "../polymarket/types"
 
 export type { PhantomIntegrationConfig } from "../phantom/types"
+export type { PolymarketIntegrationConfig } from "../polymarket/types"
 
 export interface TelegramIntegrationConfig {
   connected: boolean
@@ -193,6 +199,7 @@ export interface IntegrationsConfig {
   news: NewsIntegrationConfig
   coinbase: CoinbaseIntegrationConfig
   phantom: PhantomIntegrationConfig
+  polymarket: PolymarketIntegrationConfig
   openai: OpenAIIntegrationConfig
   claude: ClaudeIntegrationConfig
   grok: GrokIntegrationConfig
@@ -294,6 +301,9 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   },
   phantom: {
     ...DEFAULT_PHANTOM_INTEGRATION_CONFIG,
+  },
+  polymarket: {
+    ...DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
   },
   openai: {
     connected: false,
@@ -576,6 +586,7 @@ function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined
           : DEFAULT_CONFIG.coinbase.reportCadence,
     },
     phantom: normalizePhantomIntegrationConfig((raw as { phantom?: unknown } | null | undefined)?.phantom),
+    polymarket: normalizePolymarketIntegrationConfig((raw as { polymarket?: unknown } | null | undefined)?.polymarket),
     openai: {
       connected: raw?.openai?.connected ?? DEFAULT_CONFIG.openai.connected,
       apiKey: unwrapStoredSecret(raw?.openai?.apiKey),
@@ -797,6 +808,9 @@ function toEncryptedStoreConfig(config: IntegrationsConfig): IntegrationsConfig 
     phantom: {
       ...normalizePhantomIntegrationConfig(config.phantom),
     },
+    polymarket: {
+      ...normalizePolymarketIntegrationConfig(config.polymarket),
+    },
     claude: {
       ...config.claude,
       apiKey: wrapStoredSecret(config.claude.apiKey),
@@ -912,6 +926,10 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: DeepParti
         ...current.phantom.capabilities,
         ...(partial.phantom?.capabilities || {}),
       },
+    },
+    polymarket: {
+      ...current.polymarket,
+      ...(partial.polymarket || {}),
     },
     claude: {
       ...current.claude,

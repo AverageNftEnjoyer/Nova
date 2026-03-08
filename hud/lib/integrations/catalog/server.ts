@@ -97,6 +97,15 @@ export function buildIntegrationCatalog(config: IntegrationsConfig): Integration
       updatedAt: config.updatedAt,
     },
     {
+      id: "polymarket",
+      label: "Polymarket",
+      kind: "api",
+      connected: config.polymarket.connected && config.polymarket.walletAddress.trim().length > 0,
+      source: "core",
+      capabilities: config.polymarket.liveTradingEnabled ? ["fetch", "trade"] : ["fetch"],
+      updatedAt: config.updatedAt,
+    },
+    {
       id: "spotify",
       label: "Spotify",
       kind: "api",

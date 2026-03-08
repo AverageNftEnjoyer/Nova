@@ -1,5 +1,5 @@
 export type IntegrationCatalogKind = "channel" | "llm" | "api"
-export type IntegrationCatalogCapability = "output" | "fetch" | "ai"
+export type IntegrationCatalogCapability = "output" | "fetch" | "ai" | "trade"
 
 export interface IntegrationCatalogItem {
   id: string
@@ -16,7 +16,7 @@ function toCapabilities(raw: unknown): IntegrationCatalogCapability[] {
   if (!Array.isArray(raw)) return []
   const capabilities: IntegrationCatalogCapability[] = []
   for (const item of raw) {
-    if (item === "output" || item === "fetch" || item === "ai") {
+    if (item === "output" || item === "fetch" || item === "ai" || item === "trade") {
       capabilities.push(item)
     }
   }

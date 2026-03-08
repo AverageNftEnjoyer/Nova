@@ -6,6 +6,7 @@ import { encryptSecret } from "../../security/encryption"
 import type { IntegrationsConfig } from "../store/server-store"
 import { buildRuntimeSafeGmailSnapshot } from "../gmail/runtime-safe"
 import { buildRuntimeSafePhantomSnapshot } from "../phantom/runtime-safe"
+import { buildRuntimeSafePolymarketSnapshot } from "../polymarket/runtime-safe"
 import { buildRuntimeSafeSpotifySnapshot } from "../spotify/runtime-safe"
 
 function sanitizeUserContextId(value: unknown): string {
@@ -111,6 +112,7 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
       reportCadence: config.coinbase.reportCadence === "weekly" ? "weekly" : "daily",
     },
     phantom: buildRuntimeSafePhantomSnapshot(config.phantom),
+    polymarket: buildRuntimeSafePolymarketSnapshot(config.polymarket),
     openai: {
       connected: Boolean(config.openai.connected),
       apiKey: wrapSecret(config.openai.apiKey),

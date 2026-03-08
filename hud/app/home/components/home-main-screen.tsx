@@ -3,7 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History } from "lucide-react"
+import type { Conversation } from "@/lib/chat/conversations"
+import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
 import {
   BraveIcon,
@@ -16,6 +17,7 @@ import {
   NewsIcon,
   OpenAIIcon,
   PhantomIcon,
+  PolymarketIcon,
   SlackIcon,
   SpotifyIcon,
   TelegramIcon,
@@ -35,8 +37,101 @@ import { formatDailyTime, hexToRgba } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
 import { NewsFeedModule } from "./news-feed-module"
+import { NewsFeedFilterModal } from "./news-feed-filter-modal"
 import { YouTubeHomeModule } from "./youtube-home-module"
 import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+
+interface HistoryConversationMenuProps {
+  conversation: Conversation
+  isLight: boolean
+  onRename: (conversation: Conversation) => void
+  onArchive: (id: string, archived: boolean) => void
+  onDelete: (id: string) => void
+}
+
+function HistoryConversationMenu({
+  conversation,
+  isLight,
+  onRename,
+  onArchive,
+  onDelete,
+}: HistoryConversationMenuProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          onClick={(event) => event.stopPropagation()}
+          className={cn(
+            "h-5 w-5 shrink-0 rounded-md flex items-center justify-center transition-all duration-150 text-s-40",
+            isLight ? "hover:bg-[#eef3fb] hover:text-accent" : "hover:bg-white/8 hover:text-accent",
+          )}
+          aria-label="Conversation options"
+          title="Conversation options"
+        >
+          <MoreHorizontal className="w-3.5 h-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={6}
+        className={cn(
+          "rounded-xl p-1.5 min-w-[180px] backdrop-blur-xl",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out",
+          "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
+          "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
+          "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
+          isLight
+            ? "!border-[#d5dce8] !bg-[#f4f7fd]/95 !shadow-[0_10px_30px_-12px_rgba(15,23,42,0.25)]"
+            : "!border-white/10 !bg-black/25 !shadow-[0_14px_34px_-14px_rgba(0,0,0,0.55)]",
+        )}
+      >
+        <DropdownMenuItem
+          onClick={(event) => {
+            event.stopPropagation()
+            onRename(conversation)
+          }}
+          className={cn(
+            "home-spotlight-card home-border-glow home-spotlight-card--hover rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer font-medium transition-all duration-150",
+            isLight
+              ? "text-s-70 data-highlighted:bg-accent data-highlighted:!text-white"
+              : "text-s-60 data-highlighted:bg-accent/90 data-highlighted:!text-white",
+          )}
+        >
+          <Pencil className="w-4 h-4 opacity-70" />
+          Rename
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={(event) => {
+            event.stopPropagation()
+            onArchive(conversation.id, !conversation.archived)
+          }}
+          className={cn(
+            "home-spotlight-card home-border-glow home-spotlight-card--hover rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer font-medium transition-all duration-150",
+            isLight
+              ? "text-s-70 data-highlighted:bg-accent data-highlighted:!text-white"
+              : "text-s-60 data-highlighted:bg-accent/90 data-highlighted:!text-white",
+          )}
+        >
+          <Archive className="w-4 h-4 opacity-70" />
+          {conversation.archived ? "Unarchive" : "Archive"}
+        </DropdownMenuItem>
+        <div className={cn("my-1.5 h-px", isLight ? "bg-[#e5e9f0]" : "bg-white/[0.06]")} />
+        <DropdownMenuItem
+          onClick={(event) => {
+            event.stopPropagation()
+            onDelete(conversation.id)
+          }}
+          variant="destructive"
+          className="rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer font-medium !text-red-400 data-highlighted:bg-red-500/10 data-highlighted:!text-red-400 [&_svg]:!text-red-400 transition-all duration-150"
+        >
+          <Trash2 className="w-4 h-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 const FALLBACK_CRYPTO_ASSETS = [
   { symbol: "BTC", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
@@ -72,10 +167,16 @@ export function HomeMainScreen() {
     panelStyle,
     panelClass,
     subPanelClass,
+    conversations,
     missions,
     cryptoAssets,
     cryptoRange,
     setCryptoRange,
+    handleSelectConvo,
+    handleNewChat,
+    handleDeleteConvo,
+    handleRenameConvo,
+    handleArchiveConvo,
     openMissions,
     openCalendar,
     openIntegrations,
@@ -91,6 +192,7 @@ export function HomeMainScreen() {
     newsConnected,
     coinbaseConnected,
     phantomConnected,
+    polymarketConnected,
     openaiConnected,
     claudeConnected,
     grokConnected,
@@ -107,6 +209,9 @@ export function HomeMainScreen() {
     seekSpotify,
     gmailConnected,
     gcalendarConnected,
+    newsTopics,
+    selectedNewsTopics,
+    setSelectedNewsTopics,
     newsArticles,
     newsLoading,
     newsError,
@@ -186,6 +291,7 @@ export function HomeMainScreen() {
     { icon: <NewsIcon className="w-4 h-4" />, connected: newsConnected, label: "News", setup: "news" },
     { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase", setup: "coinbase" },
     { icon: <PhantomIcon className="w-4 h-4" />, connected: phantomConnected, label: "Phantom", setup: "phantom" },
+    { icon: <PolymarketIcon className="w-6 h-6" />, connected: polymarketConnected, label: "Polymarket", setup: "polymarket" },
   ] as const
 
   const previewManagers = NOVA_DOMAIN_MANAGERS.slice(0, 3)
@@ -194,6 +300,8 @@ export function HomeMainScreen() {
     (sum, m) => sum + m.workers.filter((w) => w.status === "online").length,
     0,
   )
+  const activeConversations = conversations.filter((conversation) => !conversation.archived)
+  const archivedConversations = conversations.filter((conversation) => conversation.archived)
   const presence = getNovaPresence({ agentConnected: connected, novaState })
   const [orbHovered, setOrbHovered] = useState(false)
   const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
@@ -248,8 +356,26 @@ export function HomeMainScreen() {
   )
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [newsFilterOpen, setNewsFilterOpen] = useState(false)
+  const [draftNewsTopics, setDraftNewsTopics] = useState<string[]>(["all"])
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
+  const [historyChatsOpen, setHistoryChatsOpen] = useState(true)
+  const [historyArchivedOpen, setHistoryArchivedOpen] = useState(false)
+  const [historyRenamingId, setHistoryRenamingId] = useState<string | null>(null)
+  const [historyRenamingTitle, setHistoryRenamingTitle] = useState("")
+
+  const toggleDraftNewsTopic = (topicId: string) => {
+    setDraftNewsTopics((current) => {
+      if (topicId === "all") return ["all"]
+      const withoutAll = current.filter((topic) => topic !== "all")
+      if (withoutAll.includes(topicId)) {
+        const next = withoutAll.filter((topic) => topic !== topicId)
+        return next.length > 0 ? next : ["all"]
+      }
+      return [...withoutAll, topicId]
+    })
+  }
 
   useEffect(() => {
     const syncProfile = () => {
@@ -262,6 +388,74 @@ export function HomeMainScreen() {
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
   }, [])
+
+  const beginHistoryRename = (conversation: Conversation) => {
+    setHistoryRenamingId(conversation.id)
+    setHistoryRenamingTitle(String(conversation.title || "").trim() || "New Chat")
+  }
+
+  const saveHistoryRename = () => {
+    if (!historyRenamingId) {
+      setHistoryRenamingTitle("")
+      return
+    }
+    const next = historyRenamingTitle.trim()
+    if (next) {
+      handleRenameConvo(historyRenamingId, next)
+    }
+    setHistoryRenamingId(null)
+    setHistoryRenamingTitle("")
+  }
+
+  const renderHistoryConversationRow = (conversation: Conversation) => (
+    <div
+      key={conversation.id}
+      className={cn(
+        "group flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 transition-colors home-spotlight-card home-border-glow",
+        subPanelClass,
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => { void handleSelectConvo(conversation.id) }}
+        className="flex-1 min-w-0 text-left"
+      >
+        {historyRenamingId === conversation.id ? (
+          <input
+            autoFocus
+            value={historyRenamingTitle}
+            onChange={(event) => setHistoryRenamingTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") saveHistoryRename()
+              if (event.key === "Escape") {
+                setHistoryRenamingId(null)
+                setHistoryRenamingTitle("")
+              }
+            }}
+            onBlur={saveHistoryRename}
+            onClick={(event) => event.stopPropagation()}
+            className={cn(
+              "w-full rounded-md border px-1.5 py-0.5 text-[10px] font-semibold leading-4 outline-none",
+              isLight ? "border-[#cfd9e9] bg-white text-s-90" : "border-white/10 bg-black/20 text-slate-100",
+            )}
+          />
+        ) : (
+          <p className={cn("truncate text-[10px] font-semibold leading-4", isLight ? "text-s-90" : "text-slate-100")}>
+            {String(conversation.title || "New Chat").trim() || "New Chat"}
+          </p>
+        )}
+      </button>
+      {historyRenamingId !== conversation.id ? (
+        <HistoryConversationMenu
+          conversation={conversation}
+          isLight={isLight}
+          onRename={beginHistoryRename}
+          onArchive={handleArchiveConvo}
+          onDelete={handleDeleteConvo}
+        />
+      ) : null}
+    </div>
+  )
 
   return (
     <div
@@ -344,6 +538,97 @@ export function HomeMainScreen() {
 
             {/* ── ZONE 1: Schedule (left column) ─────────────────────────── */}
             <div className="w-[15.5rem] shrink-0 min-h-0 grid grid-rows-2 gap-1.5">
+              <section
+                ref={pipelineSectionRef}
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell p-4 min-h-0 h-full flex flex-col`}
+              >
+                {renderPanelHeader({
+                  icon: <History className="w-4 h-4 text-accent" />,
+                  title: "Chat History",
+                })}
+                <button
+                  type="button"
+                  onClick={() => { void handleNewChat() }}
+                  className={cn(
+                    "mt-2 w-full rounded-md border px-1.5 py-0.5 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    "inline-flex items-center justify-center gap-1 text-[10px] font-semibold leading-4",
+                    subPanelClass,
+                  )}
+                  aria-label="Start a new chat"
+                  title="Start a new chat"
+                >
+                  <Plus className="h-2.5 w-2.5" />
+                  New Chat
+                </button>
+                <div className="mt-2 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1 pr-1">
+                  {conversations.length === 0 ? (
+                    <div
+                      className={cn(
+                        "rounded-md border p-2.5 text-[11px] leading-4 home-spotlight-card home-border-glow",
+                        subPanelClass,
+                      )}
+                    >
+                      No conversations yet. Start a new chat to open the full chat page.
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryChatsOpen((current) => !current)}
+                          className={cn("flex w-full items-center gap-1.5 px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]", isLight ? "text-s-60" : "text-slate-300")}
+                        >
+                          {historyChatsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                          <FolderOpen className="h-3.5 w-3.5 text-accent" />
+                          Chats
+                          <span className={cn("ml-auto text-[9px]", isLight ? "text-s-50" : "text-slate-400")}>
+                            {activeConversations.length}
+                          </span>
+                        </button>
+                        {historyChatsOpen ? (
+                          <div className="mt-1 space-y-1">
+                            {activeConversations.length === 0 ? (
+                              <p className={cn("px-2 py-2 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                                No active chats.
+                              </p>
+                            ) : (
+                              activeConversations.slice(0, 5).map(renderHistoryConversationRow)
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryArchivedOpen((current) => !current)}
+                          className={cn("flex w-full items-center gap-1.5 px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]", isLight ? "text-s-60" : "text-slate-300")}
+                        >
+                          {historyArchivedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                          <FolderArchive className="h-3.5 w-3.5 text-accent" />
+                          Archived
+                          <span className={cn("ml-auto text-[9px]", isLight ? "text-s-50" : "text-slate-400")}>
+                            {archivedConversations.length}
+                          </span>
+                        </button>
+                        {historyArchivedOpen ? (
+                          <div className="mt-1 space-y-1">
+                            {archivedConversations.length === 0 ? (
+                              <p className={cn("px-2 py-2 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
+                                No archived chats.
+                              </p>
+                            ) : (
+                              archivedConversations.slice(0, 3).map(renderHistoryConversationRow)
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </section>
+
               <div className="min-h-0">
                 <ScheduleBriefing
                   isLight={isLight}
@@ -354,97 +639,6 @@ export function HomeMainScreen() {
                   onOpenCalendar={openCalendar}
                 />
               </div>
-
-              <section
-                ref={pipelineSectionRef}
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell p-4 min-h-0 h-full flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <Pin className="w-4 h-4 text-accent" />,
-                  title: "Missions Hub",
-                  action: renderGearButton({
-                    onClick: openMissions,
-                    label: "Open mission settings",
-                    groupName: "mission-gear",
-                    hoverGlow: false,
-                  }),
-                })}
-                <div className="mt-1 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
-                  {missions.length === 0 && (
-                    <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
-                      No missions yet. Add one in Mission Settings.
-                    </p>
-                  )}
-                  {missions.map((mission) => (
-                    <div
-                      key={mission.id}
-                      className={cn(
-                        `${subPanelClass} p-2 home-spotlight-card home-border-glow`,
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>
-                          {mission.title}
-                        </p>
-                        <span
-                          className={cn(
-                            "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap shrink-0",
-                            mission.enabledCount > 0
-                              ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                              : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                          )}
-                        >
-                          {mission.enabledCount > 0 ? "Active" : "Paused"}
-                        </span>
-                      </div>
-                      {mission.description ? (
-                        <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>
-                          {mission.description}
-                        </p>
-                      ) : null}
-                      <div className="mt-1.5 flex items-end justify-between gap-2">
-                        <div className="flex flex-wrap gap-1">
-                          {mission.times.map((time, index) => (
-                            <span
-                              key={`${mission.id}-${time}-${index}`}
-                              className={cn(
-                                "text-[10px] px-1.5 py-0.5 rounded-md border",
-                                isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "home-subpanel-surface text-slate-300",
-                              )}
-                            >
-                              {formatDailyTime(time, mission.timezone)}
-                            </span>
-                          ))}
-                        </div>
-                        <span
-                          className={cn(
-                            "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap capitalize shrink-0",
-                            mission.priority === "low" &&
-                              (isLight
-                                ? "border-emerald-300 bg-emerald-100 text-emerald-700"
-                                : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
-                            mission.priority === "medium" &&
-                              (isLight
-                                ? "border-amber-300 bg-amber-100 text-amber-700"
-                                : "border-amber-300/40 bg-amber-500/15 text-amber-300"),
-                            mission.priority === "high" &&
-                              (isLight
-                                ? "border-orange-300 bg-orange-100 text-orange-700"
-                                : "border-orange-300/40 bg-orange-500/15 text-orange-300"),
-                            mission.priority === "critical" &&
-                              (isLight
-                                ? "border-rose-300 bg-rose-100 text-rose-700"
-                                : "border-rose-300/40 bg-rose-500/15 text-rose-300"),
-                          )}
-                        >
-                          {mission.priority}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
             </div>
 
             {/* ── ZONE 2: Center column ──────────────────────────────────── */}
@@ -485,10 +679,33 @@ export function HomeMainScreen() {
                 panelStyle={panelStyle}
                 className="w-full xl:flex-1 min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full"
                 onOpenIntegrations={openIntegrations}
+                onOpenPolymarket={() => router.push("/polymarket")}
               />
             </div>
 
-            <div className="flex-1 min-h-0" aria-hidden="true" />
+            <div className="flex-1 min-h-0 flex justify-start">
+              <NewsFeedModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                sectionRef={newsModuleSectionRef}
+                className="w-[calc((100%-1.125rem)/4)] min-h-0 h-full"
+                connected={newsConnected}
+                selectedTopics={selectedNewsTopics}
+                articles={newsArticles}
+                loading={newsLoading}
+                error={newsError}
+                stale={newsStale}
+                fetchedAt={newsFetchedAt}
+                onOpenIntegrations={openIntegrations}
+                onOpenFilters={() => {
+                  setDraftNewsTopics(selectedNewsTopics)
+                  setNewsFilterOpen(true)
+                }}
+                onRefresh={refreshNewsFeed}
+              />
+            </div>
 
             {/* ── Bottom row: market + dev + history panels ── */}
             <div className="grid grid-cols-4 gap-1.5 shrink-0 h-47">
@@ -710,23 +927,96 @@ export function HomeMainScreen() {
               </div>
             </section>
 
-            {/* Live News — fills space between Integrations and Agent Chart */}
-            <NewsFeedModule
-              isLight={isLight}
-              panelClass={panelClass}
-              subPanelClass={subPanelClass}
-              panelStyle={panelStyle}
-              sectionRef={newsModuleSectionRef}
-              className="flex-1 min-h-0"
-              connected={newsConnected}
-              articles={newsArticles}
-              loading={newsLoading}
-              error={newsError}
-              stale={newsStale}
-              fetchedAt={newsFetchedAt}
-              onOpenIntegrations={openIntegrations}
-              onRefresh={refreshNewsFeed}
-            />
+            <section
+              ref={pipelineSectionRef}
+              style={panelStyle}
+              className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex-1 flex flex-col`}
+            >
+              {renderPanelHeader({
+                icon: <Pin className="w-4 h-4 text-accent" />,
+                title: "Missions Hub",
+                action: renderGearButton({
+                  onClick: openMissions,
+                  label: "Open mission settings",
+                  groupName: "mission-gear",
+                  hoverGlow: false,
+                }),
+              })}
+              <div className="mt-1 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
+                {missions.length === 0 && (
+                  <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
+                    No missions yet. Add one in Mission Settings.
+                  </p>
+                )}
+                {missions.map((mission) => (
+                  <div
+                    key={mission.id}
+                    className={cn(
+                      `${subPanelClass} p-2 home-spotlight-card home-border-glow`,
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>
+                        {mission.title}
+                      </p>
+                      <span
+                        className={cn(
+                          "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap shrink-0",
+                          mission.enabledCount > 0
+                            ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
+                            : "border-rose-300/40 bg-rose-500/15 text-rose-300",
+                        )}
+                      >
+                        {mission.enabledCount > 0 ? "Active" : "Paused"}
+                      </span>
+                    </div>
+                    {mission.description ? (
+                      <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>
+                        {mission.description}
+                      </p>
+                    ) : null}
+                    <div className="mt-1.5 flex items-end justify-between gap-2">
+                      <div className="flex flex-wrap gap-1">
+                        {mission.times.map((time, index) => (
+                          <span
+                            key={`${mission.id}-${time}-${index}`}
+                            className={cn(
+                              "text-[10px] px-1.5 py-0.5 rounded-md border",
+                              isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "home-subpanel-surface text-slate-300",
+                            )}
+                          >
+                            {formatDailyTime(time, mission.timezone)}
+                          </span>
+                        ))}
+                      </div>
+                      <span
+                        className={cn(
+                          "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap capitalize shrink-0",
+                          mission.priority === "low" &&
+                            (isLight
+                              ? "border-emerald-300 bg-emerald-100 text-emerald-700"
+                              : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
+                          mission.priority === "medium" &&
+                            (isLight
+                              ? "border-amber-300 bg-amber-100 text-amber-700"
+                              : "border-amber-300/40 bg-amber-500/15 text-amber-300"),
+                          mission.priority === "high" &&
+                            (isLight
+                              ? "border-orange-300 bg-orange-100 text-orange-700"
+                              : "border-orange-300/40 bg-orange-500/15 text-orange-300"),
+                          mission.priority === "critical" &&
+                            (isLight
+                              ? "border-rose-300 bg-rose-100 text-rose-700"
+                              : "border-rose-300/40 bg-rose-500/15 text-rose-300"),
+                        )}
+                      >
+                        {mission.priority}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
 
             {/* Agent Chart */}
             <section
@@ -811,6 +1101,24 @@ export function HomeMainScreen() {
         </div>
       </div>
     </div>
+    <NewsFeedFilterModal
+      isOpen={newsFilterOpen}
+      isLight={isLight}
+      panelClass={panelClass}
+      subPanelClass={subPanelClass}
+      panelStyle={panelStyle}
+      topics={newsTopics}
+      draftTopics={draftNewsTopics}
+      onToggleTopic={toggleDraftNewsTopic}
+      onClose={() => {
+        setDraftNewsTopics(selectedNewsTopics)
+        setNewsFilterOpen(false)
+      }}
+      onSave={() => {
+        setSelectedNewsTopics(draftNewsTopics)
+        setNewsFilterOpen(false)
+      }}
+    />
     <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
   </div>
   )

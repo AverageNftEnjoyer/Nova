@@ -4,6 +4,7 @@ import {
   broadcastCalendarRescheduled,
 } from "../../../infrastructure/hud-gateway/index.js";
 import { createCalendarProviderAdapter } from "./provider-adapter/index.js";
+import { parseStandaloneCalendarEventCommand } from "./direct-google-events/index.js";
 
 function normalizeText(value = "") {
   return String(value || "").trim();
@@ -84,12 +85,16 @@ function resolveContext(input = {}) {
     userContextId: normalizeText(input.userContextId || ctx.userContextId),
     conversationId: normalizeText(input.conversationId || ctx.conversationId),
     sessionKey: normalizeText(input.sessionKey || ctx.sessionKey),
+    ctx,
   };
 }
 
-function resolveCalendarAction(text = "", requestHints = {}) {
+function resolveCalendarAction(text = "", requestHints = {}, directEventIntent = null) {
   const normalized = normalizeText(text).toLowerCase();
   const affinity = normalizeText(requestHints?.calendarTopicAffinityId || requestHints?.topicAffinityId).toLowerCase();
+  if (directEventIntent?.action === "create") return "create_event";
+  if (directEventIntent?.action === "update") return "update_event";
+  if (directEventIntent?.action === "delete") return "delete_event";
   if (affinity === "calendar_reschedule") return "reschedule";
   if (affinity === "calendar_agenda") return "agenda";
   if (/\b(sync|scheduler|queue cap|queue caps|fairness)\b/.test(normalized)) return "sync";
@@ -134,7 +139,7 @@ function extractNewStartAt(text = "", requestHints = {}) {
 function formatAgendaReply(adapter, agenda = {}, windowKey = "week") {
   const events = Array.isArray(agenda?.events) ? agenda.events : [];
   if (events.length === 0) {
-    return `I don't see any scheduled mission events ${adapter.describeWindow(windowKey)}.`;
+    return `I don't see any calendar events ${adapter.describeWindow(windowKey)}.`;
   }
   const lines = [`Calendar ${adapter.describeWindow(windowKey)}:`];
   for (const event of events.slice(0, 5)) {
@@ -145,6 +150,15 @@ function formatAgendaReply(adapter, agenda = {}, windowKey = "week") {
   return lines.join("\n");
 }
 
+function formatStandaloneEventReply(action, adapter, event) {
+  if (!event) return "I couldn't update that Google Calendar event.";
+  const when = adapter.formatWhen(event.startAt, event.timezone || "UTC");
+  if (action === "create_event") return `Added ${event.title} to your Google Calendar for ${when}.`;
+  if (action === "update_event") return `Moved ${event.title} on your Google Calendar to ${when}.`;
+  if (action === "delete_event") return `Deleted ${event.title} from your Google Calendar.`;
+  return `Updated ${event.title} on your Google Calendar.`;
+}
+
 export async function runCalendarDomainService(input = {}, deps = {}) {
   const startedAt = Date.now();
   const {
@@ -153,6 +167,7 @@ export async function runCalendarDomainService(input = {}, deps = {}) {
     userContextId,
     conversationId,
     sessionKey,
+    ctx,
   } = resolveContext(input);
 
   if (!userContextId || !conversationId || !sessionKey) {
@@ -176,11 +191,12 @@ export async function runCalendarDomainService(input = {}, deps = {}) {
       broadcastCalendarRescheduled,
       broadcastCalendarConflict,
     });
-  const action = resolveCalendarAction(text, requestHints);
+  const directEventIntent = parseStandaloneCalendarEventCommand(text);
+  const action = resolveCalendarAction(text, requestHints, directEventIntent);
 
   if (action === "agenda" || action === "status") {
     const windowKey = action === "agenda" ? resolveAgendaWindow(text, requestHints) : "week";
-    const agenda = await adapter.listAgenda({ userContextId, window: windowKey });
+    const agenda = await adapter.listAgenda({ userContextId, window: windowKey, ctx });
     const itemCount = Array.isArray(agenda?.events) ? agenda.events.length : 0;
     return buildResponse({
       ok: agenda?.ok === true,
@@ -228,7 +244,7 @@ export async function runCalendarDomainService(input = {}, deps = {}) {
   if (action === "reschedule") {
     const missionQuery = extractMissionQuery(text, action);
     const newStartAt = extractNewStartAt(text, requestHints);
-    const result = await adapter.rescheduleMission({ userContextId, missionQuery, newStartAt });
+    const result = await adapter.rescheduleMission({ userContextId, missionQuery, newStartAt, ctx });
     return buildResponse({
       ok: result?.ok === true,
       code: String(result?.code || (result?.ok === true ? "calendar.reschedule_ok" : "calendar.reschedule_failed")),
@@ -254,7 +270,7 @@ export async function runCalendarDomainService(input = {}, deps = {}) {
 
   if (action === "clear") {
     const missionQuery = extractMissionQuery(text, action);
-    const result = await adapter.clearReschedule({ userContextId, missionQuery });
+    const result = await adapter.clearReschedule({ userContextId, missionQuery, ctx });
     return buildResponse({
       ok: result?.ok === true,
       code: String(result?.code || (result?.ok === true ? "calendar.clear_ok" : "calendar.clear_failed")),
@@ -274,6 +290,93 @@ export async function runCalendarDomainService(input = {}, deps = {}) {
       itemCount: result?.mission ? 1 : 0,
       data: {
         missionId: normalizeText(result?.mission?.id || ""),
+      },
+    });
+  }
+
+  if (action === "create_event" || action === "update_event" || action === "delete_event") {
+    const parsed = directEventIntent;
+    if (!parsed) {
+      return buildResponse({
+        ok: false,
+        code: "calendar.intent_unsupported",
+        message: "Calendar request was not recognized.",
+        reply: "I couldn't understand that calendar event request.",
+        requestHints,
+        action,
+        startedAt,
+        userContextId,
+        conversationId,
+        sessionKey,
+      });
+    }
+    if (parsed.ok !== true) {
+      return buildResponse({
+        ok: false,
+        code: "calendar.event_parse_failed",
+        message: parsed.message || "Calendar event request could not be parsed.",
+        reply: parsed.message || "I need a title plus a clear date and time for that calendar event.",
+        requestHints,
+        action,
+        startedAt,
+        provider: String(adapter.providerId || adapter.id || "runtime_calendar"),
+        userContextId,
+        conversationId,
+        sessionKey,
+      });
+    }
+
+    const methodByAction = {
+      create_event: "createStandaloneEvent",
+      update_event: "updateStandaloneEvent",
+      delete_event: "deleteStandaloneEvent",
+    };
+    const methodName = methodByAction[action];
+    const method = typeof adapter?.[methodName] === "function" ? adapter[methodName].bind(adapter) : null;
+    if (!method) {
+      return buildResponse({
+        ok: false,
+        code: "calendar.intent_unsupported",
+        message: "Calendar provider does not support direct Google Calendar events.",
+        reply: "This calendar worker can't create or edit Google Calendar events yet.",
+        requestHints,
+        action,
+        startedAt,
+        provider: String(adapter.providerId || adapter.id || "runtime_calendar"),
+        userContextId,
+        conversationId,
+        sessionKey,
+      });
+    }
+
+    const result = await method({
+      userContextId,
+      title: parsed.title,
+      description: parsed.description,
+      startAt: parsed.startAt,
+      endAt: parsed.endAt,
+      matchStartAt: parsed.matchStartAt,
+      timeZone: parsed.timeZone,
+      ctx,
+    });
+
+    return buildResponse({
+      ok: result?.ok === true,
+      code: String(result?.code || (result?.ok === true ? `calendar.${parsed.action}_ok` : `calendar.${parsed.action}_failed`)),
+      message: String(result?.message || (result?.ok === true ? "Google Calendar event updated." : "Google Calendar event request failed.")),
+      reply: result?.ok === true
+        ? formatStandaloneEventReply(action, adapter, result.event)
+        : String(result?.message || "I couldn't update that Google Calendar event."),
+      requestHints,
+      action,
+      startedAt,
+      provider: String(adapter.providerId || adapter.id || "runtime_calendar"),
+      userContextId,
+      conversationId,
+      sessionKey,
+      itemCount: result?.event ? 1 : 0,
+      data: {
+        event: result?.event || null,
       },
     });
   }

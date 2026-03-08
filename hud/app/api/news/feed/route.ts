@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server"
 
 import { type NewsIntegrationConfig, loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import {
+  collectCanonicalNewsTopicCandidates,
+  matchesRequestedNewsTopics,
+  normalizeNewsTopicToken,
+  resolveNewsArticleClassification,
+  shouldIgnoreNewsTag,
+} from "@/lib/news/topic-classification"
 import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } from "@/lib/security/rate-limit"
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
@@ -33,26 +40,6 @@ const NEWSDATA_CATEGORY_TOPICS = new Set([
   "tourism",
   "world",
 ])
-const TAG_BLOCKLIST_SNIPPETS = [
-  "only-available",
-  "available-only",
-  "premium",
-  "subscriber",
-  "subscribers",
-  "professional",
-  "corporate",
-  "plans",
-  "subscribe",
-  "subscription",
-  "premium",
-  "newsletter",
-  "advertisement",
-  "sponsored",
-  "cookie",
-  "privacy-policy",
-  "terms-of-service",
-]
-
 type NewsArticle = {
   id: string
   title: string
@@ -68,7 +55,8 @@ type NewsArticle = {
 type FeedPayload = {
   ok: true
   topic: string
-  endpointKind: "latest" | "crypto" | "market"
+  topics: string[]
+  endpointKind: "latest" | "crypto" | "market" | "mixed"
   availableTopics: string[]
   stale: boolean
   fetchedAt: string
@@ -102,17 +90,27 @@ globalNewsFeedState.__novaNewsFeedCache = feedCache
 globalNewsFeedState.__novaNewsFeedInflight = feedInflight
 
 function normalizeTopicToken(value: unknown): string {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-  return normalized || "all"
+  return normalizeNewsTopicToken(value)
 }
 
 function parseTopic(raw: string | null): string {
   return normalizeTopicToken(raw || "all")
+}
+
+function parseTopics(raw: string | null, fallbackRaw: string | null, availableTopics: string[]): string[] {
+  const allowed = new Set(availableTopics.map((topic) => normalizeTopicToken(topic)).filter(Boolean))
+  allowed.add("all")
+  const candidates = String(raw || "")
+    .split(",")
+    .map((value) => normalizeTopicToken(value))
+    .filter(Boolean)
+  if (candidates.length === 0) {
+    const fallback = parseTopic(fallbackRaw)
+    return allowed.has(fallback) ? [fallback] : ["all"]
+  }
+  const filtered = Array.from(new Set(candidates.filter((topic) => allowed.has(topic))))
+  if (filtered.length === 0 || filtered.includes("all")) return ["all"]
+  return filtered
 }
 
 function parseLimit(raw: string | null): number {
@@ -139,14 +137,16 @@ function sanitizeAlphaCodes(value: string, min = 2, max = 2): string {
 }
 
 function buildAvailableTopics(news: NewsIntegrationConfig): string[] {
-  const topics = Array.isArray(news.defaultTopics)
+  const configuredTopics = Array.isArray(news.defaultTopics)
     ? news.defaultTopics.map((topic) => normalizeTopicToken(topic)).filter(Boolean)
     : []
-  const deduped = Array.from(new Set(["all", ...topics]))
-  if (deduped.length <= 1) {
-    return ["all", "world", "business", "technology", "markets", "crypto"]
-  }
-  return deduped
+  const supportedTopics = [
+    "all",
+    ...Array.from(NEWSDATA_CATEGORY_TOPICS),
+    "markets",
+    "crypto",
+  ]
+  return Array.from(new Set([...supportedTopics, ...configuredTopics]))
 }
 
 function resolveEndpoint(topic: string): { kind: "latest" | "crypto" | "market"; url: string } {
@@ -211,19 +211,6 @@ function normalizeArticleTopic(value: unknown, fallbackTopic: string): string {
   return normalized || fallbackTopic
 }
 
-function toStringTokens(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.flatMap((item) => toStringTokens(item))
-  }
-  if (value == null) return []
-  const raw = String(value).trim()
-  if (!raw) return []
-  return raw
-    .split(/[|,/]/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-}
-
 function resolvePublishedAt(value: Record<string, unknown>): string {
   const candidates = [
     value.published_at,
@@ -270,26 +257,18 @@ function resolveSource(value: Record<string, unknown>, url: string): string {
 }
 
 function collectArticleTags(value: Record<string, unknown>, fallbackTopic: string): string[] {
-  const rawTokens = [
-    ...toStringTokens(value.topic),
-    ...toStringTokens(value.category),
-    ...toStringTokens(value.categories),
-    ...toStringTokens(value.tags),
-    ...toStringTokens(value.keywords),
-    ...toStringTokens(value.keyword),
-    ...toStringTokens(value.ai_tag),
-    ...toStringTokens(value.ai_region),
-    ...toStringTokens(value.ai_org),
-    ...toStringTokens(value.section),
-  ]
-  const deduped: string[] = []
-  const seen = new Set<string>()
-  for (const token of rawTokens) {
-    const normalized = normalizeTopicToken(token)
-    if (!normalized || seen.has(normalized) || shouldIgnoreTag(normalized)) continue
-    seen.add(normalized)
-    deduped.push(normalized)
-  }
+  const deduped = collectCanonicalNewsTopicCandidates([
+    value.topic,
+    value.category,
+    value.categories,
+    value.tags,
+    value.keywords,
+    value.keyword,
+    value.ai_tag,
+    value.ai_region,
+    value.ai_org,
+    value.section,
+  ])
   const fallback = normalizeTopicToken(fallbackTopic)
   if (!deduped.length && fallback && fallback !== "all" && !shouldIgnoreTag(fallback)) {
     deduped.push(fallback)
@@ -298,17 +277,7 @@ function collectArticleTags(value: Record<string, unknown>, fallbackTopic: strin
 }
 
 function shouldIgnoreTag(tag: string): boolean {
-  const normalized = normalizeTopicToken(tag)
-  if (!normalized || normalized === "all") return true
-  if (normalized.length < 2 || normalized.length > 24) return true
-  const words = normalized.split("-").filter(Boolean)
-  if (words.length === 0 || words.length > 3) return true
-  if (words.every((word) => /^\d+$/.test(word))) return true
-  if (normalized.includes("http") || normalized.includes("www-")) return true
-  for (const blocked of TAG_BLOCKLIST_SNIPPETS) {
-    if (normalized.includes(blocked)) return true
-  }
-  return false
+  return shouldIgnoreNewsTag(tag)
 }
 
 function buildStoryDedupKey(title: string): string {
@@ -350,26 +319,79 @@ function normalizeArticles(raw: unknown, topic: string, limit: number): NewsArti
     const storyKey = buildStoryDedupKey(title)
     if (storyKey && seenStoryKeys.has(storyKey)) continue
     if (storyKey) seenStoryKeys.add(storyKey)
+    const summary = String(value.summary || value.description || value.snippet || "").trim()
     const tags = collectArticleTags(value, topic)
-    const normalizedTopic = normalizeArticleTopic(
-      value.topic || value.category || (Array.isArray(value.tags) ? value.tags[0] : "") || tags[0] || topic,
-      topic,
-    )
+    const classification = resolveNewsArticleClassification({
+      title,
+      summary,
+      rawTopic: value.topic || value.category || (Array.isArray(value.tags) ? value.tags[0] : "") || tags[0] || topic,
+      rawTags: tags,
+      fallbackTopic: topic,
+    })
+    if (topic !== "all" && !matchesRequestedNewsTopics([topic], classification)) {
+      continue
+    }
+    const normalizedTopic = normalizeArticleTopic(classification.topic, topic)
     normalized.push({
       id: String(value.id || "").trim() || `${title}:${url}`,
       title,
-      summary: String(value.summary || value.description || value.snippet || "").trim(),
+      summary,
       source: resolveSource(value, url),
       url,
       publishedAt: resolvePublishedAt(value),
       topic: normalizedTopic,
-      tags,
+      tags: classification.tags,
       imageUrl: String(value.image_url || value.imageUrl || value.url_to_image || "").trim(),
     })
     if (normalized.length >= limit) break
   }
   normalized.sort((a, b) => toEpochMs(b.publishedAt) - toEpochMs(a.publishedAt))
   return normalized
+}
+
+function mergeArticlesByTopic(
+  batches: Array<{ topic: string; articles: NewsArticle[] }>,
+  limit: number,
+): NewsArticle[] {
+  const merged = new Map<string, NewsArticle>()
+  for (const batch of batches) {
+    for (const article of batch.articles) {
+      const storyKey = buildStoryDedupKey(article.title) || article.id
+      const nextTags = Array.from(
+        new Set(
+          [article.topic, ...article.tags]
+            .map((tag) => normalizeTopicToken(tag))
+            .filter((tag) => tag && tag !== "all" && !shouldIgnoreTag(tag)),
+        ),
+      )
+      const nextArticle: NewsArticle = {
+        ...article,
+        topic: article.topic,
+        tags: nextTags,
+      }
+      const existing = merged.get(storyKey)
+      if (!existing) {
+        merged.set(storyKey, nextArticle)
+        continue
+      }
+      const existingTags = Array.from(
+        new Set(
+          [existing.topic, ...existing.tags, nextArticle.topic, ...nextArticle.tags]
+            .map((tag) => normalizeTopicToken(tag))
+            .filter((tag) => tag && tag !== "all" && !shouldIgnoreTag(tag)),
+        ),
+      )
+      const preferNext = toEpochMs(nextArticle.publishedAt) > toEpochMs(existing.publishedAt)
+      const preferred = preferNext ? nextArticle : existing
+      merged.set(storyKey, {
+        ...preferred,
+        tags: existingTags,
+      })
+    }
+  }
+  return Array.from(merged.values())
+    .sort((a, b) => toEpochMs(b.publishedAt) - toEpochMs(a.publishedAt))
+    .slice(0, limit)
 }
 
 async function fetchUpstreamJson(url: string): Promise<unknown> {
@@ -413,8 +435,8 @@ async function fetchUpstreamJson(url: string): Promise<unknown> {
   }
 }
 
-function buildCacheKey(userId: string, topic: string, endpointKind: string, limit: number): string {
-  return `${userId}:${topic}:${endpointKind}:${limit}`
+function buildCacheKey(userId: string, topics: string[], limit: number): string {
+  return `${userId}:${topics.map((topic) => normalizeTopicToken(topic)).join(",")}:${limit}`
 }
 
 function getCached(cacheKey: string): FeedPayload | null {
@@ -447,13 +469,11 @@ export async function GET(req: Request) {
   }
 
   const requestUrl = new URL(req.url)
-  const topic = parseTopic(requestUrl.searchParams.get("topic"))
+  const availableTopics = buildAvailableTopics(news)
+  const topics = parseTopics(requestUrl.searchParams.get("topics"), requestUrl.searchParams.get("topic"), availableTopics)
   const limit = parseLimit(requestUrl.searchParams.get("limit"))
   const forceRefresh = parseForceRefresh(requestUrl.searchParams.get("forceRefresh"))
-  const endpoint = resolveEndpoint(topic)
-
-  const availableTopics = buildAvailableTopics(news)
-  const cacheKey = buildCacheKey(verified.user.id, topic, endpoint.kind, limit)
+  const cacheKey = buildCacheKey(verified.user.id, topics, limit)
   const staleCandidate = feedCache.get(cacheKey)?.payload ?? null
   if (!forceRefresh) {
     const cached = getCached(cacheKey)
@@ -482,13 +502,29 @@ export async function GET(req: Request) {
   }
 
   const pending = (async () => {
-    const upstreamUrl = buildRequestUrl(endpoint.url, topic, endpoint.kind, limit, news)
-    const upstreamPayload = await fetchUpstreamJson(upstreamUrl)
-    const articles = normalizeArticles(upstreamPayload, topic, limit)
+    const resolvedTopics = topics.includes("all") ? ["all"] : topics
+    const topicBatches = await Promise.all(
+      resolvedTopics.map(async (requestedTopic) => {
+        const endpoint = resolveEndpoint(requestedTopic)
+        const upstreamUrl = buildRequestUrl(endpoint.url, requestedTopic, endpoint.kind, limit, news)
+        const upstreamPayload = await fetchUpstreamJson(upstreamUrl)
+        return {
+          topic: requestedTopic,
+          endpointKind: endpoint.kind,
+          articles: normalizeArticles(upstreamPayload, requestedTopic, limit),
+        }
+      }),
+    )
+    const endpointKinds = Array.from(new Set(topicBatches.map((batch) => batch.endpointKind)))
+    const articles = mergeArticlesByTopic(
+      topicBatches.map(({ topic, articles }) => ({ topic, articles })),
+      limit,
+    )
     const payload: FeedPayload = {
       ok: true,
-      topic,
-      endpointKind: endpoint.kind,
+      topic: resolvedTopics[0] || "all",
+      topics: resolvedTopics,
+      endpointKind: endpointKinds.length === 1 ? endpointKinds[0] : "mixed",
       availableTopics,
       stale: false,
       fetchedAt: new Date().toISOString(),

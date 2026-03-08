@@ -325,6 +325,118 @@ export async function createGmailCalendarEvent(
   return toCalendarEventItem(raw)
 }
 
+export async function getGmailCalendarEvent(
+  eventId: string,
+  options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: GmailCalendarScope
+  },
+): Promise<GmailCalendarEventItem | null> {
+  const targetEventId = String(eventId || "").trim()
+  if (!targetEventId) return null
+
+  const { accountId, calendarId = "primary", scope } = options ?? {}
+  const accessToken = await getValidGmailCalendarAccessToken(accountId, false, scope)
+  const normalizedCalendarId = normalizeCalendarId(calendarId)
+  const url = `${GCALENDAR_API_BASE}/calendars/${encodeURIComponent(normalizedCalendarId)}/events/${encodeURIComponent(targetEventId)}`
+  const res = await gmailFetchWithRetry(
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    { operation: "gmail_calendar_get_event", maxAttempts: 3, timeoutMs: 12_000 },
+  )
+  if (res.status === 404 || res.status === 410) return null
+  await assertGmailOk(res, "Google Calendar event fetch failed.")
+  const raw = await res.json().catch(() => null) as Record<string, unknown> | null
+  if (!raw || typeof raw !== "object") {
+    return {
+      id: targetEventId,
+      calendarId: normalizedCalendarId,
+    }
+  }
+  return toCalendarEventItem(raw, normalizedCalendarId)
+}
+
+export async function updateGmailCalendarEvent(
+  eventId: string,
+  patch: {
+    summary?: string
+    description?: string
+    startAt?: Date
+    endAt?: Date
+    timeZone?: string
+    recurrence?: string[]
+  },
+  options?: {
+    accountId?: string
+    calendarId?: string
+    scope?: GmailCalendarScope
+  },
+): Promise<GmailCalendarEventItem> {
+  const targetEventId = String(eventId || "").trim()
+  if (!targetEventId) {
+    throw new Error("Google Calendar event update requires an event ID.")
+  }
+
+  const { accountId, calendarId = "primary", scope } = options ?? {}
+  const accessToken = await getValidGmailCalendarAccessToken(accountId, false, scope)
+  const normalizedCalendarId = normalizeCalendarId(calendarId)
+  const timeZone = String(patch.timeZone || "").trim() || "UTC"
+  const body: Record<string, unknown> = {}
+  if (typeof patch.summary === "string") body.summary = patch.summary.trim() || "(No title)"
+  if (typeof patch.description === "string") body.description = patch.description.trim()
+  if (patch.startAt instanceof Date && !Number.isNaN(patch.startAt.getTime())) {
+    body.start = {
+      dateTime: patch.startAt.toISOString(),
+      timeZone,
+    }
+  }
+  if (patch.endAt instanceof Date && !Number.isNaN(patch.endAt.getTime())) {
+    body.end = {
+      dateTime: patch.endAt.toISOString(),
+      timeZone,
+    }
+  }
+  const recurrence = normalizeRecurrence(patch.recurrence)
+  if (recurrence) body.recurrence = recurrence
+
+  const url = `${GCALENDAR_API_BASE}/calendars/${encodeURIComponent(normalizedCalendarId)}/events/${encodeURIComponent(targetEventId)}`
+  const res = await gmailFetchWithRetry(
+    url,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    { operation: "gmail_calendar_update_event_patch", maxAttempts: 3, timeoutMs: 12_000 },
+  )
+  if (res.status === 404 || res.status === 410) {
+    const reason = await readGmailErrorMessage(res, "Google Calendar event update failed.")
+    throw fromGmailHttpStatus(res.status, reason || "Google Calendar event update failed.")
+  }
+  await assertGmailOk(res, "Google Calendar event update failed.")
+  const raw = await res.json().catch(() => null) as Record<string, unknown> | null
+  if (!raw || typeof raw !== "object") {
+    return {
+      id: targetEventId,
+      calendarId: normalizedCalendarId,
+      summary: typeof body.summary === "string" ? body.summary : undefined,
+      description: typeof body.description === "string" ? body.description : undefined,
+      start: body.start as GmailCalendarEventItem["start"] | undefined,
+      end: body.end as GmailCalendarEventItem["end"] | undefined,
+      status: "confirmed",
+    }
+  }
+  return toCalendarEventItem(raw, normalizedCalendarId)
+}
+
 export async function deleteGmailCalendarEvent(
   eventId: string,
   options?: {

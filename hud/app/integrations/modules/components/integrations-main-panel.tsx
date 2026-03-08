@@ -18,7 +18,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
 	    coinbaseApiKey, setCoinbaseApiKey, coinbaseApiKeyConfigured,
 	    coinbaseApiKeyMasked, coinbaseApiSecret, setCoinbaseApiSecret, showCoinbaseApiSecret, setShowCoinbaseApiSecret,
 	    coinbaseApiSecretConfigured, coinbaseApiSecretMasked, providerDefinition, gmailSetup, gmailCalendarSetup,
-	    phantomSetup, phantomSetupSectionRef,
+	    phantomSetup, polymarketSetup, phantomSetupSectionRef, polymarketSetupSectionRef,
 	    spotifySetup, youtubeSetup,
 	    telegramSetupSectionRef,
     discordSetupSectionRef, slackSetupSectionRef, braveSetupSectionRef, newsSetupSectionRef, coinbaseSetupSectionRef, gmailSetupSectionRef,
@@ -1122,6 +1122,106 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     ))}
                     <li>- This is wallet connect plus signed-message authentication, not OAuth.</li>
                   </ul>
+                </div>
+              </div>
+            </section>
+            )}
+
+            {activeSetup === "polymarket" && (
+            <section ref={polymarketSetupSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                    Polymarket Setup
+                  </h2>
+                  <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                    Bind your Phantom EVM wallet to Polymarket, expose a user-scoped runtime snapshot, and open the live trading workspace.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={polymarketSetup.openPolymarketWorkspace}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5",
+                      isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    )}
+                  >
+                    Open Trading Workspace
+                  </button>
+                  <button
+                    onClick={settings.polymarket.connected ? polymarketSetup.disconnectPolymarket : polymarketSetup.connectPolymarket}
+                    disabled={isSavingTarget !== null}
+                    className={cn(
+                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      settings.polymarket.connected
+                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
+                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                    )}
+                  >
+                    {settings.polymarket.connected ? "Disconnect" : "Connect"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
+                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                  <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Binding Status</p>
+                  <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr,1fr]">
+                    <div className="space-y-1 text-[11px] leading-4">
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Phantom EVM wallet: <span className="font-mono">{phantomSetup.evmLabel || "not detected"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Polymarket wallet: <span className="font-mono">{settings.polymarket.walletAddress || "not connected"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Profile address: <span className="font-mono">{settings.polymarket.profileAddress || "not bound"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Username: <span className="font-mono">{settings.polymarket.username || settings.polymarket.pseudonym || "n/a"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Last connected: <span className="font-mono">{settings.polymarket.lastConnectedAt || "n/a"}</span>
+                      </p>
+                      <p className={cn(isLight ? "text-s-60" : "text-slate-400")}>
+                        Last profile sync: <span className="font-mono">{settings.polymarket.lastProfileSyncAt || "n/a"}</span>
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      <div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-white/80" : "border-white/10 bg-black/20")}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Live Trading</p>
+                            <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova&apos;s Polymarket workspace to submit live wallet-approved orders.</p>
+                          </div>
+                          <NovaSwitch
+                            size="sm"
+                            checked={Boolean(settings.polymarket.liveTradingEnabled)}
+                            disabled={!settings.polymarket.connected || isSavingTarget !== null}
+                            onChange={(checked) => void polymarketSetup.setLiveTradingEnabled(checked)}
+                          />
+                        </div>
+                      </div>
+                      <div className={cn("rounded-lg border p-3", isLight ? "border-emerald-200 bg-emerald-50" : "border-emerald-500/20 bg-emerald-500/10")}>
+                        <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-emerald-800" : "text-emerald-200")}>Runtime Exposure</p>
+                        <ul className={cn("mt-2 space-y-1 text-[11px] leading-4", isLight ? "text-emerald-900" : "text-emerald-100")}>
+                          <li>- Nova stores the Polymarket wallet binding, profile address, and live-trading toggle per user.</li>
+                          <li>- Order signing still happens in Phantom. Nova does not custody keys or bypass explicit wallet approval.</li>
+                          <li>- If Phantom EVM readiness disappears, reconnect in the dedicated workspace before trading again.</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+                  <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Recommended Flow</p>
+                  <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
+                    <li>1. Connect Phantom first and confirm an EVM address appears in the Phantom setup block.</li>
+                    <li>2. Click <span className="font-mono">Connect</span> here to bind that wallet to your Polymarket integration record.</li>
+                    <li>3. Enable <span className="font-mono">Live Trading</span> only when you are ready to submit wallet-approved orders.</li>
+                    <li>4. Open the dedicated Polymarket workspace for market search, positions, and trade tickets.</li>
+                  </ol>
                 </div>
               </div>
             </section>

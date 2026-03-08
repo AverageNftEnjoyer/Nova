@@ -8,6 +8,7 @@ import {
   type NewsIntegrationConfig,
   type CoinbaseIntegrationConfig,
   type PhantomIntegrationConfig,
+  type PolymarketIntegrationConfig,
   type ClaudeIntegrationConfig,
   type DiscordIntegrationConfig,
   type SlackIntegrationConfig,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/integrations/store/server-store"
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { normalizePhantomIntegrationConfig } from "@/lib/integrations/phantom/types"
+import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { isValidSlackWebhookUrl, redactSlackWebhookUrl } from "@/lib/notifications/slack"
@@ -357,6 +359,15 @@ function normalizePhantomInput(raw: unknown, current: PhantomIntegrationConfig):
   })
 }
 
+function normalizePolymarketInput(raw: unknown, current: PolymarketIntegrationConfig): PolymarketIntegrationConfig {
+  if (!raw || typeof raw !== "object") return current
+  const polymarket = raw as Partial<PolymarketIntegrationConfig>
+  return normalizePolymarketIntegrationConfig({
+    ...current,
+    ...polymarket,
+  })
+}
+
 function normalizeClaudeInput(raw: unknown, current: ClaudeIntegrationConfig): ClaudeIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const claude = raw as Partial<ClaudeIntegrationConfig>
@@ -653,6 +664,9 @@ function toClientConfig(config: IntegrationsConfig) {
     phantom: {
       ...config.phantom,
     },
+    polymarket: {
+      ...config.polymarket,
+    },
     claude: {
       ...config.claude,
       apiKey: "",
@@ -774,6 +788,7 @@ export async function PATCH(req: Request) {
       news?: Partial<NewsIntegrationConfig> & { defaultTopics?: string[] | string; preferredSources?: string[] | string }
       coinbase?: Partial<CoinbaseIntegrationConfig>
       phantom?: Partial<PhantomIntegrationConfig>
+      polymarket?: Partial<PolymarketIntegrationConfig>
       openai?: Partial<OpenAIIntegrationConfig>
       claude?: Partial<ClaudeIntegrationConfig>
       grok?: Partial<GrokIntegrationConfig>
@@ -793,6 +808,7 @@ export async function PATCH(req: Request) {
     const hasNewsPatch = Object.prototype.hasOwnProperty.call(body, "news")
     const hasCoinbasePatch = Object.prototype.hasOwnProperty.call(body, "coinbase")
     const hasPhantomPatch = Object.prototype.hasOwnProperty.call(body, "phantom")
+    const hasPolymarketPatch = Object.prototype.hasOwnProperty.call(body, "polymarket")
     const hasOpenAIPatch = Object.prototype.hasOwnProperty.call(body, "openai")
     const hasClaudePatch = Object.prototype.hasOwnProperty.call(body, "claude")
     const hasGrokPatch = Object.prototype.hasOwnProperty.call(body, "grok")
@@ -810,6 +826,7 @@ export async function PATCH(req: Request) {
     const news = hasNewsPatch ? normalizeNewsInput(body.news, current.news) : current.news
     const coinbase = hasCoinbasePatch ? normalizeCoinbaseInput(body.coinbase, current.coinbase) : current.coinbase
     const phantom = hasPhantomPatch ? normalizePhantomInput(body.phantom, current.phantom) : current.phantom
+    const polymarket = hasPolymarketPatch ? normalizePolymarketInput(body.polymarket, current.polymarket) : current.polymarket
     const shouldValidateCoinbaseApiPair =
       hasCoinbasePatch &&
       coinbase.connectionMode === "api_key_pair" &&
@@ -841,6 +858,7 @@ export async function PATCH(req: Request) {
       news,
       coinbase,
       phantom,
+      polymarket,
       openai,
       claude,
       grok,

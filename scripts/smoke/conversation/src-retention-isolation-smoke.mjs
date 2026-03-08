@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 const results = [];
 
@@ -43,6 +46,19 @@ async function listFilesRecursive(rootDir) {
   return out;
 }
 
+async function withTempDir(fn) {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "nova-retention-smoke-"));
+  try {
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+const { createSessionRuntime } = await import(
+  pathToFileURL(path.join(process.cwd(), "src/session/runtime-compat/index.js")).href,
+);
+
 const threadsRoute = await read("hud/app/api/threads/route.ts");
 const threadMessagesRoute = await read("hud/app/api/threads/[threadId]/messages/route.ts");
 const accountDeleteRoute = await read("hud/app/api/account/delete/route.ts");
@@ -68,7 +84,7 @@ await run("R2 thread message writes are idempotent and non-destructive", async (
 await run("R3 assistant transport routing is strict to explicit conversation IDs", async () => {
   assert.equal(conversationsHook.includes("strict thread isolation"), true);
   assert.equal(conversationsHook.includes('if (role === "assistant") {'), true);
-  assert.equal(conversationsHook.includes("return \"\""), true);
+  assert.equal(conversationsHook.includes('return ""'), true);
 });
 
 await run("R4 websocket broadcast path enforces userContext scoping for chat events", async () => {
@@ -96,20 +112,89 @@ await run("R5 message deletes exist only on explicit account-delete endpoint", a
   assert.deepEqual(matches.sort(), ["hud/app/api/account/delete/route.ts"]);
 });
 
-await run("R6 transcript retention defaults are persistence-first (no auto trim/prune)", async () => {
-  assert.equal(runtimeConstants.includes("SESSION_MAX_TRANSCRIPT_LINES"), true);
-  assert.equal(runtimeConstants.includes("NOVA_SESSION_MAX_TRANSCRIPT_LINES\", 0"), true);
-  assert.equal(runtimeConstants.includes("NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS\", 0"), true);
+await run("R6 transcript retention defaults enable bounded pruning in prod", async () => {
+  assert.equal(runtimeConstants.includes('NOVA_SESSION_MAX_TRANSCRIPT_LINES", 400'), true);
+  assert.equal(runtimeConstants.includes('NOVA_SESSION_TRANSCRIPT_RETENTION_DAYS", 30'), true);
   assert.equal(
-    sessionStore.includes("? Math.trunc(Number(extended.maxTranscriptLines))\n      : 0;"),
+    sessionStore.includes("? Math.trunc(Number(extended.maxTranscriptLines))\n      : 400;"),
     true,
   );
   assert.equal(
-    sessionStore.includes("? Math.trunc(Number(extended.transcriptRetentionDays))\n      : 0;"),
+    sessionStore.includes("? Math.trunc(Number(extended.transcriptRetentionDays))\n      : 30;"),
     true,
   );
-  assert.equal(sessionRuntimeCompat.includes("maxTranscriptLines = 0"), true);
-  assert.equal(sessionRuntimeCompat.includes("transcriptRetentionDays = 0"), true);
+  assert.equal(sessionRuntimeCompat.includes("maxTranscriptLines = 400"), true);
+  assert.equal(sessionRuntimeCompat.includes("transcriptRetentionDays = 30"), true);
+});
+
+await run("R7 transcript append trims per-session files to the configured line cap", async () => {
+  await withTempDir(async (tmpRoot) => {
+    const runtime = createSessionRuntime({
+      sessionStorePath: path.join(tmpRoot, "sessions.json"),
+      transcriptDir: path.join(tmpRoot, "transcripts"),
+      userContextRoot: path.join(tmpRoot, "user-context"),
+      sessionIdleMinutes: 120,
+      sessionMainKey: "main",
+      transcriptsEnabled: true,
+      maxTranscriptLines: 3,
+      transcriptRetentionDays: 30,
+    });
+
+    const session = runtime.resolveSessionContext({
+      source: "hud",
+      sender: "hud-user",
+      userContextId: "retention-smoke-user",
+      sessionKeyHint: "agent:nova:hud:user:retention-smoke-user:dm:trim-thread",
+    });
+    const { sessionId } = session.sessionEntry;
+
+    for (let i = 0; i < 5; i += 1) {
+      runtime.appendTranscriptTurn(sessionId, i % 2 === 0 ? "user" : "assistant", `turn-${i}`);
+    }
+
+    const transcriptPath = path.join(
+      tmpRoot,
+      "user-context",
+      "retention-smoke-user",
+      "transcripts",
+      `${sessionId}.jsonl`,
+    );
+    const lines = (await readFile(transcriptPath, "utf8")).split(/\r?\n/).filter(Boolean);
+    assert.equal(lines.length, 3);
+    assert.equal(lines[0].includes("turn-2"), true);
+    assert.equal(lines[2].includes("turn-4"), true);
+  });
+});
+
+await run("R8 transcript pruning removes stale user-scoped transcript files on session resolve", async () => {
+  await withTempDir(async (tmpRoot) => {
+    const runtime = createSessionRuntime({
+      sessionStorePath: path.join(tmpRoot, "sessions.json"),
+      transcriptDir: path.join(tmpRoot, "transcripts"),
+      userContextRoot: path.join(tmpRoot, "user-context"),
+      sessionIdleMinutes: 120,
+      sessionMainKey: "main",
+      transcriptsEnabled: true,
+      maxTranscriptLines: 400,
+      transcriptRetentionDays: 1,
+    });
+
+    const staleDir = path.join(tmpRoot, "user-context", "retention-smoke-user", "transcripts");
+    const stalePath = path.join(staleDir, "stale-session.jsonl");
+    fs.mkdirSync(staleDir, { recursive: true });
+    fs.writeFileSync(stalePath, '{"role":"user","content":"stale"}\n', "utf8");
+    const staleDate = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    fs.utimesSync(stalePath, staleDate, staleDate);
+
+    runtime.resolveSessionContext({
+      source: "hud",
+      sender: "hud-user",
+      userContextId: "retention-smoke-user",
+      sessionKeyHint: "agent:nova:hud:user:retention-smoke-user:dm:prune-thread",
+    });
+
+    assert.equal(fs.existsSync(stalePath), false);
+  });
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

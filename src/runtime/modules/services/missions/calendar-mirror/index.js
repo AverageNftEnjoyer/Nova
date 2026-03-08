@@ -195,8 +195,26 @@ async function resolveMirrorAccount(scope, dependencies) {
   };
 }
 
-function missionScheduleEventId(userId, missionId) {
+export function buildMissionScheduleMirrorEventId(userId, missionId) {
   return hashEventId(`${userId}|mission|${missionId}`, "novamission");
+}
+
+export function isMissionScheduleMirrorCandidate(mission = {}) {
+  const trigger = Array.isArray(mission.nodes)
+    ? mission.nodes.find((node) => node.type === "schedule-trigger")
+    : null;
+  return Boolean(trigger && mission.status === "active" && String(mission.id || "").trim());
+}
+
+export function collectMirroredMissionIdsForDeletion(missions = [], lookupByMissionId = new Map()) {
+  const deletions = [];
+  for (const mission of Array.isArray(missions) ? missions : []) {
+    if (!isMissionScheduleMirrorCandidate(mission)) continue;
+    if (lookupByMissionId.get(String(mission.id || "").trim()) === "missing") {
+      deletions.push(String(mission.id || "").trim());
+    }
+  }
+  return deletions;
 }
 
 export async function syncMissionScheduleToGoogleCalendar(params = {}, dependencies = {}) {
@@ -210,20 +228,20 @@ export async function syncMissionScheduleToGoogleCalendar(params = {}, dependenc
   const mission = params?.mission || {};
   const scope = params?.scope;
   const userId = String(scope?.userId || scope?.user?.id || mission.userId || "").trim();
-  if (!userId) return;
+  if (!userId) return { synced: false, reason: "missing_user" };
 
   let mirror;
   try {
     mirror = await resolveMirrorAccount(scope, dependencies);
   } catch {
-    return;
+    return { synced: false, reason: "resolve_mirror_failed" };
   }
   if (!mirror.ok || !mirror.accountId) {
     warn(`[gcalendar][schedule_mirror][mission] skipped mission=${mission.id} user=${userId} reason=${mirror.reason || "unknown"}`);
-    return;
+    return { synced: false, reason: mirror.reason || "unknown" };
   }
 
-  const eventId = missionScheduleEventId(userId, String(mission.id || "").trim());
+  const eventId = buildMissionScheduleMirrorEventId(userId, String(mission.id || "").trim());
   const trigger = Array.isArray(mission.nodes)
     ? mission.nodes.find((node) => node.type === "schedule-trigger")
     : null;
@@ -232,11 +250,16 @@ export async function syncMissionScheduleToGoogleCalendar(params = {}, dependenc
     if (mirror.canDelete) {
       await deleteCalendarEvent(eventId, { accountId: mirror.accountId, calendarId: "primary", scope }).catch(() => {});
     }
-    return;
+    return {
+      synced: false,
+      eventId,
+      removed: Boolean(mirror.canDelete),
+      reason: "inactive_or_unscheduled",
+    };
   }
   if (!mirror.canCreate) {
     warn(`[gcalendar][schedule_mirror][mission] skipped mission=${mission.id} user=${userId} reason=allowCreate_false`);
-    return;
+    return { synced: false, eventId, reason: "allowCreate_false" };
   }
 
   const timezone = resolveTimezone(trigger.triggerTimezone, mission?.settings?.timezone);
@@ -285,6 +308,11 @@ export async function syncMissionScheduleToGoogleCalendar(params = {}, dependenc
   info(
     `[gcalendar][schedule_mirror][mission] synced mission=${mission.id} user=${userId} account=${mirror.accountEmail || mirror.accountId || "unknown"} eventId=${created.id || "unknown"} link=${created.htmlLink || "n/a"}`,
   );
+  return {
+    synced: true,
+    eventId: String(created.id || eventId),
+    accountId: mirror.accountId,
+  };
 }
 
 export async function removeMissionScheduleFromGoogleCalendar(params = {}, dependencies = {}) {
@@ -303,7 +331,7 @@ export async function removeMissionScheduleFromGoogleCalendar(params = {}, depen
   if (!mirror.ok || !mirror.accountId || !mirror.canDelete) return;
 
   await deleteCalendarEvent(
-    missionScheduleEventId(userId, missionId),
+    buildMissionScheduleMirrorEventId(userId, missionId),
     {
       accountId: mirror.accountId,
       calendarId: "primary",

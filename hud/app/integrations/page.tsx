@@ -15,12 +15,14 @@ import { cn } from "@/lib/shared/utils"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
+import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
+import { connectPolymarketWallet } from "@/lib/integrations/polymarket/browser"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -153,6 +155,7 @@ export default function IntegrationsPage() {
   const newsSetupSectionRef = useRef<HTMLElement | null>(null)
   const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
   const phantomSetupSectionRef = useRef<HTMLElement | null>(null)
+  const polymarketSetupSectionRef = useRef<HTMLElement | null>(null)
   const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
   const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
   const grokSetupSectionRef = useRef<HTMLElement | null>(null)
@@ -213,6 +216,90 @@ export default function IntegrationsPage() {
   const hydrateSpotifySetup = spotifySetup.hydrate
   const hydratePhantomSetup = phantomSetup.hydrate
   const hydrateYouTubeSetup = youtubeSetup.hydrate
+
+  const applyNormalizedPolymarket = (nextPolymarket: IntegrationsSettings["polymarket"]) => {
+    setSettings((prev) => {
+      const next = {
+        ...prev,
+        polymarket: normalizePolymarketIntegrationConfig(nextPolymarket),
+      }
+      saveIntegrationsSettings(next)
+      return next
+    })
+  }
+
+  const connectPolymarket = async () => {
+    setIsSavingTarget("polymarket-connect")
+    try {
+      const binding = await connectPolymarketWallet(window)
+      const res = await fetch("/api/polymarket/connect", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: binding.walletAddress,
+          signatureType: 0,
+          liveTradingEnabled: settings.polymarket.liveTradingEnabled,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
+        return
+      }
+      if (!res.ok || !data?.config) {
+        throw new Error(String(data?.error || "Failed to connect Polymarket."))
+      }
+      applyNormalizedPolymarket(data.config)
+      setSaveStatus({ type: "success", message: "Polymarket wallet binding saved." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to connect Polymarket." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }
+
+  const disconnectPolymarket = async () => {
+    setIsSavingTarget("polymarket-disconnect")
+    try {
+      const res = await fetch("/api/polymarket/disconnect", {
+        method: "POST",
+        credentials: "include",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.config) {
+        throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
+      }
+      applyNormalizedPolymarket(data.config)
+      setSaveStatus({ type: "success", message: "Polymarket binding removed." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to disconnect Polymarket." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }
+
+  const setPolymarketLiveTradingEnabled = async (enabled: boolean) => {
+    setIsSavingTarget("polymarket-settings")
+    try {
+      const res = await fetch("/api/polymarket/settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ liveTradingEnabled: enabled }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.config) {
+        throw new Error(String(data?.error || "Failed to update Polymarket settings."))
+      }
+      applyNormalizedPolymarket(data.config)
+      setSaveStatus({ type: "success", message: enabled ? "Live Polymarket trading enabled." : "Live Polymarket trading disabled." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to update Polymarket settings." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -366,6 +453,7 @@ export default function IntegrationsPage() {
             apiSecretMasked: typeof config.coinbase?.apiSecretMasked === "string" ? config.coinbase.apiSecretMasked : "",
           },
           phantom: normalizePhantomSettingsForUi(config.phantom),
+          polymarket: normalizePolymarketIntegrationConfig(config.polymarket),
           openai: {
             connected: Boolean(config.openai?.connected),
             apiKey: config.openai?.apiKey || "",
@@ -601,6 +689,7 @@ export default function IntegrationsPage() {
       { ref: newsSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: coinbaseSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: phantomSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: polymarketSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: openaiSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: claudeSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
       { ref: grokSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
@@ -692,6 +781,7 @@ export default function IntegrationsPage() {
     { key: "news" as const, connected: settings.news.connected, icon: <NewsIcon className="w-3.5 h-3.5" />, ariaLabel: "Open News setup" },
     { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
     { key: "phantom" as const, connected: settings.phantom.connected, icon: <PhantomIcon className="w-4 h-4" />, ariaLabel: "Open Phantom setup" },
+    { key: "polymarket" as const, connected: settings.polymarket.connected, icon: <PolymarketIcon className="w-6 h-6" />, ariaLabel: "Open Polymarket setup" },
   ]
   const activeProviderDefinition = useProviderDefinitions({
     settings,
@@ -946,9 +1036,16 @@ export default function IntegrationsPage() {
               connectPhantom: phantomSetup.connectPhantom,
               disconnectPhantom: () => phantomSetup.disconnectPhantom(),
             }}
+            polymarketSetup={{
+              connectPolymarket,
+              disconnectPolymarket,
+              openPolymarketWorkspace: () => router.push("/polymarket"),
+              setLiveTradingEnabled: setPolymarketLiveTradingEnabled,
+            }}
             spotifySetup={spotifySetup}
             youtubeSetup={youtubeSetup}
             phantomSetupSectionRef={phantomSetupSectionRef}
+            polymarketSetupSectionRef={polymarketSetupSectionRef}
             spotifySetupSectionRef={spotifySetupSectionRef}
             youtubeSetupSectionRef={youtubeSetupSectionRef}
             gmailCalendarSetupSectionRef={gmailCalendarSetupSectionRef}
@@ -1037,6 +1134,7 @@ export default function IntegrationsPage() {
                 { name: "News", active: settings.news.connected },
                 { name: "Coinbase", active: settings.coinbase.connected },
                 { name: "Phantom", active: settings.phantom.connected },
+                { name: "Polymarket", active: settings.polymarket.connected },
               ].map((item) => (
                 <div
                   key={item.name}

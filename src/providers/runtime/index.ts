@@ -19,6 +19,7 @@ export interface IntegrationsRuntime {
   grok: ProviderRuntime;
   gemini: ProviderRuntime;
   phantom: PhantomRuntime;
+  polymarket: PolymarketRuntime;
   spotify: SpotifyRuntime;
   gmail: GmailRuntime;
 }
@@ -77,6 +78,20 @@ export interface PhantomRuntime {
     approvalGatedPolymarketReady: boolean;
     autonomousTrading: boolean;
   };
+}
+
+export interface PolymarketRuntime {
+  connected: boolean;
+  walletAddress: string;
+  profileAddress: string;
+  positionsAddress: string;
+  username: string;
+  pseudonym: string;
+  profileImageUrl: string;
+  signatureType: 0 | 2;
+  liveTradingEnabled: boolean;
+  lastConnectedAt: string;
+  lastProfileSyncAt: string;
 }
 
 export interface ResolvedChatRuntime extends ProviderRuntime {
@@ -464,6 +479,22 @@ function createDefaultPhantomRuntime(): PhantomRuntime {
   };
 }
 
+function createDefaultPolymarketRuntime(): PolymarketRuntime {
+  return {
+    connected: false,
+    walletAddress: "",
+    profileAddress: "",
+    positionsAddress: "",
+    username: "",
+    pseudonym: "",
+    profileImageUrl: "",
+    signatureType: 0,
+    liveTradingEnabled: false,
+    lastConnectedAt: "",
+    lastProfileSyncAt: "",
+  };
+}
+
 function parseSpotifyRuntime(value: unknown): SpotifyRuntime {
   const integration = toRecord(value);
   return {
@@ -509,6 +540,26 @@ function parsePhantomRuntime(value: unknown): PhantomRuntime {
       approvalGatedPolymarketReady: capabilities.approvalGatedPolymarketReady === true || (connected && evmAddress.length > 0),
       autonomousTrading: capabilities.autonomousTrading === true,
     },
+  };
+}
+
+function parsePolymarketRuntime(value: unknown): PolymarketRuntime {
+  const integration = toRecord(value);
+  const connected = boolFlag(integration.connected);
+  const walletAddress = toNonEmptyString(integration.walletAddress);
+  const profileAddress = toNonEmptyString(integration.profileAddress);
+  return {
+    connected,
+    walletAddress,
+    profileAddress,
+    positionsAddress: toNonEmptyString(integration.positionsAddress) || profileAddress || walletAddress,
+    username: toNonEmptyString(integration.username),
+    pseudonym: toNonEmptyString(integration.pseudonym),
+    profileImageUrl: toNonEmptyString(integration.profileImageUrl),
+    signatureType: integration.signatureType === 2 ? 2 : 0,
+    liveTradingEnabled: connected && integration.liveTradingEnabled === true,
+    lastConnectedAt: toNonEmptyString(integration.lastConnectedAt),
+    lastProfileSyncAt: toNonEmptyString(integration.lastProfileSyncAt),
   };
 }
 
@@ -687,6 +738,7 @@ export function loadIntegrationsRuntime(options?: {
     const grokIntegration = toRecord(parsed.grok);
     const geminiIntegration = toRecord(parsed.gemini);
     const phantomIntegration = parsePhantomRuntime(parsed.phantom);
+    const polymarketIntegration = parsePolymarketRuntime(parsed.polymarket);
     const spotifyIntegration = parseSpotifyRuntime(parsed.spotify);
     const gmailIntegration = parseGmailRuntime(parsed.gmail, paths);
 
@@ -724,6 +776,7 @@ export function loadIntegrationsRuntime(options?: {
         model: parseProviderModel(geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
       },
       phantom: phantomIntegration,
+      polymarket: polymarketIntegration,
       spotify: spotifyIntegration,
       gmail: gmailIntegration,
     };
@@ -757,6 +810,7 @@ export function loadIntegrationsRuntime(options?: {
         model: DEFAULT_GEMINI_MODEL,
       },
       phantom: createDefaultPhantomRuntime(),
+      polymarket: createDefaultPolymarketRuntime(),
       spotify: createDefaultSpotifyRuntime(),
       gmail: createDefaultGmailRuntime(),
     };
