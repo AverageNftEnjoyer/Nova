@@ -5,6 +5,7 @@ export interface ChatMessage {
   role: "user" | "assistant"
   content: string
   createdAt: string
+  imageData?: string
   source?: "hud" | "agent" | "voice"
   sender?: string
   sessionConversationId?: string

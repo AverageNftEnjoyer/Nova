@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool } from "../../core/types/index.js";
 
+const FILE_GREP_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(24, Number.parseInt(process.env.NOVA_FILE_GREP_MAX_PARALLEL || "8", 10) || 8),
+);
+
 function assertInsideWorkspace(workspaceDir: string, targetPath: string): string {
   const absWorkspace = path.resolve(workspaceDir);
   const absTarget = path.resolve(absWorkspace, targetPath);
@@ -15,17 +20,49 @@ function assertInsideWorkspace(workspaceDir: string, targetPath: string): string
 async function walk(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
   const files: string[] = [];
+  const directories: string[] = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await walk(full)));
+      directories.push(full);
       continue;
     }
     if (entry.isFile()) {
       files.push(full);
     }
   }
+  const nestedFiles = await mapWithConcurrency(
+    directories,
+    FILE_GREP_MAX_PARALLEL,
+    async (subdir): Promise<string[]> => walk(subdir),
+  );
+  for (const nested of nestedFiles) {
+    files.push(...nested);
+  }
   return files;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, idx: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const safeConcurrency = Math.max(1, Math.min(items.length, Number(concurrency) || 1));
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) return;
+      results[idx] = await mapper(items[idx], idx);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+  return results;
 }
 
 export function createFileTools(workspaceDir: string): Tool[] {
@@ -144,18 +181,30 @@ export function createFileTools(workspaceDir: string): Tool[] {
       const basePath = assertInsideWorkspace(workspaceDir, String(input?.path ?? "."));
       const files = await walk(basePath);
       const re = new RegExp(pattern, "i");
-      const hits: string[] = [];
-
-      for (const file of files) {
-        const raw = await fs.readFile(file, "utf8").catch(() => "");
-        if (!raw) continue;
-        const lines = raw.split(/\r?\n/);
-        for (let i = 0; i < lines.length; i += 1) {
-          const line = lines[i] ?? "";
-          if (re.test(line)) {
-            const rel = path.relative(workspaceDir, file).replace(/\\/g, "/");
-            hits.push(`${rel}:${i + 1}: ${line.trim()}`);
+      const perFileHits = await mapWithConcurrency(
+        files,
+        FILE_GREP_MAX_PARALLEL,
+        async (file): Promise<string[]> => {
+          const raw = await fs.readFile(file, "utf8").catch(() => "");
+          if (!raw) return [];
+          const lines = raw.split(/\r?\n/);
+          const hits: string[] = [];
+          for (let i = 0; i < lines.length; i += 1) {
+            const line = lines[i] ?? "";
+            if (re.test(line)) {
+              const rel = path.relative(workspaceDir, file).replace(/\\/g, "/");
+              hits.push(`${rel}:${i + 1}: ${line.trim()}`);
+              if (hits.length >= 200) break;
+            }
           }
+          return hits;
+        },
+      );
+
+      const hits: string[] = [];
+      for (const fileHits of perFileHits) {
+        for (const hit of fileHits) {
+          hits.push(hit);
           if (hits.length >= 200) break;
         }
         if (hits.length >= 200) break;

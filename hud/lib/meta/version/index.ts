@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.55 Alpha (2026-03-10): Threading + latency optimization sweep (runtime + HUD)
+ *     - Added bounded parallel execution across mission web-search variant probing, queued-run status polling, scheduler enqueue waves, and multiple file-IO hot paths (skills snapshot/discovery, artifacts, transcript cleanup, grep traversal).
+ *     - Moved heavy web-fetch readability parsing to worker-thread offload with timeout/fallback controls to reduce event-loop blocking on large documents.
+ *     - Improved mission/workflow and integration latency paths (calendar schedule-mirror reconciliation, runtime integration snapshot mirroring, weather/gmail fan-out).
+ *     - Updated/realigned coinbase workflow-step smoke contracts to current runtime exports and generation checks, then revalidated targeted typecheck + smoke gates.
+ *
  * - V.54 Alpha (2026-03-08): News feed loading-motion polish
  *     - Replaced the static Home news loading copy with an animated headline skeleton so the module feels active while fresh stories load.
  *     - Removed the relative publish-time row from Home news cards to avoid repetitive stale-looking timestamps dominating the feed UI.
@@ -334,6 +340,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.54 Alpha"
+export const NOVA_VERSION = "V.55 Alpha"
 
 

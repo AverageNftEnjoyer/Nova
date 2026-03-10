@@ -11,6 +11,14 @@ import { isLowSignalNavigationPage, isUsableWebResult } from "./quality"
 import type { WebSearchResult, WebSearchResponse } from "../types/index"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 
+const WEB_SEARCH_VARIANT_MAX_PARALLEL = (() => {
+  const parsed = Number.parseInt(process.env.NOVA_WEB_SEARCH_VARIANT_MAX_PARALLEL || "", 10)
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.min(parsed, 4)
+  }
+  return 2
+})()
+
 /**
  * Build search query variants for better coverage.
  * Enhanced with topic-specific query strategies.
@@ -277,27 +285,37 @@ export async function searchWebAndCollect(
       provider: string
     } | null = null
 
-    for (const variant of queryVariants) {
-      const found = await searchWithBrave(variant, headers, braveApiKey)
-      if (!found) continue
-      if (!selected) {
-        selected = {
-          searchUrl: found.searchUrl,
-          query: found.query,
-          searchTitle: found.searchTitle,
-          searchText: found.searchText,
-          provider: found.provider,
+    let stopCollection = false
+    for (let i = 0; i < queryVariants.length; i += WEB_SEARCH_VARIANT_MAX_PARALLEL) {
+      const batch = queryVariants.slice(i, i + WEB_SEARCH_VARIANT_MAX_PARALLEL)
+      const foundBatch = await Promise.all(batch.map(async (variant) => searchWithBrave(variant, headers, braveApiKey)))
+
+      for (const found of foundBatch) {
+        if (!found) continue
+        if (!selected) {
+          selected = {
+            searchUrl: found.searchUrl,
+            query: found.query,
+            searchTitle: found.searchTitle,
+            searchText: found.searchText,
+            provider: found.provider,
+          }
+        }
+        for (const row of found.results) {
+          const key = String(row.url || "").trim()
+          if (!key || seen.has(key)) continue
+          seen.add(key)
+          merged.push(row)
+          if (merged.length >= 10) break
+        }
+        const usableCount = merged.filter((item) => isUsableWebResult(item)).length
+        if (usableCount >= 4 || merged.length >= 10) {
+          stopCollection = true
+          break
         }
       }
-      for (const row of found.results) {
-        const key = String(row.url || "").trim()
-        if (!key || seen.has(key)) continue
-        seen.add(key)
-        merged.push(row)
-        if (merged.length >= 10) break
-      }
-      const usableCount = merged.filter((item) => isUsableWebResult(item)).length
-      if (usableCount >= 4 || merged.length >= 10) break
+
+      if (stopCollection) break
     }
 
     if (!selected || merged.length === 0) return null

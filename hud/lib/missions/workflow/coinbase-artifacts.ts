@@ -47,6 +47,10 @@ const MAX_FILES_SCANNED = 8
 const MAX_ENTRIES_RETURNED = 8
 const MAX_CONTEXT_CHARS_DEFAULT = 12_000
 const PRUNE_MAX_FILES = 24
+const COINBASE_ARTIFACT_READ_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(24, Number.parseInt(process.env.NOVA_COINBASE_ARTIFACT_READ_MAX_PARALLEL || "6", 10) || 6),
+)
 const STATE_DIR_NAME = "state"
 const MISSIONS_DIR_NAME = "missions"
 const ARTIFACTS_DIR_NAME = "coinbase-artifacts"
@@ -91,6 +95,25 @@ function resolveArtifactDir(userContextId: string): string {
 function dayStamp(ts: number): string {
   const d = new Date(ts)
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const cappedConcurrency = Math.max(1, Math.floor(concurrency))
+  const output = new Array<R>(items.length)
+  let cursor = 0
+  const workers = new Array(Math.min(cappedConcurrency, items.length)).fill(null).map(async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      output[index] = await mapper(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return output
 }
 
 function parseArtifactLine(line: string): CoinbaseStepArtifactRecord | null {
@@ -152,16 +175,16 @@ async function pruneExpiredArtifactsForUser(userContextId: string, nowMs: number
   } catch {
     return
   }
-  for (const fileName of files) {
+  await mapWithConcurrency(files, COINBASE_ARTIFACT_READ_MAX_PARALLEL, async (fileName) => {
     const fullPath = path.join(dir, fileName)
     let body = ""
     try {
       body = await readFile(fullPath, "utf8")
     } catch {
-      continue
+      return
     }
     const lines = body.split(/\r?\n/).filter(Boolean)
-    if (lines.length === 0) continue
+    if (lines.length === 0) return
     const kept: string[] = []
     for (const line of lines) {
       const parsed = parseArtifactLine(line)
@@ -170,11 +193,11 @@ async function pruneExpiredArtifactsForUser(userContextId: string, nowMs: number
       if (parsed.createdAtMs + ttlMs < nowMs) continue
       kept.push(JSON.stringify(parsed))
     }
-    if (kept.length === lines.length) continue
+    if (kept.length === lines.length) return
     const tmpPath = `${fullPath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`
     await writeFile(tmpPath, kept.length > 0 ? `${kept.join("\n")}\n` : "", "utf8")
     await rename(tmpPath, fullPath)
-  }
+  })
 }
 
 export async function persistCoinbaseStepArtifact(input: PersistCoinbaseStepArtifactInput): Promise<{ artifactRef: string }> {
@@ -237,15 +260,15 @@ export async function loadRecentCoinbaseStepArtifacts(input: {
     return []
   }
   const out: CoinbaseStepArtifactRecord[] = []
-  for (const fileName of files) {
-    if (out.length >= limit) break
+  const fileBodies = await mapWithConcurrency(files, COINBASE_ARTIFACT_READ_MAX_PARALLEL, async (fileName) => {
     const fullPath = path.join(dir, fileName)
-    let body = ""
-    try {
-      body = await readFile(fullPath, "utf8")
-    } catch {
-      continue
-    }
+    const body = await readFile(fullPath, "utf8").catch(() => "")
+    return { fileName, body }
+  })
+  for (const fileRecord of fileBodies) {
+    if (out.length >= limit) break
+    if (!fileRecord.body) continue
+    const body = fileRecord.body
     const lines = body.split(/\r?\n/).filter(Boolean).reverse()
     for (const line of lines) {
       const parsed = parseArtifactLine(line)

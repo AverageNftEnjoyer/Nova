@@ -12,6 +12,21 @@ import { cachedLoadIntegrationsRuntime } from "../../../../context/persona-conte
 import { getOpenAIClient, resolveConfiguredChatRuntime } from "../../../../llm/providers/index.js";
 import { ensureRuntimeIntegrationsSnapshot } from "../operator-runtime-snapshot/index.js";
 
+function normalizeProviderName(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "claude" || normalized === "grok" || normalized === "gemini" || normalized === "openai") {
+    return normalized;
+  }
+  return "";
+}
+
+function toProviderLabel(provider = "") {
+  if (provider === "claude") return "Claude";
+  if (provider === "grok") return "Grok";
+  if (provider === "gemini") return "Gemini";
+  return "OpenAI";
+}
+
 export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
   const {
     userContextId = "",
@@ -19,6 +34,7 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
     canRunToolLoop = false,
     sessionKey = "",
     source = "hud",
+    preferredProvider = "",
     latencyTelemetry = null,
   } = input;
   const {
@@ -34,28 +50,43 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
     supabaseAccessToken,
   });
   const integrationsRuntime = cachedLoadIntegrationsRuntimeRef({ userContextId });
-  const activeChatRuntime = resolveConfiguredChatRuntimeRef(integrationsRuntime, {
-    strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
-    preference: ROUTING_PREFERENCE,
-    requiresToolCalling: canRunToolLoop,
-    allowActiveProviderOverride: ENABLE_PROVIDER_FALLBACK && ROUTING_ALLOW_ACTIVE_OVERRIDE,
-    preferredProviders: ROUTING_PREFERRED_PROVIDERS,
-  });
+  const normalizedPreferredProvider = normalizeProviderName(preferredProvider);
+  const activeChatRuntime = normalizedPreferredProvider
+    ? (() => {
+      const preferredRuntime = integrationsRuntime?.[normalizedPreferredProvider] || null;
+      return {
+        provider: normalizedPreferredProvider,
+        apiKey: String(preferredRuntime?.apiKey || "").trim(),
+        baseURL: String(preferredRuntime?.baseURL || "").trim(),
+        model: String(preferredRuntime?.model || "").trim(),
+        connected: Boolean(preferredRuntime?.connected),
+        strict: false,
+        routeReason: "preferred-provider-forced",
+        rankedCandidates: [normalizedPreferredProvider],
+      };
+    })()
+    : resolveConfiguredChatRuntimeRef(integrationsRuntime, {
+      strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
+      preference: ROUTING_PREFERENCE,
+      requiresToolCalling: canRunToolLoop,
+      allowActiveProviderOverride: ENABLE_PROVIDER_FALLBACK && ROUTING_ALLOW_ACTIVE_OVERRIDE,
+      preferredProviders: ROUTING_PREFERRED_PROVIDERS,
+    });
   if (latencyTelemetry && typeof latencyTelemetry.addStage === "function") {
     latencyTelemetry.addStage("provider_resolution", Date.now() - providerResolutionStartedAt);
   }
 
   if (!activeChatRuntime.apiKey) {
-    const providerName = activeChatRuntime.provider === "claude"
-      ? "Claude"
-      : activeChatRuntime.provider === "grok"
-        ? "Grok"
-        : activeChatRuntime.provider === "gemini"
-          ? "Gemini"
-          : "OpenAI";
+    const providerName = toProviderLabel(activeChatRuntime.provider);
+    if (normalizedPreferredProvider) {
+      throw new Error(`Missing ${providerName} API key for preferred image provider "${activeChatRuntime.provider}". Configure it in Integrations first.`);
+    }
     throw new Error(`Missing ${providerName} API key for active provider "${activeChatRuntime.provider}". Configure Integrations first.`);
   }
   if (!activeChatRuntime.connected) {
+    if (normalizedPreferredProvider) {
+      throw new Error(`Preferred image provider "${activeChatRuntime.provider}" is not enabled. Enable it in Integrations.`);
+    }
     throw new Error(`Active provider "${activeChatRuntime.provider}" is not enabled. Enable it or switch activeLlmProvider.`);
   }
 
@@ -81,4 +112,3 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
     selectedChatModel,
   };
 }
-

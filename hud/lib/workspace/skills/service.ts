@@ -49,6 +49,10 @@ const STARTER_SKILLS: Array<{ name: string; description: string }> = [
   },
 ]
 export const STARTER_SKILL_NAMES = new Set(STARTER_SKILLS.map((skill) => skill.name))
+const SKILL_SUMMARY_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(16, Number.parseInt(process.env.NOVA_SKILL_SUMMARY_MAX_PARALLEL || "6", 10) || 6),
+)
 
 export type SkillMeta = {
   startersInitialized: boolean
@@ -161,6 +165,29 @@ function compactStrings(values: unknown[]): string[] {
     if (normalized) out.push(normalized)
   }
   return out
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, idx: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const safeConcurrency = Math.max(1, Math.min(items.length, Number(concurrency || 1)))
+  const results = new Array<R>(items.length)
+  let cursor = 0
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor
+      cursor += 1
+      if (idx >= items.length) return
+      results[idx] = await mapper(items[idx], idx)
+    }
+  }
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => worker()))
+  return results
 }
 
 function parseInlineFrontmatterArray(value: string): string[] {
@@ -459,29 +486,32 @@ export async function installStarterSkills(
 
 export async function listSkillSummaries(skillsDir: string): Promise<SkillSummary[]> {
   const entries = await readdir(skillsDir, { withFileTypes: true }).catch(() => [])
-  const summaries: SkillSummary[] = []
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const name = entry.name.trim()
-    if (!SKILL_NAME_PATTERN.test(name)) continue
-    const skillPath = path.join(skillsDir, name, SKILL_FILE_NAME)
-    const content = await readFile(skillPath, "utf8").catch(() => "")
-    if (!content) continue
-    const fileStat = await stat(skillPath).catch(() => null)
-    const metadata = extractSkillMetadataFromFrontmatter(content)
-    const frontmatter = parseFrontmatter(content)
-    const userInvokableRaw = String(frontmatter?.map["user-invokable"] || "").trim().toLowerCase()
-    const userInvokable = userInvokableRaw !== "false"
-    summaries.push({
-      name,
-      description: metadata.description,
-      readWhen: metadata.readWhen,
-      userInvokable,
-      updatedAt: fileStat ? new Date(fileStat.mtimeMs).toISOString() : "",
-      chars: content.length,
-    })
-  }
+  const summaryCandidates = await mapWithConcurrency(
+    entries,
+    SKILL_SUMMARY_MAX_PARALLEL,
+    async (entry): Promise<SkillSummary | null> => {
+      if (!entry.isDirectory()) return null
+      const name = entry.name.trim()
+      if (!SKILL_NAME_PATTERN.test(name)) return null
+      const skillPath = path.join(skillsDir, name, SKILL_FILE_NAME)
+      const content = await readFile(skillPath, "utf8").catch(() => "")
+      if (!content) return null
+      const fileStat = await stat(skillPath).catch(() => null)
+      const metadata = extractSkillMetadataFromFrontmatter(content)
+      const frontmatter = parseFrontmatter(content)
+      const userInvokableRaw = String(frontmatter?.map["user-invokable"] || "").trim().toLowerCase()
+      const userInvokable = userInvokableRaw !== "false"
+      return {
+        name,
+        description: metadata.description,
+        readWhen: metadata.readWhen,
+        userInvokable,
+        updatedAt: fileStat ? new Date(fileStat.mtimeMs).toISOString() : "",
+        chars: content.length,
+      }
+    },
+  )
+  const summaries: SkillSummary[] = summaryCandidates.filter((value): value is SkillSummary => value !== null)
 
   return summaries.sort((a, b) => a.name.localeCompare(b.name))
 }

@@ -342,7 +342,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     nlpConfidence: Number.isFinite(Number(ctx.nlpConfidence)) ? Number(ctx.nlpConfidence) : undefined,
     nlpCorrectionCount,
     nlpBypass: ctx.nlpBypass === true,
-  });
+  }, ctx.imageData);
   if (useVoice) playThinking();
 
   let systemPrompt = "";

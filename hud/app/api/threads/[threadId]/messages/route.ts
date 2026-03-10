@@ -4,12 +4,14 @@ import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } fr
 import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
+const MAX_STORED_IMAGE_DATA_URL_CHARS = 180_000
 
 type IncomingMessage = {
   id?: string
   role: "user" | "assistant"
   content: string
   createdAt: string
+  imageData?: string
   source?: "hud" | "agent" | "voice"
   sender?: string
   sessionConversationId?: string
@@ -107,6 +109,12 @@ export async function PUT(
         missionOutputChannel:
           typeof m.missionOutputChannel === "string" && m.missionOutputChannel.trim()
             ? m.missionOutputChannel.trim()
+            : null,
+        imageData:
+          typeof m.imageData === "string"
+            && m.imageData.trim().startsWith("data:image/")
+            && m.imageData.trim().length <= MAX_STORED_IMAGE_DATA_URL_CHARS
+            ? m.imageData.trim()
             : null,
       },
       created_at: String(m.createdAt || new Date().toISOString()),

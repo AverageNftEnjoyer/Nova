@@ -114,6 +114,14 @@ function isLikelyMarketPrompt(normalized) {
   );
 }
 
+function isLikelyImagePrompt(normalized) {
+  return (
+    /\b(generate|create|make|draw|render|design|illustrate)\b.*\b(image|images|photo|photos|picture|pictures|art|wallpaper|logo|icon)\b/i.test(normalized)
+    || /\b(analyze|describe|explain|inspect)\b.*\b(image|photo|picture|screenshot)\b/i.test(normalized)
+    || /\b(what(?:'s| is)\s+in|what\s+do\s+you\s+see\s+in)\b.*\b(image|photo|picture)\b/i.test(normalized)
+  );
+}
+
 const FILE_PATH_HINT_REGEX = /(?:\.\.?[\\/]|[a-z]:[\\/]|[a-z0-9_.-]+\.(?:md|txt|js|ts|tsx|json|yaml|yml|mjs|cjs|py|go|rs|java|css|html))(?:[\w./\\-]*)/i;
 
 function isLikelyFilesPrompt(normalized) {
@@ -232,6 +240,7 @@ const DIRECT_INTENT_MATCHERS = {
   webResearch: [isLikelyWebResearchPrompt, /\b(search\s+the\s+web|look\s+it\s+up|do\s+research)\b/i],
   crypto: [isLikelyCryptoPrompt, /\b(crypto)\s+(refresh|update|scan)\b/i],
   market: [isLikelyMarketPrompt, /\b(market)\s+(refresh|update|scan)\b/i],
+  image: [isLikelyImagePrompt, /\b(image|images|photo|picture)\s+(refresh|update|again)\b/i],
   files: [isLikelyFilesPrompt, /\b(files?)\s+(refresh|scan|index)\b/i],
   diagnostics: [isLikelyDiagnosticsPrompt, /\b(run|check)\s+diagnostics\b/i],
   memory: [isLikelyMemoryPrompt, /\b(memory)\s+(update|save|store)\b/i],
@@ -293,6 +302,11 @@ const FOLLOW_UP_INTENT_MATCHERS = {
     /\bmore\s+(detail|details)\b/i,
     /\b(what\s+about|and)\s+(nasdaq|dow|s&p|weather)\b/i,
   ],
+  image: [
+    /\b(another|more|different)\s+(image|photo|picture|variation)\b/i,
+    /\b(edit|tweak|change|upscale|enhance|crop)\b.*\b(image|photo|picture|it)\b/i,
+    /\b(describe|analyze|inspect)\b.*\b(it|this image|this photo|this picture)\b/i,
+  ],
   files: [
     /\b(open|read|show|list|search)\b/i,
     /\bmore\s+(detail|details)\b/i,
@@ -343,6 +357,8 @@ export const isCryptoDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.c
 export const isCryptoContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.crypto);
 export const isMarketDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.market);
 export const isMarketContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.market);
+export const isImageDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.image);
+export const isImageContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.image);
 export const isFilesDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.files);
 export const isFilesContextualFollowUpIntent = createIntentMatcher(FOLLOW_UP_INTENT_MATCHERS.files);
 export const isDiagnosticsDirectIntent = createIntentMatcher(DIRECT_INTENT_MATCHERS.diagnostics);

@@ -111,29 +111,26 @@ const coinbaseStepModule = loadTsModule(
 );
 
 await run("P26-CB1 deterministic coinbase generation path emits type=coinbase step", async () => {
-  const source = fs.readFileSync(path.join(repoRoot, "hud/lib/missions/workflow/generation.ts"), "utf8");
-  assert.equal(source.includes('type: "coinbase"'), true);
-  assert.equal(source.includes("deterministic-coinbase-template"), true);
+  const source = fs.readFileSync(path.join(repoRoot, "src/runtime/modules/services/missions/build-from-prompt/index.js"), "utf8");
+  assert.equal(source.includes("coinbase node (intent: report|portfolio|price|transactions|status)."), true);
+  assert.equal(source.includes("- coinbase: intent=report|portfolio|price|transactions|status"), true);
 });
 
 await run("P26-CB2 coinbase step executes, persists artifact, and re-reads on next run", async () => {
-  const { executeCoinbaseWorkflowStep } = coinbaseStepModule;
-  assert.equal(typeof executeCoinbaseWorkflowStep, "function");
-  const step = {
+  const { executeCoinbaseNode } = coinbaseStepModule;
+  assert.equal(typeof executeCoinbaseNode, "function");
+  const node = {
     id: "step-coinbase-1",
     type: "coinbase",
     title: "Run Coinbase step",
-    coinbaseIntent: "report",
-    coinbaseParams: {
-      assets: ["BTC", "ETH"],
-      quoteCurrency: "USD",
-      includePreviousArtifactContext: true,
-    },
-    coinbaseFormat: { style: "standard", includeRawMetadata: true },
+    intent: "report",
+    assets: ["BTC", "ETH"],
+    quoteCurrency: "USD",
+    includePreviousArtifactContext: true,
   };
 
-  const first = await executeCoinbaseWorkflowStep({
-    step,
+  const first = await executeCoinbaseNode({
+    node,
     userContextId: "smoke-user-a",
     conversationId: "conv-a",
     missionId: "mission-a",
@@ -143,8 +140,8 @@ await run("P26-CB2 coinbase step executes, persists artifact, and re-reads on ne
   assert.equal(first.ok, true);
   assert.equal(typeof first.artifactRef, "string");
 
-  const second = await executeCoinbaseWorkflowStep({
-    step,
+  const second = await executeCoinbaseNode({
+    node,
     userContextId: "smoke-user-a",
     conversationId: "conv-a",
     missionId: "mission-a",
@@ -169,18 +166,20 @@ await run("P26-CB2 coinbase step executes, persists artifact, and re-reads on ne
 });
 
 await run("P26-CB4 telemetry emits user-safe structured events with required ids", async () => {
-  const { executeCoinbaseWorkflowStep } = coinbaseStepModule;
+  const { executeCoinbaseNode } = coinbaseStepModule;
   const events = [];
-  const step = {
+  const node = {
     id: "step-coinbase-telemetry",
     type: "coinbase",
     title: "Run Coinbase step",
-    coinbaseIntent: "report",
-    coinbaseParams: { assets: ["BTC"], quoteCurrency: "USD", includePreviousArtifactContext: true },
+    intent: "report",
+    assets: ["BTC"],
+    quoteCurrency: "USD",
+    includePreviousArtifactContext: true,
   };
 
-  const result = await executeCoinbaseWorkflowStep({
-    step,
+  const result = await executeCoinbaseNode({
+    node,
     userContextId: "smoke-user-t",
     conversationId: "conv-t",
     missionId: "mission-t",

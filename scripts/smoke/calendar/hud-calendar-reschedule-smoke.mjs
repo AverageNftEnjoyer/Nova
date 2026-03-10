@@ -23,14 +23,14 @@ function read(filePath) {
 
 await run("Scheduler consumes calendar overrides from reschedule-store", () => {
   const scheduler = read("hud/lib/notifications/scheduler/index.ts");
+  const schedulerCore = read("src/runtime/modules/services/missions/scheduler-core/index.js");
   assert.equal(scheduler.includes("getRescheduleOverride"), true);
-  assert.equal(scheduler.includes("const rescheduleOverride ="), true);
-  assert.equal(scheduler.includes("getRescheduleOverride(liveMission.userId, liveMission.id)"), true);
-  assert.equal(scheduler.includes("const missionForRun ="), true);
-  assert.equal(scheduler.includes("scheduledAtOverride: rescheduleOverride.overriddenTime"), true);
-  assert.equal(scheduler.includes("mission: missionForRun"), true);
-  assert.equal(scheduler.includes("if (rescheduleOverride && liveMission.userId)"), true);
-  assert.equal(scheduler.includes("scheduledAtOverride: undefined"), false);
+  assert.equal(schedulerCore.includes("const rescheduleOverride ="), true);
+  assert.equal(schedulerCore.includes("getRescheduleOverride(liveMission.userId, liveMission.id)"), true);
+  assert.equal(schedulerCore.includes("const missionForGate ="), true);
+  assert.equal(schedulerCore.includes("scheduledAtOverride: rescheduleOverride.overriddenTime"), true);
+  assert.equal(schedulerCore.includes("inputSnapshot.scheduledAtOverride = rescheduleOverride.overriddenTime"), true);
+  assert.equal(schedulerCore.includes("scheduledAtOverride: undefined"), false);
 });
 
 await run("Calendar reschedule API writes and removes overrides", () => {
@@ -66,4 +66,3 @@ for (const row of results) {
 }
 console.log(`\nSummary: pass=${pass} fail=${fail}`);
 if (fail > 0) process.exit(1);
-

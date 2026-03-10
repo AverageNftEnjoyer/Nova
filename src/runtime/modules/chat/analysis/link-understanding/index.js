@@ -14,6 +14,10 @@ const LINK_FETCH_CACHE_MAX = Math.max(
   16,
   Number.parseInt(process.env.NOVA_LINK_FETCH_CACHE_MAX || "256", 10) || 256,
 );
+const LINK_FETCH_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(8, Number.parseInt(process.env.NOVA_LINK_UNDERSTANDING_MAX_PARALLEL_FETCHES || "2", 10) || 2),
+);
 const linkFetchCache = new Map();
 
 function normalizeUrl(raw, opts = {}) {
@@ -171,22 +175,43 @@ function cacheSet(url, value) {
   }
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const safeConcurrency = Math.max(1, Number(concurrency || 1));
+  const results = new Array(items.length).fill("");
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) return;
+      results[idx] = await mapper(items[idx], idx);
+    }
+  };
+
+  const workers = [];
+  for (let idx = 0; idx < Math.min(safeConcurrency, items.length); idx += 1) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
+}
+
 export async function runLinkUnderstanding(params) {
   const links = extractLinksFromMessage(params?.text || "", { maxLinks: params?.maxLinks });
   if (links.length === 0) return { urls: [], outputs: [] };
 
-  const outputs = [];
   const query = String(params?.query || params?.text || "").trim();
-  for (const url of links) {
+  const maxCharsPerLink = Math.max(300, Number(params?.maxCharsPerLink || 1600));
+  const outputs = await mapWithConcurrency(links, LINK_FETCH_MAX_PARALLEL, async (url, idx) => {
     const cached = cacheGet(url);
     if (cached) {
-      outputs.push(truncate(cached, Math.max(300, Number(params.maxCharsPerLink || 1600))));
-      continue;
+      return truncate(cached, maxCharsPerLink);
     }
     try {
       const result = await params.runtimeTools.executeToolUse(
         {
-          id: `tool_link_fetch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          id: `tool_link_fetch_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
           name: "web_fetch",
           input: { url },
           type: "tool_use",
@@ -194,17 +219,20 @@ export async function runLinkUnderstanding(params) {
         params.availableTools,
       );
       const content = String(result?.content || "").trim();
-      if (!content || /^web_fetch error/i.test(content)) continue;
-      const compacted = compactLinkContext(content, query, url, Number(params.maxCharsPerLink || 1600));
-      if (!compacted) continue;
-      outputs.push(compacted);
+      if (!content || /^web_fetch error/i.test(content)) return "";
+      const compacted = compactLinkContext(content, query, url, maxCharsPerLink);
+      if (!compacted) return "";
       cacheSet(url, compacted);
+      return compacted;
     } catch {
-      // Best-effort enrichment only.
+      return "";
     }
-  }
+  });
 
-  return { urls: links, outputs };
+  return {
+    urls: links,
+    outputs: outputs.map((item) => String(item || "").trim()).filter(Boolean),
+  };
 }
 
 export function formatLinkUnderstandingForPrompt(outputs, maxChars = 4200) {

@@ -12,6 +12,10 @@ const DEFAULT_MAX_GUIDANCE_CHARS = Math.max(
   600,
   Math.min(12_000, Number.parseInt(process.env.NOVA_MISSION_SKILL_SNAPSHOT_MAX_CHARS || "3600", 10) || 3600),
 )
+const MISSION_SKILL_SNAPSHOT_IO_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(16, Number.parseInt(process.env.NOVA_MISSION_SKILL_SNAPSHOT_IO_MAX_PARALLEL || "6", 10) || 6),
+)
 
 export interface MissionSkillSnapshot {
   version: string
@@ -28,6 +32,25 @@ interface SkillDoc {
   filePath: string
   mtimeMs: number
   size: number
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return []
+  const capped = Math.max(1, Math.floor(concurrency))
+  const out = new Array<R>(items.length)
+  let cursor = 0
+  const workers = new Array(Math.min(capped, items.length)).fill(null).map(async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      out[index] = await mapper(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return out
 }
 
 function sanitizeUserContextId(value: unknown): string {
@@ -88,32 +111,45 @@ function extractMetadata(content: string): { description: string; readWhen: stri
 async function walkSkillFiles(rootDir: string): Promise<string[]> {
   const entries = await readdir(rootDir, { withFileTypes: true }).catch(() => [])
   const files: string[] = []
+  const directories: string[] = []
   for (const entry of entries) {
     const fullPath = path.join(rootDir, entry.name)
     if (entry.isDirectory()) {
-      files.push(...(await walkSkillFiles(fullPath)))
+      directories.push(fullPath)
       continue
     }
     if (entry.isFile() && entry.name.toLowerCase() === "skill.md") {
       files.push(fullPath)
     }
   }
+  const nested = await mapWithConcurrency(
+    directories,
+    MISSION_SKILL_SNAPSHOT_IO_MAX_PARALLEL,
+    async (subdir): Promise<string[]> => walkSkillFiles(subdir),
+  )
+  for (const group of nested) {
+    files.push(...group)
+  }
   return files
 }
 
 async function discoverMissionSkills(dirs: string[]): Promise<SkillDoc[]> {
   const byName = new Map<string, SkillDoc>()
-  for (const dir of dirs) {
-    if (!dir) continue
-    const files = await walkSkillFiles(dir)
-    for (const filePath of files) {
+  const scopedDirs = dirs.filter((dir) => Boolean(dir))
+  const filesByDir = await mapWithConcurrency(
+    scopedDirs,
+    MISSION_SKILL_SNAPSHOT_IO_MAX_PARALLEL,
+    async (dir): Promise<string[]> => walkSkillFiles(dir),
+  )
+  for (const files of filesByDir) {
+    const docs = await mapWithConcurrency(files, MISSION_SKILL_SNAPSHOT_IO_MAX_PARALLEL, async (filePath) => {
       const raw = await readFile(filePath, "utf8").catch(() => "")
-      if (!raw.trim()) continue
+      if (!raw.trim()) return null
       const fileStat = await stat(filePath).catch(() => null)
       const name = path.basename(path.dirname(filePath)).trim().toLowerCase()
-      if (!name) continue
+      if (!name) return null
       const metadata = extractMetadata(raw)
-      byName.set(name, {
+      return {
         name,
         description: metadata.description,
         readWhen: metadata.readWhen,
@@ -121,7 +157,11 @@ async function discoverMissionSkills(dirs: string[]): Promise<SkillDoc[]> {
         filePath,
         mtimeMs: fileStat ? Number(fileStat.mtimeMs || 0) : 0,
         size: fileStat ? Number(fileStat.size || 0) : 0,
-      })
+      } satisfies SkillDoc
+    })
+    for (const doc of docs) {
+      if (!doc) continue
+      byName.set(doc.name, doc)
     }
   }
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))

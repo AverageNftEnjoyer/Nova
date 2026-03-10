@@ -14,6 +14,7 @@ export interface AgentMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  imageData?: string;
   ts: number;
   source?: "voice" | "hud";
   sender?: string;
@@ -69,6 +70,7 @@ export type ChatTransportEvent =
       id: string
       role: "user"
       content: string
+      imageData?: string
       ts: number
       source?: "voice" | "hud"
       sender?: string
@@ -621,17 +623,30 @@ export function useNovaState() {
           streamActivityByIdRef.current.set(data.id, Date.now())
           lastThinkingActivityAtRef.current = Date.now()
           lastAssistantDeltaRef.current.delete(data.id)
-          const msg: AgentMessage = {
-            id: data.id,
-            role: "assistant",
-            content: "",
-            ts: Number(data.ts || Date.now()),
-            source: data.source || "voice",
-            sender: data.sender,
-            ...(conversationId ? { conversationId } : {}),
-          };
-          setAgentMessages((prev) => [...prev, msg]);
-        }
+	          const msg: AgentMessage = {
+	            id: data.id,
+	            role: "assistant",
+	            content: "",
+	            ts: Number(data.ts || Date.now()),
+	            source: data.source || "voice",
+	            sender: data.sender,
+	            ...(conversationId ? { conversationId } : {}),
+	          };
+	          setAgentMessages((prev) => {
+	            const existingIdx = prev.findIndex((entry) => entry.role === "assistant" && entry.id === data.id)
+	            if (existingIdx === -1) return [...prev, msg]
+	            const next = [...prev]
+	            const existing = next[existingIdx]
+	            next[existingIdx] = {
+	              ...existing,
+	              ts: Math.max(Number(existing.ts || 0), Number(msg.ts || 0)),
+	              source: msg.source || existing.source,
+	              sender: msg.sender || existing.sender,
+	              ...(conversationId ? { conversationId } : {}),
+	            }
+	            return next
+	          });
+	        }
 
         if (data.type === "assistant_stream_done" && typeof data.id === "string") {
           streamActivityByIdRef.current.delete(data.id)
@@ -648,38 +663,56 @@ export function useNovaState() {
           const pending = pendingAssistantDeltasRef.current.get(data.id)
           if (pending) pendingAssistantDeltasRef.current.delete(data.id)
 
-          const streamId = data.id
-          setAgentMessages((prev) => {
-            const withPending = pending
-              ? prev.map((entry) => {
-                  if (entry.role !== "assistant" || entry.id !== streamId) return entry
-                  return {
-                    ...entry,
-                    content: mergeAssistantStreamContent(entry.content, pending.content),
-                    ts: Math.max(Number(entry.ts || 0), Number(pending.ts || 0)),
-                    ...(pending.conversationId ? { conversationId: pending.conversationId } : {}),
-                  }
-                })
-              : prev
-            let fullContent = ""
-            let firstIdx = -1
-            const removeSet = new Set<number>()
-            for (let i = 0; i < withPending.length; i++) {
-              if (withPending[i].role === "assistant" && withPending[i].id === streamId) {
-                fullContent = mergeAssistantStreamContent(fullContent, withPending[i].content)
-                if (firstIdx === -1) firstIdx = i
-                else removeSet.add(i)
-              }
-            }
-            if (firstIdx === -1) return withPending
-            const repaired = repairAssistantReadability(fullContent)
-            const next: AgentMessage[] = []
-            for (let i = 0; i < withPending.length; i++) {
-              if (removeSet.has(i)) continue
-              next.push(i === firstIdx ? { ...withPending[i], content: repaired } : withPending[i])
-            }
-            return next
-          })
+	          const streamId = data.id
+	          setAgentMessages((prev) => {
+	            let fullContent = ""
+	            let firstIdx = -1
+	            const next: AgentMessage[] = []
+	            for (let i = 0; i < prev.length; i++) {
+	              const entry = prev[i]
+	              if (entry.role !== "assistant" || entry.id !== streamId) {
+	                next.push(entry)
+	                continue
+	              }
+	              const mergedEntry = pending
+	                ? {
+	                    ...entry,
+	                    content: mergeAssistantStreamContent(entry.content, pending.content),
+	                    ts: Math.max(Number(entry.ts || 0), Number(pending.ts || 0)),
+	                    ...(pending.conversationId ? { conversationId: pending.conversationId } : {}),
+	                  }
+	                : entry
+	              fullContent = mergeAssistantStreamContent(fullContent, mergedEntry.content)
+	              if (firstIdx === -1) {
+	                firstIdx = next.length
+	                next.push(mergedEntry)
+	                continue
+	              }
+	              const firstEntry = next[firstIdx]
+	              next[firstIdx] = {
+	                ...firstEntry,
+	                ts: Math.max(Number(firstEntry.ts || 0), Number(mergedEntry.ts || 0)),
+	                source: mergedEntry.source || firstEntry.source,
+	                sender: mergedEntry.sender || firstEntry.sender,
+	                ...(mergedEntry.conversationId ? { conversationId: mergedEntry.conversationId } : {}),
+	              }
+	            }
+	            if (firstIdx === -1) {
+	              if (!pending) return prev
+	              return [
+	                ...prev,
+	                {
+	                  ...pending,
+	                  id: streamId,
+	                  role: "assistant",
+	                  content: repairAssistantReadability(pending.content),
+	                },
+	              ]
+	            }
+	            const repaired = repairAssistantReadability(fullContent)
+	            next[firstIdx] = { ...next[firstIdx], content: repaired }
+	            return next
+	          })
 
           if (streamingAssistantIdRef.current === streamId) {
             setStreamingAssistantIdSafely(null)
@@ -764,14 +797,17 @@ export function useNovaState() {
         ) {
           const normalizedContent = data.content.replace(/\r\n/g, "\n");
           const normalizedForDedupe = normalizeInboundMessageText(normalizedContent)
-          if (!normalizedForDedupe) return
+          const normalizedImageData = typeof data.imageData === "string" ? data.imageData.trim() : ""
+          if (!normalizedForDedupe && !normalizedImageData) return
+          const dedupeComparable = normalizedForDedupe
+            || (normalizedImageData ? `image:${normalizedImageData.slice(0, 96)}` : "")
           const conversationId = normalizeConversationId(data.conversationId)
           const messageTs = Number(data.ts || Date.now())
           if (
             data.role === "user" &&
             (data.source === "hud" || data.sender === "hud-user")
           ) {
-            if (markRecentEvent(`hud_user_echo:${normalizedForDedupe}`, HUD_USER_ECHO_DEDUPE_MS)) {
+            if (markRecentEvent(`hud_user_echo:${dedupeComparable}`, HUD_USER_ECHO_DEDUPE_MS)) {
               return
             }
           }
@@ -780,7 +816,7 @@ export function useNovaState() {
           }
           if (
             data.role === "assistant" &&
-            markRecentEvent(`assistant_msg:${conversationId}:${normalizedForDedupe}`, HUD_USER_ECHO_DEDUPE_MS)
+            markRecentEvent(`assistant_msg:${conversationId}:${dedupeComparable}`, HUD_USER_ECHO_DEDUPE_MS)
           ) {
             return
           }
@@ -797,6 +833,9 @@ export function useNovaState() {
             id: `agent-${data.ts}-${Math.random().toString(36).slice(2, 7)}`,
             role: data.role,
             content: finalContent,
+            ...(typeof data.imageData === "string" && data.imageData.trim()
+              ? { imageData: data.imageData.trim() }
+              : {}),
             ts: messageTs,
             source: data.source === "hud" ? "hud" : "voice",
             sender: data.sender,
@@ -816,6 +855,7 @@ export function useNovaState() {
             id: msg.id,
             role: "user",
             content: msg.content,
+            ...(msg.imageData ? { imageData: msg.imageData } : {}),
             ts: msg.ts,
             source: msg.source,
             sender: msg.sender,
@@ -932,6 +972,7 @@ export function useNovaState() {
       risk_tolerance?: string
       structure_preference?: string
       challenge_level?: string
+      imageData?: string
     },
   ) => {
     const ws = wsRef.current;
@@ -960,6 +1001,7 @@ export function useNovaState() {
           ...(options?.risk_tolerance ? { risk_tolerance: options.risk_tolerance } : {}),
           ...(options?.structure_preference ? { structure_preference: options.structure_preference } : {}),
           ...(options?.challenge_level ? { challenge_level: options.challenge_level } : {}),
+          ...(options?.imageData ? { imageData: options.imageData } : {}),
         }),
       );
     }

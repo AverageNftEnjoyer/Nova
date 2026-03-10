@@ -687,6 +687,7 @@ export function broadcastMessage(
   conversationId = undefined,
   userContextId = "",
   meta = undefined,
+  imageData = "",
 ) {
   const normalizedConversationId = normalizeConversationId(conversationId);
   const resolvedUserContextId = resolveEventUserContextId(userContextId, normalizedConversationId);
@@ -698,6 +699,7 @@ export function broadcastMessage(
       role,
       content,
       source,
+      ...(typeof imageData === "string" && imageData.trim() ? { imageData: imageData.trim() } : {}),
       ...(safeMeta ? { meta: safeMeta } : {}),
       ...(normalizedConversationId ? { conversationId: normalizedConversationId } : {}),
       ...(resolvedUserContextId ? { userContextId: resolvedUserContextId } : {}),

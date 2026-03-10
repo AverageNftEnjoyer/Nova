@@ -59,6 +59,15 @@ export const DOMAIN_WORKER_RULES = [
     toolCallTokens: ["tts"],
   },
   {
+    domainManagerId: "media-manager",
+    workerAgentId: "image-agent",
+    reason: "image_intent",
+    routeTokens: ["image"],
+    responseRouteTokens: ["image"],
+    textTokens: ["image", "images", "photo", "picture", "screenshot", "render", "generate image"],
+    toolCallTokens: ["image"],
+  },
+  {
     domainManagerId: "finance-manager",
     workerAgentId: "coinbase-agent",
     reason: "coinbase_signal",

@@ -59,6 +59,21 @@ export async function handleHudGatewayMessage({
       socket.send(payload);
       return true;
     };
+  const MAX_HUD_IMAGE_DATA_URL_CHARS = 180_000;
+  const normalizeHudImageData = (value) => {
+    if (typeof value !== "string") return "";
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > MAX_HUD_IMAGE_DATA_URL_CHARS) return "";
+    if (!trimmed.toLowerCase().startsWith("data:image/")) return "";
+    const commaIndex = trimmed.indexOf(",");
+    if (commaIndex <= 0) return "";
+    const header = trimmed.slice(0, commaIndex).toLowerCase();
+    if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64$/i.test(header)) return "";
+    const base64Body = trimmed.slice(commaIndex + 1).replace(/\s+/g, "");
+    if (!base64Body || base64Body.length > MAX_HUD_IMAGE_DATA_URL_CHARS) return "";
+    if (!/^[a-z0-9+/=]+$/i.test(base64Body)) return "";
+    return `${trimmed.slice(0, commaIndex)},${base64Body}`;
+  };
 
   try {
     const connRate = checkWindowRateLimit(
@@ -222,7 +237,10 @@ export async function handleHudGatewayMessage({
       return;
     }
 
-    if (data.type === "hud_message" && data.content) {
+    const normalizedHudContent = typeof data.content === "string" ? data.content : "";
+    const normalizedHudContentTrimmed = normalizedHudContent.trim();
+    const normalizedHudImageData = normalizeHudImageData(data.imageData);
+    if (data.type === "hud_message" && (normalizedHudContentTrimmed || normalizedHudImageData)) {
       const userRate = checkWsUserRateLimit(typeof data.userId === "string" ? data.userId : "");
       if (!userRate.allowed) {
         if (ws.readyState === 1) {
@@ -256,7 +274,7 @@ export async function handleHudGatewayMessage({
         broadcastState("idle", incomingUserId);
         return;
       }
-      const redactedLen = String(data.content || "").length;
+      const redactedLen = String(normalizedHudContent || "").length;
       console.log("[HUD ->] chars:", redactedLen, "| voice:", data.voice, "| ttsVoice:", data.ttsVoice);
       if (data.voice !== false) stopSpeaking({ userContextId: incomingUserId });
 
@@ -334,7 +352,9 @@ export async function handleHudGatewayMessage({
       }
 
       try {
-        const lane = classifyHudRequestLane(data.content);
+        const hudInputText = normalizedHudContentTrimmed
+          || (normalizedHudImageData ? "Please analyze this image." : "");
+        const lane = classifyHudRequestLane(hudInputText);
         const sessionKeyHint = typeof data.sessionKey === "string" && data.sessionKey.trim()
           ? data.sessionKey
           : `agent:nova:hud:user:${incomingUserId}:dm:${conversationId}`;
@@ -371,7 +391,7 @@ export async function handleHudGatewayMessage({
             }
             markHudWorkStart(incomingUserId);
             try {
-              await handleInput(data.content, {
+              await handleInput(hudInputText, {
                 voice: data.voice !== false,
                 ttsVoice: data.ttsVoice || getCurrentVoice({ userContextId: incomingUserId }),
                 source: "hud",
@@ -392,6 +412,7 @@ export async function handleHudGatewayMessage({
                 tone: typeof data.tone === "string" ? data.tone : "",
                 customInstructions: typeof data.customInstructions === "string" ? data.customInstructions : "",
                 nlpBypass: data.nlpBypass === true,
+                imageData: normalizedHudImageData || "",
                 conversationId: conversationId || undefined,
                 hudOpToken: opToken || "",
                 sessionKeyHint,

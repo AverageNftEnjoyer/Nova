@@ -17,6 +17,7 @@ const CALENDAR_CONTINUE_REGEX = /\b(reschedule|move|change|shift|today|tomorrow|
 const REMINDER_CONTINUE_REGEX = /\b(when|at|on|tomorrow|today|tonight|update|change|edit|remove|cancel|more\s+detail)\b/i;
 const WEB_RESEARCH_CONTINUE_REGEX = /\b(more\s+sources|add\s+citations?|dig\s+deeper|refresh\s+search|latest\s+update)\b/i;
 const MARKET_CONTINUE_REGEX = /\b(refresh|update|again|latest|more\s+detail|market|stocks?|indices?|weather|trend)\b/i;
+const IMAGE_CONTINUE_REGEX = /\b(another|more|different|variation|edit|tweak|change|upscale|enhance|crop|describe|analyze|inspect|image|photo|picture)\b/i;
 const FILES_CONTINUE_REGEX = /\b(open|read|show|list|search|next\s+file|more\s+detail)\b/i;
 const MEMORY_CONTINUE_REGEX = /\b(remember|save|store|update|that memory|this memory|more\s+detail)\b/i;
 const SHUTDOWN_CONTINUE_REGEX = /\b(confirm|yes|do it|cancel|stop|nevermind)\b/i;
@@ -209,6 +210,17 @@ const LANE_POLICY_DEFINITIONS = {
       if (/\b(weather)\b/.test(normalized)) return "market_weather";
       if (/\b(stocks?|indices?|nasdaq|dow|s&p)\b/.test(normalized)) return "market_equities";
       return String(existing.topicAffinityId || "market_general");
+    },
+  },
+  image: {
+    ttlEnvKey: "NOVA_STC_TTL_IMAGE_MS",
+    ttlDefaultMs: 180000,
+    continueRegex: IMAGE_CONTINUE_REGEX,
+    resolveTopicAffinityId: (text, existing = {}) => {
+      const normalized = String(text || "").toLowerCase();
+      if (/\b(generate|create|make|draw|render|design|illustrate)\b/.test(normalized)) return "image_generation";
+      if (/\b(analyze|describe|inspect|what(?:'s| is)\s+in)\b/.test(normalized)) return "image_analysis";
+      return String(existing.topicAffinityId || "image_general");
     },
   },
   files: {

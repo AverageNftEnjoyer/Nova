@@ -1,6 +1,15 @@
 import path from "node:path";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 
+const THREAD_TRANSCRIPT_DELETE_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(24, Number.parseInt(process.env.NOVA_THREAD_TRANSCRIPT_DELETE_MAX_PARALLEL || "8", 10) || 8),
+);
+const THREAD_TRANSCRIPT_SCAN_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(24, Number.parseInt(process.env.NOVA_THREAD_TRANSCRIPT_SCAN_MAX_PARALLEL || "8", 10) || 8),
+);
+
 export function normalizeUserContextId(value) {
   return String(value ?? "")
     .trim()
@@ -183,6 +192,25 @@ function transcriptMatchesCleanupPatterns(rawTranscript, patterns) {
   return false;
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const safeConcurrency = Math.max(1, Math.min(items.length, Number(concurrency) || 1));
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) return;
+      results[idx] = await mapper(items[idx], idx);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+  return results;
+}
+
 export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, opts = {}) {
   const userContextId = normalizeUserContextId(userId);
   const normalizedThreadId = normalizeConversationId(threadId);
@@ -219,26 +247,37 @@ export async function pruneThreadTranscripts(workspaceRoot, userId, threadId, op
   removedSessionEntries += scopedSessionPrune.removedSessionEntries;
   for (const sessionId of scopedSessionPrune.sessionIds) sessionIds.add(sessionId);
 
-  for (const sessionId of sessionIds) {
-    const scopedPath = path.join(scopedTranscriptDir, `${sessionId}.jsonl`);
-    const scopedExists = await readFile(scopedPath, "utf8").then(() => true).catch(() => false);
-    if (scopedExists) {
+  const directTranscriptDeletes = await mapWithConcurrency(
+    [...sessionIds],
+    THREAD_TRANSCRIPT_DELETE_MAX_PARALLEL,
+    async (sessionId) => {
+      const scopedPath = path.join(scopedTranscriptDir, `${sessionId}.jsonl`);
+      const scopedExists = await readFile(scopedPath, "utf8").then(() => true).catch(() => false);
+      if (!scopedExists) return 0;
       await rm(scopedPath, { force: true }).catch(() => {});
-      removedTranscriptFiles += 1;
-    }
-  }
+      return 1;
+    },
+  );
+  removedTranscriptFiles += directTranscriptDeletes.reduce((sum, value) => sum + Number(value || 0), 0);
 
   const scanAndPrune = async (dirPath) => {
     const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".jsonl")) continue;
-      const filePath = path.join(dirPath, entry.name);
-      const raw = await readFile(filePath, "utf8").catch(() => "");
-      if (!raw) continue;
-      if (!transcriptMatchesCleanupPatterns(raw, transcriptPatterns)) continue;
-      await rm(filePath, { force: true }).catch(() => {});
-      removedTranscriptFiles += 1;
-    }
+    const transcriptFiles = entries.filter(
+      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".jsonl"),
+    );
+    const scanResults = await mapWithConcurrency(
+      transcriptFiles,
+      THREAD_TRANSCRIPT_SCAN_MAX_PARALLEL,
+      async (entry) => {
+        const filePath = path.join(dirPath, entry.name);
+        const raw = await readFile(filePath, "utf8").catch(() => "");
+        if (!raw) return 0;
+        if (!transcriptMatchesCleanupPatterns(raw, transcriptPatterns)) return 0;
+        await rm(filePath, { force: true }).catch(() => {});
+        return 1;
+      },
+    );
+    removedTranscriptFiles += scanResults.reduce((sum, value) => sum + Number(value || 0), 0);
   };
 
   await scanAndPrune(scopedTranscriptDir);

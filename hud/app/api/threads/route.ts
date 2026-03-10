@@ -3,12 +3,14 @@ import { requireSupabaseApiUser } from "@/lib/supabase/server"
 
 export const runtime = "nodejs"
 const DEFAULT_THREAD_TITLE = "Greetings Exchange"
+const MAX_STORED_IMAGE_DATA_URL_CHARS = 180_000
 
 type ApiMessage = {
   id: string
   role: "user" | "assistant"
   content: string
   createdAt: string
+  imageData?: string
   source?: "hud" | "agent" | "voice"
   sender?: string
   sessionConversationId?: string
@@ -122,6 +124,12 @@ export async function GET(req: Request) {
       role: normalizedRole,
       content: String(row.content || ""),
       createdAt: String(row.created_at),
+      imageData:
+        typeof metadata.imageData === "string"
+          && metadata.imageData.trim().startsWith("data:image/")
+          && metadata.imageData.trim().length <= MAX_STORED_IMAGE_DATA_URL_CHARS
+          ? metadata.imageData.trim()
+          : undefined,
       source: (metadata.source === "hud" || metadata.source === "agent" || metadata.source === "voice") ? metadata.source : undefined,
       sender: (metadata.sender as string | undefined) || undefined,
       sessionConversationId: (metadata.sessionConversationId as string | undefined) || undefined,

@@ -305,6 +305,11 @@ export async function runAgentTurn(
     const toolLoopMaxDurationMs = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_DURATION_MS", 32000, 1000);
     const toolExecTimeoutMs = envPositiveInt("NOVA_AGENT_TOOL_EXEC_TIMEOUT_MS", 7000, 1000);
     const toolLoopMaxToolCallsPerStep = envPositiveInt("NOVA_AGENT_TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP", 4, 1);
+    const toolLoopMaxParallelToolCallsPerStep = envPositiveInt(
+      "NOVA_AGENT_TOOL_LOOP_MAX_PARALLEL_TOOL_CALLS_PER_STEP",
+      2,
+      1,
+    );
     const toolLoopStartedAt = Date.now();
     let toolLoopStep = 0;
     let loopTerminationReason = "";
@@ -380,14 +385,26 @@ export async function runAgentTurn(
           is_error: true,
         });
       }
-      for (const toolUse of cappedToolUseBlocks) {
-        toolCalls.push(toolUse.name);
-        const result = await withTimeout(
-          executeToolUse(toolUse, tools),
-          toolExecTimeoutMs,
-          `Tool ${toolUse.name}`,
+      const maxParallelToolCalls = Math.max(
+        1,
+        Math.min(toolLoopMaxParallelToolCallsPerStep, cappedToolUseBlocks.length),
+      );
+      for (let idx = 0; idx < cappedToolUseBlocks.length; idx += maxParallelToolCalls) {
+        const toolBatch = cappedToolUseBlocks.slice(idx, idx + maxParallelToolCalls);
+        for (const toolUse of toolBatch) {
+          toolCalls.push(toolUse.name);
+        }
+        const batchResults = await Promise.all(
+          toolBatch.map(async (toolUse) => {
+            const result = await withTimeout(
+              executeToolUse(toolUse, tools),
+              toolExecTimeoutMs,
+              `Tool ${toolUse.name}`,
+            );
+            return toAnthropicToolResultBlock(result);
+          }),
         );
-        toolResults.push(toAnthropicToolResultBlock(result));
+        toolResults.push(...batchResults);
       }
 
       messages.push({

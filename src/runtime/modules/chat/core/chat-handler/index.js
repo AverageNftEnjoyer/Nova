@@ -107,6 +107,8 @@ import {
   isCryptoContextualFollowUpIntent,
   isMarketDirectIntent,
   isMarketContextualFollowUpIntent,
+  isImageDirectIntent,
+  isImageContextualFollowUpIntent,
   isFilesDirectIntent,
   isFilesContextualFollowUpIntent,
   isMemoryDirectIntent,
@@ -131,6 +133,20 @@ function emitSingleChunkAssistantStream(replyText, source, conversationId, userC
   broadcastAssistantStreamDone(streamId, source, undefined, conversationId, userContextId);
 }
 
+function normalizeInboundImageData(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 180_000) return "";
+  const commaIndex = trimmed.indexOf(",");
+  if (commaIndex <= 0) return "";
+  const header = trimmed.slice(0, commaIndex).toLowerCase();
+  if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64$/i.test(header)) return "";
+  const base64Body = trimmed.slice(commaIndex + 1).replace(/\s+/g, "");
+  if (!base64Body || base64Body.length > 180_000) return "";
+  if (!/^[a-z0-9+/=]+$/i.test(base64Body)) return "";
+  return `${trimmed.slice(0, commaIndex)},${base64Body}`;
+}
+
 async function handleInputCore(text, opts = {}) {
   const latencyTelemetry = createChatLatencyTelemetry();
   text = normalizeInboundUserText(text);
@@ -148,6 +164,8 @@ async function handleInputCore(text, opts = {}) {
   const conversationId = resolveConversationId(opts, sessionKey, source);
 
   const sender = String(opts.sender || "").trim();
+  const imageData = normalizeInboundImageData(opts.imageData);
+  const hasImageAttachment = Boolean(imageData);
   const runtimeTone = normalizeRuntimeTone(opts.tone);
   const runtimeCommunicationStyle = String(opts.communicationStyle || "").trim();
   const runtimeAssistantName = String(opts.assistantName || "").trim();
@@ -239,6 +257,7 @@ async function handleInputCore(text, opts = {}) {
     conversationId,
     hudOpToken,
     supabaseAccessToken: String(opts.supabaseAccessToken || "").trim(),
+    imageData,
     sessionId: sessionContext.sessionEntry?.sessionId,
     // NLP: raw_text for display/persistence; clean_text already in `text`
     raw_text,
@@ -419,6 +438,8 @@ async function handleInputCore(text, opts = {}) {
     isCryptoContextualFollowUpIntent,
     isMarketDirectIntent,
     isMarketContextualFollowUpIntent,
+    isImageDirectIntent,
+    isImageContextualFollowUpIntent,
     isFilesDirectIntent,
     isFilesContextualFollowUpIntent,
     isMemoryDirectIntent,
@@ -449,12 +470,63 @@ async function handleInputCore(text, opts = {}) {
   const webResearchShortTermFollowUp = contextHints.webResearchShortTermFollowUp;
   const cryptoShortTermFollowUp = contextHints.cryptoShortTermFollowUp;
   const marketShortTermFollowUp = contextHints.marketShortTermFollowUp;
+  const imageShortTermFollowUp = contextHints.imageShortTermFollowUp;
   const filesShortTermFollowUp = contextHints.filesShortTermFollowUp;
   const memoryShortTermFollowUp = contextHints.memoryShortTermFollowUp;
   const shutdownShortTermFollowUp = contextHints.shutdownShortTermFollowUp;
   const diagnosticsShortTermFollowUp = contextHints.diagnosticsShortTermFollowUp;
   const voiceShortTermFollowUp = contextHints.voiceShortTermFollowUp;
   const ttsShortTermFollowUp = contextHints.ttsShortTermFollowUp;
+
+  const baseRouteDecisions = buildOperatorRouteDecisions({
+    text,
+    spotifyShortTermFollowUp,
+    youtubeShortTermFollowUp,
+    polymarketShortTermFollowUp,
+    coinbaseShortTermFollowUp,
+    gmailShortTermFollowUp,
+    telegramShortTermFollowUp,
+    discordShortTermFollowUp,
+    calendarShortTermFollowUp,
+    remindersShortTermFollowUp,
+    webResearchShortTermFollowUp,
+    cryptoShortTermFollowUp,
+    marketShortTermFollowUp,
+    imageShortTermFollowUp,
+    filesShortTermFollowUp,
+    memoryShortTermFollowUp,
+    shutdownShortTermFollowUp,
+    diagnosticsShortTermFollowUp,
+    voiceShortTermFollowUp,
+    ttsShortTermFollowUp,
+    isSpotifyDirectIntent,
+    isYouTubeDirectIntent,
+    isPolymarketDirectIntent,
+    isCoinbaseDirectIntent,
+    isGmailDirectIntent,
+    isTelegramDirectIntent,
+    isDiscordDirectIntent,
+    isCalendarDirectIntent,
+    isReminderDirectIntent,
+    isWebResearchDirectIntent,
+    isCryptoDirectIntent,
+    isMarketDirectIntent,
+    isImageDirectIntent,
+    isFilesDirectIntent,
+    isMemoryDirectIntent,
+    isShutdownDirectIntent,
+    isDiagnosticsDirectIntent,
+    isVoiceDirectIntent,
+    isTtsDirectIntent,
+  });
+  const preRuntimeRouteDecisions = hasImageAttachment
+    ? {
+        ...baseRouteDecisions,
+        selectedRouteId: "image",
+        shouldRouteToImage: true,
+      }
+    : baseRouteDecisions;
+  const shouldPreferGrokForImageTurn = preRuntimeRouteDecisions.shouldRouteToImage === true || hasImageAttachment;
 
   let runtimeTools = null;
   let availableTools = [];
@@ -500,6 +572,7 @@ async function handleInputCore(text, opts = {}) {
       canRunToolLoop,
       sessionKey,
       source,
+      preferredProvider: shouldPreferGrokForImageTurn ? "grok" : "",
       latencyTelemetry,
     });
 
@@ -516,45 +589,7 @@ async function handleInputCore(text, opts = {}) {
     executionPolicy,
     latencyTelemetry,
   };
-  const routeDecisions = buildOperatorRouteDecisions({
-    text,
-    spotifyShortTermFollowUp,
-    youtubeShortTermFollowUp,
-    polymarketShortTermFollowUp,
-    coinbaseShortTermFollowUp,
-    gmailShortTermFollowUp,
-    telegramShortTermFollowUp,
-    discordShortTermFollowUp,
-    calendarShortTermFollowUp,
-    remindersShortTermFollowUp,
-    webResearchShortTermFollowUp,
-    cryptoShortTermFollowUp,
-    marketShortTermFollowUp,
-    filesShortTermFollowUp,
-    memoryShortTermFollowUp,
-    shutdownShortTermFollowUp,
-    diagnosticsShortTermFollowUp,
-    voiceShortTermFollowUp,
-    ttsShortTermFollowUp,
-    isSpotifyDirectIntent,
-    isYouTubeDirectIntent,
-    isPolymarketDirectIntent,
-    isCoinbaseDirectIntent,
-    isGmailDirectIntent,
-    isTelegramDirectIntent,
-    isDiscordDirectIntent,
-    isCalendarDirectIntent,
-    isReminderDirectIntent,
-    isWebResearchDirectIntent,
-    isCryptoDirectIntent,
-    isMarketDirectIntent,
-    isFilesDirectIntent,
-    isMemoryDirectIntent,
-    isShutdownDirectIntent,
-    isDiagnosticsDirectIntent,
-    isVoiceDirectIntent,
-    isTtsDirectIntent,
-  });
+  const routeDecisions = preRuntimeRouteDecisions;
   const shouldRouteToSpotify = routeDecisions.shouldRouteToSpotify;
   const shouldRouteToYouTube = routeDecisions.shouldRouteToYouTube;
   const shouldRouteToPolymarket = routeDecisions.shouldRouteToPolymarket;
@@ -567,6 +602,7 @@ async function handleInputCore(text, opts = {}) {
   const shouldRouteToWebResearch = routeDecisions.shouldRouteToWebResearch;
   const shouldRouteToCrypto = routeDecisions.shouldRouteToCrypto;
   const shouldRouteToMarket = routeDecisions.shouldRouteToMarket;
+  const shouldRouteToImage = routeDecisions.shouldRouteToImage;
   const shouldRouteToFiles = routeDecisions.shouldRouteToFiles;
   const shouldRouteToMemory = routeDecisions.shouldRouteToMemory;
   const shouldRouteToShutdown = routeDecisions.shouldRouteToShutdown;
@@ -589,6 +625,7 @@ async function handleInputCore(text, opts = {}) {
     activeChatRuntime,
     delegateToOrgChartWorker,
     polymarketWorker: typeof opts.polymarketWorker === "function" ? opts.polymarketWorker : handlePolymarketWorker,
+    imageWorker: typeof opts.imageWorker === "function" ? opts.imageWorker : undefined,
     calendarWorker: typeof opts.calendarWorker === "function" ? opts.calendarWorker : undefined,
     remindersWorker: typeof opts.remindersWorker === "function" ? opts.remindersWorker : undefined,
     marketWorker: typeof opts.marketWorker === "function" ? opts.marketWorker : handleMarketWorker,

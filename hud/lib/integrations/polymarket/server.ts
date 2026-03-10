@@ -20,6 +20,7 @@ import {
   normalizePolymarketProfile,
   type PolymarketMarket,
   type PolymarketOrderBook,
+  type PolymarketPricePoint,
   type PolymarketPosition,
   type PolymarketProfile,
 } from "./api"
@@ -32,6 +33,7 @@ import {
 } from "./types"
 
 const REQUEST_TIMEOUT_MS = 8_000
+export type PolymarketHistoryRange = "1h" | "6h" | "1d" | "1w" | "1m" | "all"
 
 class PolymarketServerError extends Error {
   public readonly status: number
@@ -87,6 +89,125 @@ async function fetchJson(url: string): Promise<unknown> {
   } finally {
     clearTimeout(timer)
   }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value < 0) return 0
+  if (value > 1) return 1
+  return value
+}
+
+function normalizeHistoryPoint(raw: unknown): PolymarketPricePoint | null {
+  if (Array.isArray(raw) && raw.length >= 2) {
+    const t = Number(raw[0])
+    const p = Number(raw[1])
+    if (!Number.isFinite(t) || !Number.isFinite(p)) return null
+    const tMs = t > 10_000_000_000 ? t : t * 1000
+    return { t: Math.trunc(tMs), p: clamp01(p) }
+  }
+  if (!raw || typeof raw !== "object") return null
+  const row = raw as Record<string, unknown>
+  const timeCandidate = Number(row.t ?? row.time ?? row.timestamp ?? row.ts)
+  const priceCandidate = Number(row.p ?? row.price ?? row.y ?? row.value)
+  if (!Number.isFinite(timeCandidate) || !Number.isFinite(priceCandidate)) return null
+  const tMs = timeCandidate > 10_000_000_000 ? timeCandidate : timeCandidate * 1000
+  return { t: Math.trunc(tMs), p: clamp01(priceCandidate) }
+}
+
+function parseHistoryPoints(payload: unknown): PolymarketPricePoint[] {
+  const source = payload && typeof payload === "object" ? payload as Record<string, unknown> : {}
+  const candidates: unknown[] = []
+  if (Array.isArray(payload)) candidates.push(payload)
+  if (Array.isArray(source.history)) candidates.push(source.history)
+  if (Array.isArray(source.prices_history)) candidates.push(source.prices_history)
+  if (Array.isArray(source.pricesHistory)) candidates.push(source.pricesHistory)
+  if (Array.isArray(source.prices)) candidates.push(source.prices)
+  if (Array.isArray(source.data)) candidates.push(source.data)
+
+  for (const candidate of candidates) {
+    const points = (candidate as unknown[])
+      .map((entry) => normalizeHistoryPoint(entry))
+      .filter((entry): entry is PolymarketPricePoint => Boolean(entry))
+      .sort((a, b) => a.t - b.t)
+    if (points.length > 0) return points
+  }
+  return []
+}
+
+function normalizeHistoryRange(value: string): PolymarketHistoryRange {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === "1h" || normalized === "6h" || normalized === "1d" || normalized === "1w" || normalized === "1m" || normalized === "all") {
+    return normalized
+  }
+  return "1d"
+}
+
+const HISTORY_WINDOW_MS: Record<PolymarketHistoryRange, number> = {
+  "1h": 60 * 60 * 1000,
+  "6h": 6 * 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+  "1w": 7 * 24 * 60 * 60 * 1000,
+  "1m": 30 * 24 * 60 * 60 * 1000,
+  "all": 365 * 24 * 60 * 60 * 1000,
+}
+
+const HISTORY_FIDELITY: Record<PolymarketHistoryRange, string> = {
+  "1h": "5",
+  "6h": "15",
+  "1d": "30",
+  "1w": "60",
+  "1m": "240",
+  "all": "1440",
+}
+
+export async function fetchPolymarketPriceHistory(tokenId: string, rangeInput: string): Promise<PolymarketPricePoint[]> {
+  const normalizedTokenId = String(tokenId || "").trim()
+  if (!normalizedTokenId) {
+    throw new PolymarketServerError("POLYMARKET_TOKEN_REQUIRED", "tokenId is required.", 400)
+  }
+
+  const range = normalizeHistoryRange(rangeInput)
+  const nowMs = Date.now()
+  const startMs = nowMs - HISTORY_WINDOW_MS[range]
+  const startTs = Math.floor(startMs / 1000)
+  const endTs = Math.floor(nowMs / 1000)
+  const fidelity = HISTORY_FIDELITY[range]
+
+  const candidateUrls: string[] = []
+
+  const clobWithTimeWindow = new URL(`${POLYMARKET_CLOB_API_URL}/prices-history`)
+  clobWithTimeWindow.searchParams.set("market", normalizedTokenId)
+  clobWithTimeWindow.searchParams.set("interval", range)
+  clobWithTimeWindow.searchParams.set("fidelity", fidelity)
+  clobWithTimeWindow.searchParams.set("startTs", String(startTs))
+  clobWithTimeWindow.searchParams.set("endTs", String(endTs))
+  candidateUrls.push(clobWithTimeWindow.toString())
+
+  const clobBasic = new URL(`${POLYMARKET_CLOB_API_URL}/prices-history`)
+  clobBasic.searchParams.set("market", normalizedTokenId)
+  clobBasic.searchParams.set("interval", range)
+  clobBasic.searchParams.set("fidelity", fidelity)
+  candidateUrls.push(clobBasic.toString())
+
+  const dataApi = new URL(`${POLYMARKET_DATA_API_URL}/price-history`)
+  dataApi.searchParams.set("market", normalizedTokenId)
+  dataApi.searchParams.set("interval", range)
+  dataApi.searchParams.set("startTs", String(startTs))
+  dataApi.searchParams.set("endTs", String(endTs))
+  candidateUrls.push(dataApi.toString())
+
+  for (const url of candidateUrls) {
+    try {
+      const payload = await fetchJson(url)
+      const points = parseHistoryPoints(payload)
+      if (points.length > 0) return points
+    } catch {
+      // Try the next compatible upstream variant.
+    }
+  }
+
+  throw new PolymarketServerError("POLYMARKET_HISTORY_UNAVAILABLE", "Failed to load market price history.", 502)
 }
 
 export async function fetchPolymarketMarkets(params: {

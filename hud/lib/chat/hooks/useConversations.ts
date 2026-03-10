@@ -43,6 +43,7 @@ export interface UseConversationsReturn {
       ttsVoice: string,
       meta: Record<string, unknown>,
     ) => void,
+    options?: { imageData?: string },
   ) => Promise<void>
   handleNewChat: () => void
   handleSelectConvo: (id: string) => Promise<void>
@@ -55,6 +56,7 @@ export interface UseConversationsReturn {
     options?: {
       sessionConversationId?: string
       sessionKey?: string
+      imageData?: string
     },
   ) => Conversation | null
   addAssistantMessage: (content: string, options?: { sender?: string }) => Conversation | null
@@ -371,7 +373,8 @@ export function useConversations({
 
       if (event.type === "message") {
         const normalizedContent = String(event.content || "").trim()
-        if (!normalizedContent) return { conversation: convo, changed, shouldSync, titleChanged }
+        const normalizedImageData = typeof event.imageData === "string" ? event.imageData.trim() : ""
+        if (!normalizedContent && !normalizedImageData) return { conversation: convo, changed, shouldSync, titleChanged }
         const source = String(event.source || "").trim().toLowerCase()
         const sender = String(event.sender || "").trim().toLowerCase()
         if (source === "hud" || sender === "hud-user") {
@@ -393,6 +396,9 @@ export function useConversations({
             id: String(event.id || "").trim() || `evt-${event.seq}`,
             role: "user",
             content: normalizedContent,
+            ...(typeof event.imageData === "string" && event.imageData.trim()
+              ? { imageData: event.imageData.trim() }
+              : {}),
             createdAt: eventTsIso,
             source: resolveTransportSource(event.source),
             sender: event.sender,

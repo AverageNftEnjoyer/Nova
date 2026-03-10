@@ -171,9 +171,9 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
   }
 
   const serializedPayload = JSON.stringify(payload, null, 2)
-  for (const filePath of filePaths) {
+  await Promise.all(filePaths.map(async (filePath) => {
     await mkdir(path.dirname(filePath), { recursive: true })
     await writeFile(filePath, serializedPayload, "utf8")
-  }
+  }))
   return filePaths[0]
 }

@@ -20,6 +20,10 @@ const SCHEDULER_RETRY_MAX_MS = Math.max(
   SCHEDULER_RETRY_BASE_MS,
   Math.min(21_600_000, Number.parseInt(process.env.NOVA_SCHEDULER_RETRY_MAX_MS || "900000", 10) || 900_000),
 );
+const SCHEDULER_MAX_PARALLEL_ENQUEUE_WORKERS = Math.max(
+  1,
+  Math.min(20, Number.parseInt(process.env.NOVA_SCHEDULER_MAX_PARALLEL_ENQUEUE_WORKERS || "4", 10) || 4),
+);
 
 function sanitizeSchedulerUserId(value) {
   return String(value ?? "")
@@ -92,32 +96,11 @@ export async function runMissionScheduleTick(dependencies = {}) {
   );
 
   try {
-    let userCursor = 0;
-    while (enqueueCount < SCHEDULER_MAX_RUNS_PER_TICK && roundRobinUsers.length > 0) {
-      const liveUserId = roundRobinUsers[userCursor % roundRobinUsers.length];
-      const userKey = sanitizeSchedulerUserId(liveUserId || "") || "__global__";
-      const perUserEnqueues = enqueueCountByUser.get(userKey) || 0;
-      const missionIds = activeMissionIdsByUser.get(liveUserId) || [];
-
-      if (missionIds.length === 0 || perUserEnqueues >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) {
-        activeMissionIdsByUser.delete(liveUserId);
-        roundRobinUsers.splice(userCursor % roundRobinUsers.length, 1);
-        if (roundRobinUsers.length === 0) break;
-        continue;
-      }
-
-      const missionId = missionIds.shift();
-      if (missionIds.length === 0) {
-        activeMissionIdsByUser.delete(liveUserId);
-        roundRobinUsers.splice(userCursor % roundRobinUsers.length, 1);
-      } else {
-        userCursor = (userCursor + 1) % roundRobinUsers.length;
-      }
-
+    const processMissionSelection = async ({ liveUserId, missionId, userKey }) => {
       try {
-        if (!missionId) continue;
+        if (!missionId) return { userKey, enqueued: false };
         const liveMission = liveMissionsByUser.get(liveUserId)?.get(missionId) ?? null;
-        if (!liveMission || liveMission.status !== "active") continue;
+        if (!liveMission || liveMission.status !== "active") return { userKey, enqueued: false };
 
         const rescheduleOverride = liveMission.userId
           ? await getRescheduleOverride(liveMission.userId, liveMission.id).catch(() => null)
@@ -137,7 +120,7 @@ export async function runMissionScheduleTick(dependencies = {}) {
             ? nativeLocal.dayStamp
             : undefined;
 
-        if (nativeDayStamp && missionForGate.lastSentLocalDate === nativeDayStamp) continue;
+        if (nativeDayStamp && missionForGate.lastSentLocalDate === nativeDayStamp) return { userKey, enqueued: false };
 
         if (missionForGate.lastRunStatus === "error" && missionForGate.lastRunAt) {
           const lastRunMs = Date.parse(missionForGate.lastRunAt);
@@ -147,8 +130,8 @@ export async function runMissionScheduleTick(dependencies = {}) {
               (missionForGate.failureCount || 0) - (missionForGate.successCount || 0),
             );
             const backoffMs = computeRetryDelayMs(Math.min(consecutiveFailures, SCHEDULER_MAX_RETRIES_PER_RUN_KEY));
-            if (now.getTime() - lastRunMs < backoffMs) continue;
-            if (consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY) continue;
+            if (now.getTime() - lastRunMs < backoffMs) return { userKey, enqueued: false };
+            if (consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY) return { userKey, enqueued: false };
           }
         }
 
@@ -174,14 +157,76 @@ export async function runMissionScheduleTick(dependencies = {}) {
           ...(Object.keys(inputSnapshot).length > 0 ? { input_snapshot: inputSnapshot } : {}),
         });
 
-        if (enqueueResult.ok) {
-          enqueueCount += 1;
-          enqueueCountByUser.set(userKey, perUserEnqueues + 1);
-        } else if (enqueueResult.error !== "duplicate_idempotency_key") {
+        if (!enqueueResult.ok && enqueueResult.error !== "duplicate_idempotency_key") {
           warn(`[Scheduler] Failed to enqueue mission ${liveMission.id}:`, enqueueResult.error);
         }
+
+        return { userKey, enqueued: Boolean(enqueueResult.ok) };
       } catch (err) {
         error(`[Scheduler] Error processing mission ${missionId || "unknown"}: ${err instanceof Error ? err.message : "unknown"}`);
+        return { userKey, enqueued: false };
+      }
+    };
+
+    let userCursor = 0;
+    while (enqueueCount < SCHEDULER_MAX_RUNS_PER_TICK && roundRobinUsers.length > 0) {
+      const availableSlots = SCHEDULER_MAX_RUNS_PER_TICK - enqueueCount;
+      if (availableSlots <= 0) break;
+      const waveMax = Math.max(
+        1,
+        Math.min(SCHEDULER_MAX_PARALLEL_ENQUEUE_WORKERS, availableSlots, roundRobinUsers.length),
+      );
+      const initialUsersInWave = roundRobinUsers.length;
+      const selectedMissions = [];
+      let inspectedUsers = 0;
+
+      while (
+        selectedMissions.length < waveMax
+        && roundRobinUsers.length > 0
+        && inspectedUsers < Math.max(1, initialUsersInWave)
+      ) {
+        const userIdx = userCursor % roundRobinUsers.length;
+        const liveUserId = roundRobinUsers[userIdx];
+        const userKey = sanitizeSchedulerUserId(liveUserId || "") || "__global__";
+        const perUserEnqueues = enqueueCountByUser.get(userKey) || 0;
+        const missionIds = activeMissionIdsByUser.get(liveUserId) || [];
+        inspectedUsers += 1;
+
+        if (missionIds.length === 0 || perUserEnqueues >= SCHEDULER_MAX_RUNS_PER_USER_PER_TICK) {
+          activeMissionIdsByUser.delete(liveUserId);
+          roundRobinUsers.splice(userIdx, 1);
+          if (roundRobinUsers.length === 0) break;
+          userCursor = roundRobinUsers.length === 0 ? 0 : userIdx % roundRobinUsers.length;
+          continue;
+        }
+
+        const missionId = missionIds.shift();
+        if (missionIds.length === 0) {
+          activeMissionIdsByUser.delete(liveUserId);
+          roundRobinUsers.splice(userIdx, 1);
+          if (roundRobinUsers.length === 0) {
+            userCursor = 0;
+          } else {
+            userCursor = userIdx % roundRobinUsers.length;
+          }
+        } else {
+          userCursor = (userIdx + 1) % roundRobinUsers.length;
+        }
+
+        if (!missionId) continue;
+        selectedMissions.push({ liveUserId, missionId, userKey });
+      }
+
+      if (selectedMissions.length === 0) {
+        if (roundRobinUsers.length === 0) break;
+        continue;
+      }
+
+      const waveResults = await Promise.all(selectedMissions.map((selection) => processMissionSelection(selection)));
+      for (const result of waveResults) {
+        if (!result.enqueued) continue;
+        enqueueCount += 1;
+        enqueueCountByUser.set(result.userKey, (enqueueCountByUser.get(result.userKey) || 0) + 1);
       }
     }
   } catch (err) {

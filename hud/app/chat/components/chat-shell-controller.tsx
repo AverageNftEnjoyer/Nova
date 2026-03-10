@@ -403,10 +403,13 @@ export function ChatShellController() {
 
   // Send message
   const sendMessage = useCallback(
-    async (content: string, options?: { nlpBypass?: boolean }) => {
-      if (!content.trim() || !agentConnected || !activeConvo) return
+    async (content: string, options?: { nlpBypass?: boolean; imageData?: string }) => {
+      if ((!content.trim() && !options?.imageData) || !agentConnected || !activeConvo) return
 
-      const updatedConvo = addUserMessage(content)
+      const outboundContent = content.trim() || (options?.imageData ? "Please analyze this image." : "")
+      const updatedConvo = addUserMessage(outboundContent, {
+        ...(options?.imageData ? { imageData: options.imageData } : {}),
+      })
       const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
       const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
 
@@ -416,8 +419,8 @@ export function ChatShellController() {
         return
       }
       const supabaseAccessToken = await getSupabaseAccessToken()
-      if (gmailConnected && isEmailAssistantIntent(content)) {
-        const maxResults = extractEmailSummaryMaxResults(content, 6)
+      if (gmailConnected && isEmailAssistantIntent(outboundContent)) {
+        const maxResults = extractEmailSummaryMaxResults(outboundContent, 6)
         try {
           const response = await fetch("/api/integrations/gmail/summary", {
             method: "POST",
@@ -451,7 +454,7 @@ export function ChatShellController() {
             return
           }
           const assistantReply = buildEmailAssistantReply({
-            prompt: content,
+            prompt: outboundContent,
             nickname: settings.personalization.nickname,
             assistantName: settings.personalization.assistantName,
             communicationStyle: settings.personalization.communicationStyle,
@@ -476,12 +479,13 @@ export function ChatShellController() {
         }
       }
       const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
-      sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
+      sendToAgent(outboundContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: resolveConversationIdForAgent(activeConvo.id),
         sender: "hud-user",
         ...(sessionKey ? { sessionKey } : {}),
         messageId: localMessageId,
         ...(options?.nlpBypass ? { nlpBypass: true } : {}),
+        ...(options?.imageData ? { imageData: options.imageData } : {}),
         userId: activeUserId,
         supabaseAccessToken: supabaseAccessToken || undefined,
         assistantName: settings.personalization.assistantName,
@@ -514,6 +518,7 @@ export function ChatShellController() {
       role: m.role,
       content: m.content,
       createdAt: new Date(m.createdAt),
+      imageData: m.imageData,
       source: m.source,
       sender: m.sender,
       nlpCleanText: m.nlpCleanText,

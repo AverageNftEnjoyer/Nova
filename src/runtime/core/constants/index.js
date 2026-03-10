@@ -105,6 +105,11 @@ export const TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP = readIntEnv(
   4,
   { min: 1, max: 20 },
 );
+export const TOOL_LOOP_MAX_PARALLEL_TOOL_CALLS_PER_STEP = readIntEnv(
+  "NOVA_TOOL_LOOP_MAX_PARALLEL_TOOL_CALLS_PER_STEP",
+  2,
+  { min: 1, max: 8 },
+);
 
 // ===== Voice/Mic Config =====
 export const MIC_RECORD_SECONDS = readFloatEnv("NOVA_MIC_RECORD_SECONDS", 4, { min: 0.5, max: 120 });

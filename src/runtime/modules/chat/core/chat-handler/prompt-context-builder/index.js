@@ -453,10 +453,22 @@ export async function buildPromptContextForTurn({
     `[Session] key=${sessionKey} sender=${sender || "unknown"} prior_turns=${priorTurns.length} injected_messages=${historyMessages.length} trimmed_messages=${historyBudget.trimmed} history_tokens=${historyBudget.tokens} history_budget=${computedHistoryTokenBudget}`,
   );
 
+  const normalizedImageData = typeof ctx?.imageData === "string" && ctx.imageData.trim().startsWith("data:image/")
+    ? ctx.imageData.trim()
+    : "";
+  const userMessageText = String(text || "").trim() || (normalizedImageData ? "Please analyze this image." : "");
   const messages = [
     { role: "system", content: systemPrompt },
     ...historyMessages,
-    { role: "user", content: text },
+    normalizedImageData
+      ? {
+        role: "user",
+        content: [
+          { type: "text", text: userMessageText },
+          { type: "image_url", image_url: { url: normalizedImageData } },
+        ],
+      }
+      : { role: "user", content: userMessageText },
   ];
   const preparedPromptHash = hashShadowPayload(JSON.stringify(messages));
   latencyTelemetry.addStage("prompt_assembly", Date.now() - promptAssemblyStartedAt);

@@ -75,7 +75,27 @@ type OutputChannel = NonNullable<WorkflowStep["outputChannel"]>
 const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["telegram", "discord", "email", "slack", "push", "webhook"]
 const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "slack", "email", "webhook"]
 const QUEUED_RUN_STATUS_POLL_MS = 4_000
+const QUEUED_RUN_STATUS_MAX_PARALLEL = 4
 const QUEUE_METRICS_POLL_MS = 10_000
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const safeConcurrency = Math.max(1, Math.floor(concurrency))
+  if (items.length === 0) return []
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = new Array(Math.min(safeConcurrency, items.length)).fill(null).map(async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await mapper(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
 
 function normalizeOutputChannelAlias(value: string): OutputChannel | "" {
   const normalized = String(value || "").trim().toLowerCase()
@@ -1536,10 +1556,18 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
       let shouldRefreshSchedules = false
       try {
-        for (const entry of queuedEntries) {
+        const statusResponses = await mapWithConcurrency(
+          queuedEntries,
+          QUEUED_RUN_STATUS_MAX_PARALLEL,
+          async (entry) => ({
+            entry,
+            response: await fetchMissionRunStatus(entry.missionRunId),
+          }),
+        )
+
+        for (const { entry, response } of statusResponses) {
           if (cancelled) break
 
-          const response = await fetchMissionRunStatus(entry.missionRunId)
           if (response.status === 401) {
             router.replace(`/login?next=${encodeURIComponent("/missions")}`)
             break

@@ -5,7 +5,7 @@
  * getValidGmailCalendarAccessToken (stored under the `gcalendar` config key).
  */
 import { gmailFetchWithRetry, assertGmailOk, readGmailErrorMessage } from "../../gmail/client.ts"
-import { fromGmailHttpStatus } from "../../gmail/errors.ts"
+import { GmailServiceError, fromGmailHttpStatus } from "../../gmail/errors.ts"
 import {
   GCALENDAR_API_BASE,
   type GmailCalendarEventItem,
@@ -85,6 +85,17 @@ function dedupeCalendarEvents(items: GmailCalendarEventItem[]): GmailCalendarEve
     unique.push(event)
   }
   return unique
+}
+
+export function shouldFallbackToPrimaryCalendar(error: unknown): boolean {
+  if (error instanceof GmailServiceError) {
+    if (error.status === 401 || error.status === 403) return true
+  }
+  const reason = String(error instanceof Error ? error.message : error || "").toLowerCase()
+  return (
+    reason.includes("request had insufficient authentication scopes") ||
+    reason.includes("insufficient permission")
+  )
 }
 
 async function listGmailCalendarIdsWithToken(accessToken: string): Promise<string[]> {
@@ -173,7 +184,16 @@ export async function listAllGmailCalendarEvents(
   const { accountId, maxResults = 250, scope } = options ?? {}
   const desiredMax = Math.min(Math.max(1, maxResults), 2500)
   const accessToken = await getValidGmailCalendarAccessToken(accountId, false, scope)
-  const calendarIds = await listGmailCalendarIdsWithToken(accessToken)
+  let calendarIds: string[] = ["primary"]
+  try {
+    calendarIds = await listGmailCalendarIdsWithToken(accessToken)
+  } catch (error) {
+    if (!shouldFallbackToPrimaryCalendar(error)) throw error
+    const reason = error instanceof Error ? error.message : String(error)
+    console.warn(
+      `[gcalendar][list_events] calendar list unavailable; falling back to "primary": ${reason}`,
+    )
+  }
   const perCalendarMax = Math.min(2500, Math.max(50, Math.ceil(desiredMax / Math.max(1, calendarIds.length))))
 
   const byCalendar = await Promise.all(

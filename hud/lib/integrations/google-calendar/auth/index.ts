@@ -12,6 +12,9 @@ import { getOAuthStateSecret } from "@/lib/security/oauth-state-secret"
 
 export const GMAIL_CALENDAR_EXTRA_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events",
+  // calendarList discovery requires read scope; without this, event ingestion
+  // can fail when listing calendars before fetching events.
+  "https://www.googleapis.com/auth/calendar.readonly",
 ]
 
 function getOAuthSecret(): string {

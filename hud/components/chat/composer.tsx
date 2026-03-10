@@ -9,12 +9,69 @@ import { ACCENT_COLORS, loadUserSettings, type AccentColor, USER_SETTINGS_UPDATE
 import { useTheme } from "@/lib/context/theme-context"
 
 interface ComposerProps {
-  onSend: (content: string) => void
+  onSend: (content: string, options?: { imageData?: string }) => void | Promise<void>
   isStreaming: boolean
   disabled?: boolean
   isMuted: boolean
   onToggleMute: () => void
   muteHydrated?: boolean
+}
+
+const IMAGE_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
+const MAX_IMAGE_INPUT_BYTES = 8 * 1024 * 1024
+const MAX_IMAGE_DATA_URL_LENGTH = 180_000
+const IMAGE_MAX_DIMENSION = 1280
+
+async function readFileAsDataUrl(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ""))
+    reader.onerror = () => reject(new Error("Could not read selected image."))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function drawScaledJpegDataUrl(sourceDataUrl: string, maxDimension: number, quality: number): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const sourceWidth = Math.max(1, Number(img.naturalWidth || img.width || 1))
+      const sourceHeight = Math.max(1, Number(img.naturalHeight || img.height || 1))
+      const maxSide = Math.max(sourceWidth, sourceHeight)
+      const scale = maxSide > maxDimension ? maxDimension / maxSide : 1
+      const width = Math.max(1, Math.round(sourceWidth * scale))
+      const height = Math.max(1, Math.round(sourceHeight * scale))
+      const canvas = document.createElement("canvas")
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        reject(new Error("Could not process selected image."))
+        return
+      }
+      ctx.drawImage(img, 0, 0, width, height)
+      resolve(canvas.toDataURL("image/jpeg", quality))
+    }
+    img.onerror = () => reject(new Error("Invalid image file."))
+    img.src = sourceDataUrl
+  })
+}
+
+async function prepareImageDataForHud(file: File): Promise<string> {
+  if (!IMAGE_ALLOWED_MIME_TYPES.has(file.type)) return ""
+  if (file.size <= 0 || file.size > MAX_IMAGE_INPUT_BYTES) return ""
+  const originalDataUrl = await readFileAsDataUrl(file)
+  if (originalDataUrl.length <= MAX_IMAGE_DATA_URL_LENGTH) return originalDataUrl
+
+  let maxDimension = IMAGE_MAX_DIMENSION
+  for (let pass = 0; pass < 4; pass += 1) {
+    for (const quality of [0.86, 0.78, 0.7, 0.62]) {
+      const candidate = await drawScaledJpegDataUrl(originalDataUrl, maxDimension, quality)
+      if (candidate.length <= MAX_IMAGE_DATA_URL_LENGTH) return candidate
+    }
+    maxDimension = Math.max(480, Math.floor(maxDimension * 0.82))
+  }
+  return ""
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -84,15 +141,31 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
     }
   }, [])
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if ((!value.trim() && attachedFiles.length === 0) || isStreaming || disabled) return
     playClickSound()
+    const imageFiles = attachedFiles.filter((file) => file.type.startsWith("image/"))
+    const nonImageFiles = attachedFiles.filter((file) => !file.type.startsWith("image/"))
+    let imageData = ""
+    if (imageFiles.length > 0) {
+      try {
+        imageData = await prepareImageDataForHud(imageFiles[0])
+      } catch {
+        imageData = ""
+      }
+    }
+    const listedFiles = imageData ? nonImageFiles : [...nonImageFiles, ...imageFiles]
     const filesSuffix =
-      attachedFiles.length > 0
-        ? `\n\nAttached files:\n${attachedFiles.map((f) => `- ${f.name}`).join("\n")}`
+      listedFiles.length > 0
+        ? `\n\nAttached files:\n${listedFiles.map((f) => `- ${f.name}`).join("\n")}`
         : ""
-    const finalText = value.trim().length > 0 ? `${value.trim()}${filesSuffix}` : `Please analyze these files:${filesSuffix}`
-    onSend(finalText)
+    const normalizedText = value.trim()
+    const finalText = normalizedText.length > 0
+      ? `${normalizedText}${filesSuffix}`
+      : imageData
+        ? "Please analyze this image."
+        : `Please analyze these files:${filesSuffix}`
+    await onSend(finalText, imageData ? { imageData } : undefined)
     setValue("")
     setAttachedFiles([])
     if (textareaRef.current) {
@@ -119,7 +192,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
-        handleSend()
+        void handleSend()
       }
     },
     [handleSend],
@@ -216,7 +289,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
 
           <div className="absolute right-3 bottom-3 flex items-center gap-2 z-20">
             <button
-              onClick={handleSend}
+              onClick={() => { void handleSend() }}
               disabled={(!value.trim() && attachedFiles.length === 0) || disabled || isStreaming}
               className={cn(
                 "p-1.5 transition-colors disabled:opacity-20",

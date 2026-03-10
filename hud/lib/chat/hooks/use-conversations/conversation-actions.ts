@@ -188,14 +188,16 @@ export function useConversationActions(params: {
       options?: {
         sessionConversationId?: string
         sessionKey?: string
+        imageData?: string
       },
     ): Conversation | null => {
-      if (!content.trim() || !activeConvo) return null
+      if ((!content.trim() && !options?.imageData) || !activeConvo) return null
 
       const userMsg: ChatMessage = {
         id: generateId(),
         role: "user",
         content: content.trim(),
+        ...(options?.imageData ? { imageData: options.imageData } : {}),
         createdAt: new Date().toISOString(),
         source: "agent",
         ...(options?.sessionConversationId ? { sessionConversationId: options.sessionConversationId } : {}),
@@ -348,22 +350,24 @@ export function useConversationActions(params: {
     async (
       content: string,
       sendToAgent: (content: string, voiceEnabled: boolean, ttsVoice: string, meta: Record<string, unknown>) => void,
+      options?: { imageData?: string },
     ) => {
-      if (!content.trim() || !agentConnected || !activeConvo) return
+      if ((!content.trim() && !options?.imageData) || !agentConnected || !activeConvo) return
 
       const { loadUserSettings } = await import("@/lib/settings/userSettings")
       const settings = loadUserSettings()
+      const outboundContent = content.trim() || (options?.imageData ? "Please analyze this image." : "")
       const activeUserId = getActiveUserId()
       const sessionConversationId = resolveSessionConversationIdForAgent(activeConvo.id)
       const sessionKey = sessionConversationId
         && activeUserId
         ? `agent:nova:hud:user:${activeUserId}:dm:${sessionConversationId}`
         : ""
-      const missionPrompt = isLikelyMissionPrompt(content)
+      const missionPrompt = isLikelyMissionPrompt(outboundContent)
       if (missionPrompt) {
         const nowMs = Date.now()
         const scopeKey = buildMissionScopeKey(activeUserId, sessionConversationId || activeConvo.id)
-        const signature = normalizeMissionPromptSignature(content)
+        const signature = normalizeMissionPromptSignature(outboundContent)
         for (const [key, value] of missionInFlightByScopeRef.current.entries()) {
           if (!value) continue
           if (nowMs - Number(value.startedAt || 0) > MISSION_INFLIGHT_MAX_MS) {
@@ -396,14 +400,15 @@ export function useConversationActions(params: {
           cooldownUntil: nowMs + MISSION_SPAM_COOLDOWN_MS,
         })
       }
-      const updatedConvo = addUserMessage(content, {
+      const updatedConvo = addUserMessage(outboundContent, {
         ...(sessionConversationId ? { sessionConversationId } : {}),
         ...(sessionKey ? { sessionKey } : {}),
+        ...(options?.imageData ? { imageData: options.imageData } : {}),
       })
       const lastMessage = updatedConvo?.messages?.[updatedConvo.messages.length - 1]
       const localMessageId = lastMessage?.role === "user" ? String(lastMessage.id || "") : ""
       if (!activeUserId) return
-      sendToAgent(content.trim(), settings.app.voiceEnabled, settings.app.ttsVoice, {
+      sendToAgent(outboundContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
         conversationId: resolveConversationIdForAgent(activeConvo.id),
         sender: "hud-user",
         ...(sessionKey ? { sessionKey } : {}),
@@ -417,6 +422,7 @@ export function useConversationActions(params: {
         risk_tolerance: settings.personalization.risk_tolerance,
         structure_preference: settings.personalization.structure_preference,
         challenge_level: settings.personalization.challenge_level,
+        ...(options?.imageData ? { imageData: options.imageData } : {}),
       })
     },
     [activeConvo, agentConnected, addUserMessage, latestConversationsRef, missionInFlightByScopeRef, persist, resolveConversationIdForAgent, resolveSessionConversationIdForAgent],

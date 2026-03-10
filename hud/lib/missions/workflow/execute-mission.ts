@@ -311,6 +311,32 @@ function checkScheduleGate(mission: Mission, now: Date): { due: boolean; reason:
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const MISSION_MAX_DURATION_MS = Number(process.env.NOVA_MISSION_MAX_DURATION_MS) || 5 * 60 * 1000 // default 5 minutes
+const MISSION_PARALLEL_NODE_BATCH_SIZE = Math.max(
+  1,
+  Math.min(8, Number.parseInt(process.env.NOVA_MISSION_PARALLEL_NODE_BATCH_SIZE || "3", 10) || 3),
+)
+const MISSION_PARALLEL_SAFE_NODE_TYPES = new Set<MissionNode["type"]>([
+  "web-search",
+  "http-request",
+  "rss-feed",
+  "coinbase",
+  "ai-summarize",
+  "ai-classify",
+  "ai-extract",
+  "ai-generate",
+  "ai-chat",
+  "code",
+  "format",
+  "filter",
+  "sort",
+  "dedupe",
+  "telegram-output",
+  "discord-output",
+  "email-output",
+  "webhook-output",
+  "slack-output",
+  "sticky-note",
+])
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -634,34 +660,45 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   // â”€â”€ Execute each node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let skipReason = ""
   let hadNodeFailure = false
+  const outputTypes = new Set(["telegram-output", "discord-output", "email-output", "webhook-output", "slack-output"])
+  const orderedNodeById = new Map(orderedNodes.map((node) => [node.id, node]))
+  const orderedNodeIndexById = new Map(orderedNodes.map((node, idx) => [node.id, idx]))
+  const orderedNodeIdSet = new Set(orderedNodes.map((node) => node.id))
+  const orderedConnections = mission.connections.filter(
+    (connection) => orderedNodeIdSet.has(connection.sourceNodeId) && orderedNodeIdSet.has(connection.targetNodeId),
+  )
+  const pendingInDegree = buildInDegreeMap(orderedNodes, orderedConnections)
+  let readyNodeIds = orderedNodes
+    .filter((node) => (pendingInDegree.get(node.id) ?? 0) === 0)
+    .map((node) => node.id)
+  const canRunNodeInParallel = (node: MissionNode): boolean =>
+    MISSION_PARALLEL_NODE_BATCH_SIZE > 1 && MISSION_PARALLEL_SAFE_NODE_TYPES.has(node.type)
 
-  for (const node of orderedNodes) {
+  type NodeExecutionRecord =
+    | { node: MissionNode; kind: "disabled" }
+    | { node: MissionNode; kind: "pre_marked_skip"; detail: string }
+    | { node: MissionNode; kind: "missing_executor"; startedAt: string; endedAt: string }
+    | {
+        node: MissionNode
+        kind: "executed"
+        startedAt: string
+        endedAt: string
+        retryCount: number
+        output: NodeOutput & { port?: string }
+      }
+
+  const executeNodeRecord = async (node: MissionNode): Promise<NodeExecutionRecord> => {
     if (node.disabled) {
-      nodeTraces.push({
-        nodeId: node.id,
-        nodeType: node.type,
-        label: node.label,
-        status: "skipped",
-        detail: "Node is disabled.",
-        startedAt: new Date().toISOString(),
-        endedAt: new Date().toISOString(),
-      })
-      continue
+      return { node, kind: "disabled" }
     }
 
-    // Skip nodes pre-marked by condition/switch routing (wrong branch)
     const preMarked = nodeOutputs.get(node.id)
     if (preMarked?.data && typeof preMarked.data === "object" && (preMarked.data as Record<string, unknown>).skipped === true) {
-      nodeTraces.push({
-        nodeId: node.id,
-        nodeType: node.type,
-        label: node.label,
-        status: "skipped",
+      return {
+        node,
+        kind: "pre_marked_skip",
         detail: String((preMarked.data as Record<string, unknown>).reason || "Branch not taken."),
-        startedAt: new Date().toISOString(),
-        endedAt: new Date().toISOString(),
-      })
-      continue
+      }
     }
 
     const startedAt = new Date().toISOString()
@@ -676,20 +713,12 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
 
     const executor = EXECUTOR_REGISTRY[node.type]
     if (!executor) {
-      hadNodeFailure = true
-      const trace: NodeExecutionTrace = {
-        nodeId: node.id,
-        nodeType: node.type,
-        label: node.label,
-        status: "failed",
-        detail: `No executor registered for node type: ${node.type}`,
-        errorCode: "NO_EXECUTOR",
+      return {
+        node,
+        kind: "missing_executor",
         startedAt,
         endedAt: new Date().toISOString(),
       }
-      nodeTraces.push(trace)
-      if (ctx.onNodeTrace) await ctx.onNodeTrace(trace)
-      continue
     }
 
     const runtimePolicy = isAgentNodeWithRuntimePolicy(node)
@@ -714,9 +743,66 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       }
     }
 
+    return {
+      node,
+      kind: "executed",
+      startedAt,
+      endedAt: new Date().toISOString(),
+      retryCount,
+      output,
+    }
+  }
+
+  const finalizeNodeRecord = async (record: NodeExecutionRecord): Promise<ExecuteMissionResult | null> => {
+    if (record.kind === "disabled") {
+      const nowIso = new Date().toISOString()
+      nodeTraces.push({
+        nodeId: record.node.id,
+        nodeType: record.node.type,
+        label: record.node.label,
+        status: "skipped",
+        detail: "Node is disabled.",
+        startedAt: nowIso,
+        endedAt: nowIso,
+      })
+      return null
+    }
+
+    if (record.kind === "pre_marked_skip") {
+      const nowIso = new Date().toISOString()
+      nodeTraces.push({
+        nodeId: record.node.id,
+        nodeType: record.node.type,
+        label: record.node.label,
+        status: "skipped",
+        detail: record.detail,
+        startedAt: nowIso,
+        endedAt: nowIso,
+      })
+      return null
+    }
+
+    if (record.kind === "missing_executor") {
+      hadNodeFailure = true
+      const trace: NodeExecutionTrace = {
+        nodeId: record.node.id,
+        nodeType: record.node.type,
+        label: record.node.label,
+        status: "failed",
+        detail: `No executor registered for node type: ${record.node.type}`,
+        errorCode: "NO_EXECUTOR",
+        startedAt: record.startedAt,
+        endedAt: record.endedAt,
+      }
+      nodeTraces.push(trace)
+      if (ctx.onNodeTrace) await ctx.onNodeTrace(trace)
+      return null
+    }
+
+    const node = record.node
+    const output = record.output
     nodeOutputs.set(node.id, output)
 
-    // â”€â”€ Handle trigger skip (not yet due) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (triggerTypes.has(node.type) && output.ok) {
       const triggered = output.data && typeof output.data === "object" && (output.data as Record<string, unknown>).triggered === false
       const skipped = output.data && typeof output.data === "object" && (output.data as Record<string, unknown>).skipped === true
@@ -728,8 +814,8 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
           label: node.label,
           status: "skipped",
           detail: skipReason,
-          startedAt,
-          endedAt: new Date().toISOString(),
+          startedAt: record.startedAt,
+          endedAt: record.endedAt,
         }
         nodeTraces.push(trace)
         if (ctx.onNodeTrace) await ctx.onNodeTrace(trace)
@@ -747,8 +833,6 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       }
     }
 
-    const endedAt = new Date().toISOString()
-
     if (!output.ok) {
       hadNodeFailure = true
       const trace: NodeExecutionTrace = {
@@ -756,26 +840,21 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         nodeType: node.type,
         label: node.label,
         status: "failed",
-        detail: retryCount > 0
-          ? `${output.error || "Node execution failed."} (after ${retryCount + 1} attempts)`
+        detail: record.retryCount > 0
+          ? `${output.error || "Node execution failed."} (after ${record.retryCount + 1} attempts)`
           : output.error || "Node execution failed.",
         errorCode: output.errorCode,
         artifactRef: output.artifactRef,
-        retryCount,
-        startedAt,
-        endedAt,
+        retryCount: record.retryCount,
+        startedAt: record.startedAt,
+        endedAt: record.endedAt,
       }
       nodeTraces.push(trace)
       if (ctx.onNodeTrace) await ctx.onNodeTrace(trace)
 
-      // Route to error port if connected; skip main-port targets so they don't
-      // run with an empty/failed upstream. Error-port targets are already in
-      // topological order and will execute normally â€” their input is the failed
-      // node's output (ok: false) which is already stored in nodeOutputs.
       const allOutgoing = adjacency.get(node.id) || []
       const errorConnections = allOutgoing.filter((c) => c.sourcePort === "error")
       const mainConnections = allOutgoing.filter((c) => c.sourcePort !== "error")
-      // Pre-mark main-port targets as skipped so their executors see empty input
       for (const conn of mainConnections) {
         if (!nodeOutputs.has(conn.targetNodeId)) {
           nodeOutputs.set(conn.targetNodeId, {
@@ -790,23 +869,18 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       } else {
         log("node.failed.routed_to_error_port", { nodeId: node.id, errorTargets: errorConnections.map((c) => c.targetNodeId) })
       }
-      continue
+      return null
     }
 
-    // â”€â”€ Condition routing: skip nodes on wrong branch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const resolvedPort = output.port || "main"
     const outgoing = adjacency.get(node.id) || []
     if (outgoing.length > 0 && (node.type === "condition" || node.type === "switch")) {
-      // Mark nodes on wrong ports as skipped by removing their in-degree eligibility
       const wrongPortConnections = outgoing.filter((c) => c.sourcePort !== resolvedPort)
       for (const conn of wrongPortConnections) {
-        // Add a skip marker for these nodes
         nodeOutputs.set(conn.targetNodeId, { ok: true, text: "", data: { skipped: true, reason: `Branch not taken: ${resolvedPort}` } })
       }
     }
 
-    // â”€â”€ Collect output node results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const outputTypes = new Set(["telegram-output", "discord-output", "email-output", "webhook-output", "slack-output"])
     if (outputTypes.has(node.type)) {
       outputs.push({ ok: output.ok, error: output.error, status: undefined })
     }
@@ -818,14 +892,67 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       status: "completed",
       detail: output.text ? output.text.slice(0, 200) : undefined,
       artifactRef: output.artifactRef,
-      retryCount,
-      startedAt,
-      endedAt,
+      retryCount: record.retryCount,
+      startedAt: record.startedAt,
+      endedAt: record.endedAt,
     }
     nodeTraces.push(trace)
     if (ctx.onNodeTrace) await ctx.onNodeTrace(trace)
 
     log("node.completed", { nodeId: node.id, type: node.type })
+    return null
+  }
+
+  while (readyNodeIds.length > 0) {
+    const frontierNodes = readyNodeIds
+      .map((nodeId) => orderedNodeById.get(nodeId))
+      .filter((node): node is MissionNode => Boolean(node))
+      .sort((a, b) => (orderedNodeIndexById.get(a.id) ?? 0) - (orderedNodeIndexById.get(b.id) ?? 0))
+    readyNodeIds = []
+    const completedNodeIds: string[] = []
+    let frontierCursor = 0
+
+    while (frontierCursor < frontierNodes.length) {
+      const currentNode = frontierNodes[frontierCursor]
+      if (!canRunNodeInParallel(currentNode)) {
+        const record = await executeNodeRecord(currentNode)
+        const earlyExit = await finalizeNodeRecord(record)
+        completedNodeIds.push(currentNode.id)
+        if (earlyExit) return earlyExit
+        frontierCursor += 1
+        continue
+      }
+
+      const parallelGroup: MissionNode[] = []
+      while (frontierCursor < frontierNodes.length && canRunNodeInParallel(frontierNodes[frontierCursor])) {
+        parallelGroup.push(frontierNodes[frontierCursor])
+        frontierCursor += 1
+      }
+
+      for (let batchStart = 0; batchStart < parallelGroup.length; batchStart += MISSION_PARALLEL_NODE_BATCH_SIZE) {
+        const batchNodes = parallelGroup.slice(batchStart, batchStart + MISSION_PARALLEL_NODE_BATCH_SIZE)
+        const batchRecords = await Promise.all(batchNodes.map((node) => executeNodeRecord(node)))
+        for (const batchRecord of batchRecords) {
+          const earlyExit = await finalizeNodeRecord(batchRecord)
+          completedNodeIds.push(batchRecord.node.id)
+          if (earlyExit) return earlyExit
+        }
+      }
+    }
+
+    const nextReadyNodeIds = new Set<string>()
+    for (const completedNodeId of completedNodeIds) {
+      const outgoingConnections = adjacency.get(completedNodeId) || []
+      for (const connection of outgoingConnections) {
+        if (!orderedNodeIdSet.has(connection.targetNodeId)) continue
+        const nextDegree = (pendingInDegree.get(connection.targetNodeId) ?? 0) - 1
+        pendingInDegree.set(connection.targetNodeId, nextDegree)
+        if (nextDegree === 0) {
+          nextReadyNodeIds.add(connection.targetNodeId)
+        }
+      }
+    }
+    readyNodeIds = [...nextReadyNodeIds].sort((a, b) => (orderedNodeIndexById.get(a) ?? 0) - (orderedNodeIndexById.get(b) ?? 0))
   }
 
   // â”€â”€ Final mission status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

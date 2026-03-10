@@ -92,6 +92,11 @@ function popupCloseResponse(params: { status: "success" | "error"; message: stri
 }
 
 const BACKFILL_TIMEOUT_MS = 15_000
+const BACKFILL_MAX_PARALLEL_MISSIONS = Math.max(
+  1,
+  Math.min(8, Number.parseInt(process.env.NOVA_GCAL_BACKFILL_MAX_PARALLEL_MISSIONS || "3", 10) || 3),
+)
+type CalendarMirrorMission = Parameters<typeof syncMissionScheduleToGoogleCalendar>[0]["mission"]
 
 async function backfillGoogleCalendarMirrorsForUser(userContextId: string): Promise<void> {
   const scope: IntegrationsStoreScope = {
@@ -99,14 +104,16 @@ async function backfillGoogleCalendarMirrorsForUser(userContextId: string): Prom
     allowServiceRole: true,
     serviceRoleReason: "gmail-calendar-oauth-callback",
   }
-  const missions = await loadMissions({ userId: userContextId })
+  const missions = (await loadMissions({ userId: userContextId })) as CalendarMirrorMission[]
 
   let missionFailures = 0
-  for (const mission of missions) {
-    try {
-      await syncMissionScheduleToGoogleCalendar({ mission, scope })
-    } catch {
-      missionFailures += 1
+  for (let idx = 0; idx < missions.length; idx += BACKFILL_MAX_PARALLEL_MISSIONS) {
+    const batch = missions.slice(idx, idx + BACKFILL_MAX_PARALLEL_MISSIONS)
+    const batchResults = await Promise.allSettled(
+      batch.map((mission) => syncMissionScheduleToGoogleCalendar({ mission, scope })),
+    )
+    for (const result of batchResults) {
+      if (result.status === "rejected") missionFailures += 1
     }
   }
 

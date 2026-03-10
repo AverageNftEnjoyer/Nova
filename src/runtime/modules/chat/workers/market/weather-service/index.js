@@ -18,6 +18,14 @@ function isHypotheticalWeatherPrompt(text) {
 const WEATHER_CACHE_TTL_MS = 120_000;
 const WEATHER_FETCH_TIMEOUT_MS = 6_000;
 const WEATHER_FORECAST_DAYS = 8;
+const WEATHER_GEOCODE_MAX_PARALLEL_PRIMARY = Math.max(
+  1,
+  Math.min(6, Number.parseInt(process.env.NOVA_WEATHER_GEOCODE_MAX_PARALLEL_PRIMARY || "3", 10) || 3),
+);
+const WEATHER_GEOCODE_MAX_PARALLEL_FUZZY = Math.max(
+  1,
+  Math.min(4, Number.parseInt(process.env.NOVA_WEATHER_GEOCODE_MAX_PARALLEL_FUZZY || "2", 10) || 2),
+);
 const weatherReplyCache = new Map();
 const WEATHER_DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const WEATHER_CONFIRM_TTL_MS = 600_000;
@@ -641,6 +649,25 @@ function dedupeGeocodeResults(results) {
   return dedupedResults;
 }
 
+async function mapWithConcurrency(items, concurrency, mapper) {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const safeConcurrency = Math.max(1, Math.min(items.length, Number(concurrency) || 1));
+  const results = new Array(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) return;
+      results[idx] = await mapper(items[idx], idx);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+  return results;
+}
+
 async function fetchGeocodeResultsByQuery(query, count = 8) {
   const normalized = String(query || "").trim();
   if (!normalized) return [];
@@ -670,20 +697,25 @@ function buildFuzzyLocationQueries(location) {
 
 async function fetchOpenMeteoForecast(location) {
   const locationCandidates = buildLocationQueryVariants(location);
-  let geocodeResults = [];
-  for (const candidate of locationCandidates) {
-    const results = await fetchGeocodeResultsByQuery(candidate, 8);
-    geocodeResults.push(...results);
-  }
+  const primaryGeocodeResults = await mapWithConcurrency(
+    locationCandidates,
+    WEATHER_GEOCODE_MAX_PARALLEL_PRIMARY,
+    async (candidate) => fetchGeocodeResultsByQuery(candidate, 8),
+  );
+  let geocodeResults = primaryGeocodeResults.flatMap((set) => (Array.isArray(set) ? set : []));
 
   let dedupedResults = dedupeGeocodeResults(geocodeResults);
   if (dedupedResults.length === 0) {
     const fuzzyQueries = buildFuzzyLocationQueries(location);
-    for (const query of fuzzyQueries) {
-      const results = await fetchGeocodeResultsByQuery(query, 25);
-      geocodeResults.push(...results);
-      dedupedResults = dedupeGeocodeResults(geocodeResults);
-    }
+    const fuzzyGeocodeResults = await mapWithConcurrency(
+      fuzzyQueries,
+      WEATHER_GEOCODE_MAX_PARALLEL_FUZZY,
+      async (query) => fetchGeocodeResultsByQuery(query, 25),
+    );
+    geocodeResults = geocodeResults.concat(
+      fuzzyGeocodeResults.flatMap((set) => (Array.isArray(set) ? set : [])),
+    );
+    dedupedResults = dedupeGeocodeResults(geocodeResults);
   }
 
   const rankedResults = rankGeocodeResultsForRequest(location, dedupedResults) || [];

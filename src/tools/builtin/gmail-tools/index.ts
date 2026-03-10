@@ -5,6 +5,10 @@ import type { Tool } from "../../core/types/index.js";
 const GMAIL_SCOPE_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
 const GMAIL_SCOPE_SEND = "https://www.googleapis.com/auth/gmail.send";
 const GMAIL_SCOPE_COMPOSE = "https://www.googleapis.com/auth/gmail.compose";
+const GMAIL_METADATA_FETCH_MAX_PARALLEL = Math.max(
+  1,
+  Math.min(8, Number.parseInt(process.env.NOVA_GMAIL_METADATA_FETCH_MAX_PARALLEL || "3", 10) || 3),
+);
 
 const GMAIL_TOOL_NAMES = new Set([
   "gmail_capabilities",
@@ -110,6 +114,29 @@ function toInt(value: unknown, fallback: number, min: number, max: number): numb
   const parsed = Number.parseInt(String(value ?? fallback), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, idx: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const safeConcurrency = Math.max(1, Math.min(items.length, Number(concurrency || 1)));
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) return;
+      results[idx] = await mapper(items[idx], idx);
+    }
+  };
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+  return results;
 }
 
 function missingScopes(granted: string[], required: string[]): string[] {
@@ -333,8 +360,7 @@ async function getMetadataMessages(token: string, query: string, maxResults: num
     messages?: Array<{ id?: string }>;
   };
   const ids = Array.isArray(list.messages) ? list.messages.map((m) => toString(m?.id)).filter(Boolean) : [];
-  const out: GmailMetaRow[] = [];
-  for (const id of ids) {
+  return await mapWithConcurrency(ids, GMAIL_METADATA_FETCH_MAX_PARALLEL, async (id) => {
     const msg = await gmailRequest(token, `/users/me/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=Message-ID&metadataHeaders=Reply-To`) as {
       id?: string;
       threadId?: string;
@@ -344,7 +370,7 @@ async function getMetadataMessages(token: string, query: string, maxResults: num
       payload?: { headers?: Array<{ name?: string; value?: string }> };
     };
     const headers = msg.payload?.headers || [];
-    out.push({
+    return {
       id: toString(msg.id),
       threadId: toString(msg.threadId),
       labels: Array.isArray(msg.labelIds) ? msg.labelIds : [],
@@ -356,9 +382,8 @@ async function getMetadataMessages(token: string, query: string, maxResults: num
       replyTo: headerValue(headers, "Reply-To"),
       snippet: toString(msg.snippet),
       internalDate: toString(msg.internalDate),
-    });
-  }
-  return out;
+    };
+  });
 }
 
 async function getMessageByIdMetadata(token: string, messageId: string): Promise<GmailMetaRow> {

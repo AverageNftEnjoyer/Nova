@@ -411,7 +411,7 @@ export function HomeMainScreen() {
     <div
       key={conversation.id}
       className={cn(
-        "group flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 transition-colors home-spotlight-card home-border-glow",
+        "group flex items-center gap-0.5 rounded-md border px-2.5 py-0.5 transition-colors home-spotlight-card home-border-glow",
         subPanelClass,
       )}
     >
@@ -435,7 +435,7 @@ export function HomeMainScreen() {
             onBlur={saveHistoryRename}
             onClick={(event) => event.stopPropagation()}
             className={cn(
-              "w-full rounded-md border px-1.5 py-0.5 text-[10px] font-semibold leading-4 outline-none",
+              "w-full rounded-md border px-2 py-0.5 text-[10px] font-semibold leading-4 outline-none",
               isLight ? "border-[#cfd9e9] bg-white text-s-90" : "border-white/10 bg-black/20 text-slate-100",
             )}
           />
@@ -551,7 +551,7 @@ export function HomeMainScreen() {
                   type="button"
                   onClick={() => { void handleNewChat() }}
                   className={cn(
-                    "mt-2 w-full rounded-md border px-1.5 py-0.5 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    "mt-2 w-full rounded-md border px-2.5 py-0.5 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
                     "inline-flex items-center justify-center gap-1 text-[10px] font-semibold leading-4",
                     subPanelClass,
                   )}

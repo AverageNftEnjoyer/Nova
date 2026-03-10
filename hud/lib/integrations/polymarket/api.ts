@@ -83,6 +83,11 @@ export interface PolymarketOrderBook {
   lastTradePrice: number
 }
 
+export interface PolymarketPricePoint {
+  t: number
+  p: number
+}
+
 function toFiniteNumber(value: unknown): number {
   const parsed = Number.parseFloat(String(value ?? ""))
   return Number.isFinite(parsed) ? parsed : 0

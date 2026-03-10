@@ -6,6 +6,7 @@ import {
   TOOL_LOOP_TOOL_EXEC_TIMEOUT_MS,
   TOOL_LOOP_RECOVERY_TIMEOUT_MS,
   TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP,
+  TOOL_LOOP_MAX_PARALLEL_TOOL_CALLS_PER_STEP,
 } from "../../../../../core/constants/index.js";
 import { consumeHudOpTokenForSensitiveAction, broadcastThinkingStatus, broadcastAssistantStreamDelta } from "../../../../infrastructure/hud-gateway/index.js";
 import { describeUnknownError, extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
@@ -14,6 +15,24 @@ import { buildWebSearchReadableReply } from "../../../routing/intent-router/inde
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
 import { resolveGmailToolFallbackReply, buildConstraintSafeFallback } from "../prompt-fallbacks/index.js";
+
+const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
+
+function chunkToolCalls(toolCalls, chunkSize) {
+  const chunks = [];
+  for (let idx = 0; idx < toolCalls.length; idx += chunkSize) {
+    chunks.push(toolCalls.slice(idx, idx + chunkSize));
+  }
+  return chunks;
+}
+
+function resolveToolThinkingStatus(normalizedToolName) {
+  if (normalizedToolName === "web_search") return "Searching web";
+  if (normalizedToolName === "web_fetch") return "Reviewing sources";
+  if (normalizedToolName.startsWith("coinbase_")) return "Querying Coinbase";
+  if (normalizedToolName.startsWith("gmail_")) return "Checking Gmail";
+  return "Running tools";
+}
 
 export async function runToolLoop({
   activeOpenAiCompatibleClient,
@@ -158,22 +177,37 @@ export async function runToolLoop({
 
     loopMessages.push({ role: "assistant", content: assistantText || "", tool_calls: cappedToolCalls });
 
-    for (const toolCall of cappedToolCalls) {
+    const requiresSequentialToolExecution = cappedToolCalls.some((toolCall) => {
+      const normalizedToolName = String(toolCall?.function?.name || "").trim().toLowerCase();
+      return GMAIL_CONFIRM_REQUIRED_ACTIONS.has(normalizedToolName);
+    });
+    const maxParallelToolCallsPerStep = Math.max(
+      1,
+      Math.min(
+        Number(TOOL_LOOP_MAX_PARALLEL_TOOL_CALLS_PER_STEP || 1),
+        cappedToolCalls.length,
+      ),
+    );
+    const toolCallBatches = requiresSequentialToolExecution || maxParallelToolCallsPerStep === 1
+      ? cappedToolCalls.map((toolCall) => [toolCall])
+      : chunkToolCalls(cappedToolCalls, maxParallelToolCallsPerStep);
+
+    const executeToolCall = async (toolCall) => {
       if (toolLoopBudget.isExhausted()) {
-        toolLoopGuardrails.budgetExhausted = true;
-        latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
-        forcedToolFallbackReply =
-          "I ran out of time while executing tools. Please retry with a narrower request.";
-        break;
+        return {
+          toolCallId: toolCall?.id,
+          toolName: "",
+          normalizedToolName: "",
+          toolResultContent: "",
+          budgetExhausted: true,
+          stopRemainingToolCalls: true,
+        };
       }
       const toolName = String(toolCall?.function?.name || toolCall?.id || "").trim();
       const normalizedToolName = toolName.toLowerCase();
-      if (normalizedToolName === "web_search") broadcastThinkingStatus("Searching web", userContextId);
-      else if (normalizedToolName === "web_fetch") broadcastThinkingStatus("Reviewing sources", userContextId);
-      else if (normalizedToolName.startsWith("coinbase_")) broadcastThinkingStatus("Querying Coinbase", userContextId);
-      else if (normalizedToolName.startsWith("gmail_")) broadcastThinkingStatus("Checking Gmail", userContextId);
-      else broadcastThinkingStatus("Running tools", userContextId);
+      broadcastThinkingStatus(resolveToolThinkingStatus(normalizedToolName), userContextId);
       if (toolName) observedToolCalls.push(toolName);
+
       const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
       if (
         String(toolUse?.name || "").toLowerCase().startsWith("coinbase_")
@@ -185,10 +219,7 @@ export async function runToolLoop({
           conversationId,
         };
       }
-      if (
-        normalizedToolName === "gmail_forward_message"
-        || normalizedToolName === "gmail_reply_draft"
-      ) {
+      if (GMAIL_CONFIRM_REQUIRED_ACTIONS.has(normalizedToolName)) {
         toolUse.input = {
           ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
           requireExplicitUserConfirm: true,
@@ -202,7 +233,6 @@ export async function runToolLoop({
         if (!confirmState.ok) {
           const safeBlockedMessage =
             "I need an explicit confirmation action before sending Gmail content. Please confirm and retry.";
-          forcedToolFallbackReply = safeBlockedMessage;
           toolExecutions.push({
             name: normalizedToolName,
             status: "blocked",
@@ -210,10 +240,11 @@ export async function runToolLoop({
             error: `sensitive_action_blocked:${confirmState.reason}`,
             resultPreview: "",
           });
-          loopMessages.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({
+          return {
+            toolCallId: toolCall.id,
+            toolName,
+            normalizedToolName,
+            toolResultContent: JSON.stringify({
               ok: false,
               kind: normalizedToolName,
               errorCode: "CONFIRM_REQUIRED",
@@ -221,10 +252,12 @@ export async function runToolLoop({
               guidance: "Use the UI confirmation and retry.",
               retryable: true,
             }),
-          });
-          break;
+            forcedReply: safeBlockedMessage,
+            stopRemainingToolCalls: true,
+          };
         }
       }
+
       let toolResult;
       const toolStartedAt = Date.now();
       try {
@@ -267,45 +300,85 @@ export async function runToolLoop({
         });
         toolResult = { content: `Tool execution failed: ${errMsg}` };
       }
-      loopMessages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        content: (() => {
-          const content = String(toolResult?.content || "");
-          const normalizedName = String(toolName || "").toLowerCase();
-          if (content.trim()) {
-            toolOutputsForRecovery.push({ name: normalizedName, content });
-            if (normalizedName === "web_search" && /^web_search error:/i.test(content)) {
-              if (/missing brave api key/i.test(content)) {
-                forcedToolFallbackReply =
-                  "Live web search is unavailable because the Brave API key is missing. Add Brave in Integrations and retry.";
-              } else if (/rate limited/i.test(content)) {
-                forcedToolFallbackReply =
-                  "Live web search is currently rate-limited. Please retry in a moment.";
-              } else {
-                forcedToolFallbackReply =
-                  `Live web search failed: ${content.replace(/^web_search error:\s*/i, "").trim()}`;
-              }
-            }
-            if (normalizedName.startsWith("gmail_")) {
-              const gmailFallback = resolveGmailToolFallbackReply(content);
-              if (gmailFallback) {
-                forcedToolFallbackReply = gmailFallback;
-              }
+
+      return {
+        toolCallId: toolCall.id,
+        toolName,
+        normalizedToolName,
+        toolResultContent: String(toolResult?.content || ""),
+        stopRemainingToolCalls: false,
+      };
+    };
+
+    let haltRemainingToolCalls = false;
+    for (const toolBatch of toolCallBatches) {
+      if (toolLoopBudget.isExhausted()) {
+        toolLoopGuardrails.budgetExhausted = true;
+        latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
+        forcedToolFallbackReply =
+          "I ran out of time while executing tools. Please retry with a narrower request.";
+        break;
+      }
+      const batchResults = await Promise.all(toolBatch.map((toolCall) => executeToolCall(toolCall)));
+      for (const result of batchResults) {
+        if (result.budgetExhausted) {
+          toolLoopGuardrails.budgetExhausted = true;
+          latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
+          forcedToolFallbackReply =
+            "I ran out of time while executing tools. Please retry with a narrower request.";
+          haltRemainingToolCalls = true;
+          break;
+        }
+
+        const content = String(result.toolResultContent || "");
+        const normalizedName = String(result.normalizedToolName || "").toLowerCase();
+        if (content.trim()) {
+          toolOutputsForRecovery.push({ name: normalizedName, content });
+          if (normalizedName === "web_search" && /^web_search error:/i.test(content)) {
+            if (/missing brave api key/i.test(content)) {
+              forcedToolFallbackReply =
+                "Live web search is unavailable because the Brave API key is missing. Add Brave in Integrations and retry.";
+            } else if (/rate limited/i.test(content)) {
+              forcedToolFallbackReply =
+                "Live web search is currently rate-limited. Please retry in a moment.";
+            } else {
+              forcedToolFallbackReply =
+                `Live web search failed: ${content.replace(/^web_search error:\s*/i, "").trim()}`;
             }
           }
-          if (normalizedName !== "web_search" && normalizedName !== "web_fetch") {
-            return content;
+          if (normalizedName.startsWith("gmail_")) {
+            const gmailFallback = resolveGmailToolFallbackReply(content);
+            if (gmailFallback) {
+              forcedToolFallbackReply = gmailFallback;
+            }
           }
+        }
+
+        let toolMessageContent = content;
+        if (normalizedName === "web_search" || normalizedName === "web_fetch") {
           const suspiciousPatterns = detectSuspiciousPatterns(content);
           if (suspiciousPatterns.length > 0) {
             console.warn(
               `[Security] suspicious ${normalizedName} tool output patterns=${suspiciousPatterns.length} session=${sessionKey}`,
             );
           }
-          return wrapWebContent(content, normalizedName === "web_fetch" ? "web_fetch" : "web_search");
-        })(),
-      });
+          toolMessageContent = wrapWebContent(content, normalizedName === "web_fetch" ? "web_fetch" : "web_search");
+        }
+        loopMessages.push({
+          role: "tool",
+          tool_call_id: result.toolCallId,
+          content: toolMessageContent,
+        });
+
+        if (result.forcedReply) {
+          forcedToolFallbackReply = result.forcedReply;
+        }
+        if (result.stopRemainingToolCalls) {
+          haltRemainingToolCalls = true;
+          break;
+        }
+      }
+      if (haltRemainingToolCalls) break;
     }
 
     if (forcedToolFallbackReply) {

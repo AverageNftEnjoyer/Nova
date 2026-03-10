@@ -47,6 +47,19 @@ test("buildGmailCalendarOAuthUrl: includes calendar.events scope", () => {
   )
 })
 
+test("buildGmailCalendarOAuthUrl: includes calendar.readonly scope", () => {
+  const url = buildGmailCalendarOAuthUrl({
+    returnTo: "/integrations",
+    userId: "user-abc",
+    config: FAKE_CONFIG,
+    currentGmailScopes: [],
+  })
+  assert.ok(
+    url.includes("calendar.readonly"),
+    `Expected calendar.readonly in URL scopes. Got: ${url}`,
+  )
+})
+
 test("buildGmailCalendarOAuthUrl: includes openid + email base scopes", () => {
   const url = buildGmailCalendarOAuthUrl({
     returnTo: "/integrations",

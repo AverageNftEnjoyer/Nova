@@ -2,6 +2,7 @@ import { OPERATOR_LANE_SEQUENCE } from "../operator-lane-config/index.js";
 import { DOMAIN_WORKER_RULES } from "../../../routing/org-chart-routing/registry.js";
 import { handleSpotifyWorker } from "../../../workers/media/spotify-agent/index.js";
 import { handleYouTubeWorker } from "../../../workers/media/youtube-agent/index.js";
+import { handleImageWorker } from "../../../workers/media/image-agent/index.js";
 import { handleVoiceWorker } from "../../../workers/media/voice-agent/index.js";
 import { handleTtsWorker } from "../../../workers/media/tts-agent/index.js";
 import { handleCoinbaseWorker } from "../../../workers/finance/coinbase-agent/index.js";
@@ -65,6 +66,14 @@ const EXECUTOR_HINT_STRATEGIES = Object.freeze({
     worker: {
       reasoningMode: "evidence-synthesis",
       citationStyle: "source-linked",
+    },
+  },
+  image: {
+    fastLaneSimpleChat: false,
+    preferredProvider: "grok",
+    worker: {
+      reasoningMode: "image-generation-and-vision",
+      preferredProvider: "grok",
     },
   },
   market: {
@@ -215,6 +224,9 @@ function buildLaneRequestHints(requestHints, lane, executorKind = DEFAULT_EXECUT
     ...(strategy?.forceWebFetchPreload === true && OPERATOR_EXECUTION_CONTROLS.forceWebFetchPreloadAllowed
       ? { forceWebFetchPreload: true }
       : {}),
+    ...(typeof strategy?.preferredProvider === "string" && strategy.preferredProvider.trim()
+      ? { preferredProvider: strategy.preferredProvider.trim().toLowerCase() }
+      : {}),
     operatorLane: {
       id: lane.id,
       routeHint: lane.routeHint,
@@ -245,6 +257,11 @@ const EXECUTOR_KIND_HANDLERS = {
   youtube: ({ text, ctx, youtubeWorker }) => {
     const runYouTubeWorker = typeof youtubeWorker === "function" ? youtubeWorker : handleYouTubeWorker;
     return async () => runYouTubeWorker(text, ctx);
+  },
+  image: ({ text, ctx, llmCtx, requestHints, lane, executorKind, executeChatRequest, imageWorker }) => {
+    const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
+    const runImageWorker = typeof imageWorker === "function" ? imageWorker : handleImageWorker;
+    return async () => runImageWorker(text, ctx, llmCtx, laneRequestHints, executeChatRequest);
   },
   polymarket: ({ text, ctx, llmCtx, requestHints, lane, executorKind, polymarketWorker }) => {
     const laneRequestHints = buildLaneRequestHints(requestHints, lane, executorKind);
@@ -358,6 +375,7 @@ export function resolveOperatorWorkerExecutor(input = {}) {
     telegramWorker,
     marketWorker,
     weatherWorker,
+    imageWorker,
     discordWorker,
     voiceWorker,
     ttsWorker,
@@ -398,6 +416,7 @@ export function resolveOperatorWorkerExecutor(input = {}) {
     telegramWorker,
     marketWorker,
     weatherWorker,
+    imageWorker,
     discordWorker,
     voiceWorker,
     ttsWorker,
