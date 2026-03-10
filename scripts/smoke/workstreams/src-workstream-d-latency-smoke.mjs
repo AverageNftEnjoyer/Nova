@@ -37,7 +37,7 @@ const promptBudgetModule = await import(
   pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/prompt/prompt-budget/index.js")).href,
 );
 const providersRuntimeCompatModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/providers/runtime-compat/index.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/providers/runtime/index.js")).href,
 );
 
 const chatHandlerSource = read("src/runtime/modules/chat/core/chat-handler/index.js");

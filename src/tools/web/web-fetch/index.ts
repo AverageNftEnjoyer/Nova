@@ -1,7 +1,4 @@
-import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
 import { Worker } from "node:worker_threads";
-import TurndownService from "turndown";
 import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../net-guard/index.js";
 import type { Tool } from "../../core/types/index.js";
 
@@ -11,21 +8,12 @@ const FETCH_TIMEOUT_MS = 15_000;
 const FETCH_MAX_RESPONSE_BYTES = 2_000_000;
 const FETCH_MAX_ERROR_BYTES = 64_000;
 const FETCH_MAX_REDIRECTS = 3;
-const WEB_FETCH_PARSE_WORKER_ENABLED =
-  String(process.env.NOVA_WEB_FETCH_PARSE_WORKER_ENABLED || "1").trim() !== "0";
 const WEB_FETCH_PARSE_WORKER_TIMEOUT_MS = Math.max(
   1_500,
   Math.min(
     15_000,
     Number.parseInt(process.env.NOVA_WEB_FETCH_PARSE_WORKER_TIMEOUT_MS || "5000", 10)
       || 5_000,
-  ),
-);
-const WEB_FETCH_PARSE_WORKER_MIN_HTML_BYTES = Math.max(
-  48_000,
-  Math.min(
-    FETCH_MAX_RESPONSE_BYTES,
-    Number.parseInt(process.env.NOVA_WEB_FETCH_PARSE_WORKER_MIN_HTML_BYTES || "120000", 10) || 120_000,
   ),
 );
 
@@ -41,31 +29,6 @@ type WorkerParsedHtmlResponse =
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
-
-function parseHtmlToMarkdownSync(params: {
-  html: string;
-  finalUrl: string;
-  fallbackTitle: string;
-}): ParsedHtmlResult {
-  const dom = new JSDOM(params.html, { url: params.finalUrl });
-  try {
-    const document = dom.window.document;
-    for (const selector of ["script", "style", "iframe", "noscript", "img", "svg"]) {
-      document.querySelectorAll(selector).forEach((node) => node.remove());
-    }
-
-    const reader = new Readability(document);
-    const article = reader.parse();
-    const turndown = new TurndownService({ headingStyle: "atx" });
-    const title = article?.title?.trim() || document.title || params.fallbackTitle;
-    const markdown = article?.content
-      ? turndown.turndown(article.content)
-      : document.body?.textContent?.replace(/\s+/g, " ").trim() || "";
-    return { title, markdown };
-  } finally {
-    dom.window.close();
-  }
 }
 
 async function parseHtmlToMarkdownWithWorker(params: {
@@ -138,21 +101,7 @@ async function parseHtmlToMarkdown(params: {
   finalUrl: string;
   fallbackTitle: string;
 }): Promise<ParsedHtmlResult> {
-  if (
-    !WEB_FETCH_PARSE_WORKER_ENABLED
-    || params.html.length < WEB_FETCH_PARSE_WORKER_MIN_HTML_BYTES
-  ) {
-    return parseHtmlToMarkdownSync(params);
-  }
-
-  try {
-    return await parseHtmlToMarkdownWithWorker(params);
-  } catch (err) {
-    console.warn(
-      `[web_fetch] worker parse fallback to sync: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return parseHtmlToMarkdownSync(params);
-  }
+  return await parseHtmlToMarkdownWithWorker(params);
 }
 
 export function createWebFetchTool(): Tool {

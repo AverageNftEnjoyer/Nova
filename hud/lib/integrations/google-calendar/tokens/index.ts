@@ -39,7 +39,6 @@ function gcalCacheKey(scope: GmailCalTokenScope | undefined, accountId: string):
 
 const GCALENDAR_CALLBACK_PATH = "/api/integrations/gmail-calendar/callback"
 const DEFAULT_LOCAL_GCAL_CALLBACK_URL = "http://localhost:3000/api/integrations/gmail-calendar/callback"
-const LEGACY_LOCAL_GCAL_CALLBACK_URL = "http://localhost:3000/api/integrations/gcalendar/callback"
 
 function normalizeCalendarRedirectUri(rawValue: string, appUrl: string): string {
   const raw = String(rawValue || "").trim()
@@ -48,7 +47,7 @@ function normalizeCalendarRedirectUri(rawValue: string, appUrl: string): string 
 }
 
 function isDefaultLocalCalendarRedirect(value: string): boolean {
-  return value === DEFAULT_LOCAL_GCAL_CALLBACK_URL || value === LEGACY_LOCAL_GCAL_CALLBACK_URL
+  return value === DEFAULT_LOCAL_GCAL_CALLBACK_URL
 }
 
 export async function getGmailCalendarClientConfig(scope?: GmailCalTokenScope): Promise<GmailClientConfig> {

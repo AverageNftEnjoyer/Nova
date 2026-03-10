@@ -11,7 +11,7 @@ import {
   extractMemoryUpdateFact as extractLegacyMemoryUpdateFact,
   isMemoryUpdateRequest as isLegacyMemoryUpdateRequest,
   upsertMemoryFactInMarkdown as upsertLegacyMemoryFactInMarkdown,
-} from "../../../src/memory/runtime-compat/index.js";
+} from "../../../src/memory/runtime/index.js";
 
 const results = [];
 

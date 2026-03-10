@@ -10,7 +10,12 @@
  *
  * Version History:
  *
- * - V.55 Alpha (2026-03-10): Threading + latency optimization sweep (runtime + HUD)
+ * - V.56 Alpha (2026-03-10): Routing/runtime hardening follow-up
+ *     - Hardened chat execution so TTS output failures are recorded without clobbering successful primary replies.
+ *     - Preserved delegated-worker fallback diagnostics (`fallbackReason`, `fallbackStage`, candidate state) for non-fatal degraded responses.
+ *     - Closed runtime relocation parity gaps by normalizing session runtime smoke imports to `src/session/runtime/index.js`.
+ *
+ * - V.55 Alpha (2026-03-09): Threading + latency optimization sweep (runtime + HUD)
  *     - Added bounded parallel execution across mission web-search variant probing, queued-run status polling, scheduler enqueue waves, and multiple file-IO hot paths (skills snapshot/discovery, artifacts, transcript cleanup, grep traversal).
  *     - Moved heavy web-fetch readability parsing to worker-thread offload with timeout/fallback controls to reduce event-loop blocking on large documents.
  *     - Improved mission/workflow and integration latency paths (calendar schedule-mirror reconciliation, runtime integration snapshot mirroring, weather/gmail fan-out).
@@ -340,6 +345,4 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.55 Alpha"
-
-
+export const NOVA_VERSION = "V.56 Alpha"

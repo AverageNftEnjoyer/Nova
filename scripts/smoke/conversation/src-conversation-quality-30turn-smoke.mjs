@@ -97,7 +97,7 @@ if (!userContextId) {
 }
 
 const providerRuntimeModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src/providers/runtime-compat/index.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/providers/runtime/index.js")).href,
 );
 const { loadIntegrationsRuntime } = providerRuntimeModule;
 const providerRuntime = loadIntegrationsRuntime({ userContextId });

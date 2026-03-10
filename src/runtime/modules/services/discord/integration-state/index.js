@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sessionRuntime } from "../../../infrastructure/config/index.js";
 import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
-import { unwrapStoredSecret } from "../../../../../providers/runtime-compat/index.js";
+import { unwrapStoredSecret } from "../../../../../providers/runtime/index.js";
 
 function normalizeContextId(value = "") {
   if (sessionRuntime && typeof sessionRuntime.normalizeUserContextId === "function") {

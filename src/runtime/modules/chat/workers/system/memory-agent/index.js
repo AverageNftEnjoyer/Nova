@@ -8,7 +8,7 @@ import {
   buildMemoryFactMetadata,
   upsertMemoryFactInMarkdown,
   ensureMemoryTemplate,
-} from "../../../../../../memory/runtime-compat/index.js";
+} from "../../../../../../memory/runtime/index.js";
 import { describeUnknownError } from "../../../../llm/providers/index.js";
 import { sendDirectAssistantReply } from "../../shared/direct-assistant-reply/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";

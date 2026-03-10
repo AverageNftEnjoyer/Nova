@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { createSessionRuntime } from "../../../src/session/runtime-compat.js";
+import { createSessionRuntime } from "../../../src/session/runtime/index.js";
 
 const results = [];
 

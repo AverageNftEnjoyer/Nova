@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_SAMPLE_PERCENT = 0;
+const DEFAULT_SAMPLE_PERCENT = 100;
 const DEFAULT_MAX_INFLIGHT = 2;
 const DEFAULT_ALLOWED_INTENTS = new Set(["chat"]);
 let inflightCount = 0;
@@ -60,11 +60,22 @@ async function loadChatKitIntegrationModule() {
 }
 
 export function resolveChatKitServePolicy() {
+  const chatKitEnabled = toBool(
+    process.env.NOVA_CHATKIT_ENABLED,
+    String(process.env.OPENAI_API_KEY || "").trim().length > 0,
+  );
+  const enabled = toBool(process.env.NOVA_CHATKIT_SERVE_MODE, chatKitEnabled);
   return {
-    enabled: toBool(process.env.NOVA_CHATKIT_SERVE_MODE, false),
-    samplePercent: toInt(process.env.NOVA_CHATKIT_SERVE_SAMPLE_PERCENT, DEFAULT_SAMPLE_PERCENT, 0, 100),
+    enabled,
+    samplePercent: toInt(
+      process.env.NOVA_CHATKIT_SERVE_SAMPLE_PERCENT,
+      enabled ? DEFAULT_SAMPLE_PERCENT : 0,
+      0,
+      100,
+    ),
     allowedIntents: parseIntentSet(process.env.NOVA_CHATKIT_SERVE_INTENTS),
     maxInflight: toInt(process.env.NOVA_CHATKIT_SERVE_MAX_INFLIGHT, DEFAULT_MAX_INFLIGHT, 1, 32),
+    failClosed: toBool(process.env.NOVA_CHATKIT_SERVE_FAIL_CLOSED, true),
   };
 }
 
@@ -87,12 +98,12 @@ export function shouldServeChatKit(params = {}) {
 
 export async function runChatKitServeAttempt(params = {}) {
   const decision = shouldServeChatKit(params);
-  if (!decision.serve) return { used: false, reason: decision.reason };
+  if (!decision.serve) return { used: false, reason: decision.reason, failClosed: decision.policy.failClosed === true };
   inflightCount += 1;
   try {
     const module = await loadChatKitIntegrationModule();
     if (!module || typeof module.runChatKitWorkflow !== "function") {
-      return { used: false, reason: "chatkit_module_unavailable" };
+      return { used: false, reason: "chatkit_module_unavailable", failClosed: decision.policy.failClosed === true };
     }
     const prompt = String(params.prompt || "");
     const userContextId = String(params.userContextId || "");
@@ -124,7 +135,7 @@ export async function runChatKitServeAttempt(params = {}) {
           },
         });
       }
-      return { used: false, reason: "serve_not_usable", result };
+      return { used: false, reason: "serve_not_usable", result, failClosed: decision.policy.failClosed === true };
     }
     if (typeof module.appendChatKitEvent === "function") {
       module.appendChatKitEvent({
@@ -153,9 +164,13 @@ export async function runChatKitServeAttempt(params = {}) {
       usage: result.usage && typeof result.usage === "object" ? result.usage : null,
     };
   } catch (err) {
-    return { used: false, reason: String(err?.message || err || "serve_failed") };
+    return {
+      used: false,
+      reason: "serve_failed",
+      error: String(err?.message || err || "serve_failed"),
+      failClosed: decision.policy.failClosed === true,
+    };
   } finally {
     inflightCount = Math.max(0, inflightCount - 1);
   }
 }
-

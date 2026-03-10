@@ -2,8 +2,8 @@
 // WebSocket server on port 8765, all broadcast helpers, and incoming message routing.
 // Uses handleInput injection to break the circular dep with chat-handler.
 
-import { getSystemMetrics } from "../../../compat/metrics/index.js";
-import { describeUnknownError, toErrorDetails } from "../../../providers/runtime-compat/index.js";
+import { getSystemMetrics } from "../../modules/infrastructure/metrics/index.js";
+import { describeUnknownError, toErrorDetails } from "../../llm/providers/index.js";
 import { sessionRuntime, wakeWordRuntime } from "../../core/config/index.js";
 import { WebSocketServer } from "ws";
 import { createRequestScheduler } from "../request-scheduler/index.js";
@@ -23,7 +23,7 @@ import {
   setSuppressVoiceWakeUntilMs,
   speak,
   stopSpeaking,
-} from "../../../compat/voice/index.js";
+} from "../../modules/audio/voice/index.js";
 
 let _handleInput = null;
 export function registerHandleInput(fn) { _handleInput = fn; }

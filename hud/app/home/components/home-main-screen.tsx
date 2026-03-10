@@ -249,6 +249,9 @@ export function HomeMainScreen() {
     { label: "Total Tokens", value: fmt(devToolsMetrics.totalTokens), color: "" },
     { label: "Avg Quality", value: devToolsMetrics.avgQuality.toFixed(1), color: "" },
   ] as const
+  const staticDataTileClass = isLight
+    ? "rounded-sm border border-[#d5dce8] bg-[#f4f7fd]"
+    : "home-subpanel-surface rounded-sm border backdrop-blur-none"
   const sparklinePoints = (values: readonly number[], width = 56, height = 12): string => {
     const points = Array.isArray(values) ? values.filter((v) => Number.isFinite(v)) : []
     if (points.length === 0) return `0,${height / 2} ${width},${height / 2}`
@@ -803,8 +806,8 @@ export function HomeMainScreen() {
                     <div
                       key={c.name}
                       className={cn(
-                        "flex items-center justify-between px-2 py-1.5 rounded-sm home-spotlight-card home-border-glow",
-                        subPanelClass,
+                        "flex items-center justify-between px-2 py-1.5 rounded-sm home-spotlight-card",
+                        staticDataTileClass,
                       )}
                     >
                       <span className={cn("text-[12px]", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
@@ -847,8 +850,8 @@ export function HomeMainScreen() {
                     <div
                       key={label}
                       className={cn(
-                        "px-2 py-1.5 rounded-sm border text-center home-spotlight-card home-border-glow",
-                        subPanelClass,
+                        "px-2 py-1.5 rounded-sm text-center home-spotlight-card",
+                        staticDataTileClass,
                       )}
                     >
                       <p className="text-[9px] uppercase tracking-widest opacity-60 whitespace-nowrap">{label}</p>

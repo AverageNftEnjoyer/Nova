@@ -30,11 +30,11 @@ function toModuleUrl(relativePath) {
 
 await run("Phase 12 relocated runtime modules exist under src", async () => {
   const files = [
-    "src/providers/runtime-compat/index.js",
-    "src/memory/runtime-compat/index.js",
-    "src/session/runtime-compat.js",
-    "src/tools/runtime/runtime-compat/index.js",
-    "src/runtime/audio/wake-runtime-compat/index.js",
+    "src/providers/runtime/index.js",
+    "src/memory/runtime/index.js",
+    "src/session/runtime/index.js",
+    "src/tools/runtime/index.js",
+    "src/runtime/audio/wake-runtime/index.js",
     "src/runtime/core/config/index.js",
   ];
   for (const file of files) {
@@ -74,8 +74,8 @@ await run("src runtime core import graph no longer references agent/modules or a
 });
 
 await run("Relocated providers + memory modules export runtime functions", async () => {
-  const providers = await import(toModuleUrl("src/providers/runtime-compat/index.js"));
-  const memory = await import(toModuleUrl("src/memory/runtime-compat/index.js"));
+  const providers = await import(toModuleUrl("src/providers/runtime/index.js"));
+  const memory = await import(toModuleUrl("src/memory/runtime/index.js"));
   assert.equal(typeof providers.loadIntegrationsRuntime, "function");
   assert.equal(typeof providers.resolveConfiguredChatRuntime, "function");
   assert.equal(typeof providers.describeUnknownError, "function");
@@ -84,7 +84,7 @@ await run("Relocated providers + memory modules export runtime functions", async
 });
 
 await run("Relocated session runtime remains functional", async () => {
-  const { createSessionRuntime } = await import(toModuleUrl("src/session/runtime-compat.js"));
+  const { createSessionRuntime } = await import(toModuleUrl("src/session/runtime/index.js"));
   const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-phase12-session-"));
   const runtime = createSessionRuntime({
     sessionStorePath: path.join(tmpRoot, "sessions.json"),
@@ -103,8 +103,8 @@ await run("Relocated session runtime remains functional", async () => {
 });
 
 await run("Relocated tools + wake runtime exports stay usable", async () => {
-  const { createToolRuntime } = await import(toModuleUrl("src/tools/runtime/runtime-compat/index.js"));
-  const { createWakeWordRuntime } = await import(toModuleUrl("src/runtime/audio/wake-runtime-compat/index.js"));
+  const { createToolRuntime } = await import(toModuleUrl("src/tools/runtime/index.js"));
+  const { createWakeWordRuntime } = await import(toModuleUrl("src/runtime/audio/wake-runtime/index.js"));
   assert.equal(typeof createToolRuntime, "function");
   assert.equal(typeof createWakeWordRuntime, "function");
   const wake = createWakeWordRuntime({ wakeWord: "nova", wakeWordVariants: ["nova", "nava"] });

@@ -1,4 +1,4 @@
-import { speak, stopSpeaking } from "../../../../../compat/voice/index.js";
+import { speak, stopSpeaking } from "../../../audio/voice/index.js";
 
 import { createVoiceProviderAdapter } from "../../voice/provider-adapter/index.js";
 

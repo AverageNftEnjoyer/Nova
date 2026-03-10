@@ -3,7 +3,6 @@ import path from "path";
 import { createDecipheriv, createHash } from "crypto";
 import OpenAI from "openai";
 import {
-  INTEGRATIONS_CONFIG_PATH,
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_CLAUDE_BASE_URL,
   DEFAULT_GROK_BASE_URL,
@@ -20,15 +19,18 @@ import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
-const USER_CONTEXT_INTEGRATIONS_ROOT = path.join(
-  path.dirname(INTEGRATIONS_CONFIG_PATH),
-  "..",
-  "..",
-  ".user",
-  "user-context",
-);
 const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
 const USER_CONTEXT_STATE_DIR = "state";
+
+export function resolveRuntimePaths(workspaceRoot = process.cwd()) {
+  const invariant = enforceWorkspaceUserStateInvariant(workspaceRoot);
+  return {
+    workspaceRoot: invariant.workspaceRoot,
+    integrationsConfigPath: path.join(invariant.workspaceRoot, "hud", "data", "integrations-config.json"),
+    userContextRoot: invariant.userContextRoot,
+    hudRoot: path.join(invariant.workspaceRoot, "hud"),
+  };
+}
 
 // ===== Error Helpers =====
 export function describeUnknownError(err) {
@@ -87,7 +89,7 @@ function parseDotenvForKey(filePath, key) {
   return "";
 }
 
-function resolveEncryptionKeyCandidates() {
+function resolveEncryptionKeyCandidates(runtimePaths = resolveRuntimePaths()) {
   const candidates = [];
   const envKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
   if (envKey) candidates.push(envKey);
@@ -97,7 +99,7 @@ function resolveEncryptionKeyCandidates() {
       candidates.push(entry);
     }
   }
-  const { workspaceRoot: root } = enforceWorkspaceUserStateInvariant();
+  const root = String(runtimePaths?.workspaceRoot || resolveRuntimePaths().workspaceRoot);
   const dotenvPaths = [
     path.join(root, ".env"),
     path.join(root, ".env.local"),
@@ -117,8 +119,8 @@ function resolveEncryptionKeyCandidates() {
   return candidates;
 }
 
-export function getEncryptionKeyMaterials() {
-  const candidates = resolveEncryptionKeyCandidates();
+export function getEncryptionKeyMaterials(runtimePaths = resolveRuntimePaths()) {
+  const candidates = resolveEncryptionKeyCandidates(runtimePaths);
 
   const materials = [];
   const seen = new Set();
@@ -134,12 +136,12 @@ export function getEncryptionKeyMaterials() {
   return materials;
 }
 
-export function decryptStoredSecret(payload) {
+export function decryptStoredSecret(payload, runtimePaths = resolveRuntimePaths()) {
   const input = String(payload || "").trim();
   if (!input) return "";
   const parts = input.split(".");
   if (parts.length !== 3) return "";
-  const keyMaterials = getEncryptionKeyMaterials();
+  const keyMaterials = getEncryptionKeyMaterials(runtimePaths);
   if (keyMaterials.length === 0) return "";
   for (const key of keyMaterials) {
     try {
@@ -155,10 +157,10 @@ export function decryptStoredSecret(payload) {
   return "";
 }
 
-export function unwrapStoredSecret(value) {
+export function unwrapStoredSecret(value, runtimePaths = resolveRuntimePaths()) {
   const raw = typeof value === "string" ? value.trim() : "";
   if (!raw) return "";
-  const decrypted = decryptStoredSecret(raw);
+  const decrypted = decryptStoredSecret(raw, runtimePaths);
   if (decrypted) return decrypted;
 
   const parts = raw.split(".");
@@ -227,18 +229,19 @@ function normalizeUserContextId(value) {
     .slice(0, 96);
 }
 
-function resolveIntegrationsConfigPath(userContextId) {
+function resolveIntegrationsConfigPath(userContextId, runtimePaths = resolveRuntimePaths()) {
   const normalized = normalizeUserContextId(userContextId) || "anonymous";
+  const userContextRoot = String(runtimePaths?.userContextRoot || resolveRuntimePaths().userContextRoot);
   return path.join(
-    USER_CONTEXT_INTEGRATIONS_ROOT,
+    userContextRoot,
     normalized,
     USER_CONTEXT_STATE_DIR,
     USER_CONTEXT_INTEGRATIONS_FILE,
   );
 }
 
-function resolveProviderApiKey(integrationApiKey) {
-  const fromIntegration = unwrapStoredSecret(integrationApiKey);
+function resolveProviderApiKey(integrationApiKey, runtimePaths = resolveRuntimePaths()) {
+  const fromIntegration = unwrapStoredSecret(integrationApiKey, runtimePaths);
   return String(fromIntegration || "").trim();
 }
 
@@ -261,7 +264,7 @@ function toStringArray(input) {
   return out;
 }
 
-function parseGmailRuntime(value) {
+function parseGmailRuntime(value, runtimePaths = resolveRuntimePaths()) {
   const integration = value && typeof value === "object" ? value : {};
   const accountsInput = Array.isArray(integration.accounts) ? integration.accounts : [];
   const accounts = accountsInput
@@ -272,7 +275,7 @@ function parseGmailRuntime(value) {
         email: String(account.email || "").trim(),
         enabled: account.enabled === true,
         scopes: toStringArray(account.scopes),
-        accessToken: unwrapStoredSecret(account.accessToken) || "",
+        accessToken: unwrapStoredSecret(account.accessToken, runtimePaths) || "",
         tokenExpiry: Number.isFinite(Number(account.tokenExpiry))
           ? Math.max(0, Math.floor(Number(account.tokenExpiry)))
           : 0,
@@ -288,7 +291,7 @@ function parseGmailRuntime(value) {
     activeAccountId: String(integration.activeAccountId || "").trim(),
     email: String(integration.email || "").trim(),
     scopes: toStringArray(integration.scopes),
-    accessToken: unwrapStoredSecret(integration.accessToken) || "",
+    accessToken: unwrapStoredSecret(integration.accessToken, runtimePaths) || "",
     tokenExpiry: Number.isFinite(Number(integration.tokenExpiry))
       ? Math.max(0, Math.floor(Number(integration.tokenExpiry)))
       : 0,
@@ -373,8 +376,9 @@ function parsePolymarketRuntime(value) {
 }
 
 export function loadIntegrationsRuntime(options = {}) {
+  const runtimePaths = resolveRuntimePaths(options.workspaceRoot);
   const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
-  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
+  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, runtimePaths);
   try {
     const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
@@ -385,7 +389,7 @@ export function loadIntegrationsRuntime(options = {}) {
     const phantomIntegration = parsePhantomRuntime(parsed?.phantom);
     const polymarketIntegration = parsePolymarketRuntime(parsed?.polymarket);
     const spotifyIntegration = parseSpotifyRuntime(parsed?.spotify);
-    const gmailIntegration = parseGmailRuntime(parsed?.gmail);
+    const gmailIntegration = parseGmailRuntime(parsed?.gmail, runtimePaths);
     const activeProvider = parsed?.activeLlmProvider === "claude"
       ? "claude"
       : parsed?.activeLlmProvider === "grok"
@@ -395,10 +399,10 @@ export function loadIntegrationsRuntime(options = {}) {
           : parsed?.activeLlmProvider === "openai"
             ? "openai"
             : "openai";
-    const openaiApiKey = resolveProviderApiKey(openaiIntegration.apiKey);
-    const claudeApiKey = resolveProviderApiKey(claudeIntegration.apiKey);
-    const grokApiKey = resolveProviderApiKey(grokIntegration.apiKey);
-    const geminiApiKey = resolveProviderApiKey(geminiIntegration.apiKey);
+    const openaiApiKey = resolveProviderApiKey(openaiIntegration.apiKey, runtimePaths);
+    const claudeApiKey = resolveProviderApiKey(claudeIntegration.apiKey, runtimePaths);
+    const grokApiKey = resolveProviderApiKey(grokIntegration.apiKey, runtimePaths);
+    const geminiApiKey = resolveProviderApiKey(geminiIntegration.apiKey, runtimePaths);
     return {
       sourcePath: configPath,
       activeProvider,
@@ -510,13 +514,14 @@ export function loadIntegrationsRuntime(options = {}) {
 }
 
 export function loadOpenAIIntegrationRuntime(options = {}) {
+  const runtimePaths = resolveRuntimePaths(options.workspaceRoot);
   const resolvedUserContextId = normalizeUserContextId(options.userContextId || "") || "anonymous";
-  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId);
+  const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, runtimePaths);
   try {
     const raw = fs.readFileSync(configPath, "utf8");
     const parsed = JSON.parse(raw);
     const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
-    const apiKey = resolveProviderApiKey(integration.apiKey);
+    const apiKey = resolveProviderApiKey(integration.apiKey, runtimePaths);
     const baseURL = toOpenAiLikeBase(
       typeof integration.baseUrl === "string" ? integration.baseUrl : "",
       DEFAULT_OPENAI_BASE_URL

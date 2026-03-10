@@ -96,16 +96,18 @@ function tagToneClass(tag: string, isLight: boolean): string {
   return palette[hashTag(normalized) % palette.length]
 }
 
-function clampPercent(value: number): number {
+const GLOW_EDGE_GUARD_PCT = 5
+
+function clampPercent(value: number, min = 0, max = 100): number {
   if (!Number.isFinite(value)) return 50
-  return Math.max(0, Math.min(100, value))
+  return Math.max(min, Math.min(max, value))
 }
 
 function updateArticleSpotlight(element: HTMLElement, clientX: number, clientY: number): void {
   const rect = element.getBoundingClientRect()
   if (rect.width <= 1 || rect.height <= 1) return
-  const relativeX = clampPercent(((clientX - rect.left) / rect.width) * 100)
-  const relativeY = clampPercent(((clientY - rect.top) / rect.height) * 100)
+  const relativeX = clampPercent(((clientX - rect.left) / rect.width) * 100, GLOW_EDGE_GUARD_PCT, 100 - GLOW_EDGE_GUARD_PCT)
+  const relativeY = clampPercent(((clientY - rect.top) / rect.height) * 100, GLOW_EDGE_GUARD_PCT, 100 - GLOW_EDGE_GUARD_PCT)
   element.style.setProperty("--glow-x", `${relativeX}%`)
   element.style.setProperty("--glow-y", `${relativeY}%`)
   element.style.setProperty("--glow-intensity", "1")

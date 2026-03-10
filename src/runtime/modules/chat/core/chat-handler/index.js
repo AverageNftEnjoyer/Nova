@@ -11,7 +11,7 @@ import { resolvePersonaWorkspaceDir, appendRawStream } from "../../../context/pe
 import {
   recordIdentitySkillPreferenceUpdate,
 } from "../../../context/identity/engine/index.js";
-import { isMemoryUpdateRequest } from "../../../../../memory/runtime-compat/index.js";
+import { isMemoryUpdateRequest } from "../../../../../memory/runtime/index.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../../context/skill-preferences/index.js";
 import { shouldBuildWorkflowFromPrompt, shouldConfirmWorkflowFromPrompt } from "../../routing/intent-router/index.js";
 import { normalizeRuntimeTone, withVoiceRuntimeContext } from "../../../audio/voice/index.js";

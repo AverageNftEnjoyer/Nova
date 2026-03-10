@@ -427,8 +427,11 @@ export function PolymarketLiveLinesModule({
   const hoveredAt = cursorPoint ? formatChartTime(cursorPoint.t, range) : ""
   const tooltipX = clamp(cursorPoint?.x ?? 50, 8, 92)
   const xAxisTicks = buildTimeAxisTicks(paths.coords, range)
-  const stroke = selected?.index === 1 ? (isLight ? "#f43f5e" : "#fb7185") : (isLight ? "#059669" : "#34d399")
+  const lineStroke = selected?.index === 1 ? (isLight ? "#ff4f78" : "#fecdd3") : (isLight ? "#16b98c" : "#86efac")
   const priceColor = selected?.index === 1 ? (isLight ? "text-rose-700" : "text-rose-300") : (isLight ? "text-emerald-700" : "text-emerald-300")
+  const latestPoint = paths.coords[paths.coords.length - 1] || null
+  const markerPoint = cursorPoint || latestPoint
+  const liveBadgeX = clamp(latestPoint?.x ?? 50, 16, 84)
   const overlayVisible = phase === "open"
   const inFlight = phase === "measuring" || phase === "closing"
   const overlayPanel = cn(panelClass, "rounded-[1.25rem]", isLight ? "shadow-[0_24px_64px_-28px_rgba(140,152,174,0.34)]" : "shadow-[0_28px_84px_-34px_rgba(0,0,0,0.68)]")
@@ -571,7 +574,7 @@ export function PolymarketLiveLinesModule({
                       {historyLoading ? (
                         <div className={cn("h-full w-full animate-pulse", isLight ? "bg-[#eef3fb]" : "bg-white/5")} />
                       ) : (
-                        <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_3.6rem] grid-rows-[minmax(0,1fr)_1.2rem]">
+                        <div className="grid h-full w-full grid-cols-[minmax(0,1fr)_3rem] grid-rows-[minmax(0,1fr)_0.95rem]">
                           <div
                             ref={chartRef}
                             className="relative h-full w-full touch-none cursor-crosshair"
@@ -585,20 +588,35 @@ export function PolymarketLiveLinesModule({
                             <svg viewBox="0 0 100 100" className="h-full w-full" preserveAspectRatio="none">
                               {axis.ticks.map((tick) => {
                                 const y = mapPercentToChartY(tick, axis.minPercent, axis.maxPercent).toFixed(2)
-                                return <line key={`grid-${tick}`} x1="0" y1={y} x2="100" y2={y} stroke={isLight ? "rgba(70,89,122,0.08)" : "rgba(255,255,255,0.08)"} strokeWidth="0.28" strokeDasharray="0.22 1.18" strokeLinecap="round" />
+                                return <line key={`grid-${tick}`} x1="0" y1={y} x2="100" y2={y} stroke={isLight ? "rgba(70,89,122,0.08)" : "rgba(255,255,255,0.08)"} strokeWidth="0.22" strokeDasharray="0.54 0.44" strokeLinecap="round" />
                               })}
-                              <path d={paths.line} fill="none" stroke={stroke} strokeWidth="0.44" strokeLinecap="round" strokeLinejoin="round" />
-                              {!cursorPoint ? <circle cx={mapIndexToChartX(Math.max(paths.coords.length - 1, 0), paths.coords.length).toFixed(2)} cy={paths.lastY.toFixed(2)} r="0.95" fill={stroke} /> : null}
+                              <path d={paths.line} fill="none" stroke={lineStroke} strokeOpacity="0.42" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                              <path d={paths.line} fill="none" stroke={lineStroke} strokeWidth="0.38" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                             </svg>
+                            {!cursorPoint && latestPoint ? (
+                              <div className="pointer-events-none absolute top-2 z-[2] -translate-x-1/2" style={{ left: `${liveBadgeX}%` }}>
+                                <div className={cn("rounded-md border px-2 py-1 text-[10px] font-semibold backdrop-blur-[1px]", isLight ? "border-[#c9d6e8] bg-white/88 text-s-90" : "border-white/15 bg-[#0b0f18]/86 text-slate-100")}>
+                                  <span>{preciseCents(latestPoint.p)}</span>
+                                  <span className={cn("ml-1.5 font-medium", isLight ? "text-s-60" : "text-slate-400")}>{formatChartTime(latestPoint.t, range)}</span>
+                                </div>
+                              </div>
+                            ) : null}
+                            {markerPoint ? (
+                              <div
+                                className={cn("pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full", !cursorPoint && "animate-pulse")}
+                                style={{
+                                  left: `${markerPoint.x}%`,
+                                  top: `${markerPoint.y}%`,
+                                  backgroundColor: lineStroke,
+                                  boxShadow: `0 0 0 1px ${lineStroke}, 0 0 6px ${lineStroke}66`,
+                                }}
+                              />
+                            ) : null}
                             {cursorPoint ? (
                               <>
                                 <div
                                   className={cn("pointer-events-none absolute inset-y-0 border-l", isLight ? "border-slate-500/40" : "border-white/34")}
                                   style={{ left: `${cursorPoint.x}%` }}
-                                />
-                                <div
-                                  className={cn("pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2", isLight ? "border-white" : "border-[#0d1018]")}
-                                  style={{ left: `${cursorPoint.x}%`, top: `${cursorPoint.y}%`, backgroundColor: stroke }}
                                 />
                                 <div className="pointer-events-none absolute top-2 z-[2] -translate-x-1/2" style={{ left: `${tooltipX}%` }}>
                                   <div className={cn(overlaySub, "rounded-md border px-2 py-1 text-[10px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>
@@ -609,17 +627,17 @@ export function PolymarketLiveLinesModule({
                               </>
                             ) : null}
                           </div>
-                          <div className={cn("pointer-events-none relative row-start-1 col-start-2 h-full pb-0.5 pl-1.5 pr-2 text-[10px]", isLight ? "text-s-70" : "text-white")}>
+                          <div className={cn("pointer-events-none relative row-start-1 col-start-2 h-full pb-0.5 pl-0.5 pr-0 text-[10px]", isLight ? "text-s-70" : "text-white")}>
                             {axis.ticks.map((tick) => {
                               const y = clamp(mapPercentToChartY(tick, axis.minPercent, axis.maxPercent), 8, 92)
                               const transform = "translateY(-50%)"
-                              return <span key={`axis-${tick}`} className="absolute right-0 leading-none" style={{ top: `${y}%`, transform }}>{tick}%</span>
+                              return <span key={`axis-${tick}`} className="absolute left-0 whitespace-nowrap leading-none" style={{ top: `${y}%`, transform }}>{tick}%</span>
                             })}
                           </div>
                           <div className={cn("pointer-events-none relative row-start-2 col-start-1 h-full text-[10px]", isLight ? "text-s-70" : "text-white")}>
                             {xAxisTicks.map((tick, index) => {
                               const transform = index === 0 ? "translateX(0)" : index === xAxisTicks.length - 1 ? "translateX(-100%)" : "translateX(-50%)"
-                              return <span key={`xtick-${tick.t}-${index}`} className="absolute top-0 truncate leading-5" style={{ left: `${tick.x}%`, transform }}>{tick.label}</span>
+                              return <span key={`xtick-${tick.t}-${index}`} className="absolute top-0 truncate leading-4" style={{ left: `${tick.x}%`, transform }}>{tick.label}</span>
                             })}
                           </div>
                         </div>

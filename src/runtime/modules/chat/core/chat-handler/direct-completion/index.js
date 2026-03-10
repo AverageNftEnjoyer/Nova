@@ -1,5 +1,4 @@
 import {
-  OPENAI_FALLBACK_MODEL,
   OPENAI_REQUEST_TIMEOUT_MS,
   CLAUDE_CHAT_MAX_TOKENS,
 } from "../../../../../core/constants/index.js";
@@ -9,7 +8,6 @@ import {
   streamOpenAiChatCompletion,
   extractOpenAIChatText,
   describeUnknownError,
-  toErrorDetails,
   withTimeout,
 } from "../../../../llm/providers/index.js";
 import {
@@ -100,43 +98,16 @@ export async function runOpenAiDirectCompletion({
 
   if (hasStrictOutputRequirements) {
     let completion = null;
-    try {
-      completion = await withTimeout(
-        activeOpenAiCompatibleClient.chat.completions.create({
-          model: modelUsed,
-          messages,
-          max_completion_tokens: openAiMaxCompletionTokens,
-          ...openAiRequestTuningForModel(modelUsed),
-        }),
-        OPENAI_REQUEST_TIMEOUT_MS,
-        `OpenAI model ${modelUsed}`,
-      );
-    } catch (primaryError) {
-      if (!OPENAI_FALLBACK_MODEL) throw primaryError;
-      const fallbackModel = OPENAI_FALLBACK_MODEL;
-      retries.push({
-        stage: "direct_completion",
-        fromModel: modelUsed,
-        toModel: fallbackModel,
-        reason: "primary_failed",
-      });
-      const primaryDetails = toErrorDetails(primaryError);
-      console.warn(
-        `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}`
-        + ` status=${primaryDetails.status ?? "n/a"} message=${primaryDetails.message}. Retrying with fallback ${fallbackModel}.`,
-      );
-      completion = await withTimeout(
-        activeOpenAiCompatibleClient.chat.completions.create({
-          model: fallbackModel,
-          messages,
-          max_completion_tokens: openAiMaxCompletionTokens,
-          ...openAiRequestTuningForModel(fallbackModel),
-        }),
-        OPENAI_REQUEST_TIMEOUT_MS,
-        `OpenAI fallback model ${fallbackModel}`,
-      );
-      modelUsed = fallbackModel;
-    }
+    completion = await withTimeout(
+      activeOpenAiCompatibleClient.chat.completions.create({
+        model: modelUsed,
+        messages,
+        max_completion_tokens: openAiMaxCompletionTokens,
+        ...openAiRequestTuningForModel(modelUsed),
+      }),
+      OPENAI_REQUEST_TIMEOUT_MS,
+      `OpenAI model ${modelUsed}`,
+    );
     const usage = completion?.usage || {};
     promptTokens = Number(usage.prompt_tokens || 0);
     completionTokens = Number(usage.completion_tokens || 0);
@@ -144,49 +115,18 @@ export async function runOpenAiDirectCompletion({
     reply = extractOpenAIChatText(completion).trim();
   } else {
     let streamed = null;
-    let sawPrimaryDelta = false;
-    try {
-      streamed = await streamOpenAiChatCompletion({
-        client: activeOpenAiCompatibleClient,
-        model: modelUsed,
-        messages,
-        maxCompletionTokens: openAiMaxCompletionTokens,
-        timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-        requestOverrides: openAiRequestTuningForModel(modelUsed),
-        onDelta: (delta) => {
-          sawPrimaryDelta = true;
-          emittedAssistantDelta = true;
-          broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
-        },
-      });
-    } catch (primaryError) {
-      if (!OPENAI_FALLBACK_MODEL || sawPrimaryDelta) throw primaryError;
-      const fallbackModel = OPENAI_FALLBACK_MODEL;
-      retries.push({
-        stage: "stream_completion",
-        fromModel: modelUsed,
-        toModel: fallbackModel,
-        reason: "primary_failed",
-      });
-      const primaryDetails = toErrorDetails(primaryError);
-      console.warn(
-        `[LLM] Primary model failed provider=${activeChatRuntime.provider} model=${modelUsed}`
-        + ` status=${primaryDetails.status ?? "n/a"} message=${primaryDetails.message}. Retrying with fallback ${fallbackModel}.`,
-      );
-      streamed = await streamOpenAiChatCompletion({
-        client: activeOpenAiCompatibleClient,
-        model: fallbackModel,
-        messages,
-        maxCompletionTokens: openAiMaxCompletionTokens,
-        timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-        requestOverrides: openAiRequestTuningForModel(fallbackModel),
-        onDelta: (delta) => {
-          emittedAssistantDelta = true;
-          broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
-        },
-      });
-      modelUsed = fallbackModel;
-    }
+    streamed = await streamOpenAiChatCompletion({
+      client: activeOpenAiCompatibleClient,
+      model: modelUsed,
+      messages,
+      maxCompletionTokens: openAiMaxCompletionTokens,
+      timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+      requestOverrides: openAiRequestTuningForModel(modelUsed),
+      onDelta: (delta) => {
+        emittedAssistantDelta = true;
+        broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
+      },
+    });
     reply = streamed.reply;
     promptTokens = streamed.promptTokens || 0;
     completionTokens = streamed.completionTokens || 0;

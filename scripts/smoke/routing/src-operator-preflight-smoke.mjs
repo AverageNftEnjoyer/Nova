@@ -154,6 +154,38 @@ await run("P23-C5 runtime selection returns model+client and records latency sta
   assert.equal(stages.includes("provider_resolution"), true);
 });
 
+await run("P23-C6 preferred provider gracefully falls back when preferred runtime is not ready", async () => {
+  const out = await selectChatRuntimeForTurn(
+    {
+      userContextId: "smoke-user",
+      supabaseAccessToken: "token",
+      canRunToolLoop: false,
+      sessionKey: "agent:nova:hud:user:smoke-user:dm:selection-preferred-fallback",
+      source: "hud",
+      preferredProvider: "grok",
+    },
+    {
+      ensureRuntimeIntegrationsSnapshotRef: async () => {},
+      cachedLoadIntegrationsRuntimeRef: () => ({
+        grok: { connected: false, apiKey: "", baseURL: "https://api.x.ai/v1", model: "grok-4-0709" },
+      }),
+      resolveConfiguredChatRuntimeRef: () => ({
+        provider: "openai",
+        apiKey: "test-key",
+        connected: true,
+        baseURL: "https://api.openai.com/v1",
+        model: "gpt-4.1-mini",
+        routeReason: "resolver-fallback",
+        rankedCandidates: ["openai"],
+      }),
+      getOpenAIClientRef: ({ apiKey, baseURL }) => ({ apiKey, baseURL }),
+    },
+  );
+  assert.equal(out.activeChatRuntime.provider, "openai");
+  assert.equal(out.selectedChatModel, "gpt-4.1-mini");
+  assert.equal(out.activeOpenAiCompatibleClient?.apiKey, "test-key");
+});
+
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;
 const skipCount = results.filter((r) => r.status === "SKIP").length;

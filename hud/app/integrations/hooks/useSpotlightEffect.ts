@@ -18,7 +18,9 @@ export function useSpotlightEffect(
 ) {
   useEffect(() => {
     if (!enabled) return
-    const clampPct = (value: number) => Math.max(0, Math.min(100, value))
+    const clampPct = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value))
+    const glowEdgeGuardPct = 5
+    const clampGlowPct = (value: number) => clampPct(value, glowEdgeGuardPct, 100 - glowEdgeGuardPct)
 
     const setupSectionSpotlight = (
       section: HTMLElement,
@@ -86,8 +88,10 @@ export function useSpotlightEffect(
             glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity)
           }
 
-          const relativeX = clampPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
-          const relativeY = clampPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
+          // Keep the glow origin slightly away from card edges to avoid
+          // mask-composite seam artifacts on some GPU/compositor paths.
+          const relativeX = clampGlowPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
+          const relativeY = clampGlowPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
           card.style.setProperty("--glow-x", `${relativeX}%`)
           card.style.setProperty("--glow-y", `${relativeY}%`)
           card.style.setProperty("--glow-intensity", glowIntensity.toString())

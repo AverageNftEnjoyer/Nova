@@ -1,4 +1,4 @@
-import { VOICE_MAP } from "../../../../compat/voice/index.js";
+import { VOICE_MAP } from "../../audio/voice/index.js";
 import { createTtsProviderAdapter } from "./provider-adapter/index.js";
 
 function normalizeText(value, fallback = "") {

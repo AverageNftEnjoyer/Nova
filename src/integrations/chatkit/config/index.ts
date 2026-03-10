@@ -29,7 +29,10 @@ function parseReasoningEffort(raw: unknown): ChatKitReasoningEffort {
 }
 
 export function resolveChatKitRuntimeConfig(): ChatKitRuntimeConfig {
-  const enabled = toBool(process.env.NOVA_CHATKIT_ENABLED, false);
+  const enabled = toBool(
+    process.env.NOVA_CHATKIT_ENABLED,
+    String(process.env.OPENAI_API_KEY || "").trim().length > 0,
+  );
   return {
     enabled,
     apiKey: String(process.env.OPENAI_API_KEY || "").trim(),

@@ -3,7 +3,7 @@
 
 import path from "path";
 import { fileURLToPath } from "url";
-import { startMetricsBroadcast } from "../../../compat/metrics/index.js";
+import { startMetricsBroadcast } from "../../modules/infrastructure/metrics/index.js";
 import { sessionRuntime, wakeWordRuntime } from "../config/index.js";
 import {
   MIC_RECORD_SECONDS,
@@ -30,7 +30,7 @@ import {
   transcribe,
   speak,
   stopSpeaking,
-} from "../../../compat/voice/index.js";
+} from "../../modules/audio/voice/index.js";
 import {
   startGateway,
   broadcast,
@@ -62,7 +62,7 @@ export async function startNovaRuntime() {
 
   let runtimeHandleInput = async () => "Nova runtime is starting. Chat handler unavailable.";
   try {
-    const chatModule = await import("../../../compat/chat-handler/index.js");
+    const chatModule = await import("../../modules/chat/core/chat-handler/index.js");
     if (typeof chatModule?.handleInput === "function") {
       runtimeHandleInput = chatModule.handleInput;
     }
@@ -82,7 +82,7 @@ export async function startNovaRuntime() {
 
   sessionRuntime.ensureSessionStorePaths();
   try {
-    const personaModule = await import("../../../compat/persona-context/index.js");
+    const personaModule = await import("../../modules/context/persona-context/index.js");
     if (typeof personaModule?.logUpgradeIndexSummary === "function") personaModule.logUpgradeIndexSummary();
     if (typeof personaModule?.logAgentRuntimePreflight === "function") personaModule.logAgentRuntimePreflight();
   } catch (err) {

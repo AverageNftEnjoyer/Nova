@@ -38,7 +38,7 @@ await run("Voice capture uses argument-array spawnSync and explicit failure hand
 });
 
 await run("Tool runtime build bootstrap avoids shell-string execSync", () => {
-  const content = read("src/tools/runtime/runtime-compat/index.js");
+  const content = read("src/tools/runtime/index.js");
   assert.equal(/\bexecSync\s*\(/.test(content), false);
   assert.equal(/spawnSync\(NPM_BIN,\s*\["run",\s*"build:agent-core"\]/.test(content), true);
   assert.equal(/timeout:\s*180000/.test(content), true);

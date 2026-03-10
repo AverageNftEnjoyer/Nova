@@ -56,7 +56,7 @@ async function withTempDir(fn) {
 }
 
 const { createSessionRuntime } = await import(
-  pathToFileURL(path.join(process.cwd(), "src/session/runtime-compat/index.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src/session/runtime/index.js")).href,
 );
 
 const threadsRoute = await read("hud/app/api/threads/route.ts");
@@ -66,7 +66,7 @@ const conversationsHook = await read("hud/lib/chat/hooks/useConversations.ts");
 const hudGateway = await read("src/runtime/infrastructure/hud-gateway/index.js");
 const runtimeConstants = await read("src/runtime/core/constants/index.js");
 const sessionStore = await read("src/session/store/index.ts");
-const sessionRuntimeCompat = await read("src/session/runtime-compat/index.js");
+const sessionRuntimeSource = await read("src/session/runtime/index.js");
 
 await run("R1 thread reads are user-scoped and message IDs are stabilized", async () => {
   assert.equal(threadsRoute.includes('.eq("user_id", userId)'), true);
@@ -123,8 +123,8 @@ await run("R6 transcript retention defaults enable bounded pruning in prod", asy
     sessionStore.includes("? Math.trunc(Number(extended.transcriptRetentionDays))\n      : 30;"),
     true,
   );
-  assert.equal(sessionRuntimeCompat.includes("maxTranscriptLines = 400"), true);
-  assert.equal(sessionRuntimeCompat.includes("transcriptRetentionDays = 30"), true);
+  assert.equal(sessionRuntimeSource.includes("maxTranscriptLines = 400"), true);
+  assert.equal(sessionRuntimeSource.includes("transcriptRetentionDays = 30"), true);
 });
 
 await run("R7 transcript append trims per-session files to the configured line cap", async () => {

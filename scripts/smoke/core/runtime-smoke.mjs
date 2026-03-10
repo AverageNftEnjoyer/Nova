@@ -12,11 +12,11 @@ import {
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
   withTimeout,
-} from "../../../src/providers/runtime-compat/index.js";
-import { extractAutoMemoryFacts } from "../../../src/memory/runtime-compat/index.js";
-import { createSessionRuntime } from "../../../src/session/runtime-compat.js";
-import { createToolRuntime } from "../../../src/tools/runtime/runtime-compat/index.js";
-import { createWakeWordRuntime } from "../../../src/runtime/audio/wake-runtime-compat/index.js";
+} from "../../../src/providers/runtime/index.js";
+import { extractAutoMemoryFacts } from "../../../src/memory/runtime/index.js";
+import { createSessionRuntime } from "../../../src/session/runtime/index.js";
+import { createToolRuntime } from "../../../src/tools/runtime/index.js";
+import { createWakeWordRuntime } from "../../../src/runtime/audio/wake-runtime/index.js";
 
 const results = [];
 const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();
@@ -521,6 +521,7 @@ await run("Voice wake logic gates/strips correctly", async () => {
 
 await run("Brave-only web search remains enforced (no Tavily/Serper refs)", async () => {
   const constantsPathCandidates = [
+    path.join(process.cwd(), "src", "runtime", "core", "constants", "index.js"),
     path.join(process.cwd(), "src", "runtime", "core", "constants.js"),
     path.join(process.cwd(), "src", "runtime", "constants.js"),
   ];

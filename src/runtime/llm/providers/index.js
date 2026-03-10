@@ -1,1 +1,1 @@
-export * from "../../../providers/runtime-compat/index.js";
+export * from "../../../providers/runtime/index.js";

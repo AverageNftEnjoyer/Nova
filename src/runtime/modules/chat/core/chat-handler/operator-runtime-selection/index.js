@@ -51,26 +51,37 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
   });
   const integrationsRuntime = cachedLoadIntegrationsRuntimeRef({ userContextId });
   const normalizedPreferredProvider = normalizeProviderName(preferredProvider);
-  const activeChatRuntime = normalizedPreferredProvider
-    ? (() => {
-      const preferredRuntime = integrationsRuntime?.[normalizedPreferredProvider] || null;
-      return {
-        provider: normalizedPreferredProvider,
-        apiKey: String(preferredRuntime?.apiKey || "").trim(),
-        baseURL: String(preferredRuntime?.baseURL || "").trim(),
-        model: String(preferredRuntime?.model || "").trim(),
-        connected: Boolean(preferredRuntime?.connected),
-        strict: false,
-        routeReason: "preferred-provider-forced",
-        rankedCandidates: [normalizedPreferredProvider],
-      };
-    })()
+  const preferredRuntime = normalizedPreferredProvider
+    ? integrationsRuntime?.[normalizedPreferredProvider] || null
+    : null;
+  const preferredRuntimeCandidate = normalizedPreferredProvider
+    ? {
+      provider: normalizedPreferredProvider,
+      apiKey: String(preferredRuntime?.apiKey || "").trim(),
+      baseURL: String(preferredRuntime?.baseURL || "").trim(),
+      model: String(preferredRuntime?.model || "").trim(),
+      connected: Boolean(preferredRuntime?.connected),
+      strict: false,
+      routeReason: "preferred-provider-ready",
+      rankedCandidates: [normalizedPreferredProvider],
+    }
+    : null;
+  const hasPreferredRuntime = Boolean(
+    preferredRuntimeCandidate
+    && preferredRuntimeCandidate.connected
+    && preferredRuntimeCandidate.apiKey
+    && preferredRuntimeCandidate.model,
+  );
+  const activeChatRuntime = hasPreferredRuntime
+    ? preferredRuntimeCandidate
     : resolveConfiguredChatRuntimeRef(integrationsRuntime, {
       strictActiveProvider: !ENABLE_PROVIDER_FALLBACK,
       preference: ROUTING_PREFERENCE,
       requiresToolCalling: canRunToolLoop,
       allowActiveProviderOverride: ENABLE_PROVIDER_FALLBACK && ROUTING_ALLOW_ACTIVE_OVERRIDE,
-      preferredProviders: ROUTING_PREFERRED_PROVIDERS,
+      preferredProviders: normalizedPreferredProvider
+        ? [normalizedPreferredProvider, ...ROUTING_PREFERRED_PROVIDERS]
+        : ROUTING_PREFERRED_PROVIDERS,
     });
   if (latencyTelemetry && typeof latencyTelemetry.addStage === "function") {
     latencyTelemetry.addStage("provider_resolution", Date.now() - providerResolutionStartedAt);
@@ -78,15 +89,9 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
 
   if (!activeChatRuntime.apiKey) {
     const providerName = toProviderLabel(activeChatRuntime.provider);
-    if (normalizedPreferredProvider) {
-      throw new Error(`Missing ${providerName} API key for preferred image provider "${activeChatRuntime.provider}". Configure it in Integrations first.`);
-    }
     throw new Error(`Missing ${providerName} API key for active provider "${activeChatRuntime.provider}". Configure Integrations first.`);
   }
   if (!activeChatRuntime.connected) {
-    if (normalizedPreferredProvider) {
-      throw new Error(`Preferred image provider "${activeChatRuntime.provider}" is not enabled. Enable it in Integrations.`);
-    }
     throw new Error(`Active provider "${activeChatRuntime.provider}" is not enabled. Enable it or switch activeLlmProvider.`);
   }
 

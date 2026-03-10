@@ -41,7 +41,8 @@ export function normalizeWorkerSummary(summary, input = {}) {
   const route = normalizeText(source.route, fallbackRoute);
   const responseRoute = normalizeText(source.responseRoute, fallbackResponseRoute);
   const ok = normalizeBoolean(source.ok, true);
-  const error = ok ? "" : normalizeText(source.error, "worker_execution_failed");
+  const sourceError = normalizeText(source.error, "");
+  const error = sourceError || (ok ? "" : "worker_execution_failed");
   const telemetrySource = normalizeObject(source.telemetry, {});
   const requestHints = normalizeObject(source.requestHints, {});
 
@@ -59,6 +60,9 @@ export function normalizeWorkerSummary(summary, input = {}) {
     toolExecutions: normalizeArray(source.toolExecutions),
     retries: normalizeArray(source.retries),
     requestHints,
+    fallbackReason: normalizeText(source.fallbackReason, ""),
+    fallbackStage: normalizeText(source.fallbackStage, ""),
+    hadCandidateBeforeFallback: source.hadCandidateBeforeFallback === true,
     promptTokens: Math.max(0, normalizeNumber(source.promptTokens, 0)),
     completionTokens: Math.max(0, normalizeNumber(source.completionTokens, 0)),
     totalTokens: Math.max(0, normalizeNumber(source.totalTokens, 0)),

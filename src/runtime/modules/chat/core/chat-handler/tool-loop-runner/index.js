@@ -1,5 +1,4 @@
 import {
-  OPENAI_FALLBACK_MODEL,
   TOOL_LOOP_MAX_STEPS,
   TOOL_LOOP_MAX_DURATION_MS,
   TOOL_LOOP_REQUEST_TIMEOUT_MS,
@@ -37,7 +36,6 @@ function resolveToolThinkingStatus(normalizedToolName) {
 export async function runToolLoop({
   activeOpenAiCompatibleClient,
   modelUsed,
-  primaryModel,
   messages,
   openAiToolDefs,
   openAiMaxCompletionTokens,
@@ -63,7 +61,6 @@ export async function runToolLoop({
   const loopMessages = [...messages];
   const toolOutputsForRecovery = [];
   let forcedToolFallbackReply = "";
-  let usedFallback = false;
   let reply = "";
   let promptTokens = 0;
   let completionTokens = 0;
@@ -117,35 +114,11 @@ export async function runToolLoop({
         `Tool loop model ${modelUsed}`,
       );
     } catch (err) {
-      if (!usedFallback && OPENAI_FALLBACK_MODEL) {
-        usedFallback = true;
-        modelUsed = OPENAI_FALLBACK_MODEL;
-        retries.push({
-          stage: "tool_loop_completion",
-          fromModel: primaryModel,
-          toModel: modelUsed,
-          reason: "primary_failed",
-        });
-        console.warn(`[ToolLoop] Primary model failed; retrying with fallback model ${modelUsed}.`);
-        completion = await withTimeout(
-          activeOpenAiCompatibleClient.chat.completions.create({
-            model: modelUsed,
-            messages: loopMessages,
-            max_completion_tokens: openAiMaxCompletionTokens,
-            ...openAiRequestTuningForModel(modelUsed),
-            tools: openAiToolDefs,
-            tool_choice: "auto",
-          }),
-          toolLoopBudget.resolveTimeoutMs(TOOL_LOOP_REQUEST_TIMEOUT_MS, 3000),
-          `Tool loop fallback model ${modelUsed}`,
-        );
-      } else {
-        if (isLikelyTimeoutError(err)) {
-          toolLoopGuardrails.stepTimeouts += 1;
-          latencyTelemetry.incrementCounter("tool_loop_step_timeouts");
-        }
-        throw err;
+      if (isLikelyTimeoutError(err)) {
+        toolLoopGuardrails.stepTimeouts += 1;
+        latencyTelemetry.incrementCounter("tool_loop_step_timeouts");
       }
+      throw err;
     }
 
     const usage = completion?.usage || {};

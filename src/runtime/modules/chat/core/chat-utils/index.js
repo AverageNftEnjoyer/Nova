@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
-import { ensureMemoryTemplate, upsertMemoryFactInMarkdown } from "../../../../../memory/runtime-compat/index.js";
+import { ensureMemoryTemplate, upsertMemoryFactInMarkdown } from "../../../../../memory/runtime/index.js";
 import {
   clearPersistentFollowUpState,
   readPersistentFollowUpState,

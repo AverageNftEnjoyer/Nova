@@ -25,7 +25,7 @@ function summarize(result) {
 }
 
 const runtimeCompatModule = await import(
-  pathToFileURL(path.join(process.cwd(), "src", "tools", "runtime", "runtime-compat", "index.js")).href,
+  pathToFileURL(path.join(process.cwd(), "src", "tools", "runtime", "index.js")).href,
 );
 const { createToolRuntime } = runtimeCompatModule;
 

@@ -6,7 +6,7 @@ import {
   setMuted,
   setVoiceEnabled,
   VOICE_MAP,
-} from "../../../../../compat/voice/index.js";
+} from "../../../audio/voice/index.js";
 import { wakeWordRuntime } from "../../../../core/config/index.js";
 
 import { readVoiceUserSettings, upsertVoiceUserSettings } from "../user-settings/index.js";

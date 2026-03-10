@@ -6,7 +6,6 @@ import {
   DEFAULT_GROK_MODEL,
   DEFAULT_GEMINI_MODEL,
   ENABLE_PROVIDER_FALLBACK,
-  OPENAI_FALLBACK_MODEL,
   OPENAI_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_ENABLED,
@@ -40,7 +39,7 @@ import {
   syncIdentityIntelligenceFromTurn,
 } from "../../../../context/identity/engine/index.js";
 import { syncPersonalityFromTurn } from "../../../../context/personality/index.js";
-import { extractAutoMemoryFacts } from "../../../../../../memory/runtime-compat/index.js";
+import { extractAutoMemoryFacts } from "../../../../../../memory/runtime/index.js";
 import { applySkillPreferenceUpdateFromMessage } from "../../../../context/skill-preferences/index.js";
 import { buildRuntimeSkillsPrompt } from "../../../../context/skills/index.js";
 import { shouldPreloadWebSearch, replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "../../../routing/intent-router/index.js";
@@ -326,6 +325,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     fallbackStage: "",
     hadCandidateBeforeFallback: false,
     toolLoopGuardrails: null,
+    voiceOutputError: "",
   };
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
   if (turnPolicy && typeof turnPolicy === "object") {
@@ -375,6 +375,13 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       intentClass: serveIntentClass,
       turnId: preparedPromptHash || `${Date.now()}`,
     });
+    const shouldFailClosedOnServeError = serveAttempt.failClosed === true
+      && serveIntentClass === "chat"
+      && (
+        serveAttempt.reason === "chatkit_module_unavailable"
+        || serveAttempt.reason === "serve_not_usable"
+        || serveAttempt.reason === "serve_failed"
+      );
     if (serveAttempt.used === true) {
       responseRoute = "chatkit_served";
       broadcastThinkingStatus("Drafting response", userContextId);
@@ -383,6 +390,15 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       modelUsed = String(serveAttempt.model || selectedChatModel);
       promptTokens = Number(serveAttempt?.usage?.promptTokens || 0);
       completionTokens = Number(serveAttempt?.usage?.completionTokens || 0);
+    } else if (shouldFailClosedOnServeError) {
+      responseRoute = "chatkit_fail_closed";
+      providerUsed = "openai-chatkit";
+      modelUsed = selectedChatModel;
+      markFallback("chatkit_fail_closed", String(serveAttempt.reason || "chatkit_unavailable"), "");
+      broadcastThinkingStatus("Handling ChatKit availability", userContextId);
+      reply = buildConstraintSafeFallback(outputConstraints, text, {
+        strict: hasStrictOutputRequirements,
+      });
     } else {
       const promptContext = await buildPromptContextForTurn({
         text,
@@ -458,7 +474,6 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         const toolLoopResult = await runToolLoop({
           activeOpenAiCompatibleClient,
           modelUsed,
-          primaryModel: selectedChatModel,
           messages,
           openAiToolDefs,
           openAiMaxCompletionTokens,
@@ -702,8 +717,21 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 
     if (useVoice && reply) {
       const voiceStartedAt = Date.now();
-      await speak(normalizeAssistantSpeechText(reply) || reply, ttsVoice);
-      latencyTelemetry.addStage("voice_output", Date.now() - voiceStartedAt);
+      try {
+        await speak(normalizeAssistantSpeechText(reply) || reply, ttsVoice);
+        latencyTelemetry.addStage("voice_output", Date.now() - voiceStartedAt);
+      } catch (voiceErr) {
+        const voiceErrorMessage = describeUnknownError(voiceErr);
+        runSummary.voiceOutputError = voiceErrorMessage;
+        appendRawStream({
+          event: "voice_output_error",
+          source,
+          sessionKey,
+          userContextId: userContextId || undefined,
+          message: voiceErrorMessage,
+        });
+        console.warn(`[TTS] Voice output failed: ${voiceErrorMessage}`);
+      }
     }
   } catch (err) {
     broadcastThinkingStatus("Handling error", userContextId);

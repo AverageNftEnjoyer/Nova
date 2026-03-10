@@ -43,32 +43,8 @@ function resolveUserRuntimeConfigPath(workspaceRoot: string, userId: string): st
   const scopedUserId = sanitizeUserContextId(userId)
   const normalizedRoot = path.resolve(workspaceRoot)
   const rootName = path.basename(normalizedRoot).toLowerCase()
-
-  const candidateRoots: string[] = []
-  if (rootName === "src") {
-    candidateRoots.push(normalizedRoot, path.resolve(normalizedRoot, ".."))
-  } else {
-    candidateRoots.push(path.join(normalizedRoot, "src"), normalizedRoot)
-  }
-
-  const uniqueConfigPaths = Array.from(
-    new Set(
-      candidateRoots.map((baseRoot) =>
-        path.join(baseRoot, ".user", "user-context", scopedUserId, "state", "integrations-config.json"),
-      ),
-    ),
-  )
-  return uniqueConfigPaths[0] || path.join(normalizedRoot, ".user", "user-context", scopedUserId, "state", "integrations-config.json")
-}
-
-function resolveUserRuntimeConfigMirrorPaths(workspaceRoot: string, userId: string): string[] {
-  const primary = resolveUserRuntimeConfigPath(workspaceRoot, userId)
-  const normalizedRoot = path.resolve(workspaceRoot)
-  const rootName = path.basename(normalizedRoot).toLowerCase()
-  const fallbackRoot = rootName === "src" ? path.resolve(normalizedRoot, "..") : normalizedRoot
-  const scopedUserId = sanitizeUserContextId(userId)
-  const fallback = path.join(fallbackRoot, ".user", "user-context", scopedUserId, "state", "integrations-config.json")
-  return Array.from(new Set([primary, fallback]))
+  const workspaceUserRoot = rootName === "src" ? path.resolve(normalizedRoot, "..") : normalizedRoot
+  return path.join(workspaceUserRoot, ".user", "user-context", scopedUserId, "state", "integrations-config.json")
 }
 
 export async function syncAgentRuntimeIntegrationsSnapshot(
@@ -76,7 +52,7 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
   userId: string,
   config: IntegrationsConfig,
 ): Promise<string> {
-  const filePaths = resolveUserRuntimeConfigMirrorPaths(workspaceRoot, userId)
+  const filePath = resolveUserRuntimeConfigPath(workspaceRoot, userId)
 
   const payload = {
     activeLlmProvider: config.activeLlmProvider,
@@ -171,9 +147,7 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
   }
 
   const serializedPayload = JSON.stringify(payload, null, 2)
-  await Promise.all(filePaths.map(async (filePath) => {
-    await mkdir(path.dirname(filePath), { recursive: true })
-    await writeFile(filePath, serializedPayload, "utf8")
-  }))
-  return filePaths[0]
+  await mkdir(path.dirname(filePath), { recursive: true })
+  await writeFile(filePath, serializedPayload, "utf8")
+  return filePath
 }

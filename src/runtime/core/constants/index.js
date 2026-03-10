@@ -47,7 +47,6 @@ export const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
 export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
 export const DEFAULT_GROK_MODEL = "grok-4-0709";
 export const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
-export const OPENAI_FALLBACK_MODEL = String(process.env.NOVA_OPENAI_FALLBACK_MODEL || "").trim();
 
 // ===== Tool Loop Config =====
 export const TOOL_LOOP_ENABLED = String(process.env.NOVA_TOOL_LOOP_ENABLED || "1").trim() === "1";
@@ -308,7 +307,7 @@ export const UPGRADE_MODULE_INDEX = [
   "src/tools/builtin/memory-tools.ts",
   "src/tools/builtin/exec.ts",
   "src/tools/builtin/file-tools.ts",
-  "src/tools/runtime/runtime-compat/index.js",
+  "src/tools/runtime/index.js",
   "src/skills/discovery.ts",
   "src/skills/formatter.ts",
   "src/skills/snapshot.ts",

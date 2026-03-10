@@ -54,7 +54,7 @@ await run("RSI-4 Runtime Spotify service adapters preserve scoped auth and direc
 
 await run("RSI-5 Runtime/provider snapshot contract includes spotify runtime block", async () => {
   const providerTs = read("src/providers/runtime/index.ts");
-  const providerCompat = read("src/providers/runtime-compat/index.js");
+  const providerCompat = read("src/providers/runtime/index.js");
   assert.equal(providerTs.includes("spotify: SpotifyRuntime"), true);
   assert.equal(providerTs.includes("parseSpotifyRuntime"), true);
   assert.equal(providerCompat.includes("spotify: spotifyIntegration"), true);

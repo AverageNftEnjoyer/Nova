@@ -3,10 +3,10 @@
 // Runtime constants are owned by src/runtime/core/constants/index.js.
 
 import dotenv from "dotenv";
-import { createSessionRuntime } from "../../../session/runtime-compat/index.js";
-import { createToolRuntime } from "../../../tools/runtime/runtime-compat/index.js";
-import { createWakeWordRuntime } from "../../audio/wake-runtime-compat/index.js";
-import { describeUnknownError } from "../../../providers/runtime-compat/index.js";
+import { createSessionRuntime } from "../../../session/runtime/index.js";
+import { createToolRuntime } from "../../../tools/runtime/index.js";
+import { createWakeWordRuntime } from "../../audio/wake-runtime/index.js";
+import { describeUnknownError } from "../../../providers/runtime/index.js";
 import {
   SESSION_STORE_PATH,
   SESSION_TRANSCRIPT_DIR,

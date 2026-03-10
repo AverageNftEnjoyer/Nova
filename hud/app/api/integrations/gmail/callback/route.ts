@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 
 import { exchangeCodeForGmailTokens, parseGmailOAuthState } from "@/lib/integrations/gmail"
-import { parseGmailCalendarOAuthState } from "@/lib/integrations/google-calendar/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
 import { logGmailApi } from "@/app/api/integrations/gmail/_shared"
 
@@ -96,17 +95,6 @@ export async function GET(req: Request) {
   const requestUrl = new URL(req.url)
   const code = String(requestUrl.searchParams.get("code") || "").trim()
   const stateRaw = String(requestUrl.searchParams.get("state") || "").trim()
-
-  // Compatibility bridge: if Google is configured with the Gmail callback URI only,
-  // calendar OAuth may still land here. Forward it to the dedicated calendar callback.
-  const parsedCalendarState = parseGmailCalendarOAuthState(stateRaw)
-  if (parsedCalendarState) {
-    const forwardUrl = new URL("/api/integrations/gmail-calendar/callback", requestUrl.origin)
-    requestUrl.searchParams.forEach((value, key) => {
-      forwardUrl.searchParams.set(key, value)
-    })
-    return NextResponse.redirect(forwardUrl, { status: 302 })
-  }
 
   const parsedState = parseGmailOAuthState(stateRaw)
   const returnTo = parsedState?.returnTo || "/integrations"

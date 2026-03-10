@@ -89,6 +89,31 @@ await run("P31-C3 delegated chat worker requires executeChatRequest callback", a
   assert.equal(errorText.includes("executeChatRequest"), true);
 });
 
+await run("P31-C4 delegated chat worker preserves fallback diagnostics and non-fatal errors", async () => {
+  const out = await runDelegatedChatWorker({
+    text: "hello",
+    ctx: {},
+    llmCtx: { activeChatRuntime: { provider: "openai" } },
+    requestHints: {},
+    route: "image",
+    executeChatRequest: async () => ({
+      route: "chat",
+      responseRoute: "openai_stream_exception_empty_reply_fallback_error_recovered",
+      ok: true,
+      reply: "degraded-but-usable",
+      error: "spawn EPERM",
+      fallbackReason: "request_error",
+      fallbackStage: "exception_empty_reply_fallback",
+      hadCandidateBeforeFallback: false,
+    }),
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.error, "spawn EPERM");
+  assert.equal(out.fallbackReason, "request_error");
+  assert.equal(out.fallbackStage, "exception_empty_reply_fallback");
+  assert.equal(out.hadCandidateBeforeFallback, false);
+});
+
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;
 const skipCount = results.filter((r) => r.status === "SKIP").length;
@@ -97,4 +122,3 @@ for (const result of results) summarize(result);
 console.log(`\nSummary: pass=${passCount} fail=${failCount} skip=${skipCount}`);
 
 if (failCount > 0) process.exit(1);
-
