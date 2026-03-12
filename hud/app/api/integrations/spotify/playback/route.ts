@@ -35,9 +35,6 @@ function deviceUnavailablePlaybackResponse(input?: {
 }
 
 export async function POST(req: Request) {
-  const runtimeTokenDecision = verifyRuntimeSharedToken(req)
-  if (!runtimeTokenDecision.ok) return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
-
   try {
     const body = await safeJson(req)
     const parsed = playbackBodySchema.safeParse(body)
@@ -47,6 +44,15 @@ export async function POST(req: Request) {
     const payload = parsed.data
     const { unauthorized, verified } = await requireSupabaseApiUser(req)
     const requestedUserContextId = normalizeUserContextId(payload.userContextId)
+    const runtimeTokenDecision = verified
+      ? { ok: true, authenticated: false as const }
+      : verifyRuntimeSharedToken(req)
+    if (!verified && !runtimeTokenDecision.ok) {
+      const hasAuthorizationHeader = String(req.headers.get("authorization") || "").trim().length > 0
+      if (!hasAuthorizationHeader) {
+        return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
+      }
+    }
     const runtimeAuthenticated = runtimeTokenDecision.authenticated === true
 
     let userId = ""

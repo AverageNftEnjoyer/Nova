@@ -11,6 +11,12 @@ const AGENT_PHASE0_NODE_TYPES = new Set([
   "agent-subworkflow",
 ])
 
+const CANVAS_ONLY_NODE_TYPES = new Set([
+  "polymarket-price-trigger",
+  "polymarket-monitor",
+  "polymarket-data-fetch",
+])
+
 function hasNonMainPorts(mission: Pick<NativeMission, "connections">): boolean {
   for (const connection of mission.connections) {
     if (String(connection.sourcePort || "main").trim() !== "main") return true
@@ -55,6 +61,10 @@ export function missionHasAgentPhase0Nodes(mission: Pick<NativeMission, "nodes">
   return mission.nodes.some((node) => AGENT_PHASE0_NODE_TYPES.has(String(node.type || "")))
 }
 
+export function missionHasCanvasOnlyNodes(mission: Pick<NativeMission, "nodes">): boolean {
+  return mission.nodes.some((node) => CANVAS_ONLY_NODE_TYPES.has(String(node.type || "")))
+}
+
 export function missionHasNonLinearGraph(mission: Pick<NativeMission, "nodes" | "connections">): boolean {
   if (hasNonMainPorts(mission)) return true
   if (hasFanOutOrFanIn(mission)) return true
@@ -62,5 +72,5 @@ export function missionHasNonLinearGraph(mission: Pick<NativeMission, "nodes" | 
 }
 
 export function missionRequiresCanvasEditor(mission: Pick<NativeMission, "nodes" | "connections">): boolean {
-  return missionHasAgentPhase0Nodes(mission) || missionHasNonLinearGraph(mission)
+  return missionHasAgentPhase0Nodes(mission) || missionHasCanvasOnlyNodes(mission) || missionHasNonLinearGraph(mission)
 }

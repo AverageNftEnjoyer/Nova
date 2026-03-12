@@ -320,6 +320,9 @@ const MISSION_PARALLEL_SAFE_NODE_TYPES = new Set<MissionNode["type"]>([
   "http-request",
   "rss-feed",
   "coinbase",
+  "polymarket-data-fetch",
+  "polymarket-price-trigger",
+  "polymarket-monitor",
   "ai-summarize",
   "ai-classify",
   "ai-extract",
@@ -616,7 +619,14 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   // â”€â”€ Find trigger nodes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const triggerTypes = new Set(["schedule-trigger", "webhook-trigger", "manual-trigger", "event-trigger"])
+  const triggerTypes = new Set([
+    "schedule-trigger",
+    "webhook-trigger",
+    "manual-trigger",
+    "event-trigger",
+    "polymarket-price-trigger",
+    "polymarket-monitor",
+  ])
   const triggerNodes = mission.nodes.filter((n) => triggerTypes.has(n.type))
   const startIds = triggerNodes.length > 0 ? triggerNodes.map((n) => n.id) : [mission.nodes[0].id]
 

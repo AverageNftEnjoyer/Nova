@@ -7,7 +7,7 @@ import {
   type WorkflowValidationResult,
 } from "./types.ts"
 
-const KNOWN_STEP_TYPES = new Set(["trigger", "fetch", "coinbase", "ai", "transform", "condition", "output"])
+const KNOWN_STEP_TYPES = new Set(["trigger", "fetch", "coinbase", "polymarket", "ai", "transform", "condition", "output"])
 const STRICT_OUTPUT_CHANNELS_REQUIRING_RECIPIENTS = new Set(["telegram", "discord", "email", "webhook", "push"])
 
 function nowMs(): number {
@@ -58,7 +58,7 @@ function validateSteps(input: WorkflowValidationInput, issues: WorkflowValidatio
           `${path}.type`,
           "type",
           `Step type "${stepType || "unknown"}" is not supported.`,
-          "Use one of: trigger, fetch, coinbase, ai, transform, condition, output.",
+          "Use one of: trigger, fetch, coinbase, polymarket, ai, transform, condition, output.",
         ),
       )
       continue
@@ -323,3 +323,4 @@ export function validateWorkflowSummary(input: WorkflowValidationInput): Workflo
     },
   }
 }
+

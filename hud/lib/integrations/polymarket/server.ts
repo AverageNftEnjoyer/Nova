@@ -14,13 +14,17 @@ import {
   POLYMARKET_DATA_API_URL,
   POLYMARKET_GAMMA_API_URL,
   normalizePolymarketEvmAddress,
+  normalizePolymarketEvent,
+  normalizePolymarketLeaderboardEntry,
   normalizePolymarketMarket,
-  normalizePolymarketOrderBook,
-  normalizePolymarketPosition,
+  normalizePolymarketTokenPrice,
   normalizePolymarketProfile,
+  type PolymarketEvent,
+  type PolymarketLeaderboardEntry,
   type PolymarketMarket,
   type PolymarketOrderBook,
   type PolymarketPricePoint,
+  type PolymarketTokenPrice,
   type PolymarketPosition,
   type PolymarketProfile,
 } from "./api"
@@ -31,9 +35,26 @@ import {
   DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
   normalizePolymarketIntegrationConfig,
 } from "./types"
+import { getGlobalPolymarketLruCache } from "./cache"
+import { getGlobalPolymarketClient } from "./client"
 
 const REQUEST_TIMEOUT_MS = 8_000
 export type PolymarketHistoryRange = "1h" | "6h" | "1d" | "1w" | "1m" | "all"
+export type PolymarketLeaderboardWindow = "day" | "week" | "month" | "all"
+
+const EVENTS_CACHE_TTL_MS = 30_000
+const PRICES_CACHE_TTL_MS = 5_000
+const LEADERBOARD_CACHE_TTL_MS = 120_000
+
+type GlobalPolymarketServerState = typeof globalThis & {
+  __novaPolymarketServerInflight?: Map<string, Promise<unknown>>
+}
+
+const globalPolymarketServerState = globalThis as GlobalPolymarketServerState
+const polymarketServerCache = getGlobalPolymarketLruCache<unknown>("polymarket-server-cache", { maxEntries: 500 })
+const polymarketServerInflight = globalPolymarketServerState.__novaPolymarketServerInflight ?? new Map<string, Promise<unknown>>()
+globalPolymarketServerState.__novaPolymarketServerInflight = polymarketServerInflight
+const polymarketClient = getGlobalPolymarketClient()
 
 class PolymarketServerError extends Error {
   public readonly status: number
@@ -96,6 +117,74 @@ function clamp01(value: number): number {
   if (value < 0) return 0
   if (value > 1) return 1
   return value
+}
+
+function normalizePositiveInt(value: unknown, fallback: number, maxValue: number): number {
+  const parsed = Number.parseInt(String(value || "").trim(), 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.min(maxValue, Math.max(1, parsed))
+}
+
+function toEpochMs(value: string): number {
+  const parsed = Date.parse(String(value || "").trim())
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function sortPolymarketMarkets(markets: PolymarketMarket[], orderInput: string, ascendingInput?: boolean): PolymarketMarket[] {
+  const order = String(orderInput || "").trim().toLowerCase()
+  if (!order || markets.length < 2) return markets
+  const asc = ascendingInput === true
+  const direction = asc ? 1 : -1
+  const sorted = [...markets]
+  sorted.sort((a, b) => {
+    let delta = 0
+    if (order === "volume24hr" || order === "volume_24hr" || order === "volume24") {
+      delta = a.volume24hr - b.volume24hr
+    } else if (order === "volume") {
+      delta = a.volume - b.volume
+    } else if (order === "liquidity") {
+      delta = a.liquidity - b.liquidity
+    } else if (order === "createdat" || order === "created_at" || order === "created") {
+      delta = toEpochMs(a.createdAt) - toEpochMs(b.createdAt)
+    } else if (order === "startdate" || order === "start_date" || order === "start") {
+      delta = toEpochMs(a.startDate) - toEpochMs(b.startDate)
+    } else if (order === "enddate" || order === "end_date" || order === "end") {
+      delta = toEpochMs(a.endDate) - toEpochMs(b.endDate)
+    }
+    if (delta === 0) {
+      delta = a.question.localeCompare(b.question)
+    }
+    return delta * direction
+  })
+  return sorted
+}
+
+function getCachedValue<T>(key: string): T | null {
+  return polymarketServerCache.get(key) as T | null
+}
+
+function setCachedValue<T>(key: string, value: T, ttlMs: number): T {
+  if (ttlMs > 0) {
+    polymarketServerCache.set(key, value, ttlMs)
+  }
+  return value
+}
+
+async function fetchWithCacheDedup<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
+  const cached = getCachedValue<T>(key)
+  if (cached !== null) return cached
+
+  const pending = polymarketServerInflight.get(key)
+  if (pending) return pending as Promise<T>
+
+  const nextPending = loader()
+    .then((value) => setCachedValue(key, value, ttlMs))
+    .finally(() => {
+      polymarketServerInflight.delete(key)
+    })
+
+  polymarketServerInflight.set(key, nextPending as Promise<unknown>)
+  return nextPending
 }
 
 function normalizeHistoryPoint(raw: unknown): PolymarketPricePoint | null {
@@ -214,41 +303,198 @@ export async function fetchPolymarketMarkets(params: {
   query?: string
   limit?: number
   tagSlug?: string
+  offset?: number
+  order?: string
+  ascending?: boolean
 }): Promise<PolymarketMarket[]> {
   const limit = Math.max(1, Math.min(24, Math.floor(Number(params.limit || 8))))
   const query = String(params.query || "").trim()
+  const tagSlug = String(params.tagSlug || "").trim()
+  const offsetParsed = Number.parseInt(String(params.offset ?? "").trim(), 10)
+  const offset = Number.isFinite(offsetParsed) && offsetParsed > 0 ? Math.min(offsetParsed, 10_000) : 0
+  const order = String(params.order || "").trim()
+  const ascending = typeof params.ascending === "boolean" ? params.ascending : undefined
   if (query) {
+    const searchLimit = Math.min(100, Math.max(limit, limit + offset))
     const searchUrl = new URL(`${POLYMARKET_GAMMA_API_URL}/public-search`)
     searchUrl.searchParams.set("q", query)
+    searchUrl.searchParams.set("limit", String(searchLimit))
     const payload = await fetchJson(searchUrl.toString()) as { markets?: unknown[] }
-    return (Array.isArray(payload?.markets) ? payload.markets : [])
+    const normalized = (Array.isArray(payload?.markets) ? payload.markets : [])
       .map((entry) => normalizePolymarketMarket(entry))
       .filter((entry): entry is PolymarketMarket => Boolean(entry))
       .filter((entry) => entry.active && !entry.closed)
-      .slice(0, limit)
+    const sorted = sortPolymarketMarkets(normalized, order, ascending)
+    return sorted.slice(offset, offset + limit)
   }
 
-  const marketsUrl = new URL(`${POLYMARKET_GAMMA_API_URL}/markets`)
-  marketsUrl.searchParams.set("active", "true")
-  marketsUrl.searchParams.set("closed", "false")
-  marketsUrl.searchParams.set("limit", String(limit))
-  if (params.tagSlug) marketsUrl.searchParams.set("tag_slug", String(params.tagSlug).trim())
+  const markets = await polymarketClient.getMarkets({
+    limit,
+    offset: offset + 1,
+    active: true,
+    closed: false,
+    tagSlug,
+    order,
+    ascending,
+  })
+  return sortPolymarketMarkets(markets, order, ascending)
+}
 
-  const payload = await fetchJson(marketsUrl.toString())
-  return (Array.isArray(payload) ? payload : [])
-    .map((entry) => normalizePolymarketMarket(entry))
-    .filter((entry): entry is PolymarketMarket => Boolean(entry))
+export async function fetchPolymarketEvents(params: {
+  limit?: number
+  tagSlug?: string
+} = {}): Promise<PolymarketEvent[]> {
+  const limit = normalizePositiveInt(params.limit, 20, 100)
+  const tagSlug = String(params.tagSlug || "").trim()
+  const cacheKey = `events:${tagSlug.toLowerCase()}:${limit}`
+  return fetchWithCacheDedup(cacheKey, EVENTS_CACHE_TTL_MS, async () => {
+    const url = new URL(`${POLYMARKET_GAMMA_API_URL}/events`)
+    url.searchParams.set("limit", String(limit))
+    if (tagSlug) {
+      url.searchParams.set("tag_slug", tagSlug)
+    }
+    const payload = await fetchJson(url.toString())
+    const rows = Array.isArray(payload)
+      ? payload
+      : Array.isArray((payload as { data?: unknown[] } | null | undefined)?.data)
+        ? ((payload as { data?: unknown[] }).data ?? [])
+        : []
+    return rows
+      .map((entry) => normalizePolymarketEvent(entry))
+      .filter((entry): entry is PolymarketEvent => Boolean(entry))
+  })
+}
+
+function extractPriceRows(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload
+  if (!payload || typeof payload !== "object") return []
+  const source = payload as Record<string, unknown>
+  if (Array.isArray(source.prices)) return source.prices
+  if (Array.isArray(source.data)) return source.data
+
+  const isLikelyTokenId = (value: string): boolean => /^(\d{3,}|0x[a-fA-F0-9]{8,}|[A-Za-z0-9_-]{12,})$/.test(value)
+  const rows: unknown[] = []
+  for (const [tokenId, value] of Object.entries(source)) {
+    const normalizedTokenId = String(tokenId || "").trim()
+    if (!isLikelyTokenId(normalizedTokenId)) continue
+    if (value && typeof value === "object") {
+      rows.push({
+        token_id: normalizedTokenId,
+        ...(value as Record<string, unknown>),
+      })
+      continue
+    }
+    const parsedPrice = Number.parseFloat(String(value ?? ""))
+    if (Number.isFinite(parsedPrice)) {
+      rows.push({
+        token_id: tokenId,
+        price: parsedPrice,
+      })
+    }
+  }
+  return rows
+}
+
+export async function fetchPolymarketPrices(tokenIds: string[]): Promise<PolymarketTokenPrice[]> {
+  const normalizedTokenIds = [...new Set(
+    (Array.isArray(tokenIds) ? tokenIds : [])
+      .map((tokenId) => String(tokenId || "").trim())
+      .filter(Boolean),
+  )].slice(0, 100)
+
+  if (normalizedTokenIds.length === 0) return []
+
+  const cacheKey = `prices:${normalizedTokenIds.join(",")}`
+  return fetchWithCacheDedup(cacheKey, PRICES_CACHE_TTL_MS, async () => {
+    const candidateUrls = [
+      `${POLYMARKET_CLOB_API_URL}/prices?token_ids=${encodeURIComponent(normalizedTokenIds.join(","))}`,
+      `${POLYMARKET_CLOB_API_URL}/prices?tokenIds=${encodeURIComponent(normalizedTokenIds.join(","))}`,
+      `${POLYMARKET_CLOB_API_URL}/prices?tokens=${encodeURIComponent(normalizedTokenIds.join(","))}`,
+    ]
+
+    for (const url of candidateUrls) {
+      try {
+        const payload = await fetchJson(url)
+        const normalizedRows = extractPriceRows(payload)
+          .map((entry) => normalizePolymarketTokenPrice(entry))
+          .filter((entry): entry is PolymarketTokenPrice => Boolean(entry))
+        if (normalizedRows.length > 0) {
+          const deduped = new Map<string, PolymarketTokenPrice>()
+          for (const row of normalizedRows) {
+            if (!deduped.has(row.tokenId)) deduped.set(row.tokenId, row)
+          }
+          return [...deduped.values()]
+        }
+      } catch {
+        // Try next compatible endpoint variant.
+      }
+    }
+
+    const fallbackRows = await Promise.all(
+      normalizedTokenIds.map(async (tokenId) => {
+        try {
+          const payload = await fetchJson(`${POLYMARKET_CLOB_API_URL}/price?token_id=${encodeURIComponent(tokenId)}`)
+          return normalizePolymarketTokenPrice({
+            token_id: tokenId,
+            ...(payload && typeof payload === "object" ? payload as Record<string, unknown> : {}),
+          })
+        } catch {
+          return null
+        }
+      }),
+    )
+
+    const normalizedFallbackRows = fallbackRows.filter((entry): entry is PolymarketTokenPrice => Boolean(entry))
+    if (normalizedFallbackRows.length > 0) {
+      const deduped = new Map<string, PolymarketTokenPrice>()
+      for (const row of normalizedFallbackRows) {
+        if (!deduped.has(row.tokenId)) deduped.set(row.tokenId, row)
+      }
+      return [...deduped.values()]
+    }
+
+    throw new PolymarketServerError("POLYMARKET_PRICES_UNAVAILABLE", "Failed to load market prices.", 502)
+  })
+}
+
+function normalizeLeaderboardWindow(value: unknown): PolymarketLeaderboardWindow {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (normalized === "day" || normalized === "1d" || normalized === "daily") return "day"
+  if (normalized === "week" || normalized === "7d" || normalized === "weekly") return "week"
+  if (normalized === "month" || normalized === "30d" || normalized === "monthly") return "month"
+  return "all"
+}
+
+export async function fetchPolymarketLeaderboard(params: {
+  window?: string
+  limit?: number
+} = {}): Promise<PolymarketLeaderboardEntry[]> {
+  const normalizedWindow = normalizeLeaderboardWindow(params.window)
+  const limit = normalizePositiveInt(params.limit, 25, 100)
+  const cacheKey = `leaderboard:${normalizedWindow}:${limit}`
+  return fetchWithCacheDedup(cacheKey, LEADERBOARD_CACHE_TTL_MS, async () => {
+    const url = new URL(`${POLYMARKET_DATA_API_URL}/leaderboard`)
+    url.searchParams.set("window", normalizedWindow)
+    url.searchParams.set("limit", String(limit))
+    const payload = await fetchJson(url.toString())
+    const rows = Array.isArray(payload)
+      ? payload
+      : Array.isArray((payload as { leaderboard?: unknown[] } | null | undefined)?.leaderboard)
+        ? ((payload as { leaderboard?: unknown[] }).leaderboard ?? [])
+        : Array.isArray((payload as { data?: unknown[] } | null | undefined)?.data)
+          ? ((payload as { data?: unknown[] }).data ?? [])
+          : []
+    return rows
+      .map((entry, index) => normalizePolymarketLeaderboardEntry(entry, index + 1))
+      .filter((entry): entry is PolymarketLeaderboardEntry => Boolean(entry))
+      .slice(0, limit)
+  })
 }
 
 export async function fetchPolymarketMarketBySlug(slug: string): Promise<PolymarketMarket | null> {
   const normalizedSlug = String(slug || "").trim()
   if (!normalizedSlug) return null
-  const url = new URL(`${POLYMARKET_GAMMA_API_URL}/markets`)
-  url.searchParams.set("slug", normalizedSlug)
-  url.searchParams.set("limit", "1")
-  const payload = await fetchJson(url.toString())
-  const items = Array.isArray(payload) ? payload : []
-  return normalizePolymarketMarket(items[0])
+  return polymarketClient.getMarket(normalizedSlug)
 }
 
 export async function fetchPolymarketOrderBook(tokenId: string): Promise<PolymarketOrderBook> {
@@ -256,8 +502,7 @@ export async function fetchPolymarketOrderBook(tokenId: string): Promise<Polymar
   if (!normalizedTokenId) {
     throw new PolymarketServerError("POLYMARKET_TOKEN_REQUIRED", "tokenId is required.", 400)
   }
-  const payload = await fetchJson(`${POLYMARKET_CLOB_API_URL}/book?token_id=${encodeURIComponent(normalizedTokenId)}`)
-  return normalizePolymarketOrderBook(payload, normalizedTokenId)
+  return polymarketClient.getOrderBook(normalizedTokenId)
 }
 
 export async function fetchPolymarketPublicProfile(walletAddress: string): Promise<PolymarketProfile> {
@@ -277,16 +522,7 @@ export async function fetchPolymarketPositions(address: string): Promise<Polymar
   const normalizedAddress = normalizePolymarketEvmAddress(address)
   if (!normalizedAddress) return []
   try {
-    const url = new URL(`${POLYMARKET_DATA_API_URL}/positions`)
-    url.searchParams.set("user", normalizedAddress)
-    url.searchParams.set("sizeThreshold", "0.1")
-    const payload = await fetchJson(url.toString())
-    const rows = Array.isArray(payload) ? payload : Array.isArray((payload as { data?: unknown[] } | null | undefined)?.data)
-      ? ((payload as { data?: unknown[] }).data ?? [])
-      : []
-    return rows
-      .map((entry) => normalizePolymarketPosition(entry))
-      .filter((entry): entry is PolymarketPosition => Boolean(entry))
+    return await polymarketClient.getPositions(normalizedAddress)
   } catch {
     return []
   }
@@ -386,3 +622,6 @@ export function toPolymarketServerError(error: unknown): { status: number; code:
     message: error instanceof Error ? error.message : "Polymarket request failed.",
   }
 }
+
+
+

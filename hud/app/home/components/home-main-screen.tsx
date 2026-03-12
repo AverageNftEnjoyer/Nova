@@ -40,6 +40,7 @@ import { NewsFeedModule } from "./news-feed-module"
 import { NewsFeedFilterModal } from "./news-feed-filter-modal"
 import { YouTubeHomeModule } from "./youtube-home-module"
 import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
+import { WeatherHomeModule } from "./weather-home-module"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface HistoryConversationMenuProps {
@@ -218,6 +219,10 @@ export function HomeMainScreen() {
     newsStale,
     newsFetchedAt,
     refreshNewsFeed,
+    preferredWeatherCity,
+    homeWeather,
+    homeWeatherLoading,
+    homeWeatherError,
     orbPalette,
   } = useHomeMainScreenState()
   const isLight = muteHydrated && rawIsLight
@@ -249,6 +254,9 @@ export function HomeMainScreen() {
     { label: "Total Tokens", value: fmt(devToolsMetrics.totalTokens), color: "" },
     { label: "Avg Quality", value: devToolsMetrics.avgQuality.toFixed(1), color: "" },
   ] as const
+  const stableStaticPanelClass = isLight
+    ? panelClass
+    : "home-module-surface rounded-md border bg-[#0b1018]/88 backdrop-blur-none"
   const staticDataTileClass = isLight
     ? "rounded-sm border border-[#d5dce8] bg-[#f4f7fd]"
     : "home-subpanel-surface rounded-sm border backdrop-blur-none"
@@ -792,7 +800,7 @@ export function HomeMainScreen() {
               {/* Commodities */}
               <section
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${stableStaticPanelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
                   icon: <BarChart2 className="w-4 h-4 text-accent" />,
@@ -833,7 +841,7 @@ export function HomeMainScreen() {
               <section
                 ref={devToolsSectionRef}
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${stableStaticPanelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
                   icon: <Activity className="w-4 h-4 text-accent" />,
@@ -863,26 +871,16 @@ export function HomeMainScreen() {
                 </div>
               </section>
 
-              {/* Day in History */}
-              <section
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2 flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <History className="w-4 h-4 text-accent" />,
-                  title: "On This Day",
-                })}
-                <div
-                  className={cn(
-                    "mt-2 flex-1 rounded-md border grid place-items-center home-spotlight-card home-border-glow",
-                    subPanelClass,
-                  )}
-                >
-                  <p className={cn("text-[11px] text-center px-3", isLight ? "text-s-50" : "text-slate-400")}>
-                    Module slot reserved.
-                  </p>
-                </div>
-              </section>
+              <WeatherHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                preferredCity={preferredWeatherCity}
+                weather={homeWeather}
+                weatherLoading={homeWeatherLoading}
+                weatherError={homeWeatherError}
+              />
 
             </div>
             </div>

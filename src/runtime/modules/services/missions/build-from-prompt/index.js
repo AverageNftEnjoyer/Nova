@@ -112,6 +112,7 @@ export async function runBuildMissionFromPrompt(prompt, options = {}, dependenci
     `Connected output channels: ${[...outputSet].join(", ")}. Preferred output: ${requestedOutput} -> use node type "${outputNodeType}".`,
     "For web/news tasks always include a web-search node before AI. Do not invent facts.",
     "For crypto/Coinbase tasks use a coinbase node (intent: report|portfolio|price|transactions|status).",
+    "For prediction market tasks use polymarket nodes: polymarket-data-fetch, polymarket-price-trigger, and polymarket-monitor.",
   ].join(" ");
 
   const schemaExample = JSON.stringify({
@@ -166,6 +167,9 @@ export async function runBuildMissionFromPrompt(prompt, options = {}, dependenci
     `User prompt: ${prompt}`,
     "Additional node types you can use:",
     "- coinbase: intent=report|portfolio|price|transactions|status, assets=[\"BTC\",\"ETH\"]",
+    "- polymarket-data-fetch: queryType=search|market|prices|events|leaderboard, query=TEXT, slug=MARKET_SLUG, tokenIds=[\"TOKEN_ID\"]",
+    "- polymarket-price-trigger: tokenId=TOKEN_ID, direction=above|below, threshold=0.60",
+    "- polymarket-monitor: query=TEXT, tagSlug=TAG, range=1h|6h|1d|1w|1m, changeThresholdPct=5",
     "- rss-feed: url=FEED_URL, maxItems=10",
     "- http-request: url=API_URL, method=GET|POST",
     "- condition: rules=[{field,operator,value}], logic=all|any  (ports: true, false)",
@@ -252,3 +256,5 @@ export async function runBuildMissionFromPrompt(prompt, options = {}, dependenci
 
   return { mission: { ...mission, status: "draft" }, provider, model };
 }
+
+

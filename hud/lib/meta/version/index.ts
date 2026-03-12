@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.57 Alpha (2026-03-12): Polymarket integration completion + feed controls hardening
+ *     - Completed missing Polymarket API compatibility routes (`market/[id]`, `orderbook/[tokenId]`, `history`) and normalized error/auth/rate-limit behavior.
+ *     - Finalized Polymarket HUD surface with dedicated market search/detail/chart components, live websocket price updates, orderbook wiring, and leaderboard/history rendering.
+ *     - Added market-feed tag/sort controls with paginated loading and infinite-scroll behavior, backed by server-side `offset`/`sort`/`ascending` support.
+ *     - Revalidated end-to-end with repeated typecheck and routing/domain/live smoke passes.
+ *
  * - V.56 Alpha (2026-03-10): Routing/runtime hardening follow-up
  *     - Hardened chat execution so TTS output failures are recorded without clobbering successful primary replies.
  *     - Preserved delegated-worker fallback diagnostics (`fallbackReason`, `fallbackStage`, candidate state) for non-fatal degraded responses.
@@ -345,4 +351,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.56 Alpha"
+export const NOVA_VERSION = "V.57 Alpha"
+
+

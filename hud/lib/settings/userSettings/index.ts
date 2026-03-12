@@ -27,6 +27,7 @@ export interface Personalization {
   assistantName: string // What the user wants to call the assistant
   nickname: string // What Nova should call the user
   occupation: string
+  preferredCity: string // Preferred weather city for Home weather module
   interests: string[] // List of interests
   communicationStyle: "formal" | "casual" | "friendly" | "professional"
   tone: ResponseTone
@@ -88,6 +89,7 @@ export interface UserSettings {
 const STORAGE_KEY_PREFIX = "nova_user_settings"
 export const USER_SETTINGS_UPDATED_EVENT = "nova:user-settings-updated"
 export const MAX_ASSISTANT_NAME_LENGTH = 8
+export const MAX_PREFERRED_CITY_LENGTH = 80
 const BLOCKED_ASSISTANT_NAME_PATTERNS: RegExp[] = [
   /^fuck(?:er|ing|ed|s)?$/i,
   /^shit(?:ty|s)?$/i,
@@ -144,6 +146,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     assistantName: "Nova",
     nickname: "",
     occupation: "",
+    preferredCity: "",
     interests: [],
     communicationStyle: "friendly",
     tone: "neutral",
@@ -202,6 +205,7 @@ export function loadUserSettings(): UserSettings {
       personalization: {
         ...merged.personalization,
         assistantName: clampAssistantName(merged.personalization.assistantName),
+        preferredCity: normalizePreferredCity(merged.personalization.preferredCity),
         tone: normalizeResponseTone(merged.personalization.tone),
       },
     }
@@ -221,6 +225,7 @@ export function saveUserSettings(settings: UserSettings): void {
     personalization: {
       ...settings.personalization,
       assistantName: clampAssistantName(settings.personalization.assistantName),
+      preferredCity: normalizePreferredCity(settings.personalization.preferredCity),
     },
     updatedAt: new Date().toISOString(),
   }
@@ -269,12 +274,45 @@ export function updatePersonalization(personalization: Partial<Personalization>)
   if (typeof nextPersonalization.assistantName === "string") {
     nextPersonalization.assistantName = clampAssistantName(nextPersonalization.assistantName)
   }
+  if (typeof nextPersonalization.preferredCity === "string") {
+    nextPersonalization.preferredCity = normalizePreferredCity(nextPersonalization.preferredCity)
+  }
   const updated = {
     ...current,
     personalization: { ...current.personalization, ...nextPersonalization },
   }
   saveUserSettings(updated)
   return updated
+}
+
+const PREFERRED_CITY_COMMAND_PATTERNS: RegExp[] = [
+  /\b(?:set|update|change)\s+(?:my\s+)?(?:preferred\s+)?(?:weather\s+)?city\s+(?:to|as)\s+([a-z0-9][a-z0-9\s,.'-]{1,100})(?:[.!?]+)?$/i,
+  /\b(?:remember|save|use)\s+(?:that\s+)?(?:my\s+)?(?:preferred\s+)?(?:weather\s+)?city\s+is\s+([a-z0-9][a-z0-9\s,.'-]{1,100})(?:[.!?]+)?$/i,
+  /\bmy\s+(?:preferred\s+)?(?:weather\s+)?city\s+is\s+([a-z0-9][a-z0-9\s,.'-]{1,100})(?:[.!?]+)?$/i,
+  /\bweather\s+city\s*[:=]\s*([a-z0-9][a-z0-9\s,.'-]{1,100})(?:[.!?]+)?$/i,
+]
+
+export function normalizePreferredCity(value: unknown): string {
+  return String(value || "")
+    .replace(/[\u201C\u201D"]/g, "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\b(?:please|thanks|thank you)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.!?]+$/g, "")
+    .slice(0, MAX_PREFERRED_CITY_LENGTH)
+    .trim()
+}
+
+export function extractPreferredCityCommand(value: unknown): string {
+  const text = String(value || "").trim()
+  if (!text) return ""
+  for (const pattern of PREFERRED_CITY_COMMAND_PATTERNS) {
+    const match = text.match(pattern)
+    const candidate = normalizePreferredCity(match?.[1] || "")
+    if (candidate) return candidate
+  }
+  return ""
 }
 
 function clampAssistantName(value: unknown): string {
@@ -440,3 +478,4 @@ export const DARK_BACKGROUNDS: Record<DarkBackgroundType, { name: string; descri
 export const LIGHT_BACKGROUNDS: Record<LightBackgroundType, { name: string; description: string }> = {
   none: { name: "None", description: "No background animation" },
 }
+

@@ -3,8 +3,8 @@
  */
 
 import type { MissionNode, NodeOutput, ExecutionContext } from "../../types/index"
-import { executeScheduleTrigger, executeManualTrigger, executeWebhookTrigger, executeEventTrigger } from "./trigger-executors"
-import { executeWebSearch, executeHttpRequest, executeRssFeed, executeCoinbase } from "./data-executors"
+import { executeScheduleTrigger, executeManualTrigger, executeWebhookTrigger, executeEventTrigger, executePolymarketPriceTrigger, executePolymarketMonitor } from "./trigger-executors"
+import { executeWebSearch, executeHttpRequest, executeRssFeed, executeCoinbase, executePolymarketDataFetch } from "./data-executors"
 import { executeAiSummarize, executeAiClassify, executeAiExtract, executeAiGenerate, executeAiChat } from "./ai-executors"
 import { executeCondition, executeSwitch, executeLoop, executeMerge, executeSplit, executeWait } from "./logic-executors"
 import { executeSetVariables, executeCode, executeFormat, executeFilter, executeSort, executeDedupe } from "./transform-executors"
@@ -28,11 +28,14 @@ export const EXECUTOR_REGISTRY: Record<string, NodeExecutor> = {
   "manual-trigger": (n, c) => executeManualTrigger(n as Parameters<typeof executeManualTrigger>[0], c),
   "webhook-trigger": (n, c) => executeWebhookTrigger(n as Parameters<typeof executeWebhookTrigger>[0], c),
   "event-trigger": (n, c) => executeEventTrigger(n as Parameters<typeof executeEventTrigger>[0], c),
+  "polymarket-price-trigger": (n, c) => executePolymarketPriceTrigger(n as Parameters<typeof executePolymarketPriceTrigger>[0], c),
+  "polymarket-monitor": (n, c) => executePolymarketMonitor(n as Parameters<typeof executePolymarketMonitor>[0], c),
   // Data
   "web-search": (n, c) => executeWebSearch(n as Parameters<typeof executeWebSearch>[0], c),
   "http-request": (n, c) => executeHttpRequest(n as Parameters<typeof executeHttpRequest>[0], c),
   "rss-feed": (n, c) => executeRssFeed(n as Parameters<typeof executeRssFeed>[0], c),
   "coinbase": (n, c) => executeCoinbase(n as Parameters<typeof executeCoinbase>[0], c),
+  "polymarket-data-fetch": (n, c) => executePolymarketDataFetch(n as Parameters<typeof executePolymarketDataFetch>[0], c),
   "file-read": async () => ({ ok: false, error: "file-read not yet supported in server execution." }),
   "form-input": async () => ({ ok: false, error: "form-input is not executable in scheduled missions." }),
   // AI
@@ -73,3 +76,5 @@ export const EXECUTOR_REGISTRY: Record<string, NodeExecutor> = {
   "agent-audit": (n, c) => executeAgentAudit(n as Parameters<typeof executeAgentAudit>[0], c),
   "agent-subworkflow": (n, c) => executeAgentSubworkflow(n as Parameters<typeof executeAgentSubworkflow>[0], c),
 }
+
+

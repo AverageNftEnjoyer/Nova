@@ -53,7 +53,7 @@ export async function buildMissionFromPrompt(
  */
 export function guessMissionCategory(label: string, tags: string[] = []): MissionCategory {
   const text = `${label} ${tags.join(" ")}`.toLowerCase()
-  if (/crypto|bitcoin|eth|coinbase|portfolio|pnl/.test(text)) return "finance"
+  if (/crypto|bitcoin|eth|coinbase|polymarket|prediction market|market odds|portfolio|pnl/.test(text)) return "finance"
   if (/market|stock|trading|earnings|forex/.test(text)) return "finance"
   if (/deploy|uptime|error|monitor|devops|ci|cd/.test(text)) return "devops"
   if (/seo|lead|ad|campaign|marketing/.test(text)) return "marketing"
@@ -65,3 +65,4 @@ export function guessMissionCategory(label: string, tags: string[] = []): Missio
   if (/weather|remind|habit|travel|personal/.test(text)) return "personal"
   return "research"
 }
+

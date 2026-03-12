@@ -14,6 +14,7 @@ import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeCryptoMarket } from "./use-home-crypto-market"
 import { useHomeNewsFeed } from "./use-home-news-feed"
 import { useHomeVisuals } from "./use-home-visuals"
+import { useHomeWeather } from "./use-home-weather"
 
 const GREETING_COOLDOWN_MS = 60_000
 const HOME_COMMAND_CONVERSATION_ID = "home-command-surface"
@@ -54,6 +55,7 @@ export function useHomeMainScreenState() {
   const cryptoMarket = useHomeCryptoMarket()
   const devTools = useHomeDevTools()
   const newsFeed = useHomeNewsFeed({ enabled: integrations.newsConnected })
+  const weather = useHomeWeather()
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
   const latestHomeCommandReply = (() => {
@@ -269,5 +271,10 @@ export function useHomeMainScreenState() {
     newsStale: newsFeed.newsStale,
     newsFetchedAt: newsFeed.newsFetchedAt,
     refreshNewsFeed: newsFeed.refreshNewsFeed,
+    preferredWeatherCity: weather.preferredCity,
+    homeWeather: weather.weather,
+    homeWeatherLoading: weather.weatherLoading,
+    homeWeatherError: weather.weatherError,
+    refreshHomeWeather: weather.refreshWeather,
   }
 }

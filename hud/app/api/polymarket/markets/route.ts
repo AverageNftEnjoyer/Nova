@@ -11,6 +11,26 @@ import { requireSupabaseApiUser } from "@/lib/supabase/server"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
+function normalizeLimit(value: string | null, fallback: number, maxValue: number): number {
+  const parsed = Number.parseInt(String(value || "").trim(), 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.min(maxValue, Math.max(1, parsed))
+}
+
+function normalizeOffset(value: string | null): number {
+  const parsed = Number.parseInt(String(value || "").trim(), 10)
+  if (!Number.isFinite(parsed) || parsed < 0) return 0
+  return Math.min(10_000, parsed)
+}
+
+function normalizeAscending(value: string | null): boolean | undefined {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (!normalized) return undefined
+  if (normalized === "1" || normalized === "true" || normalized === "asc" || normalized === "ascending") return true
+  if (normalized === "0" || normalized === "false" || normalized === "desc" || normalized === "descending") return false
+  return undefined
+}
+
 export async function GET(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) {
@@ -33,8 +53,11 @@ export async function GET(req: Request) {
 
     const query = String(url.searchParams.get("q") || "").trim()
     const tagSlug = String(url.searchParams.get("tag") || "").trim()
-    const limit = Number.parseInt(String(url.searchParams.get("limit") || "12"), 10)
-    const markets = await fetchPolymarketMarkets({ query, tagSlug, limit })
+    const limit = normalizeLimit(url.searchParams.get("limit"), 12, 24)
+    const offset = normalizeOffset(url.searchParams.get("offset"))
+    const order = String(url.searchParams.get("sort") || url.searchParams.get("order") || "").trim()
+    const ascending = normalizeAscending(url.searchParams.get("ascending"))
+    const markets = await fetchPolymarketMarkets({ query, tagSlug, limit, offset, order, ascending })
     return NextResponse.json({ ok: true, markets })
   } catch (error) {
     const normalized = toPolymarketServerError(error)

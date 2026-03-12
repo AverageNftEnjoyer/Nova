@@ -430,6 +430,100 @@ function TypeFields({ type, cfg, upd }: { type: string; cfg: Record<string, unkn
         </>
       )
 
+    case "polymarket-price-trigger":
+      return (
+        <>
+          <FieldWrap label="Token ID">
+            <input className={FIELD_INPUT} value={str("tokenId")} onChange={(e) => upd({ tokenId: e.target.value })} placeholder="token id" />
+          </FieldWrap>
+          <FieldWrap label="Market Slug (optional)">
+            <input className={FIELD_INPUT} value={str("marketSlug")} onChange={(e) => upd({ marketSlug: e.target.value })} placeholder="will-btc-hit-120k" />
+          </FieldWrap>
+          <div className="grid grid-cols-2 gap-1.5">
+            <FieldWrap label="Direction">
+              <FluidSelect
+                isLight={false}
+                value={str("direction", "above")}
+                options={[{ value: "above", label: "Above" }, { value: "below", label: "Below" }]}
+                onChange={(v) => upd({ direction: v })}
+                buttonClassName={FIELD_SELECT_BTN}
+              />
+            </FieldWrap>
+            <FieldWrap label="Threshold (0-1)">
+              <input className={FIELD_INPUT} type="number" step="0.01" value={num("threshold", 0.5)} onChange={(e) => upd({ threshold: Number(e.target.value) || 0 })} placeholder="0.6" />
+            </FieldWrap>
+          </div>
+        </>
+      )
+
+    case "polymarket-monitor":
+      return (
+        <>
+          <FieldWrap label="Query">
+            <input className={FIELD_INPUT} value={str("query")} onChange={(e) => upd({ query: e.target.value })} placeholder="fed rate cut odds" />
+          </FieldWrap>
+          <FieldWrap label="Tag Slug (optional)">
+            <input className={FIELD_INPUT} value={str("tagSlug")} onChange={(e) => upd({ tagSlug: e.target.value })} placeholder="politics" />
+          </FieldWrap>
+          <div className="grid grid-cols-3 gap-1.5">
+            <FieldWrap label="Range">
+              <FluidSelect
+                isLight={false}
+                value={str("range", "1d")}
+                options={[
+                  { value: "1h", label: "1h" },
+                  { value: "6h", label: "6h" },
+                  { value: "1d", label: "1d" },
+                  { value: "1w", label: "1w" },
+                  { value: "1m", label: "1m" },
+                  { value: "all", label: "all" },
+                ]}
+                onChange={(v) => upd({ range: v })}
+                buttonClassName={FIELD_SELECT_BTN}
+              />
+            </FieldWrap>
+            <FieldWrap label="Swing %">
+              <input className={FIELD_INPUT} type="number" step="0.1" value={num("changeThresholdPct", 5)} onChange={(e) => upd({ changeThresholdPct: Number(e.target.value) || 0 })} placeholder="5" />
+            </FieldWrap>
+            <FieldWrap label="Max Markets">
+              <input className={FIELD_INPUT} type="number" value={num("maxMarkets", 6)} onChange={(e) => upd({ maxMarkets: Number(e.target.value) || 1 })} placeholder="6" />
+            </FieldWrap>
+          </div>
+        </>
+      )
+
+    case "polymarket-data-fetch":
+      return (
+        <>
+          <FieldWrap label="Query Type">
+            <FluidSelect
+              isLight={false}
+              value={str("queryType", "search")}
+              options={[
+                { value: "search", label: "Search" },
+                { value: "market", label: "Market" },
+                { value: "prices", label: "Prices" },
+                { value: "events", label: "Events" },
+                { value: "leaderboard", label: "Leaderboard" },
+              ]}
+              onChange={(v) => upd({ queryType: v })}
+              buttonClassName={FIELD_SELECT_BTN}
+            />
+          </FieldWrap>
+          <FieldWrap label="Query / Slug">
+            <input className={FIELD_INPUT} value={str("query") || str("slug")} onChange={(e) => upd({ query: e.target.value, slug: e.target.value })} placeholder="market search or slug" />
+          </FieldWrap>
+          <FieldWrap label="Token IDs (csv)">
+            <input
+              className={FIELD_INPUT}
+              value={arr("tokenIds").join(", ")}
+              onChange={(e) => upd({ tokenIds: e.target.value.split(",").map((value) => value.trim()).filter(Boolean) })}
+              placeholder="token1, token2"
+            />
+          </FieldWrap>
+        </>
+      )
+
     case "file-read":
       return (
         <>
@@ -1063,4 +1157,5 @@ export const BaseNode = memo(function BaseNode({ id, data, selected }: NodeProps
     </div>
   )
 })
+
 

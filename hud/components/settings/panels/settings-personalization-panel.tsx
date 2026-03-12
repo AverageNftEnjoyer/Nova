@@ -73,6 +73,15 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
       />
 
       <SettingInput
+        label="Preferred Weather City"
+        description="Used for the Home weather module. You can also tell Nova: set my weather city to Miami, FL."
+        value={settings.personalization.preferredCity}
+        onChange={(v) => updatePersonalization("preferredCity", v)}
+        placeholder="e.g., Austin, TX"
+        isLight={isLight}
+      />
+
+      <SettingInput
         label="Preferred Language"
         description="Your preferred language for responses"
         value={settings.personalization.preferredLanguage}

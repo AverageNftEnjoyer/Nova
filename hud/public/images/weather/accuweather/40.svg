@@ -1,0 +1,50 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.78914 24.2022C5.48142 26.1962 8.82125 27.3766 12.4389 27.3766C21.3585 27.3766 28.5893 20.2005 28.5893 11.3483C28.5893 7.40388 27.1537 3.79226 24.7727 1C33.7307 2.58902 40.5334 10.4144 40.5334 19.8287C40.5334 30.3902 31.9716 38.952 21.4101 38.952C12.3533 38.952 4.76701 32.6561 2.78914 24.2022Z" fill="url(#paint0_linear_0_321)"/>
+<g style="mix-blend-mode:darken" opacity="0.4">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M24.9956 34.3485C24.7733 34.7745 24.6674 35.2655 24.2644 35.5267C23.8426 35.8 23.3334 35.7825 22.8322 35.7508C22.1427 35.7072 21.3386 35.8364 20.8871 35.313C20.3991 34.7472 20.3582 33.8777 20.6089 33.1731C20.8452 32.5088 21.5384 32.2063 22.129 31.822C22.7741 31.4022 23.3789 30.7546 24.1383 30.8763C24.9362 31.004 25.69 31.638 25.8839 32.4234C26.06 33.1364 25.3355 33.6972 24.9956 34.3485Z" fill="url(#paint1_radial_0_321)" fill-opacity="0.3"/>
+</g>
+<g style="mix-blend-mode:darken" opacity="0.32">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M36.9189 25.1662C36.6142 25.7501 36.469 26.4231 35.9166 26.7811C35.3385 27.1558 34.6405 27.1318 33.9534 27.0883C33.0083 27.0285 31.9061 27.2056 31.2873 26.4882C30.6183 25.7126 30.5623 24.5209 30.9059 23.555C31.2298 22.6445 32.18 22.2299 32.9895 21.7031C33.8738 21.1276 34.7028 20.24 35.7438 20.4067C36.8375 20.5818 37.8707 21.4509 38.1365 22.5273C38.3778 23.5048 37.3848 24.2734 36.9189 25.1662Z" fill="url(#paint2_radial_0_321)" fill-opacity="0.3"/>
+</g>
+<g style="mix-blend-mode:darken" opacity="0.22">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M30.4249 13.8892C30.5805 13.5912 30.6546 13.2477 30.9365 13.0649C31.2316 12.8737 31.5879 12.8859 31.9386 12.9081C32.421 12.9387 32.9836 12.8483 33.2994 13.2145C33.6409 13.6103 33.6695 14.2186 33.4941 14.7116C33.3288 15.1763 32.8437 15.388 32.4306 15.6569C31.9792 15.9506 31.5561 16.4037 31.0247 16.3186C30.4665 16.2292 29.9391 15.7856 29.8035 15.2362C29.6803 14.7373 30.1871 14.3449 30.4249 13.8892Z" fill="url(#paint3_radial_0_321)" fill-opacity="0.3"/>
+</g>
+<rect width="2.95073" height="8.8522" rx="1.47537" transform="matrix(0.987743 0.15609 -0.156766 0.987636 43.4087 48.8232)" fill="url(#paint4_radial_0_321)" fill-opacity="0.9"/>
+<rect width="2.95073" height="13.0688" rx="1.47537" transform="matrix(0.987743 0.15609 -0.156766 0.987636 34.5566 48.8232)" fill="url(#paint5_radial_0_321)" fill-opacity="0.9"/>
+<rect width="2.95073" height="8.59581" rx="1.47537" transform="matrix(0.987743 0.15609 -0.156766 0.987636 24.7207 48.8232)" fill="url(#paint6_radial_0_321)" fill-opacity="0.9"/>
+<path d="M19.1128 27.0238C20.0363 18.9279 26.7227 12.6864 34.6263 12.6864C41.6176 12.6864 47.6855 17.4572 49.6257 24.3811C49.6681 24.3737 49.7147 24.3767 49.7584 24.3708C50.1552 24.3222 50.5563 24.2869 50.9658 24.2869C56.5112 24.2869 61.02 28.9857 61.02 34.7595C61.02 40.5333 56.5112 45.2306 50.9658 45.2306H19.7737C14.9471 45.2306 11.02 41.1407 11.02 36.1125C11.02 31.3299 14.5743 27.3944 19.1128 27.0238Z" fill="url(#paint7_linear_0_321)"/>
+<defs>
+<linearGradient id="paint0_linear_0_321" x1="19.471" y1="1" x2="19.471" y2="38.952" gradientUnits="userSpaceOnUse">
+<stop stop-color="#A38FEE"/>
+<stop offset="0.853177" stop-color="#5D4ADE"/>
+</linearGradient>
+<radialGradient id="paint1_radial_0_321" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(23.1531 33.3552) rotate(105) scale(2.65991 2.51289)">
+<stop stop-color="#0B17A1" stop-opacity="0.7"/>
+<stop offset="1" stop-color="#0B17A1"/>
+</radialGradient>
+<radialGradient id="paint2_radial_0_321" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(34.3933 23.8046) rotate(105) scale(3.646 3.44447)">
+<stop stop-color="#0B17A1" stop-opacity="0.7"/>
+<stop offset="1" stop-color="#0B17A1"/>
+</radialGradient>
+<radialGradient id="paint3_radial_0_321" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(31.7141 14.5842) rotate(-75) scale(1.86099 1.75813)">
+<stop stop-color="#0B17A1" stop-opacity="0.7"/>
+<stop offset="1" stop-color="#0B17A1"/>
+</radialGradient>
+<radialGradient id="paint4_radial_0_321" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1.4857 -0.249894) rotate(89.3995) scale(12.0493 3.25956)">
+<stop offset="0.239583" stop-color="#B7E9FE"/>
+<stop offset="1" stop-color="#5ECFFF"/>
+</radialGradient>
+<radialGradient id="paint5_radial_0_321" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1.4857 -0.368926) rotate(89.5933) scale(17.7882 3.25965)">
+<stop offset="0.239583" stop-color="#B7E9FE"/>
+<stop offset="1" stop-color="#5ECFFF"/>
+</radialGradient>
+<radialGradient id="paint6_radial_0_321" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1.4857 -0.242656) rotate(89.3816) scale(11.7003 3.25955)">
+<stop offset="0.239583" stop-color="#B7E9FE"/>
+<stop offset="1" stop-color="#5ECFFF"/>
+</radialGradient>
+<linearGradient id="paint7_linear_0_321" x1="32.4327" y1="16.6898" x2="36.02" y2="45.2306" gradientUnits="userSpaceOnUse">
+<stop stop-color="#EEFAFE"/>
+<stop offset="1" stop-color="#BACFDB"/>
+</linearGradient>
+</defs>
+</svg>

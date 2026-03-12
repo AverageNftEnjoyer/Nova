@@ -2,11 +2,43 @@
  * Trigger Node Executors
  */
 
-import type { ScheduleTriggerNode, ManualTriggerNode, WebhookTriggerNode, EventTriggerNode, NodeOutput, ExecutionContext } from "../../types/index"
+import type { ScheduleTriggerNode, ManualTriggerNode, WebhookTriggerNode, EventTriggerNode, PolymarketPriceTriggerNode, PolymarketMonitorNode, NodeOutput, ExecutionContext } from "../../types/index"
 import { getLocalParts, parseTime } from "../time"
 import { resolveTimezone } from "@/lib/shared/timezone"
+import {
+  fetchPolymarketMarkets,
+  fetchPolymarketPriceHistory,
+  fetchPolymarketPrices,
+} from "@/lib/integrations/polymarket/server"
 
 const DEFAULT_WINDOW_MINUTES = 10
+
+function toClampedDecimal(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseFloat(String(value ?? "").trim())
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
+function toClampedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
+function normalizePolymarketHistoryRange(value: unknown): "1h" | "6h" | "1d" | "1w" | "1m" | "all" {
+  const normalized = String(value || "").trim().toLowerCase()
+  if (
+    normalized === "1h"
+    || normalized === "6h"
+    || normalized === "1d"
+    || normalized === "1w"
+    || normalized === "1m"
+    || normalized === "all"
+  ) {
+    return normalized
+  }
+  return "1d"
+}
 
 export async function executeScheduleTrigger(
   node: ScheduleTriggerNode,
@@ -100,3 +132,192 @@ export async function executeEventTrigger(
   void _ctx
   return { ok: true, text: "Event trigger fired.", data: { triggered: true } }
 }
+
+export async function executePolymarketPriceTrigger(
+  node: PolymarketPriceTriggerNode,
+  _ctx: ExecutionContext,
+): Promise<NodeOutput> {
+  void _ctx
+  const tokenId = String(node.tokenId || "").trim()
+  if (!tokenId) {
+    return { ok: false, error: "polymarket-price-trigger requires tokenId.", errorCode: "POLYMARKET_TOKEN_REQUIRED" }
+  }
+
+  const direction = String(node.direction || "above").trim().toLowerCase() === "below" ? "below" : "above"
+  const threshold = toClampedDecimal(node.threshold, 0.5, 0, 1)
+
+  try {
+    const rows = await fetchPolymarketPrices([tokenId])
+    const priceRow = rows.find((row) => String(row.tokenId || "").trim() === tokenId) || rows[0]
+    if (!priceRow) {
+      return {
+        ok: false,
+        error: `No price data returned for token ${tokenId}.`,
+        errorCode: "POLYMARKET_PRICE_UNAVAILABLE",
+      }
+    }
+
+    const price = Number(priceRow.price)
+    const triggered = direction === "above" ? price >= threshold : price <= threshold
+    if (!triggered) {
+      return {
+        ok: true,
+        text: `Polymarket trigger not met (${(price * 100).toFixed(1)}% ${direction} ${(threshold * 100).toFixed(1)}%).`,
+        data: {
+          triggered: false,
+          skipped: true,
+          tokenId,
+          marketSlug: String(node.marketSlug || "").trim() || undefined,
+          direction,
+          threshold,
+          price,
+        },
+      }
+    }
+
+    return {
+      ok: true,
+      text: `Polymarket trigger fired (${(price * 100).toFixed(1)}% ${direction} ${(threshold * 100).toFixed(1)}%).`,
+      data: {
+        triggered: true,
+        tokenId,
+        marketSlug: String(node.marketSlug || "").trim() || undefined,
+        direction,
+        threshold,
+        price,
+      },
+    }
+  } catch (error) {
+    return { ok: false, error: String(error), errorCode: "POLYMARKET_TRIGGER_FAILED" }
+  }
+}
+
+export async function executePolymarketMonitor(
+  node: PolymarketMonitorNode,
+  _ctx: ExecutionContext,
+): Promise<NodeOutput> {
+  void _ctx
+  const maxMarkets = toClampedInt(node.maxMarkets, 6, 1, 12)
+  const changeThresholdPct = toClampedDecimal(node.changeThresholdPct, 5, 0.1, 100)
+  const query = String(node.query || "").trim()
+  const tagSlug = String(node.tagSlug || "").trim() || undefined
+  const range = normalizePolymarketHistoryRange(node.range)
+
+  try {
+    const markets = await fetchPolymarketMarkets({ query, tagSlug, limit: maxMarkets })
+    const targets = markets
+      .map((market) => {
+        const firstOutcome = market.outcomes.find((outcome) => String(outcome.tokenId || "").trim())
+        const tokenId = String(firstOutcome?.tokenId || "").trim()
+        if (!tokenId) return null
+        return {
+          marketId: market.id,
+          slug: market.slug,
+          question: market.question,
+          tokenId,
+        }
+      })
+      .filter((entry): entry is { marketId: string; slug: string; question: string; tokenId: string } => Boolean(entry))
+
+    if (targets.length === 0) {
+      return {
+        ok: true,
+        text: "Polymarket monitor found no tokenized outcomes to evaluate.",
+        data: {
+          triggered: false,
+          skipped: true,
+          query,
+          tagSlug,
+          range,
+          changeThresholdPct,
+          matches: [],
+        },
+      }
+    }
+
+    const historyResults = await Promise.allSettled(
+      targets.map(async (target) => {
+        const history = await fetchPolymarketPriceHistory(target.tokenId, range)
+        if (!Array.isArray(history) || history.length < 2) return null
+        const start = Number(history[0]?.p)
+        const end = Number(history[history.length - 1]?.p)
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return null
+        const deltaPct = (end - start) * 100
+        return {
+          ...target,
+          startPrice: start,
+          endPrice: end,
+          deltaPct,
+          absDeltaPct: Math.abs(deltaPct),
+          direction: deltaPct >= 0 ? "up" : "down",
+        }
+      }),
+    )
+
+    const matches = historyResults
+      .filter((result): result is PromiseFulfilledResult<{
+        marketId: string
+        slug: string
+        question: string
+        tokenId: string
+        startPrice: number
+        endPrice: number
+        deltaPct: number
+        absDeltaPct: number
+        direction: "up" | "down"
+      } | null> => result.status === "fulfilled")
+      .map((result) => result.value)
+      .filter((entry): entry is {
+        marketId: string
+        slug: string
+        question: string
+        tokenId: string
+        startPrice: number
+        endPrice: number
+        deltaPct: number
+        absDeltaPct: number
+        direction: "up" | "down"
+      } => {
+        if (!entry) return false
+        return entry.absDeltaPct >= changeThresholdPct
+      })
+      .sort((a, b) => b.absDeltaPct - a.absDeltaPct)
+
+    if (matches.length === 0) {
+      return {
+        ok: true,
+        text: `No Polymarket swings above ${changeThresholdPct.toFixed(2)}% (${range}).`,
+        data: {
+          triggered: false,
+          skipped: true,
+          query,
+          tagSlug,
+          range,
+          changeThresholdPct,
+          scanned: targets.length,
+          matches: [],
+        },
+      }
+    }
+
+    const top = matches[0]
+    return {
+      ok: true,
+      text: `Polymarket monitor fired: ${top.question} moved ${top.deltaPct.toFixed(2)}% (${top.direction}).`,
+      data: {
+        triggered: true,
+        query,
+        tagSlug,
+        range,
+        changeThresholdPct,
+        scanned: targets.length,
+        matches,
+      },
+      items: matches,
+    }
+  } catch (error) {
+    return { ok: false, error: String(error), errorCode: "POLYMARKET_MONITOR_FAILED" }
+  }
+}
+
+

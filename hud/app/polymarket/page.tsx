@@ -3,8 +3,15 @@
 import Link from "next/link"
 import { useDeferredValue, useEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Activity, ArrowUpRight, CandlestickChart, RefreshCw, Search, Settings, ShieldCheck, TrendingUp, Wallet } from "lucide-react"
+import { Activity, ArrowUpRight, CandlestickChart, RefreshCw, Settings, ShieldCheck, TrendingUp, Wallet } from "lucide-react"
 
+import { LeaderboardTable, type LeaderboardWindow } from "@/app/polymarket/components/leaderboard-table"
+import { MarketCard } from "@/app/polymarket/components/market-card"
+import { MarketDetail } from "@/app/polymarket/components/market-detail"
+import { MarketSearch, type MarketSearchSortOption, type MarketSearchTagOption } from "@/app/polymarket/components/market-search"
+import { MarketTicker } from "@/app/polymarket/components/market-ticker"
+import { OrderBookVisual } from "@/app/polymarket/components/orderbook-visual"
+import { PriceChart, type PriceChartRange } from "@/app/polymarket/components/price-chart"
 import { useSpotlightEffect } from "@/app/integrations/hooks"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { PolymarketIcon } from "@/components/icons"
@@ -14,9 +21,20 @@ import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { useTheme } from "@/lib/context/theme-context"
 import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
-import { buildPolymarketMarketUrl, normalizePolymarketMarket, type PolymarketMarket, type PolymarketPosition } from "@/lib/integrations/polymarket/api"
+import {
+  buildPolymarketMarketUrl,
+  normalizePolymarketLeaderboardEntry,
+  normalizePolymarketMarket,
+  normalizePolymarketOrderBook,
+  type PolymarketLeaderboardEntry,
+  type PolymarketMarket,
+  type PolymarketOrderBook,
+  type PolymarketPosition,
+  type PolymarketPricePoint,
+} from "@/lib/integrations/polymarket/api"
 import { connectPolymarketWallet, createPolymarketBrowserTrader } from "@/lib/integrations/polymarket/browser"
 import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
+import { getGlobalPolymarketWsManager, type PolymarketWsPriceUpdate } from "@/lib/integrations/polymarket/ws"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
@@ -51,6 +69,57 @@ function formatPrice(value: number): string {
   return `${Math.round(value * 100)}c`
 }
 
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  if (value < 0) return 0
+  if (value > 1) return 1
+  return value
+}
+
+function applyLivePriceUpdateToMarket(market: PolymarketMarket, update: PolymarketWsPriceUpdate): PolymarketMarket {
+  let changed = false
+  const outcomes = market.outcomes.map((outcome) => {
+    if (String(outcome.tokenId || "").trim() !== update.tokenId) return outcome
+    const nextBid = Number.isFinite(update.bid as number) ? clamp01(Number(update.bid)) : outcome.bestBid
+    const nextAsk = Number.isFinite(update.ask as number) ? clamp01(Number(update.ask)) : outcome.bestAsk
+    const nextLastTradePrice = Number.isFinite(update.lastTradePrice as number)
+      ? clamp01(Number(update.lastTradePrice))
+      : Number.isFinite(update.midpoint as number)
+        ? clamp01(Number(update.midpoint))
+        : outcome.lastTradePrice
+    const nextPrice = Number.isFinite(update.lastTradePrice as number)
+      ? clamp01(Number(update.lastTradePrice))
+      : Number.isFinite(update.midpoint as number)
+        ? clamp01(Number(update.midpoint))
+        : Number.isFinite(update.bid as number)
+          ? clamp01(Number(update.bid))
+          : Number.isFinite(update.ask as number)
+            ? clamp01(Number(update.ask))
+            : outcome.price
+    if (
+      nextBid === outcome.bestBid
+      && nextAsk === outcome.bestAsk
+      && nextLastTradePrice === outcome.lastTradePrice
+      && nextPrice === outcome.price
+    ) {
+      return outcome
+    }
+    changed = true
+    return {
+      ...outcome,
+      bestBid: nextBid,
+      bestAsk: nextAsk,
+      lastTradePrice: nextLastTradePrice,
+      price: nextPrice,
+    }
+  })
+  if (!changed) return market
+  return {
+    ...market,
+    outcomes,
+  }
+}
+
 function formatAddress(value: string): string {
   const normalized = String(value || "").trim()
   if (!normalized) return "Not connected"
@@ -62,6 +131,36 @@ function applyPolymarketConfig(prev: IntegrationsSettings, nextPolymarket: Integ
   const next = { ...prev, polymarket: normalizePolymarketIntegrationConfig(nextPolymarket) }
   saveIntegrationsSettings(next)
   return next
+}
+
+type MarketSortMode = "volume24hr" | "liquidity" | "newest" | "endingSoon"
+
+const MARKET_PAGE_SIZE = 12
+
+const MARKET_BASE_TAGS: MarketSearchTagOption[] = [
+  { value: "all", label: "All tags" },
+  { value: "crypto", label: "Crypto" },
+  { value: "politics", label: "Politics" },
+  { value: "sports", label: "Sports" },
+  { value: "business", label: "Business" },
+]
+
+const MARKET_SORT_OPTIONS: MarketSearchSortOption[] = [
+  { value: "volume24hr", label: "Volume 24h" },
+  { value: "liquidity", label: "Liquidity" },
+  { value: "newest", label: "Newest" },
+  { value: "endingSoon", label: "Ending soon" },
+]
+
+const MARKET_SORT_TO_QUERY: Record<MarketSortMode, string> = {
+  volume24hr: "volume24hr",
+  liquidity: "liquidity",
+  newest: "createdAt",
+  endingSoon: "endDate",
+}
+
+const MARKET_SORT_ASCENDING: Partial<Record<MarketSortMode, boolean>> = {
+  endingSoon: true,
 }
 
 function SectionHeader({ icon, title, action, isLight }: { icon: ReactNode; title: string; action?: ReactNode; isLight: boolean }) {
@@ -85,8 +184,11 @@ export default function PolymarketPage() {
   const shellRef = useRef<HTMLDivElement | null>(null)
   const overviewRef = useRef<HTMLElement | null>(null)
   const feedRef = useRef<HTMLElement | null>(null)
+  const feedLoadMoreRef = useRef<HTMLDivElement | null>(null)
   const ticketRef = useRef<HTMLElement | null>(null)
   const activityRef = useRef<HTMLElement | null>(null)
+  const marketLoadLockRef = useRef(false)
+  const marketFeedQueryKeyRef = useRef("")
 
   const [settings, setSettings] = useState<IntegrationsSettings>(() => loadIntegrationsSettings())
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
@@ -98,7 +200,12 @@ export default function PolymarketPage() {
   const [positions, setPositions] = useState<PolymarketPosition[]>([])
   const [search, setSearch] = useState("")
   const deferredSearch = useDeferredValue(search)
+  const [selectedTag, setSelectedTag] = useState("crypto")
+  const [marketSortMode, setMarketSortMode] = useState<MarketSortMode>("volume24hr")
+  const [marketOffset, setMarketOffset] = useState(0)
+  const [hasMoreMarkets, setHasMoreMarkets] = useState(true)
   const [loadingMarkets, setLoadingMarkets] = useState(false)
+  const [loadingMoreMarkets, setLoadingMoreMarkets] = useState(false)
   const [loadingPortfolio, setLoadingPortfolio] = useState(false)
   const [loadingActivity, setLoadingActivity] = useState(false)
   const [submittingTrade, setSubmittingTrade] = useState(false)
@@ -111,6 +218,17 @@ export default function PolymarketPage() {
   const [amount, setAmount] = useState("25")
   const [openOrders, setOpenOrders] = useState<unknown[]>([])
   const [recentTrades, setRecentTrades] = useState<unknown[]>([])
+  const [orderBook, setOrderBook] = useState<PolymarketOrderBook | null>(null)
+  const [loadingOrderBook, setLoadingOrderBook] = useState(false)
+  const [orderBookError, setOrderBookError] = useState("")
+  const [leaderboardWindow, setLeaderboardWindow] = useState<LeaderboardWindow>("day")
+  const [leaderboardEntries, setLeaderboardEntries] = useState<PolymarketLeaderboardEntry[]>([])
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
+  const [leaderboardError, setLeaderboardError] = useState("")
+  const [historyRange, setHistoryRange] = useState<PriceChartRange>("1d")
+  const [historyPoints, setHistoryPoints] = useState<PolymarketPricePoint[]>([])
+  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [historyError, setHistoryError] = useState("")
   const requestedSlug = String(searchParams.get("slug") || "").trim()
   const requestedOutcome = String(searchParams.get("outcome") || "").trim().toLowerCase()
   const requestedSide = String(searchParams.get("side") || "").trim().toLowerCase()
@@ -119,6 +237,8 @@ export default function PolymarketPage() {
   const selectedOutcomePrice = (selectedOutcome?.bestAsk || selectedOutcome?.price || selectedOutcome?.lastTradePrice || 0) > 0
     ? (selectedOutcome?.bestAsk || selectedOutcome?.price || selectedOutcome?.lastTradePrice || 0)
     : 0
+  const selectedTokenId = String(selectedOutcome?.tokenId || "").trim()
+  const marketFeedQueryKey = `${deferredSearch.trim().toLowerCase()}|${selectedTag}|${marketSortMode}`
   const numericAmount = Number.parseFloat(amount)
 
   const estimateLabel = useMemo(() => {
@@ -127,6 +247,22 @@ export default function PolymarketPage() {
       ? `${(selectedOutcomePrice > 0 ? numericAmount / selectedOutcomePrice : 0).toFixed(2)} shares est.`
       : `${formatUsd((selectedOutcomePrice > 0 ? numericAmount * selectedOutcomePrice : 0))} est. proceeds`
   }, [numericAmount, orderAction, selectedOutcome, selectedOutcomePrice])
+
+  const marketTagOptions = useMemo<MarketSearchTagOption[]>(() => {
+    const options = new Map<string, string>()
+    for (const entry of MARKET_BASE_TAGS) options.set(entry.value, entry.label)
+    for (const market of markets) {
+      for (const tag of market.tags) {
+        const value = String(tag.slug || "").trim().toLowerCase()
+        const label = String(tag.label || "").trim()
+        if (!value || !label || options.has(value)) continue
+        options.set(value, label)
+      }
+    }
+    return [...options.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [markets])
 
   useEffect(() => {
     const sync = () => {
@@ -164,37 +300,107 @@ export default function PolymarketPage() {
   } as CSSProperties
 
   useEffect(() => {
-    let cancelled = false
-    setLoadingMarkets(true)
-    setError("")
-    const url = new URL("/api/polymarket/markets", window.location.origin)
-    if (deferredSearch.trim()) {
-      url.searchParams.set("q", deferredSearch.trim())
-      url.searchParams.set("limit", "18")
-    } else {
-      url.searchParams.set("tag", "crypto")
-      url.searchParams.set("limit", "12")
+    if (marketFeedQueryKeyRef.current !== marketFeedQueryKey) {
+      marketFeedQueryKeyRef.current = marketFeedQueryKey
+      marketLoadLockRef.current = false
+      setHasMoreMarkets(true)
+      if (marketOffset !== 0) {
+        setMarketOffset(0)
+        return
+      }
     }
+
+    let cancelled = false
+    const initialChunk = marketOffset === 0
+    if (initialChunk) {
+      setLoadingMarkets(true)
+      setLoadingMoreMarkets(false)
+    } else {
+      setLoadingMoreMarkets(true)
+    }
+    setError("")
+
+    const url = new URL("/api/polymarket/markets", window.location.origin)
+    url.searchParams.set("limit", String(MARKET_PAGE_SIZE))
+    if (marketOffset > 0) url.searchParams.set("offset", String(marketOffset))
+
+    const normalizedSearch = deferredSearch.trim()
+    if (normalizedSearch) {
+      url.searchParams.set("q", normalizedSearch)
+    } else if (selectedTag !== "all") {
+      url.searchParams.set("tag", selectedTag)
+    }
+
+    url.searchParams.set("sort", MARKET_SORT_TO_QUERY[marketSortMode])
+    const ascending = MARKET_SORT_ASCENDING[marketSortMode]
+    if (typeof ascending === "boolean") {
+      url.searchParams.set("ascending", ascending ? "true" : "false")
+    }
+
     fetch(url.toString(), { cache: "no-store", credentials: "include" })
       .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
         if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !Array.isArray(data?.markets)) throw new Error(String(data?.error || "Failed to load Polymarket markets."))
-        const nextMarkets = data.markets
+        const nextChunk = data.markets
           .map((entry: unknown) => normalizePolymarketMarket(entry))
           .filter((entry: PolymarketMarket | null): entry is PolymarketMarket => Boolean(entry))
-        setMarkets(nextMarkets)
-        setSelectedMarket((prev) => {
-          const requested = requestedSlug ? nextMarkets.find((entry: PolymarketMarket) => entry.slug === requestedSlug) : null
-          if (requested) return requested
-          return nextMarkets.find((entry: PolymarketMarket) => entry.slug === prev?.slug) || nextMarkets[0] || null
+        setHasMoreMarkets(nextChunk.length >= MARKET_PAGE_SIZE)
+        setMarkets((previous) => {
+          const merged = initialChunk
+            ? nextChunk
+            : [
+                ...previous,
+                ...nextChunk.filter((entry: PolymarketMarket) => !previous.some((seen) => seen.slug === entry.slug)),
+              ]
+          setSelectedMarket((current) => {
+            const requested = requestedSlug ? merged.find((entry: PolymarketMarket) => entry.slug === requestedSlug) : null
+            if (requested) return requested
+            if (current) {
+              const preserved = merged.find((entry: PolymarketMarket) => entry.slug === current.slug)
+              if (preserved) return preserved
+              if (!initialChunk) return current
+            }
+            return merged[0] || null
+          })
+          return merged
         })
       })
-      .catch((reason) => !cancelled && setError(reason instanceof Error ? reason.message : "Failed to load Polymarket markets."))
-      .finally(() => !cancelled && setLoadingMarkets(false))
+      .catch((reason) => {
+        if (cancelled) return
+        if (initialChunk) setMarkets([])
+        setHasMoreMarkets(false)
+        setError(reason instanceof Error ? reason.message : "Failed to load Polymarket markets.")
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoadingMarkets(false)
+        setLoadingMoreMarkets(false)
+      })
+
     return () => { cancelled = true }
-  }, [deferredSearch, requestedSlug, router])
+  }, [deferredSearch, marketFeedQueryKey, marketOffset, marketSortMode, requestedSlug, router, selectedTag])
+
+  useEffect(() => {
+    if (!feedLoadMoreRef.current) return
+    if (!hasMoreMarkets || loadingMarkets || loadingMoreMarkets) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return
+        if (marketLoadLockRef.current) return
+        marketLoadLockRef.current = true
+        setMarketOffset((previous) => previous + MARKET_PAGE_SIZE)
+      },
+      { root: null, rootMargin: "260px 0px 260px 0px", threshold: 0.01 },
+    )
+    observer.observe(feedLoadMoreRef.current)
+    return () => observer.disconnect()
+  }, [hasMoreMarkets, loadingMarkets, loadingMoreMarkets])
+
+  useEffect(() => {
+    if (!loadingMoreMarkets) marketLoadLockRef.current = false
+  }, [loadingMoreMarkets])
 
   useEffect(() => {
     if (!settings.polymarket.connected) return void setPositions([])
@@ -228,7 +434,118 @@ export default function PolymarketPage() {
       setSelectedOutcomeIndex(0)
     }
   }, [requestedOutcome, selectedMarket])
+  useEffect(() => {
+    if (!selectedMarket || !selectedTokenId) {
+      setOrderBook(null)
+      setOrderBookError("")
+      setLoadingOrderBook(false)
+      return
+    }
+    let cancelled = false
+    setLoadingOrderBook(true)
+    setOrderBookError("")
+    fetch(`/api/polymarket/book/${encodeURIComponent(selectedTokenId)}`, { cache: "no-store", credentials: "include" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+      .then(({ ok, status, data }) => {
+        if (cancelled) return
+        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
+        if (!ok || !data?.book) throw new Error(String(data?.error || "Failed to load orderbook."))
+        const normalized = normalizePolymarketOrderBook(data.book, selectedTokenId)
+        setOrderBook(normalized)
+      })
+      .catch((reason) => {
+        if (cancelled) return
+        setOrderBook(null)
+        setOrderBookError(reason instanceof Error ? reason.message : "Failed to load orderbook.")
+      })
+      .finally(() => !cancelled && setLoadingOrderBook(false))
+    return () => { cancelled = true }
+  }, [selectedMarket, selectedTokenId, router])
 
+  useEffect(() => {
+    let cancelled = false
+    setLoadingLeaderboard(true)
+    setLeaderboardError("")
+    fetch(`/api/polymarket/leaderboard?window=${leaderboardWindow}&limit=10`, { cache: "no-store", credentials: "include" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+      .then(({ ok, status, data }) => {
+        if (cancelled) return
+        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
+        if (!ok || !Array.isArray(data?.leaderboard)) throw new Error(String(data?.error || "Failed to load leaderboard."))
+        const rows = data.leaderboard
+          .map((entry: unknown, index: number) => normalizePolymarketLeaderboardEntry(entry, index + 1))
+          .filter((entry: PolymarketLeaderboardEntry | null): entry is PolymarketLeaderboardEntry => Boolean(entry))
+        setLeaderboardEntries(rows)
+      })
+      .catch((reason) => {
+        if (cancelled) return
+        setLeaderboardEntries([])
+        setLeaderboardError(reason instanceof Error ? reason.message : "Failed to load leaderboard.")
+      })
+      .finally(() => !cancelled && setLoadingLeaderboard(false))
+    return () => { cancelled = true }
+  }, [leaderboardWindow, router])
+
+  useEffect(() => {
+    if (!selectedTokenId) {
+      setHistoryPoints([])
+      setLoadingHistory(false)
+      setHistoryError("")
+      return
+    }
+    let cancelled = false
+    setLoadingHistory(true)
+    setHistoryError("")
+    fetch(`/api/polymarket/history/${encodeURIComponent(selectedTokenId)}?range=${historyRange}`, { cache: "no-store", credentials: "include" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+      .then(({ ok, status, data }) => {
+        if (cancelled) return
+        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
+        if (!ok || !Array.isArray(data?.points)) throw new Error(String(data?.error || "Failed to load chart history."))
+        const points = data.points
+          .map((entry: unknown) => {
+            const row = entry && typeof entry === "object" ? entry as Record<string, unknown> : {}
+            const t = Number(row.t)
+            const p = Number(row.p)
+            if (!Number.isFinite(t) || !Number.isFinite(p)) return null
+            return { t: Math.trunc(t), p: clamp01(p) }
+          })
+          .filter((entry: PolymarketPricePoint | null): entry is PolymarketPricePoint => Boolean(entry))
+          .sort((a: PolymarketPricePoint, b: PolymarketPricePoint) => a.t - b.t)
+        setHistoryPoints(points)
+      })
+      .catch((reason) => {
+        if (cancelled) return
+        setHistoryPoints([])
+        setHistoryError(reason instanceof Error ? reason.message : "Failed to load chart history.")
+      })
+      .finally(() => !cancelled && setLoadingHistory(false))
+    return () => { cancelled = true }
+  }, [historyRange, selectedTokenId, router])
+
+  useEffect(() => {
+    if (!selectedTokenId) return
+    const wsManager = getGlobalPolymarketWsManager()
+    wsManager.connect()
+    wsManager.subscribeMarket(selectedTokenId)
+    const unsubscribe = wsManager.onPriceUpdate((update) => {
+      if (update.tokenId !== selectedTokenId) return
+      setSelectedMarket((previous) => {
+        if (!previous) return previous
+        return applyLivePriceUpdateToMarket(previous, update)
+      })
+      setMarkets((previous) => previous.map((market) => applyLivePriceUpdateToMarket(market, update)))
+    })
+    return () => {
+      unsubscribe()
+      wsManager.unsubscribeMarket(selectedTokenId)
+    }
+  }, [selectedTokenId])
+
+  const handleSelectMarket = (market: PolymarketMarket) => {
+    startTransition(() => setSelectedMarket(market))
+    setSelectedOutcomeIndex(0)
+  }
   const handleConnect = async () => {
     setSavePending(true); setError(""); setStatus("")
     try {
@@ -387,21 +704,51 @@ export default function PolymarketPage() {
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(21rem,0.92fr)]">
             <section ref={feedRef} className={cn(panelClass, "home-spotlight-shell p-4")}>
               <SectionHeader icon={<TrendingUp className="h-4 w-4 text-accent" />} title="Market Feed" isLight={isLight} action={<Link href="/home" className={cn("home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] uppercase tracking-[0.12em] transition-colors", subPanelClass)}>Home</Link>} />
-              <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div><p className={cn("text-sm font-medium", isLight ? "text-s-90" : "text-slate-100")}>Active market flow</p><p className={cn("mt-0.5 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>Search markets or keep the crypto-heavy feed pinned on the left.</p></div>
-                <div className="relative w-full lg:w-80"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search live markets" className={cn("h-10 w-full rounded-lg border pl-10 pr-3 text-sm outline-none transition-colors", isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 placeholder:text-s-40 focus:bg-white" : "home-subpanel-surface text-slate-100 placeholder:text-slate-500 focus:border-white/20")} /></div>
-              </div>
+              <MarketSearch
+                value={search}
+                onChange={setSearch}
+                tag={selectedTag}
+                onTagChange={setSelectedTag}
+                tags={marketTagOptions}
+                sort={marketSortMode}
+                onSortChange={(next) => setMarketSortMode(next as MarketSortMode)}
+                sortOptions={MARKET_SORT_OPTIONS}
+                isLight={isLight}
+              />
+              <MarketTicker isLight={isLight} subPanelClass={subPanelClass} markets={markets} />
               <div className="mt-4 max-h-[40rem] space-y-2 overflow-y-auto pr-1 module-hover-scroll">
                 {loadingMarkets ? <div className={cn("home-spotlight-card home-border-glow rounded-xl border p-4 text-sm", subPanelClass)}>Loading markets...</div> : null}
                 {!loadingMarkets && markets.length === 0 ? <div className={cn("home-spotlight-card home-border-glow rounded-xl border p-4 text-sm", subPanelClass)}>No active markets matched this query.</div> : null}
-                {markets.map((market) => { const isSelected = selectedMarket?.slug === market.slug; return <button key={market.slug} type="button" onClick={() => { startTransition(() => setSelectedMarket(market)); setSelectedOutcomeIndex(0) }} className={cn("home-spotlight-card home-border-glow w-full rounded-xl border p-3 text-left transition-colors", isSelected ? (isLight ? "border-accent-30 bg-[#eef3fb]" : "border-accent-30 bg-accent-10") : subPanelClass)}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className={cn("text-[13px] font-semibold leading-5", isLight ? "text-s-90" : "text-slate-100")}>{market.question}</p><p className={cn("mt-1 text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>{market.tags.slice(0, 3).map((tag) => tag.label).join(" / ") || "Polymarket"}</p></div><span className={cn("rounded-full border px-2 py-1 text-[9px] uppercase tracking-[0.16em]", isLight ? "border-[#d5dce8] text-s-50" : "border-white/10 text-slate-400")}>{market.acceptingOrders ? "Live" : "Watch"}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{market.outcomes.slice(0, 2).map((outcome) => <div key={`${market.slug}-${outcome.index}`} className={cn("rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}><div className="flex items-center justify-between gap-3"><span className={cn("text-sm", isLight ? "text-s-70" : "text-slate-300")}>{outcome.label}</span><span className={cn("text-sm font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{formatPrice(outcome.price || outcome.lastTradePrice)}</span></div><div className={cn("mt-2 flex items-center justify-between text-[10px]", isLight ? "text-s-50" : "text-slate-500")}><span>Bid {formatPrice(outcome.bestBid)}</span><span>Ask {formatPrice(outcome.bestAsk)}</span></div></div>)}</div><div className={cn("mt-3 flex flex-wrap gap-3 text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}><span>24h {formatUsd(market.volume24hr)}</span><span>Liquidity {formatUsd(market.liquidity)}</span><span>Min {market.orderMinSize || 5}</span></div></button>})}
+                {markets.map((market) => (
+                  <MarketCard
+                    key={market.slug}
+                    market={market}
+                    isSelected={selectedMarket?.slug === market.slug}
+                    isLight={isLight}
+                    subPanelClass={subPanelClass}
+                    onSelect={() => handleSelectMarket(market)}
+                  />
+                ))}
+                {loadingMoreMarkets ? <div className={cn("home-spotlight-card home-border-glow rounded-xl border p-3 text-xs", subPanelClass)}>Loading more markets...</div> : null}
+                {hasMoreMarkets ? <div ref={feedLoadMoreRef} className="h-4 w-full" aria-hidden /> : null}
+                {!loadingMarkets && !loadingMoreMarkets && markets.length > 0 && !hasMoreMarkets ? (
+                  <p className={cn("px-1 py-1 text-[11px]", isLight ? "text-s-50" : "text-slate-500")}>Reached the end of this market slice.</p>
+                ) : null}
               </div>
             </section>
             <section ref={ticketRef} className="space-y-4">
               <div className={cn(panelClass, "home-spotlight-shell p-4")}>
                 <SectionHeader icon={<CandlestickChart className="h-4 w-4 text-accent" />} title="Trade Ticket" isLight={isLight} action={selectedMarket ? <Link href={buildPolymarketMarketUrl(selectedMarket.slug)} target="_blank" className={cn("home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] uppercase tracking-[0.12em] transition-colors", subPanelClass)}>Open<ArrowUpRight className="h-3 w-3" /></Link> : undefined} />
                 {selectedMarket ? <>
-                  <div className="mt-3"><p className={cn("text-base font-semibold leading-snug", isLight ? "text-s-90" : "text-slate-100")}>{selectedMarket.question}</p><p className={cn("mt-1 text-[11px] leading-5", isLight ? "text-s-50" : "text-slate-400")}>{selectedMarket.description || "Select an outcome, size the order, and route execution through Phantom approval."}</p></div>
+                  <div className="mt-3">
+                    <MarketDetail
+                      market={selectedMarket}
+                      selectedOutcomeLabel={selectedOutcome?.label || ""}
+                      selectedOutcomePriceLabel={formatPrice(selectedOutcomePrice)}
+                      isLight={isLight}
+                      subPanelClass={subPanelClass}
+                    />
+                  </div>
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">{selectedMarket.outcomes.slice(0, 2).map((outcome) => <button key={`${selectedMarket.slug}-${outcome.index}`} type="button" onClick={() => setSelectedOutcomeIndex(outcome.index)} className={cn("home-spotlight-card home-border-glow rounded-xl border px-4 py-3 text-left transition-colors", selectedOutcome?.index === outcome.index ? (isLight ? "border-accent-30 bg-[#eef3fb]" : "border-accent-30 bg-accent-10") : subPanelClass)}><div className="flex items-center justify-between gap-3"><span className={cn("text-sm", isLight ? "text-s-70" : "text-slate-200")}>{outcome.label}</span><span className={cn("text-base font-semibold", isLight ? "text-s-90" : "text-white")}>{formatPrice(outcome.price || outcome.lastTradePrice)}</span></div><div className={cn("mt-2 text-[10px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Bid {formatPrice(outcome.bestBid)} / Ask {formatPrice(outcome.bestAsk)}</div></button>)}</div>
                   <div className={cn("mt-4 rounded-xl border p-4", subPanelClass)}>
                     <div className="flex gap-2">{(["buy", "sell"] as const).map((value) => <button key={value} type="button" onClick={() => setOrderAction(value)} className={cn("home-spotlight-card home-border-glow rounded-lg border px-3 py-2 text-sm capitalize transition-colors", orderAction === value ? (value === "buy" ? "border-emerald-300/35 bg-emerald-500/14 text-emerald-100" : "border-amber-300/35 bg-amber-500/14 text-amber-100") : (isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/10 bg-black/20 text-slate-300"))}>{value}</button>)}</div>
@@ -409,6 +756,23 @@ export default function PolymarketPage() {
                     <div className="mt-4 grid gap-2 sm:grid-cols-2"><div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}><p className={cn("text-[10px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Estimate</p><p className={cn("mt-1 text-sm font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{estimateLabel}</p></div><div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}><p className={cn("text-[10px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Route</p><p className={cn("mt-1 text-sm font-semibold", isLight ? "text-s-90" : "text-slate-100")}>{selectedOutcome ? `${selectedOutcome.label} @ ${formatPrice(selectedOutcomePrice)}` : "--"}</p></div></div>
                     <button type="button" onClick={() => void handleSubmitTrade()} disabled={submittingTrade || !selectedMarket || !selectedOutcome} className={cn("mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60", orderAction === "buy" ? "border-emerald-300/30 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/18" : "border-amber-300/30 bg-amber-500/12 text-amber-100 hover:bg-amber-500/18")}><CandlestickChart className="h-4 w-4" />{submittingTrade ? "Submitting..." : `Place ${orderAction} order`}</button>
                   </div>
+                  <OrderBookVisual
+                    isLight={isLight}
+                    subPanelClass={subPanelClass}
+                    market={selectedMarket}
+                    orderBook={orderBook}
+                    loading={loadingOrderBook}
+                    error={orderBookError}
+                  />
+                  <PriceChart
+                    points={historyPoints}
+                    range={historyRange}
+                    onRangeChange={setHistoryRange}
+                    isLight={isLight}
+                    subPanelClass={subPanelClass}
+                    loading={loadingHistory}
+                    error={historyError}
+                  />
                 </> : <div className={cn("mt-3 rounded-xl border p-4 text-sm", subPanelClass)}>Select a market from the left column to open the ticket.</div>}
               </div>
               <div className={cn(panelClass, "home-spotlight-shell p-4")}>
@@ -437,6 +801,17 @@ export default function PolymarketPage() {
                 </div>
               </div>
             </div>
+            <div className="mt-4">
+              <LeaderboardTable
+                isLight={isLight}
+                subPanelClass={subPanelClass}
+                window={leaderboardWindow}
+                entries={leaderboardEntries}
+                loading={loadingLeaderboard}
+                error={leaderboardError}
+                onWindowChange={setLeaderboardWindow}
+              />
+            </div>
             <div className="mt-4 flex flex-wrap gap-3">
               <Link href={buildIntegrationsHref("phantom")} className={cn("home-spotlight-card home-border-glow inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold tracking-[0.12em] transition-colors", isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70 hover:text-accent" : "border-white/15 bg-black/25 text-slate-300 hover:text-white")}>Open Phantom Setup<ArrowUpRight className="h-4 w-4" /></Link>
               <Link href="/integrations?setup=polymarket" className={cn("home-spotlight-card home-border-glow inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold tracking-[0.12em] transition-colors", isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70 hover:text-accent" : "border-white/15 bg-black/25 text-slate-300 hover:text-white")}>Open Polymarket Integration<ArrowUpRight className="h-4 w-4" /></Link>
@@ -448,3 +823,5 @@ export default function PolymarketPage() {
     </div>
   )
 }
+
+

@@ -36,6 +36,33 @@ const BACKGROUND_VIDEO_FILE_PATTERN = /\.(mp4)$/i
 
 export type CropOffset = { x: number; y: number }
 
+async function readJsonResponseOrThrow(response: Response, invalidMessage: string): Promise<Record<string, unknown>> {
+  const text = await response.text()
+  if (!text) return {}
+  try {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(invalidMessage)
+    }
+    return parsed as Record<string, unknown>
+  } catch {
+    throw new Error(invalidMessage)
+  }
+}
+
+function responseErrorMessage(data: Record<string, unknown>, fallback: string): string {
+  const raw = data.error
+  if (typeof raw === "string") {
+    const trimmed = raw.trim()
+    if (trimmed) return trimmed
+  }
+  if (raw && typeof raw === "object") {
+    const message = String((raw as { message?: unknown }).message || "").trim()
+    if (message) return message
+  }
+  return fallback
+}
+
 export function useSettingsState(isOpen: boolean, onClose: () => void) {
   const router = useRouter()
 
@@ -92,24 +119,41 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   // ─── Workspace sync ───────────────────────────────────────────────────────
 
   const pushWorkspaceContextSync = useCallback(async (payload: Record<string, unknown>, serialized: string) => {
-    try {
-      const res = await fetch("/api/workspace/context-sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        keepalive: true,
-      })
-      if (!res.ok) {
-        if (lastWorkspaceSyncPayloadRef.current === serialized) lastWorkspaceSyncPayloadRef.current = ""
-        return
+    if (!hasSupabaseClientConfig || !supabaseBrowser) {
+      throw new Error("Supabase client is not configured for workspace context sync.")
+    }
+    const { data } = await supabaseBrowser.auth.getSession()
+    const accessToken = String(data.session?.access_token || "").trim()
+    if (!accessToken) {
+      throw new Error("Authenticated Supabase session required for workspace context sync.")
+    }
+    const res = await fetch("/api/workspace/context-sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      let message = `Workspace context sync failed (${res.status}).`
+      if (text) {
+        try {
+          const parsed = JSON.parse(text) as { error?: unknown }
+          const apiError = String(parsed.error || "").trim()
+          if (apiError) message = apiError
+        } catch {
+          message = text.slice(0, 240)
+        }
       }
-      lastWorkspaceSyncPayloadRef.current = serialized
-      if (pendingWorkspaceSyncPayloadRef.current === serialized) {
-        pendingWorkspaceSyncPayloadRef.current = ""
-        pendingWorkspaceSyncDataRef.current = null
-      }
-    } catch {
-      if (lastWorkspaceSyncPayloadRef.current === serialized) lastWorkspaceSyncPayloadRef.current = ""
+      throw new Error(message)
+    }
+    lastWorkspaceSyncPayloadRef.current = serialized
+    if (pendingWorkspaceSyncPayloadRef.current === serialized) {
+      pendingWorkspaceSyncPayloadRef.current = ""
+      pendingWorkspaceSyncDataRef.current = null
     }
   }, [])
 
@@ -133,7 +177,10 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     pendingWorkspaceSyncDataRef.current = payload
     if (workspaceSyncTimeoutRef.current !== null) window.clearTimeout(workspaceSyncTimeoutRef.current)
     if (options?.immediate) {
-      void pushWorkspaceContextSync(payload, serialized)
+      void pushWorkspaceContextSync(payload, serialized).catch((error) => {
+        const message = error instanceof Error ? error.message : "Failed to sync workspace context."
+        setAuthError(message)
+      })
       return
     }
     workspaceSyncTimeoutRef.current = window.setTimeout(async () => {
@@ -141,7 +188,10 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       const nextPayload = pendingWorkspaceSyncDataRef.current
       const nextSerialized = pendingWorkspaceSyncPayloadRef.current
       if (!nextPayload || !nextSerialized) return
-      void pushWorkspaceContextSync(nextPayload, nextSerialized)
+      void pushWorkspaceContextSync(nextPayload, nextSerialized).catch((error) => {
+        const message = error instanceof Error ? error.message : "Failed to sync workspace context."
+        setAuthError(message)
+      })
     }, 650)
   }, [pushWorkspaceContextSync])
 
@@ -175,8 +225,8 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     setMemoryError(null)
     try {
       const res = await fetch("/api/workspace/memory-md", { cache: "no-store" })
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; content?: string; error?: string }
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load MEMORY.md")
+      const data = await readJsonResponseOrThrow(res, "Invalid MEMORY.md response payload.")
+      if (!res.ok || !data.ok) throw new Error(responseErrorMessage(data, "Failed to load MEMORY.md"))
       setMemoryMarkdown(String(data.content || ""))
       setMemoryDirty(false)
     } catch (error) {
@@ -195,8 +245,8 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: memoryMarkdown }),
       })
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string }
-      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to save MEMORY.md")
+      const data = await readJsonResponseOrThrow(res, "Invalid MEMORY.md save response payload.")
+      if (!res.ok || !data.ok) throw new Error(responseErrorMessage(data, "Failed to save MEMORY.md"))
       setMemoryDirty(false)
       setMemorySavedAt(Date.now())
     } catch (error) {
@@ -279,8 +329,8 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       })
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
-      if (!res.ok) throw new Error(data.error || "Failed to permanently delete account.")
+      const data = await readJsonResponseOrThrow(res, "Invalid account deletion response payload.")
+      if (!res.ok) throw new Error(responseErrorMessage(data, "Failed to permanently delete account."))
       if (!hasSupabaseClientConfig || !supabaseBrowser) throw new Error("Supabase client is not configured.")
       await supabaseBrowser.auth.signOut()
       setActiveUserId(null)
@@ -607,7 +657,12 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       workspaceSyncTimeoutRef.current = null
       const pendingPayload = pendingWorkspaceSyncDataRef.current
       const pendingSerialized = pendingWorkspaceSyncPayloadRef.current
-      if (pendingPayload && pendingSerialized) void pushWorkspaceContextSync(pendingPayload, pendingSerialized)
+      if (pendingPayload && pendingSerialized) {
+        void pushWorkspaceContextSync(pendingPayload, pendingSerialized).catch((error) => {
+          const message = error instanceof Error ? error.message : "Failed to sync workspace context."
+          setAuthError(message)
+        })
+      }
     }
   }, [pushWorkspaceContextSync])
 
@@ -619,7 +674,12 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     }
     const pendingPayload = pendingWorkspaceSyncDataRef.current
     const pendingSerialized = pendingWorkspaceSyncPayloadRef.current
-    if (pendingPayload && pendingSerialized) void pushWorkspaceContextSync(pendingPayload, pendingSerialized)
+    if (pendingPayload && pendingSerialized) {
+      void pushWorkspaceContextSync(pendingPayload, pendingSerialized).catch((error) => {
+        const message = error instanceof Error ? error.message : "Failed to sync workspace context."
+        setAuthError(message)
+      })
+    }
   }, [isOpen, pushWorkspaceContextSync])
 
   return {

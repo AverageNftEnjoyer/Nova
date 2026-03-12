@@ -11,12 +11,10 @@ import { isBlockedAssistantName, MAX_ASSISTANT_NAME_LENGTH } from "@/lib/setting
 export const runtime = "nodejs"
 
 function normalizeBody(body: unknown): WorkspaceContextSyncInput {
-  const raw = body && typeof body === "object" ? (body as Record<string, unknown>) : {}
-  const nested =
-    raw.settings && typeof raw.settings === "object"
-      ? (raw.settings as Record<string, unknown>)
-      : null
-  const source = nested ?? raw
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new Error("Invalid workspace context payload.")
+  }
+  const source = body as Record<string, unknown>
   const interestsRaw = source.interests
   const interests = Array.isArray(interestsRaw)
     ? interestsRaw.map((item) => String(item || "").trim()).filter(Boolean)
@@ -39,11 +37,18 @@ function normalizeBody(body: unknown): WorkspaceContextSyncInput {
 
 export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  if (unauthorized) return unauthorized
+  if (!verified?.user?.id) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const body = await req.json().catch(() => ({}))
+    const body = await req.json()
     const input = normalizeBody(body)
+    if (!String(input.userName || "").trim()) {
+      return NextResponse.json({ ok: false, error: "userName is required." }, { status: 400 })
+    }
+    if (!String(input.assistantName || "").trim()) {
+      return NextResponse.json({ ok: false, error: "assistantName is required." }, { status: 400 })
+    }
     const workspaceRoot = resolveWorkspaceRoot()
     const result = await syncWorkspaceContextFiles(workspaceRoot, verified.user.id, input)
     return NextResponse.json({

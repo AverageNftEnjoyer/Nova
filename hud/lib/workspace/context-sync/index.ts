@@ -58,7 +58,10 @@ function sanitizeUserContextId(value: unknown): string {
     .replace(/[^a-z0-9_-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-  return normalized.slice(0, 96) || "anonymous"
+  if (!normalized) {
+    throw new Error("Workspace context sync requires a valid authenticated user id.")
+  }
+  return normalized.slice(0, 96)
 }
 
 function resolveUserContextDir(workspaceRoot: string, userId: string): string {
@@ -80,7 +83,7 @@ function compactList(values: unknown, maxItems: number, maxLen: number): string[
     .slice(0, maxItems)
 }
 
-function injectManagedBlock(existingRaw: string, fallbackHeader: string, block: string): string {
+function injectManagedBlock(existingRaw: string, baseHeader: string, block: string): string {
   const existing = String(existingRaw ?? "")
   const managedBlock = `${MANAGED_START}\n${block.trim()}\n${MANAGED_END}`
   const start = existing.indexOf(MANAGED_START)
@@ -93,7 +96,7 @@ function injectManagedBlock(existingRaw: string, fallbackHeader: string, block: 
 
   const base = existing.trim()
   if (!base) {
-    return `${fallbackHeader}\n\n${managedBlock}\n`
+    return `${baseHeader}\n\n${managedBlock}\n`
   }
   return `${base}\n\n${managedBlock}\n`
 }
@@ -108,12 +111,12 @@ async function readTextFile(filePath: string): Promise<string> {
 
 async function upsertManagedMarkdown(
   filePath: string,
-  fallbackHeader: string,
+  baseHeader: string,
   block: string,
   updatedFiles: string[],
 ): Promise<void> {
   const existing = await readTextFile(filePath)
-  const next = injectManagedBlock(existing, fallbackHeader, block)
+  const next = injectManagedBlock(existing, baseHeader, block)
   if (existing === next) return
   await writeFile(filePath, next, "utf8")
   updatedFiles.push(filePath)

@@ -93,6 +93,32 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     outputs: ["main"],
     tags: ["event", "reactive", "stream", "nova"],
   },
+  {
+    type: "polymarket-price-trigger",
+    label: "Polymarket Price Trigger",
+    description: "Trigger this mission when a Polymarket token crosses a configured threshold.",
+    category: "triggers",
+    icon: "TrendingUp",
+    color: "bg-amber-500/10",
+    borderColor: "border-amber-400/40",
+    textColor: "text-amber-300",
+    inputs: [],
+    outputs: ["main"],
+    tags: ["polymarket", "prediction", "odds", "price", "threshold", "trigger"],
+  },
+  {
+    type: "polymarket-monitor",
+    label: "Polymarket Monitor",
+    description: "Monitor a Polymarket query/tag for significant YES price swings.",
+    category: "triggers",
+    icon: "Activity",
+    color: "bg-amber-500/10",
+    borderColor: "border-amber-400/40",
+    textColor: "text-amber-300",
+    inputs: [],
+    outputs: ["main"],
+    tags: ["polymarket", "monitor", "volatility", "swing", "prediction markets"],
+  },
 
   // ─── DATA ─────────────────────────────────────────────────────────────────
   {
@@ -146,6 +172,19 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     inputs: ["main"],
     outputs: ["main"],
     tags: ["coinbase", "crypto", "bitcoin", "ethereum", "portfolio", "price", "defi", "btc", "eth"],
+  },
+  {
+    type: "polymarket-data-fetch",
+    label: "Polymarket Data",
+    description: "Fetch Polymarket search, market detail, prices, events, or leaderboard data.",
+    category: "data",
+    icon: "BarChart3",
+    color: "bg-cyan-500/10",
+    borderColor: "border-cyan-400/40",
+    textColor: "text-cyan-300",
+    inputs: ["main"],
+    outputs: ["main"],
+    tags: ["polymarket", "prediction", "odds", "leaderboard", "events", "markets"],
   },
   {
     type: "file-read",
@@ -630,3 +669,5 @@ export function searchCatalog(
       e.tags.some((t) => t.includes(q)),
   )
 }
+
+

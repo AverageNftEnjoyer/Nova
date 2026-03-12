@@ -216,6 +216,36 @@ function buildDefaultNodeConfig(type: CanvasNodeType, label: string, id: string,
       return { ...base, url: "https://example.com/feed.xml", maxItems: 10 }
     case "coinbase":
       return { ...base, intent: "report", assets: ["BTC", "ETH"], quoteCurrency: "USD", thresholdPct: 5, cadence: "daily" }
+    case "polymarket-price-trigger":
+      return {
+        ...base,
+        tokenId: "",
+        marketSlug: "",
+        direction: "above",
+        threshold: 0.6,
+        pollIntervalSeconds: 60,
+      }
+    case "polymarket-monitor":
+      return {
+        ...base,
+        query: "",
+        tagSlug: "",
+        range: "1d",
+        changeThresholdPct: 5,
+        maxMarkets: 6,
+        pollIntervalSeconds: 60,
+      }
+    case "polymarket-data-fetch":
+      return {
+        ...base,
+        queryType: "search",
+        query: "",
+        slug: "",
+        tokenIds: [],
+        window: "day",
+        limit: 8,
+        tagSlug: "",
+      }
     case "file-read":
       return { ...base, path: "", format: "text", encoding: "utf8" }
     case "form-input":
@@ -1210,3 +1240,4 @@ export function MissionCanvas(props: MissionCanvasProps) {
     </ReactFlowProvider>
   )
 }
+

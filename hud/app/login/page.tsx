@@ -56,6 +56,48 @@ async function ensureSupabaseSessionPersisted() {
   await supabaseBrowser.auth.getSession()
 }
 
+function buildWorkspaceContextSyncPayload() {
+  const settings = loadUserSettings()
+  return {
+    assistantName: settings.personalization.assistantName,
+    userName: settings.profile.name,
+    nickname: settings.personalization.nickname,
+    occupation: settings.personalization.occupation,
+    preferredLanguage: settings.personalization.preferredLanguage,
+    communicationStyle: settings.personalization.communicationStyle,
+    tone: settings.personalization.tone,
+    characteristics: settings.personalization.characteristics,
+    customInstructions: settings.personalization.customInstructions,
+    interests: settings.personalization.interests,
+  }
+}
+
+function resolveSupabaseProfileName(rawUser: unknown): string {
+  if (!rawUser || typeof rawUser !== "object") return ""
+  const user = rawUser as { user_metadata?: Record<string, unknown> | null; email?: unknown; id?: unknown }
+  const meta = user.user_metadata && typeof user.user_metadata === "object"
+    ? user.user_metadata
+    : {}
+  const candidates = [
+    meta.full_name,
+    meta.name,
+    meta.display_name,
+    meta.preferred_name,
+  ]
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim()
+    if (value) return value.slice(0, 80)
+  }
+  const email = String(user.email || "").trim().toLowerCase()
+  if (email.includes("@")) {
+    const local = email.slice(0, email.indexOf("@")).replace(/[._+-]+/g, " ").trim()
+    if (local) return local.slice(0, 80)
+  }
+  const userId = String(user.id || "").trim().replace(/[^a-z0-9_-]/gi, "")
+  if (userId) return `user-${userId.slice(0, 12)}`
+  return "user"
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const { theme } = useTheme()
@@ -90,6 +132,51 @@ export default function LoginPage() {
     },
     [router],
   )
+
+  const syncWorkspaceProfileFromSupabaseSession = useCallback(async () => {
+    if (!hasSupabaseClientConfig || !supabaseBrowser) {
+      throw new Error("Supabase client is not configured for profile sync.")
+    }
+    const { data } = await supabaseBrowser.auth.getSession()
+    const accessToken = String(data.session?.access_token || "").trim()
+    const userId = String(data.session?.user?.id || "").trim()
+    if (!accessToken || !userId) {
+      throw new Error("Authenticated Supabase session required for workspace profile sync.")
+    }
+    setActiveUserId(userId)
+    const supabaseProfileName = resolveSupabaseProfileName(data.session?.user || null)
+    const current = loadUserSettings()
+    saveUserSettings({
+      ...current,
+      profile: {
+        ...current.profile,
+        name: supabaseProfileName,
+      },
+    })
+    const res = await fetch("/api/workspace/context-sync", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(buildWorkspaceContextSyncPayload()),
+      keepalive: true,
+    })
+    if (!res.ok) {
+      const text = await res.text()
+      let message = `Workspace profile sync failed (${res.status}).`
+      if (text) {
+        try {
+          const payload = JSON.parse(text) as { error?: unknown }
+          const apiError = String(payload.error || "").trim()
+          if (apiError) message = apiError
+        } catch {
+          message = text.slice(0, 240)
+        }
+      }
+      throw new Error(message)
+    }
+  }, [])
 
   const syncOrbColor = useCallback(() => {
     const nextColor = loadUserSettings().app.orbColor
@@ -177,9 +264,18 @@ export default function LoginPage() {
         return
       }
 
-      if (data.session?.user && !allowLoginWhileAuthed) router.replace(next)
+      if (data.session?.user && !allowLoginWhileAuthed) {
+        void (async () => {
+          try {
+            await syncWorkspaceProfileFromSupabaseSession()
+            router.replace(next)
+          } catch (syncError) {
+            setError(syncError instanceof Error ? syncError.message : "Failed to sync workspace profile context.")
+          }
+        })()
+      }
     })
-  }, [debugEnabled, router])
+  }, [debugEnabled, router, syncWorkspaceProfileFromSupabaseSession])
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -204,8 +300,14 @@ export default function LoginPage() {
 
       if (payload.status === "success") {
         if (payload.userId) setActiveUserId(payload.userId)
-        void ensureSupabaseSessionPersisted().then(() => {
-          navigatePostAuth(payload.nextPath || nextPath)
+        void ensureSupabaseSessionPersisted().then(async () => {
+          try {
+            await syncWorkspaceProfileFromSupabaseSession()
+            navigatePostAuth(payload.nextPath || nextPath)
+          } catch (syncError) {
+            setBusy(false)
+            setError(syncError instanceof Error ? syncError.message : "Failed to sync workspace profile context.")
+          }
         })
       } else {
         setBusy(false)
@@ -215,7 +317,7 @@ export default function LoginPage() {
 
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [navigatePostAuth, nextPath])
+  }, [navigatePostAuth, nextPath, syncWorkspaceProfileFromSupabaseSession])
 
   useEffect(() => {
     return () => {
@@ -304,6 +406,7 @@ export default function LoginPage() {
         const { data: signUpData, error: signUpError } = await supabaseBrowser.auth.signUp({
           email: trimmedEmail,
           password,
+          ...(trimmedName ? { options: { data: { full_name: trimmedName } } } : {}),
         })
         if (signUpError) throw signUpError
 
@@ -334,6 +437,7 @@ export default function LoginPage() {
 
         if (authedUserId) {
           await ensureSupabaseSessionPersisted()
+          await syncWorkspaceProfileFromSupabaseSession()
           navigatePostAuth(nextPath)
           return
         }
@@ -350,6 +454,7 @@ export default function LoginPage() {
         if (signInError) throw signInError
         setActiveUserId(signInData.user?.id || null)
         await ensureSupabaseSessionPersisted()
+        await syncWorkspaceProfileFromSupabaseSession()
         navigatePostAuth(nextPath)
       }
     } catch (err) {

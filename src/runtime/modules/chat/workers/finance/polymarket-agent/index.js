@@ -17,7 +17,7 @@ import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 const POLYMARKET_TTS_TIMEOUT_MS = 10_000;
 
 export async function handlePolymarketWorker(text, ctx, llmCtx = {}, requestHints = {}) {
-  const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
+  const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId, supabaseAccessToken } = ctx;
   const runtimeTools = llmCtx?.runtimeTools || null;
   const availableTools = Array.isArray(llmCtx?.availableTools) ? llmCtx.availableTools : [];
   const canRunWebSearch = availableTools.some((tool) => String(tool?.name || "") === "web_search");
@@ -129,12 +129,18 @@ export async function handlePolymarketWorker(text, ctx, llmCtx = {}, requestHint
       sessionKey,
       runtimeTools,
       availableTools,
+      supabaseAccessToken: String(supabaseAccessToken || ""),
     });
     summary.ok = result?.ok === true;
     summary.error = summary.ok ? "" : String(result?.code || "polymarket.execution_failed");
     summary.errorMessage = summary.ok ? "" : String(result?.message || "Polymarket request failed.");
     summary.provider = String(result?.provider?.providerId || "");
-    summary.toolCalls = Number(result?.telemetry?.attemptCount || 0) > 0 && canRunWebSearch ? ["web_search"] : [];
+    const reportedToolCalls = Array.isArray(result?.toolCalls)
+      ? result.toolCalls.map((tool) => String(tool || "").trim()).filter(Boolean)
+      : [];
+    summary.toolCalls = reportedToolCalls.length > 0
+      ? reportedToolCalls
+      : (Number(result?.telemetry?.attemptCount || 0) > 0 && canRunWebSearch ? ["web_search"] : []);
     summary.toolExecutions = summary.toolCalls.map((tool) => ({
       tool,
       ok: result?.ok === true,
@@ -150,6 +156,7 @@ export async function handlePolymarketWorker(text, ctx, llmCtx = {}, requestHint
       toolCalls: summary.toolCalls.length,
     };
     summary.requestHints.polymarketScan = {
+      action: String(result?.action || "scan"),
       query: String(result?.query || ""),
       resultCount: Number(result?.telemetry?.resultCount || 0),
       code: String(result?.code || ""),

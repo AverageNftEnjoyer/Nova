@@ -88,6 +88,45 @@ export interface PolymarketPricePoint {
   p: number
 }
 
+export interface PolymarketEventMarketSummary {
+  id: string
+  slug: string
+  question: string
+  acceptingOrders: boolean
+}
+
+export interface PolymarketEvent {
+  id: string
+  slug: string
+  title: string
+  description: string
+  active: boolean
+  closed: boolean
+  startDate: string
+  endDate: string
+  liquidity: number
+  volume24hr: number
+  iconUrl: string
+  imageUrl: string
+  tags: PolymarketTag[]
+  markets: PolymarketEventMarketSummary[]
+}
+
+export interface PolymarketTokenPrice {
+  tokenId: string
+  price: number
+  side: "BUY" | "SELL" | ""
+  updatedAt: string
+}
+
+export interface PolymarketLeaderboardEntry {
+  rank: number
+  walletAddress: string
+  username: string
+  pnl: number
+  volume: number
+}
+
 function toFiniteNumber(value: unknown): number {
   const parsed = Number.parseFloat(String(value ?? ""))
   return Number.isFinite(parsed) ? parsed : 0
@@ -137,6 +176,21 @@ function getPrimaryEvent(value: unknown): Record<string, unknown> {
   if (!Array.isArray(value) || value.length === 0) return {}
   const primary = value[0]
   return primary && typeof primary === "object" ? primary as Record<string, unknown> : {}
+}
+
+function normalizeEventMarketSummary(raw: unknown): PolymarketEventMarketSummary | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  const id = toSafeString(source.id, 64)
+  const slug = toSafeString(source.slug, 256)
+  const question = toSafeString(source.question || source.title, 280)
+  if (!id && !slug && !question) return null
+  return {
+    id,
+    slug,
+    question,
+    acceptingOrders: source.acceptingOrders === true,
+  }
 }
 
 export function normalizePolymarketEvmAddress(value: unknown): string {
@@ -284,5 +338,66 @@ export function normalizePolymarketOrderBook(raw: unknown, tokenId = ""): Polyma
     tickSize: toSafeString(source.tick_size || "0.01", 16) || "0.01",
     negRisk: source.neg_risk === true,
     lastTradePrice: toFiniteNumber(source.last_trade_price),
+  }
+}
+
+export function normalizePolymarketEvent(raw: unknown): PolymarketEvent | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  const markets = Array.isArray(source.markets)
+    ? source.markets.map((entry) => normalizeEventMarketSummary(entry)).filter((entry): entry is PolymarketEventMarketSummary => Boolean(entry))
+    : []
+  const id = toSafeString(source.id, 64)
+  const slug = toSafeString(source.slug, 256)
+  const title = toSafeString(source.title || source.question || source.name || markets[0]?.question, 280)
+  if (!id && !slug && !title) return null
+  return {
+    id,
+    slug,
+    title,
+    description: toSafeString(source.description, 8_000),
+    active: source.active === true,
+    closed: source.closed === true,
+    startDate: toSafeString(source.startDate, 64),
+    endDate: toSafeString(source.endDate, 64),
+    liquidity: toFiniteNumber(source.liquidity ?? source.liquidityNum),
+    volume24hr: toFiniteNumber(source.volume24hr ?? source.volume24hrClob),
+    iconUrl: toSafeString(source.icon, 512),
+    imageUrl: toSafeString(source.image, 512),
+    tags: parseTagArray(source.tags),
+    markets,
+  }
+}
+
+export function normalizePolymarketTokenPrice(raw: unknown): PolymarketTokenPrice | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  const tokenId = toSafeString(source.token_id ?? source.tokenId ?? source.asset_id ?? source.id, 128)
+  if (!tokenId) return null
+  const sideCandidate = toSafeString(source.side, 8).toUpperCase()
+  return {
+    tokenId,
+    price: toFiniteNumber(source.price ?? source.midpoint ?? source.mid ?? source.value),
+    side: sideCandidate === "BUY" || sideCandidate === "SELL" ? sideCandidate : "",
+    updatedAt: toSafeString(source.updatedAt ?? source.updated_at ?? source.timestamp, 64),
+  }
+}
+
+export function normalizePolymarketLeaderboardEntry(raw: unknown, fallbackRank = 0): PolymarketLeaderboardEntry | null {
+  if (!raw || typeof raw !== "object") return null
+  const source = raw as Record<string, unknown>
+  const walletAddress = normalizePolymarketEvmAddress(source.address ?? source.walletAddress ?? source.user ?? source.trader)
+  const username = toSafeString(source.username ?? source.name ?? source.pseudonym, 128)
+  const rankCandidate = toFiniteNumber(source.rank ?? source.position)
+  const normalizedRank = Number.isFinite(rankCandidate) && rankCandidate > 0
+    ? Math.trunc(rankCandidate)
+    : Math.max(0, Math.trunc(fallbackRank))
+  if (!walletAddress && !username) return null
+  return {
+    rank: normalizedRank,
+    walletAddress,
+    username,
+    pnl: toFiniteNumber(source.pnl ?? source.profitLoss ?? source.profit_loss ?? source.realizedPnl),
+    volume: toFiniteNumber(source.volume ?? source.totalVolume ?? source.volumeTraded),
   }
 }

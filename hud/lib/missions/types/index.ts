@@ -100,6 +100,25 @@ export interface EventTriggerNode extends NodeBase {
   filter?: string              // expression filter
 }
 
+export interface PolymarketPriceTriggerNode extends NodeBase {
+  type: "polymarket-price-trigger"
+  tokenId: string
+  marketSlug?: string
+  direction?: "above" | "below"
+  threshold?: number
+  pollIntervalSeconds?: number
+}
+
+export interface PolymarketMonitorNode extends NodeBase {
+  type: "polymarket-monitor"
+  query?: string
+  tagSlug?: string
+  range?: "1h" | "6h" | "1d" | "1w" | "1m" | "all"
+  changeThresholdPct?: number
+  maxMarkets?: number
+  pollIntervalSeconds?: number
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Data Nodes
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +164,17 @@ export interface CoinbaseNode extends NodeBase {
     style?: "concise" | "standard" | "detailed"
     includeRawMetadata?: boolean
   }
+}
+
+export interface PolymarketDataFetchNode extends NodeBase {
+  type: "polymarket-data-fetch"
+  queryType?: "search" | "market" | "prices" | "leaderboard" | "events"
+  query?: string
+  slug?: string
+  tokenIds?: string[]
+  window?: "day" | "week" | "month" | "all"
+  limit?: number
+  tagSlug?: string
 }
 
 export interface FileReadNode extends NodeBase {
@@ -435,11 +465,14 @@ export type MissionNode =
   | WebhookTriggerNode
   | ManualTriggerNode
   | EventTriggerNode
+  | PolymarketPriceTriggerNode
+  | PolymarketMonitorNode
   // Data
   | HttpRequestNode
   | WebSearchNode
   | RssFeedNode
   | CoinbaseNode
+  | PolymarketDataFetchNode
   | FileReadNode
   | FormInputNode
   // AI
@@ -727,7 +760,7 @@ export interface OutputResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** @deprecated Use MissionNodeType instead */
-export type WorkflowStepType = "trigger" | "fetch" | "coinbase" | "ai" | "transform" | "condition" | "output"
+export type WorkflowStepType = "trigger" | "fetch" | "coinbase" | "polymarket" | "ai" | "transform" | "condition" | "output"
 
 /** @deprecated Use MissionNode union instead */
 export interface WorkflowStep {
@@ -743,7 +776,7 @@ export interface WorkflowStep {
   triggerTimezone?: string
   triggerDays?: string[]
   triggerIntervalMinutes?: string
-  fetchSource?: "api" | "web" | "calendar" | "crypto" | "coinbase" | "rss" | "database" | string
+  fetchSource?: "api" | "web" | "calendar" | "crypto" | "coinbase" | "polymarket" | "rss" | "database" | string
   fetchMethod?: "GET" | "POST" | string
   fetchApiIntegrationId?: string
   fetchUrl?: string
@@ -764,6 +797,31 @@ export interface WorkflowStep {
   coinbaseFormat?: {
     style?: "concise" | "standard" | "detailed" | string
     includeRawMetadata?: boolean
+  }
+  polymarketAction?:
+    | "price-trigger"
+    | "monitor"
+    | "search"
+    | "market"
+    | "prices"
+    | "leaderboard"
+    | "events"
+    | string
+  polymarketParams?: {
+    tokenId?: string
+    marketSlug?: string
+    direction?: "above" | "below" | string
+    threshold?: number
+    pollIntervalSeconds?: number
+    query?: string
+    tagSlug?: string
+    range?: "1h" | "6h" | "1d" | "1w" | "1m" | "all" | string
+    changeThresholdPct?: number
+    maxMarkets?: number
+    slug?: string
+    tokenIds?: string[]
+    window?: "day" | "week" | "month" | "all" | string
+    limit?: number
   }
   transformAction?: "normalize" | "dedupe" | "aggregate" | "format" | "enrich" | string
   transformFormat?: "text" | "json" | "markdown" | "table" | string
@@ -860,4 +918,5 @@ export interface WorkflowScheduleGate {
   mode: string
   timezone?: string
 }
+
 

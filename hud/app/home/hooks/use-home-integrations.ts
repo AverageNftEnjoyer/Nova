@@ -8,6 +8,7 @@ import {
   type IntegrationsSettings,
   type LlmProvider,
 } from "@/lib/integrations/store/client-store"
+import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
 import { buildIntegrationsHref, type IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -149,6 +150,7 @@ const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 1_000
 const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 5_000
 const SPOTIFY_POLL_INTERVAL_IDLE_MS = 8_000
 const SPOTIFY_REQUEST_TIMEOUT_MS = 12_000
+const SPOTIFY_UNAUTHORIZED_REDIRECT_COOLDOWN_MS = 2_500
 
 async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = SPOTIFY_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -172,6 +174,16 @@ async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit,
 
 export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegrationsInput) {
   const router = useRouter()
+  const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
+    if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
+    try {
+      const { data } = await supabaseBrowser.auth.getSession()
+      return String(data.session?.access_token || "").trim()
+    } catch {
+      return ""
+    }
+  }, [])
+
   const [missionItems, setMissionItems] = useState<MissionListItem[]>([])
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
@@ -193,6 +205,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const spotifyNowPlayingRef = useRef<HomeSpotifyNowPlaying | null>(null)
   // Stable ref for connected — avoids refreshSpotifyNowPlaying re-creation on connect change
   const spotifyConnectedRef = useRef(false)
+  const spotifyUnauthorizedRef = useRef(false)
+  const spotifyUnauthorizedRedirectAtRef = useRef(0)
   const [spotifyLoading, setSpotifyLoading] = useState(false)
   const [spotifyError, setSpotifyError] = useState<string | null>(null)
   const [spotifyBusyAction, setSpotifyBusyAction] = useState<SpotifyPlaybackAction | null>(null)
@@ -275,7 +289,25 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
 
   // Stable callback — uses refs so it never needs to be re-created when state changes.
   // This prevents the polling interval from being torn down on every poll response.
+  const markSpotifyUnauthorized = useCallback(() => {
+    spotifyUnauthorizedRef.current = true
+    setSpotifyConnected(false)
+    setSpotifyNowPlaying(null)
+    setSpotifyError("Spotify session expired. Reconnect in Integrations.")
+    const onLoginRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/login")
+    if (onLoginRoute) return
+    const now = Date.now()
+    if (now - spotifyUnauthorizedRedirectAtRef.current < SPOTIFY_UNAUTHORIZED_REDIRECT_COOLDOWN_MS) return
+    spotifyUnauthorizedRedirectAtRef.current = now
+    router.push("/login")
+  }, [router])
+
   const refreshSpotifyNowPlaying = useCallback(async (connectedHint?: boolean) => {
+    if (spotifyUnauthorizedRef.current) {
+      setSpotifyLoading(false)
+      return
+    }
+
     const shouldFetch = typeof connectedHint === "boolean" ? connectedHint : spotifyConnectedRef.current
     if (!shouldFetch) {
       setSpotifyNowPlaying(null)
@@ -286,12 +318,15 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
 
     setSpotifyLoading(true)
     try {
+      const supabaseAccessToken = await getSupabaseAccessToken()
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/now-playing", {
         cache: "no-store",
         credentials: "include",
+        headers: supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : undefined,
       })
       if (res.status === 401) {
-        throw new Error("Unauthorized")
+        markSpotifyUnauthorized()
+        return
       }
       if (!res.ok || !data?.ok) {
         throw new Error(String(data?.error || "Failed to read Spotify status."))
@@ -300,27 +335,48 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
       setSpotifyNowPlaying(normalizeSpotifyNowPlaying(data?.nowPlaying))
       setSpotifyError(null)
     } catch (error) {
+      if (error instanceof Error && error.message === "Unauthorized") {
+        markSpotifyUnauthorized()
+        return
+      }
       setSpotifyNowPlaying((prev) => prev ?? EMPTY_SPOTIFY_NOW_PLAYING)
       setSpotifyError(error instanceof Error ? error.message : "Failed to read Spotify status.")
     } finally {
       setSpotifyLoading(false)
     }
-  }, [])
+  }, [getSupabaseAccessToken, markSpotifyUnauthorized])
 
   const seekSpotify = useCallback(async (positionMs: number): Promise<void> => {
+    if (spotifyUnauthorizedRef.current) {
+      setSpotifyError("Spotify session expired. Reconnect in Integrations.")
+      return
+    }
+
     setSpotifyNowPlaying((prev) => prev ? { ...prev, progressMs: positionMs } : prev)
     try {
+      const supabaseAccessToken = await getSupabaseAccessToken()
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/playback", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : {}),
+        },
         body: JSON.stringify({ action: "seek", positionMs }),
       })
+      if (res.status === 401) {
+        markSpotifyUnauthorized()
+        return
+      }
       if (!res.ok || !data?.ok) throw new Error(String(data?.error || "Seek failed."))
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === "Unauthorized") {
+        markSpotifyUnauthorized()
+        return
+      }
       void refreshSpotifyNowPlaying(true)
     }
-  }, [refreshSpotifyNowPlaying])
+  }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying])
 
   const spotifyRetryTimerRef = useRef<number | null>(null)
   // After a play/pause command, suppress poll cycles for this many ms to prevent
@@ -328,6 +384,12 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const spotifyCommandSentAtRef = useRef(0)
 
   const runSpotifyPlayback = useCallback(async (action: SpotifyPlaybackAction, _isRetry = false): Promise<SpotifyPlaybackResponse> => {
+    if (spotifyUnauthorizedRef.current) {
+      const message = "Spotify session expired. Reconnect in Integrations."
+      setSpotifyError(message)
+      return { ok: false, error: message }
+    }
+
     const isStartAction = action === "play" || action === "play_liked" || action === "play_smart"
     if (!_isRetry && isStartAction && Date.now() < spotifyDeviceWarmupUntilRef.current) {
       return { ok: false, error: "Spotify is launching. Please wait a moment." }
@@ -346,14 +408,19 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     }
 
     try {
+      const supabaseAccessToken = await getSupabaseAccessToken()
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/playback", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : {}),
+        },
         body: JSON.stringify({ action }),
       })
       if (res.status === 401) {
-        throw new Error("Unauthorized")
+        markSpotifyUnauthorized()
+        return { ok: false, error: "Spotify session expired. Reconnect in Integrations." }
       }
       if (!res.ok || !data?.ok) {
         if (data?.code === "spotify.device_unavailable" || data?.fallbackRecommended) {
@@ -425,12 +492,16 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     } catch (error) {
       const message = error instanceof Error ? error.message : "Spotify playback failed."
       setSpotifyError(message)
-      void refreshSpotifyNowPlaying(true)
+      if (message !== "Unauthorized") {
+        void refreshSpotifyNowPlaying(true)
+      } else {
+        markSpotifyUnauthorized()
+      }
       return { ok: false, error: message }
     } finally {
       setSpotifyBusyAction(null)
     }
-  }, [refreshSpotifyNowPlaying, speakTts])
+  }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying, speakTts])
 
   useLayoutEffect(() => {
     const cached = readShellUiCache()
@@ -463,6 +534,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         return res.json()
       })
       .then((data) => {
+        spotifyUnauthorizedRef.current = false
+        spotifyUnauthorizedRedirectAtRef.current = 0
         preserveSpotifyCacheUntilServerSyncRef.current = false
         const config = data?.config || {}
         const provider = providerFromValue(config?.activeLlmProvider)
@@ -490,7 +563,10 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         setActiveLlmProvider(provider)
         setActiveLlmModel(modelForProvider(provider, config))
       })
-      .catch(() => {
+      .catch((error) => {
+        if (error instanceof Error && error.message === "Unauthorized") {
+          markSpotifyUnauthorized()
+        }
         // Keep cached spotify snapshot visible if server sync fails during boot.
       })
       .finally(() => {
@@ -498,10 +574,12 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
       })
 
     refreshMissionItems()
-  }, [refreshMissionItems, refreshSpotifyNowPlaying])
+  }, [markSpotifyUnauthorized, refreshMissionItems, refreshSpotifyNowPlaying])
 
   useEffect(() => {
     const onUpdate = () => {
+      spotifyUnauthorizedRef.current = false
+      spotifyUnauthorizedRedirectAtRef.current = 0
       preserveSpotifyCacheUntilServerSyncRef.current = false
       const local = loadIntegrationsSettings()
       applyLocalSettings(local)

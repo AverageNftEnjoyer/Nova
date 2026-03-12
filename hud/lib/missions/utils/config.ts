@@ -12,7 +12,7 @@ import type { WorkflowStep, WorkflowStepType, AiDetailLevel } from "../types/ind
 export function normalizeWorkflowStep(raw: WorkflowStep, index: number): WorkflowStep {
   const type = String(raw.type || "output").toLowerCase()
   const stepType: WorkflowStepType | "switch" | "loop" =
-    type === "trigger" || type === "fetch" || type === "coinbase" || type === "ai" || type === "transform" || type === "condition" || type === "output" || type === "switch" || type === "loop"
+    type === "trigger" || type === "fetch" || type === "coinbase" || type === "polymarket" || type === "ai" || type === "transform" || type === "condition" || type === "output" || type === "switch" || type === "loop"
       ? (type as WorkflowStepType | "switch" | "loop")
       : "output"
   const normalized: WorkflowStep = {
@@ -58,6 +58,57 @@ export function normalizeWorkflowStep(raw: WorkflowStep, index: number): Workflo
     }
     if (!raw.title || /^coinbase$/i.test(String(raw.title))) {
       normalized.title = "Run Coinbase step"
+    }
+  }
+  if (stepType === "polymarket") {
+    const normalizedAction = String(raw.polymarketAction || "").trim().toLowerCase()
+    normalized.polymarketAction =
+      normalizedAction === "price-trigger" ||
+      normalizedAction === "monitor" ||
+      normalizedAction === "search" ||
+      normalizedAction === "market" ||
+      normalizedAction === "prices" ||
+      normalizedAction === "leaderboard" ||
+      normalizedAction === "events"
+        ? normalizedAction
+        : "search"
+
+    const normalizedDirection = String(raw.polymarketParams?.direction || "").trim().toLowerCase()
+    const normalizedRange = String(raw.polymarketParams?.range || "").trim().toLowerCase()
+    const normalizedWindow = String(raw.polymarketParams?.window || "").trim().toLowerCase()
+
+    normalized.polymarketParams = {
+      tokenId: typeof raw.polymarketParams?.tokenId === "string" ? raw.polymarketParams.tokenId : undefined,
+      marketSlug: typeof raw.polymarketParams?.marketSlug === "string" ? raw.polymarketParams.marketSlug : undefined,
+      direction: normalizedDirection === "below" ? "below" : normalizedDirection === "above" ? "above" : undefined,
+      threshold: Number.isFinite(Number(raw.polymarketParams?.threshold)) ? Number(raw.polymarketParams?.threshold) : undefined,
+      pollIntervalSeconds: Number.isFinite(Number(raw.polymarketParams?.pollIntervalSeconds)) ? Number(raw.polymarketParams?.pollIntervalSeconds) : undefined,
+      query: typeof raw.polymarketParams?.query === "string" ? raw.polymarketParams.query : undefined,
+      tagSlug: typeof raw.polymarketParams?.tagSlug === "string" ? raw.polymarketParams.tagSlug : undefined,
+      range:
+        normalizedRange === "1h" ||
+        normalizedRange === "6h" ||
+        normalizedRange === "1d" ||
+        normalizedRange === "1w" ||
+        normalizedRange === "1m" ||
+        normalizedRange === "all"
+          ? normalizedRange
+          : undefined,
+      changeThresholdPct: Number.isFinite(Number(raw.polymarketParams?.changeThresholdPct)) ? Number(raw.polymarketParams?.changeThresholdPct) : undefined,
+      maxMarkets: Number.isFinite(Number(raw.polymarketParams?.maxMarkets)) ? Number(raw.polymarketParams?.maxMarkets) : undefined,
+      slug: typeof raw.polymarketParams?.slug === "string" ? raw.polymarketParams.slug : undefined,
+      tokenIds: Array.isArray(raw.polymarketParams?.tokenIds)
+        ? raw.polymarketParams.tokenIds.map((value) => String(value).trim()).filter(Boolean).slice(0, 24)
+        : undefined,
+      window:
+        normalizedWindow === "day" || normalizedWindow === "week" || normalizedWindow === "month" || normalizedWindow === "all"
+          ? normalizedWindow
+          : undefined,
+      limit: Number.isFinite(Number(raw.polymarketParams?.limit)) ? Number(raw.polymarketParams?.limit) : undefined,
+    }
+
+    if (!raw.title || /^polymarket$/i.test(String(raw.title))) {
+      normalized.title = "Run Polymarket step"
     }
   }
   if (stepType === "output") {
@@ -200,3 +251,4 @@ export function toClaudeBase(url: string): string {
   if (!trimmed) return "https://api.anthropic.com"
   return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed
 }
+

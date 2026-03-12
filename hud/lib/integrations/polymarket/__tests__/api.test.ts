@@ -1,7 +1,12 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { normalizePolymarketMarket } from "../api.ts"
+import {
+  normalizePolymarketEvent,
+  normalizePolymarketLeaderboardEntry,
+  normalizePolymarketMarket,
+  normalizePolymarketTokenPrice,
+} from "../api.ts"
 
 test("normalizePolymarketMarket handles raw Gamma payloads", () => {
   const market = normalizePolymarketMarket({
@@ -57,4 +62,60 @@ test("normalizePolymarketMarket preserves already-normalized outcome objects", (
   assert.equal(market.outcomes[0]?.price, 0.1225)
   assert.equal(market.outcomes[1]?.label, "No")
   assert.equal(market.outcomes[1]?.price, 0.8775)
+})
+
+test("normalizePolymarketEvent parses event payloads with embedded market summaries", () => {
+  const event = normalizePolymarketEvent({
+    id: "evt-1",
+    slug: "us-election-2028",
+    title: "US Election 2028",
+    active: true,
+    volume24hr: 123456.78,
+    markets: [
+      {
+        id: "mkt-10",
+        slug: "candidate-a-wins",
+        question: "Candidate A wins?",
+        acceptingOrders: true,
+      },
+    ],
+  })
+
+  assert.ok(event)
+  assert.equal(event.title, "US Election 2028")
+  assert.equal(event.markets[0]?.slug, "candidate-a-wins")
+  assert.equal(event.markets[0]?.acceptingOrders, true)
+  assert.equal(event.volume24hr, 123456.78)
+})
+
+test("normalizePolymarketTokenPrice normalizes token identifiers and side hints", () => {
+  const price = normalizePolymarketTokenPrice({
+    token_id: "123456789",
+    price: "0.643",
+    side: "buy",
+  })
+
+  assert.ok(price)
+  assert.equal(price.tokenId, "123456789")
+  assert.equal(price.price, 0.643)
+  assert.equal(price.side, "BUY")
+})
+
+test("normalizePolymarketLeaderboardEntry preserves rank fallback and address normalization", () => {
+  const entry = normalizePolymarketLeaderboardEntry(
+    {
+      address: "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      username: "trader-a",
+      pnl: "420.5",
+      volume: "12345",
+    },
+    3,
+  )
+
+  assert.ok(entry)
+  assert.equal(entry.rank, 3)
+  assert.equal(entry.walletAddress, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  assert.equal(entry.username, "trader-a")
+  assert.equal(entry.pnl, 420.5)
+  assert.equal(entry.volume, 12345)
 })

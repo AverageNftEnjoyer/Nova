@@ -2,6 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user";
 import { normalizeHandoffOperationToken } from "@/lib/chat/handoff";
 import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser";
+import {
+  extractPreferredCityCommand,
+  loadUserSettings,
+  normalizePreferredCity,
+  saveUserSettings,
+} from "@/lib/settings/userSettings";
 
 export type NovaState =
   | "idle"
@@ -263,6 +269,25 @@ function normalizeConversationId(value: unknown): string {
 
 function normalizeUserContextId(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function maybePersistPreferredCityFromCommand(text: string): void {
+  const extracted = extractPreferredCityCommand(text);
+  if (!extracted) return;
+  try {
+    const current = loadUserSettings();
+    const existing = normalizePreferredCity(current.personalization?.preferredCity);
+    if (existing.toLowerCase() === extracted.toLowerCase()) return;
+    saveUserSettings({
+      ...current,
+      personalization: {
+        ...current.personalization,
+        preferredCity: extracted,
+      },
+    });
+  } catch {
+    // Ignore settings persistence errors; message dispatch should continue.
+  }
 }
 
 export type CalendarEmitPayload =
@@ -975,6 +1000,7 @@ export function useNovaState() {
       imageData?: string
     },
   ) => {
+    maybePersistPreferredCityFromCommand(text);
     const ws = wsRef.current;
     const token = supabaseAccessTokenRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {

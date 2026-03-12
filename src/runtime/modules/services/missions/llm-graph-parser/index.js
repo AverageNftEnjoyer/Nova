@@ -153,6 +153,44 @@ export function parseLlmNode(raw, index, options = {}) {
         quoteCurrency: asString(record.quoteCurrency) || undefined,
       };
     }
+    case "polymarket-price-trigger": {
+      const direction = String(record.direction || "above").trim().toLowerCase();
+      return {
+        id, label, position, type: "polymarket-price-trigger",
+        tokenId: asString(record.tokenId, ""),
+        marketSlug: asString(record.marketSlug) || undefined,
+        direction: (direction === "below" ? "below" : "above"),
+        threshold: asNumber(record.threshold, 0.5),
+        pollIntervalSeconds: asNumber(record.pollIntervalSeconds, 60),
+      };
+    }
+    case "polymarket-monitor": {
+      const range = String(record.range || "1d").trim().toLowerCase();
+      return {
+        id, label, position, type: "polymarket-monitor",
+        query: asString(record.query) || undefined,
+        tagSlug: asString(record.tagSlug) || undefined,
+        range: (range === "1h" || range === "6h" || range === "1d" || range === "1w" || range === "1m" || range === "all" ? range : "1d"),
+        changeThresholdPct: asNumber(record.changeThresholdPct, 5),
+        maxMarkets: asNumber(record.maxMarkets, 6),
+        pollIntervalSeconds: asNumber(record.pollIntervalSeconds, 60),
+      };
+    }
+    case "polymarket":
+    case "polymarket-data-fetch": {
+      const queryType = String(record.queryType || "search").trim().toLowerCase();
+      const window = String(record.window || "day").trim().toLowerCase();
+      return {
+        id, label, position, type: "polymarket-data-fetch",
+        queryType: (queryType === "market" || queryType === "prices" || queryType === "leaderboard" || queryType === "events" ? queryType : "search"),
+        query: asString(record.query) || undefined,
+        slug: asString(record.slug) || undefined,
+        tokenIds: Array.isArray(record.tokenIds) ? record.tokenIds.map(String) : undefined,
+        window: (window === "week" || window === "month" || window === "all" ? window : "day"),
+        limit: asNumber(record.limit, 8),
+        tagSlug: asString(record.tagSlug) || undefined,
+      };
+    }
     case "file-read": {
       const format = String(record.format || "text");
       return {
@@ -501,3 +539,7 @@ export function parseLlmConnections(rawConns, nodeIds) {
   }
   return connections;
 }
+
+
+
+

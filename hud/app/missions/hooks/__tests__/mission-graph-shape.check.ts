@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 
 import type { Mission } from "../../../../lib/missions/types"
-import { missionHasAgentPhase0Nodes, missionHasNonLinearGraph, missionRequiresCanvasEditor } from "../mission-graph-shape"
+import { missionHasAgentPhase0Nodes, missionHasCanvasOnlyNodes, missionHasNonLinearGraph, missionRequiresCanvasEditor } from "../mission-graph-shape"
 
 function buildMission(input: {
   nodes: Array<{ id: string; type: string }>
@@ -106,5 +106,19 @@ runCheck("non-main ports require canvas editor", () => {
     ],
   })
   assert.equal(missionHasNonLinearGraph(mission), true)
+  assert.equal(missionRequiresCanvasEditor(mission), true)
+})
+
+runCheck("canvas-only node types force canvas editor", () => {
+  const mission = buildMission({
+    nodes: [
+      { id: "n1", type: "polymarket-price-trigger" },
+      { id: "n2", type: "telegram-output" },
+    ],
+    connections: [
+      { id: "c1", sourceNodeId: "n1", sourcePort: "main", targetNodeId: "n2", targetPort: "main" },
+    ],
+  })
+  assert.equal(missionHasCanvasOnlyNodes(mission), true)
   assert.equal(missionRequiresCanvasEditor(mission), true)
 })

@@ -15,12 +15,17 @@ const HUD_DIR = path.join(WORKSPACE_PATHS.workspaceRoot, "hud");
 const HUD_MODE_ENV = String(process.env.NOVA_HUD_MODE || "").trim().toLowerCase();
 const HUD_MODE_ARG = process.argv.some((arg) => String(arg || "").trim().toLowerCase() === "--dev");
 const HUD_MODE = HUD_MODE_ENV === "dev" || HUD_MODE_ARG ? "dev" : "start";
+const HUD_RUNNER_ENV =
+  process.env.NOVA_DISABLE_SPAWN_FALLBACK === "1"
+    ? { ...process.env, NOVA_DISABLE_SPAWN_FALLBACK: "0" }
+    : process.env;
 
-function launch(label, command, args, cwd) {
+function launch(label, command, args, cwd, env = process.env) {
   const child = spawn(command, args, {
     cwd: cwd || __dirname,
     stdio: "pipe",
     shell: false,
+    env,
   });
 
   child.stdout.on("data", (d) => process.stdout.write(`[${label}] ${d.toString()}`));
@@ -141,6 +146,7 @@ function ensureHudBuildIfNeeded() {
   console.log(`[Nova] ${buildExists ? "HUD build is stale" : "No production HUD build found"}. Building...`);
   execFileSync(process.execPath, ["scripts/next-runner.mjs", "build"], {
     cwd: HUD_DIR,
+    env: HUD_RUNNER_ENV,
     stdio: "inherit",
     shell: false,
   });
@@ -268,6 +274,9 @@ async function warmHudRoutes(baseUrl) {
 
 // ===== Boot sequence =====
 console.log("[Nova] Boot sequence started.");
+if (process.env.NOVA_DISABLE_SPAWN_FALLBACK === "1") {
+  console.log("[Nova] NOVA_DISABLE_SPAWN_FALLBACK=1 detected. Forcing fallback-enabled HUD runner for startup.");
+}
 prepareCleanLaunch();
 ensureHudBuildIfNeeded();
 
@@ -278,7 +287,7 @@ const primaryMonitor = monitors[0];
 launch("Agent", process.execPath, ["src/runtime/core/entrypoint/index.js"], __dirname);
 
 const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
-const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR);
+const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR, HUD_RUNNER_ENV);
 
 let hudOpened = false;
 hud.stdout.on("data", (chunk) => {
