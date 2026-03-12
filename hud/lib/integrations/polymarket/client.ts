@@ -203,7 +203,7 @@ export class PolymarketClient {
           if (!response.ok) {
             throw new Error(`Polymarket upstream ${response.status}`)
           }
-          return await response.json().catch(() => ({}))
+          return await response.json()
         } finally {
           clearTimeout(timeout)
         }

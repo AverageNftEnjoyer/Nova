@@ -93,7 +93,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         body: JSON.stringify({ telegram: { connected: next.telegram.connected } }),
       })
       if (!res.ok) throw new Error("Failed to update Telegram status")
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       const connected = Boolean(payload?.config?.telegram?.connected)
       setSettings((prev: IntegrationsSettings) => {
         const updated = {
@@ -187,7 +187,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         body: JSON.stringify({ brave: { connected: next.brave.connected } }),
       })
       if (!res.ok) throw new Error("Failed to update Brave status")
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       const connected = Boolean(payload?.config?.brave?.connected)
       setSettings((prev: IntegrationsSettings) => {
         const updated = {
@@ -246,7 +246,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         body: JSON.stringify({ news: { connected: next.news.connected } }),
       })
       if (!res.ok) throw new Error("Failed to update News status")
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       const connected = Boolean(payload?.config?.news?.connected)
       setSettings((prev: IntegrationsSettings) => {
         const updated = {
@@ -355,7 +355,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       })
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       if (!res.ok || !payload?.ok) {
         applyCoinbaseServerConfig(payload?.config?.coinbase)
         throw new Error(
@@ -413,7 +413,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         body: JSON.stringify({ coinbase: { connected: next.coinbase.connected } }),
       })
       if (!res.ok) throw new Error("Failed to update Coinbase status")
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       const connected = Boolean(payload?.config?.coinbase?.connected)
       applyCoinbaseServerConfig(payload?.config?.coinbase)
       setSaveStatus({
@@ -561,7 +561,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
           },
         }),
       })
-      const savedData = await saveRes.json().catch(() => ({}))
+      const savedData = await saveRes.json()
       if (!saveRes.ok) {
         const message =
           typeof savedData?.error === "string" && savedData.error.trim().length > 0
@@ -593,7 +593,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       const testRes = await fetch("/api/integrations/test-telegram", {
         method: "POST",
       })
-      const testData = await testRes.json().catch(() => ({}))
+      const testData = await testRes.json()
       if (!testRes.ok || !testData?.ok) {
         const fallbackResultError =
           Array.isArray(testData?.results) && testData.results.length > 0
@@ -647,7 +647,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       const testRes = await fetch("/api/integrations/test-discord", {
         method: "POST",
       })
-      const testData = await testRes.json().catch(() => ({}))
+      const testData = await testRes.json()
       if (!testRes.ok || !testData?.ok) {
         const fallbackResultError =
           Array.isArray(testData?.results) && testData.results.length > 0
@@ -697,7 +697,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         body: JSON.stringify({ slack: { connected: next.slack.connected } }),
       })
       if (!res.ok) throw new Error("Failed to update Slack status")
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       const connected = Boolean(payload?.config?.slack?.connected)
       setSettings((prev: IntegrationsSettings) => {
         const updated = {
@@ -751,7 +751,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
           },
         }),
       })
-      const payload = await saveRes.json().catch(() => ({}))
+      const payload = await saveRes.json()
       if (!saveRes.ok) {
         throw new Error(payload?.error || "Failed to save Slack configuration")
       }
@@ -777,7 +777,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       const testRes = await fetch("/api/integrations/test-slack", {
         method: "POST",
       })
-      const testData = await testRes.json().catch(() => ({}))
+      const testData = await testRes.json()
       if (!testRes.ok || !testData?.ok) {
         const fallbackResultError =
           Array.isArray(testData?.results) && testData.results.length > 0
@@ -827,7 +827,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
           },
         }),
       })
-      const savedData = await saveRes.json().catch(() => ({}))
+      const savedData = await saveRes.json()
       if (!saveRes.ok) {
         const message =
           typeof savedData?.error === "string" && savedData.error.trim().length > 0
@@ -902,7 +902,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
           },
         }),
       })
-      const savedData = await saveRes.json().catch(() => ({}))
+      const savedData = await saveRes.json()
       if (!saveRes.ok) {
         const message =
           typeof savedData?.error === "string" && savedData.error.trim().length > 0
@@ -996,7 +996,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
           },
         }),
       })
-      const savedData = await saveRes.json().catch(() => ({}))
+      const savedData = await saveRes.json()
       if (!saveRes.ok) {
         const message =
           typeof savedData?.error === "string" && savedData.error.trim().length > 0
@@ -1042,7 +1042,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       })
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       if (!res.ok || !payload?.ok) {
         throw new Error(
           typeof payload?.error === "string" && payload.error.trim().length > 0
@@ -1072,7 +1072,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       })
-      const payload = await res.json().catch(() => ({}))
+      const payload = await res.json()
       if (!res.ok || !payload?.ok) {
         throw new Error(
           typeof payload?.error === "string" && payload.error.trim().length > 0

@@ -13,7 +13,7 @@ export const disconnectBodySchema = z.object({
 })
 
 export async function safeJson(req: Request): Promise<unknown> {
-  return req.json().catch(() => ({}))
+  return req.json()
 }
 
 export function logGmailCalendarApi(event: string, payload: Record<string, unknown>): void {

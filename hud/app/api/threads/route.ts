@@ -171,7 +171,7 @@ export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
-  const body = (await req.json().catch(() => ({}))) as { title?: string }
+  const body = (await req.json()) as { title?: string }
   const title = String(body.title || DEFAULT_THREAD_TITLE).trim() || DEFAULT_THREAD_TITLE
 
   const { data, error } = await verified.client

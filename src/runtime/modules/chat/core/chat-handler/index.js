@@ -153,6 +153,7 @@ async function handleInputCore(text, opts = {}) {
   if (!text) return;
   const source = opts.source || "hud";
   const userContextId = sessionRuntime.resolveUserContextId(opts);
+  const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   if (source === "hud" && !userContextId) throw new Error("Missing user context id for HUD request.");
   const sessionContext = sessionRuntime.resolveSessionContext({
     ...opts,
@@ -277,7 +278,7 @@ async function handleInputCore(text, opts = {}) {
       text,
       toolCalls: ["shutdown"],
       provider: "",
-      providerSource: "chat-runtime-fallback",
+      providerSource: "worker-runtime-selected",
       userContextId,
       conversationId,
       sessionKey,
@@ -295,7 +296,7 @@ async function handleInputCore(text, opts = {}) {
       text,
       toolCalls: ["memory"],
       provider: "",
-      providerSource: "chat-runtime-fallback",
+      providerSource: "worker-runtime-selected",
       userContextId,
       conversationId,
       sessionKey,
@@ -338,7 +339,7 @@ async function handleInputCore(text, opts = {}) {
     });
     if (skillPreferenceUpdate.updated && skillPreferenceUpdate.filePath) {
       console.log(
-        `[SkillPreference] Updated ${String(skillPreferenceUpdate.skillName || "unknown")} for ${userContextId || "anonymous"} at ${String(skillPreferenceUpdate.filePath)}.`,
+        `[SkillPreference] Updated ${String(skillPreferenceUpdate.skillName || "unknown")} for ${scopedUserLabel} at ${String(skillPreferenceUpdate.filePath)}.`,
       );
     }
     return {

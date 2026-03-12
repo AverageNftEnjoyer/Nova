@@ -76,7 +76,7 @@ function sanitizeUserContextId(value: unknown): string {
     .replace(/[^a-z0-9_-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-  return normalized.slice(0, 96) || "anonymous"
+  return normalized.slice(0, 96)
 }
 
 export function normalizeSkillName(value: unknown): string {
@@ -98,11 +98,15 @@ function toTitleCaseSlug(slug: string): string {
 }
 
 export function resolveSkillsDir(workspaceRoot: string, userId: string): string {
+  const scopedUserId = sanitizeUserContextId(userId)
+  if (!scopedUserId) {
+    throw new Error("resolveSkillsDir requires userContextId.")
+  }
   return path.join(
     path.resolve(workspaceRoot),
     ".user",
     "user-context",
-    sanitizeUserContextId(userId),
+    scopedUserId,
     "skills",
   )
 }

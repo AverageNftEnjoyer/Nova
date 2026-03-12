@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const body = (await req.json().catch(() => ({}))) as {
+    const body = (await req.json()) as {
       apiKey?: string
       baseUrl?: string
       model?: string

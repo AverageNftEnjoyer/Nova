@@ -128,7 +128,7 @@ async function fetchJson(url: string): Promise<unknown> {
       signal: ctrl.signal,
     })
     if (!res.ok) throw new Error(`Upstream ${res.status}`)
-    return await res.json().catch(() => ({}))
+    return await res.json()
   } finally {
     clearTimeout(timer)
   }

@@ -68,7 +68,7 @@ export class OpenAIEmbeddings implements EmbeddingProvider {
     }
 
     const results: number[][] = Array.from({ length: texts.length }, () => []);
-    const misses: Array<{ index: number; hash: string; text: string }> = [];
+    const missesByHash = new Map<string, { hash: string; text: string; indices: number[] }>();
 
     for (let i = 0; i < texts.length; i += 1) {
       const text = texts[i] ?? "";
@@ -79,10 +79,16 @@ export class OpenAIEmbeddings implements EmbeddingProvider {
       if (row?.embedding) {
         results[i] = deserializeEmbedding(row.embedding);
       } else {
-        misses.push({ index: i, hash, text });
+        const existingMiss = missesByHash.get(hash);
+        if (existingMiss) {
+          existingMiss.indices.push(i);
+        } else {
+          missesByHash.set(hash, { hash, text, indices: [i] });
+        }
       }
     }
 
+    const misses = Array.from(missesByHash.values());
     if (misses.length === 0) {
       return results;
     }
@@ -117,7 +123,9 @@ export class OpenAIEmbeddings implements EmbeddingProvider {
       const miss = misses[i];
       if (!miss) continue;
       const embedding = normalize((data[i]?.embedding ?? []).map((value) => Number(value) || 0));
-      results[miss.index] = embedding;
+      for (const resultIndex of miss.indices) {
+        results[resultIndex] = embedding;
+      }
       insert.run(miss.hash, serializeEmbedding(embedding), "openai", this.model, Date.now());
     }
 

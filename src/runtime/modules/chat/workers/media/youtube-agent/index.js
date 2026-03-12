@@ -180,10 +180,10 @@ export async function handleYouTubeWorker(text, ctx) {
     summary.latencyMs = Date.now() - startedAt;
   }
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "youtube",
-    fallbackResponseRoute: "youtube",
-    fallbackProvider: String(summary.provider || ""),
-    fallbackLatencyMs: Number(summary.latencyMs || 0),
+    defaultRoute: "youtube",
+    defaultResponseRoute: "youtube",
+    defaultProvider: String(summary.provider || ""),
+    defaultLatencyMs: Number(summary.latencyMs || 0),
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

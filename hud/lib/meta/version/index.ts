@@ -10,6 +10,17 @@
  *
  * Version History:
  *
+ * - V.59 Alpha (2026-03-12): Fallback execution hard-cut + pre-push contract stabilization
+ *     - Removed memory embedding fallback execution paths so search/index flows no longer auto-degrade to local or lexical fallback modes.
+ *     - Removed Spotify desktop auto-fallback execution in runtime worker and HUD playback flow; failures now surface explicitly instead of launching desktop control side paths.
+ *     - Standardized chat-handler recovery naming (`prompt-recovery`) and mission graph obsolete-node validation code paths for contract clarity.
+ *     - Fixed Next route handler contract mismatch for Polymarket dynamic routes (`market/[id]`, `orderbook/[tokenId]`) using async `params` signatures to satisfy generated validator typing.
+ *
+ * - V.58 Alpha (2026-03-12): Memory embedding repetition hardening
+ *     - Deduplicated identical embedding misses inside batch requests so repeated chunk text is embedded once and reused across all matching indices.
+ *     - Hardened stale-source cleanup and dist module resolution to prevent repeated missing-file reindex churn from forcing fallback-only recall behavior.
+ *     - Wired runtime memory embeddings to read `NOVA_EMBEDDING_API_KEY` / `OPENAI_API_KEY` so OpenAI embedding mode can run when env keys are present.
+ *
  * - V.57 Alpha (2026-03-12): Polymarket integration completion + feed controls hardening
  *     - Completed missing Polymarket API compatibility routes (`market/[id]`, `orderbook/[tokenId]`, `history`) and normalized error/auth/rate-limit behavior.
  *     - Finalized Polymarket HUD surface with dedicated market search/detail/chart components, live websocket price updates, orderbook wiring, and leaderboard/history rendering.
@@ -18,7 +29,7 @@
  *
  * - V.56 Alpha (2026-03-10): Routing/runtime hardening follow-up
  *     - Hardened chat execution so TTS output failures are recorded without clobbering successful primary replies.
- *     - Preserved delegated-worker fallback diagnostics (`fallbackReason`, `fallbackStage`, candidate state) for non-fatal degraded responses.
+ *     - Preserved delegated-worker recovery diagnostics (`recoveryReason`, `recoveryStage`, candidate state) for non-fatal degraded responses.
  *     - Closed runtime relocation parity gaps by normalizing session runtime smoke imports to `src/session/runtime/index.js`.
  *
  * - V.55 Alpha (2026-03-09): Threading + latency optimization sweep (runtime + HUD)
@@ -157,7 +168,7 @@
  *     - Stabilized Home module hydration to prevent schedule/orb flash-pop render artifacts on boot and page switches.
  *
  * - V.31 Alpha (2026-02-26): Chat handler modularization + migration overhead cleanup + production safety fixes
- *     - Refactored runtime chat execution into focused modules (`execute-chat-request`, `prompt-context-builder`, `tool-loop-runner`, `direct-completion`, `response-refinement`, `prompt-fallbacks`) to reduce coupling and improve maintainability.
+ *     - Refactored runtime chat execution into focused modules (`execute-chat-request`, `prompt-context-builder`, `tool-loop-runner`, `direct-completion`, `response-refinement`, `prompt-recovery`) to reduce coupling and improve maintainability.
  *     - Added fast-lane context-enrichment skip path to reduce avoidable per-turn latency overhead on lightweight chat turns.
  *     - Fixed Claude streaming delta emission accounting to prevent rare missing final assistant-message delivery in HUD.
  *     - Added write-queue map cleanup in mission/notification persistence paths to prevent unbounded in-memory growth across many scoped files.
@@ -351,6 +362,6 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.57 Alpha"
+export const NOVA_VERSION = "V.59 Alpha"
 
 

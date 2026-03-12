@@ -48,7 +48,13 @@ async function atomicWriteJson(filePath: string, payload: unknown): Promise<void
       await rename(tmpPath, resolved)
     })
   writesByPath.set(resolved, next)
-  await next
+  try {
+    await next
+  } finally {
+    if (writesByPath.get(resolved) === next) {
+      writesByPath.delete(resolved)
+    }
+  }
 }
 
 async function readStateFile(filePath: string): Promise<PhantomWalletAuthState | null> {
@@ -99,6 +105,12 @@ export async function updatePhantomWalletAuthState(
       await atomicWriteJson(resolvePhantomWalletAuthStatePath(scopedUserId, workspaceRootInput), result)
     })
   locksByUserId.set(scopedUserId, next)
-  await next
-  return result
+  try {
+    await next
+    return result
+  } finally {
+    if (locksByUserId.get(scopedUserId) === next) {
+      locksByUserId.delete(scopedUserId)
+    }
+  }
 }

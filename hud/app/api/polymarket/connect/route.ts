@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
   try {
-    const body = (await req.json().catch(() => ({}))) as {
+    const body = (await req.json()) as {
       walletAddress?: string
       signatureType?: 0 | 1 | 2
       liveTradingEnabled?: boolean

@@ -136,7 +136,7 @@ async function fetchSpotPrice(symbolPair: string): Promise<{ ok: true; price: nu
     cache: "no-store",
   })
   if (!res.ok) return { ok: false }
-  const payload = await res.json().catch(() => ({})) as { data?: { amount?: string } }
+  const payload = await res.json() as { data?: { amount?: string } }
   const amount = Number.parseFloat(String(payload?.data?.amount || ""))
   if (!Number.isFinite(amount)) return { ok: false }
   return { ok: true, price: amount, fetchedAtMs: Date.now() }
@@ -330,7 +330,7 @@ async function fetchPrivateCoinbaseJson(params: {
         error: `Coinbase private endpoint ${params.path} failed (${response.status}) [auth=${auth.mode}]${detail ? `: ${detail.slice(0, 240)}` : ""}`,
       }
     }
-    const payload = await response.json().catch(() => ({}))
+    const payload = await response.json()
     return { ok: true, data: payload }
   } catch (error) {
     return {

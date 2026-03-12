@@ -83,7 +83,7 @@ export async function spotifyFetchWithRetry(
   throw spotifyError("spotify.transient", `${operation} exhausted retries.`, { status: 503, retryable: true })
 }
 
-export async function readSpotifyErrorMessage(response: Response, fallback: string): Promise<string> {
+export async function readSpotifyErrorMessage(response: Response, defaultMessage: string): Promise<string> {
   const payload = await response.json().catch(() => null)
   if (payload && typeof payload === "object") {
     const record = payload as {
@@ -100,11 +100,11 @@ export async function readSpotifyErrorMessage(response: Response, fallback: stri
     const normalized = nestedError || message || simpleError || description
     if (normalized) return normalized
   }
-  return fallback
+  return defaultMessage
 }
 
-export async function assertSpotifyOk(response: Response, fallback: string): Promise<void> {
+export async function assertSpotifyOk(response: Response, defaultMessage: string): Promise<void> {
   if (response.ok) return
-  const message = await readSpotifyErrorMessage(response, fallback)
+  const message = await readSpotifyErrorMessage(response, defaultMessage)
   throw fromSpotifyHttpStatus(response.status, message)
 }

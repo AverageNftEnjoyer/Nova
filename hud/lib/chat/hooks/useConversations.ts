@@ -167,7 +167,7 @@ export function useConversations({
     }
     const request = (async () => {
       const res = await fetch("/api/threads", { cache: "no-store" })
-      const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+      const data = await res.json() as { conversations?: Conversation[] }
       if (!res.ok) throw new Error("Failed to load conversations.")
       const convos = Array.isArray(data.conversations) ? data.conversations : []
       threadsFetchCacheRef.current = convos
@@ -188,7 +188,7 @@ export function useConversations({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: (title && String(title).trim()) || DEFAULT_CONVERSATION_TITLE }),
     })
-    const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
+    const data = await res.json() as { conversation?: Conversation; error?: string }
     if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
     return data.conversation
   }, [])

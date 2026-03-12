@@ -177,10 +177,10 @@ export async function handlePolymarketWorker(text, ctx, llmCtx = {}, requestHint
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "polymarket",
-    fallbackResponseRoute: "polymarket",
-    fallbackProvider: String(summary.provider || ""),
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "polymarket",
+    defaultResponseRoute: "polymarket",
+    defaultProvider: String(summary.provider || ""),
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

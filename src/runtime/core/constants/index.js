@@ -136,18 +136,6 @@ export const RAW_STREAM_PATH = String(
     path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "raw-stream.jsonl")
 ).trim();
 
-// ===== Provider Fallback =====
-export const ENABLE_PROVIDER_FALLBACK =
-  String(process.env.NOVA_ALLOW_PROVIDER_FALLBACK || "").trim() === "1";
-export const ROUTING_PREFERENCE = (() => {
-  const value = String(process.env.NOVA_ROUTING_PREFERENCE || "balanced").trim().toLowerCase();
-  if (value === "cost" || value === "latency" || value === "quality") return value;
-  return "balanced";
-})();
-export const ROUTING_ALLOW_ACTIVE_OVERRIDE =
-  String(process.env.NOVA_ROUTING_ALLOW_ACTIVE_OVERRIDE || "0").trim() === "1";
-export const ROUTING_PREFERRED_PROVIDERS = readLowerCsvEnv("NOVA_ROUTING_PREFERRED_PROVIDERS")
-  .filter((value) => value === "openai" || value === "claude" || value === "grok" || value === "gemini");
 
 // ===== Token Limits =====
 const DEFAULT_MAX_PROMPT_TOKENS = 6000;

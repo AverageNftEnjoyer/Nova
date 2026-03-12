@@ -39,6 +39,7 @@ import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
+import { fetchWithSupabaseAuth } from "@/lib/supabase/browser-auth"
 
 function hexToRgbTriplet(hex: string): string {
   const clean = hex.replace("#", "")
@@ -300,6 +301,42 @@ export default function PolymarketPage() {
   } as CSSProperties
 
   useEffect(() => {
+    let cancelled = false
+
+    const syncPolymarketConfig = async () => {
+      try {
+        const res = await fetchWithSupabaseAuth("/api/integrations/config", { cache: "no-store" })
+        const data = await res.json()
+        if (cancelled) return
+        if (res.status === 401) {
+          router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
+          return
+        }
+        const config = data?.config as IntegrationsSettings | undefined
+        if (!res.ok || !config) return
+        setSettings((prev) => applyPolymarketConfig(prev, config.polymarket))
+      } catch {
+        // Keep local cache when remote sync fails.
+      }
+    }
+
+    void syncPolymarketConfig()
+    const handleFocus = () => void syncPolymarketConfig()
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void syncPolymarketConfig()
+      }
+    }
+    window.addEventListener("focus", handleFocus)
+    document.addEventListener("visibilitychange", handleVisibility)
+    return () => {
+      cancelled = true
+      window.removeEventListener("focus", handleFocus)
+      document.removeEventListener("visibilitychange", handleVisibility)
+    }
+  }, [router])
+
+  useEffect(() => {
     if (marketFeedQueryKeyRef.current !== marketFeedQueryKey) {
       marketFeedQueryKeyRef.current = marketFeedQueryKey
       marketLoadLockRef.current = false
@@ -337,8 +374,8 @@ export default function PolymarketPage() {
       url.searchParams.set("ascending", ascending ? "true" : "false")
     }
 
-    fetch(url.toString(), { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+    fetchWithSupabaseAuth(url.toString(), { cache: "no-store" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
         if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
@@ -406,17 +443,18 @@ export default function PolymarketPage() {
     if (!settings.polymarket.connected) return void setPositions([])
     let cancelled = false
     setLoadingPortfolio(true)
-    fetch("/api/polymarket/portfolio", { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
-      .then(({ ok, data }) => {
+    fetchWithSupabaseAuth("/api/polymarket/portfolio", { cache: "no-store" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
+      .then(({ ok, status, data }) => {
         if (cancelled) return
+        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !Array.isArray(data?.positions)) throw new Error("Failed to load positions.")
         setPositions(data.positions as PolymarketPosition[])
       })
       .catch(() => !cancelled && setPositions([]))
       .finally(() => !cancelled && setLoadingPortfolio(false))
     return () => { cancelled = true }
-  }, [settings.polymarket.connected])
+  }, [router, settings.polymarket.connected])
 
   useEffect(() => {
     if (requestedSide === "buy" || requestedSide === "sell") {
@@ -444,8 +482,8 @@ export default function PolymarketPage() {
     let cancelled = false
     setLoadingOrderBook(true)
     setOrderBookError("")
-    fetch(`/api/polymarket/book/${encodeURIComponent(selectedTokenId)}`, { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+    fetchWithSupabaseAuth(`/api/polymarket/book/${encodeURIComponent(selectedTokenId)}`, { cache: "no-store" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
         if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
@@ -466,8 +504,8 @@ export default function PolymarketPage() {
     let cancelled = false
     setLoadingLeaderboard(true)
     setLeaderboardError("")
-    fetch(`/api/polymarket/leaderboard?window=${leaderboardWindow}&limit=10`, { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+    fetchWithSupabaseAuth(`/api/polymarket/leaderboard?window=${leaderboardWindow}&limit=10`, { cache: "no-store" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
         if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
@@ -496,8 +534,8 @@ export default function PolymarketPage() {
     let cancelled = false
     setLoadingHistory(true)
     setHistoryError("")
-    fetch(`/api/polymarket/history/${encodeURIComponent(selectedTokenId)}?range=${historyRange}`, { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) }))
+    fetchWithSupabaseAuth(`/api/polymarket/history/${encodeURIComponent(selectedTokenId)}?range=${historyRange}`, { cache: "no-store" })
+      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
         if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
@@ -550,13 +588,12 @@ export default function PolymarketPage() {
     setSavePending(true); setError(""); setStatus("")
     try {
       const binding = await connectPolymarketWallet(window)
-      const res = await fetch("/api/polymarket/connect", {
+      const res = await fetchWithSupabaseAuth("/api/polymarket/connect", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ walletAddress: binding.walletAddress, signatureType: 0, liveTradingEnabled: settings.polymarket.liveTradingEnabled }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to connect Polymarket."))
       setSettings((prev) => applyPolymarketConfig(prev, data.config))
@@ -571,8 +608,9 @@ export default function PolymarketPage() {
   const handleDisconnect = async () => {
     setSavePending(true); setError(""); setStatus("")
     try {
-      const res = await fetch("/api/polymarket/disconnect", { method: "POST", credentials: "include" })
-      const data = await res.json().catch(() => ({}))
+      const res = await fetchWithSupabaseAuth("/api/polymarket/disconnect", { method: "POST" })
+      const data = await res.json()
+      if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
       setSettings((prev) => applyPolymarketConfig(prev, data.config))
       setOpenOrders([]); setRecentTrades([]); setPositions([]); setStatus("Disconnected Polymarket.")
@@ -586,13 +624,13 @@ export default function PolymarketPage() {
   const handleToggleLiveTrading = async (nextValue: boolean) => {
     setSavePending(true); setError("")
     try {
-      const res = await fetch("/api/polymarket/settings", {
+      const res = await fetchWithSupabaseAuth("/api/polymarket/settings", {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liveTradingEnabled: nextValue }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
+      if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to update Polymarket settings."))
       setSettings((prev) => applyPolymarketConfig(prev, data.config))
     } catch (reason) {

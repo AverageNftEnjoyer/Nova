@@ -20,10 +20,10 @@ export async function handleWebResearchWorker(text, ctx, llmCtx = {}, requestHin
   );
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "web_research",
-    fallbackResponseRoute: "web_research",
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
+    defaultRoute: "web_research",
+    defaultResponseRoute: "web_research",
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
     userContextId: String(ctx?.userContextId || ""),
     conversationId: String(ctx?.conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

@@ -23,14 +23,9 @@ import {
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
 import {
   normalizeSpotifyAction,
-  normalizeSpotifyIntentFallback,
-  runDesktopSpotifyAction,
-  buildDesktopSpotifyFallbackReply,
-  isDeviceUnavailableError,
+  normalizeSpotifyIntentFastPath,
   shouldSuppressSpotifyTts,
-  buildSpotifyLaunchReply,
   buildSpotifyPlayConfirmation,
-  shouldFallbackToDesktopSpotify,
 } from "./runtime-utils/index.js";
 import { runSpotifyDomainService } from "../../../../services/spotify/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
@@ -168,7 +163,7 @@ Examples:
 - "add this to playlist <playlist name>" -> { "action": "add_to_playlist", "query": "<playlist name>", "response": "Adding this track to that playlist." }
 - "play my favorite playlist" -> { "action": "play_smart", "query": "", "response": "Playing your favorite playlist." }
 Rules for save_playlist: saves the currently playing playlist as the user's favorite for the smart play button.
-Rules for play_smart: plays the user's saved favorite playlist, or falls back to liked songs if none saved.
+Rules for play_smart: plays the user's saved favorite playlist, or uses liked songs if none saved.
 Output ONLY valid JSON, nothing else.`;
 
   let spotifyRaw = "";
@@ -176,7 +171,7 @@ Output ONLY valid JSON, nothing else.`;
   try {
     ensureSpotifyAssistantStreamStarted();
     broadcastThinkingStatus("Parsing Spotify command", userContextId);
-    const fastIntent = normalizeSpotifyIntentFallback(text);
+    const fastIntent = normalizeSpotifyIntentFastPath(text);
     const needsLlm = fastIntent.action === "play" || fastIntent.action === "open";
     let intent = null;
     if (!needsLlm) {
@@ -258,9 +253,6 @@ Output ONLY valid JSON, nothing else.`;
     const intentQuery = rawQuery;
 
     if (hudResult.ok) {
-      if (hudResult.fallbackRecommended === true) {
-        runDesktopSpotifyAction(action, intentQuery);
-      }
       if (action === "play" && intentQuery && hudResult.message) {
         reply = buildSpotifyPlayConfirmation(intentQuery);
       } else if (action === "now_playing" && hudResult?.nowPlaying?.playing) {
@@ -291,22 +283,9 @@ Output ONLY valid JSON, nothing else.`;
         summary.error = hudResult.message || "Could not verify an exact Spotify match.";
         reply = summary.error;
       } else {
-        const shouldFallback = !hudResult.attempted || shouldFallbackToDesktopSpotify(hudResult.code);
-        if (shouldFallback) {
-          runDesktopSpotifyAction(action, intentQuery);
-          if (isDeviceUnavailableError(hudResult.code) && intentQuery) {
-            reply = buildSpotifyPlayConfirmation(intentQuery);
-          } else if (isDeviceUnavailableError(hudResult.code)) {
-            reply = buildSpotifyLaunchReply();
-          } else {
-            reply = reply || buildDesktopSpotifyFallbackReply(action);
-            if (hudResult.message) reply = `${reply} ${hudResult.message}`.trim();
-          }
-        } else {
-          summary.ok = false;
-          summary.error = hudResult.message || "Spotify playback failed.";
-          reply = reply || summary.error;
-        }
+        summary.ok = false;
+        summary.error = hudResult.message || "Spotify playback failed.";
+        reply = reply || summary.error;
       }
     }
 
@@ -324,17 +303,16 @@ Output ONLY valid JSON, nothing else.`;
     summary.error = String(e instanceof Error ? e.message : describeUnknownError(e));
     const ack = COMMAND_ACKS[Math.floor(Math.random() * COMMAND_ACKS.length)];
     summary.reply = await emitSpotifyAssistantReply(ack);
-    runDesktopSpotifyAction("open", "");
   } finally {
     broadcastThinkingStatus("", userContextId);
     broadcastState("idle", userContextId);
     summary.latencyMs = Date.now() - startedAt;
   }
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "spotify",
-    fallbackResponseRoute: "spotify",
-    fallbackProvider: String(activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: Number(summary.latencyMs || 0),
+    defaultRoute: "spotify",
+    defaultResponseRoute: "spotify",
+    defaultProvider: String(activeChatRuntime?.provider || ""),
+    defaultLatencyMs: Number(summary.latencyMs || 0),
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

@@ -19,10 +19,10 @@ export async function handleCalendarWorker(text, ctx, llmCtx = {}, requestHints 
     String(summary?.reply || ""),
   );
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "calendar",
-    fallbackResponseRoute: "calendar",
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
+    defaultRoute: "calendar",
+    defaultResponseRoute: "calendar",
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
     userContextId: String(ctx?.userContextId || ""),
     conversationId: String(ctx?.conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

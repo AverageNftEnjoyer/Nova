@@ -17,6 +17,12 @@ function normalizeContextId(value = "") {
     .slice(0, 96);
 }
 
+function requireContextId(value = "", operation = "telegram_integration_state") {
+  const normalized = normalizeContextId(value);
+  if (!normalized) throw new Error(`${operation} requires userContextId.`);
+  return normalized;
+}
+
 function normalizeStringList(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
@@ -33,7 +39,7 @@ function normalizeStringList(value) {
 }
 
 function buildScopedIntegrationsPath(userContextId = "") {
-  const normalizedUserContextId = normalizeContextId(userContextId) || "anonymous";
+  const normalizedUserContextId = requireContextId(userContextId, "buildScopedIntegrationsPath");
   return path.join(USER_CONTEXT_ROOT, normalizedUserContextId, "state", "integrations-config.json");
 }
 
@@ -56,7 +62,7 @@ export function createTelegramIntegrationStateAdapter(deps = {}) {
     normalizeContextId,
     buildScopedIntegrationsPath,
     getState(userContextId = "") {
-      const normalizedUserContextId = normalizeContextId(userContextId);
+      const normalizedUserContextId = requireContextId(userContextId, "telegram.getState");
       const statePath = buildScopedIntegrationsPath(normalizedUserContextId);
       try {
         const raw = readFileSync(statePath, "utf8");

@@ -86,11 +86,44 @@ async function runScopedOperation<T>(userContextId: string, operation: () => Pro
       result = await operation()
     })
   operationLocks.set(userContextId, next)
-  await next
-  if (operationLocks.get(userContextId) === next) {
-    operationLocks.delete(userContextId)
+  try {
+    await next
+    return result
+  } finally {
+    if (operationLocks.get(userContextId) === next) {
+      operationLocks.delete(userContextId)
+    }
   }
-  return result
+}
+
+function normalizeSolanaWalletAddressOrThrow(value: unknown): string {
+  try {
+    return normalizeSolanaWalletAddress(String(value || ""))
+  } catch {
+    throw new PhantomServiceError("PHANTOM_WALLET_INVALID", "A valid Phantom wallet address is required.", 400)
+  }
+}
+
+function normalizeOptionalEvmAddressOrThrow(value: unknown): string {
+  const raw = String(value || "").trim()
+  if (!raw) return ""
+  const normalized = normalizeEthereumWalletAddress(raw)
+  if (!normalized) {
+    throw new PhantomServiceError("PHANTOM_EVM_ADDRESS_INVALID", "A valid EVM wallet address is required.", 400)
+  }
+  return normalized
+}
+
+function verifySolanaSignatureOrThrow(params: {
+  walletAddress: string
+  message: string
+  signatureBase64: string
+}): boolean {
+  try {
+    return verifySolanaMessageSignature(params)
+  } catch {
+    throw new PhantomServiceError("PHANTOM_SIGNATURE_INVALID", "Wallet signature payload is invalid.", 400)
+  }
 }
 
 function emptyVerificationResult(): PhantomVerificationResult {
@@ -100,9 +133,9 @@ function emptyVerificationResult(): PhantomVerificationResult {
     connected: false,
     walletAddress: "",
     walletLabel: "",
-      connectedAt: "",
-      verifiedAt: "",
-      evmAddress: "",
+    connectedAt: "",
+    verifiedAt: "",
+    evmAddress: "",
     evmLabel: "",
     evmChainId: "",
     evmConnectedAt: "",
@@ -116,7 +149,7 @@ export async function issuePhantomChallenge(params: {
   origin?: string
 }): Promise<PhantomChallengeResponse> {
   const userContextId = assertUserContextId(params.verified?.user?.id)
-  const walletAddress = normalizeSolanaWalletAddress(params.walletAddress)
+  const walletAddress = normalizeSolanaWalletAddressOrThrow(params.walletAddress)
   return runScopedOperation(userContextId, async () => {
     const authState = await readPhantomWalletAuthState(userContextId, resolveWorkspaceRoot())
     const challenge = createPhantomAuthChallenge({
@@ -161,8 +194,8 @@ export async function verifyPhantomChallenge(params: {
   evmChainId?: string
 }): Promise<PhantomVerificationResult> {
   const userContextId = assertUserContextId(params.verified?.user?.id)
-  const walletAddress = normalizeSolanaWalletAddress(params.walletAddress)
-  const evmAddress = normalizeEthereumWalletAddress(params.evmAddress)
+  const walletAddress = normalizeSolanaWalletAddressOrThrow(params.walletAddress)
+  const evmAddress = normalizeOptionalEvmAddressOrThrow(params.evmAddress)
   const evmChainId = String(params.evmChainId || "").trim().slice(0, 64)
   return runScopedOperation(userContextId, async () => {
     const authState = await readPhantomWalletAuthState(userContextId, resolveWorkspaceRoot())
@@ -189,7 +222,7 @@ export async function verifyPhantomChallenge(params: {
     if (!challenge) {
       throw new PhantomServiceError("PHANTOM_CHALLENGE_MISSING", "No active Phantom verification challenge exists.", 409)
     }
-    if (!verifySolanaMessageSignature({
+    if (!verifySolanaSignatureOrThrow({
       walletAddress,
       message: challenge.message,
       signatureBase64: params.signatureBase64,

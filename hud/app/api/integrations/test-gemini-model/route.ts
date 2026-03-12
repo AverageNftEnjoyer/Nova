@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const body = (await req.json().catch(() => ({}))) as {
+    const body = (await req.json()) as {
       apiKey?: string
       baseUrl?: string
       model?: string

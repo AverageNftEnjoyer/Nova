@@ -148,7 +148,7 @@ function normalizeLatencyStages(value) {
 function normalizeMemoryDiagnostics(value) {
   if (!value || typeof value !== "object") return null;
   const mode = String(value.mode || "").trim().toLowerCase();
-  const fallbackReason = String(value.fallbackReason || "").trim().toLowerCase();
+  const recoveryReason = String(value.recoveryReason || "").trim().toLowerCase();
   const out = {
     hasSearch: value.hasSearch === true,
     updatedAtMs: Number.isFinite(Number(value.updatedAtMs)) ? Number(value.updatedAtMs) : 0,
@@ -158,12 +158,12 @@ function normalizeMemoryDiagnostics(value) {
     staleReindexAttempted: value.staleReindexAttempted === true,
     staleReindexCompleted: value.staleReindexCompleted === true,
     staleReindexTimedOut: value.staleReindexTimedOut === true,
-    fallbackUsed: value.fallbackUsed === true,
-    indexFallbackUsed: value.indexFallbackUsed === true,
+    recoveryUsed: value.recoveryUsed === true,
+    indexRecoveryUsed: value.indexRecoveryUsed === true,
     latencyMs: Number.isFinite(Number(value.latencyMs)) ? Number(value.latencyMs) : 0,
     resultCount: Number.isFinite(Number(value.resultCount)) ? Number(value.resultCount) : 0,
   };
-  if (fallbackReason) out.fallbackReason = fallbackReason;
+  if (recoveryReason) out.recoveryReason = recoveryReason;
   return out;
 }
 
@@ -222,6 +222,17 @@ function normalizeOperatorRouting(requestHints) {
 }
 
 function evaluateToolLoopGuardrailAlerts({ userContextId, toolLoopGuardrails, route, tsMs }) {
+  const scope = String(userContextId || "").trim();
+  if (!scope) {
+    return {
+      triggered: false,
+      sampleCount: 0,
+      rates: null,
+      thresholds: null,
+      reasons: [],
+      scope: "",
+    };
+  }
   if (!toolLoopGuardrails || typeof toolLoopGuardrails !== "object") {
     return {
       triggered: false,
@@ -229,7 +240,7 @@ function evaluateToolLoopGuardrailAlerts({ userContextId, toolLoopGuardrails, ro
       rates: null,
       thresholds: null,
       reasons: [],
-      scope: userContextId || "anonymous",
+      scope,
     };
   }
 
@@ -241,11 +252,10 @@ function evaluateToolLoopGuardrailAlerts({ userContextId, toolLoopGuardrails, ro
       rates: null,
       thresholds: null,
       reasons: [],
-      scope: userContextId || "anonymous",
+      scope,
     };
   }
 
-  const scope = String(userContextId || "anonymous").trim() || "anonymous";
   const nowMs = Number.isFinite(Number(tsMs)) ? Number(tsMs) : Date.now();
   const thresholdWindowMs = TOOL_LOOP_ALERT_WINDOW_MS;
   const minTs = nowMs - thresholdWindowMs;
@@ -353,8 +363,8 @@ function inferQuality(payload) {
   const toolCalls = normalizeList(payload.toolCalls);
   const errorText = normalizeText(payload.error);
   const correctionPassCount = Number(payload.correctionPassCount || 0);
-  const fallbackStage = String(payload.fallbackStage || "").trim().toLowerCase();
-  const fallbackReason = String(payload.fallbackReason || "").trim().toLowerCase();
+  const recoveryStage = String(payload.recoveryStage || "").trim().toLowerCase();
+  const recoveryReason = String(payload.recoveryReason || "").trim().toLowerCase();
   const { hotPath, hotPathRatio } = inferHotLatencyStage(latencyStages, latencyMs);
   const runtimeToolInitMs = Number(latencyStages.runtime_tool_init || 0);
   const enrichmentMs = Number(latencyStages.context_enrichment || 0);
@@ -378,7 +388,7 @@ function inferQuality(payload) {
   if (totalTokens > 9000) tags.push("high_total_tokens");
   if (userInput.length < 4) tags.push("very_short_input");
   if (Number(payload.nlpCorrectionCount || 0) >= 2) tags.push("noisy_input");
-  if (fallbackStage) tags.push("degraded_fallback");
+  if (recoveryStage) tags.push("degraded_recovery");
   const toolLoopGuardrails = payload.toolLoopGuardrails && typeof payload.toolLoopGuardrails === "object"
     ? payload.toolLoopGuardrails
     : null;
@@ -400,16 +410,16 @@ function inferQuality(payload) {
   if (tags.includes("high_total_tokens")) score -= 4;
   if (tags.includes("brief_reply") && !tags.includes("tool_augmented")) score -= 4;
   if (tags.includes("uncertain_reply")) score -= 5;
-  if (tags.includes("degraded_fallback")) score -= 20;
+  if (tags.includes("degraded_recovery")) score -= 20;
   score = Math.max(0, Math.min(100, score));
 
   return {
     score,
     tags,
-    fallback: {
-      stage: fallbackStage,
-      reason: fallbackReason,
-      hadCandidateBeforeFallback: payload.hadCandidateBeforeFallback === true,
+    recovery: {
+      stage: recoveryStage,
+      reason: recoveryReason,
+      hadCandidateBeforeRecovery: payload.hadCandidateBeforeRecovery === true,
     },
   };
 }
@@ -419,6 +429,7 @@ export function appendDevConversationLog(event = {}) {
   try {
     const ts = new Date().toISOString();
     const userContextId = normalizeUserContextId(event.userContextId || "");
+    const userContextLabel = userContextId || "missing-user-context";
     const conversationId = String(event.conversationId || "").trim();
     const sessionKey = String(event.sessionKey || "").trim();
     const source = String(event.source || "").trim().toLowerCase() || "unknown";
@@ -493,9 +504,9 @@ export function appendDevConversationLog(event = {}) {
       status: {
         ok: event.ok !== false,
         error: String(event.error || "").trim(),
-        fallbackReason: String(event.fallbackReason || "").trim().toLowerCase(),
-        fallbackStage: String(event.fallbackStage || "").trim().toLowerCase(),
-        hadCandidateBeforeFallback: event.hadCandidateBeforeFallback === true,
+        recoveryReason: String(event.recoveryReason || "").trim().toLowerCase(),
+        recoveryStage: String(event.recoveryStage || "").trim().toLowerCase(),
+        hadCandidateBeforeRecovery: event.hadCandidateBeforeRecovery === true,
       },
       toolLoopGuardrails: normalizeToolLoopGuardrails(event.toolLoopGuardrails),
       ops: {
@@ -517,9 +528,9 @@ export function appendDevConversationLog(event = {}) {
       latencyMs: payload.timing.latencyMs,
       latencyStages: payload.timing.stages,
       correctionPassCount: payload.timing.correctionPassCount,
-      fallbackReason: payload.status.fallbackReason,
-      fallbackStage: payload.status.fallbackStage,
-      hadCandidateBeforeFallback: payload.status.hadCandidateBeforeFallback,
+      recoveryReason: payload.status.recoveryReason,
+      recoveryStage: payload.status.recoveryStage,
+      hadCandidateBeforeRecovery: payload.status.hadCandidateBeforeRecovery,
       promptTokens: payload.usage.promptTokens,
       completionTokens: payload.usage.completionTokens,
       totalTokens: payload.usage.totalTokens,
@@ -559,7 +570,7 @@ export function appendDevConversationLog(event = {}) {
             ` tags=${tags.join(",") || "none"}` +
             ` route=${route}` +
             ` conversation=${conversationId || "unknown"}` +
-            ` user=${userContextId || "anonymous"}`,
+            ` user=${userContextLabel}`,
         );
       }
     }

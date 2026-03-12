@@ -1,10 +1,9 @@
 import { OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS } from "../../../../../core/constants/index.js";
 import { extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
-import { validateOutputConstraints } from "../../../quality/output-constraints/index.js";
 
-function readIntEnv(name, fallback, minValue, maxValue) {
+function readIntEnv(name, defaultValue, minValue, maxValue) {
   const parsed = Number.parseInt(String(process.env[name] || "").trim(), 10);
-  if (!Number.isFinite(parsed)) return fallback;
+  if (!Number.isFinite(parsed)) return defaultValue;
   return Math.max(minValue, Math.min(maxValue, parsed));
 }
 
@@ -55,7 +54,7 @@ function didLikelyHitCompletionCap(completionTokens, maxCompletionTokens) {
   return used >= Math.max(128, Math.floor(cap * 0.85));
 }
 
-export function resolveGmailToolFallbackReply(content) {
+export function resolveGmailToolErrorReply(content) {
   const raw = String(content || "").trim();
   if (!raw) return "";
   let parsed = null;
@@ -151,99 +150,4 @@ export async function attemptOpenAiEmptyReplyRecovery({
     finishReason: String(completion?.choices?.[0]?.finish_reason || "").trim(),
     maxCompletionTokens: recoveryMaxCompletionTokens,
   };
-}
-
-function buildDeterministicEmptyReplyFallback(userText, { strict = false } = {}) {
-  const raw = String(userText || "").trim();
-  const normalized = raw.toLowerCase();
-  if (!normalized) {
-    return "I hit a temporary generation issue. Please retry.";
-  }
-  const oneWordMatch = raw.match(/(?:exactly\s+one\s+word|one-word\s+reply\s+only)\s*:\s*([a-z0-9_-]+)/i);
-  if (oneWordMatch?.[1]) return String(oneWordMatch[1]).trim();
-  if (/\b(weapon|weapon-making|harm|attack)\b/i.test(raw)) {
-    return "I won't assist with weapon-making, but I can help with safety and non-violent alternatives.";
-  }
-  if (/\b(insomnia|sleep|magnesium|supplement|glycinate)\b/i.test(raw)) {
-    return "Magnesium glycinate may help some people, but check interactions and kidney risks with a clinician before use.";
-  }
-  const bulletCountMatch = raw.match(/\bexactly\s+(\d{1,2})\s+bullet(?:\s+points?)?\b/i);
-  if (bulletCountMatch?.[1]) {
-    const count = Math.max(1, Math.min(10, Number.parseInt(String(bulletCountMatch[1]), 10) || 1));
-    return Array.from({ length: count }, (_, idx) => `- Retry step ${idx + 1}.`).join("\n");
-  }
-  if (/\bjson only\b/i.test(raw)) {
-    return "{\"risk\":\"Temporary generation failure\",\"action\":\"Retry the request.\"}";
-  }
-  if (/\bexactly\s+3\s+numbered\s+steps\b/i.test(raw)) {
-    return "1. Capture the failing signal and exact reproduction path.\n2. Isolate the component and validate assumptions with a minimal test.\n3. Apply a fix, then rerun smoke checks to confirm stability.";
-  }
-  if (/\bexactly\s+2\s+bullet points\b/i.test(raw)) return "- Retry step 1.\n- Retry step 2.";
-  if (/\bexactly\s+two\s+sentences\b|\btwo\s+short\s+sentences\b/i.test(raw)) {
-    return "I hit a temporary generation issue while drafting your answer. Please resend the same request.";
-  }
-  if (/\bone sentence only\b|\bin one sentence\b/i.test(raw)) {
-    return "I hit a temporary generation failure, so please retry and I will answer in one sentence.";
-  }
-  if (strict) {
-    return "I hit a temporary generation issue; please retry this exact request.";
-  }
-  return "I hit a temporary generation issue. Please retry and I will continue from your latest request.";
-}
-
-export function buildConstraintSafeFallback(outputConstraints, userText, { strict = false } = {}) {
-  const constraints = outputConstraints && typeof outputConstraints === "object" ? outputConstraints : {};
-  const raw = String(userText || "").trim();
-  const lower = raw.toLowerCase();
-
-  if (constraints.oneWord) {
-    const explicitWordMatch = raw.match(/(?:exactly\s+one\s+word|one-word\s+reply\s+only|respond with one[- ]word)\s*:\s*([a-z0-9_-]+)/i);
-    if (explicitWordMatch?.[1]) return String(explicitWordMatch[1]).trim();
-    if (/\bready\b/i.test(raw)) return "ready";
-    if (/\backnowledged\b/i.test(raw)) return "Acknowledged";
-    return "Acknowledged";
-  }
-
-  if (constraints.jsonOnly) {
-    const requiredKeys = Array.isArray(constraints.requiredJsonKeys)
-      ? constraints.requiredJsonKeys
-          .map((key) => String(key || "").trim())
-          .filter(Boolean)
-      : [];
-    if (requiredKeys.length > 0) {
-      const payload = {};
-      for (const key of requiredKeys) payload[key] = "Temporary generation failure; retry requested.";
-      return JSON.stringify(payload);
-    }
-    return JSON.stringify({
-      risk: "Temporary generation failure",
-      action: "Retry the request.",
-    });
-  }
-
-  if (Number(constraints.exactBulletCount || 0) > 0) {
-    const count = Math.max(1, Math.min(10, Number(constraints.exactBulletCount || 1)));
-    return Array.from({ length: count }, (_, idx) => `- Retry step ${idx + 1}.`).join("\n");
-  }
-
-  if (Number(constraints.sentenceCount || 0) === 1) {
-    return "I hit a temporary generation failure, so please retry this request.";
-  }
-  if (Number(constraints.sentenceCount || 0) === 2) {
-    return "I hit a temporary generation failure while drafting your answer. Please retry the same request now.";
-  }
-
-  const deterministic = buildDeterministicEmptyReplyFallback(raw, { strict });
-  const deterministicCheck = validateOutputConstraints(deterministic, constraints);
-  if (deterministicCheck.ok) return deterministic;
-
-  if (lower.includes("json")) {
-    return JSON.stringify({
-      risk: "Temporary generation failure",
-      action: "Retry the request.",
-    });
-  }
-  return strict
-    ? "I hit a temporary generation issue; please retry this exact request."
-    : "I hit a temporary generation issue. Please retry and I will continue from your latest request.";
 }

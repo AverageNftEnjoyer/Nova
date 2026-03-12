@@ -19,10 +19,10 @@ export async function handleVoiceWorker(text, ctx, llmCtx = {}, requestHints = {
     String(summary?.reply || ""),
   );
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "voice",
-    fallbackResponseRoute: "voice",
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
+    defaultRoute: "voice",
+    defaultResponseRoute: "voice",
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
     userContextId: String(ctx?.userContextId || ""),
     conversationId: String(ctx?.conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

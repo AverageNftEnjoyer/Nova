@@ -400,7 +400,6 @@ await run("P0-C5 embedding reliability fallback improves hit-rate under determin
   const baselineProvider = new DeterministicFlakyEmbeddings({ failEvery: 3 });
   const baseline = new MemoryIndexManager(createEvalConfig(baselineRoot), {
     provider: baselineProvider,
-    fallbackProvider: baselineProvider,
     staleReindexBudgetMs: 50,
   });
   await baseline.sync();

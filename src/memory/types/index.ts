@@ -17,7 +17,7 @@ export interface SearchResult {
   updatedAt: number;
 }
 
-export type MemorySearchMode = "hybrid" | "fallback-local" | "fallback-lexical";
+export type MemorySearchMode = "hybrid";
 
 export interface MemorySearchDiagnostics {
   hasSearch: boolean;
@@ -28,9 +28,9 @@ export interface MemorySearchDiagnostics {
   staleReindexAttempted: boolean;
   staleReindexCompleted: boolean;
   staleReindexTimedOut: boolean;
-  fallbackUsed: boolean;
-  fallbackReason?: "query-embedding-failed" | "index-embedding-failed" | "stale-index";
-  indexFallbackUsed: boolean;
+  recoveryUsed: boolean;
+  recoveryReason?: "stale-index";
+  indexRecoveryUsed: boolean;
   latencyMs: number;
   resultCount: number;
 }

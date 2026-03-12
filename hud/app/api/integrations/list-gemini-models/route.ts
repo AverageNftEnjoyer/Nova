@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { apiKey?: string; baseUrl?: string }
+    const body = (await req.json()) as { apiKey?: string; baseUrl?: string }
     const config = await loadIntegrationsConfig(verified)
 
     const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.gemini.apiKey.trim()

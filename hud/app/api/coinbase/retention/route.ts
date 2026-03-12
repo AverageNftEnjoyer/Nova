@@ -28,7 +28,7 @@ export async function PATCH(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   const userContextId = String(verified.user.id || "").trim().toLowerCase()
-  const body = await req.json().catch(() => ({})) as {
+  const body = await req.json() as {
     reportRetentionDays?: number
     snapshotRetentionDays?: number
     transactionRetentionDays?: number
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   const userContextId = String(verified.user.id || "").trim().toLowerCase()
-  const body = await req.json().catch(() => ({})) as { action?: string }
+  const body = await req.json() as { action?: string }
   if (String(body.action || "").trim().toLowerCase() !== "prune_now") {
     return NextResponse.json({ ok: false, error: "Unsupported action. Use action=prune_now." }, { status: 400 })
   }

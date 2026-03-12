@@ -17,6 +17,12 @@ function normalizeContextId(value = "") {
     .slice(0, 96);
 }
 
+function requireContextId(value = "", operation = "discord_integration_state") {
+  const normalized = normalizeContextId(value);
+  if (!normalized) throw new Error(`${operation} requires userContextId.`);
+  return normalized;
+}
+
 function normalizeWebhookList(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
@@ -32,7 +38,7 @@ function normalizeWebhookList(value) {
 }
 
 function buildScopedIntegrationsPath(userContextId = "") {
-  const normalized = normalizeContextId(userContextId) || "anonymous";
+  const normalized = requireContextId(userContextId, "buildScopedIntegrationsPath");
   return path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
 }
 
@@ -52,7 +58,7 @@ export function createDiscordIntegrationStateAdapter(deps = {}) {
     normalizeContextId,
     buildScopedIntegrationsPath,
     getState(userContextId = "") {
-      const normalizedUserContextId = normalizeContextId(userContextId);
+      const normalizedUserContextId = requireContextId(userContextId, "discord.getState");
       const statePath = buildScopedIntegrationsPath(normalizedUserContextId);
       try {
         const raw = readFileSync(statePath, "utf8");

@@ -59,7 +59,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
       if (res.status === 401) {
         throw new Error("Unauthorized")
       }
-      const data = await res.json().catch(() => ({})) as { conversations?: Conversation[] }
+      const data = await res.json() as { conversations?: Conversation[] }
       if (!res.ok) throw new Error("Failed to load conversations.")
       const convos = Array.isArray(data.conversations) ? data.conversations : []
       threadsFetchCacheRef.current = convos
@@ -83,7 +83,7 @@ export function useHomeConversations({ connected, agentMessages, clearAgentMessa
     if (res.status === 401) {
       throw new Error("Unauthorized")
     }
-    const data = await res.json().catch(() => ({})) as { conversation?: Conversation; error?: string }
+    const data = await res.json() as { conversation?: Conversation; error?: string }
     if (!res.ok || !data.conversation) throw new Error(data.error || "Failed to create conversation.")
     return data.conversation
   }, [])

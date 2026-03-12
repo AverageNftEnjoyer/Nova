@@ -174,10 +174,10 @@ export async function handleMarketWorker(text, ctx, llmCtx = {}, requestHints = 
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "market",
-    fallbackResponseRoute: "market",
-    fallbackProvider: String(summary.provider || ""),
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "market",
+    defaultResponseRoute: "market",
+    defaultProvider: String(summary.provider || ""),
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

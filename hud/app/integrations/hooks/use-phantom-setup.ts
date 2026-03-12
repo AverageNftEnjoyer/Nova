@@ -10,6 +10,7 @@ import {
 import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { maskPhantomWalletAddress, normalizePhantomIntegrationConfig, type PhantomUserSettings } from "@/lib/integrations/phantom/types"
 import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
+import { fetchWithSupabaseAuth } from "@/lib/supabase/browser-auth"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 
 interface UsePhantomSetupParams {
@@ -192,8 +193,8 @@ export function usePhantomSetup({
 
   const refreshFromServer = useCallback(async () => {
     try {
-      const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
-      const data = await res.json().catch(() => ({}))
+      const res = await fetchWithSupabaseAuth("/api/integrations/config", { cache: "no-store" })
+      const data = await res.json()
       if (res.status === 401) {
         onRequireLogin()
         return
@@ -215,13 +216,12 @@ export function usePhantomSetup({
   ) => {
     if (typeof window === "undefined") return false
     try {
-      const res = await fetch("/api/integrations/phantom/open-browser", {
+      const res = await fetchWithSupabaseAuth("/api/integrations/phantom/open-browser", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ target }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (res.status === 401) {
         onRequireLogin()
         throw new Error("Session expired. Please sign in again.")
@@ -274,17 +274,16 @@ export function usePhantomSetup({
     setSaveStatus(null)
     setIsSavingTarget("phantom-settings")
     try {
-      const res = await fetch("/api/integrations/config", {
+      const res = await fetchWithSupabaseAuth("/api/integrations/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           phantom: {
             preferences: patch,
           },
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (res.status === 401) {
         onRequireLogin()
         throw new Error("Session expired. Please sign in again.")
@@ -333,13 +332,12 @@ export function usePhantomSetup({
         suppressProviderDisconnectRef.current = true
         await provider.disconnect().catch(() => undefined)
       }
-      const res = await fetch("/api/integrations/phantom/disconnect", {
+      const res = await fetchWithSupabaseAuth("/api/integrations/phantom/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ reason }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (res.status === 401) {
         onRequireLogin()
         throw new Error("Session expired. Please sign in again.")
@@ -569,16 +567,15 @@ export function usePhantomSetup({
 
       const observedEvm = await readObservedPhantomEvmState(typeof window === "undefined" ? null : getPhantomEthereumProvider(window))
 
-      const challengeRes = await fetch("/api/integrations/phantom/challenge", {
+      const challengeRes = await fetchWithSupabaseAuth("/api/integrations/phantom/challenge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           walletAddress: nextWalletAddress,
           origin: window.location.href,
         }),
       })
-      const challengeData = await challengeRes.json().catch(() => ({}))
+      const challengeData = await challengeRes.json()
       if (challengeRes.status === 401) {
         onRequireLogin()
         throw new Error("Session expired. Please sign in again.")
@@ -603,10 +600,9 @@ export function usePhantomSetup({
         throw new Error("Phantom did not return a signature.")
       }
 
-      const verifyRes = await fetch("/api/integrations/phantom/verify", {
+      const verifyRes = await fetchWithSupabaseAuth("/api/integrations/phantom/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           walletAddress: nextWalletAddress,
           signatureBase64: encodeBytesToBase64(signature),
@@ -614,7 +610,7 @@ export function usePhantomSetup({
           evmChainId: observedEvm.evmChainId,
         }),
       })
-      const verifyData = await verifyRes.json().catch(() => ({}))
+      const verifyData = await verifyRes.json()
       if (verifyRes.status === 401) {
         onRequireLogin()
         throw new Error("Session expired. Please sign in again.")

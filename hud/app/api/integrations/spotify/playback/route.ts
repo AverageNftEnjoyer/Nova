@@ -21,7 +21,6 @@ function normalizeUserContextId(value: unknown): string {
 
 function deviceUnavailablePlaybackResponse(input?: {
   action?: string
-  fallbackRecommended?: boolean
   retryAfterMs?: number
 }): NextResponse {
   return NextResponse.json({
@@ -29,7 +28,6 @@ function deviceUnavailablePlaybackResponse(input?: {
     action: input?.action || "play_smart",
     code: "spotify.device_unavailable",
     error: "No active Spotify playback device. Open Spotify and try again.",
-    fallbackRecommended: input?.fallbackRecommended ?? true,
     retryAfterMs: Number.isFinite(Number(input?.retryAfterMs)) ? Math.max(0, Math.floor(Number(input?.retryAfterMs))) : undefined,
   })
 }
@@ -125,7 +123,6 @@ export async function POST(req: Request) {
           action: "play_smart",
           code: "spotify.device_unavailable",
           error: "No active Spotify playback device. Open Spotify and try again.",
-          fallbackRecommended: false,
           retryAfterMs,
         })
       }
@@ -149,7 +146,6 @@ export async function POST(req: Request) {
           logSpotifyApi("playback.device_unavailable", { userContextId: userId, action: "play_smart" })
           return deviceUnavailablePlaybackResponse({
             action: "play_smart",
-            fallbackRecommended: true,
           })
         }
         throw err
@@ -292,7 +288,6 @@ export async function POST(req: Request) {
     logSpotifyApi("playback.success", {
       userContextId: userId,
       action: payload.action,
-      fallbackRecommended: result.fallbackRecommended === true,
     })
     return NextResponse.json(result)
   } catch (error) {
@@ -300,7 +295,6 @@ export async function POST(req: Request) {
       logSpotifyApi("playback.device_unavailable", { action: "general" })
       return deviceUnavailablePlaybackResponse({
         action: "general",
-        fallbackRecommended: true,
       })
     }
     return spotifyApiErrorResponse(error, "Failed to control Spotify playback.")

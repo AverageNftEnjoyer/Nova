@@ -30,12 +30,23 @@ function parseEnvFile(raw) {
   return out
 }
 
-const rootEnv = existsSync(rootEnvPath) ? parseEnvFile(readFileSync(rootEnvPath, "utf8")) : {}
-const disableSpawnFallback = process.env.NOVA_DISABLE_SPAWN_FALLBACK === "1"
-const allowSpawnFallback = !disableSpawnFallback
-if (allowSpawnFallback) {
-  process.stderr.write("[next-runner] spawn fallback enabled (default).\n")
+function failSpawn(stage, err) {
+  const details = err && typeof err === "object"
+    ? {
+        code: String(err.code || "").trim(),
+        message: String(err.message || "").trim(),
+      }
+    : {
+        code: "",
+        message: String(err || "unknown error").trim(),
+      }
+  const codeSuffix = details.code ? ` code=${details.code}` : ""
+  const message = details.message || "unknown error"
+  process.stderr.write(`[next-runner] failed to ${stage} Next process${codeSuffix}: ${message}\n`)
+  process.exit(1)
 }
+
+const rootEnv = existsSync(rootEnvPath) ? parseEnvFile(readFileSync(rootEnvPath, "utf8")) : {}
 
 let child = null
 try {
@@ -50,13 +61,7 @@ try {
     },
   })
 } catch (err) {
-  if (err?.code === "EPERM" && allowSpawnFallback) {
-    process.stderr.write(
-      "[next-runner] spawn blocked by host policy (EPERM); skipping Next process in smoke fallback mode.\n",
-    )
-    process.exit(0)
-  }
-  throw err
+  failSpawn("spawn", err)
 }
 
 const shouldDrop = (line) => line.includes("[baseline-browser-mapping]")
@@ -84,13 +89,7 @@ pipeFiltered(child.stdout, process.stdout)
 pipeFiltered(child.stderr, process.stderr)
 
 child.on("error", (err) => {
-  if (err?.code === "EPERM" && allowSpawnFallback) {
-    process.stderr.write(
-      "[next-runner] spawn blocked by host policy (EPERM); skipping Next process in smoke fallback mode.\n",
-    )
-    process.exit(0)
-  }
-  throw err
+  failSpawn("run", err)
 })
 
 child.on("close", (code) => {

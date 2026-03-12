@@ -184,6 +184,15 @@ export function createToolRuntime(options) {
     return buildBootstrapReady;
   }
 
+  function resolveBuiltModuleUrl(preferredPathSegments, fallbackPathSegments) {
+    const preferred = path.join(runtimeRootDir, ...preferredPathSegments);
+    if (fs.existsSync(preferred)) {
+      return pathToFileURL(preferred).href;
+    }
+    const fallback = path.join(runtimeRootDir, ...fallbackPathSegments);
+    return pathToFileURL(fallback).href;
+  }
+
   async function loadRuntimeModules() {
     if (runtimeModules) return runtimeModules;
     if (runtimeModulesPromise) return runtimeModulesPromise;
@@ -192,10 +201,22 @@ export function createToolRuntime(options) {
       const buildReady = await ensureAgentCoreBuild();
       if (!buildReady) return null;
 
-      const registryModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "tools", "core", "registry.js")).href;
-      const executorModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "tools", "core", "executor.js")).href;
-      const protocolModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "tools", "core", "protocol.js")).href;
-      const memoryModuleUrl = pathToFileURL(path.join(runtimeRootDir, "dist", "memory", "manager.js")).href;
+      const registryModuleUrl = resolveBuiltModuleUrl(
+        ["dist", "tools", "core", "registry", "index.js"],
+        ["dist", "tools", "core", "registry.js"],
+      );
+      const executorModuleUrl = resolveBuiltModuleUrl(
+        ["dist", "tools", "core", "executor", "index.js"],
+        ["dist", "tools", "core", "executor.js"],
+      );
+      const protocolModuleUrl = resolveBuiltModuleUrl(
+        ["dist", "tools", "core", "protocol", "index.js"],
+        ["dist", "tools", "core", "protocol.js"],
+      );
+      const memoryModuleUrl = resolveBuiltModuleUrl(
+        ["dist", "memory", "manager", "index.js"],
+        ["dist", "memory", "manager.js"],
+      );
 
       const [{ createToolRegistry }, { executeToolUse }, protocolModule, memoryModule] = await Promise.all([
         import(registryModuleUrl),

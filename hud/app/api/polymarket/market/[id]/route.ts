@@ -7,7 +7,7 @@ import { requireSupabaseApiUser } from "@/lib/supabase/server"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
@@ -17,7 +17,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
   try {
-    const market = await fetchPolymarketMarketBySlug(params.id)
+    const { id } = await params
+    const market = await fetchPolymarketMarketBySlug(id)
     if (!market) {
       return NextResponse.json({ ok: false, error: "Market not found." }, { status: 404 })
     }

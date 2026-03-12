@@ -69,7 +69,6 @@ export interface SpotifyPlaybackResult {
   action: SpotifyPlaybackAction
   message: string
   nowPlaying?: SpotifyNowPlaying
-  fallbackRecommended?: boolean
   /** When true the UI should not fire a follow-up now-playing fetch; polling will sync state. */
   skipNowPlayingRefresh?: boolean
   data?: unknown

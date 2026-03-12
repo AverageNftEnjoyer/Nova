@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const raw = (await req.json().catch(() => ({}))) as { action?: unknown; name?: unknown; description?: unknown }
+    const raw = (await req.json()) as { action?: unknown; name?: unknown; description?: unknown }
     const action = String(raw.action || "")
       .trim()
       .toLowerCase()
@@ -125,7 +125,7 @@ export async function PUT(req: Request) {
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const raw = (await req.json().catch(() => ({}))) as { name?: unknown; content?: unknown }
+    const raw = (await req.json()) as { name?: unknown; content?: unknown }
     const name = normalizeSkillName(raw.name)
     if (!SKILL_NAME_PATTERN.test(name)) {
       return NextResponse.json(

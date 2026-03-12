@@ -78,7 +78,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
     setError(null)
     try {
       const res = await fetch("/api/workspace/skills", { cache: "no-store" })
-      const data = (await res.json().catch(() => ({}))) as SkillsListResponse
+      const data = (await res.json()) as SkillsListResponse
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "Failed to load skills.")
       }
@@ -111,7 +111,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
     setValidationErrors([])
     try {
       const res = await fetch(`/api/workspace/skills?name=${encodeURIComponent(name)}`, { cache: "no-store" })
-      const data = (await res.json().catch(() => ({}))) as SkillDetailResponse
+      const data = (await res.json()) as SkillDetailResponse
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "Failed to load skill.")
       }
@@ -160,7 +160,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
           description: newSkillDescription.trim(),
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as SkillMutationResponse
+      const data = (await res.json()) as SkillMutationResponse
       if (!res.ok || !data.ok) {
         const detail = Array.isArray(data.errors) && data.errors.length > 0
           ? `${data.error || "Failed to create skill."} ${data.errors.join(" ")}`
@@ -202,7 +202,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
           content: skillContent,
         }),
       })
-      const data = (await res.json().catch(() => ({}))) as SkillMutationResponse
+      const data = (await res.json()) as SkillMutationResponse
       if (!res.ok || !data.ok) {
         if (Array.isArray(data.errors) && data.errors.length > 0) {
           setValidationErrors(data.errors.map((item) => String(item)))
@@ -228,7 +228,7 @@ export function SettingsSkillsPanel({ isLight }: SettingsSkillsPanelProps) {
       const res = await fetch(`/api/workspace/skills?name=${encodeURIComponent(selectedSkillName)}`, {
         method: "DELETE",
       })
-      const data = (await res.json().catch(() => ({}))) as SkillMutationResponse
+      const data = (await res.json()) as SkillMutationResponse
       if (!res.ok || !data.ok) {
         throw new Error(data.error || "Failed to delete skill.")
       }

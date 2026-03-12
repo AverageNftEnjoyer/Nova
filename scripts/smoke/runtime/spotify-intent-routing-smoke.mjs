@@ -21,7 +21,7 @@ function read(relPath) {
   return fs.readFileSync(path.join(process.cwd(), relPath), "utf8");
 }
 
-await run("SIR-1 Spotify direct-intent rules include switch/change and restart fallback phrases", async () => {
+await run("SIR-1 Spotify direct-intent rules include switch/change and restart phrases", async () => {
   const intentSignalsSource = read("src/runtime/modules/chat/routing/operator-intent-signals/index.js");
   assert.equal(intentSignalsSource.includes(String.raw`\b(switch|change)\s+(the\s+)?(song|track|music)\s+(to|into)\s+`), true);
   assert.equal(intentSignalsSource.includes(String.raw`\b(switch|change)\s+to\s+.+\s+by\s+`), true);
@@ -39,13 +39,13 @@ await run("SIR-2 Operator worker executors route spotify/youtube lanes to worker
   assert.equal(executorsSource.includes("const runYouTubeWorker = typeof youtubeWorker === \"function\" ? youtubeWorker : handleYouTubeWorker;"), true);
 });
 
-await run("SIR-3 Spotify worker owns runtime flow and fallback logic", async () => {
+await run("SIR-3 Spotify worker owns runtime flow without desktop fallback execution", async () => {
   const workerSource = read("src/runtime/modules/chat/workers/media/spotify-agent/index.js");
-  assert.equal(workerSource.includes("normalizeSpotifyIntentFallback(text)"), true);
+  assert.equal(workerSource.includes("normalizeSpotifyIntentFastPath(text)"), true);
   assert.equal(workerSource.includes("runSpotifyDomainService({"), true);
   assert.equal(workerSource.includes("runSpotifyViaHudApi("), false);
   assert.equal(workerSource.includes("runDirectSpotifyNowPlaying("), false);
-  assert.equal(workerSource.includes("runDesktopSpotifyAction(action, intentQuery)"), true);
+  assert.equal(workerSource.includes("runDesktopSpotifyAction(action, intentQuery)"), false);
   assert.equal(workerSource.includes("shouldSuppressSpotifyTts(userContextId, normalized.text)"), true);
 });
 
@@ -56,11 +56,11 @@ await run("SIR-3b YouTube worker owns runtime flow through the lane service boun
   assert.equal(workerSource.includes("runYouTubeHomeControlViaHudApi("), false);
 });
 
-await run("SIR-4 Desktop Spotify fallback wraps exec errors without crashing runtime", async () => {
+await run("SIR-4 Runtime utils contain no desktop exec fallback path", async () => {
   const runtimeUtilsSource = read("src/runtime/modules/chat/workers/media/spotify-agent/runtime-utils/index.js");
-  assert.equal(runtimeUtilsSource.includes("exec(command, (error) => {"), true);
-  assert.equal(runtimeUtilsSource.includes("Desktop fallback command failed"), true);
-  assert.equal(runtimeUtilsSource.includes("Desktop fallback command threw"), true);
+  assert.equal(runtimeUtilsSource.includes("exec(command, (error) => {"), false);
+  assert.equal(runtimeUtilsSource.includes("Desktop command failed"), false);
+  assert.equal(runtimeUtilsSource.includes("Desktop command threw"), false);
 });
 
 await run("SIR-5 Spotify worker path contains no hardcoded user playlist literals", async () => {

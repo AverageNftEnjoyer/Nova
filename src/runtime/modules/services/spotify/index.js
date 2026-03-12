@@ -12,7 +12,6 @@ export async function runSpotifyDomainService(input = {}, deps = {}) {
       ok: false,
       message: `Spotify provider adapter "${providerId}" is unavailable.`,
       code: "spotify.provider_adapter_missing",
-      fallbackRecommended: true,
     };
   }
   return await adapter.execute({

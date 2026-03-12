@@ -12,10 +12,9 @@ import {
 } from "../../../../llm/providers/index.js";
 import {
   attemptOpenAiEmptyReplyRecovery,
-  buildConstraintSafeFallback,
   buildEmptyReplyFailureReason,
   shouldAttemptOpenAiEmptyReplyRecovery,
-} from "../prompt-fallbacks/index.js";
+} from "../prompt-recovery/index.js";
 
 export async function runClaudeDirectCompletion({
   activeChatRuntime,
@@ -79,7 +78,6 @@ export async function runOpenAiDirectCompletion({
   openAiMaxCompletionTokens,
   openAiRequestTuningForModel,
   hasStrictOutputRequirements,
-  outputConstraints,
   text,
   assistantStreamId,
   source,
@@ -88,7 +86,7 @@ export async function runOpenAiDirectCompletion({
   broadcastAssistantStreamDelta,
   broadcastThinkingStatus,
   retries,
-  markFallback,
+  markRecovery,
 }) {
   let reply = "";
   let promptTokens = 0;
@@ -176,22 +174,19 @@ export async function runOpenAiDirectCompletion({
 
   let responseRouteSuffix = "";
   if (!reply || !reply.trim()) {
-    const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
-      strict: hasStrictOutputRequirements,
-    });
-    const fallbackReason = buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
+    const emptyReplyReason = buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
       finishReason: llmFinishReason,
       completionTokens,
       maxCompletionTokens: openAiMaxCompletionTokens,
     });
-    markFallback("direct_empty_reply_fallback", fallbackReason, reply);
+    markRecovery("direct_empty_reply_error", emptyReplyReason, reply);
     retries.push({
-      stage: "direct_empty_reply_fallback",
+      stage: "direct_empty_reply_error",
       fromModel: modelUsed,
       toModel: modelUsed,
-      reason: fallbackReason,
+      reason: emptyReplyReason,
     });
-    reply = fallbackReply;
+    throw new Error(`OpenAI direct completion returned empty reply (${emptyReplyReason}).`);
   }
 
   return {

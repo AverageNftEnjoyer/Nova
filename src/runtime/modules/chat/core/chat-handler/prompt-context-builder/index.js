@@ -74,6 +74,7 @@ export async function buildPromptContextForTurn({
   broadcastThinkingStatus,
 }) {
   const promptAssemblyStartedAt = Date.now();
+  const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   const preferenceCapture = captureUserPreferencesFromMessage({
     userContextId,
     workspaceDir: personaWorkspaceDir,
@@ -88,7 +89,7 @@ export async function buildPromptContextForTurn({
   runSummary.requestHints.preferredNamePinned = preferredNamePinned;
   if (preferenceProfileUpdated > 0) {
     console.log(
-      `[Preference] Updated ${preferenceProfileUpdated} field(s) for ${userContextId || "anonymous"} at ${String(preferenceCapture?.filePath || "unknown")}.`,
+      `[Preference] Updated ${preferenceProfileUpdated} field(s) for ${scopedUserLabel} at ${String(preferenceCapture?.filePath || "unknown")}.`,
     );
   }
 

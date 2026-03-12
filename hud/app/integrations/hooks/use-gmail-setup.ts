@@ -51,7 +51,7 @@ export function useGmailSetup({
   const refreshFromServer = useCallback(async () => {
     try {
       const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       const config = data?.config as IntegrationsSettings | undefined
       if (!config) return
       setSettings((prev) => {
@@ -158,7 +158,7 @@ export function useGmailSetup({
     const fetchUrl = `/api/integrations/gmail/connect?mode=json&returnTo=${encodeURIComponent(returnTo)}`
     void fetch(fetchUrl, { cache: "no-store", credentials: "include" })
       .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
+        const data = await res.json()
         if (!res.ok || !data?.authUrl) {
           if (res.status === 401) {
             onRequireLogin()
@@ -251,7 +251,7 @@ export function useGmailSetup({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gmail: payload }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok) throw new Error(data?.error || "Failed to save Gmail OAuth config.")
 
       const masked = typeof data?.config?.gmail?.oauthClientSecretMasked === "string" ? data.config.gmail.oauthClientSecretMasked : ""
@@ -293,7 +293,7 @@ export function useGmailSetup({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId: accountId || "" }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         if (res.status === 401) {
           onRequireLogin()
@@ -321,7 +321,7 @@ export function useGmailSetup({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ gmail: { activeAccountId: nextId } }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok) throw new Error(data?.error || "Failed to set primary Gmail account.")
       await refreshFromServer()
       setSaveStatus({ type: "success", message: "Primary Gmail account updated." })
@@ -348,7 +348,7 @@ export function useGmailSetup({
             : { action, accountId: targetId },
         ),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         if (res.status === 401) {
           onRequireLogin()

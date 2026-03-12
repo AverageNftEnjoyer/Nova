@@ -20,10 +20,10 @@ export async function handleDiagnosticsWorker(text, ctx, llmCtx = {}, requestHin
   );
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "diagnostic",
-    fallbackResponseRoute: "diagnostic",
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
+    defaultRoute: "diagnostic",
+    defaultResponseRoute: "diagnostic",
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
     userContextId: String(ctx?.userContextId || ""),
     conversationId: String(ctx?.conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

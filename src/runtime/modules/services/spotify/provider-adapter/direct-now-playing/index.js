@@ -23,16 +23,16 @@ function readEnvFromDotenv(name) {
   return "";
 }
 
-function readServerEnv(name, fallbackName = "") {
+function readServerEnv(name, secondaryName = "") {
   const direct = String(process.env[name] || "").trim();
   if (direct) return direct;
-  if (fallbackName) {
-    const fallback = String(process.env[fallbackName] || "").trim();
-    if (fallback) return fallback;
+  if (secondaryName) {
+    const secondary = String(process.env[secondaryName] || "").trim();
+    if (secondary) return secondary;
   }
   const fromDotenv = readEnvFromDotenv(name);
   if (fromDotenv) return fromDotenv;
-  return fallbackName ? readEnvFromDotenv(fallbackName) : "";
+  return secondaryName ? readEnvFromDotenv(secondaryName) : "";
 }
 
 function normalizeUserContextId(value) {
@@ -336,7 +336,6 @@ export function createSpotifyDirectNowPlayingAdapter() {
           ok: false,
           message: `Spotify direct adapter cannot execute "${action}".`,
           code: "spotify.unsupported_action",
-          fallbackRecommended: false,
           nowPlaying: emptyNowPlaying(false),
         };
       }

@@ -136,10 +136,11 @@ function normalizePreferences(raw) {
 
 function getPreferenceFilePath({ userContextId = "", workspaceDir = "" } = {}) {
   const normalizedUserContextId = normalizeUserContextId(userContextId);
-  const baseDir = String(workspaceDir || "").trim()
-    || (normalizedUserContextId
-      ? path.join(USER_CONTEXT_ROOT, normalizedUserContextId)
-      : path.join(USER_CONTEXT_ROOT, "anonymous"));
+  const explicitWorkspaceDir = String(workspaceDir || "").trim();
+  if (!explicitWorkspaceDir && !normalizedUserContextId) {
+    throw new Error("User preference storage requires userContextId or workspaceDir.");
+  }
+  const baseDir = explicitWorkspaceDir || path.join(USER_CONTEXT_ROOT, normalizedUserContextId);
   return path.join(baseDir, PREFERENCE_DIR_NAME, PREFERENCE_FILE_NAME);
 }
 

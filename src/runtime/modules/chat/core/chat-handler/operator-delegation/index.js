@@ -1,11 +1,11 @@
 import { resolveOrgChartRoutingEnvelope } from "../../../routing/org-chart-routing/index.js";
 import { executeOrgChartDelegation } from "../../../routing/org-chart-delegation/index.js";
 
-export function attachOrgChartPathToSummary(summary, orgChartPath, fallbackRoute = "unclassified") {
+export function attachOrgChartPathToSummary(summary, orgChartPath, defaultRoute = "unclassified") {
   const normalizedSummary = summary && typeof summary === "object"
     ? { ...summary }
     : {
-        route: fallbackRoute,
+        route: defaultRoute,
         ok: true,
         reply: typeof summary === "string" ? summary : "",
       };
@@ -27,7 +27,7 @@ export async function delegateToOrgChartWorker({
   text = "",
   toolCalls = [],
   provider = "",
-  providerSource = "chat-runtime-fallback",
+  providerSource = "worker-runtime-selected",
   userContextId = "",
   conversationId = "",
   sessionKey = "",
@@ -71,21 +71,21 @@ export async function delegateToOrgChartWorker({
   return summary;
 }
 
-export function ensureSummaryRequestHintsWithOrgChart(summary, fallback = {}) {
+export function ensureSummaryRequestHintsWithOrgChart(summary, defaults = {}) {
   const summaryRequestHints = summary?.requestHints && typeof summary.requestHints === "object"
     ? { ...summary.requestHints }
     : {};
   if (!summaryRequestHints.orgChartPath || typeof summaryRequestHints.orgChartPath !== "object") {
     summaryRequestHints.orgChartPath = resolveOrgChartRoutingEnvelope({
-      route: String(fallback.route || "unclassified"),
-      responseRoute: String(fallback.responseRoute || ""),
-      text: String(fallback.text || ""),
-      toolCalls: Array.isArray(fallback.toolCalls) ? fallback.toolCalls : [],
-      provider: String(fallback.provider || ""),
-      providerSource: String(fallback.providerSource || "chat-runtime-fallback"),
-      userContextId: String(fallback.userContextId || ""),
-      conversationId: String(fallback.conversationId || ""),
-      sessionKey: String(fallback.sessionKey || ""),
+      route: String(defaults.route || "unclassified"),
+      responseRoute: String(defaults.responseRoute || ""),
+      text: String(defaults.text || ""),
+      toolCalls: Array.isArray(defaults.toolCalls) ? defaults.toolCalls : [],
+      provider: String(defaults.provider || ""),
+      providerSource: String(defaults.providerSource || "worker-runtime-selected"),
+      userContextId: String(defaults.userContextId || ""),
+      conversationId: String(defaults.conversationId || ""),
+      sessionKey: String(defaults.sessionKey || ""),
     });
   }
   return summaryRequestHints;

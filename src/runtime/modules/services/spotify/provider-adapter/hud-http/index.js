@@ -5,9 +5,9 @@ const DEFAULT_TIMEOUT_MS = 7_500;
 const DEFAULT_RETRY_COUNT = 1;
 const TRANSIENT_RETRY_DELAY_MS = 180;
 
-function toBoundedInt(value, fallback, minValue, maxValue) {
+function toBoundedInt(value, defaultValue, minValue, maxValue) {
   const parsed = Number.parseInt(String(value ?? "").trim(), 10);
-  if (!Number.isFinite(parsed)) return fallback;
+  if (!Number.isFinite(parsed)) return defaultValue;
   return Math.max(minValue, Math.min(maxValue, parsed));
 }
 
@@ -119,7 +119,7 @@ export function createSpotifyHudHttpAdapter() {
       const normalizedUserContextId = String(ctx?.userContextId || "").trim();
 
       if (action === "open") {
-        return { attempted: false, ok: false, message: "", code: "", fallbackRecommended: true };
+        return { attempted: false, ok: false, message: "", code: "" };
       }
       if (!normalizedUserContextId) {
         return {
@@ -127,7 +127,6 @@ export function createSpotifyHudHttpAdapter() {
           ok: false,
           message: "I need your user context before I can reach Spotify.",
           code: "spotify.unauthorized",
-          fallbackRecommended: true,
         };
       }
 
@@ -155,14 +154,13 @@ export function createSpotifyHudHttpAdapter() {
           },
           options,
         );
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json();
         if (res.ok && data?.ok === true) {
           return {
             attempted: true,
             ok: true,
             message: String(data?.message || "").trim(),
             code: "",
-            fallbackRecommended: data?.fallbackRecommended === true,
             nowPlaying: data?.nowPlaying || null,
           };
         }
@@ -171,7 +169,6 @@ export function createSpotifyHudHttpAdapter() {
           ok: false,
           message: String(data?.error || "").trim() || `Spotify playback request failed (${res.status}).`,
           code: String(data?.code || "").trim(),
-          fallbackRecommended: data?.fallbackRecommended === true,
           nowPlaying: data?.nowPlaying || null,
         };
       } catch (err) {
@@ -181,7 +178,6 @@ export function createSpotifyHudHttpAdapter() {
           ok: false,
           message: describeUnknownError(err),
           code: errorCode,
-          fallbackRecommended: true,
         };
       }
     },

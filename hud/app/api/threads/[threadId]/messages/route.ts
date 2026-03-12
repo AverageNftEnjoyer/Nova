@@ -63,7 +63,7 @@ export async function PUT(
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   const { threadId } = await context.params
-  const body = (await req.json().catch(() => ({}))) as { messages?: IncomingMessage[] }
+  const body = (await req.json()) as { messages?: IncomingMessage[] }
   const messages = Array.isArray(body.messages) ? body.messages : []
 
   const { data: thread, error: threadError } = await verified.client

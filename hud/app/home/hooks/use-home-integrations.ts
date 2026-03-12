@@ -118,33 +118,6 @@ function mapMissionToListItem(mission: NativeMission): MissionListItem {
   }
 }
 
-function launchSpotifyDesktopApp(): void {
-  try {
-    const iframe = document.createElement("iframe")
-    iframe.style.display = "none"
-    iframe.setAttribute("aria-hidden", "true")
-    iframe.src = "spotify:"
-    document.body.appendChild(iframe)
-    window.setTimeout(() => {
-      iframe.remove()
-    }, 1200)
-    return
-  } catch {}
-
-  try {
-    window.location.assign("spotify:")
-  } catch {}
-}
-
-const SPOTIFY_LAUNCH_TTS_LINES = [
-  "Launching Spotify now, what would you like to hear?",
-  "Opening Spotify for you. Just tell me what to play.",
-  "Spotify is starting up. Let me know what you'd like to listen to.",
-  "Absolutely, launching Spotify now. What should I put on?",
-  "On it, Spotify is opening. What are we listening to?",
-]
-const SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS = 20_000
-const SPOTIFY_DEVICE_WARMUP_MS = 12_000
 const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 2_000
 const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 1_000
 const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 5_000
@@ -160,7 +133,7 @@ async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit,
       ...init,
       signal: controller.signal,
     })
-    const data = await res.json().catch(() => ({}))
+    const data = await res.json()
     return { res, data }
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
@@ -172,7 +145,7 @@ async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit,
   }
 }
 
-export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegrationsInput) {
+export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const router = useRouter()
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
@@ -210,8 +183,6 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
   const [spotifyLoading, setSpotifyLoading] = useState(false)
   const [spotifyError, setSpotifyError] = useState<string | null>(null)
   const [spotifyBusyAction, setSpotifyBusyAction] = useState<SpotifyPlaybackAction | null>(null)
-  const lastSpotifyDesktopLaunchAtRef = useRef(0)
-  const spotifyDeviceWarmupUntilRef = useRef(0)
   const preserveSpotifyCacheUntilServerSyncRef = useRef(false)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gcalendarConnected, setGcalendarConnected] = useState(false)
@@ -378,21 +349,15 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     }
   }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying])
 
-  const spotifyRetryTimerRef = useRef<number | null>(null)
   // After a play/pause command, suppress poll cycles for this many ms to prevent
   // an in-flight poll from overwriting the optimistic state before Spotify propagates.
   const spotifyCommandSentAtRef = useRef(0)
 
-  const runSpotifyPlayback = useCallback(async (action: SpotifyPlaybackAction, _isRetry = false): Promise<SpotifyPlaybackResponse> => {
+  const runSpotifyPlayback = useCallback(async (action: SpotifyPlaybackAction): Promise<SpotifyPlaybackResponse> => {
     if (spotifyUnauthorizedRef.current) {
       const message = "Spotify session expired. Reconnect in Integrations."
       setSpotifyError(message)
       return { ok: false, error: message }
-    }
-
-    const isStartAction = action === "play" || action === "play_liked" || action === "play_smart"
-    if (!_isRetry && isStartAction && Date.now() < spotifyDeviceWarmupUntilRef.current) {
-      return { ok: false, error: "Spotify is launching. Please wait a moment." }
     }
 
     setSpotifyBusyAction(action)
@@ -423,36 +388,8 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         return { ok: false, error: "Spotify session expired. Reconnect in Integrations." }
       }
       if (!res.ok || !data?.ok) {
-        if (data?.code === "spotify.device_unavailable" || data?.fallbackRecommended) {
-          const now = Date.now()
-          const retryAfterMs = Number.isFinite(Number(data?.retryAfterMs))
-            ? Math.max(0, Math.floor(Number(data.retryAfterMs)))
-            : 0
-          if (now - lastSpotifyDesktopLaunchAtRef.current >= SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS) {
-            lastSpotifyDesktopLaunchAtRef.current = now
-            launchSpotifyDesktopApp()
-            if (speakTts) {
-              const line = SPOTIFY_LAUNCH_TTS_LINES[Math.floor(Math.random() * SPOTIFY_LAUNCH_TTS_LINES.length)]
-              speakTts(line)
-            }
-          }
-          spotifyDeviceWarmupUntilRef.current = Math.max(
-            spotifyDeviceWarmupUntilRef.current,
-            now + Math.max(retryAfterMs, SPOTIFY_DEVICE_WARMUP_MS),
-          )
-          if (!_isRetry && action !== "pause") {
-            if (spotifyRetryTimerRef.current !== null) window.clearTimeout(spotifyRetryTimerRef.current)
-            const autoRetryMs = Math.max(2_500, Math.min(8_000, retryAfterMs || 4_000))
-            spotifyRetryTimerRef.current = window.setTimeout(() => {
-              spotifyRetryTimerRef.current = null
-              void runSpotifyPlayback(action, true)
-            }, autoRetryMs)
-            return { ok: false, error: "Launching Spotify — will retry automatically." }
-          }
-        }
         throw new Error(String(data?.error || data?.message || `Spotify action ${action} failed.`))
       }
-      spotifyDeviceWarmupUntilRef.current = 0
       // Stamp command time BEFORE updating state so the poll suppression window is in place
       // before any in-flight poll cycle can fire.
       if (action === "pause" || action === "play") {
@@ -469,15 +406,15 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
         window.setTimeout(() => { void refreshSpotifyNowPlaying(true) }, 1_500)
       }
       // For track-change actions: poll every 600ms until trackId changes or 5 attempts pass.
-      // Read prevTrackId from ref — always accurate, no stale closure issue.
-      // Note: plain "play" (resume) is excluded — trackId won't change, polling is wasteful.
+      // Read prevTrackId from ref - always accurate, no stale closure issue.
+      // Note: plain "play" (resume) is excluded - trackId won't change, polling is wasteful.
       if ((action === "next" || action === "previous" || action === "play_liked" || action === "play_smart") && data?.skipNowPlayingRefresh) {
         const prevTrackId = spotifyNowPlayingRef.current?.trackId || ""
         let attempts = 0
         const probe = async () => {
           attempts++
           await refreshSpotifyNowPlaying(true)
-          // Check ref directly — no React state timing issues
+          // Check ref directly - no React state timing issues
           const newTrackId = spotifyNowPlayingRef.current?.trackId || ""
           if (newTrackId && newTrackId !== prevTrackId) return // track changed, done
           if (attempts < 5) window.setTimeout(() => { void probe() }, 600)
@@ -501,7 +438,7 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     } finally {
       setSpotifyBusyAction(null)
     }
-  }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying, speakTts])
+  }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying])
 
   useLayoutEffect(() => {
     const cached = readShellUiCache()
@@ -672,10 +609,6 @@ export function useHomeIntegrations({ latestUsage, speakTts }: UseHomeIntegratio
     return () => {
       cancelled = true
       clearPollingTimer()
-      if (spotifyRetryTimerRef.current !== null) {
-        window.clearTimeout(spotifyRetryTimerRef.current)
-        spotifyRetryTimerRef.current = null
-      }
     }
   }, [spotifyConnected, refreshSpotifyNowPlaying])
 

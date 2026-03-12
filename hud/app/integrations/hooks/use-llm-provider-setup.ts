@@ -109,7 +109,7 @@ export function useLlmProviderSetup({
           baseUrl: base.trim() || undefined,
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok || !Array.isArray(data?.models)) return
       const dynamicOptions = data.models
         .map((item: { id?: string; label?: string }) => ({ value: String(item.id || ""), label: String(item.label || item.id || "") }))
@@ -205,7 +205,7 @@ export function useLlmProviderSetup({
         body: JSON.stringify({ [provider]: payload }),
       })
       if (!saveRes.ok) throw new Error(`Failed to save ${label} configuration`)
-      const savedData = await saveRes.json().catch(() => ({}))
+      const savedData = await saveRes.json()
       const savedProvider = savedData?.config?.[provider]
       const masked = typeof savedProvider?.apiKeyMasked === "string" ? savedProvider.apiKeyMasked : ""
       const configured = Boolean(savedProvider?.apiKeyConfigured) || trimmedApiKey.length > 0
@@ -229,7 +229,7 @@ export function useLlmProviderSetup({
           model: payload.defaultModel,
         }),
       })
-      const modelData = await modelRes.json().catch(() => ({}))
+      const modelData = await modelRes.json()
       if (!modelRes.ok || !modelData?.ok) {
         throw new Error(modelData?.error || unavailableErrorMessage)
       }

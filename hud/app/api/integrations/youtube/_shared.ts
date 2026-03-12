@@ -39,7 +39,7 @@ export function parseCsv(value: string): string[] {
 }
 
 export async function safeJson(req: Request): Promise<unknown> {
-  return req.json().catch(() => ({}))
+  return req.json()
 }
 
 export function logYouTubeApi(event: string, payload: Record<string, unknown>): void {

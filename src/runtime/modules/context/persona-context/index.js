@@ -10,7 +10,6 @@ import {
   BOOTSTRAP_BASELINE_DIR,
   BOOTSTRAP_FILE_NAMES,
   UPGRADE_MODULE_INDEX,
-  ENABLE_PROVIDER_FALLBACK,
   RAW_STREAM_ENABLED,
   RAW_STREAM_PATH,
 } from "../../../core/constants/index.js";
@@ -22,16 +21,16 @@ import {
 } from "../../llm/providers/index.js";
 import { countApproxTokens } from "../../../core/context-prompt/index.js";
 
+function requireScopedUserContextId(userContextId, operation) {
+  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "");
+  if (!normalized) throw new Error(`${String(operation || "persona_context")} requires userContextId.`);
+  return normalized;
+}
+
 // ===== Persona workspace =====
 export function resolvePersonaWorkspaceDir(userContextId) {
-  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "");
-  const fallbackContextId = normalized || "anonymous";
-  const fallbackDir = path.join(USER_CONTEXT_ROOT, fallbackContextId);
-  if (!normalized) {
-    try { fs.mkdirSync(fallbackDir, { recursive: true }); } catch {}
-    return fallbackDir;
-  }
-  const userDir = fallbackDir;
+  const normalized = requireScopedUserContextId(userContextId, "resolvePersonaWorkspaceDir");
+  const userDir = path.join(USER_CONTEXT_ROOT, normalized);
   try {
     fs.mkdirSync(userDir, { recursive: true });
     for (const fileName of BOOTSTRAP_FILE_NAMES) {
@@ -43,8 +42,9 @@ export function resolvePersonaWorkspaceDir(userContextId) {
     }
     return userDir;
   } catch (err) {
-    console.warn(`[Persona] Failed preparing per-user workspace for ${normalized}: ${describeUnknownError(err)}`);
-    return fallbackDir;
+    throw new Error(
+      `[Persona] Failed preparing per-user workspace for ${normalized}: ${describeUnknownError(err)}`,
+    );
   }
 }
 
@@ -159,7 +159,7 @@ export function logAgentRuntimePreflight() {
     for (const hint of miskeys) console.warn(`[Preflight] (${contextId}) ${hint}`);
 
     const scopedRuntime = loadIntegrationsRuntime({ userContextId: contextId });
-    const scopedActive = resolveConfiguredChatRuntime(scopedRuntime, { strictActiveProvider: !ENABLE_PROVIDER_FALLBACK });
+    const scopedActive = resolveConfiguredChatRuntime(scopedRuntime);
     if (!scopedActiveExample) scopedActiveExample = scopedActive;
     if (scopedActive.connected && String(scopedActive.apiKey || "").trim()) hasScopedReadyProvider = true;
     if (String(scopedRuntime?.openai?.apiKey || "").trim()) hasScopedOpenAiKey = true;
@@ -209,12 +209,12 @@ const _integrationsCache = new Map();
 const _integrationWatcherKeys = new Set();
 
 function resolveScopedIntegrationsConfigPath(userContextId = "") {
-  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
+  const normalized = requireScopedUserContextId(userContextId, "resolveScopedIntegrationsConfigPath");
   return path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
 }
 
 function ensureIntegrationsFileWatcher(userContextId = "") {
-  const normalized = sessionRuntime.normalizeUserContextId(userContextId || "") || "anonymous";
+  const normalized = requireScopedUserContextId(userContextId, "ensureIntegrationsFileWatcher");
   if (_integrationWatcherKeys.has(normalized)) return;
   const scopedPath = resolveScopedIntegrationsConfigPath(normalized);
   try {
@@ -228,7 +228,7 @@ function ensureIntegrationsFileWatcher(userContextId = "") {
 }
 
 export function cachedLoadIntegrationsRuntime(opts = {}) {
-  const cacheKey = sessionRuntime.normalizeUserContextId(opts.userContextId || "") || "anonymous";
+  const cacheKey = requireScopedUserContextId(opts.userContextId, "cachedLoadIntegrationsRuntime");
   ensureIntegrationsFileWatcher(cacheKey);
   const now = Date.now();
   const entry = _integrationsCache.get(cacheKey);

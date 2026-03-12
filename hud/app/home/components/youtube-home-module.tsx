@@ -174,7 +174,7 @@ export function YouTubeHomeModule({
         cache: "no-store",
         credentials: "include",
       })
-      const data = await res.json().catch(() => ({})) as {
+      const data = await res.json() as {
         ok?: boolean
         error?: string
         topic?: string
@@ -223,7 +223,7 @@ export function YouTubeHomeModule({
         cache: "no-store",
         credentials: "include",
       })
-      const data = await res.json().catch(() => ({})) as {
+      const data = await res.json() as {
         ok?: boolean
         error?: string
         items?: YouTubeFeedItem[]

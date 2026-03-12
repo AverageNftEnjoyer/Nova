@@ -150,10 +150,10 @@ export async function handleWeatherWorker(text, ctx, llmCtx = {}) {
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "weather",
-    fallbackResponseRoute: "weather",
-    fallbackProvider: "",
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "weather",
+    defaultResponseRoute: "weather",
+    defaultProvider: "",
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

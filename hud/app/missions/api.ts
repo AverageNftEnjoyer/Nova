@@ -8,7 +8,7 @@ export interface ApiResult<T> {
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<ApiResult<T>> {
   const res = await fetch(input, init)
-  const data = await res.json().catch(() => ({})) as T
+  const data = await res.json() as T
   return {
     ok: res.ok,
     status: res.status,

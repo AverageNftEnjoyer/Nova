@@ -27,8 +27,6 @@ export type {
   ProviderRuntime,
   IntegrationsRuntime,
   ResolvedChatRuntime,
-  RoutingPreference,
-  ResolveChatRuntimeOptions,
   RuntimePaths,
   ErrorDetails,
 } from "../runtime/index.js";

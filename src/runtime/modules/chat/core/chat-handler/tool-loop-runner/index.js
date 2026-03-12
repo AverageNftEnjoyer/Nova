@@ -13,7 +13,7 @@ import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/ex
 import { buildWebSearchReadableReply } from "../../../routing/intent-router/index.js";
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
-import { resolveGmailToolFallbackReply, buildConstraintSafeFallback } from "../prompt-fallbacks/index.js";
+import { resolveGmailToolErrorReply } from "../prompt-recovery/index.js";
 
 const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
 
@@ -54,13 +54,11 @@ export async function runToolLoop({
   observedToolCalls,
   toolExecutions,
   retries,
-  outputConstraints,
-  hasStrictOutputRequirements,
-  markFallback,
+  markRecovery,
 }) {
   const loopMessages = [...messages];
   const toolOutputsForRecovery = [];
-  let forcedToolFallbackReply = "";
+  let forcedToolErrorReply = "";
   let reply = "";
   let promptTokens = 0;
   let completionTokens = 0;
@@ -86,7 +84,7 @@ export async function runToolLoop({
     if (toolLoopBudget.isExhausted()) {
       toolLoopGuardrails.budgetExhausted = true;
       latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
-      forcedToolFallbackReply =
+      forcedToolErrorReply =
         "I hit the tool execution time budget before finalizing the response. Please retry with a narrower request.";
       break;
     }
@@ -96,7 +94,7 @@ export async function runToolLoop({
     if (stepTimeoutMs <= 0) {
       toolLoopGuardrails.budgetExhausted = true;
       latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
-      forcedToolFallbackReply =
+      forcedToolErrorReply =
         "I hit the tool execution time budget before finalizing the response. Please retry with a narrower request.";
       break;
     }
@@ -288,7 +286,7 @@ export async function runToolLoop({
       if (toolLoopBudget.isExhausted()) {
         toolLoopGuardrails.budgetExhausted = true;
         latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
-        forcedToolFallbackReply =
+        forcedToolErrorReply =
           "I ran out of time while executing tools. Please retry with a narrower request.";
         break;
       }
@@ -297,7 +295,7 @@ export async function runToolLoop({
         if (result.budgetExhausted) {
           toolLoopGuardrails.budgetExhausted = true;
           latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
-          forcedToolFallbackReply =
+          forcedToolErrorReply =
             "I ran out of time while executing tools. Please retry with a narrower request.";
           haltRemainingToolCalls = true;
           break;
@@ -309,20 +307,20 @@ export async function runToolLoop({
           toolOutputsForRecovery.push({ name: normalizedName, content });
           if (normalizedName === "web_search" && /^web_search error:/i.test(content)) {
             if (/missing brave api key/i.test(content)) {
-              forcedToolFallbackReply =
+              forcedToolErrorReply =
                 "Live web search is unavailable because the Brave API key is missing. Add Brave in Integrations and retry.";
             } else if (/rate limited/i.test(content)) {
-              forcedToolFallbackReply =
+              forcedToolErrorReply =
                 "Live web search is currently rate-limited. Please retry in a moment.";
             } else {
-              forcedToolFallbackReply =
+              forcedToolErrorReply =
                 `Live web search failed: ${content.replace(/^web_search error:\s*/i, "").trim()}`;
             }
           }
           if (normalizedName.startsWith("gmail_")) {
-            const gmailFallback = resolveGmailToolFallbackReply(content);
-            if (gmailFallback) {
-              forcedToolFallbackReply = gmailFallback;
+            const gmailToolErrorReply = resolveGmailToolErrorReply(content);
+            if (gmailToolErrorReply) {
+              forcedToolErrorReply = gmailToolErrorReply;
             }
           }
         }
@@ -344,7 +342,7 @@ export async function runToolLoop({
         });
 
         if (result.forcedReply) {
-          forcedToolFallbackReply = result.forcedReply;
+          forcedToolErrorReply = result.forcedReply;
         }
         if (result.stopRemainingToolCalls) {
           haltRemainingToolCalls = true;
@@ -354,8 +352,8 @@ export async function runToolLoop({
       if (haltRemainingToolCalls) break;
     }
 
-    if (forcedToolFallbackReply) {
-      reply = forcedToolFallbackReply;
+    if (forcedToolErrorReply) {
+      reply = forcedToolErrorReply;
       break;
     }
   }
@@ -439,17 +437,14 @@ export async function runToolLoop({
   }
 
   if (!reply || !reply.trim()) {
-    const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
-      strict: hasStrictOutputRequirements,
-    });
-    markFallback("tool_loop_empty_reply_fallback", "empty_reply_after_tool_loop", reply);
+    markRecovery("tool_loop_empty_reply_error", "empty_reply_after_tool_loop", reply);
     retries.push({
-      stage: "tool_loop_empty_reply_fallback",
+      stage: "tool_loop_empty_reply_error",
       fromModel: modelUsed,
       toModel: modelUsed,
       reason: "empty_reply",
     });
-    reply = fallbackReply;
+    throw new Error("Tool loop produced no final response.");
   }
 
   return {

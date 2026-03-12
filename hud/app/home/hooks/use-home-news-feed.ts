@@ -392,7 +392,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
         cache: "no-store",
         credentials: "include",
       })
-      let data = (await res.json().catch(() => ({}))) as NewsFeedApiResponse
+      let data = (await res.json()) as NewsFeedApiResponse
 
       if (forceRefresh && res.status === 429) {
         const fallbackParams = new URLSearchParams({
@@ -404,7 +404,7 @@ export function useHomeNewsFeed({ enabled = true }: UseHomeNewsFeedInput = {}) {
           cache: "no-store",
           credentials: "include",
         })
-        data = (await res.json().catch(() => ({}))) as NewsFeedApiResponse
+        data = (await res.json()) as NewsFeedApiResponse
       }
 
       if (!res.ok || !data?.ok) {

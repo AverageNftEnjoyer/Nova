@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.accountDelete)
   if (!limit.allowed) return rateLimitExceededResponse(limit, "Too many delete-account attempts. Try again later.")
 
-  const body = (await req.json().catch(() => ({}))) as { password?: string }
+  const body = (await req.json()) as { password?: string }
   const password = String(body.password || "").trim()
   if (!password) {
     return NextResponse.json({ ok: false, error: "Password is required." }, { status: 400 })

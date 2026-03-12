@@ -145,10 +145,10 @@ export async function handleCryptoWorker(text, ctx, llmCtx = {}) {
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "crypto",
-    fallbackResponseRoute: "crypto",
-    fallbackProvider: "",
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "crypto",
+    defaultResponseRoute: "crypto",
+    defaultProvider: "",
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

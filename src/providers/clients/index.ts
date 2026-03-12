@@ -260,7 +260,7 @@ export async function claudeMessagesCreate(params: {
         messages: requestMessages,
       }),
     });
-    const data = (await res.json().catch(() => ({}))) as {
+    const data = (await res.json()) as {
       content?: Array<{ type?: string; text?: string }>;
       usage?: { input_tokens?: number; output_tokens?: number };
       error?: { message?: string };
@@ -322,7 +322,7 @@ export async function claudeMessagesStream(params: {
 
   if (!res.ok || !res.body) {
     clearTimeout(timer);
-    const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    const data = (await res.json()) as { error?: { message?: string } };
     throw new Error(data?.error?.message || `Claude stream failed (${res.status})`);
   }
 

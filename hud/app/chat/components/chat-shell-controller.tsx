@@ -431,7 +431,7 @@ export function ChatShellController() {
             },
             body: JSON.stringify({ maxResults }),
           })
-          const payload = (await response.json().catch(() => ({}))) as GmailSummaryApiResponse
+          const payload = (await response.json()) as GmailSummaryApiResponse
           if (!response.ok || !payload.ok) {
             const message = response.status === 401
               ? buildEmailAssistantFailureReply({

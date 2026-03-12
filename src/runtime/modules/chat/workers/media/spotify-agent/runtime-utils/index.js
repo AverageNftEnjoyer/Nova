@@ -1,5 +1,3 @@
-import { exec } from "child_process";
-
 const VALID_SPOTIFY_ACTIONS = new Set([
   "open", "play", "pause", "next", "previous",
   "now_playing", "play_liked", "play_smart", "seek", "restart",
@@ -14,7 +12,7 @@ export function normalizeSpotifyAction(action) {
   return VALID_SPOTIFY_ACTIONS.has(normalized) ? normalized : "open";
 }
 
-export function normalizeSpotifyIntentFallback(text) {
+export function normalizeSpotifyIntentFastPath(text) {
   const input = String(text || "").trim().toLowerCase();
   const setPlaylistToQueryMatch = input.match(
     /\b(?:change|set|switch|update|make)\s+(?:my\s+)?(?:spotify\s+)?(?:favorite\s+)?playlist\s+(?:to|as|called)\s+(.+)$/i,
@@ -110,73 +108,6 @@ export function normalizeSpotifyIntentFallback(text) {
   return { action: "open", query: "", response: "Opening Spotify." };
 }
 
-export function runDesktopSpotifyAction(action, query) {
-  const run = (command) => {
-    try {
-      exec(command, (error) => {
-        if (error) {
-          console.warn("[Spotify] Desktop fallback command failed:", error?.message || error);
-        }
-      });
-    } catch (error) {
-      console.warn("[Spotify] Desktop fallback command threw:", error?.message || error);
-    }
-  };
-  if (action === "open") {
-    run("start spotify:");
-    return;
-  }
-  if (action === "pause") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
-    return;
-  }
-  if (action === "next") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB0)"');
-    return;
-  }
-  if (action === "previous") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB1)"');
-    return;
-  }
-  if (action === "play" && query) {
-    const encoded = encodeURIComponent(query);
-    run(`start "spotify" "spotify:search:${encoded}" && timeout /t 2 >nul && powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"`);
-    return;
-  }
-  if (action === "play") {
-    run('powershell -command "(New-Object -ComObject WScript.Shell).SendKeys([char]0xB3)"');
-    return;
-  }
-  run("start spotify:");
-}
-
-export function buildDesktopSpotifyFallbackReply(action) {
-  if (action === "now_playing") {
-    return "I opened Spotify, but I need Spotify OAuth connected to read your current track.";
-  }
-  if (action === "play_liked") {
-    return "I opened Spotify. Connect Spotify in Integrations and I can play from your Liked Songs directly.";
-  }
-  if (action === "pause") return "Paused Spotify using desktop media controls.";
-  if (action === "next") return "Skipped to the next track using desktop controls.";
-  if (action === "previous") return "Went back to the previous track using desktop controls.";
-  if (action === "play") return "Playing Spotify using desktop controls.";
-  return "Opening Spotify.";
-}
-
-export function isDeviceUnavailableError(errorCode) {
-  const code = String(errorCode || "").trim().toLowerCase();
-  return code === "spotify.device_unavailable";
-}
-
-const SPOTIFY_LAUNCH_REPLIES = [
-  "Launching Spotify now - what would you like to hear?",
-  "Opening Spotify for you. Tell me what to play.",
-  "Spotify is starting up - let me know what you want to hear.",
-  "Launching Spotify now. What should I put on?",
-  "Spotify is opening. What are we listening to?",
-];
-
 const SPOTIFY_PLAY_CONFIRMATIONS = [
   "Absolutely, playing QUERY now.",
   "You got it - playing QUERY.",
@@ -217,28 +148,7 @@ export function shouldSuppressSpotifyTts(userContextId, replyText) {
   return false;
 }
 
-export function buildSpotifyLaunchReply() {
-  return pickRandom(SPOTIFY_LAUNCH_REPLIES);
-}
-
 export function buildSpotifyPlayConfirmation(query) {
   if (!query) return "Playing now.";
   return pickRandom(SPOTIFY_PLAY_CONFIRMATIONS).replace(/QUERY/g, query);
-}
-
-export function shouldFallbackToDesktopSpotify(errorCode) {
-  const code = String(errorCode || "").trim().toLowerCase();
-  return (
-    code === "spotify.not_connected"
-    || code === "spotify.device_unavailable"
-    || code === "spotify.not_found"
-    || code === "spotify.token_missing"
-    || code === "spotify.unauthorized"
-    || code === "spotify.forbidden"
-    || code === "spotify.internal"
-    || code === "spotify.transient"
-    || code === "spotify.network"
-    || code === "spotify.timeout"
-    || code === "spotify.cancelled"
-  );
 }

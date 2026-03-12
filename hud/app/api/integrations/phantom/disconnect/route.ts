@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { reason?: string }
+    const body = (await req.json()) as { reason?: string }
     const result = await disconnectPhantomBinding({
       verified,
       reason:

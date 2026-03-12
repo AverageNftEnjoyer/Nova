@@ -65,7 +65,7 @@ export function finalizeHandleInputTurn(input = {}, deps = {}) {
     text: userInputText,
     toolCalls: Array.isArray(summary.toolCalls) ? summary.toolCalls : [],
     provider: String(summary.provider || ""),
-    providerSource: String(summary.provider ? "chat-runtime-selected" : "chat-runtime-fallback"),
+    providerSource: String(summary.providerSource || (summary.provider ? "chat-runtime-selected" : "worker-runtime-selected")),
     userContextId,
     conversationId,
     sessionKey,
@@ -118,9 +118,9 @@ export function finalizeHandleInputTurn(input = {}, deps = {}) {
     correctionPassCount: Number.isFinite(Number(summary.correctionPassCount))
       ? Number(summary.correctionPassCount)
       : 0,
-    fallbackReason: String(summary.fallbackReason || ""),
-    fallbackStage: String(summary.fallbackStage || ""),
-    hadCandidateBeforeFallback: summary.hadCandidateBeforeFallback === true,
+    recoveryReason: String(summary.recoveryReason || ""),
+    recoveryStage: String(summary.recoveryStage || ""),
+    hadCandidateBeforeRecovery: summary.hadCandidateBeforeRecovery === true,
     toolLoopGuardrails: summary.toolLoopGuardrails && typeof summary.toolLoopGuardrails === "object"
       ? summary.toolLoopGuardrails
       : null,

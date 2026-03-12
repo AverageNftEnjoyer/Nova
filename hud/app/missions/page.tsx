@@ -233,7 +233,7 @@ export default function MissionsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mission }),
       })
-      const data = await response.json().catch(() => ({})) as { ok?: boolean; mission?: Mission; error?: string }
+      const data = await response.json() as { ok?: boolean; mission?: Mission; error?: string }
       if (!response.ok || !data?.ok) {
         throw new Error(data?.error || "Failed to save mission.")
       }
@@ -259,7 +259,7 @@ export default function MissionsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mission }),
       })
-      const data = await response.json().catch(() => ({})) as { ok?: boolean; mission?: Mission; error?: string }
+      const data = await response.json() as { ok?: boolean; mission?: Mission; error?: string }
       if (!response.ok || !data?.ok) {
         throw new Error(data?.error || "Failed to save mission before run.")
       }

@@ -44,7 +44,7 @@ export async function POST(req: Request) {
 
   let debugSelected = "server_llm=unknown model=unknown"
   try {
-    const body = (await req.json().catch(() => ({}))) as { stepTitle?: string }
+    const body = (await req.json()) as { stepTitle?: string }
     const stepTitle = (typeof body.stepTitle === "string" ? body.stepTitle.trim() : "") || "AI Process"
 
     const config = await loadIntegrationsConfig(verified)

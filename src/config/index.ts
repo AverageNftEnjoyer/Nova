@@ -287,7 +287,7 @@ function resolveEnvOverrides(base: Config): Partial<Config> {
         base.memory.embeddingProvider,
       ),
       embeddingModel: env.NOVA_EMBEDDING_MODEL ?? base.memory.embeddingModel,
-      embeddingApiKey: base.memory.embeddingApiKey,
+      embeddingApiKey: env.NOVA_EMBEDDING_API_KEY ?? env.OPENAI_API_KEY ?? base.memory.embeddingApiKey,
       chunkSize: toIntInRange(env.NOVA_MEMORY_CHUNK_SIZE, base.memory.chunkSize, 1, 100_000),
       chunkOverlap: toIntInRange(env.NOVA_MEMORY_CHUNK_OVERLAP, base.memory.chunkOverlap, 0, 50_000),
       hybridVectorWeight: toFloatInRange(

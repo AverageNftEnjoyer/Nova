@@ -20,7 +20,7 @@ export async function PATCH(
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const { threadId } = await context.params
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = (await req.json()) as {
     title?: string
     pinned?: boolean
     archived?: boolean

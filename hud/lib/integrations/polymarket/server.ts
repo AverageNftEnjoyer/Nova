@@ -106,7 +106,7 @@ async function fetchJson(url: string): Promise<unknown> {
     if (!response.ok) {
       throw new PolymarketServerError("POLYMARKET_UPSTREAM_FAILED", `Polymarket upstream failed with ${response.status}.`, 502)
     }
-    return await response.json().catch(() => ({}))
+    return await response.json()
   } finally {
     clearTimeout(timer)
   }

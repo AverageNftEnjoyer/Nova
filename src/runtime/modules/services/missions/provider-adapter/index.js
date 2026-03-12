@@ -132,7 +132,7 @@ export async function runMissionBuildViaProviderAdapter(input = {}) {
         }),
       },
     );
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json();
     return {
       attempted: true,
       ok: response.ok && data?.ok === true,

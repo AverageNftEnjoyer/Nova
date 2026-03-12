@@ -37,7 +37,7 @@ export async function PATCH(req: Request) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   const userContextId = String(verified.user.id || "").trim().toLowerCase()
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = (await req.json()) as {
     showBalances?: boolean
     showTransactions?: boolean
     requireTransactionConsent?: boolean

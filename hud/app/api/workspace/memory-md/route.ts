@@ -15,15 +15,17 @@ function sanitizeUserContextId(value: unknown): string {
     .replace(/[^a-z0-9_-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-  return normalized.slice(0, 96) || "anonymous"
+  return normalized.slice(0, 96)
 }
 
 function resolveMemoryFilePath(workspaceRoot: string, userId: string): string {
+  const scopedUserContextId = sanitizeUserContextId(userId)
+  if (!scopedUserContextId) throw new Error("Invalid authenticated user id for MEMORY.md path resolution.")
   return path.join(
     path.resolve(workspaceRoot),
     ".user",
     "user-context",
-    sanitizeUserContextId(userId),
+    scopedUserContextId,
     "MEMORY.md",
   )
 }
@@ -77,7 +79,7 @@ export async function PUT(req: Request) {
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const raw = (await req.json().catch(() => ({}))) as { content?: unknown }
+    const raw = (await req.json()) as { content?: unknown }
     const normalized = String(raw.content ?? "")
       .replace(/\r\n/g, "\n")
       .trim()

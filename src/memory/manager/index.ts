@@ -5,7 +5,6 @@ import Database from "better-sqlite3";
 import type { MemoryConfig } from "../../config/types/index.js";
 import { chunkMarkdown } from "../chunker/index.js";
 import {
-  LocalEmbeddings,
   createEmbeddingProvider,
   deserializeEmbedding,
   serializeEmbedding,
@@ -40,18 +39,32 @@ function hashText(text: string): string {
   return crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
-function envNumber(name: string, fallback: number): number {
+function normalizeSourcePath(inputPath: string): string {
+  const resolved = path.normalize(path.resolve(String(inputPath || "")));
+  if (process.platform === "win32") {
+    return resolved.toLowerCase();
+  }
+  return resolved;
+}
+
+function isMissingSourceError(error: unknown): boolean {
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function envNumber(name: string, defaultValue: number): number {
   const raw = String(process.env[name] || "").trim();
-  if (!raw) return fallback;
+  if (!raw) return defaultValue;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 export class MemoryIndexManager {
   private readonly config: MemoryConfig;
   private readonly db: Database.Database;
   private readonly provider: EmbeddingProvider;
-  private readonly fallbackProvider: EmbeddingProvider;
   private readonly fileHashes = new Map<string, string>();
   private readonly staleReindexBudgetMs: number;
   private readonly staleScanTtlMs: number;
@@ -59,7 +72,6 @@ export class MemoryIndexManager {
   private syncPromise: Promise<void> | null = null;
   private staleReindexPromise: Promise<void> | null = null;
   private staleScanCache: { atMs: number; sources: string[] } = { atMs: 0, sources: [] };
-  private indexFallbackCount = 0;
   private lastSearchDiagnosticsById = new Map<string, MemorySearchDiagnostics>();
   private lastSearchDiagnostics: MemorySearchDiagnostics = {
     hasSearch: false,
@@ -70,8 +82,8 @@ export class MemoryIndexManager {
     staleReindexAttempted: false,
     staleReindexCompleted: false,
     staleReindexTimedOut: false,
-    fallbackUsed: false,
-    indexFallbackUsed: false,
+    recoveryUsed: false,
+    indexRecoveryUsed: false,
     latencyMs: 0,
     resultCount: 0,
   };
@@ -80,7 +92,6 @@ export class MemoryIndexManager {
     config: MemoryConfig,
     deps?: {
       provider?: EmbeddingProvider;
-      fallbackProvider?: EmbeddingProvider;
       staleReindexBudgetMs?: number;
       staleScanTtlMs?: number;
     },
@@ -96,7 +107,6 @@ export class MemoryIndexManager {
       apiKey: config.embeddingApiKey,
       db: this.db,
     });
-    this.fallbackProvider = deps?.fallbackProvider ?? new LocalEmbeddings();
     this.staleReindexBudgetMs = Math.max(
       0,
       Number(deps?.staleReindexBudgetMs ?? envNumber("NOVA_MEMORY_STALE_REINDEX_BUDGET_MS", 250)),
@@ -106,8 +116,8 @@ export class MemoryIndexManager {
 
   private emitDegradedEvent(event: {
     phase: "index" | "search";
-    reason: "query-embedding-failed" | "index-embedding-failed" | "stale-index";
-    mode: "fallback-local" | "fallback-lexical";
+    reason: "stale-index";
+    mode: "hybrid";
     detail: string;
   }): void {
     console.warn(
@@ -133,6 +143,15 @@ export class MemoryIndexManager {
     }
   }
 
+  private deleteChunksForSource(sourcePath: string): void {
+    const normalized = normalizeSourcePath(sourcePath);
+    if (process.platform === "win32") {
+      this.db.prepare("DELETE FROM chunks WHERE LOWER(source) = LOWER(?)").run(normalized);
+      return;
+    }
+    this.db.prepare("DELETE FROM chunks WHERE source = ?").run(normalized);
+  }
+
   private getDistinctSources(): Array<{ source: string; updated_at: number }> {
     return this.db
       .prepare("SELECT source, MAX(updated_at) AS updated_at FROM chunks GROUP BY source")
@@ -145,77 +164,42 @@ export class MemoryIndexManager {
       return [...this.staleScanCache.sources];
     }
     const sources = this.getDistinctSources();
-    const stale: string[] = [];
+    const latestUpdatedAtBySource = new Map<string, number>();
     for (const row of sources) {
       if (!row?.source) continue;
+      const normalizedSource = normalizeSourcePath(row.source);
+      const previous = Number(latestUpdatedAtBySource.get(normalizedSource) || 0);
+      const next = Number(row.updated_at || 0);
+      latestUpdatedAtBySource.set(normalizedSource, Math.max(previous, next));
+    }
+
+    const stale: string[] = [];
+    for (const [sourcePath, indexedUpdatedAt] of latestUpdatedAtBySource.entries()) {
       try {
-        const stats = await fs.stat(row.source);
-        if (Number(stats.mtimeMs) > Number(row.updated_at || 0) + 1000) {
-          stale.push(row.source);
+        const stats = await fs.stat(sourcePath);
+        if (Number(stats.mtimeMs) > Number(indexedUpdatedAt || 0) + 1000) {
+          stale.push(sourcePath);
         }
       } catch {
-        stale.push(row.source);
+        stale.push(sourcePath);
       }
     }
     this.staleScanCache = { atMs: now, sources: stale };
     return stale;
   }
 
-  private async embedBatchWithFallback(texts: string[]): Promise<{ vectors: number[][]; mode: "hybrid" | "fallback-local" }> {
-    try {
-      return { vectors: await this.provider.embedBatch(texts), mode: "hybrid" };
-    } catch (error) {
-      this.indexFallbackCount += 1;
-      this.emitDegradedEvent({
-        phase: "index",
-        reason: "index-embedding-failed",
-        mode: "fallback-local",
-        detail: error instanceof Error ? error.name : "unknown_error",
-      });
-      return {
-        vectors: await this.fallbackProvider.embedBatch(texts),
-        mode: "fallback-local",
-      };
-    }
+  private async embedBatchStrict(texts: string[]): Promise<number[][]> {
+    return await this.provider.embedBatch(texts);
   }
 
-  private async embedQueryWithFallback(query: string): Promise<{
+  private async embedQueryStrict(query: string): Promise<{
     embedding: number[];
-    mode: "hybrid" | "fallback-local" | "fallback-lexical";
-    fallbackReason?: "query-embedding-failed";
+    mode: "hybrid";
   }> {
-    try {
-      return {
-        embedding: await this.provider.embed(query),
-        mode: "hybrid",
-      };
-    } catch (error) {
-      try {
-        this.emitDegradedEvent({
-          phase: "search",
-          reason: "query-embedding-failed",
-          mode: "fallback-local",
-          detail: error instanceof Error ? error.name : "unknown_error",
-        });
-        return {
-          embedding: await this.fallbackProvider.embed(query),
-          mode: "fallback-local",
-          fallbackReason: "query-embedding-failed",
-        };
-      } catch {
-        this.emitDegradedEvent({
-          phase: "search",
-          reason: "query-embedding-failed",
-          mode: "fallback-lexical",
-          detail: "all_embedding_providers_failed",
-        });
-        return {
-          embedding: [],
-          mode: "fallback-lexical",
-          fallbackReason: "query-embedding-failed",
-        };
-      }
-    }
+    return {
+      embedding: await this.provider.embed(query),
+      mode: "hybrid",
+    };
   }
 
   public async indexDirectory(dir: string): Promise<void> {
@@ -228,17 +212,32 @@ export class MemoryIndexManager {
   }
 
   public async indexFile(filePath: string): Promise<void> {
-    const absPath = path.resolve(filePath);
-    const content = await fs.readFile(absPath, "utf8");
+    const absPath = normalizeSourcePath(filePath);
+    let content = "";
+    try {
+      content = await fs.readFile(absPath, "utf8");
+    } catch (error) {
+      if (isMissingSourceError(error)) {
+        this.deleteChunksForSource(absPath);
+        this.fileHashes.delete(absPath);
+        this.staleScanCache = { atMs: 0, sources: [] };
+        return;
+      }
+      throw error;
+    }
     const fileHash = hashText(content);
     if (this.fileHashes.get(absPath) === fileHash) {
       return;
     }
 
     const chunks = chunkMarkdown(content, absPath, this.config.chunkSize, this.config.chunkOverlap);
-    const { vectors: embeddings } = await this.embedBatchWithFallback(chunks.map((chunk) => chunk.content));
+    const embeddings = await this.embedBatchStrict(chunks.map((chunk) => chunk.content));
 
-    const removeStmt = this.db.prepare("DELETE FROM chunks WHERE source = ?");
+    const removeStmt = this.db.prepare(
+      process.platform === "win32"
+        ? "DELETE FROM chunks WHERE LOWER(source) = LOWER(?)"
+        : "DELETE FROM chunks WHERE source = ?",
+    );
     const insertStmt = this.db.prepare(
       "INSERT OR REPLACE INTO chunks (id, source, content, embedding, content_hash, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
     );
@@ -293,7 +292,6 @@ export class MemoryIndexManager {
     searchId?: string,
   ): Promise<{ results: SearchResult[]; diagnostics: MemorySearchDiagnostics; searchId: string }> {
     const startedAt = Date.now();
-    const indexFallbackCountAtStart = this.indexFallbackCount;
     const expandedQuery = expandMemoryQuery(query);
     const staleSourcesBefore = await this.getStaleSources();
     let staleReindexAttempted = false;
@@ -303,7 +301,7 @@ export class MemoryIndexManager {
       this.emitDegradedEvent({
         phase: "search",
         reason: "stale-index",
-        mode: "fallback-lexical",
+        mode: "hybrid",
         detail: `sources=${staleSourcesBefore.length}`,
       });
       const reindexState = await this.ensureStaleReindex(staleSourcesBefore);
@@ -312,7 +310,7 @@ export class MemoryIndexManager {
       staleReindexTimedOut = reindexState.timedOut;
     }
     const staleSourcesAfter = await this.getStaleSources(staleReindexAttempted && staleReindexCompleted);
-    const queryEmbeddingResult = await this.embedQueryWithFallback(expandedQuery);
+    const queryEmbeddingResult = await this.embedQueryStrict(expandedQuery);
     const rows = this.db
       .prepare("SELECT id, source, content, embedding, content_hash, updated_at FROM chunks")
       .all() as Array<{
@@ -335,18 +333,10 @@ export class MemoryIndexManager {
 
     const requestedTopK = Math.max(1, Number(topK || this.config.topK || 1));
     const candidateTopK = Math.max(requestedTopK, requestedTopK * 4);
-    const effectiveConfig =
-      queryEmbeddingResult.mode === "fallback-lexical"
-        ? {
-            ...this.config,
-            hybridVectorWeight: 0,
-            hybridBm25Weight: 1,
-            topK: candidateTopK,
-          }
-        : {
-            ...this.config,
-            topK: candidateTopK,
-          };
+    const effectiveConfig = {
+      ...this.config,
+      topK: candidateTopK,
+    };
 
     const merged = hybridSearch(query, queryEmbeddingResult.embedding, chunks, effectiveConfig);
 
@@ -375,13 +365,13 @@ export class MemoryIndexManager {
       staleReindexAttempted,
       staleReindexCompleted,
       staleReindexTimedOut,
-      fallbackUsed: queryEmbeddingResult.mode !== "hybrid" || staleSourcesAfter.length > 0 || this.indexFallbackCount > indexFallbackCountAtStart,
-      ...(queryEmbeddingResult.fallbackReason || staleSourcesAfter.length > 0
+      recoveryUsed: staleSourcesAfter.length > 0,
+      ...(staleSourcesAfter.length > 0
         ? {
-            fallbackReason: queryEmbeddingResult.fallbackReason ?? (staleSourcesAfter.length > 0 ? "stale-index" : "index-embedding-failed"),
+            recoveryReason: "stale-index",
           }
         : {}),
-      indexFallbackUsed: this.indexFallbackCount > indexFallbackCountAtStart,
+      indexRecoveryUsed: false,
       latencyMs: Date.now() - startedAt,
       resultCount: sliced.length,
     };
@@ -434,7 +424,7 @@ export class MemoryIndexManager {
       .get(chunkId) as { source: string } | undefined;
     if (!row?.source) return null;
     try {
-      return await fs.readFile(row.source, "utf8");
+      return await fs.readFile(normalizeSourcePath(row.source), "utf8");
     } catch {
       return null;
     }

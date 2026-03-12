@@ -149,7 +149,7 @@ export function createYouTubeProviderAdapter() {
           },
           options,
         );
-        const data = await res.json().catch(() => ({}));
+        const data = await res.json();
         if (res.ok && data?.ok === true) {
           const selected = data?.selected && typeof data.selected === "object" ? data.selected : null;
           const items = Array.isArray(data?.items) ? data.items : [];

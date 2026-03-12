@@ -72,7 +72,7 @@ export const toolRuntime = createToolRuntime({
         ? "openai"
         : "local",
     embeddingModel: String(process.env.NOVA_EMBEDDING_MODEL || "text-embedding-3-small").trim(),
-    embeddingApiKey: "",
+    embeddingApiKey: String(process.env.NOVA_EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || "").trim(),
     chunkSize: Number.parseInt(process.env.NOVA_MEMORY_CHUNK_SIZE || "400", 10),
     chunkOverlap: Number.parseInt(process.env.NOVA_MEMORY_CHUNK_OVERLAP || "80", 10),
     hybridVectorWeight: Number.parseFloat(process.env.NOVA_MEMORY_VECTOR_WEIGHT || "0.7"),

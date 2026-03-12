@@ -34,7 +34,7 @@ export const summaryInputSchema = z.object({
 })
 
 export async function safeJson(req: Request): Promise<unknown> {
-  return req.json().catch(() => ({}))
+  return req.json()
 }
 
 export function logGmailApi(event: string, payload: Record<string, unknown>): void {

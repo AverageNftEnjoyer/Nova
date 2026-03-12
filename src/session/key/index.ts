@@ -7,16 +7,6 @@ function normalizeToken(value: string): string {
   return trimmed.replace(/[^a-z0-9:_-]/g, "-");
 }
 
-function stableHashToken(value: string): string {
-  const input = String(value || "");
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 export function normalizeUserContextId(value: string): string {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return "";
@@ -58,14 +48,6 @@ export function parseSessionKeyUserContext(sessionKey: string): string {
   return "";
 }
 
-export function fallbackUserContextIdFromSessionKey(sessionKey: string, sourceHint = ""): string {
-  const normalizedSource = normalizeToken(sourceHint || "").replace(/[^a-z0-9_-]/g, "-");
-  const seed = String(sessionKey || "").trim() || normalizedSource || "session";
-  const hash = stableHashToken(seed);
-  const candidate = normalizeUserContextId(`${normalizedSource || "session"}-${hash}`);
-  return candidate || `session-${hash}`;
-}
-
 export function resolveUserContextId(msg: InboundMessage): string {
   const explicit = normalizeUserContextId(String(msg.userContextId || ""));
   if (explicit) return explicit;
@@ -90,7 +72,7 @@ export function resolveUserContextId(msg: InboundMessage): string {
     if (senderFallback) return senderFallback;
     const hinted = parseSessionKeyUserContext(String(msg.sessionKeyHint || ""));
     if (hinted) return hinted;
-    return fallbackUserContextIdFromSessionKey(String(msg.sessionKeyHint || ""), source);
+    return "";
   }
 
   const senderFallback = normalizeUserContextId(senderCompat);
@@ -117,15 +99,16 @@ export function buildSessionKey(config: SessionConfig, agentName: string, msg: I
 
   if (source === "hud") {
     const hudUserContextId = resolveUserContextId(msg);
-    if (hudUserContextId) {
-      return `${base}:hud:user:${hudUserContextId}:${normalizeToken(config.mainKey || "main")}`;
-    }
-    return `${base}:hud:${normalizeToken(config.mainKey || "main")}`;
+    if (!hudUserContextId) throw new Error("HUD session key requires userContextId.");
+    return `${base}:hud:user:${hudUserContextId}:${normalizeToken(config.mainKey || "main")}`;
   }
   if (source === "voice") {
     const voiceUserContextId = resolveUserContextId(msg);
-    return `${base}:voice:dm:${normalizeToken(voiceUserContextId || sender || "anonymous")}`;
+    const dmContext = voiceUserContextId || sender;
+    if (!dmContext) throw new Error("Voice session key requires userContextId or sender.");
+    return `${base}:voice:dm:${normalizeToken(dmContext)}`;
   }
 
-  return `${base}:${source}:dm:${sender || "anonymous"}`;
+  if (!sender) throw new Error(`Session key requires sender for source "${source}".`);
+  return `${base}:${source}:dm:${sender}`;
 }

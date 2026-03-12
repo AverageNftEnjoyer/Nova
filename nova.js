@@ -15,22 +15,36 @@ const HUD_DIR = path.join(WORKSPACE_PATHS.workspaceRoot, "hud");
 const HUD_MODE_ENV = String(process.env.NOVA_HUD_MODE || "").trim().toLowerCase();
 const HUD_MODE_ARG = process.argv.some((arg) => String(arg || "").trim().toLowerCase() === "--dev");
 const HUD_MODE = HUD_MODE_ENV === "dev" || HUD_MODE_ARG ? "dev" : "start";
-const HUD_RUNNER_ENV =
-  process.env.NOVA_DISABLE_SPAWN_FALLBACK === "1"
-    ? { ...process.env, NOVA_DISABLE_SPAWN_FALLBACK: "0" }
-    : process.env;
+const HUD_RUNNER_ENV = process.env;
 
 function launch(label, command, args, cwd, env = process.env) {
-  const child = spawn(command, args, {
-    cwd: cwd || __dirname,
-    stdio: "pipe",
-    shell: false,
-    env,
-  });
+  let child = null;
+  try {
+    child = spawn(command, args, {
+      cwd: cwd || __dirname,
+      stdio: "pipe",
+      shell: false,
+      env,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`[Nova] Failed to spawn ${label}: ${message}`);
+  }
 
   child.stdout.on("data", (d) => process.stdout.write(`[${label}] ${d.toString()}`));
   child.stderr.on("data", (d) => process.stdout.write(`[${label}] ${d.toString()}`));
-  child.on("exit", (code) => console.log(`[${label}] exited with code ${code}`));
+  child.on("error", (err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[${label}] process error: ${message}`);
+    if (label === "HUD" && !shuttingDown) cleanup(1);
+  });
+  child.on("exit", (code, signal) => {
+    console.log(`[${label}] exited with code ${code}${signal ? ` signal ${signal}` : ""}`);
+    if (label === "HUD" && !shuttingDown && code !== 0) {
+      console.error(`[Nova] HUD exited unexpectedly with code ${code}. Failing fast.`);
+      cleanup(1);
+    }
+  });
 
   children.push(child);
   return child;
@@ -144,12 +158,17 @@ function ensureHudBuildIfNeeded() {
   if (buildExists && sourceMtime <= buildMtime) return;
 
   console.log(`[Nova] ${buildExists ? "HUD build is stale" : "No production HUD build found"}. Building...`);
-  execFileSync(process.execPath, ["scripts/next-runner.mjs", "build"], {
-    cwd: HUD_DIR,
-    env: HUD_RUNNER_ENV,
-    stdio: "inherit",
-    shell: false,
-  });
+  try {
+    execFileSync(process.execPath, ["scripts/next-runner.mjs", "build"], {
+      cwd: HUD_DIR,
+      env: HUD_RUNNER_ENV,
+      stdio: "inherit",
+      shell: false,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`[Nova] HUD build failed; startup aborted. ${message}`);
+  }
 }
 
 // ===== Detect monitors via PowerShell (no temp file) =====
@@ -274,11 +293,15 @@ async function warmHudRoutes(baseUrl) {
 
 // ===== Boot sequence =====
 console.log("[Nova] Boot sequence started.");
-if (process.env.NOVA_DISABLE_SPAWN_FALLBACK === "1") {
-  console.log("[Nova] NOVA_DISABLE_SPAWN_FALLBACK=1 detected. Forcing fallback-enabled HUD runner for startup.");
-}
+
 prepareCleanLaunch();
-ensureHudBuildIfNeeded();
+try {
+  ensureHudBuildIfNeeded();
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(message);
+  cleanup(1);
+}
 
 const monitors = getMonitors();
 const primaryMonitor = monitors[0];
@@ -287,7 +310,14 @@ const primaryMonitor = monitors[0];
 launch("Agent", process.execPath, ["src/runtime/core/entrypoint/index.js"], __dirname);
 
 const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
-const hud = launch("HUD", process.execPath, hudArgs, HUD_DIR, HUD_RUNNER_ENV);
+let hud = null;
+try {
+  hud = launch("HUD", process.execPath, hudArgs, HUD_DIR, HUD_RUNNER_ENV);
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(message);
+  cleanup(1);
+}
 
 let hudOpened = false;
 hud.stdout.on("data", (chunk) => {

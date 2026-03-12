@@ -14,17 +14,16 @@ export function resolvePersonaWorkspaceDir(params: ResolvePersonaWorkspaceParams
   const workspaceRoot = path.resolve(params.workspaceRoot);
   const userContextRoot = path.resolve(params.userContextRoot);
   const normalized = normalizeUserContextId(String(params.userContextId || ""));
-  const contextId = normalized || "anonymous";
-  const userDir = path.join(userContextRoot, contextId);
+  if (!normalized) {
+    throw new Error("resolvePersonaWorkspaceDir requires userContextId.");
+  }
+  const userDir = path.join(userContextRoot, normalized);
 
   try {
     fs.mkdirSync(userDir, { recursive: true });
   } catch {
     return userDir;
   }
-
-  // Seed from templates only for explicit user contexts.
-  if (!normalized) return userDir;
 
   const templatesDir = path.join(workspaceRoot, "templates");
   for (const fileName of BOOTSTRAP_FILE_NAMES) {

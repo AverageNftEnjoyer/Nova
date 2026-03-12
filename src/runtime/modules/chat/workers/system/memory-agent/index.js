@@ -15,6 +15,7 @@ import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 export async function handleMemoryWorker(text, ctx) {
   const { source, userContextId, conversationId } = ctx;
+  const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   const fact = extractMemoryUpdateFact(text);
   const summary = {
     route: "memory_update",
@@ -72,7 +73,7 @@ export async function handleMemoryWorker(text, ctx) {
     });
     if (Array.isArray(preferenceCapture?.updatedKeys) && preferenceCapture.updatedKeys.length > 0) {
       console.log(
-        `[Preference] Updated ${preferenceCapture.updatedKeys.length} field(s) for ${userContextId || "anonymous"} during memory update.`,
+        `[Preference] Updated ${preferenceCapture.updatedKeys.length} field(s) for ${scopedUserLabel} during memory update.`,
       );
     }
 
@@ -97,7 +98,7 @@ export async function handleMemoryWorker(text, ctx) {
       userContextId: userContextId || undefined,
       key: memoryMeta.key || null,
     });
-    console.log(`[Memory] Manual memory update applied for ${userContextId || "anonymous"} key=${memoryMeta.key || "general"}.`);
+    console.log(`[Memory] Manual memory update applied for ${scopedUserLabel} key=${memoryMeta.key || "general"}.`);
   } catch (err) {
     summary.ok = false;
     summary.error = String(err instanceof Error ? err.message : describeUnknownError(err));
@@ -112,10 +113,10 @@ export async function handleMemoryWorker(text, ctx) {
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "memory_update",
-    fallbackResponseRoute: "memory_update",
-    fallbackProvider: "",
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "memory_update",
+    defaultResponseRoute: "memory_update",
+    defaultProvider: "",
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

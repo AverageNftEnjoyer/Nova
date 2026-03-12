@@ -124,8 +124,10 @@ export function isLikelyMissionPrompt(value: string): boolean {
 }
 
 export function buildMissionScopeKey(userContextId: string, sessionConversationId: string): string {
-  const user = String(userContextId || "").trim().toLowerCase() || "anonymous"
-  const convo = String(sessionConversationId || "").trim().toLowerCase() || "none"
+  const user = String(userContextId || "").trim().toLowerCase()
+  const convo = String(sessionConversationId || "").trim().toLowerCase()
+  if (!user) throw new Error("buildMissionScopeKey requires userContextId.")
+  if (!convo) throw new Error("buildMissionScopeKey requires conversation id.")
   return `mission:${user}:${convo}`
 }
 

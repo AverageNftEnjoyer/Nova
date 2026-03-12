@@ -167,10 +167,10 @@ export async function handleTelegramWorker(text, ctx, llmCtx = {}, requestHints 
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "telegram",
-    fallbackResponseRoute: "telegram",
-    fallbackProvider: String(summary.provider || ""),
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "telegram",
+    defaultResponseRoute: "telegram",
+    defaultProvider: String(summary.provider || ""),
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

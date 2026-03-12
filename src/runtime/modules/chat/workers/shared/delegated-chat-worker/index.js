@@ -21,9 +21,9 @@ export async function runDelegatedChatWorker(input = {}) {
 
   const summary = await executeChatRequest(text, ctx, llmCtx, requestHints);
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: normalizeRoute(route),
-    fallbackResponseRoute: normalizeRoute(route),
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: 0,
+    defaultRoute: normalizeRoute(route),
+    defaultResponseRoute: normalizeRoute(route),
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: 0,
   });
 }

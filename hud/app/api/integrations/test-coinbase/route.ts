@@ -249,7 +249,7 @@ export async function POST(req: Request) {
       cache: "no-store",
       headers: { Accept: "application/json" },
     })
-    const payload = await res.json().catch(() => ({}))
+    const payload = await res.json()
     if (!res.ok) {
       const detail = extractCoinbaseDetail(payload)
       const failure = classifyHttpFailure(res.status, detail)
@@ -296,7 +296,7 @@ export async function POST(req: Request) {
         ...privateAuth.headers,
       },
     })
-    const privatePayload = await privateRes.json().catch(() => ({}))
+    const privatePayload = await privateRes.json()
     if (!privateRes.ok) {
       const detail = extractCoinbaseDetail(privatePayload)
       const failure = classifyHttpFailure(privateRes.status, detail || "Coinbase private account probe failed.")

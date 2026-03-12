@@ -91,10 +91,10 @@ function resolvePolicyGate(input = {}) {
 
 function workerSummaryToEnvelope(workerAgentId, workerSummary, context, orgChartPath, latencyMs) {
   const summary = normalizeWorkerSummary(workerSummary, {
-    fallbackRoute: "unclassified",
-    fallbackResponseRoute: "unclassified",
-    fallbackProvider: String(orgChartPath?.providerSelector?.provider || ""),
-    fallbackLatencyMs: latencyMs,
+    defaultRoute: "unclassified",
+    defaultResponseRoute: "unclassified",
+    defaultProvider: String(orgChartPath?.providerSelector?.provider || ""),
+    defaultLatencyMs: latencyMs,
     userContextId: context.userContextId,
     conversationId: context.conversationId,
     sessionKey: context.sessionKey,
@@ -131,7 +131,7 @@ export async function executeOrgChartDelegation(input = {}) {
   const text = String(input.text || "");
   const toolCalls = Array.isArray(input.toolCalls) ? input.toolCalls : [];
   const provider = String(input.provider || "");
-  const providerSource = String(input.providerSource || "chat-runtime-fallback");
+  const providerSource = String(input.providerSource || "worker-runtime-selected");
   const policyGate = resolvePolicyGate(input);
 
   const orgChartPath = resolveOrgChartRoutingEnvelope({
@@ -240,10 +240,10 @@ export async function executeOrgChartDelegation(input = {}) {
       provider: String(orgChartPath.providerSelector?.provider || provider || ""),
       toolCalls: [],
     }, {
-      fallbackRoute: responseRoute || routeHint || "unclassified",
-      fallbackResponseRoute: responseRoute || "",
-      fallbackProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
-      fallbackLatencyMs: Math.max(0, Date.now() - workerStartedAt),
+      defaultRoute: responseRoute || routeHint || "unclassified",
+      defaultResponseRoute: responseRoute || "",
+      defaultProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
+      defaultLatencyMs: Math.max(0, Date.now() - workerStartedAt),
       userContextId: context.userContextId,
       conversationId: context.conversationId,
       sessionKey: context.sessionKey,
@@ -267,10 +267,10 @@ export async function executeOrgChartDelegation(input = {}) {
         provider: String(orgChartPath.providerSelector?.provider || provider || ""),
         toolCalls: [],
       }, {
-        fallbackRoute: responseRoute || routeHint || "unclassified",
-        fallbackResponseRoute: responseRoute || "",
-        fallbackProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
-        fallbackLatencyMs: Math.max(0, Date.now() - workerStartedAt),
+        defaultRoute: responseRoute || routeHint || "unclassified",
+        defaultResponseRoute: responseRoute || "",
+        defaultProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
+        defaultLatencyMs: Math.max(0, Date.now() - workerStartedAt),
         userContextId: context.userContextId,
         conversationId: context.conversationId,
         sessionKey: context.sessionKey,
@@ -278,10 +278,10 @@ export async function executeOrgChartDelegation(input = {}) {
     }
   }
   workerSummary = normalizeWorkerSummary(workerSummary, {
-    fallbackRoute: responseRoute || routeHint || "unclassified",
-    fallbackResponseRoute: responseRoute || "",
-    fallbackProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
-    fallbackLatencyMs: Math.max(0, Date.now() - workerStartedAt),
+    defaultRoute: responseRoute || routeHint || "unclassified",
+    defaultResponseRoute: responseRoute || "",
+    defaultProvider: String(orgChartPath.providerSelector?.provider || provider || ""),
+    defaultLatencyMs: Math.max(0, Date.now() - workerStartedAt),
     userContextId: context.userContextId,
     conversationId: context.conversationId,
     sessionKey: context.sessionKey,

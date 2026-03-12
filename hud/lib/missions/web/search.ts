@@ -169,7 +169,7 @@ export async function searchWithBrave(
       cache: "no-store",
     })
 
-    const payload = await res.json().catch(() => ({})) as {
+    const payload = await res.json() as {
       web?: {
         results?: Array<{ url?: string; title?: string; description?: string }>
       }

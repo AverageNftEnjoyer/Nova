@@ -17,7 +17,7 @@ export async function PATCH(req: Request) {
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { liveTradingEnabled?: boolean }
+    const body = (await req.json()) as { liveTradingEnabled?: boolean }
     const config = await updatePolymarketTradingPreference({
       verified,
       liveTradingEnabled: body.liveTradingEnabled === true,

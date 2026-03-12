@@ -62,8 +62,9 @@ function hasAliasMention(text, alias) {
 function resolvePersonaSkillsDir(userContextId, workspaceDir) {
   const normalizedUserContextId = normalizeUserContextId(userContextId);
   const explicitWorkspaceDir = String(workspaceDir || "").trim();
-  const personaWorkspaceDir = explicitWorkspaceDir
-    || path.join(USER_CONTEXT_ROOT, normalizedUserContextId || "anonymous");
+  if (explicitWorkspaceDir) return path.join(explicitWorkspaceDir, "skills");
+  if (!normalizedUserContextId) return "";
+  const personaWorkspaceDir = path.join(USER_CONTEXT_ROOT, normalizedUserContextId);
   return path.join(personaWorkspaceDir, "skills");
 }
 
@@ -88,8 +89,9 @@ function listSkillNamesFromDir(skillsDir) {
 }
 
 function discoverSkillNames(userContextId, workspaceDir) {
-  const normalizedUserContextId = normalizeUserContextId(userContextId) || "anonymous";
-  const cacheKey = `${normalizedUserContextId}::${String(workspaceDir || "").trim() || "_default"}`;
+  const normalizedUserContextId = normalizeUserContextId(userContextId);
+  const cacheContextId = normalizedUserContextId || "_missing_user_context";
+  const cacheKey = `${cacheContextId}::${String(workspaceDir || "").trim() || "_default"}`;
   const now = Date.now();
   const cached = SKILL_DISCOVERY_CACHE.get(cacheKey);
   if (cached && now - Number(cached.at || 0) < SKILL_DISCOVERY_CACHE_TTL_MS) {

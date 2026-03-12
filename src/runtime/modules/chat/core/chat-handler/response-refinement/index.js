@@ -12,7 +12,6 @@ import { replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "../../../r
 import { validateOutputConstraints } from "../../../quality/output-constraints/index.js";
 import { normalizeAssistantReply } from "../../../quality/reply-normalizer/index.js";
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
-import { buildConstraintSafeFallback } from "../prompt-fallbacks/index.js";
 
 export async function refineAssistantReply({
   reply,
@@ -43,7 +42,7 @@ export async function refineAssistantReply({
   openAiMaxCompletionTokens,
   openAiRequestTuningForModel,
   responseRoute,
-  markFallback,
+  markRecovery,
 }) {
   let promptTokensDelta = 0;
   let completionTokensDelta = 0;
@@ -57,7 +56,7 @@ export async function refineAssistantReply({
     broadcastThinkingStatus("Verifying live web access", userContextId);
     try {
       const refusalRecoverStartedAt = Date.now();
-      const fallbackResult = await runtimeTools.executeToolUse(
+      const recoveryResult = await runtimeTools.executeToolUse(
         { id: `tool_refusal_recover_${Date.now()}`, name: "web_search", input: { query: text }, type: "tool_use" },
         availableTools,
       );
@@ -65,14 +64,14 @@ export async function refineAssistantReply({
         name: "web_search",
         status: "ok",
         durationMs: Date.now() - refusalRecoverStartedAt,
-        resultPreview: summarizeToolResultPreview(fallbackResult?.content || ""),
+        resultPreview: summarizeToolResultPreview(recoveryResult?.content || ""),
       });
-      const fallbackContent = String(fallbackResult?.content || "").trim();
-      if (fallbackContent && !/^web_search error/i.test(fallbackContent)) {
-        const readable = buildWebSearchReadableReply(text, fallbackContent);
+      const recoveryContent = String(recoveryResult?.content || "").trim();
+      if (recoveryContent && !/^web_search error/i.test(recoveryContent)) {
+        const readable = buildWebSearchReadableReply(text, recoveryContent);
         const correction = readable
           ? `I do have live web access in this runtime.\n\n${readable}`
-          : `I do have live web access in this runtime. Current web results:\n\n${fallbackContent.slice(0, 2200)}`;
+          : `I do have live web access in this runtime. Current web results:\n\n${recoveryContent.slice(0, 2200)}`;
         nextReply = nextReply ? `${nextReply}\n\n${correction}` : correction;
         if (!hasStrictOutputRequirements) {
           didEmitDelta = true;
@@ -194,17 +193,14 @@ export async function refineAssistantReply({
         correctionPassesDelta,
       };
     }
-    const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
-      strict: hasStrictOutputRequirements,
-    });
-    markFallback("post_normalize_empty_reply_fallback", "empty_reply_after_normalization", preNormalizedReply);
+    markRecovery("post_normalize_empty_reply_error", "empty_reply_after_normalization", preNormalizedReply);
     retries.push({
-      stage: "post_normalize_empty_reply_fallback",
+      stage: "post_normalize_empty_reply_error",
       fromModel: modelUsed,
       toModel: modelUsed,
       reason: "empty_reply",
     });
-    nextReply = fallbackReply;
+    throw new Error("Reply normalization produced no assistant text.");
   }
 
   return {

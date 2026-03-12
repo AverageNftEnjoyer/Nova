@@ -119,7 +119,7 @@ export function useHomeCryptoMarket() {
         cache: "no-store",
         credentials: "include",
       })
-      const data = (await res.json().catch(() => ({}))) as MarketApiResponse
+      const data = (await res.json()) as MarketApiResponse
       if (!res.ok || !data?.ok) {
         throw new Error(String(data?.error || "Failed to fetch Coinbase market data."))
       }

@@ -117,7 +117,7 @@ export async function runChatKitServeAttempt(params = {}) {
       if (typeof module.appendChatKitEvent === "function") {
         module.appendChatKitEvent({
           status: "error",
-          event: "chatkit.serve.fallback",
+          event: "chatkit.serve.error",
           userContextId,
           conversationId,
           missionRunId,

@@ -39,7 +39,7 @@ export function useGmailCalendarSetup({
   const refreshFromServer = useCallback(async () => {
     try {
       const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       const config = data?.config as IntegrationsSettings | undefined
       if (!config) return
       setSettings((prev) => {
@@ -170,7 +170,7 @@ export function useGmailCalendarSetup({
     const fetchUrl = `/api/integrations/gmail-calendar/connect?mode=json&returnTo=${encodeURIComponent(returnTo)}`
     void fetch(fetchUrl, { cache: "no-store", credentials: "include" })
       .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
+        const data = await res.json()
         if (!res.ok || !data?.authUrl) {
           if (res.status === 401) {
             onRequireLogin()
@@ -242,7 +242,7 @@ export function useGmailCalendarSetup({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId: accountId || "" }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         if (res.status === 401) {
           onRequireLogin()
@@ -279,7 +279,7 @@ export function useGmailCalendarSetup({
           },
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok) {
         if (res.status === 401) {
           onRequireLogin()

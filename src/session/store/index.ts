@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import type { SessionConfig } from "../../config/types/index.js";
 import {
-  fallbackUserContextIdFromSessionKey,
   normalizeUserContextId,
   parseSessionKeyUserContext,
 } from "../key/index.js";
@@ -71,8 +70,10 @@ export class SessionStore {
     if (!normalizedSessionId) return;
 
     const scopedUserContextId = this.resolveUserContextIdForSessionId(normalizedSessionId);
-    const effectiveContextId =
-      normalizeUserContextId(scopedUserContextId) || fallbackUserContextIdFromSessionKey(normalizedSessionId);
+    const effectiveContextId = normalizeUserContextId(scopedUserContextId);
+    if (!effectiveContextId) {
+      throw new Error(`appendTurnBySessionId requires mapped userContextId for session ${normalizedSessionId}`);
+    }
     const transcriptFile = this.getScopedTranscriptPath(normalizedSessionId, effectiveContextId);
     if (!transcriptFile) return;
 
@@ -107,8 +108,7 @@ export class SessionStore {
 
     const normalizedContext =
       normalizeUserContextId(userContextId) ||
-      parseSessionKeyUserContext(normalizedKey) ||
-      fallbackUserContextIdFromSessionKey(normalizedKey);
+      parseSessionKeyUserContext(normalizedKey);
 
     if (normalizedContext) {
       const scopedPath = this.getScopedSessionStorePath(normalizedContext);
@@ -150,8 +150,10 @@ export class SessionStore {
 
     const normalizedContext =
       normalizeUserContextId(userContextId || entry.userContextId || "") ||
-      parseSessionKeyUserContext(normalizedKey) ||
-      fallbackUserContextIdFromSessionKey(normalizedKey);
+      parseSessionKeyUserContext(normalizedKey);
+    if (!normalizedContext) {
+      throw new Error(`setEntry requires userContextId for session key ${normalizedKey}`);
+    }
 
     const storeInfo = this.loadSessionStoreForContext(normalizedContext, normalizedKey);
     const normalizedEntry: SessionEntry = normalizedContext
@@ -172,8 +174,7 @@ export class SessionStore {
 
     const normalizedContext =
       normalizeUserContextId(userContextId) ||
-      parseSessionKeyUserContext(normalizedKey) ||
-      fallbackUserContextIdFromSessionKey(normalizedKey);
+      parseSessionKeyUserContext(normalizedKey);
 
     if (normalizedContext) {
       const scopedPath = this.getScopedSessionStorePath(normalizedContext);
@@ -337,8 +338,10 @@ export class SessionStore {
   } {
     const normalized =
       normalizeUserContextId(userContextId) ||
-      parseSessionKeyUserContext(sessionKey) ||
-      fallbackUserContextIdFromSessionKey(sessionKey);
+      parseSessionKeyUserContext(sessionKey);
+    if (!normalized) {
+      throw new Error("Session store operations require userContextId.");
+    }
     const scopedPath = this.getScopedSessionStorePath(normalized);
     const scopedStore = this.loadStoreFromPath(scopedPath);
 

@@ -16,10 +16,10 @@ export async function handleRemindersWorker(text, ctx, llmCtx = {}, requestHints
     String(summary?.reply || ""),
   );
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "reminder",
-    fallbackResponseRoute: "reminder",
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: 0,
+    defaultRoute: "reminder",
+    defaultResponseRoute: "reminder",
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: 0,
     userContextId: String(ctx?.userContextId || ""),
     conversationId: String(ctx?.conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

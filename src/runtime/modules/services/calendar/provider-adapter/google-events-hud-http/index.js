@@ -107,7 +107,7 @@ async function fetchWithTimeoutAndRetry(url, init, options = {}) {
 }
 
 async function parseJsonSafe(response) {
-  return response.json().catch(() => ({}));
+  return response.json();
 }
 
 export function createGoogleCalendarHudHttpAdapter() {

@@ -162,10 +162,10 @@ export async function handleDiscordWorker(text, ctx, llmCtx = {}, requestHints =
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "discord",
-    fallbackResponseRoute: "discord",
-    fallbackProvider: String(summary.provider || "discord-webhook-adapter"),
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "discord",
+    defaultResponseRoute: "discord",
+    defaultProvider: String(summary.provider || "discord-webhook-adapter"),
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

@@ -85,7 +85,7 @@ async function sendCore(input: GmailSendMessageInput): Promise<GmailSendMessageR
     )
   }
   await assertGmailOk(response, "Failed to send Gmail message.")
-  const data = await response.json().catch(() => ({})) as { id?: string; threadId?: string }
+  const data = await response.json() as { id?: string; threadId?: string }
   const id = String(data.id || "").trim()
   if (!id) throw gmailError("gmail.internal", "Gmail send returned an empty message id.", { status: 502 })
   return {

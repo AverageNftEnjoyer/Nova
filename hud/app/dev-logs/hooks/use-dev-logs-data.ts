@@ -17,7 +17,7 @@ export function useDevLogsData() {
     setError("")
     try {
       const res = await fetch("/api/dev-logs?limit=240", { cache: "no-store" })
-      const payload = (await res.json().catch(() => ({}))) as Partial<DevLogsResponse> & { error?: string }
+      const payload = (await res.json()) as Partial<DevLogsResponse> & { error?: string }
       if (!res.ok || payload?.ok !== true) {
         throw new Error(String(payload?.error || "Failed to load dev logs."))
       }

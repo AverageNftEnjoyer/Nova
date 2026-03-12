@@ -137,8 +137,8 @@ function toNowPlaying(data: unknown, connected = true): SpotifyNowPlaying {
   }
 }
 
-async function throwPlaybackError(response: Response, fallback: string): Promise<never> {
-  const message = await readSpotifyErrorMessage(response, fallback)
+async function throwPlaybackError(response: Response, defaultMessage: string): Promise<never> {
+  const message = await readSpotifyErrorMessage(response, defaultMessage)
   const normalizedMessage = String(message || "").trim().toLowerCase()
   const deviceUnavailableLike = normalizedMessage.includes("no active device")
     || normalizedMessage.includes("no active spotify playback device")
@@ -153,7 +153,7 @@ async function throwPlaybackError(response: Response, fallback: string): Promise
   if (response.status === 403) {
     throw spotifyError("spotify.forbidden", message || "Spotify playback is not available for this account/device.", { status: 403 })
   }
-  throw spotifyError("spotify.internal", message || fallback, { status: response.status || 500 })
+  throw spotifyError("spotify.internal", message || defaultMessage, { status: response.status || 500 })
 }
 
 async function searchSpotifyUri(query: string, searchType: SpotifySearchType = "track", scope?: SpotifyScope): Promise<string> {
@@ -848,7 +848,6 @@ export async function controlSpotifyPlayback(
       ok: true,
       action,
       message: "Opening Spotify desktop app.",
-      fallbackRecommended: true,
     }
   }
 
@@ -859,7 +858,6 @@ export async function controlSpotifyPlayback(
       action,
       message: summarizeNowPlaying(nowPlaying),
       nowPlaying,
-      fallbackRecommended: !nowPlaying.playing,
     }
   }
 

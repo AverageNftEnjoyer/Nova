@@ -5,7 +5,6 @@ import {
   DEFAULT_CLAUDE_MODEL,
   DEFAULT_GROK_MODEL,
   DEFAULT_GEMINI_MODEL,
-  ENABLE_PROVIDER_FALLBACK,
   OPENAI_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_REQUEST_TIMEOUT_MS,
   TOOL_LOOP_ENABLED,
@@ -26,9 +25,6 @@ import {
   PROMPT_CONTEXT_SECTION_MAX_TOKENS,
   PROMPT_BUDGET_DEBUG,
   AGENT_PROMPT_MODE,
-  ROUTING_PREFERENCE,
-  ROUTING_ALLOW_ACTIVE_OVERRIDE,
-  ROUTING_PREFERRED_PROVIDERS,
 } from "../../../../../core/constants/index.js";
 import { sessionRuntime, toolRuntime } from "../../../../infrastructure/config/index.js";
 import { resolvePersonaWorkspaceDir, appendRawStream, trimHistoryMessagesByTokenBudget, cachedLoadIntegrationsRuntime } from "../../../../context/persona-context/index.js";
@@ -61,8 +57,6 @@ import {
   describeUnknownError,
   estimateTokenCostUsd,
   extractOpenAIChatText,
-  getOpenAIClient,
-  resolveConfiguredChatRuntime,
   streamOpenAiChatCompletion,
   toErrorDetails,
   withTimeout,
@@ -109,12 +103,7 @@ import {
   OPENAI_STRICT_MAX_COMPLETION_TOKENS,
   resolveAdaptiveOpenAiMaxCompletionTokens,
   resolveOpenAiRequestTuning,
-  resolveGmailToolFallbackReply,
-  buildEmptyReplyFailureReason,
-  shouldAttemptOpenAiEmptyReplyRecovery,
-  attemptOpenAiEmptyReplyRecovery,
-  buildConstraintSafeFallback,
-} from "../prompt-fallbacks/index.js";
+} from "../prompt-recovery/index.js";
 import { runToolLoop } from "../tool-loop-runner/index.js";
 import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "../direct-completion/index.js";
 import { buildPromptContextForTurn } from "../prompt-context-builder/index.js";
@@ -186,6 +175,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions,
     runtimeProactivity, runtimeHumorLevel, runtimeRiskTolerance, runtimeStructurePreference, runtimeChallengeLevel,
     raw_text: displayText, hudOpToken } = ctx;
+  const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   // displayText: original user text for UI/transcript; text: clean_text for LLM/tools
   const uiText = displayText || text;
   const {
@@ -261,15 +251,15 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   let identityRejectedSignals = 0;
   let identityPromptIncluded = false;
   let outputConstraintCorrectionPasses = 0;
-  let fallbackReason = "";
-  let fallbackStage = "";
-  let hadCandidateBeforeFallback = false;
-  const markFallback = (stage, reason, candidateReply = "") => {
-    fallbackStage = String(stage || "").trim();
-    fallbackReason = String(reason || "").trim();
-    if (String(candidateReply || "").trim()) hadCandidateBeforeFallback = true;
-    if (fallbackStage && !String(responseRoute || "").includes(fallbackStage)) {
-      responseRoute = `${responseRoute}_${fallbackStage}`;
+  let recoveryReason = "";
+  let recoveryStage = "";
+  let hadCandidateBeforeRecovery = false;
+  const markRecovery = (stage, reason, candidateReply = "") => {
+    recoveryStage = String(stage || "").trim();
+    recoveryReason = String(reason || "").trim();
+    if (String(candidateReply || "").trim()) hadCandidateBeforeRecovery = true;
+    if (recoveryStage && !String(responseRoute || "").includes(recoveryStage)) {
+      responseRoute = `${responseRoute}_${recoveryStage}`;
     }
   };
   const runSummary = {
@@ -321,9 +311,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     latencyHotPath: "",
     promptHash: "",
     error: "",
-    fallbackReason: "",
-    fallbackStage: "",
-    hadCandidateBeforeFallback: false,
+    recoveryReason: "",
+    recoveryStage: "",
+    hadCandidateBeforeRecovery: false,
     toolLoopGuardrails: null,
     voiceOutputError: "",
   };
@@ -394,11 +384,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       responseRoute = "chatkit_fail_closed";
       providerUsed = "openai-chatkit";
       modelUsed = selectedChatModel;
-      markFallback("chatkit_fail_closed", String(serveAttempt.reason || "chatkit_unavailable"), "");
-      broadcastThinkingStatus("Handling ChatKit availability", userContextId);
-      reply = buildConstraintSafeFallback(outputConstraints, text, {
-        strict: hasStrictOutputRequirements,
-      });
+      const chatkitFailureReason = String(serveAttempt.reason || "chatkit_unavailable");
+      markRecovery("chatkit_fail_closed_error", chatkitFailureReason, "");
+      throw new Error(`ChatKit serve attempt failed closed (${chatkitFailureReason}).`);
     } else {
       const promptContext = await buildPromptContextForTurn({
         text,
@@ -492,9 +480,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           observedToolCalls,
           toolExecutions,
           retries,
-          outputConstraints,
-          hasStrictOutputRequirements,
-          markFallback,
+          markRecovery,
         });
         reply = toolLoopResult.reply;
         promptTokens += Number(toolLoopResult.promptTokens || 0);
@@ -513,7 +499,6 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           openAiMaxCompletionTokens,
           openAiRequestTuningForModel,
           hasStrictOutputRequirements,
-          outputConstraints,
           text,
           assistantStreamId,
           source,
@@ -522,7 +507,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           broadcastAssistantStreamDelta,
           broadcastThinkingStatus,
           retries,
-          markFallback,
+          markRecovery,
         });
         reply = directResult.reply;
         promptTokens += Number(directResult.promptTokens || 0);
@@ -564,7 +549,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       openAiMaxCompletionTokens,
       openAiRequestTuningForModel,
       responseRoute,
-      markFallback,
+      markRecovery,
     });
     reply = refinement.reply;
     responseRoute = refinement.responseRoute;
@@ -668,7 +653,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           captured: autoCaptured,
         });
         console.log(
-          `[Memory] Auto-upserted ${autoCaptured} fact(s) for ${userContextId || "anonymous"} in MEMORY.md.`,
+          `[Memory] Auto-upserted ${autoCaptured} fact(s) for ${scopedUserLabel} in MEMORY.md.`,
         );
       }
     } catch (memoryErr) {
@@ -711,9 +696,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.linkUnderstandingUsed = usedLinkUnderstanding;
     runSummary.correctionPassCount = outputConstraintCorrectionPasses;
     runSummary.promptHash = preparedPromptHash;
-    runSummary.fallbackReason = fallbackReason;
-    runSummary.fallbackStage = fallbackStage;
-    runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
+    runSummary.recoveryReason = recoveryReason;
+    runSummary.recoveryStage = recoveryStage;
+    runSummary.hadCandidateBeforeRecovery = hadCandidateBeforeRecovery;
 
     if (useVoice && reply) {
       const voiceStartedAt = Date.now();
@@ -737,30 +722,28 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     broadcastThinkingStatus("Handling error", userContextId);
     const details = toErrorDetails(err);
     const msg = details.message || "Unknown model error.";
+    const errorReply = "I hit a runtime error while processing your request. Please retry.";
     appendRawStream({ event: "request_error", source, sessionKey, provider: activeChatRuntime.provider, model: selectedChatModel, status: details.status, code: details.code, type: details.type, requestId: details.requestId, message: msg });
     console.error(`[LLM] Chat request failed provider=${activeChatRuntime.provider} model=${selectedChatModel} status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} message=${msg}`);
-    const fallbackReply = buildConstraintSafeFallback(outputConstraints, text, {
-      strict: hasStrictOutputRequirements,
-    });
-    markFallback("exception_empty_reply_fallback", details.code || details.message || "request_error", "");
+    markRecovery("request_error", details.code || details.message || "request_error", "");
     retries.push({
-      stage: "exception_empty_reply_fallback",
+      stage: "request_error",
       fromModel: selectedChatModel,
       toModel: selectedChatModel,
       reason: "request_error",
     });
-    responseRoute = `${responseRoute}_error_recovered`;
+    responseRoute = `${responseRoute}_error`;
     broadcastAssistantStreamDelta(
       assistantStreamId,
-      fallbackReply,
+      errorReply,
       source,
       undefined,
       conversationId,
       userContextId,
     );
     runSummary.error = msg;
-    runSummary.ok = true;
-    runSummary.reply = fallbackReply;
+    runSummary.ok = false;
+    runSummary.reply = errorReply;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
     runSummary.toolExecutions = toolExecutions;
     runSummary.retries = retries;
@@ -776,9 +759,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.correctionPassCount = outputConstraintCorrectionPasses;
     runSummary.promptHash = preparedPromptHash;
     runSummary.responseRoute = responseRoute;
-    runSummary.fallbackReason = fallbackReason;
-    runSummary.fallbackStage = fallbackStage;
-    runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
+    runSummary.recoveryReason = recoveryReason;
+    runSummary.recoveryStage = recoveryStage;
+    runSummary.hadCandidateBeforeRecovery = hadCandidateBeforeRecovery;
   } finally {
     broadcastThinkingStatus("", userContextId);
     const latencySnapshot = latencyTelemetry.snapshot();
@@ -802,16 +785,16 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.requestHints.identityPromptIncluded = Boolean(
       runSummary.requestHints.identityPromptIncluded || identityPromptIncluded,
     );
-    runSummary.fallbackReason = fallbackReason;
-    runSummary.fallbackStage = fallbackStage;
-    runSummary.hadCandidateBeforeFallback = hadCandidateBeforeFallback;
+    runSummary.recoveryReason = recoveryReason;
+    runSummary.recoveryStage = recoveryStage;
+    runSummary.hadCandidateBeforeRecovery = hadCandidateBeforeRecovery;
     runSummary.requestHints.orgChartPath = resolveOrgChartRoutingEnvelope({
       route: runSummary.route,
       responseRoute: runSummary.responseRoute || responseRoute,
       text,
       toolCalls: runSummary.toolCalls,
       provider: runSummary.provider || activeChatRuntime.provider,
-      providerSource: runSummary.provider ? "chat-runtime-selected" : "chat-runtime-fallback",
+      providerSource: "chat-runtime-selected",
       userContextId,
       conversationId,
       sessionKey,

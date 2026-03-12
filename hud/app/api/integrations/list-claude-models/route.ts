@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { apiKey?: string; baseUrl?: string }
+    const body = (await req.json()) as { apiKey?: string; baseUrl?: string }
     const config = await loadIntegrationsConfig(verified)
 
     const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.claude.apiKey.trim()

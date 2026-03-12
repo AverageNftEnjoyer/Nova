@@ -21,7 +21,7 @@ const OUTPUT_NODE_TYPES = new Set([
   "slack-output",
 ])
 
-const LEGACY_BLOCKED_NODE_TYPES = new Set([
+const OBSOLETE_BLOCKED_NODE_TYPES = new Set([
   "sub-workflow",
 ])
 
@@ -424,11 +424,11 @@ export function validateMissionGraphForVersioning(mission) {
       }
     }
 
-    if (LEGACY_BLOCKED_NODE_TYPES.has(String(node?.type || "").trim())) {
+    if (OBSOLETE_BLOCKED_NODE_TYPES.has(String(node?.type || "").trim())) {
       issues.push({
-        code: "mission.node_type_legacy_blocked",
+        code: "mission.node_type_obsolete_blocked",
         path: `${nodePath}.type`,
-        message: `Node type "${String(node?.type || "")}" is legacy and no longer supported. Use "agent-subworkflow" under command-spine orchestration.`,
+        message: `Node type "${String(node?.type || "")}" is obsolete and no longer supported. Use "agent-subworkflow" under command-spine orchestration.`,
       })
     }
   })

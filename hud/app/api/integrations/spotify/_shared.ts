@@ -52,7 +52,7 @@ export const playbackBodySchema = z.object({
 })
 
 export async function safeJson(req: Request): Promise<unknown> {
-  return req.json().catch(() => ({}))
+  return req.json()
 }
 
 export function logSpotifyApi(event: string, payload: Record<string, unknown>): void {

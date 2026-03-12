@@ -14,24 +14,6 @@ function normalizeUserContextId(value) {
   return trimmed.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 96);
 }
 
-function stableHashToken(value) {
-  const input = String(value || "");
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
-
-function deriveFallbackUserContextId(sessionKey, sourceHint = "") {
-  const normalizedSource = normalizeToken(sourceHint || "").replace(/[^a-z0-9_-]/g, "-");
-  const seed = String(sessionKey || "").trim() || normalizedSource || "session";
-  const hash = stableHashToken(seed);
-  const candidate = normalizeUserContextId(`${normalizedSource || "session"}-${hash}`);
-  return candidate || `session-${hash}`;
-}
-
 export function createSessionRuntime({
   sessionStorePath,
   transcriptDir,
@@ -127,8 +109,10 @@ export function createSessionRuntime({
   function loadSessionStoreForContext(userContextId, sessionKey = "") {
     const normalized =
       normalizeUserContextId(userContextId) ||
-      parseSessionKeyUserContext(sessionKey) ||
-      deriveFallbackUserContextId(sessionKey);
+      parseSessionKeyUserContext(sessionKey);
+    if (!normalized) {
+      throw new Error("Session runtime requires userContextId.");
+    }
     const scopedPath = getScopedSessionStorePath(normalized);
     const scopedStore = loadStoreFromPath(scopedPath);
     return {
@@ -147,16 +131,17 @@ export function createSessionRuntime({
     const agent = "agent:nova";
     if (source === "hud") {
       const hudUserContextId = normalizeUserContextId(resolveUserContextId(opts) || "");
-      if (hudUserContextId) {
-        return `${agent}:hud:user:${hudUserContextId}:${normalizeToken(sessionMainKey)}`;
-      }
-      return `${agent}:hud:${normalizeToken(sessionMainKey)}`;
+      if (!hudUserContextId) throw new Error("HUD session key requires userContextId.");
+      return `${agent}:hud:user:${hudUserContextId}:${normalizeToken(sessionMainKey)}`;
     }
     if (source === "voice") {
       const voiceUserContextId = normalizeUserContextId(resolveUserContextId(opts) || "");
-      return `${agent}:voice:dm:${normalizeToken(voiceUserContextId || sender || "anonymous")}`;
+      const dmContext = voiceUserContextId || sender;
+      if (!dmContext) throw new Error("Voice session key requires userContextId or sender.");
+      return `${agent}:voice:dm:${normalizeToken(dmContext)}`;
     }
-    return `${agent}:${source}:dm:${sender || "anonymous"}`;
+    if (!sender) throw new Error(`Session key requires sender for source "${source}".`);
+    return `${agent}:${source}:dm:${sender}`;
   }
 
   function resolveUserContextId(opts = {}) {
@@ -182,7 +167,7 @@ export function createSessionRuntime({
       if (senderFallback) return senderFallback;
       const hinted = parseSessionKeyUserContext(String(opts.sessionKeyHint || ""));
       if (hinted) return hinted;
-      return deriveFallbackUserContextId(String(opts.sessionKeyHint || ""), source);
+      return "";
     }
 
     const senderFallback = normalizeUserContextId(sender);
@@ -325,7 +310,10 @@ export function createSessionRuntime({
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId) return;
     const scopedUserContextId = resolveUserContextIdForSessionId(normalizedSessionId);
-    const effectiveContextId = scopedUserContextId || deriveFallbackUserContextId(normalizedSessionId, "session");
+    const effectiveContextId = normalizeUserContextId(scopedUserContextId);
+    if (!effectiveContextId) {
+      throw new Error(`appendTranscriptTurn requires mapped userContextId for session ${normalizedSessionId}`);
+    }
     const transcriptPath = getScopedTranscriptPath(normalizedSessionId, effectiveContextId);
     if (!transcriptPath) return;
     fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
@@ -446,8 +434,10 @@ export function createSessionRuntime({
     const sessionKey = buildSessionKeyFromInput(opts);
     const resolvedUserContextId =
       resolveUserContextId(opts) ||
-      parseSessionKeyUserContext(sessionKey) ||
-      deriveFallbackUserContextId(sessionKey, opts.source || "");
+      parseSessionKeyUserContext(sessionKey);
+    if (!resolvedUserContextId) {
+      throw new Error("Session resolution requires userContextId.");
+    }
     const storeInfo = loadSessionStoreForContext(resolvedUserContextId, sessionKey);
     const store = storeInfo.store;
     const now = Date.now();

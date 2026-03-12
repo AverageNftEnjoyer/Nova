@@ -13,8 +13,8 @@ import {
   POLYMARKET_CHAIN_HEX_ID,
   POLYMARKET_CLOB_API_URL,
   normalizePolymarketEvmAddress,
-} from "./api"
-import { getPhantomEthereumProvider, type PhantomEthereumProvider } from "../phantom/browser"
+} from "./api.ts"
+import { getPhantomEthereumProvider, type PhantomEthereumProvider } from "../phantom/browser.ts"
 
 export interface PolymarketWalletBinding {
   provider: PhantomEthereumProvider
@@ -48,13 +48,21 @@ function normalizeAccounts(value: unknown): string[] {
     : []
 }
 
+function normalizeChainId(value: unknown): string {
+  return String(value || "").trim().toLowerCase()
+}
+
 async function switchToPolygon(provider: PhantomEthereumProvider): Promise<string> {
-  try {
-    const chainId = String(await provider.request({ method: "eth_chainId" }) || "").trim().toLowerCase()
-    if (chainId === POLYMARKET_CHAIN_HEX_ID) return chainId
-  } catch {
-    // Continue to explicit switch.
+  const readChainId = async () => {
+    try {
+      return normalizeChainId(await provider.request({ method: "eth_chainId" }))
+    } catch {
+      return ""
+    }
   }
+
+  const initialChainId = await readChainId()
+  if (initialChainId === POLYMARKET_CHAIN_HEX_ID) return initialChainId
 
   try {
     await provider.request({
@@ -83,7 +91,11 @@ async function switchToPolygon(provider: PhantomEthereumProvider): Promise<strin
     }
   }
 
-  return String(await provider.request({ method: "eth_chainId" }) || "").trim().toLowerCase()
+  const finalChainId = await readChainId()
+  if (finalChainId !== POLYMARKET_CHAIN_HEX_ID) {
+    throw new Error("Phantom must be connected to Polygon Mainnet before trading on Polymarket.")
+  }
+  return finalChainId
 }
 
 function buildWalletClient(provider: PhantomEthereumProvider, walletAddress: string) {

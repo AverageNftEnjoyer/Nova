@@ -36,7 +36,7 @@ export function useSpotifySetup({
   const refreshFromServer = useCallback(async () => {
     try {
       const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       const config = data?.config as IntegrationsSettings | undefined
       if (!config) return
       setSettings((prev) => {
@@ -149,7 +149,7 @@ export function useSpotifySetup({
     const fetchUrl = `/api/integrations/spotify/connect?mode=json&returnTo=${encodeURIComponent(returnTo)}`
     void fetch(fetchUrl, { cache: "no-store", credentials: "include" })
       .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
+        const data = await res.json()
         if (!res.ok || !data?.authUrl) {
           if (res.status === 401) {
             onRequireLogin()
@@ -238,7 +238,7 @@ export function useSpotifySetup({
           },
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok) throw new Error(data?.error || "Failed to save Spotify OAuth config.")
       await refreshFromServer()
       setSaveStatus({ type: "success", message: "Spotify OAuth configuration saved." })
@@ -259,7 +259,7 @@ export function useSpotifySetup({
         headers: { "Content-Type": "application/json" },
         body: "{}",
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         if (res.status === 401) {
           onRequireLogin()
@@ -284,7 +284,7 @@ export function useSpotifySetup({
         method: "POST",
         credentials: "include",
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         throw new Error(data?.error || "Spotify probe failed.")
       }

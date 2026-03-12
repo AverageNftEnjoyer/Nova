@@ -24,6 +24,7 @@ import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
+import { fetchWithSupabaseAuth } from "@/lib/supabase/browser-auth"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/llm/model-label"
@@ -232,9 +233,8 @@ export default function IntegrationsPage() {
     setIsSavingTarget("polymarket-connect")
     try {
       const binding = await connectPolymarketWallet(window)
-      const res = await fetch("/api/polymarket/connect", {
+      const res = await fetchWithSupabaseAuth("/api/polymarket/connect", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           walletAddress: binding.walletAddress,
@@ -242,7 +242,7 @@ export default function IntegrationsPage() {
           liveTradingEnabled: settings.polymarket.liveTradingEnabled,
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (res.status === 401) {
         router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
         return
@@ -262,11 +262,14 @@ export default function IntegrationsPage() {
   const disconnectPolymarket = async () => {
     setIsSavingTarget("polymarket-disconnect")
     try {
-      const res = await fetch("/api/polymarket/disconnect", {
+      const res = await fetchWithSupabaseAuth("/api/polymarket/disconnect", {
         method: "POST",
-        credentials: "include",
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
+      if (res.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
+        return
+      }
       if (!res.ok || !data?.config) {
         throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
       }
@@ -282,13 +285,16 @@ export default function IntegrationsPage() {
   const setPolymarketLiveTradingEnabled = async (enabled: boolean) => {
     setIsSavingTarget("polymarket-settings")
     try {
-      const res = await fetch("/api/polymarket/settings", {
+      const res = await fetchWithSupabaseAuth("/api/polymarket/settings", {
         method: "PATCH",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liveTradingEnabled: enabled }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
+      if (res.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
+        return
+      }
       if (!res.ok || !data?.config) {
         throw new Error(String(data?.error || "Failed to update Polymarket settings."))
       }
@@ -304,11 +310,11 @@ export default function IntegrationsPage() {
   useEffect(() => {
     let cancelled = false
 
-    fetch("/api/integrations/config", { cache: "no-store" })
+    fetchWithSupabaseAuth("/api/integrations/config", { cache: "no-store" })
       .then(async (res) => ({
         ok: res.ok,
         status: res.status,
-        data: await res.json().catch(() => ({})),
+        data: await res.json(),
       }))
       .then(({ ok, status, data }) => {
         if (cancelled) return

@@ -106,7 +106,7 @@ await runCheck("graph validation blocks legacy sub-workflow node type", async ()
       { id: "c1", sourceNodeId: "n1", sourcePort: "main", targetNodeId: "n2", targetPort: "main" },
     ]
   const issues = validateMissionGraphForVersioning(mission)
-  assert.equal(issues.some((issue) => issue.code === "mission.node_type_legacy_blocked"), true)
+  assert.equal(issues.some((issue) => issue.code === "mission.node_type_obsolete_blocked"), true)
 })
 
 await runCheck("agent org-chart validation enforces audit and declared state writes", async () => {

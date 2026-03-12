@@ -16,7 +16,7 @@ function sanitizeUserContextId(value: unknown): string {
     .replace(/[^a-z0-9_-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-  return normalized.slice(0, 96) || "anonymous"
+  return normalized.slice(0, 96)
 }
 
 function looksEncryptedEnvelope(raw: string): boolean {
@@ -41,6 +41,9 @@ function wrapSecret(value: unknown): string {
 
 function resolveUserRuntimeConfigPath(workspaceRoot: string, userId: string): string {
   const scopedUserId = sanitizeUserContextId(userId)
+  if (!scopedUserId) {
+    throw new Error("syncAgentRuntimeIntegrationsSnapshot requires userContextId.")
+  }
   const normalizedRoot = path.resolve(workspaceRoot)
   const rootName = path.basename(normalizedRoot).toLowerCase()
   const workspaceUserRoot = rootName === "src" ? path.resolve(normalizedRoot, "..") : normalizedRoot

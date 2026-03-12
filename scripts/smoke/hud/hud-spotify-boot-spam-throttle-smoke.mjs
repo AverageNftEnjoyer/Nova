@@ -27,15 +27,15 @@ await run("SBS-1 Playback route adds per-user device-unavailable cooldown for pl
   assert.equal(route.includes("playSmartUnavailableByUser"), true, "per-user memory map missing");
   assert.equal(route.includes("playback.device_unavailable_throttled"), true, "throttled telemetry event missing");
   assert.equal(route.includes('action: "play_smart"'), true, "play_smart gating missing");
-  assert.equal(route.includes("fallbackRecommended: false"), true, "throttled response must suppress fallback relaunch");
+  assert.equal(route.includes("desktopControlRecommended"), false, "desktop fallback recommendation must be removed");
   assert.equal(route.includes("retryAfterMs"), true, "retry hint missing");
 });
 
-await run("SBS-2 Home hook enforces local desktop-launch cooldown", async () => {
+await run("SBS-2 Home hook does not auto-launch Spotify desktop", async () => {
   const hook = read("hud/app/home/hooks/use-home-integrations.ts");
-  assert.equal(hook.includes("SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS"), true, "client cooldown constant missing");
-  assert.equal(hook.includes("lastSpotifyDesktopLaunchAtRef"), true, "client launch timestamp ref missing");
-  assert.equal(hook.includes("now - lastSpotifyDesktopLaunchAtRef.current"), true, "client cooldown check missing");
+  assert.equal(hook.includes("SPOTIFY_DESKTOP_LAUNCH_COOLDOWN_MS"), false, "client cooldown constant should be removed");
+  assert.equal(hook.includes("lastSpotifyDesktopLaunchAtRef"), false, "client launch timestamp ref should be removed");
+  assert.equal(hook.includes("window.location.assign(\"spotify:\")"), false, "desktop launch side-effect should be removed");
 });
 
 await run("SBS-3 Browser-tab spotify: fallback is removed from Home Spotify paths", async () => {
@@ -53,4 +53,3 @@ for (const result of results) {
 }
 console.log(`\nSummary: pass=${passCount} fail=${failCount}`);
 if (failCount > 0) process.exit(1);
-

@@ -258,7 +258,7 @@ export function PolymarketLiveLinesModule({
     let cancelled = false
     setLoading(true)
     fetch("/api/polymarket/markets?tag=crypto&limit=8", { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
       .then(({ ok, data }) => {
         if (cancelled) return
         if (!ok || !Array.isArray(data?.markets)) throw new Error(String(data?.error || "Failed to load Polymarket markets."))
@@ -299,7 +299,7 @@ export function PolymarketLiveLinesModule({
     let cancelled = false
     setDetailLoading(true); setDetailError("")
     fetch(`/api/polymarket/markets?slug=${encodeURIComponent(slug)}`, { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
       .then(({ ok, data }) => {
         if (cancelled) return
         if (!ok || !data?.market) throw new Error(String(data?.error || "Failed to load market details."))
@@ -323,7 +323,7 @@ export function PolymarketLiveLinesModule({
     let cancelled = false
     setHistoryLoading(true); setHistoryError("")
     fetch(`/api/polymarket/history/${encodeURIComponent(activeToken)}?range=${range}`, { cache: "no-store", credentials: "include" })
-      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
       .then(({ ok, data }) => {
         if (cancelled) return
         if (!ok) throw new Error(String(data?.error || "Failed to load chart history."))

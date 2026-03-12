@@ -364,7 +364,7 @@ export function useConversationActions(params: {
         ? `agent:nova:hud:user:${activeUserId}:dm:${sessionConversationId}`
         : ""
       const missionPrompt = isLikelyMissionPrompt(outboundContent)
-      if (missionPrompt) {
+      if (missionPrompt && activeUserId) {
         const nowMs = Date.now()
         const scopeKey = buildMissionScopeKey(activeUserId, sessionConversationId || activeConvo.id)
         const signature = normalizeMissionPromptSignature(outboundContent)

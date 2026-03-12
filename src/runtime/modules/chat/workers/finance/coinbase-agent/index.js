@@ -140,10 +140,10 @@ export async function handleCoinbaseWorker(text, ctx, llmCtx = {}) {
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "coinbase",
-    fallbackResponseRoute: "coinbase",
-    fallbackProvider: "",
-    fallbackLatencyMs: summary.latencyMs,
+    defaultRoute: "coinbase",
+    defaultResponseRoute: "coinbase",
+    defaultProvider: "",
+    defaultLatencyMs: summary.latencyMs,
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

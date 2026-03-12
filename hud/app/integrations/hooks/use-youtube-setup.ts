@@ -56,7 +56,7 @@ export function useYouTubeSetup({
   const refreshFromServer = useCallback(async () => {
     try {
       const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       const config = data?.config as IntegrationsSettings | undefined
       if (!config) return
       setSettings((prev) => {
@@ -191,7 +191,7 @@ export function useYouTubeSetup({
     const fetchUrl = `/api/integrations/youtube/connect?mode=json&returnTo=${encodeURIComponent(returnTo)}`
     void fetch(fetchUrl, { cache: "no-store", credentials: "include" })
       .then(async (res) => {
-        const data = await res.json().catch(() => ({}))
+        const data = await res.json()
         if (!res.ok || !data?.authUrl) {
           if (res.status === 401) {
             onRequireLogin()
@@ -275,7 +275,7 @@ export function useYouTubeSetup({
           },
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok) throw new Error(data?.error || "Failed to save YouTube OAuth config.")
       await refreshFromServer()
       setSaveStatus({ type: "success", message: "YouTube OAuth configuration saved." })
@@ -296,7 +296,7 @@ export function useYouTubeSetup({
         headers: { "Content-Type": "application/json" },
         body: "{}",
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         if (res.status === 401) {
           onRequireLogin()
@@ -321,7 +321,7 @@ export function useYouTubeSetup({
         method: "POST",
         credentials: "include",
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok || !data?.ok) {
         if (res.status === 401) {
           onRequireLogin()
@@ -355,7 +355,7 @@ export function useYouTubeSetup({
           },
         }),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json()
       if (!res.ok) {
         if (res.status === 401) {
           onRequireLogin()

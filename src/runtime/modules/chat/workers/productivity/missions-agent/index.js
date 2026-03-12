@@ -140,10 +140,10 @@ export async function handleMissionBuildWorker(text, ctx, options = {}) {
   }
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "workflow_build",
-    fallbackResponseRoute: "workflow_build",
-    fallbackProvider: String(summary.provider || ""),
-    fallbackLatencyMs: Number(summary.latencyMs || 0),
+    defaultRoute: "workflow_build",
+    defaultResponseRoute: "workflow_build",
+    defaultProvider: String(summary.provider || ""),
+    defaultLatencyMs: Number(summary.latencyMs || 0),
     userContextId: String(userContextId || ""),
     conversationId: String(conversationId || ""),
     sessionKey: String(sessionKey || ""),

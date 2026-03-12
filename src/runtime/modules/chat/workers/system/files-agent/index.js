@@ -20,10 +20,10 @@ export async function handleFilesWorker(text, ctx, llmCtx = {}, requestHints = {
   );
 
   return normalizeWorkerSummary(summary, {
-    fallbackRoute: "files",
-    fallbackResponseRoute: "files",
-    fallbackProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
-    fallbackLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
+    defaultRoute: "files",
+    defaultResponseRoute: "files",
+    defaultProvider: String(llmCtx?.activeChatRuntime?.provider || ""),
+    defaultLatencyMs: Number(summary?.latencyMs || summary?.telemetry?.latencyMs || 0),
     userContextId: String(ctx?.userContextId || ""),
     conversationId: String(ctx?.conversationId || ""),
     sessionKey: String(ctx?.sessionKey || ""),

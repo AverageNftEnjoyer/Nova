@@ -29,35 +29,10 @@ function modelForProvider(config: IntegrationsConfig, provider: LlmProvider): st
 
 export function resolveConfiguredLlmProvider(config: IntegrationsConfig): ResolvedProviderSelection {
   const active = config.activeLlmProvider
-  const allowFallback = true
-  if (providerReady(config, active)) {
-    return { provider: active, model: modelForProvider(config, active) }
-  }
-
-  if (!allowFallback) {
+  if (!providerReady(config, active)) {
     throw new Error(
-      `Active LLM provider "${active}" is not fully configured (connected + API key + default model required). Update Integrations or enable provider fallback in runtime config.`,
+      `Active LLM provider "${active}" is not fully configured (connected + API key + default model required). Update Integrations settings.`,
     )
   }
-
-  const connectedCandidates: LlmProvider[] = []
-  if (config.claude.connected) connectedCandidates.push("claude")
-  if (config.openai.connected) connectedCandidates.push("openai")
-  if (config.gemini.connected) connectedCandidates.push("gemini")
-  if (config.grok.connected) connectedCandidates.push("grok")
-
-  for (const candidate of connectedCandidates) {
-    if (providerReady(config, candidate)) {
-      return { provider: candidate, model: modelForProvider(config, candidate) }
-    }
-  }
-
-  const allCandidates: LlmProvider[] = ["claude", "openai", "gemini", "grok"]
-  for (const candidate of allCandidates) {
-    if (providerReady(config, candidate)) {
-      return { provider: candidate, model: modelForProvider(config, candidate) }
-    }
-  }
-
-  throw new Error("No configured LLM provider has a valid API key and default model. Update Integrations settings.")
+  return { provider: active, model: modelForProvider(config, active) }
 }

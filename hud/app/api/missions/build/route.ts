@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionBuild)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
   const userId = verified.user.id
-  const body = (await req.json().catch(() => ({}))) as {
+  const body = (await req.json()) as {
     prompt?: string
     deploy?: boolean
     timezone?: string
