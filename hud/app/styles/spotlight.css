@@ -80,6 +80,30 @@
     );
 }
 
+.home-module-surface--static {
+  border-color: rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.22);
+  background-color: rgba(11, 16, 24, 0.9);
+  background-image:
+    radial-gradient(
+      118% 90% at 20% 0%,
+      rgba(var(--home-orb-rgb-primary, var(--accent-rgb)), 0.11) 0%,
+      rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.045) 34%,
+      transparent 68%
+    ),
+    linear-gradient(
+      160deg,
+      rgba(11, 16, 24, 0.94) 0%,
+      rgba(9, 14, 22, 0.92) 54%,
+      rgba(13, 18, 27, 0.96) 100%
+    );
+  background-repeat: no-repeat, no-repeat;
+  background-size: 100% 100%, 100% 100%;
+  background-position: 0 0, 0 0;
+  background-clip: padding-box;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .home-subpanel-surface {
   border-color: rgba(var(--home-orb-rgb-secondary, var(--accent-rgb)), 0.2);
   background-image:
@@ -253,6 +277,37 @@
   mask-composite: exclude;
   pointer-events: none;
   z-index: 1;
+}
+
+.youtube-compositor-safe .home-global-spotlight {
+  opacity: 0 !important;
+}
+
+.youtube-compositor-safe .home-spotlight-card {
+  --glow-intensity: 0 !important;
+}
+
+.youtube-compositor-safe .home-spotlight-card.home-border-glow::after {
+  content: none !important;
+}
+
+.youtube-popup-shell {
+  isolation: isolate;
+}
+
+.youtube-player-shell {
+  position: relative;
+  isolation: isolate;
+  contain: paint;
+  background: #000;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.youtube-player-frame {
+  display: block;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .sidebar-spotlight-card {

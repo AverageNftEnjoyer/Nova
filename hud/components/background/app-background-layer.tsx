@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import FloatingLines from "@/components/effects/FloatingLines"
 import { useTheme } from "@/lib/context/theme-context"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -19,13 +18,6 @@ import {
   isBackgroundAssetImage,
   loadBackgroundVideoObjectUrl,
 } from "@/lib/media/backgroundVideoStorage"
-
-const FLOATING_LINES_ENABLED_WAVES: string[] = ["top", "middle", "bottom"]
-const FLOATING_LINES_LINE_COUNT: number[] = [5, 5, 5]
-const FLOATING_LINES_LINE_DISTANCE: number[] = [5, 5, 5]
-const FLOATING_LINES_TOP_WAVE_POSITION = { x: 10.0, y: 0.5, rotate: -0.4 }
-const FLOATING_LINES_MIDDLE_WAVE_POSITION = { x: 5.0, y: 0.0, rotate: 0.2 }
-const FLOATING_LINES_BOTTOM_WAVE_POSITION = { x: 2.0, y: -0.7, rotate: -1 }
 
 const PERSISTENT_BACKGROUND_PATHS = ["/login", "/home", "/chat", "/missions", "/integrations", "/history", "/dev-logs", "/agents"] as const
 
@@ -164,40 +156,11 @@ export function AppBackgroundLayer() {
 
   const orbPalette = ORB_COLORS[orbColor]
   const blackModeCore = useMemo(() => mixHex("#020204", orbPalette.bg, 0.35), [orbPalette.bg])
-  const floatingLinesGradient = useMemo<[string, string]>(
-    () => [orbPalette.circle1, orbPalette.circle2],
-    [orbPalette.circle1, orbPalette.circle2],
-  )
 
   if (!mounted || !showForPath || isLight || background === "none") return null
 
   return (
     <div className="fixed inset-0 z-0 pointer-events-none">
-      {background === "floatingLines" && (
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 opacity-30">
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              enabledWaves={FLOATING_LINES_ENABLED_WAVES}
-              lineCount={FLOATING_LINES_LINE_COUNT}
-              lineDistance={FLOATING_LINES_LINE_DISTANCE}
-              topWavePosition={FLOATING_LINES_TOP_WAVE_POSITION}
-              middleWavePosition={FLOATING_LINES_MIDDLE_WAVE_POSITION}
-              bottomWavePosition={FLOATING_LINES_BOTTOM_WAVE_POSITION}
-              bendRadius={5}
-              bendStrength={-0.5}
-              interactive={true}
-              parallax={true}
-            />
-          </div>
-          <div
-            className="absolute inset-0"
-            style={{
-              background: `radial-gradient(circle at 48% 46%, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.18)} 28%, transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.025), transparent 35%)`,
-            }}
-          />
-        </div>
-      )}
       {background === "black" && (
         <div className="absolute inset-0 overflow-hidden">
           <div

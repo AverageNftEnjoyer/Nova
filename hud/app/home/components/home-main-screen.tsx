@@ -41,6 +41,8 @@ import { NewsFeedFilterModal } from "./news-feed-filter-modal"
 import { YouTubeHomeModule } from "./youtube-home-module"
 import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { WeatherHomeModule } from "./weather-home-module"
+import { PlaceholderOneHomeModule } from "./placeholder-1-home-module"
+import { PlaceholderTwoHomeModule } from "./placeholder-2-home-module"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface HistoryConversationMenuProps {
@@ -254,12 +256,6 @@ export function HomeMainScreen() {
     { label: "Total Tokens", value: fmt(devToolsMetrics.totalTokens), color: "" },
     { label: "Avg Quality", value: devToolsMetrics.avgQuality.toFixed(1), color: "" },
   ] as const
-  const stableStaticPanelClass = isLight
-    ? panelClass
-    : "home-module-surface rounded-md border bg-[#0b1018]/88 backdrop-blur-none"
-  const staticDataTileClass = isLight
-    ? "rounded-sm border border-[#d5dce8] bg-[#f4f7fd]"
-    : "home-subpanel-surface rounded-sm border backdrop-blur-none"
   const sparklinePoints = (values: readonly number[], width = 56, height = 12): string => {
     const points = Array.isArray(values) ? values.filter((v) => Number.isFinite(v)) : []
     if (points.length === 0) return `0,${height / 2} ${width},${height / 2}`
@@ -694,14 +690,14 @@ export function HomeMainScreen() {
               />
             </div>
 
-            <div className="flex-1 min-h-0 flex justify-start">
+            <div className="grid flex-1 min-h-0 grid-cols-4 gap-1.5">
               <NewsFeedModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
                 sectionRef={newsModuleSectionRef}
-                className="w-[calc((100%-1.125rem)/4)] min-h-0 h-full"
+                className="col-span-1 min-h-0 h-full"
                 connected={newsConnected}
                 selectedTopics={selectedNewsTopics}
                 articles={newsArticles}
@@ -715,6 +711,20 @@ export function HomeMainScreen() {
                   setNewsFilterOpen(true)
                 }}
                 onRefresh={refreshNewsFeed}
+              />
+              <PlaceholderOneHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                className="col-span-2 min-h-0 h-full"
+              />
+              <PlaceholderTwoHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                className="col-span-1 min-h-0 h-full"
               />
             </div>
 
@@ -800,7 +810,7 @@ export function HomeMainScreen() {
               {/* Commodities */}
               <section
                 style={panelStyle}
-                className={`${stableStaticPanelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
                   icon: <BarChart2 className="w-4 h-4 text-accent" />,
@@ -809,16 +819,16 @@ export function HomeMainScreen() {
                 <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>
                   Placeholder pricing tiles
                 </p>
-                <div className="mt-2 flex-1 flex flex-col justify-around gap-1">
+                <div className="mt-2 grid min-h-0 flex-1 grid-rows-3 gap-1.5">
                   {COMMODITIES.map((c) => (
                     <div
                       key={c.name}
                       className={cn(
-                        "flex items-center justify-between px-2 py-1.5 rounded-sm home-spotlight-card",
-                        staticDataTileClass,
+                        "flex items-center justify-between rounded-sm border px-2 py-1.5 home-spotlight-card home-border-glow",
+                        subPanelClass,
                       )}
                     >
-                      <span className={cn("text-[12px]", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
+                      <span className={cn("text-[12px] font-medium", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
                       <div className="flex items-baseline gap-2">
                         <span
                           className={cn(
@@ -841,7 +851,7 @@ export function HomeMainScreen() {
               <section
                 ref={devToolsSectionRef}
                 style={panelStyle}
-                className={`${stableStaticPanelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
                   icon: <Activity className="w-4 h-4 text-accent" />,
@@ -853,17 +863,24 @@ export function HomeMainScreen() {
                     hoverGlow: false,
                   }),
                 })}
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <div className="mt-2 grid min-h-0 flex-1 grid-cols-3 gap-1.5">
                   {devMetricTiles.map(({ label, value, color }) => (
                     <div
                       key={label}
                       className={cn(
-                        "px-2 py-1.5 rounded-sm text-center home-spotlight-card",
-                        staticDataTileClass,
+                        "rounded-sm border px-2 py-1.5 text-center home-spotlight-card home-border-glow",
+                        subPanelClass,
                       )}
                     >
-                      <p className="text-[9px] uppercase tracking-widest opacity-60 whitespace-nowrap">{label}</p>
-                      <p className={cn("text-[15px] font-semibold tabular-nums leading-tight mt-0.5", color)}>
+                      <p className={cn("text-[9px] uppercase tracking-widest whitespace-nowrap", isLight ? "text-s-50" : "text-slate-500")}>
+                        {label}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-0.5 text-[15px] font-semibold tabular-nums leading-tight",
+                          color || (isLight ? "text-s-90" : "text-slate-100"),
+                        )}
+                      >
                         {value}
                       </p>
                     </div>
@@ -881,7 +898,6 @@ export function HomeMainScreen() {
                 weatherLoading={homeWeatherLoading}
                 weatherError={homeWeatherError}
               />
-
             </div>
             </div>
 

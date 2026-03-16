@@ -44,11 +44,6 @@ export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   return settings.app.darkModeBackground ?? (isLight ? "none" : fallbackDark)
 }
 
-export function normalizeCachedBackground(value: unknown): ThemeBackgroundType | null {
-  if (value === "floatingLines" || value === "black" || value === "none" || value === "customVideo") return value
-  if (value === "default") return "black"
-  return null
-}
 
 export function resolveCustomBackgroundIsImage() {
   const app = loadUserSettings().app

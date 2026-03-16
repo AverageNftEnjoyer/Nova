@@ -10,6 +10,10 @@
  *
  * Version History:
  *
+ * - V.60 Alpha (2026-03-16): YouTube home module manual playback polish
+ *     - Replaced the old AI topic chip on the Home YouTube module with a dedicated external link popup for manual YouTube playback.
+ *     - Added direct YouTube URL parsing and persistent user-scoped manual video storage so pasted videos survive module remounts and reloads until explicitly cleared.
+ *     - Fixed Home-page compositing artifacts around YouTube playback by scoping spotlight/glow suppression to the YouTube surfaces instead of the full document.
  * - V.59 Alpha (2026-03-12): Fallback execution hard-cut + pre-push contract stabilization
  *     - Removed memory embedding fallback execution paths so search/index flows no longer auto-degrade to local or lexical fallback modes.
  *     - Removed Spotify desktop auto-fallback execution in runtime worker and HUD playback flow; failures now surface explicitly instead of launching desktop control side paths.
@@ -362,6 +366,8 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.59 Alpha"
+export const NOVA_VERSION = "V.60 Alpha"
+
+
 
 

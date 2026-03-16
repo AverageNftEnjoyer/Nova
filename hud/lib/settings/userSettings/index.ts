@@ -7,7 +7,7 @@ export type AccentColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "or
 export type OrbColor = "violet" | "blue" | "cyan" | "emerald" | "amber" | "orange" | "rose" | "pastelPink" | "white" | "black"
 export type SpotlightColor = OrbColor
 export type BackgroundType = "default" | "none" // compatibility background mode
-export type DarkBackgroundType = "floatingLines" | "black" | "none" | "customVideo"
+export type DarkBackgroundType = "black" | "none" | "customVideo"
 export type LightBackgroundType = "none"
 export type ThemeBackgroundType = DarkBackgroundType | LightBackgroundType
 
@@ -175,6 +175,29 @@ function enforceSpotlightEnabled<T extends { spotlightEnabled: boolean }>(app: T
   return { ...app, spotlightEnabled: true }
 }
 
+function normalizeBackground(value: unknown): BackgroundType {
+  return value === "none" ? "none" : "default"
+}
+
+function normalizeDarkBackground(value: unknown, background: BackgroundType): DarkBackgroundType {
+  if (value === "customVideo" || value === "none" || value === "black") return value
+  return background === "none" ? "none" : "black"
+}
+
+function normalizeLightBackground(_value: unknown): LightBackgroundType {
+  return "none"
+}
+
+function normalizeAppSettings(app: AppSettings): AppSettings {
+  const background = normalizeBackground(app.background)
+  return enforceSpotlightEnabled({
+    ...app,
+    background,
+    darkModeBackground: normalizeDarkBackground(app.darkModeBackground, background),
+    lightModeBackground: normalizeLightBackground(app.lightModeBackground),
+  })
+}
+
 function getStorageKey(): string {
   const userId = getActiveUserId()
   if (!userId) return ""
@@ -201,7 +224,7 @@ export function loadUserSettings(): UserSettings {
     }
     return {
       ...merged,
-      app: enforceSpotlightEnabled(merged.app),
+      app: normalizeAppSettings(merged.app),
       personalization: {
         ...merged.personalization,
         assistantName: clampAssistantName(merged.personalization.assistantName),
@@ -221,7 +244,7 @@ export function saveUserSettings(settings: UserSettings): void {
 
   const updated = {
     ...settings,
-    app: enforceSpotlightEnabled(settings.app),
+    app: normalizeAppSettings(settings.app),
     personalization: {
       ...settings.personalization,
       assistantName: clampAssistantName(settings.personalization.assistantName),
@@ -464,12 +487,11 @@ export const TTS_VOICES = [
 
 // Available backgrounds
 export const BACKGROUNDS: Record<BackgroundType, { name: string; description: string }> = {
-  default: { name: "Floating Lines", description: "Interactive wave lines" },
+  default: { name: "Default", description: "Subtle dark background with clean depth and texture" },
   none: { name: "None", description: "No background animation" },
 }
 
 export const DARK_BACKGROUNDS: Record<DarkBackgroundType, { name: string; description: string }> = {
-  floatingLines: { name: "Floating Lines", description: "Interactive wave lines" },
   black: { name: "Default", description: "Subtle dark background with clean depth and texture" },
   customVideo: { name: "Custom Media", description: "Use an uploaded MP4 or image as the background" },
   none: { name: "None", description: "No background animation" },

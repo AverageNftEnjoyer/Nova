@@ -15,7 +15,6 @@ export type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-p
 // Theme utilities
 export {
   resolveThemeBackground,
-  normalizeCachedBackground,
   resolveCustomBackgroundIsImage,
 } from "./useThemeBackground"
 
