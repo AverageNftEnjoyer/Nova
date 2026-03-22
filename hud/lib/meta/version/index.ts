@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.61 Alpha (2026-03-22): Home Notes module rollout + backend hardening
+ *     - Replaced Home Placeholder 2 with a full Notes module backed by runtime services and authenticated HUD API CRUD routes.
+ *     - Added Nova command capture for note actions (including "nova note down ...") with strict user-context routing and scoped persistence under `.user/user-context/<user>/state/home-notes.json`.
+ *     - Updated Notes UI to Spotlight-aligned enterprise styling with accent-driven multi-scheme card palettes and refined single-bar add-note input interaction.
+ *     - Hardened notes mutation provenance in the HUD API so client requests cannot spoof Nova-authored note source metadata.
+ *
  * - V.60 Alpha (2026-03-16): YouTube home module manual playback polish
  *     - Replaced the old AI topic chip on the Home YouTube module with a dedicated external link popup for manual YouTube playback.
  *     - Added direct YouTube URL parsing and persistent user-scoped manual video storage so pasted videos survive module remounts and reloads until explicitly cleared.
@@ -366,7 +372,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.60 Alpha"
+export const NOVA_VERSION = "V.61 Alpha"
 
 
 

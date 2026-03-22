@@ -218,6 +218,13 @@ function normalizeFeedItems(value: unknown): YouTubeFeedItem[] {
   return out
 }
 
+function canAutoplayInlinePlayer(): boolean {
+  if (typeof document === "undefined") return false
+  if (document.visibilityState !== "visible") return false
+  if (typeof document.hasFocus === "function" && !document.hasFocus()) return false
+  return true
+}
+
 export function YouTubeHomeModule({
   isLight,
   panelClass,
@@ -235,6 +242,7 @@ export function YouTubeHomeModule({
   const [historyChannelIds, setHistoryChannelIds] = useState<string[]>([])
   const [activeTopic, setActiveTopic] = useState(DEFAULT_TOPIC)
   const [commandNonce, setCommandNonce] = useState(0)
+  const [autoplayVideoId, setAutoplayVideoId] = useState("")
   const [hasWatchRequest, setHasWatchRequest] = useState(false)
   const [manualVideo, setManualVideo] = useState<YouTubeFeedItem | null>(null)
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -432,6 +440,7 @@ export function YouTubeHomeModule({
     setSearchError(null)
     setManualVideo(fallbackItem)
     setSelectedVideoId(videoId)
+    setAutoplayVideoId(videoId)
     setIsSearchOpen(false)
 
     try {
@@ -446,6 +455,7 @@ export function YouTubeHomeModule({
 
   const handleRefresh = useCallback(() => {
     setManualVideo(null)
+    setAutoplayVideoId("")
     setSearchError(null)
     if (connected && hasWatchRequest) {
       void fetchFeed({ silent: false, keepSelection: false })
@@ -459,6 +469,7 @@ export function YouTubeHomeModule({
       setError(null)
       setActiveTopic(DEFAULT_TOPIC)
       setCommandNonce(0)
+      setAutoplayVideoId("")
       setHasWatchRequest(false)
       return
     }
@@ -487,6 +498,7 @@ export function YouTubeHomeModule({
       const nextNonce = Number.isFinite(Number(detail.commandNonce))
         ? Math.max(0, Math.floor(Number(detail.commandNonce)))
         : commandNonceRef.current + 1
+      if (nextNonce > 0 && nextNonce <= commandNonceRef.current) return
       const itemsFromCommand = normalizeFeedItems(detail.items)
       const selectedFromCommand = normalizeSelectedItem(detail.selected)
       activeTopicRef.current = nextTopic
@@ -503,8 +515,12 @@ export function YouTubeHomeModule({
         return seeded
       })()
       if (mergedFromCommand.length > 0) {
+        const nextSelectedVideoId = selectedFromCommand?.videoId || mergedFromCommand[0]?.videoId || ""
         setItems(mergedFromCommand)
-        setSelectedVideoId(selectedFromCommand?.videoId || mergedFromCommand[0]?.videoId || "")
+        setSelectedVideoId(nextSelectedVideoId)
+        if (nextSelectedVideoId && canAutoplayInlinePlayer()) {
+          setAutoplayVideoId(nextSelectedVideoId)
+        }
         return
       }
     }
@@ -523,8 +539,9 @@ export function YouTubeHomeModule({
     })
   }, [selectedItem?.channelId])
 
+  const shouldAutoplaySelectedItem = Boolean(selectedItem?.videoId && selectedItem.videoId === autoplayVideoId)
   const embedUrl = selectedItem
-    ? `https://www.youtube.com/embed/${encodeURIComponent(selectedItem.videoId)}?autoplay=1&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&fs=1`
+    ? `https://www.youtube.com/embed/${encodeURIComponent(selectedItem.videoId)}?autoplay=${shouldAutoplaySelectedItem ? "1" : "0"}&mute=1&controls=1&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&fs=1`
     : ""
 
   const searchModal = isSearchOpen && typeof document !== "undefined"
@@ -723,7 +740,7 @@ export function YouTubeHomeModule({
                   ? "Loading YouTube feed..."
                   : !hasWatchRequest
                     ? "Ask Nova what to watch to start YouTube."
-                    : (error || "No videos available right now.")}
+                    : (error || "Waiting for a video...")}
               </div>
             )}
           </div>

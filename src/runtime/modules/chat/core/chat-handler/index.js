@@ -34,6 +34,7 @@ import {
 } from "../../workers/shared/direct-assistant-reply/index.js";
 import { handleMemoryWorker } from "../../workers/system/memory-agent/index.js";
 import { handleShutdownWorker } from "../../workers/system/shutdown-agent/index.js";
+import { runHomeNoteCommandService } from "../../../services/notes/index.js";
 import { handleMissionBuildWorker } from "../../workers/productivity/missions-agent/index.js";
 import { handleCoinbaseWorker } from "../../workers/finance/coinbase-agent/index.js";
 import { handlePolymarketWorker } from "../../workers/finance/polymarket-agent/index.js";
@@ -351,6 +352,31 @@ async function handleInputCore(text, opts = {}) {
     };
   }
 
+
+  const notesCommandResult = await runHomeNoteCommandService({
+    text,
+    userContextId,
+    conversationId,
+    sessionKey,
+  });
+  if (notesCommandResult?.handled) {
+    const directReply = await sendDirectAssistantReply(
+      text,
+      String(notesCommandResult.reply || "I couldn't complete that notes request."),
+      ctx,
+      notesCommandResult.ok === false ? "Notes request needs detail" : "Updating notes",
+    );
+    return {
+      route: "notes",
+      responseRoute: "notes",
+      ok: notesCommandResult.ok !== false,
+      reply: String(directReply || ""),
+      code: String(notesCommandResult.code || ""),
+      message: String(notesCommandResult.message || ""),
+      error: notesCommandResult.ok === false ? String(notesCommandResult.code || "notes.command_failed") : "",
+      latencyMs: 0,
+    };
+  }
   const missionShortTermContext = readShortTermContextState({
     userContextId,
     conversationId,
@@ -668,10 +694,4 @@ export async function handleInput(text, opts = {}) {
     });
   }
 }
-
-
-
-
-
-
 

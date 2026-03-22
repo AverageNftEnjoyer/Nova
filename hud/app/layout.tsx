@@ -1,6 +1,7 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
+import Script from "next/script"
 import { ThemeProvider } from "@/lib/context/theme-context"
 import { AccentProvider } from "@/lib/context/accent-context"
 import { AuthGate } from "@/components/auth/auth-gate"
@@ -38,14 +39,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var raw=localStorage.getItem("nova_user_settings");if(!raw)return;var parsed=JSON.parse(raw);var setting=parsed&&parsed.app&&parsed.app.theme?parsed.app.theme:"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;document.documentElement.classList.remove("dark","light");document.documentElement.classList.add(resolved==="light"?"light":"dark")}catch(e){}})()`,
-          }}
-        />
-      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-page`}>
+        <Script id="nova-theme-bootstrap" strategy="beforeInteractive">
+          {`(function(){try{var raw=localStorage.getItem("nova_user_settings");if(!raw)return;var parsed=JSON.parse(raw);var setting=parsed&&parsed.app&&parsed.app.theme?parsed.app.theme:"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;document.documentElement.classList.remove("dark","light");document.documentElement.classList.add(resolved==="light"?"light":"dark")}catch(e){}})()`}
+        </Script>
         <ThemeProvider>
           <AccentProvider>
             <LoginBackgroundLayer />

@@ -22,7 +22,7 @@ import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 export async function handleYouTubeWorker(text, ctx) {
   const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
-  stopSpeaking();
+  stopSpeaking(userContextId ? { userContextId } : undefined);
   broadcastState("thinking", userContextId);
   broadcastThinkingStatus("Updating YouTube", userContextId);
   const userText = ctx.raw_text || text;
@@ -95,7 +95,11 @@ export async function handleYouTubeWorker(text, ctx) {
     }
     if (useVoice) {
       await withTimeout(
-        speak(normalizeAssistantSpeechText(normalized.text) || normalized.text, ttsVoice),
+        speak(
+          normalizeAssistantSpeechText(normalized.text) || normalized.text,
+          ttsVoice,
+          userContextId ? { userContextId } : undefined,
+        ),
         10_000,
         "YouTube TTS",
       ).catch(() => {});

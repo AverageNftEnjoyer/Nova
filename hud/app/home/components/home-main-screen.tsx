@@ -512,19 +512,19 @@ export function HomeMainScreen() {
               <div />
               <div className="flex items-center gap-2">
                 <div className={cn("flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg home-spotlight-card home-border-glow", subPanelClass)}>
-                    <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface")}>
-                      {profileAvatar ? (
-                        <Image
-                          src={profileAvatar}
-                          alt="Profile"
-                          width={32}
-                          height={32}
-                          className="w-full h-full object-cover"
-                          unoptimized
-                        />
-                      ) : (
-                        <span>{profileName.charAt(0).toUpperCase()}</span>
-                      )}
+                  <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface")}>
+                    {profileAvatar ? (
+                      <Image
+                        src={profileAvatar}
+                        alt="Profile"
+                        width={32}
+                        height={32}
+                        className="w-full h-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <span>{profileName.charAt(0).toUpperCase()}</span>
+                    )}
                   </div>
                   <p className={cn("text-sm font-medium truncate max-w-36", isLight ? "text-s-90" : "text-slate-100")}>
                     {profileName}

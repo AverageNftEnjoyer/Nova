@@ -62,6 +62,21 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
+function formatHeaderDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(value)
+}
+
+function formatHeaderTime(value: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(value)
+}
+
 function hexToRgba(hex: string, alpha: number): string {
   const clean = hex.replace("#", "")
   const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
@@ -100,6 +115,7 @@ export function ChatSidebar({
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renamingTitle, setRenamingTitle] = useState("")
   const [orbHovered, setOrbHovered] = useState(false)
+  const [headerNow, setHeaderNow] = useState(() => new Date())
   const [chatsOpen, setChatsOpen] = useState(true)
   const [archivedOpen, setArchivedOpen] = useState(false)
   const { theme } = useTheme()
@@ -209,6 +225,13 @@ export function ChatSidebar({
     }
   }, [settingsOpen])
 
+  useEffect(() => {
+    const tick = () => setHeaderNow(new Date())
+    tick()
+    const timer = window.setInterval(tick, 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   if (!isOpen) return null
 
   const profile = userSettings?.profile
@@ -227,6 +250,8 @@ export function ChatSidebar({
   const noGlowCardClass = "chat-sidebar-card home-spotlight-card"
 
   const presence = getNovaPresence({ agentConnected, novaState })
+  const headerDateLabel = formatHeaderDate(headerNow)
+  const headerTimeLabel = formatHeaderTime(headerNow)
   const hubLabel = pathname?.startsWith("/chat")
     ? "Communications Hub"
     : pathname?.startsWith("/home")
@@ -428,14 +453,27 @@ export function ChatSidebar({
                     <h1 className="text-s-90 text-[30px] leading-none font-semibold tracking-tight">NovaOS</h1>
                     <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-3">
+                  <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
                     <div className="inline-flex items-center gap-1.5">
                       <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
                       <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
                         {presence.label}
                       </span>
                     </div>
-                    <p className="text-[13px] text-s-50 whitespace-nowrap">{hubLabel}</p>
+                    <div
+                      className={cn(
+                        "justify-self-center inline-flex flex-col items-center rounded-md border px-2.5 py-1 home-spotlight-card home-border-glow",
+                        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25 backdrop-blur-md",
+                      )}
+                    >
+                      <span className={cn("text-[9px] uppercase tracking-[0.12em] leading-none", isLight ? "text-s-50" : "text-slate-400")}>
+                        {headerDateLabel}
+                      </span>
+                      <span className={cn("mt-0.5 text-[12px] font-semibold leading-none", isLight ? "text-s-90" : "text-slate-100")}>
+                        {headerTimeLabel}
+                      </span>
+                    </div>
+                    <p className={cn("justify-self-end text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>{hubLabel}</p>
                   </div>
                 </div>
               </div>
