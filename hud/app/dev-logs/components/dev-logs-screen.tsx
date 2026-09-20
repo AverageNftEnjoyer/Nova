@@ -175,7 +175,7 @@ export function DevLogsScreen() {
               </button>
               <div>
                 <div className="flex items-baseline gap-3">
-                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
                   <p className="text-[11px] font-mono text-accent">{NOVA_VERSION}</p>
                 </div>
                 <div className="mt-1 flex items-center gap-3">

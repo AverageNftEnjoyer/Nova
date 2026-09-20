@@ -14,7 +14,6 @@ import {
   GeminiIcon,
   GmailCalendarIcon,
   GmailIcon,
-  NewsIcon,
   OpenAIIcon,
   PhantomIcon,
   PolymarketIcon,
@@ -36,8 +35,6 @@ import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { formatDailyTime, hexToRgba } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
-import { NewsFeedModule } from "./news-feed-module"
-import { NewsFeedFilterModal } from "./news-feed-filter-modal"
 import { YouTubeHomeModule } from "./youtube-home-module"
 import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { WeatherHomeModule } from "./weather-home-module"
@@ -164,7 +161,6 @@ export function HomeMainScreen() {
     scheduleSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
-    newsModuleSectionRef,
     agentModuleSectionRef,
     devToolsSectionRef,
     panelStyle,
@@ -192,7 +188,6 @@ export function HomeMainScreen() {
     discordConnected,
     slackConnected,
     braveConnected,
-    newsConnected,
     coinbaseConnected,
     phantomConnected,
     polymarketConnected,
@@ -212,15 +207,6 @@ export function HomeMainScreen() {
     seekSpotify,
     gmailConnected,
     gcalendarConnected,
-    newsTopics,
-    selectedNewsTopics,
-    setSelectedNewsTopics,
-    newsArticles,
-    newsLoading,
-    newsError,
-    newsStale,
-    newsFetchedAt,
-    refreshNewsFeed,
     preferredWeatherCity,
     homeWeather,
     homeWeatherLoading,
@@ -295,7 +281,6 @@ export function HomeMainScreen() {
     { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail", setup: "gmail" },
     { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar", setup: "gmail-calendar" },
     { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave", setup: "brave" },
-    { icon: <NewsIcon className="w-4 h-4" />, connected: newsConnected, label: "News", setup: "news" },
     { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase", setup: "coinbase" },
     { icon: <PhantomIcon className="w-4 h-4" />, connected: phantomConnected, label: "Phantom", setup: "phantom" },
     { icon: <PolymarketIcon className="w-6 h-6" />, connected: polymarketConnected, label: "Polymarket", setup: "polymarket" },
@@ -363,26 +348,12 @@ export function HomeMainScreen() {
   )
 
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [newsFilterOpen, setNewsFilterOpen] = useState(false)
-  const [draftNewsTopics, setDraftNewsTopics] = useState<string[]>(["all"])
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
   const [historyChatsOpen, setHistoryChatsOpen] = useState(true)
   const [historyArchivedOpen, setHistoryArchivedOpen] = useState(false)
   const [historyRenamingId, setHistoryRenamingId] = useState<string | null>(null)
   const [historyRenamingTitle, setHistoryRenamingTitle] = useState("")
-
-  const toggleDraftNewsTopic = (topicId: string) => {
-    setDraftNewsTopics((current) => {
-      if (topicId === "all") return ["all"]
-      const withoutAll = current.filter((topic) => topic !== "all")
-      if (withoutAll.includes(topicId)) {
-        const next = withoutAll.filter((topic) => topic !== topicId)
-        return next.length > 0 ? next : ["all"]
-      }
-      return [...withoutAll, topicId]
-    })
-  }
 
   useEffect(() => {
     const syncProfile = () => {
@@ -494,7 +465,7 @@ export function HomeMainScreen() {
                 <div className="min-w-0">
                   <div className="flex flex-col leading-tight">
                     <div className="flex items-baseline gap-3">
-                      <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                      <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
                       <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                     </div>
                     <div className="mt-0.5 flex items-center gap-3">
@@ -691,27 +662,6 @@ export function HomeMainScreen() {
             </div>
 
             <div className="grid flex-1 min-h-0 grid-cols-4 gap-1.5">
-              <NewsFeedModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                sectionRef={newsModuleSectionRef}
-                className="col-span-1 min-h-0 h-full"
-                connected={newsConnected}
-                selectedTopics={selectedNewsTopics}
-                articles={newsArticles}
-                loading={newsLoading}
-                error={newsError}
-                stale={newsStale}
-                fetchedAt={newsFetchedAt}
-                onOpenIntegrations={openIntegrations}
-                onOpenFilters={() => {
-                  setDraftNewsTopics(selectedNewsTopics)
-                  setNewsFilterOpen(true)
-                }}
-                onRefresh={refreshNewsFeed}
-              />
               <PlaceholderOneHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
@@ -1118,24 +1068,6 @@ export function HomeMainScreen() {
         </div>
       </div>
     </div>
-    <NewsFeedFilterModal
-      isOpen={newsFilterOpen}
-      isLight={isLight}
-      panelClass={panelClass}
-      subPanelClass={subPanelClass}
-      panelStyle={panelStyle}
-      topics={newsTopics}
-      draftTopics={draftNewsTopics}
-      onToggleTopic={toggleDraftNewsTopic}
-      onClose={() => {
-        setDraftNewsTopics(selectedNewsTopics)
-        setNewsFilterOpen(false)
-      }}
-      onSave={() => {
-        setSelectedNewsTopics(draftNewsTopics)
-        setNewsFilterOpen(false)
-      }}
-    />
     <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
   </div>
   )

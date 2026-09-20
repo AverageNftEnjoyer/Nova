@@ -12,7 +12,6 @@ import { useHomeConversations } from "./use-home-conversations"
 import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeCryptoMarket } from "./use-home-crypto-market"
-import { useHomeNewsFeed } from "./use-home-news-feed"
 import { useHomeVisuals } from "./use-home-visuals"
 import { useHomeWeather } from "./use-home-weather"
 
@@ -54,7 +53,6 @@ export function useHomeMainScreenState() {
   const integrations = useHomeIntegrations({ latestUsage, speakTts })
   const cryptoMarket = useHomeCryptoMarket()
   const devTools = useHomeDevTools()
-  const newsFeed = useHomeNewsFeed({ enabled: integrations.newsConnected })
   const weather = useHomeWeather()
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
@@ -213,7 +211,6 @@ export function useHomeMainScreenState() {
     devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
     spotifyModuleSectionRef: visuals.spotifyModuleSectionRef,
-    newsModuleSectionRef: visuals.newsModuleSectionRef,
     agentModuleSectionRef: visuals.agentModuleSectionRef,
     panelStyle: visuals.panelStyle,
     panelClass: visuals.panelClass,
@@ -240,7 +237,6 @@ export function useHomeMainScreenState() {
     discordConnected: integrations.discordConnected,
     slackConnected: integrations.slackConnected,
     braveConnected: integrations.braveConnected,
-    newsConnected: integrations.newsConnected,
     coinbaseConnected: integrations.coinbaseConnected,
     phantomConnected: integrations.phantomConnected,
     polymarketConnected: integrations.polymarketConnected,
@@ -262,15 +258,6 @@ export function useHomeMainScreenState() {
     seekSpotify: integrations.seekSpotify,
     gmailConnected: integrations.gmailConnected,
     gcalendarConnected: integrations.gcalendarConnected,
-    newsTopics: newsFeed.newsTopics,
-    selectedNewsTopics: newsFeed.selectedNewsTopics,
-    setSelectedNewsTopics: newsFeed.setSelectedNewsTopics,
-    newsArticles: newsFeed.newsArticles,
-    newsLoading: newsFeed.newsLoading,
-    newsError: newsFeed.newsError,
-    newsStale: newsFeed.newsStale,
-    newsFetchedAt: newsFeed.newsFetchedAt,
-    refreshNewsFeed: newsFeed.refreshNewsFeed,
     preferredWeatherCity: weather.preferredCity,
     homeWeather: weather.weather,
     homeWeatherLoading: weather.weatherLoading,

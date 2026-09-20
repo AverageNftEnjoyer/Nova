@@ -1,8 +1,8 @@
 "use client"
 
 /**
- * Missions Calendar Hub — Nova OS aesthetic rebuild
- * Matches Nova OS: frosted glass, spotlight effects, space background
+ * Missions Calendar Hub — NovaAIO aesthetic rebuild
+ * Matches NovaAIO: frosted glass, spotlight effects, space background
  * Layout: mini month picker sidebar + week/month/day views + detail modal
  */
 
@@ -1213,7 +1213,7 @@ export default function MissionsCalendarPage() {
     setMiniMonth(weekStart.getMonth())
   }, [weekStart])
 
-  // Spotlight effect — same as every other Nova OS page
+  // Spotlight effect — same as every other NovaAIO page
   useSpotlightEffect(true, [{ ref: shellRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true }], [isLight])
 
   const orbPalette      = ORB_COLORS[orbColor]
@@ -1389,7 +1389,7 @@ export default function MissionsCalendarPage() {
       <div ref={shellRef} className="relative z-10 flex-1 h-dvh overflow-hidden home-spotlight-shell">
         <div className="flex h-full w-full flex-col px-3 py-4 sm:px-4 lg:px-6">
 
-          {/* ── Nova OS Header ── */}
+          {/* ── NovaAIO Header ── */}
           <div className="mb-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 shrink-0">
             {/* Left: Orb + title */}
             <div className="flex items-center gap-3 min-w-0">
@@ -1412,7 +1412,7 @@ export default function MissionsCalendarPage() {
                 <div className="flex flex-col leading-tight">
                   <div className="flex items-baseline gap-3">
                     <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>
-                      NovaOS
+                      NovaAIO
                     </h1>
                     <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                   </div>

@@ -1,0 +1,60 @@
+appId: com.nova.hud
+productName: Nova
+copyright: Copyright © 2026 Nova
+
+directories:
+  output: dist
+  buildResources: electron/build
+
+files:
+  - out/**/*
+  - electron/**/*
+  - package.json
+  - node_modules/**/*
+
+asarUnpack:
+  - node_modules/@lobehub/**
+  - node_modules/next/**
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: public/images/nova.ico
+  artifactName: ${productName}-${version}-Setup.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: public/images/nova.icns
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron/entitlements.mac.plist
+  entitlementsInherit: electron/entitlements.mac.plist
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: public/images/nova.png
+  category: Development

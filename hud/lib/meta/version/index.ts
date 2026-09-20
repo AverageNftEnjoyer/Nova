@@ -10,6 +10,11 @@
  *
  * Version History:
  *
+ * - V.62 Alpha (2026-09-19): Desktop EXE Release
+ *     - Migrated off of Supabase to fully local host.
+ *     - Added desktop EXE release with Electron-based runtime and native OS integration.
+ *     - Updated user interaction patterns for the desktop experience.
+ *
  * - V.61 Alpha (2026-03-22): Home Notes module rollout + backend hardening
  *     - Replaced Home Placeholder 2 with a full Notes module backed by runtime services and authenticated HUD API CRUD routes.
  *     - Added Nova command capture for note actions (including "nova note down ...") with strict user-context routing and scoped persistence under `.user/user-context/<user>/state/home-notes.json`.
@@ -186,7 +191,7 @@
  *
  * - V.30 Alpha (2026-02-25): Calendar + Home overhaul with Google Calendar integration
  *     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
- *     - Overhauled Home page visual/system modules for a cleaner Nova OS presentation and improved workflow accessibility.
+ *     - Overhauled Home page visual/system modules for a cleaner NovaAIO presentation and improved workflow accessibility.
  *     - Added and hardened Google Calendar integration flow across integrations and calendar surfaces, including synced event rendering.
  *
  * - V.29 Alpha (2026-02-24): Mission workflow reliability + builder/runtime alignment
@@ -295,12 +300,12 @@
  *     - Added long-thread memory benchmark coverage to ensure critical facts survive noisy context.
  *     - Added security regression net smoke suite (`smoke:src-security-regression`) for durable guardrail verification.
  *     - Expanded `smoke:src-release` to include security, memory, routing arbitration, and plugin isolation gates.
- *     - Added phase-20 release notes artifact: `tasks/novaos-phase20-release-notes.md`.
+ *     - Added phase-20 release notes artifact: `tasks/novaaio-phase20-release-notes.md`.
  *
  * - V.14 Alpha (2026-02-19): 10-phase hardening and release-readiness completion
  *     - Completed Phase 10 hardening with a production release gate (`smoke:src-release`) that runs build + eval + mission + scheduler + transport + tools + HUD build.
  *     - Added release-readiness smoke checks (`smoke:src-release-readiness`) covering script wiring, launcher stability, env documentation coverage, and release-note/version integrity.
- *     - Added final release notes artifact: `tasks/novaos-phase10-release-notes.md` with rollout checklist and rollback plan.
+ *     - Added final release notes artifact: `tasks/novaaio-phase10-release-notes.md` with rollout checklist and rollback plan.
  *
  * - V.13 Alpha (2026-02-19): `src/` runtime cutover + stability patch set
  *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/core/entrypoint/index.js` (replacing prior `agent/` launch flow).

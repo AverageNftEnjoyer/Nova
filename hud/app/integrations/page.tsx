@@ -907,7 +907,7 @@ export default function IntegrationsPage() {
             <div className="min-w-0">
               <div className="flex flex-col leading-tight">
                 <div className="flex items-baseline gap-3">
-                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaOS</h1>
+                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
                   <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                 </div>
                 <div className="mt-0.5 flex items-center gap-3">

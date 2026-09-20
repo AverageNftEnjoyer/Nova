@@ -43,7 +43,6 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const devToolsSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
   const spotifyModuleSectionRef = useRef<HTMLElement | null>(null)
-  const newsModuleSectionRef = useRef<HTMLElement | null>(null)
   const agentModuleSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
@@ -135,7 +134,6 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     devToolsSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
-    newsModuleSectionRef,
     agentModuleSectionRef,
   }
 }

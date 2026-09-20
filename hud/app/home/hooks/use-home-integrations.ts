@@ -163,7 +163,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [discordConnected, setDiscordConnected] = useState(false)
   const [slackConnected, setSlackConnected] = useState(false)
   const [braveConnected, setBraveConnected] = useState(false)
-  const [newsConnected, setNewsConnected] = useState(false)
   const [coinbaseConnected, setCoinbaseConnected] = useState(false)
   const [phantomConnected, setPhantomConnected] = useState(false)
   const [polymarketConnected, setPolymarketConnected] = useState(false)
@@ -201,7 +200,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     setDiscordConnected(settings.discord.connected)
     setSlackConnected(Boolean(settings.slack?.connected))
     setBraveConnected(settings.brave.connected)
-    setNewsConnected(Boolean(settings.news?.connected))
     setCoinbaseConnected(Boolean(settings.coinbase?.connected))
     setPhantomConnected(Boolean(settings.phantom?.connected))
     setPolymarketConnected(Boolean(settings.polymarket?.connected))
@@ -480,7 +478,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         setDiscordConnected(Boolean(config?.discord?.connected))
         setSlackConnected(Boolean(config?.slack?.connected))
         setBraveConnected(Boolean(config?.brave?.connected))
-        setNewsConnected(Boolean(config?.news?.connected))
         setCoinbaseConnected(Boolean(config?.coinbase?.connected))
         setOpenaiConnected(Boolean(config?.openai?.connected))
         setClaudeConnected(Boolean(config?.claude?.connected))
@@ -705,7 +702,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     discordConnected,
     slackConnected,
     braveConnected,
-    newsConnected,
     coinbaseConnected,
     phantomConnected,
     polymarketConnected,

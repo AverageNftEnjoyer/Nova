@@ -4,9 +4,6 @@ import { Geist, Geist_Mono } from "next/font/google"
 import Script from "next/script"
 import { ThemeProvider } from "@/lib/context/theme-context"
 import { AccentProvider } from "@/lib/context/accent-context"
-import { AuthGate } from "@/components/auth/auth-gate"
-import { AuthFetchBridge } from "@/components/auth/auth-fetch-bridge"
-import { LoginBackgroundLayer } from "@/components/background/login-background-layer"
 import { AppBackgroundLayer } from "@/components/background/app-background-layer"
 import "./globals.css"
 
@@ -45,11 +42,9 @@ export default function RootLayout({
         </Script>
         <ThemeProvider>
           <AccentProvider>
-            <LoginBackgroundLayer />
             <AppBackgroundLayer />
-            <AuthFetchBridge />
             <div className="relative z-10">
-              <AuthGate>{children}</AuthGate>
+              {children}
             </div>
           </AccentProvider>
         </ThemeProvider>

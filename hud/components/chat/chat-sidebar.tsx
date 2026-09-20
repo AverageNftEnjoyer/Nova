@@ -450,7 +450,7 @@ export function ChatSidebar({
               <div className="min-w-0">
                 <div className="flex flex-col leading-tight">
                   <div className="flex items-baseline gap-3">
-                    <h1 className="text-s-90 text-[30px] leading-none font-semibold tracking-tight">NovaOS</h1>
+                    <h1 className="text-s-90 text-[30px] leading-none font-semibold tracking-tight">NovaAIO</h1>
                     <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
                   </div>
                   <div className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2">

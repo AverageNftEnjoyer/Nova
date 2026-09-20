@@ -120,12 +120,24 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
 
   const pushWorkspaceContextSync = useCallback(async (payload: Record<string, unknown>, serialized: string) => {
     if (!hasSupabaseClientConfig || !supabaseBrowser) {
-      throw new Error("Supabase client is not configured for workspace context sync.")
+      // Local-only mode, skip workspace sync
+      lastWorkspaceSyncPayloadRef.current = serialized
+      if (pendingWorkspaceSyncPayloadRef.current === serialized) {
+        pendingWorkspaceSyncPayloadRef.current = ""
+        pendingWorkspaceSyncDataRef.current = null
+      }
+      return
     }
     const { data } = await supabaseBrowser.auth.getSession()
     const accessToken = String(data.session?.access_token || "").trim()
     if (!accessToken) {
-      throw new Error("Authenticated Supabase session required for workspace context sync.")
+      // No auth session, skip workspace sync
+      lastWorkspaceSyncPayloadRef.current = serialized
+      if (pendingWorkspaceSyncPayloadRef.current === serialized) {
+        pendingWorkspaceSyncPayloadRef.current = ""
+        pendingWorkspaceSyncDataRef.current = null
+      }
+      return
     }
     const res = await fetch("/api/workspace/context-sync", {
       method: "POST",

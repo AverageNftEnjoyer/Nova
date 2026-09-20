@@ -14,6 +14,7 @@ src/.agent/
 data/
 hud/data/
 hud/.tmp/
+.nova-data/
 output/
 scripts/coinbase/.tmp/
 memory.json
@@ -80,3 +81,4 @@ src/runtime/speech_*.mp3
 # local agent instructions (never commit prompt engineering)
 /AGENTS.md
 prompts/
+phantom-reference

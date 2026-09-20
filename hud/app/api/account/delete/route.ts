@@ -1,23 +1,11 @@
 import { NextResponse } from "next/server"
 import path from "node:path"
 import { rm } from "node:fs/promises"
-import { createClient } from "@supabase/supabase-js"
-import { createSupabaseAdminClient, requireSupabaseApiUser } from "@/lib/supabase/server"
-import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env"
+import { requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 
 export const runtime = "nodejs"
-
-async function verifyPassword(email: string, password: string): Promise<boolean> {
-  const url = getSupabaseUrl()
-  const anon = getSupabaseAnonKey()
-  const verifier = createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  })
-  const { error } = await verifier.auth.signInWithPassword({ email, password })
-  return !error
-}
 
 function normalizeUserContextId(value: unknown): string {
   return String(value ?? "")
@@ -44,25 +32,17 @@ export async function POST(req: Request) {
 
   const body = (await req.json()) as { password?: string }
   const password = String(body.password || "").trim()
+
+  // For local-only mode, just verify a password was provided
   if (!password) {
     return NextResponse.json({ ok: false, error: "Password is required." }, { status: 400 })
   }
 
-  const email = String(verified.user.email || "").trim().toLowerCase()
-  if (!email) {
-    return NextResponse.json({ ok: false, error: "Current account email is missing." }, { status: 400 })
-  }
-
-  const validPassword = await verifyPassword(email, password)
-  if (!validPassword) {
-    return NextResponse.json({ ok: false, error: "Invalid password confirmation." }, { status: 401 })
-  }
-
   const userId = verified.user.id
   const workspaceRoot = path.resolve(process.cwd(), "..")
-  const userClient = verified.client
   const userContextId = normalizeUserContextId(userId)
 
+  // Clean up Coinbase data
   if (userContextId) {
     const store = await createCoinbaseStore(userContextId)
     try {
@@ -78,34 +58,24 @@ export async function POST(req: Request) {
     }
   }
 
-  const { error: toolRunsDeleteError } = await userClient.from("tool_runs").delete().eq("user_id", userId)
-  if (toolRunsDeleteError) {
-    return NextResponse.json({ ok: false, error: toolRunsDeleteError.message || "Failed to delete tool runs." }, { status: 500 })
-  }
-  const { error: threadSummariesDeleteError } = await userClient.from("thread_summaries").delete().eq("user_id", userId)
-  if (threadSummariesDeleteError) {
-    return NextResponse.json({ ok: false, error: threadSummariesDeleteError.message || "Failed to delete thread summaries." }, { status: 500 })
-  }
-  const { error: messagesDeleteError } = await userClient.from("messages").delete().eq("user_id", userId)
-  if (messagesDeleteError) {
-    return NextResponse.json({ ok: false, error: messagesDeleteError.message || "Failed to delete messages." }, { status: 500 })
-  }
-  const { error: memoriesDeleteError } = await userClient.from("memories").delete().eq("user_id", userId)
-  if (memoriesDeleteError) {
-    return NextResponse.json({ ok: false, error: memoriesDeleteError.message || "Failed to delete memories." }, { status: 500 })
-  }
-  const { error: threadsDeleteError } = await userClient.from("threads").delete().eq("user_id", userId)
-  if (threadsDeleteError) {
-    return NextResponse.json({ ok: false, error: threadsDeleteError.message || "Failed to delete threads." }, { status: 500 })
-  }
-
-  const admin = createSupabaseAdminClient()
-  const { error: deleteError } = await admin.auth.admin.deleteUser(userId)
-  if (deleteError) {
-    return NextResponse.json({ ok: false, error: deleteError.message || "Failed to delete account." }, { status: 500 })
-  }
+  // Local-only mode: Clean up local artifacts
+  // In a local deployment, there's no centralized database to clean up
+  // All data is stored locally on the user's device:
+  // - Integration configs in .nova-data/
+  // - User settings in browser localStorage
+  // - Chat history in memory/localStorage
+  // - Mission job runs in memory
 
   await pruneLocalUserArtifacts(workspaceRoot, userId)
+
+  // Clean up integration configs
+  try {
+    const fs = await import("fs/promises")
+    const configPath = path.join(process.cwd(), ".nova-data", `integrations-${userId}.json`)
+    await fs.unlink(configPath).catch(() => {})
+  } catch {
+    // Ignore errors
+  }
 
   return NextResponse.json({ ok: true })
 }

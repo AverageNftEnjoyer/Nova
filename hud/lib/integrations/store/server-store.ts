@@ -1,9 +1,9 @@
 import "server-only"
 
+import { promises as fs } from "fs"
+import path from "path"
 import { decryptSecret, decryptSecretWithMeta, encryptSecret } from "@/lib/security/encryption"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
-import { createSupabaseAdminClient, createSupabaseServerClient } from "@/lib/supabase/server"
-import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   DEFAULT_PHANTOM_INTEGRATION_CONFIG,
   normalizePhantomIntegrationConfig,
@@ -221,7 +221,6 @@ type DeepPartial<T> = {
       : T[K]
 }
 
-const INTEGRATIONS_TABLE = "integration_configs"
 const SPOTIFY_CALLBACK_PATH = "/api/integrations/spotify/callback"
 const YOUTUBE_CALLBACK_PATH = "/api/integrations/youtube/callback"
 const GMAIL_CALLBACK_PATH = "/api/integrations/gmail/callback"
@@ -239,11 +238,26 @@ function getDefaultYouTubeRedirectUri(): string {
   return getDefaultRedirectUri(YOUTUBE_CALLBACK_PATH)
 }
 
+// Local filesystem storage configuration
+const getConfigFilePath = (userId: string): string => {
+  // Store in project data directory
+  const dataDir = path.join(process.cwd(), ".nova-data")
+  return path.join(dataDir, `integrations-${userId}.json`)
+}
+
+const ensureDataDir = async (): Promise<void> => {
+  const dataDir = path.join(process.cwd(), ".nova-data")
+  try {
+    await fs.mkdir(dataDir, { recursive: true })
+  } catch {
+    // Directory might already exist, ignore error
+  }
+}
+
 export type IntegrationsStoreScope =
   | {
       userId?: string | null
       accessToken?: string | null
-      client?: SupabaseClient | null
       user?: { id?: string | null } | null
       allowServiceRole?: boolean
       serviceRoleReason?:
@@ -739,36 +753,21 @@ function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined
   }
 }
 
-function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string; client: SupabaseClient } | null {
+function normalizeStoreScope(scope?: IntegrationsStoreScope): { userId: string } | null {
   const userIdRaw =
     (typeof scope?.userId === "string" ? scope.userId : "") ||
     (typeof scope?.user?.id === "string" ? scope.user.id : "")
   const userId = String(userIdRaw || "").trim()
-  if (!userId) return null
-  if (scope?.client) return { userId, client: scope.client }
-  const accessToken = String(scope?.accessToken || "").trim()
-  if (accessToken) return { userId, client: createSupabaseServerClient(accessToken) }
-  if (scope?.allowServiceRole) {
-    const reason = String(scope.serviceRoleReason || "").trim()
-    if (
-      reason !== "scheduler" &&
-      reason !== "execution-tick" &&
-      reason !== "runtime-bridge" &&
-      reason !== "gmail-oauth-callback" &&
-      reason !== "gmail-calendar-oauth-callback" &&
-      reason !== "spotify-oauth-callback" &&
-      reason !== "youtube-oauth-callback"
-    ) {
-      throw new Error("Service-role integrations access requires an approved internal reason.")
-    }
-    return { userId, client: createSupabaseAdminClient() }
+  if (!userId) {
+    // For local-only mode, use default user
+    return { userId: "local-user" }
   }
-  throw new Error("Missing scoped Supabase auth client/token for integrations access.")
+  return { userId }
 }
 
 function assertScopedIntegrationsAccess(
-  normalizedScope: { userId: string; client: SupabaseClient } | null,
-): asserts normalizedScope is { userId: string; client: SupabaseClient } {
+  normalizedScope: { userId: string } | null,
+): asserts normalizedScope is { userId: string } {
   if (normalizedScope) return
   throw new Error("Scoped user context is required for integrations config access.")
 }
@@ -1053,18 +1052,24 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: DeepParti
 }
 
 export async function loadIntegrationsConfig(scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
-  const normalizedScope = normalizeStoreScope(scope)
-  assertScopedIntegrationsAccess(normalizedScope)
-  const { userId, client } = normalizedScope
-  const { data, error } = await client
-    .from(INTEGRATIONS_TABLE)
-    .select("config")
-    .eq("user_id", userId)
-    .maybeSingle()
-  if (error) throw new Error(`Failed to load integrations config: ${error.message}`)
-  const raw = (data?.config && typeof data.config === "object" ? (data.config as Partial<IntegrationsConfig>) : null) || null
-  if (!raw) return normalizeConfig(DEFAULT_CONFIG)
-  return normalizeConfig(raw)
+  try {
+    const normalizedScope = normalizeStoreScope(scope)
+    assertScopedIntegrationsAccess(normalizedScope)
+    const { userId } = normalizedScope
+
+    const configPath = getConfigFilePath(userId)
+
+    try {
+      const fileContent = await fs.readFile(configPath, "utf-8")
+      const raw = JSON.parse(fileContent) as Partial<IntegrationsConfig>
+      return normalizeConfig(raw)
+    } catch {
+      // File doesn't exist or is invalid, return default config
+      return normalizeConfig(DEFAULT_CONFIG)
+    }
+  } catch {
+    return normalizeConfig(DEFAULT_CONFIG)
+  }
 }
 
 export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?: IntegrationsStoreScope): Promise<void> {
@@ -1076,18 +1081,11 @@ export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?:
 
   const normalizedScope = normalizeStoreScope(scope)
   assertScopedIntegrationsAccess(normalizedScope)
-  const { userId, client } = normalizedScope
-  const { error } = await client
-    .from(INTEGRATIONS_TABLE)
-    .upsert(
-      {
-        user_id: userId,
-        config: toStore,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    )
-  if (error) throw new Error(`Failed to save integrations config: ${error.message}`)
+  const { userId } = normalizedScope
+
+  await ensureDataDir()
+  const configPath = getConfigFilePath(userId)
+  await fs.writeFile(configPath, JSON.stringify(toStore, null, 2), "utf-8")
 }
 
 // Serializes concurrent updateIntegrationsConfig calls per-user to prevent

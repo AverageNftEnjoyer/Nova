@@ -50,17 +50,28 @@ export async function verifySupabaseRequest(request: Request): Promise<VerifiedS
   return { user: data.user, accessToken, client }
 }
 
-export async function requireSupabaseApiUser(request: Request): Promise<{
+export async function requireSupabaseApiUser(_request: Request): Promise<{
   unauthorized: NextResponse | null
   verified: VerifiedSupabaseRequest | null
 }> {
-  try {
-    const verified = await verifySupabaseRequest(request)
-    return { unauthorized: null, verified }
-  } catch {
-    return {
-      unauthorized: NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 }),
-      verified: null,
-    }
+  // Auth disabled for open-source deployment - return mock user
+  const mockUser = {
+    id: "local-user",
+    email: "local@nova.local",
+    aud: "authenticated",
+    role: "authenticated",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    app_metadata: {},
+    user_metadata: { full_name: "Local User" },
+  } as User
+
+  return {
+    unauthorized: null,
+    verified: {
+      user: mockUser,
+      accessToken: "local-token",
+      client: null as unknown as SupabaseClient,
+    },
   }
 }

@@ -2,11 +2,12 @@ const ACTIVE_USER_STORAGE_KEY = "nova_active_user_id"
 export const ACTIVE_USER_CHANGED_EVENT = "nova:active-user-changed"
 
 export function getActiveUserId(): string {
-  if (typeof window === "undefined") return ""
+  if (typeof window === "undefined") return "local-user"
   try {
-    return String(localStorage.getItem(ACTIVE_USER_STORAGE_KEY) || "").trim()
+    const stored = String(localStorage.getItem(ACTIVE_USER_STORAGE_KEY) || "").trim()
+    return stored || "local-user"
   } catch {
-    return ""
+    return "local-user"
   }
 }
 

@@ -1,6 +1,5 @@
 import "server-only"
 
-import { createSupabaseAdminClient } from "@/lib/supabase/server"
 import { appendMissionRunDeadLetter } from "./dead-letter"
 import type {
   CompleteJobInput,
@@ -12,6 +11,7 @@ import type {
   JobRun,
   PendingJobRun,
   SchedulerLeaseResult,
+  ClaimResult,
 } from "./types"
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
@@ -36,51 +36,25 @@ function generateId(prefix: string): string {
   return `${prefix}_${ts}_${rand}`
 }
 
-type FailRunRpcResult = {
-  ok: boolean
-  final_status: string | null
-  user_id: string | null
-  mission_id: string | null
-  source: string | null
-  next_attempt: number | null
-  max_attempts: number | null
-  retry_backoff_ms: number | null
-  error_code: string | null
-  error_detail: string | null
-}
-
-function mapClaimFailureReason(reason: string, jobRunId: string, policy: ReturnType<typeof concurrencyPolicy>) {
-  if (reason === "not_found") {
-    return { ok: false as const, reason: `Job run not found: ${jobRunId}` }
-  }
-  if (reason.startsWith("not_pending:")) {
-    const status = reason.slice("not_pending:".length) || "unknown"
-    return { ok: false as const, reason: `Job run ${jobRunId} is not pending (status=${status}).` }
-  }
-  if (reason === "global_limit") {
-    return {
-      ok: false as const,
-      reason: `Mission execution concurrency exceeded global in-flight cap (${policy.globalInflightLimit}).`,
-    }
-  }
-  if (reason === "per_user_limit") {
-    return {
-      ok: false as const,
-      reason: `Mission execution concurrency exceeded per-user cap (${policy.perUserInflightLimit}).`,
-    }
-  }
-  if (reason === "claim_raced") {
-    return { ok: false as const, reason: "Failed to claim job run - may have been claimed by another worker." }
-  }
-  return { ok: false as const, reason: `Failed to claim job run: ${reason || "unknown claim error"}` }
-}
+// In-memory storage for local-only mode
+const jobRuns = new Map<string, JobRun>()
+const auditEvents = new Map<string, JobAuditEvent[]>()
+const schedulerLeases = new Map<string, { holderId: string; expiresAt: Date }>()
 
 export const jobLedger: JobLedgerStore = {
   async enqueue(input: EnqueueJobInput) {
-    const db = createSupabaseAdminClient()
     const now = new Date().toISOString()
 
-    const row: Partial<JobRun> = {
+    // Check idempotency
+    if (input.idempotency_key) {
+      for (const run of jobRuns.values()) {
+        if (run.idempotency_key === input.idempotency_key && run.user_id === input.user_id) {
+          return { ok: false, error: "Job with this idempotency key already exists" }
+        }
+      }
+    }
+
+    const row: JobRun = {
       id: input.id,
       user_id: input.user_id,
       mission_id: input.mission_id,
@@ -88,199 +62,304 @@ export const jobLedger: JobLedgerStore = {
       status: "pending",
       priority: input.priority ?? 5,
       scheduled_for: input.scheduled_for ?? now,
+      lease_token: null,
+      lease_expires_at: null,
+      heartbeat_at: null,
       attempt: 0,
       max_attempts: input.max_attempts ?? 1,
       backoff_ms: 0,
       source: input.source ?? "scheduler",
       run_key: input.run_key ?? null,
       input_snapshot: input.input_snapshot ?? null,
+      output_summary: null,
+      error_code: null,
+      error_detail: null,
       created_at: now,
+      started_at: null,
+      finished_at: null,
+      duration_ms: null,
     }
 
-    const { error } = await db
-      .from("job_runs")
-      .insert(row)
+    jobRuns.set(row.id, row)
 
-    if (error) {
-      if (error.code === "23505") {
-        return { ok: false, error: "duplicate_idempotency_key" }
+    await jobLedger.auditEvent({
+      jobRunId: row.id,
+      userId: row.user_id,
+      event: "job.enqueued",
+      actor: "system",
+      metadata: { source: row.source, priority: row.priority },
+    })
+
+    return { ok: true }
+  },
+
+  async claimRun(input: { jobRunId: string; leaseDurationMs: number }): Promise<ClaimResult> {
+    const policy = concurrencyPolicy()
+    const run = jobRuns.get(input.jobRunId)
+
+    if (!run) {
+      return { ok: false, reason: `Job run not found: ${input.jobRunId}` }
+    }
+
+    if (run.status !== "pending") {
+      return { ok: false, reason: `Job run ${input.jobRunId} is not pending (status=${run.status}).` }
+    }
+
+    // Check concurrency limits
+    const inflightRuns = Array.from(jobRuns.values()).filter(
+      r => r.status === "claimed" || r.status === "running"
+    )
+
+    if (inflightRuns.length >= policy.globalInflightLimit) {
+      return {
+        ok: false,
+        reason: `Mission execution concurrency exceeded global in-flight cap (${policy.globalInflightLimit}).`,
       }
-      return { ok: false, error: error.message }
+    }
+
+    const userInflightRuns = inflightRuns.filter(r => r.user_id === run.user_id)
+    if (userInflightRuns.length >= policy.perUserInflightLimit) {
+      return {
+        ok: false,
+        reason: `Mission execution concurrency exceeded per-user cap (${policy.perUserInflightLimit}).`,
+      }
+    }
+
+    // Claim the run
+    const leaseToken = generateId("lease")
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + input.leaseDurationMs)
+
+    run.status = "claimed"
+    run.lease_token = leaseToken
+    run.lease_expires_at = expiresAt.toISOString()
+    run.heartbeat_at = now.toISOString()
+
+    await jobLedger.auditEvent({
+      jobRunId: run.id,
+      userId: run.user_id,
+      event: "job.claimed",
+      actor: "scheduler",
+      metadata: { leaseToken, leaseDurationMs: input.leaseDurationMs },
+    })
+
+    return { ok: true, leaseToken }
+  },
+
+  async heartbeat(input: { jobRunId: string; leaseToken: string; leaseDurationMs: number }) {
+    const run = jobRuns.get(input.jobRunId)
+
+    if (!run || run.lease_token !== input.leaseToken) {
+      return { ok: false }
+    }
+
+    const now = new Date()
+    run.heartbeat_at = now.toISOString()
+    run.lease_expires_at = new Date(now.getTime() + input.leaseDurationMs).toISOString()
+
+    return { ok: true }
+  },
+
+  async startRun(input: { jobRunId: string; leaseToken: string }) {
+    const run = jobRuns.get(input.jobRunId)
+
+    if (!run || run.lease_token !== input.leaseToken) {
+      return { ok: false, startedAt: null }
+    }
+
+    const now = new Date().toISOString()
+    run.status = "running"
+    run.started_at = now
+
+    await jobLedger.auditEvent({
+      jobRunId: run.id,
+      userId: run.user_id,
+      event: "job.started",
+      actor: "executor",
+    })
+
+    return { ok: true, startedAt: now }
+  },
+
+  async completeRun(input: CompleteJobInput) {
+    const run = jobRuns.get(input.jobRunId)
+
+    if (!run || run.lease_token !== input.leaseToken) {
+      return { ok: false }
+    }
+
+    const now = new Date()
+    run.status = "succeeded"
+    run.finished_at = now.toISOString()
+    run.output_summary = input.outputSummary ?? null
+
+    if (run.started_at) {
+      run.duration_ms = now.getTime() - new Date(run.started_at).getTime()
+    }
+
+    run.lease_token = null
+    run.lease_expires_at = null
+
+    await jobLedger.auditEvent({
+      jobRunId: run.id,
+      userId: run.user_id,
+      event: "job.succeeded",
+      actor: "executor",
+      metadata: { durationMs: run.duration_ms },
+    })
+
+    return { ok: true }
+  },
+
+  async failRun(input: FailJobInput) {
+    const run = jobRuns.get(input.jobRunId)
+
+    if (!run || run.lease_token !== input.leaseToken) {
+      return { ok: false }
+    }
+
+    const now = new Date()
+    const startedAt = input.startedAt ? new Date(input.startedAt) : (run.started_at ? new Date(run.started_at) : now)
+    const durationMs = now.getTime() - startedAt.getTime()
+
+    run.error_code = input.errorCode ?? "unknown"
+    run.error_detail = input.errorDetail ?? ""
+    run.finished_at = now.toISOString()
+    run.duration_ms = durationMs
+    run.lease_token = null
+    run.lease_expires_at = null
+
+    const shouldRetry = run.attempt + 1 < run.max_attempts
+
+    if (shouldRetry) {
+      // Retry logic
+      const nextAttempt = run.attempt + 1
+      const backoffMs = Math.min(60_000 * Math.pow(2, nextAttempt), 15 * 60_000)
+
+      run.status = "pending"
+      run.attempt = nextAttempt
+      run.backoff_ms = backoffMs
+      run.scheduled_for = new Date(now.getTime() + backoffMs).toISOString()
+      run.error_code = null
+      run.error_detail = null
+      run.finished_at = null
+      run.duration_ms = null
+
+      await jobLedger.auditEvent({
+        jobRunId: run.id,
+        userId: run.user_id,
+        event: "job.retrying",
+        actor: "executor",
+        metadata: { attempt: nextAttempt, backoffMs },
+      })
+    } else {
+      // Final failure
+      run.status = "dead"
+
+      await jobLedger.auditEvent({
+        jobRunId: run.id,
+        userId: run.user_id,
+        event: "job.dead",
+        actor: "executor",
+        metadata: { errorCode: run.error_code, errorDetail: run.error_detail },
+      })
+
+      // Append to dead letter
+      await appendMissionRunDeadLetter({
+        jobRunId: run.id,
+        userId: run.user_id,
+        missionId: run.mission_id,
+        attempt: run.attempt,
+        maxAttempts: run.max_attempts,
+        source: run.source,
+        status: "dead",
+        reason: run.error_detail || "Max attempts exceeded",
+        errorCode: run.error_code || undefined,
+        errorDetail: run.error_detail || undefined,
+      })
     }
 
     return { ok: true }
   },
 
-  async claimRun(input: { jobRunId: string; leaseDurationMs: number }) {
-    const db = createSupabaseAdminClient()
-    const policy = concurrencyPolicy()
-    const leaseToken = generateId("lt")
-    const { data: rpcData, error: rpcError } = await db.rpc("claim_job_run_lease_with_limits", {
-      p_job_run_id: input.jobRunId,
-      p_lease_token: leaseToken,
-      p_lease_duration_ms: input.leaseDurationMs,
-      p_global_inflight_limit: policy.globalInflightLimit,
-      p_per_user_inflight_limit: policy.perUserInflightLimit,
-    })
+  async cancelRun(input: { jobRunId: string; userId: string }) {
+    const run = jobRuns.get(input.jobRunId)
 
-    if (rpcError) {
-      return { ok: false, reason: `DB error claiming job run: ${rpcError.message}` }
-    }
-
-    const rpcResult = Array.isArray(rpcData) ? rpcData[0] : null
-    if (!rpcResult) {
-      return { ok: false, reason: "Failed to claim job run: empty RPC response." }
-    }
-    if (!rpcResult.ok) {
-      return mapClaimFailureReason(String(rpcResult.reason || ""), input.jobRunId, policy)
-    }
-
-    return {
-      ok: true,
-      leaseToken: String(rpcResult.lease_token || leaseToken),
-    }
-  },
-
-  async heartbeat(input: { jobRunId: string; leaseToken: string; leaseDurationMs: number }) {
-    const db = createSupabaseAdminClient()
-    const { data, error } = await db.rpc("heartbeat_job_run_lease", {
-      p_job_run_id: input.jobRunId,
-      p_lease_token: input.leaseToken,
-      p_lease_duration_ms: input.leaseDurationMs,
-    })
-
-    if (error) return { ok: false }
-    return { ok: data === true }
-  },
-
-  async startRun(input: { jobRunId: string; leaseToken: string }) {
-    const db = createSupabaseAdminClient()
-    const startedAt = new Date().toISOString()
-
-    const { error } = await db
-      .from("job_runs")
-      .update({ status: "running", started_at: startedAt })
-      .eq("id", input.jobRunId)
-      .eq("lease_token", input.leaseToken)
-      .eq("status", "claimed")
-
-    return { ok: !error, startedAt: error ? null : startedAt }
-  },
-
-  async completeRun(input: CompleteJobInput) {
-    const db = createSupabaseAdminClient()
-    const { data, error } = await db.rpc("complete_job_run", {
-      p_job_run_id: input.jobRunId,
-      p_lease_token: input.leaseToken,
-      p_output_summary: input.outputSummary ?? null,
-    })
-
-    if (error) return { ok: false }
-    return { ok: data === true }
-  },
-
-  async failRun(input: FailJobInput) {
-    const db = createSupabaseAdminClient()
-    const backoffBase = readIntEnv("NOVA_SCHEDULER_RETRY_BASE_MS", 60_000, 1_000, 3_600_000)
-    const backoffMax = readIntEnv("NOVA_SCHEDULER_RETRY_MAX_MS", 900_000, 10_000, 86_400_000)
-    const { data: rpcData, error: rpcError } = await db.rpc("fail_job_run_with_retry", {
-      p_job_run_id: input.jobRunId,
-      p_lease_token: input.leaseToken,
-      p_finished_at: new Date().toISOString(),
-      p_started_at: input.startedAt ?? null,
-      p_error_code: input.errorCode ?? null,
-      p_error_detail: input.errorDetail ?? null,
-      p_retry_id: generateId("jr"),
-      p_backoff_base_ms: backoffBase,
-      p_backoff_max_ms: backoffMax,
-      p_backoff_jitter: true,
-    })
-
-    if (rpcError) return { ok: false }
-
-    const result = (Array.isArray(rpcData) ? rpcData[0] : null) as FailRunRpcResult | null
-    if (!result?.final_status) return { ok: false }
-
-    if (result.final_status === "dead") {
-      await appendMissionRunDeadLetter({
-        userId: String(result.user_id || ""),
-        missionId: String(result.mission_id || ""),
-        jobRunId: input.jobRunId,
-        attempt: Math.max(1, Number(result.next_attempt ?? 1)),
-        maxAttempts: Math.max(1, Number(result.max_attempts ?? 1)),
-        source: String(result.source || "scheduler") as JobRun["source"],
-        status: "dead",
-        reason: "max_attempts_exhausted",
-        errorCode: result.error_code ?? undefined,
-        errorDetail: result.error_detail ?? undefined,
-        retryBackoffMs: Number(result.retry_backoff_ms ?? 0),
-      }).catch((err) => {
-        console.warn("[JobLedger] appendMissionRunDeadLetter failed:", err instanceof Error ? err.message : err)
-      })
-      return { ok: true }
-    }
-
-    if (result.final_status === "retry_enqueue_failed") {
-      await appendMissionRunDeadLetter({
-        userId: String(result.user_id || ""),
-        missionId: String(result.mission_id || ""),
-        jobRunId: input.jobRunId,
-        attempt: Math.max(1, Number(result.next_attempt ?? 1)),
-        maxAttempts: Math.max(1, Number(result.max_attempts ?? 1)),
-        source: String(result.source || "scheduler") as JobRun["source"],
-        status: "retry_enqueue_failed",
-        reason: "retry_enqueue_failed",
-        errorCode: result.error_code ?? "RETRY_ENQUEUE_FAILED",
-        errorDetail: result.error_detail ?? undefined,
-        retryBackoffMs: Number(result.retry_backoff_ms ?? 0),
-      }).catch((err) => {
-        console.warn("[JobLedger] appendMissionRunDeadLetter failed:", err instanceof Error ? err.message : err)
-      })
-
+    if (!run || run.user_id !== input.userId) {
       return { ok: false }
     }
 
-    return { ok: Boolean(result.ok) }
-  },
+    if (run.status === "succeeded" || run.status === "failed" || run.status === "dead" || run.status === "cancelled") {
+      return { ok: false }
+    }
 
-  async cancelRun(input: { jobRunId: string; userId: string }) {
-    const db = createSupabaseAdminClient()
+    run.status = "cancelled"
+    run.finished_at = new Date().toISOString()
+    run.lease_token = null
+    run.lease_expires_at = null
 
-    const { error } = await db
-      .from("job_runs")
-      .update({ status: "cancelled", finished_at: new Date().toISOString() })
-      .eq("id", input.jobRunId)
-      .eq("user_id", input.userId)
-      .in("status", ["pending", "claimed", "running"])
+    await jobLedger.auditEvent({
+      jobRunId: run.id,
+      userId: run.user_id,
+      event: "job.cancelled",
+      actor: "user",
+    })
 
-    return { ok: !error }
+    return { ok: true }
   },
 
   async reclaimExpiredLeases() {
-    const db = createSupabaseAdminClient()
-    const { data, error } = await db.rpc("reclaim_expired_job_leases")
+    const now = new Date()
+    let count = 0
 
-    if (error) {
-      console.warn("[JobLedger] reclaimExpiredLeases RPC error:", error.message)
-      return 0
+    for (const run of jobRuns.values()) {
+      if (run.status === "claimed" && run.lease_expires_at) {
+        const expiresAt = new Date(run.lease_expires_at)
+        if (expiresAt < now) {
+          run.status = "pending"
+          run.lease_token = null
+          run.lease_expires_at = null
+          run.heartbeat_at = null
+          count++
+
+          await jobLedger.auditEvent({
+            jobRunId: run.id,
+            userId: run.user_id,
+            event: "job.lease_reclaimed",
+            actor: "scheduler",
+          })
+        }
+      }
     }
 
-    return (data as number) ?? 0
+    return count
   },
 
   async cancelPendingForMission(input: { userId: string; missionId: string }) {
-    const db = createSupabaseAdminClient()
+    let count = 0
 
-    const { data, error } = await db
-      .from("job_runs")
-      .update({ status: "cancelled", finished_at: new Date().toISOString() })
-      .eq("user_id", input.userId)
-      .eq("mission_id", input.missionId)
-      .in("status", ["pending", "claimed", "running"])
-      .select("id")
+    for (const run of jobRuns.values()) {
+      if (
+        run.user_id === input.userId &&
+        run.mission_id === input.missionId &&
+        (run.status === "pending" || run.status === "claimed")
+      ) {
+        run.status = "cancelled"
+        run.finished_at = new Date().toISOString()
+        run.lease_token = null
+        run.lease_expires_at = null
+        count++
 
-    if (error || !data) return 0
-    return data.length
+        await jobLedger.auditEvent({
+          jobRunId: run.id,
+          userId: run.user_id,
+          event: "job.cancelled",
+          actor: "mission_delete",
+        })
+      }
+    }
+
+    return count
   },
 
   async auditEvent(input: {
@@ -290,19 +369,19 @@ export const jobLedger: JobLedgerStore = {
     actor: string
     metadata?: Record<string, unknown>
   }) {
-    const db = createSupabaseAdminClient()
-
-    const row: Partial<JobAuditEvent> = {
-      id: generateId("ae"),
+    const event: JobAuditEvent = {
+      id: generateId("audit"),
       job_run_id: input.jobRunId,
-      user_id: input.userId as unknown as string,
+      user_id: input.userId,
       event: input.event,
       actor: input.actor,
       ts: new Date().toISOString(),
       metadata: input.metadata ?? null,
     }
 
-    await db.from("job_audit_events").insert(row)
+    const events = auditEvents.get(input.jobRunId) ?? []
+    events.push(event)
+    auditEvents.set(input.jobRunId, events)
   },
 
   async acquireSchedulerLease(input: {
@@ -310,109 +389,78 @@ export const jobLedger: JobLedgerStore = {
     holderId: string
     ttlMs: number
   }): Promise<SchedulerLeaseResult> {
-    const db = createSupabaseAdminClient()
+    const now = new Date()
+    const existing = schedulerLeases.get(input.scope)
 
-    const { data, error } = await db.rpc("acquire_scheduler_lease", {
-      p_scope: input.scope,
-      p_holder_id: input.holderId,
-      p_ttl_ms: input.ttlMs,
-    })
-
-    if (error || !data) {
-      console.warn("[JobLedger] acquireSchedulerLease RPC error:", error?.message)
-      return { acquired: false, reason: "db_error" }
-    }
-
-    const row = (data as Array<{
-      scope: string
-      holder_id: string
-      acquired_at: string
-      expires_at: string
-      acquired: boolean
-    }>)[0]
-
-    if (!row) {
-      console.warn("[JobLedger] acquireSchedulerLease: unexpected empty result")
-      return { acquired: false, reason: "db_error" }
-    }
-
-    if (!row.acquired) {
+    if (existing && existing.expiresAt > now) {
       return { acquired: false, reason: "already_held" }
     }
 
+    const expiresAt = new Date(now.getTime() + input.ttlMs)
+    schedulerLeases.set(input.scope, { holderId: input.holderId, expiresAt })
+
     return {
       acquired: true,
-      scope: row.scope,
-      holderId: row.holder_id,
-      expiresAt: row.expires_at,
+      scope: input.scope,
+      holderId: input.holderId,
+      expiresAt: expiresAt.toISOString(),
     }
   },
 
-  async renewSchedulerLease(input: {
-    scope: string
-    holderId: string
-    ttlMs: number
-  }): Promise<{ ok: boolean }> {
-    const db = createSupabaseAdminClient()
+  async renewSchedulerLease(input: { scope: string; holderId: string; ttlMs: number }) {
+    const existing = schedulerLeases.get(input.scope)
 
-    const { data, error } = await db.rpc("renew_scheduler_lease", {
-      p_scope: input.scope,
-      p_holder_id: input.holderId,
-      p_ttl_ms: input.ttlMs,
-    })
-
-    if (error) {
-      console.warn("[JobLedger] renewSchedulerLease RPC error:", error.message)
+    if (!existing || existing.holderId !== input.holderId) {
       return { ok: false }
     }
 
-    return { ok: data === true }
-  },
-
-  async releaseSchedulerLease(input: {
-    scope: string
-    holderId: string
-  }): Promise<{ ok: boolean }> {
-    const db = createSupabaseAdminClient()
-
-    const { error } = await db
-      .from("scheduler_leases")
-      .delete()
-      .eq("scope", input.scope)
-      .eq("holder_id", input.holderId)
-
-    if (error) {
-      console.warn("[JobLedger] releaseSchedulerLease error:", error.message)
-      return { ok: false }
-    }
+    const expiresAt = new Date(Date.now() + input.ttlMs)
+    schedulerLeases.set(input.scope, { holderId: input.holderId, expiresAt })
 
     return { ok: true }
   },
 
+  async releaseSchedulerLease(input: { scope: string; holderId: string }) {
+    const existing = schedulerLeases.get(input.scope)
+
+    if (!existing || existing.holderId !== input.holderId) {
+      return { ok: false }
+    }
+
+    schedulerLeases.delete(input.scope)
+    return { ok: true }
+  },
+
   async getPendingRuns(input: GetPendingRunsInput): Promise<PendingJobRun[]> {
-    const db = createSupabaseAdminClient()
-    const cutoff = (input.now ?? new Date()).toISOString()
+    const now = input.now ?? new Date()
+    const runs: PendingJobRun[] = []
 
-    let query = db
-      .from("job_runs")
-      .select("id, user_id, mission_id, priority, scheduled_for, attempt, source, input_snapshot")
-      .eq("status", "pending")
-      .lte("scheduled_for", cutoff)
-      .order("priority", { ascending: false })
-      .order("scheduled_for", { ascending: true })
-      .limit(input.limit)
+    for (const run of jobRuns.values()) {
+      if (run.status !== "pending") continue
 
-    if (input.userIds && input.userIds.length > 0) {
-      query = query.in("user_id", input.userIds)
+      const scheduledFor = new Date(run.scheduled_for)
+      if (scheduledFor > now) continue
+
+      if (input.userIds && !input.userIds.includes(run.user_id)) continue
+
+      runs.push({
+        id: run.id,
+        user_id: run.user_id,
+        mission_id: run.mission_id,
+        priority: run.priority,
+        scheduled_for: run.scheduled_for,
+        attempt: run.attempt,
+        source: run.source,
+        input_snapshot: run.input_snapshot,
+      })
     }
 
-    const { data, error } = await query
+    // Sort by priority DESC, scheduled_for ASC
+    runs.sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority
+      return a.scheduled_for.localeCompare(b.scheduled_for)
+    })
 
-    if (error || !data) {
-      console.warn("[JobLedger] getPendingRuns error:", error?.message)
-      return []
-    }
-
-    return data as PendingJobRun[]
+    return runs.slice(0, input.limit)
   },
 }

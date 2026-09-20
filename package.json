@@ -1,7 +1,7 @@
 {
-  "name": "novaos",
+  "name": "novaaio",
   "version": "0.10.0",
-  "description": "NovaOS - AI agent desktop OS. Unified launcher for the agent backend and Next.js HUD.",
+  "description": "NovaAIO - AI agent desktop application. Unified launcher for the agent backend and Next.js HUD.",
   "type": "module",
   "scripts": {
     "start": "node nova.js",
