@@ -184,9 +184,9 @@
     "jsdom": "^28.1.0",
     "nspell": "^2.1.5",
     "openai": "^6.17.0",
-    "systeminformation": "^5.30.7",
+    "systeminformation": "^5.31.6",
     "turndown": "^7.2.2",
-    "ws": "^8.19.0"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
