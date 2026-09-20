@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { ensureRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/snapshot"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
   try {
-    const ensured = await ensureRuntimeIntegrationsSnapshot(verified.user.id, verified)
+    const ensured = await ensureRuntimeIntegrationsSnapshot(userId, verified)
     return NextResponse.json({ ok: true, userId: ensured.userId, cached: ensured.cached })
   } catch (error) {
     return NextResponse.json(

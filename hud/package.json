@@ -2,15 +2,19 @@
   "name": "nova-hud",
   "version": "0.10.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "node scripts/next-runner.mjs dev",
     "build": "node scripts/next-runner.mjs build",
     "start": "node scripts/next-runner.mjs start",
     "lint": "eslint .",
     "notify:send": "node scripts/send-notification.mjs",
-    "electron:dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:3000 --timeout 30000 --interval 500 --window 1000 && electron .\"",
     "electron:build": "npm run build && electron-builder",
-    "electron:build:win": "npm run build && electron-builder --win --x64"
+    "electron:build:win": "npm run build && electron-builder --win --x64",
+    "test:smoke": "playwright test",
+    "test:smoke:ui": "playwright test --ui",
+    "test:smoke:headed": "playwright test --headed"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -46,7 +50,6 @@
     "@radix-ui/react-tooltip": "1.1.6",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
-    "@supabase/supabase-js": "^2.57.4",
     "@types/topojson-client": "^3.1.5",
     "@xyflow/react": "^12.10.1",
     "ai": "6.0.38",
@@ -75,6 +78,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
+    "@playwright/test": "^1.49.1",
     "@tailwindcss/postcss": "^4.1.9",
     "@types/d3": "^7.4.3",
     "@types/jsdom": "^27.0.0",
@@ -92,6 +96,5 @@
     "tw-animate-css": "1.3.3",
     "typescript": "^5",
     "wait-on": "^9.1.0"
-  },
-  "main": "electron/main.js"
+  }
 }

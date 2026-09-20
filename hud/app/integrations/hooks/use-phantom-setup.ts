@@ -10,7 +10,7 @@ import {
 import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { maskPhantomWalletAddress, normalizePhantomIntegrationConfig, type PhantomUserSettings } from "@/lib/integrations/phantom/types"
 import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
-import { fetchWithSupabaseAuth } from "@/lib/supabase/browser-auth"
+// Supabase removed
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 
 interface UsePhantomSetupParams {
@@ -193,7 +193,7 @@ export function usePhantomSetup({
 
   const refreshFromServer = useCallback(async () => {
     try {
-      const res = await fetchWithSupabaseAuth("/api/integrations/config", { cache: "no-store" })
+      const res = await fetch("/api/integrations/config", { cache: "no-store" })
       const data = await res.json()
       if (res.status === 401) {
         onRequireLogin()
@@ -216,7 +216,7 @@ export function usePhantomSetup({
   ) => {
     if (typeof window === "undefined") return false
     try {
-      const res = await fetchWithSupabaseAuth("/api/integrations/phantom/open-browser", {
+      const res = await fetch("/api/integrations/phantom/open-browser", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target }),
@@ -274,7 +274,7 @@ export function usePhantomSetup({
     setSaveStatus(null)
     setIsSavingTarget("phantom-settings")
     try {
-      const res = await fetchWithSupabaseAuth("/api/integrations/config", {
+      const res = await fetch("/api/integrations/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -332,7 +332,7 @@ export function usePhantomSetup({
         suppressProviderDisconnectRef.current = true
         await provider.disconnect().catch(() => undefined)
       }
-      const res = await fetchWithSupabaseAuth("/api/integrations/phantom/disconnect", {
+      const res = await fetch("/api/integrations/phantom/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
@@ -567,7 +567,7 @@ export function usePhantomSetup({
 
       const observedEvm = await readObservedPhantomEvmState(typeof window === "undefined" ? null : getPhantomEthereumProvider(window))
 
-      const challengeRes = await fetchWithSupabaseAuth("/api/integrations/phantom/challenge", {
+      const challengeRes = await fetch("/api/integrations/phantom/challenge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -600,7 +600,7 @@ export function usePhantomSetup({
         throw new Error("Phantom did not return a signature.")
       }
 
-      const verifyRes = await fetchWithSupabaseAuth("/api/integrations/phantom/verify", {
+      const verifyRes = await fetch("/api/integrations/phantom/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -664,3 +664,4 @@ export function usePhantomSetup({
     trustedReconnectReady,
   }
 }
+

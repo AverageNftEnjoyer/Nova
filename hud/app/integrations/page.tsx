@@ -24,7 +24,7 @@ import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
-import { fetchWithSupabaseAuth } from "@/lib/supabase/browser-auth"
+// Supabase removed
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/llm/model-label"
@@ -233,7 +233,7 @@ export default function IntegrationsPage() {
     setIsSavingTarget("polymarket-connect")
     try {
       const binding = await connectPolymarketWallet(window)
-      const res = await fetchWithSupabaseAuth("/api/polymarket/connect", {
+      const res = await fetch("/api/polymarket/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -262,7 +262,7 @@ export default function IntegrationsPage() {
   const disconnectPolymarket = async () => {
     setIsSavingTarget("polymarket-disconnect")
     try {
-      const res = await fetchWithSupabaseAuth("/api/polymarket/disconnect", {
+      const res = await fetch("/api/polymarket/disconnect", {
         method: "POST",
       })
       const data = await res.json()
@@ -285,7 +285,7 @@ export default function IntegrationsPage() {
   const setPolymarketLiveTradingEnabled = async (enabled: boolean) => {
     setIsSavingTarget("polymarket-settings")
     try {
-      const res = await fetchWithSupabaseAuth("/api/polymarket/settings", {
+      const res = await fetch("/api/polymarket/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liveTradingEnabled: enabled }),
@@ -310,7 +310,7 @@ export default function IntegrationsPage() {
   useEffect(() => {
     let cancelled = false
 
-    fetchWithSupabaseAuth("/api/integrations/config", { cache: "no-store" })
+    fetch("/api/integrations/config", { cache: "no-store" })
       .then(async (res) => ({
         ok: res.ok,
         status: res.status,
@@ -1172,3 +1172,4 @@ export default function IntegrationsPage() {
     </div>
   )
 }
+

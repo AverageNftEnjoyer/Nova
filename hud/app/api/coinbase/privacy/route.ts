@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -18,9 +19,8 @@ function safeDays(value: unknown): number | undefined {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const userContextId = String(verified.user.id || "").trim().toLowerCase()
+  const { userId } = await requireLocalUser()
+  const userContextId = String(userId || "").trim().toLowerCase()
   const store = await createCoinbaseStore(userContextId)
   try {
     return NextResponse.json({
@@ -34,9 +34,8 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const userContextId = String(verified.user.id || "").trim().toLowerCase()
+  const { userId } = await requireLocalUser()
+  const userContextId = String(userId || "").trim().toLowerCase()
   const body = (await req.json()) as {
     showBalances?: boolean
     showTransactions?: boolean

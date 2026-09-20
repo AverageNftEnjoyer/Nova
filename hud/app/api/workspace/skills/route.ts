@@ -1,7 +1,8 @@
 import path from "node:path"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { NextResponse } from "next/server"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import {
   STARTER_SKILLS_CATALOG_VERSION,
   STARTER_SKILL_NAMES,
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
 
   try {
     const workspaceRoot = resolveWorkspaceRoot()
-    const skillsDir = resolveSkillsDir(workspaceRoot, verified.user.id)
+    const skillsDir = resolveSkillsDir(workspaceRoot, userId)
     const url = new URL(req.url)
     const rawName = url.searchParams.get("name")
     if (rawName) {
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
       if (!SKILL_NAME_PATTERN.test(name)) {
         return NextResponse.json({ ok: false, error: "Invalid skill name." }, { status: 400 })
       }
-      const skillPath = resolveSkillFilePath(workspaceRoot, verified.user.id, name)
+      const skillPath = resolveSkillFilePath(workspaceRoot, userId, name)
       const content = await readFile(skillPath, "utf8").catch(() => "")
       if (!content) {
         return NextResponse.json({ ok: false, error: "Skill not found." }, { status: 404 })
@@ -65,12 +66,12 @@ export async function POST(req: Request) {
 
     const workspaceRoot = resolveWorkspaceRoot()
     if (action === "install-starters") {
-      const installed = await installStarterSkills(workspaceRoot, verified.user.id, {
+      const installed = await installStarterSkills(workspaceRoot, userId, {
         onlyWhenEmpty: false,
         respectDisabled: false,
         markInitialized: true,
       })
-      const skills = filterInvokableSkills(await listSkillSummaries(resolveSkillsDir(workspaceRoot, verified.user.id)))
+      const skills = filterInvokableSkills(await listSkillSummaries(resolveSkillsDir(workspaceRoot, userId)))
       return NextResponse.json({ ok: true, installed, skills })
     }
 
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const skillPath = resolveSkillFilePath(workspaceRoot, verified.user.id, name)
+    const skillPath = resolveSkillFilePath(workspaceRoot, userId, name)
     const existing = await readFile(skillPath, "utf8").catch(() => "")
     if (existing) {
       return NextResponse.json(
@@ -101,9 +102,9 @@ export async function POST(req: Request) {
     await writeFile(skillPath, validation.normalized, "utf8")
 
     if (STARTER_SKILL_NAMES.has(name)) {
-      const meta = await readSkillMeta(workspaceRoot, verified.user.id)
+      const meta = await readSkillMeta(workspaceRoot, userId)
       if (meta.disabledStarters.includes(name)) {
-        await writeSkillMeta(workspaceRoot, verified.user.id, {
+        await writeSkillMeta(workspaceRoot, userId, {
           startersInitialized: meta.startersInitialized || true,
           disabledStarters: meta.disabledStarters.filter((item) => item !== name),
           catalogVersion: Math.max(meta.catalogVersion, STARTER_SKILLS_CATALOG_VERSION),
@@ -144,7 +145,7 @@ export async function PUT(req: Request) {
     }
 
     const workspaceRoot = resolveWorkspaceRoot()
-    const skillPath = resolveSkillFilePath(workspaceRoot, verified.user.id, name)
+    const skillPath = resolveSkillFilePath(workspaceRoot, userId, name)
     await mkdir(path.dirname(skillPath), { recursive: true })
     await writeFile(skillPath, validation.normalized, "utf8")
     return NextResponse.json({ ok: true, name, chars: validation.normalized.length })
@@ -169,14 +170,14 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ ok: false, error: "Invalid skill name." }, { status: 400 })
     }
 
-    const skillPath = resolveSkillFilePath(workspaceRoot, verified.user.id, name)
+    const skillPath = resolveSkillFilePath(workspaceRoot, userId, name)
     const skillDir = path.dirname(skillPath)
     await rm(skillDir, { recursive: true, force: true })
 
     if (STARTER_SKILL_NAMES.has(name)) {
-      const meta = await readSkillMeta(workspaceRoot, verified.user.id)
+      const meta = await readSkillMeta(workspaceRoot, userId)
       if (!meta.disabledStarters.includes(name)) {
-        await writeSkillMeta(workspaceRoot, verified.user.id, {
+        await writeSkillMeta(workspaceRoot, userId, {
           startersInitialized: meta.startersInitialized || true,
           disabledStarters: [...meta.disabledStarters, name],
           catalogVersion: Math.max(meta.catalogVersion, STARTER_SKILLS_CATALOG_VERSION),
@@ -184,7 +185,7 @@ export async function DELETE(req: Request) {
       }
     }
 
-    const skills = filterInvokableSkills(await listSkillSummaries(resolveSkillsDir(workspaceRoot, verified.user.id)))
+    const skills = filterInvokableSkills(await listSkillSummaries(resolveSkillsDir(workspaceRoot, userId)))
     return NextResponse.json({ ok: true, deleted: name, skills })
   } catch (error) {
     return NextResponse.json(

@@ -122,6 +122,7 @@
     "smoke:audit:p6-skills-depth": "node scripts/smoke/audit/p6-skills-depth/smoke.mjs",
     "smoke:audit:skills-apostrophe": "node scripts/smoke/audit/skills-apostrophe/smoke.mjs",
     "smoke:audit:starter-seeding": "node scripts/smoke/audit/starter-seeding/smoke.mjs",
+    "smoke:agent-tasks": "node scripts/smoke/agent-tasks/agent-tasks-smoke.mjs && node scripts/smoke/agent-tasks/agent-tasks-ui-smoke.mjs",
     "smoke:audit": "npm run smoke:audit:p1-it-regression && npm run smoke:audit:p2-rule-newline && npm run smoke:audit:p5-workspace-write && npm run smoke:audit:p6-skills-depth && npm run smoke:audit:skills-apostrophe && npm run smoke:audit:starter-seeding",
     "smoke:src-response-quality": "node scripts/smoke/quality/src-response-quality-guard-smoke.mjs",
     "smoke:src-user-preferences": "node scripts/smoke/conversation/src-user-preferences-smoke.mjs",

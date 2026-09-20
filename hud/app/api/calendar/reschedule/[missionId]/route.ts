@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import type { Mission } from "@/lib/missions/types"
@@ -19,11 +20,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ missionId: string }> },
 ) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionSave)
   if (!limit.allowed) return rateLimitExceededResponse(limit)

@@ -1,10 +1,11 @@
 import { streamText } from "ai"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { NextResponse } from "next/server"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { ensureMissionSchedulerStarted } from "../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
 export const runtime = "nodejs"
@@ -20,9 +21,8 @@ function toAiSdkModelId(provider: string, model: string): string {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.chat)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.chat)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   ensureMissionSchedulerStarted({ startScheduler: ensureHudMissionSchedulerStarted })
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
 
     let selectedModel = String(model || "").trim()
     if (!selectedModel) {
-      const config = await loadIntegrationsConfig(verified)
+      const config = await loadIntegrationsConfig({ userId })
       const { provider, model: providerModel } = resolveConfiguredLlmProvider(config)
       selectedModel = toAiSdkModelId(provider, providerModel)
     }

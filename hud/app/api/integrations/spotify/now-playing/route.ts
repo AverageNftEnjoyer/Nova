@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { toSpotifyServiceError } from "@/lib/integrations/spotify/errors/index"
 import { getSpotifyNowPlaying } from "@/lib/integrations/spotify"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { evictStaleNowPlayingCache, logSpotifyApi, nowPlayingCacheByUser, spotifyApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
@@ -41,14 +42,13 @@ function disconnectedNowPlayingResponse(): ReturnType<typeof NextResponse.json> 
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.spotifyNowPlaying)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.spotifyNowPlaying)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const userContextId = verified.user.id
+    const userContextId = userId
     const now = Date.now()
 
     // Serve from cache if fresh enough — avoids a Spotify API round-trip on every 2s poll.
@@ -96,14 +96,14 @@ export async function GET(req: Request) {
     const invalidGrant = normalized.code === "spotify.invalid_request" && normalizedMessage.includes("invalid_grant")
     if (invalidGrant) {
       logSpotifyApi("now_playing.soft_fail", {
-        userContextId: verified.user.id,
+        userContextId: userId,
         code: "spotify.token_missing",
       })
       return disconnectedNowPlayingResponse()
     }
     if (normalized.code === "spotify.not_connected" || normalized.code === "spotify.token_missing") {
       logSpotifyApi("now_playing.soft_fail", {
-        userContextId: verified.user.id,
+        userContextId: userId,
         code: normalized.code,
       })
       return disconnectedNowPlayingResponse()

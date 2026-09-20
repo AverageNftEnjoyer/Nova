@@ -39,7 +39,7 @@ import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
-import { fetchWithSupabaseAuth } from "@/lib/supabase/browser-auth"
+// Supabase removed
 
 function hexToRgbTriplet(hex: string): string {
   const clean = hex.replace("#", "")
@@ -305,7 +305,7 @@ export default function PolymarketPage() {
 
     const syncPolymarketConfig = async () => {
       try {
-        const res = await fetchWithSupabaseAuth("/api/integrations/config", { cache: "no-store" })
+        const res = await fetch("/api/integrations/config", { cache: "no-store" })
         const data = await res.json()
         if (cancelled) return
         if (res.status === 401) {
@@ -374,7 +374,7 @@ export default function PolymarketPage() {
       url.searchParams.set("ascending", ascending ? "true" : "false")
     }
 
-    fetchWithSupabaseAuth(url.toString(), { cache: "no-store" })
+    fetch(url.toString(), { cache: "no-store" })
       .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
@@ -443,7 +443,7 @@ export default function PolymarketPage() {
     if (!settings.polymarket.connected) return void setPositions([])
     let cancelled = false
     setLoadingPortfolio(true)
-    fetchWithSupabaseAuth("/api/polymarket/portfolio", { cache: "no-store" })
+    fetch("/api/polymarket/portfolio", { cache: "no-store" })
       .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
@@ -482,7 +482,7 @@ export default function PolymarketPage() {
     let cancelled = false
     setLoadingOrderBook(true)
     setOrderBookError("")
-    fetchWithSupabaseAuth(`/api/polymarket/book/${encodeURIComponent(selectedTokenId)}`, { cache: "no-store" })
+    fetch(`/api/polymarket/book/${encodeURIComponent(selectedTokenId)}`, { cache: "no-store" })
       .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
@@ -504,7 +504,7 @@ export default function PolymarketPage() {
     let cancelled = false
     setLoadingLeaderboard(true)
     setLeaderboardError("")
-    fetchWithSupabaseAuth(`/api/polymarket/leaderboard?window=${leaderboardWindow}&limit=10`, { cache: "no-store" })
+    fetch(`/api/polymarket/leaderboard?window=${leaderboardWindow}&limit=10`, { cache: "no-store" })
       .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
@@ -534,7 +534,7 @@ export default function PolymarketPage() {
     let cancelled = false
     setLoadingHistory(true)
     setHistoryError("")
-    fetchWithSupabaseAuth(`/api/polymarket/history/${encodeURIComponent(selectedTokenId)}?range=${historyRange}`, { cache: "no-store" })
+    fetch(`/api/polymarket/history/${encodeURIComponent(selectedTokenId)}?range=${historyRange}`, { cache: "no-store" })
       .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
@@ -588,7 +588,7 @@ export default function PolymarketPage() {
     setSavePending(true); setError(""); setStatus("")
     try {
       const binding = await connectPolymarketWallet(window)
-      const res = await fetchWithSupabaseAuth("/api/polymarket/connect", {
+      const res = await fetch("/api/polymarket/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ walletAddress: binding.walletAddress, signatureType: 0, liveTradingEnabled: settings.polymarket.liveTradingEnabled }),
@@ -608,7 +608,7 @@ export default function PolymarketPage() {
   const handleDisconnect = async () => {
     setSavePending(true); setError(""); setStatus("")
     try {
-      const res = await fetchWithSupabaseAuth("/api/polymarket/disconnect", { method: "POST" })
+      const res = await fetch("/api/polymarket/disconnect", { method: "POST" })
       const data = await res.json()
       if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
@@ -624,7 +624,7 @@ export default function PolymarketPage() {
   const handleToggleLiveTrading = async (nextValue: boolean) => {
     setSavePending(true); setError("")
     try {
-      const res = await fetchWithSupabaseAuth("/api/polymarket/settings", {
+      const res = await fetch("/api/polymarket/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ liveTradingEnabled: nextValue }),
@@ -861,5 +861,6 @@ export default function PolymarketPage() {
     </div>
   )
 }
+
 
 

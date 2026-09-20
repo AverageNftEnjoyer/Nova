@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { loadMissions, upsertMission, deleteMission } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { getTemplate, instantiateTemplate } from "@/lib/missions/templates"
@@ -77,11 +78,7 @@ function getAgentMissionRolloutBlockReason(mission: Pick<Mission, "nodes">): str
  * Returns all missions for the authenticated user.
  */
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
 
   const url = new URL(req.url)
   const id = url.searchParams.get("id")
@@ -115,11 +112,7 @@ export async function GET(req: Request) {
  * Create or update a mission.
  */
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionSave)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
@@ -142,7 +135,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Mission template not found." }, { status: 404 })
     }
     try {
-      const integrations = await loadIntegrationsConfig(verified)
+      const integrations = await loadIntegrationsConfig({ userId })
       const selected = resolveConfiguredLlmProvider(integrations)
       const mission = instantiateTemplate(template, userId, {
         aiIntegration: selected.provider,
@@ -445,11 +438,7 @@ export async function POST(req: Request) {
  * Delete a mission by ID.
  */
 export async function DELETE(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionSave)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { executeWorkflowAutofix } from "@/lib/missions/workflow/autofix"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import type { WorkflowSummary } from "@/lib/missions/types"
 import type { WorkflowValidationMode, WorkflowValidationProfile } from "@/lib/missions/workflow/validation"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
@@ -24,11 +25,7 @@ function parseProfile(value: unknown): WorkflowValidationProfile {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
 
   let body: {
     summary?: WorkflowSummary

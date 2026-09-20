@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { buildGmailCalendarOAuthUrl } from "@/lib/integrations/google-calendar/service"
 import { gmailError } from "@/lib/integrations/gmail/errors"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { connectQuerySchema, gmailCalendarApiErrorResponse, logGmailCalendarApi } from "../_shared"
 
 export const runtime = "nodejs"
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
     }
     const { returnTo, mode } = parsed.data
     logGmailCalendarApi("connect.begin", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       returnTo,
       mode: mode || "redirect",
     })

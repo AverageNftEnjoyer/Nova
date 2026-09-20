@@ -11,7 +11,7 @@ import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { cn } from "@/lib/shared/utils"
 import { loadUserSettings } from "@/lib/settings/userSettings"
 import { getActiveUserId } from "@/lib/auth/active-user"
-import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
+// Supabase removed
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
 
@@ -150,9 +150,7 @@ export function ChatShellController() {
   }, [activeConversationStreaming, novaState, streamingAssistantId])
 
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
-    if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
-    const { data } = await supabaseBrowser.auth.getSession()
-    return String(data.session?.access_token || "").trim()
+    return ""
   }, [])
 
   const buildHudSessionKey = useCallback(
@@ -806,6 +804,7 @@ export function ChatShellController() {
     </div>
   )
 }
+
 
 
 

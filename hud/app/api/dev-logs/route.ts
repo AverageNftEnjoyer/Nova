@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import fs from "node:fs/promises"
 import path from "node:path"
 
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -166,10 +167,9 @@ async function resolveWorkspaceRoot(): Promise<string> {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
-  const userContextId = normalizeUserContextId(verified.user.id)
+  const userContextId = normalizeUserContextId(userId)
   if (!userContextId) return NextResponse.json({ ok: false, error: "Missing user context." }, { status: 400 })
 
   const url = new URL(req.url)

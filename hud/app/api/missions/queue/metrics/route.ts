@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
-import { createSupabaseAdminClient, requireSupabaseApiUser } from "@/lib/supabase/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 
 export const runtime = "nodejs"
@@ -17,11 +17,7 @@ function readIntEnv(name: string, fallback: number, minValue: number, maxValue: 
 const QUEUE_FAILURE_LOOKBACK_MINUTES = readIntEnv("NOVA_MISSIONS_QUEUE_FAILURE_LOOKBACK_MINUTES", 60, 5, 24 * 60)
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionQueueMetricsRead)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
@@ -109,3 +105,4 @@ export async function GET(req: Request) {
     },
   })
 }
+

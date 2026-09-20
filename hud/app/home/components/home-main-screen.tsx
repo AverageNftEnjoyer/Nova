@@ -38,8 +38,8 @@ import { SpotifyHomeModule } from "./spotify-home-module"
 import { YouTubeHomeModule } from "./youtube-home-module"
 import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { WeatherHomeModule } from "./weather-home-module"
-import { PlaceholderOneHomeModule } from "./placeholder-1-home-module"
-import { PlaceholderTwoHomeModule } from "./placeholder-2-home-module"
+import { AgentTasksHomeModule } from "./agent-tasks-home-module"
+import { NotesHomeModule } from "./notes-home-module"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface HistoryConversationMenuProps {
@@ -662,14 +662,14 @@ export function HomeMainScreen() {
             </div>
 
             <div className="grid flex-1 min-h-0 grid-cols-4 gap-1.5">
-              <PlaceholderOneHomeModule
+              <AgentTasksHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
                 className="col-span-2 min-h-0 h-full"
               />
-              <PlaceholderTwoHomeModule
+              <NotesHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}

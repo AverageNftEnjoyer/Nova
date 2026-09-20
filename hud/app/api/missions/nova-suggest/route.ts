@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -37,9 +38,8 @@ function buildFallbackSuggestion(stepTitle: string): string {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionSuggest)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionSuggest)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   let debugSelected = "server_llm=unknown model=unknown"
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as { stepTitle?: string }
     const stepTitle = (typeof body.stepTitle === "string" ? body.stepTitle.trim() : "") || "AI Process"
 
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     const selected = resolveConfiguredLlmProvider(config)
     const provider: Provider = selected.provider
     debugSelected = `server_llm=${selected.provider} model=${selected.model}`

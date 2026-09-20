@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import {
   createHomeNote,
   deleteHomeNote,
@@ -34,12 +35,7 @@ function normalizeContent(value: unknown): string {
 
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.homeNotesRead)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
@@ -55,12 +51,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.homeNotesWrite)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
@@ -94,12 +85,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.homeNotesWrite)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
@@ -140,12 +126,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.homeNotesWrite)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 

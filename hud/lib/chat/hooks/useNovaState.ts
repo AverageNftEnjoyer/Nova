@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user";
 import { normalizeHandoffOperationToken } from "@/lib/chat/handoff";
-import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser";
+// Supabase removed
 import {
   extractPreferredCityCommand,
   loadUserSettings,
@@ -375,7 +375,7 @@ export function useNovaState() {
   }, [streamingAssistantId])
 
   useEffect(() => {
-    if (!hasSupabaseClientConfig || !supabaseBrowser) return
+    if (!false) return
     let mounted = true
     const client = supabaseBrowser
 
@@ -1151,3 +1151,5 @@ export function useNovaState() {
     publishCalendarEvent,
   };
 }
+
+

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { GEMINI_MODEL_OPTIONS } from "@/app/integrations/constants/gemini-models"
 
 export const runtime = "nodejs"
@@ -28,14 +29,13 @@ const STANDARD_GEMINI_MODEL_MAP = new Map(
 )
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.integrationModelProbe)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.integrationModelProbe)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
     const body = (await req.json()) as { apiKey?: string; baseUrl?: string }
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
 
     const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.gemini.apiKey.trim()
     const baseUrl = toApiBase((typeof body.baseUrl === "string" && body.baseUrl.trim()) || config.gemini.baseUrl)

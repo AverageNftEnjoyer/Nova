@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { disconnectGmailCalendar } from "@/lib/integrations/google-calendar/service"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { disconnectBodySchema, gmailCalendarApiErrorResponse, logGmailCalendarApi, safeJson } from "../_shared"
 
 export const runtime = "nodejs"
@@ -20,12 +21,12 @@ export async function POST(req: Request) {
     }
     const accountId = String(parsed.data.accountId || "").trim()
     logGmailCalendarApi("disconnect.begin", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       accountId: accountId || "all",
     })
     await disconnectGmailCalendar(accountId || undefined, verified)
     logGmailCalendarApi("disconnect.success", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       accountId: accountId || "all",
     })
     return NextResponse.json({ ok: true })

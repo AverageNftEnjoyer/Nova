@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { probeYouTubeConnection } from "@/lib/integrations/youtube"
 import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { logYouTubeApi, youtubeApiErrorResponse } from "../youtube/_shared"
 
 export const runtime = "nodejs"
@@ -14,14 +15,14 @@ export async function POST(req: Request) {
   if (unauthorized || !verified) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.integrationModelProbe)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.integrationModelProbe)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
     const probe = await probeYouTubeConnection(verified)
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     logYouTubeApi("probe.success", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       connected: probe.connected,
       channelId: probe.channelId,
     })

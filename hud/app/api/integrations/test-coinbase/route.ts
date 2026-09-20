@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { createHmac, createPrivateKey, createSign, randomUUID } from "node:crypto"
 
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseIntegrationConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
 export const runtime = "nodejs"
@@ -205,12 +206,11 @@ function buildCoinbasePrivateAuthHeaders(params: {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.integrationModelProbe)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.integrationModelProbe)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
-  const config = await loadIntegrationsConfig(verified)
+  const config = await loadIntegrationsConfig({ userId })
   const hasCreds = config.coinbase.apiKey.trim().length > 0 && config.coinbase.apiSecret.trim().length > 0
 
   if (!hasCreds) {
@@ -352,7 +352,7 @@ export async function POST(req: Request) {
       verified,
     )
     try {
-      await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), verified.user.id, next)
+      await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userId, next)
     } catch (error) {
       console.warn("[integrations/test-coinbase] Failed to sync agent runtime snapshot:", error)
     }

@@ -11,23 +11,7 @@ import {
   resetSettings,
   type UserSettings,
 } from "@/lib/settings/userSettings"
-import {
-  saveBootMusicBlob,
-  removeBootMusicAsset,
-  listBootMusicAssets,
-  getActiveBootMusicAssetId,
-  setActiveBootMusicAsset,
-  type BootMusicAssetMeta,
-} from "@/lib/media/bootMusicStorage"
-import {
-  saveBackgroundVideoBlob,
-  removeBackgroundVideoAsset,
-  listBackgroundVideoAssets,
-  getActiveBackgroundVideoAssetId,
-  setActiveBackgroundVideoAsset,
-  type BackgroundVideoAssetMeta,
-} from "@/lib/media/backgroundVideoStorage"
-import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
+// Boot music and background video features removed
 import type { DarkBackgroundType } from "@/lib/settings/userSettings"
 
 const AVATAR_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
@@ -90,9 +74,10 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   const [backgroundVideoError, setBackgroundVideoError] = useState<string | null>(null)
 
   // Media libraries
-  const [bootMusicAssets, setBootMusicAssets] = useState<BootMusicAssetMeta[]>([])
+  // Boot music and background video removed
+  const [bootMusicAssets, setBootMusicAssets] = useState<any[]>([])
   const [activeBootMusicAssetId, setActiveBootMusicAssetId] = useState<string | null>(null)
-  const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<BackgroundVideoAssetMeta[]>([])
+  const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<any[]>([])
   const [activeBackgroundVideoAssetId, setActiveBackgroundVideoAssetId] = useState<string | null>(null)
 
   // Memory editor
@@ -119,26 +104,13 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   // ─── Workspace sync ───────────────────────────────────────────────────────
 
   const pushWorkspaceContextSync = useCallback(async (payload: Record<string, unknown>, serialized: string) => {
-    if (!hasSupabaseClientConfig || !supabaseBrowser) {
-      // Local-only mode, skip workspace sync
-      lastWorkspaceSyncPayloadRef.current = serialized
-      if (pendingWorkspaceSyncPayloadRef.current === serialized) {
-        pendingWorkspaceSyncPayloadRef.current = ""
-        pendingWorkspaceSyncDataRef.current = null
-      }
-      return
+    // Local-only mode, skip workspace sync
+    lastWorkspaceSyncPayloadRef.current = serialized
+    if (pendingWorkspaceSyncPayloadRef.current === serialized) {
+      pendingWorkspaceSyncPayloadRef.current = ""
+      pendingWorkspaceSyncDataRef.current = null
     }
-    const { data } = await supabaseBrowser.auth.getSession()
-    const accessToken = String(data.session?.access_token || "").trim()
-    if (!accessToken) {
-      // No auth session, skip workspace sync
-      lastWorkspaceSyncPayloadRef.current = serialized
-      if (pendingWorkspaceSyncPayloadRef.current === serialized) {
-        pendingWorkspaceSyncPayloadRef.current = ""
-        pendingWorkspaceSyncDataRef.current = null
-      }
-      return
-    }
+    return
     const res = await fetch("/api/workspace/context-sync", {
       method: "POST",
       headers: {
@@ -218,16 +190,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   // ─── Media libraries ──────────────────────────────────────────────────────
 
   const refreshMediaLibraries = useCallback(async () => {
-    const [bootAssets, bootActiveId, videoAssets, videoActiveId] = await Promise.all([
-      listBootMusicAssets(),
-      getActiveBootMusicAssetId(),
-      listBackgroundVideoAssets(),
-      getActiveBackgroundVideoAssetId(),
-    ])
-    setBootMusicAssets(bootAssets)
-    setActiveBootMusicAssetId(bootActiveId)
-    setBackgroundVideoAssets(videoAssets)
-    setActiveBackgroundVideoAssetId(videoActiveId)
+    // Boot music and background video removed
   }, [])
 
   // ─── Memory ───────────────────────────────────────────────────────────────
@@ -280,9 +243,6 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     setAuthBusy(true)
     setAuthError("")
     try {
-      if (!hasSupabaseClientConfig || !supabaseBrowser) throw new Error("Supabase client is not configured.")
-      const { error } = await supabaseBrowser.auth.signOut()
-      if (error) throw error
       setActiveUserId(null)
       setAuthAuthenticated(false)
       setAuthEmail("")
@@ -298,61 +258,44 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     setAuthBusy(true)
     setAuthError("")
     try {
-      if (!hasSupabaseClientConfig || !supabaseBrowser) throw new Error("Supabase client is not configured.")
-      const targetEmail = authEmail.trim()
-      if (!targetEmail) throw new Error("No account email found for this session.")
-      const redirectTo = `${window.location.origin}/login?mode=reset`
-      const { error } = await supabaseBrowser.auth.resetPasswordForEmail(targetEmail, { redirectTo })
-      if (error) throw error
-      setAuthError("Reset link sent. Check your email.")
+      throw new Error("Authentication not available in local-only mode.")
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Failed to send reset email.")
     } finally {
       setAuthBusy(false)
     }
-  }, [authEmail])
+  }, [])
 
   const handleRequestEmailChange = useCallback(async () => {
     setAccountBusy(true)
     setAccountMessage("")
     try {
-      if (!hasSupabaseClientConfig || !supabaseBrowser) throw new Error("Supabase client is not configured.")
-      const nextEmail = pendingEmail.trim().toLowerCase()
-      if (!nextEmail) throw new Error("Enter a valid email.")
-      const { error } = await supabaseBrowser.auth.updateUser({ email: nextEmail })
-      if (error) throw error
-      setAccountMessage("Email update requested. Check both inboxes to confirm change.")
-      setEmailModalOpen(false)
+      throw new Error("Authentication not available in local-only mode.")
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : "Failed to request email change.")
     } finally {
       setAccountBusy(false)
     }
-  }, [pendingEmail])
+  }, [])
 
   const handleDeleteAccount = useCallback(async () => {
     setAccountBusy(true)
     setAccountMessage("")
     try {
-      const password = deletePassword.trim()
-      if (!password) throw new Error("Password is required.")
       const res = await fetch("/api/account/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
       })
       const data = await readJsonResponseOrThrow(res, "Invalid account deletion response payload.")
-      if (!res.ok) throw new Error(responseErrorMessage(data, "Failed to permanently delete account."))
-      if (!hasSupabaseClientConfig || !supabaseBrowser) throw new Error("Supabase client is not configured.")
-      await supabaseBrowser.auth.signOut()
+      if (!res.ok) throw new Error(responseErrorMessage(data, "Failed to delete local data."))
       setActiveUserId(null)
       navigateToLogin()
     } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : "Failed to permanently delete account.")
+      setAccountMessage(error instanceof Error ? error.message : "Failed to delete local data.")
     } finally {
       setAccountBusy(false)
     }
-  }, [deletePassword, navigateToLogin])
+  }, [navigateToLogin])
 
   // ─── Profile updaters ─────────────────────────────────────────────────────
 
@@ -501,9 +444,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const isMp3 = file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
     if (!isMp3) { setBootMusicError("Only MP3 files are supported."); return }
     if (file.size > 20 * 1024 * 1024) { setBootMusicError("File is too large. Max size is 20MB."); return }
-    const asset = await saveBootMusicBlob(file, file.name)
-    await setActiveBootMusicAsset(asset.id)
-    await refreshMediaLibraries()
+    // Removed
     const newSettings = {
       ...settings,
       app: { ...settings.app, bootMusicDataUrl: null, bootMusicFileName: asset.fileName, bootMusicAssetId: asset.id },
@@ -519,8 +460,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const remaining = bootMusicAssets.filter((a) => a.id !== targetId)
     const nextActive = remaining[0] ?? null
     try {
-      await removeBootMusicAsset(targetId)
-      await setActiveBootMusicAsset(nextActive?.id ?? null)
+      // Removed
       await refreshMediaLibraries()
     } catch {}
     const newSettings = {
@@ -534,7 +474,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   const selectBootMusicAsset = useCallback((assetId: string | null) => {
     if (!settings) return
     const selected = assetId ? bootMusicAssets.find((a) => a.id === assetId) ?? null : null
-    setActiveBootMusicAsset(assetId).then(refreshMediaLibraries).catch(() => {})
+    // Removed => {})
     const newSettings = {
       ...settings,
       app: { ...settings.app, bootMusicDataUrl: null, bootMusicFileName: selected?.fileName ?? null, bootMusicAssetId: selected?.id ?? null },
@@ -552,9 +492,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     if (!isVideo && !isImage) { setBackgroundVideoError("Only MP4, JPG, PNG, WEBP, or SVG files are supported."); return }
     if (isVideo && file.size > 300 * 1024 * 1024) { setBackgroundVideoError("File is too large. Max size is 300MB."); return }
     if (isImage && file.size > 25 * 1024 * 1024) { setBackgroundVideoError("Image is too large. Max size is 25MB."); return }
-    const asset = await saveBackgroundVideoBlob(file, file.name)
-    await setActiveBackgroundVideoAsset(asset.id)
-    await refreshMediaLibraries()
+    // Removed
     const newSettings = {
       ...settings,
       app: {
@@ -577,8 +515,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const remaining = backgroundVideoAssets.filter((a) => a.id !== targetId)
     const nextActive = remaining[0] ?? null
     try {
-      await removeBackgroundVideoAsset(targetId)
-      await setActiveBackgroundVideoAsset(nextActive?.id ?? null)
+      // Removed
       await refreshMediaLibraries()
     } catch {}
     const newSettings = {
@@ -603,7 +540,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   const selectBackgroundVideoAsset = useCallback((assetId: string | null) => {
     if (!settings) return
     const selected = assetId ? backgroundVideoAssets.find((a) => a.id === assetId) ?? null : null
-    setActiveBackgroundVideoAsset(assetId).then(refreshMediaLibraries).catch(() => {})
+    // Removed => {})
     const newSettings = {
       ...settings,
       app: {
@@ -632,25 +569,9 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       setSettings(loadUserSettings())
       setAuthConfigured(true)
       setAccountMessage("")
-      if (!hasSupabaseClientConfig || !supabaseBrowser) {
-        setAuthAuthenticated(false)
-        setAuthEmail("")
-      } else {
-        void supabaseBrowser.auth.getSession()
-          .then(({ data }) => {
-            if (cancelled) return
-            setAuthAuthenticated(Boolean(data.session?.user))
-            const nextEmail = String(data.session?.user?.email || "").trim()
-            setAuthEmail(nextEmail)
-            setPendingEmail(nextEmail)
-          })
-          .catch(() => {
-            if (cancelled) return
-            setAuthAuthenticated(false)
-            setAuthEmail("")
-            setPendingEmail("")
-          })
-      }
+      // Local-only mode - no authentication
+      setAuthAuthenticated(false)
+      setAuthEmail("")
       void refreshMediaLibraries().catch(() => {
         if (cancelled) return
         setBootMusicAssets([])
@@ -734,3 +655,4 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     CROP_FRAME: 240,
   }
 }
+

@@ -11,6 +11,7 @@
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"],
+    "rootDir": "src",
     "outDir": "dist"
   },
   "include": ["src/**/*.ts"],

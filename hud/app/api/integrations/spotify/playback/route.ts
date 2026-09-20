@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { controlSpotifyPlayback, findSpotifyPlaylistByQuery, getSpotifyCurrentContext } from "@/lib/integrations/spotify"
 import { SpotifyServiceError } from "@/lib/integrations/spotify/errors/index"
 import { clearSpotifyFavoritePlaylist, readSpotifySkillPrefs, writeSpotifyFavoritePlaylist } from "@/lib/integrations/spotify/skill-prefs/index"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { logSpotifyApi, nowPlayingCacheByUser, playbackBodySchema, safeJson, spotifyApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
     let scope: Parameters<typeof controlSpotifyPlayback>[2]
 
     if (verified) {
-      const verifiedUserContextId = normalizeUserContextId(verified.user.id)
+      const verifiedUserContextId = normalizeUserContextId(userId)
       if (requestedUserContextId && requestedUserContextId !== verifiedUserContextId) {
         // Treat userContextId in payload as a client hint only; authenticated user scope
         // is always derived from verified Supabase identity.
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
           verifiedUserContextId,
         })
       }
-      userId = verifiedUserContextId || verified.user.id
+      userId = verifiedUserContextId || userId
       scope = verified
     } else {
       if (!runtimeAuthenticated) {

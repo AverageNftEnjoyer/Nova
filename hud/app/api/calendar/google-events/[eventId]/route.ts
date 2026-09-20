@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { z } from "zod"
 
 import {
@@ -9,7 +10,7 @@ import {
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { gmailCalendarApiErrorResponse, safeJson } from "../../../integrations/gmail-calendar/_shared"
 
 export const runtime = "nodejs"
@@ -52,27 +53,18 @@ function resolveAccountId(config: Awaited<ReturnType<typeof loadIntegrationsConf
 }
 
 async function resolveCalendarScope(req: Request, requestedUserContextId: string) {
+  const { userId } = await requireLocalUser()
+
+  return {
+    error: null,
+    userId: normalizeUserContextId(userId),
+    scope: null,
+  }
+
   const runtimeTokenDecision = verifyRuntimeSharedToken(req)
   if (!runtimeTokenDecision.ok) {
     return {
       error: runtimeSharedTokenErrorResponse(runtimeTokenDecision),
-      userId: "",
-      scope: null,
-    }
-  }
-
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (verified?.user?.id) {
-    return {
-      error: null,
-      userId: normalizeUserContextId(verified.user.id),
-      scope: verified,
-    }
-  }
-
-  if (runtimeTokenDecision.authenticated !== true) {
-    return {
-      error: unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 }),
       userId: "",
       scope: null,
     }

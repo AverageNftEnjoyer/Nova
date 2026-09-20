@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { getYouTubeFeed } from "@/lib/integrations/youtube"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { feedQuerySchema, logYouTubeApi, parseCsv, youtubeApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
@@ -15,11 +16,11 @@ export async function GET(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeFeedRead, 2)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeFeedRead, 2)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     const tokenConfigured = config.youtube.refreshTokenEnc.trim().length > 0 || config.youtube.accessTokenEnc.trim().length > 0
     if (!config.youtube.connected || !tokenConfigured) {
       return NextResponse.json({ ok: false, error: "YouTube integration is not connected." }, { status: 400 })
@@ -56,7 +57,7 @@ export async function GET(req: Request) {
     )
 
     logYouTubeApi("feed.success", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       mode: result.mode,
       topic: result.topic,
       itemCount: result.items.length,

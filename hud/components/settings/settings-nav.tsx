@@ -1,6 +1,6 @@
 "use client"
 
-import { User, Palette, Volume2, Bell, Sparkles, FileCode2, Shield, Power, RotateCcw } from "lucide-react"
+import { User, Palette, Volume2, Bell, Sparkles, FileCode2, Shield, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/shared/utils"
 
@@ -11,7 +11,6 @@ export const SETTINGS_SECTIONS = [
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "personalization", label: "Personalization", icon: Sparkles },
   { id: "skills", label: "Skills", icon: FileCode2 },
-  { id: "bootup", label: "Bootup", icon: Power },
   { id: "access", label: "Account", icon: Shield },
 ] as const
 

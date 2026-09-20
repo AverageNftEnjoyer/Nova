@@ -67,6 +67,11 @@ tasks/
 
 # temporary local tests
 tests/
+
+# Playwright
+hud/test-results/
+hud/playwright-report/
+hud/playwright/.cache/
 # project-specific local artifacts
 nul
 *.exe
@@ -82,3 +87,4 @@ src/runtime/speech_*.mp3
 /AGENTS.md
 prompts/
 phantom-reference
+.playwright-cli

@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { probeSpotifyConnection } from "@/lib/integrations/spotify"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.spotifyPlayback)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.spotifyPlayback)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
     const probe = await probeSpotifyConnection(verified)
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     return NextResponse.json({
       ok: true,
       connected: probe.connected,

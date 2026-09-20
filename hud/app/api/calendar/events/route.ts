@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { aggregateCalendarEvents } from "@/lib/calendar/aggregator"
 
@@ -20,11 +21,7 @@ const SLOW_CALENDAR_EVENTS_MS = 1_200
  */
 export async function GET(req: Request) {
   const requestStartedAt = Date.now()
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.calendarEventsRead)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
@@ -60,7 +57,7 @@ export async function GET(req: Request) {
 
   try {
     const aggregateStartedAt = Date.now()
-    const allEvents = await aggregateCalendarEvents(userId, rangeStart, rangeEnd, verified)
+    const allEvents = await aggregateCalendarEvents(userId, rangeStart, rangeEnd)
     const aggregateMs = Date.now() - aggregateStartedAt
     const totalMs = Date.now() - requestStartedAt
     const truncated = allEvents.length > MAX_EVENTS_RESPONSE

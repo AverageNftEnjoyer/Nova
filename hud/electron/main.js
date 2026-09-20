@@ -1,9 +1,9 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron')
+const electron = require('electron')
+console.log('Electron loaded:', electron)
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = electron
+console.log('app:', app)
 const path = require('path')
 const { spawn } = require('child_process')
-
-// Disable hardware acceleration for better compatibility
-app.disableHardwareAcceleration()
 
 let mainWindow = null
 let tray = null
@@ -106,87 +106,90 @@ function createTray() {
   })
 }
 
-// IPC Handlers for agent management
-ipcMain.handle('start-agent-task', async (event, taskConfig) => {
-  try {
-    const { taskId, agent, model, prompt, workingDirectory } = taskConfig
+function setupIpcHandlers() {
+  // IPC Handlers for agent management
+  ipcMain.handle('start-agent-task', async (event, taskConfig) => {
+    try {
+      const { taskId, agent, model, prompt, workingDirectory } = taskConfig
 
-    // Spawn agent process (Claude Code example)
-    const agentProcess = spawn('claude', [
-      '--output-format', 'stream-json',
-      '--model', model || 'sonnet',
-    ], {
-      cwd: workingDirectory || process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe']
-    })
+      // Spawn agent process (Claude Code example)
+      const agentProcess = spawn('claude', [
+        '--output-format', 'stream-json',
+        '--model', model || 'sonnet',
+      ], {
+        cwd: workingDirectory || process.cwd(),
+        stdio: ['pipe', 'pipe', 'pipe']
+      })
 
-    // Store process reference
-    activeAgentProcesses.set(taskId, agentProcess)
+      // Store process reference
+      activeAgentProcesses.set(taskId, agentProcess)
 
-    // Handle stdout (agent messages)
-    agentProcess.stdout.on('data', (data) => {
-      try {
-        const lines = data.toString().split('\n').filter(Boolean)
-        lines.forEach(line => {
-          const message = JSON.parse(line)
-          // Send update to renderer
-          mainWindow?.webContents.send('agent-task-update', {
-            taskId,
-            message
+      // Handle stdout (agent messages)
+      agentProcess.stdout.on('data', (data) => {
+        try {
+          const lines = data.toString().split('\n').filter(Boolean)
+          lines.forEach(line => {
+            const message = JSON.parse(line)
+            // Send update to renderer
+            mainWindow?.webContents.send('agent-task-update', {
+              taskId,
+              message
+            })
           })
+        } catch (err) {
+          console.error('Failed to parse agent output:', err)
+        }
+      })
+
+      // Handle stderr
+      agentProcess.stderr.on('data', (data) => {
+        mainWindow?.webContents.send('agent-task-error', {
+          taskId,
+          error: data.toString()
         })
-      } catch (err) {
-        console.error('Failed to parse agent output:', err)
-      }
-    })
-
-    // Handle stderr
-    agentProcess.stderr.on('data', (data) => {
-      mainWindow?.webContents.send('agent-task-error', {
-        taskId,
-        error: data.toString()
       })
-    })
 
-    // Handle process exit
-    agentProcess.on('close', (code) => {
+      // Handle process exit
+      agentProcess.on('close', (code) => {
+        activeAgentProcesses.delete(taskId)
+        mainWindow?.webContents.send('agent-task-complete', {
+          taskId,
+          exitCode: code
+        })
+      })
+
+      // Send prompt to agent
+      agentProcess.stdin.write(JSON.stringify({ prompt }) + '\n')
+
+      return { success: true, taskId }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('stop-agent-task', async (event, taskId) => {
+    const process = activeAgentProcesses.get(taskId)
+    if (process) {
+      process.kill('SIGTERM')
       activeAgentProcesses.delete(taskId)
-      mainWindow?.webContents.send('agent-task-complete', {
-        taskId,
-        exitCode: code
-      })
-    })
+      return { success: true }
+    }
+    return { success: false, error: 'Task not found' }
+  })
 
-    // Send prompt to agent
-    agentProcess.stdin.write(JSON.stringify({ prompt }) + '\n')
-
-    return { success: true, taskId }
-  } catch (error) {
-    return { success: false, error: error.message }
-  }
-})
-
-ipcMain.handle('stop-agent-task', async (event, taskId) => {
-  const process = activeAgentProcesses.get(taskId)
-  if (process) {
-    process.kill('SIGTERM')
-    activeAgentProcesses.delete(taskId)
-    return { success: true }
-  }
-  return { success: false, error: 'Task not found' }
-})
-
-ipcMain.handle('get-active-tasks', async () => {
-  return {
-    success: true,
-    taskIds: Array.from(activeAgentProcesses.keys())
-  }
-})
+  ipcMain.handle('get-active-tasks', async () => {
+    return {
+      success: true,
+      taskIds: Array.from(activeAgentProcesses.keys())
+    }
+  })
+}
 
 // App lifecycle
 app.whenReady().then(() => {
   createWindow()
   createTray()
+  setupIpcHandlers()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

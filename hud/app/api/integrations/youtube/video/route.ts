@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { getYouTubeVideoDetails } from "@/lib/integrations/youtube"
 import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { logYouTubeApi, videoQuerySchema, youtubeApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
@@ -15,11 +16,11 @@ export async function GET(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeVideoRead)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeVideoRead)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     if (!config.youtube.permissions.allowVideoDetails) {
       return NextResponse.json({ ok: false, error: "YouTube video details are disabled in permissions." }, { status: 403 })
     }
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
     }
     const details = await getYouTubeVideoDetails(parsed.data.id, verified)
     logYouTubeApi("video.success", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       videoId: details.id,
       channelId: details.channelId,
     })

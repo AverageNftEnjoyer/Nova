@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import {
   loadIntegrationsConfig,
@@ -28,7 +29,7 @@ import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymar
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { isValidSlackWebhookUrl, redactSlackWebhookUrl } from "@/lib/notifications/slack"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
 export const runtime = "nodejs"
@@ -763,12 +764,11 @@ function toClientConfig(config: IntegrationsConfig) {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
-  const config = await loadIntegrationsConfig(verified)
+  const config = await loadIntegrationsConfig({ userId })
   try {
-    await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), verified.user.id, config)
+    await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userId, config)
   } catch (error) {
     console.warn("[integrations/config][GET] Failed to sync agent runtime snapshot:", error)
   }
@@ -776,8 +776,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const body = (await req.json()) as Partial<IntegrationsConfig> & {
@@ -799,7 +798,7 @@ export async function PATCH(req: Request) {
       gcalendar?: Partial<GmailCalendarIntegrationConfig>
       activeLlmProvider?: LlmProvider
     }
-    const current = await loadIntegrationsConfig(verified)
+    const current = await loadIntegrationsConfig({ userId })
     const wasCoinbaseConnected = Boolean(current.coinbase.connected)
     const hasTelegramPatch = Object.prototype.hasOwnProperty.call(body, "telegram")
     const hasDiscordPatch = Object.prototype.hasOwnProperty.call(body, "discord")
@@ -871,7 +870,7 @@ export async function PATCH(req: Request) {
       agents: hasAgentsPatch ? (body.agents ?? current.agents) : current.agents,
     }, verified)
     if (wasCoinbaseConnected && !next.coinbase.connected) {
-      const userContextId = String(verified.user.id || "").trim().toLowerCase()
+      const userContextId = String(userId || "").trim().toLowerCase()
       if (userContextId) {
         const store = await createCoinbaseStore(userContextId)
         try {
@@ -888,7 +887,7 @@ export async function PATCH(req: Request) {
       }
     }
     try {
-      await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), verified.user.id, next)
+      await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userId, next)
     } catch (error) {
       console.warn("[integrations/config][PATCH] Failed to sync agent runtime snapshot:", error)
     }

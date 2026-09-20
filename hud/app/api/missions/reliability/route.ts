@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { evaluateMissionSlos, listMissionTelemetryEvents, MISSION_SLO_POLICY } from "@/lib/missions/telemetry"
 
@@ -8,11 +9,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionReliabilityRead)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 

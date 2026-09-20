@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { buildMissionFromPrompt } from "@/lib/missions/runtime"
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { createCalendarEvent, deleteCalendarEvent } from "@/lib/integrations/google-calendar/service"
@@ -31,9 +32,9 @@ export async function POST(req: Request) {
   if (unauthorized || !verified?.user?.id) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionBuild)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionBuild)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
-  const userId = verified.user.id
+  const userId = userId
   const body = (await req.json()) as {
     prompt?: string
     deploy?: boolean

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
@@ -11,7 +12,7 @@ import { dispatchOutput, type MissionOutputDispatchTarget } from "@/lib/missions
 import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notifications/discord"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { ensureMissionSchedulerStarted } from "../../../../../src/runtime/modules/services/missions/scheduler/index.js"
@@ -94,9 +95,9 @@ export async function POST(req: Request) {
 
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionTrigger)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionTrigger)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
-  const userId = verified.user.id
+  const userId = userId
 
   ensureMissionSchedulerStarted({ startScheduler: ensureHudMissionSchedulerStarted })
 

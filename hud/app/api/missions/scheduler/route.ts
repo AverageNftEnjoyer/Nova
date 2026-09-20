@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import {
   ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted,
@@ -6,7 +7,7 @@ import {
   stopMissionScheduler,
 } from "@/lib/notifications/scheduler"
 import { getExecutionTickState } from "@/lib/missions/workflow/execution-tick"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { ensureMissionSchedulerStarted } from "../../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
 export const runtime = "nodejs"
@@ -17,8 +18,7 @@ function combinedState() {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { userId } = await requireLocalUser()
 
   const url = new URL(req.url)
   if (url.searchParams.get("ensure") === "1") {
@@ -28,16 +28,14 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { userId } = await requireLocalUser()
 
   ensureMissionSchedulerStarted({ startScheduler: ensureHudMissionSchedulerStarted })
   return NextResponse.json(combinedState())
 }
 
 export async function DELETE(req: Request) {
-  const { unauthorized } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
+  const { userId } = await requireLocalUser()
 
   stopMissionScheduler()
   return NextResponse.json(combinedState())

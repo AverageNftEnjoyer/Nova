@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { buildSpotifyOAuthUrl } from "@/lib/integrations/spotify"
 import { spotifyError } from "@/lib/integrations/spotify/errors/index"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { connectQuerySchema, logSpotifyApi, spotifyApiErrorResponse } from "@/app/api/integrations/spotify/_shared"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const url = new URL(req.url)
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     }
     const { returnTo, mode } = parsed.data
     logSpotifyApi("connect.begin", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       returnTo,
       mode: mode || "redirect",
     })

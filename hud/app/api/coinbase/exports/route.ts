@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { createCoinbaseStore, reportsToCsv, transactionsToCsv } from "@/lib/coinbase/reporting"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -15,13 +16,12 @@ function normalizeKind(value: string): "reports" | "transactions" {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
   const url = new URL(req.url)
   const format = normalizeFormat(url.searchParams.get("format") || "json")
   const kind = normalizeKind(url.searchParams.get("kind") || "reports")
   const limit = Math.max(1, Math.min(10_000, Number.parseInt(url.searchParams.get("limit") || "500", 10) || 500))
-  const userContextId = String(verified.user.id || "").trim().toLowerCase()
+  const userContextId = String(userId || "").trim().toLowerCase()
   if (!userContextId) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
 
   const store = await createCoinbaseStore(userContextId)

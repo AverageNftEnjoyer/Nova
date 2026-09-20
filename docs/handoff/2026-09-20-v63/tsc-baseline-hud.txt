@@ -1,0 +1,196 @@
+app/api/account/delete/route.ts(29,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/account/delete/route.ts(31,36): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/account/delete/route.ts(42,9): error TS7022: 'userId' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+app/api/account/delete/route.ts(42,18): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/calendar/google-events/[eventId]/route.ts(65,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/calendar/google-events/[eventId]/route.ts(69,38): error TS2304: Cannot find name 'userId'.
+app/api/calendar/google-events/route.ts(60,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/calendar/google-events/route.ts(64,38): error TS2304: Cannot find name 'userId'.
+app/api/coinbase/market/route.ts(212,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/coinbase/market/route.ts(217,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/catalog/route.ts(14,71): error TS2304: Cannot find name 'verified'.
+app/api/integrations/config/route.ts(871,8): error TS2304: Cannot find name 'verified'.
+app/api/integrations/config/runtime-snapshot/route.ts(13,69): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail-calendar/connect/route.ts(13,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/gmail-calendar/connect/route.ts(29,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/gmail-calendar/disconnect/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/gmail-calendar/disconnect/route.ts(24,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/gmail-calendar/disconnect/route.ts(29,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/gmail/accounts/route.ts(29,40): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail/accounts/route.ts(48,10): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail/accounts/route.ts(61,10): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail/connect/route.ts(30,56): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail/disconnect/route.ts(24,51): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail/summary/route.ts(29,73): error TS2304: Cannot find name 'verified'.
+app/api/integrations/gmail/summary/route.ts(45,7): error TS2304: Cannot find name 'verified'.
+app/api/integrations/phantom/challenge/route.ts(11,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/phantom/disconnect/route.ts(11,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/phantom/verify/route.ts(11,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/spotify/connect/route.ts(30,58): error TS2304: Cannot find name 'verified'.
+app/api/integrations/spotify/disconnect/route.ts(20,29): error TS2304: Cannot find name 'verified'.
+app/api/integrations/spotify/now-playing/route.ts(63,51): error TS2304: Cannot find name 'verified'.
+app/api/integrations/spotify/playback/route.ts(44,46): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/test-coinbase/route.ts(229,7): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-coinbase/route.ts(267,9): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-coinbase/route.ts(315,9): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-coinbase/route.ts(352,7): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-coinbase/route.ts(385,7): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-discord/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/test-discord/route.ts(14,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/test-slack/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/test-slack/route.ts(14,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/test-spotify/route.ts(18,48): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-telegram/route.ts(17,8): error TS2304: Cannot find name 'verified'.
+app/api/integrations/test-youtube/route.ts(14,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/test-youtube/route.ts(18,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/test-youtube/route.ts(23,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/integrations/test-youtube/route.ts(25,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/connect/route.ts(13,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/connect/route.ts(29,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/disconnect/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/disconnect/route.ts(24,58): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/feed/route.ts(14,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/feed/route.ts(19,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/feed/route.ts(23,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/integrations/youtube/feed/route.ts(60,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/home-control/route.ts(63,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/home-control/route.ts(68,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/home-control/route.ts(72,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/integrations/youtube/home-control/route.ts(91,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/home-control/route.ts(96,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/home-control/route.ts(107,58): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/home-control/route.ts(123,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/integrations/youtube/home-control/route.ts(180,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/search/route.ts(14,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/search/route.ts(19,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/search/route.ts(23,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/integrations/youtube/search/route.ts(48,22): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/video/route.ts(14,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/integrations/youtube/video/route.ts(19,36): error TS2304: Cannot find name 'userId'.
+app/api/integrations/youtube/video/route.ts(23,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/integrations/youtube/video/route.ts(37,22): error TS2304: Cannot find name 'userId'.
+app/api/missions/build/route.ts(31,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/missions/build/route.ts(35,36): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/missions/build/route.ts(37,9): error TS7022: 'userId' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+app/api/missions/build/route.ts(37,18): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/missions/queue/metrics/route.ts(24,14): error TS2304: Cannot find name 'createSupabaseAdminClient'.
+app/api/missions/route.ts(152,52): error TS2304: Cannot find name 'verified'.
+app/api/missions/route.ts(256,63): error TS2304: Cannot find name 'verified'.
+app/api/missions/route.ts(405,63): error TS2304: Cannot find name 'verified'.
+app/api/missions/route.ts(418,57): error TS2304: Cannot find name 'verified'.
+app/api/missions/route.ts(487,57): error TS2304: Cannot find name 'verified'.
+app/api/missions/trigger/route.ts(96,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/missions/trigger/route.ts(98,36): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/missions/trigger/route.ts(100,9): error TS7022: 'userId' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+app/api/missions/trigger/route.ts(100,18): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/missions/trigger/stream/route.ts(62,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/missions/trigger/stream/route.ts(66,36): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/missions/trigger/stream/route.ts(75,9): error TS7022: 'userId' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+app/api/missions/trigger/stream/route.ts(75,18): error TS2448: Block-scoped variable 'userId' used before its declaration.
+app/api/missions/versions/route.ts(92,81): error TS2304: Cannot find name 'verified'.
+app/api/polymarket/book/[tokenId]/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/book/[tokenId]/route.ts(17,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/connect/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/connect/route.ts(17,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/disconnect/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/disconnect/route.ts(17,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/events/route.ts(18,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/events/route.ts(23,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/history/[tokenId]/route.ts(20,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/history/[tokenId]/route.ts(25,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/history/route.ts(20,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/history/route.ts(25,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/leaderboard/route.ts(26,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/leaderboard/route.ts(31,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/market/[id]/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/market/[id]/route.ts(17,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/markets/route.ts(36,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/markets/route.ts(41,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/orderbook/[tokenId]/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/orderbook/[tokenId]/route.ts(17,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/portfolio/route.ts(14,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/portfolio/route.ts(19,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/portfolio/route.ts(23,51): error TS18004: No value exists in scope for the shorthand property 'userId'. Either declare one or provide an initializer.
+app/api/polymarket/prices/route.ts(26,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/prices/route.ts(31,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/search/route.ts(18,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/search/route.ts(23,44): error TS2304: Cannot find name 'userId'.
+app/api/polymarket/settings/route.ts(12,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/polymarket/settings/route.ts(17,44): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/messages/route.ts(61,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/threads/[threadId]/messages/route.ts(63,36): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/messages/route.ts(74,20): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/messages/route.ts(83,45): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/messages/route.ts(85,16): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/messages/route.ts(135,20): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/route.ts(20,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/threads/[threadId]/route.ts(39,20): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/route.ts(51,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/threads/[threadId]/route.ts(73,22): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/route.ts(82,22): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/route.ts(88,24): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/route.ts(103,9): error TS2304: Cannot find name 'userId'.
+app/api/threads/[threadId]/route.ts(117,22): error TS2304: Cannot find name 'userId'.
+app/api/workspace/context-sync/route.ts(40,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/context-sync/route.ts(54,67): error TS2304: Cannot find name 'userId'.
+app/api/workspace/memory-md/route.ts(62,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/memory-md/route.ts(67,65): error TS2304: Cannot find name 'userId'.
+app/api/workspace/memory-md/route.ts(79,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/memory-md/route.ts(90,65): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(26,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/skills/route.ts(31,55): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(39,61): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(58,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/skills/route.ts(69,67): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(74,101): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(86,59): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(105,55): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(107,45): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(125,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/skills/route.ts(148,59): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(161,44): error TS2304: Cannot find name 'requireSupabaseApiUser'.
+app/api/workspace/skills/route.ts(173,59): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(178,55): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(180,45): error TS2304: Cannot find name 'userId'.
+app/api/workspace/skills/route.ts(188,99): error TS2304: Cannot find name 'userId'.
+app/home/hooks/use-home-integrations.ts(153,30): error TS2304: Cannot find name 'supabaseBrowser'.
+components/settings/use-settings-state.ts(118,34): error TS2304: Cannot find name 'accessToken'.
+components/settings/use-settings-state.ts(450,74): error TS2304: Cannot find name 'asset'.
+components/settings/use-settings-state.ts(450,108): error TS2304: Cannot find name 'asset'.
+components/settings/use-settings-state.ts(502,40): error TS2304: Cannot find name 'asset'.
+components/settings/use-settings-state.ts(503,40): error TS2304: Cannot find name 'asset'.
+components/settings/use-settings-state.ts(504,39): error TS2304: Cannot find name 'asset'.
+lib/chat/hooks/useNovaState.ts(380,20): error TS2304: Cannot find name 'supabaseBrowser'.
+lib/chat/hooks/useNovaState.ts(382,43): error TS7031: Binding element 'data' implicitly has an 'any' type.
+lib/chat/hooks/useNovaState.ts(387,58): error TS7006: Parameter '_event' implicitly has an 'any' type.
+lib/chat/hooks/useNovaState.ts(387,66): error TS7006: Parameter 'session' implicitly has an 'any' type.
+lib/integrations/phantom/service.ts(12,46): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/integrations/polymarket/server.ts(10,46): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/integrations/runtime/agent-sync.ts(39,3): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/runtime/snapshot.ts(5,46): error TS2307: Cannot find module '@/lib/supabase/server' or its corresponding type declarations.
+lib/integrations/spotify/tokens/index.ts(140,7): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/spotify/tokens/index.ts(141,7): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/spotify/tokens/index.ts(141,38): error TS2345: Argument of type 'string | Promise<string>' is not assignable to parameter of type 'string'.
+  Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/spotify/tokens/index.ts(177,47): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/spotify/tokens/index.ts(193,51): error TS2345: Argument of type 'Promise<string>' is not assignable to parameter of type 'string'.
+lib/integrations/spotify/tokens/index.ts(210,9): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/spotify/tokens/index.ts(211,9): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/spotify/tokens/index.ts(211,40): error TS2345: Argument of type 'string | Promise<string>' is not assignable to parameter of type 'string'.
+  Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/store/server-store.ts(412,18): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/store/server-store.ts(434,17): error TS2339: Property 'value' does not exist on type 'Promise<{ decrypted: string; metadata?: Record<string, unknown> | undefined; }>'.
+lib/integrations/store/server-store.ts(436,19): error TS2339: Property 'keyIndex' does not exist on type 'Promise<{ decrypted: string; metadata?: Record<string, unknown> | undefined; }>'.
+lib/integrations/store/server-store.ts(436,33): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/store/server-store.ts(436,64): error TS2339: Property 'value' does not exist on type 'Promise<{ decrypted: string; metadata?: Record<string, unknown> | undefined; }>'.
+lib/integrations/store/server-store.ts(452,3): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(160,9): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(161,9): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(161,40): error TS2345: Argument of type 'string | Promise<string>' is not assignable to parameter of type 'string'.
+  Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(192,47): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(209,51): error TS2345: Argument of type 'Promise<string>' is not assignable to parameter of type 'string'.
+lib/integrations/youtube/tokens/index.ts(227,11): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(228,11): error TS2322: Type 'Promise<string>' is not assignable to type 'string'.
+lib/integrations/youtube/tokens/index.ts(228,42): error TS2345: Argument of type 'string | Promise<string>' is not assignable to parameter of type 'string'.
+  Type 'Promise<string>' is not assignable to type 'string'.

@@ -10,10 +10,20 @@
  *
  * Version History:
  *
- * - V.62 Alpha (2026-09-19): Desktop EXE Release
- *     - Migrated off of Supabase to fully local host.
- *     - Added desktop EXE release with Electron-based runtime and native OS integration.
- *     - Updated user interaction patterns for the desktop experience.
+ * - V.63 Alpha (2026-09-20): Phantom Sprint 2 Agent Tasks module + local-first SQLite/encryption design
+ *     - Added the Agent Tasks home module (replaces Placeholder 1): task cards with play/pause/stop/delete, status badges, progress, cost + token readouts, grouped task list, stats strip, and a create-task modal (agent, model, prompt, priority, permission mode).
+ *     - Added the `/api/agent-tasks` API (GET/POST/PATCH/DELETE), an SSE live stream (`/api/agent-tasks/stream`) with polling fallback, and a per-user JSON task store (`lib/agents/*`). The task runner is SIMULATED until Phase 4 wires real agent processes.
+ *     - Renamed Placeholder 2 to `NotesHomeModule` (`notes-home-module.tsx`); the Notes feature is unchanged.
+ *     - Added `smoke:agent-tasks` (behavior smoke + UI source-guard smoke) under `scripts/smoke/agent-tasks/`.
+ *     - Local-first SQLite migration and unified secrets encryption (DPAPI-wrapped master key) are DESIGNED but NOT implemented yet; see `docs/handoff/2026-09-20-v63/HANDOFF.md`.
+ *
+ * - V.62 Alpha (2026-09-20): Supabase Removal + Local-Only Architecture
+ *     - Removed all Supabase dependencies (database, auth, realtime) to make NovaAIO fully open-source and local.
+ *     - Converted integration configs to filesystem storage (`.nova-data/integrations-{userId}.json`) with encryption for secrets.
+ *     - Converted job ledger and scheduler to in-memory storage with full JobLedgerStore interface.
+ *     - Removed live news feed feature entirely (deleted API routes, hooks, and UI components).
+ *     - Rebranded application from NovaOS to NovaAIO across all UI surfaces and documentation.
+ *     - User settings now persist in localStorage (`nova_user_settings:local-user`) for desktop exe deployment.
  *
  * - V.61 Alpha (2026-03-22): Home Notes module rollout + backend hardening
  *     - Replaced Home Placeholder 2 with a full Notes module backed by runtime services and authenticated HUD API CRUD routes.
@@ -377,7 +387,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.61 Alpha"
+export const NOVA_VERSION = "V.63 Alpha"
 
 
 

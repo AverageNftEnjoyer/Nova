@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import type { Mission } from "@/lib/missions/types"
 import { loadMissions } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
@@ -25,11 +26,7 @@ export const dynamic = "force-dynamic"
  * Returns { ok: true; conflict: boolean } or error.
  */
 export async function PATCH(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.calendarRescheduleWrite)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
@@ -69,7 +66,7 @@ export async function PATCH(req: Request) {
   // Conflict check against a 24-hour window around the new time
   const windowStart = new Date(newDate.getTime() - 12 * 60 * 60 * 1000)
   const windowEnd   = new Date(newDate.getTime() + 12 * 60 * 60 * 1000)
-  const windowEvents = await aggregateCalendarEvents(userId, windowStart, windowEnd, verified)
+  const windowEvents = await aggregateCalendarEvents(userId, windowStart, windowEnd)
 
   // Estimate duration same way as aggregator
   const nodeCount = mission.nodes?.length ?? 1

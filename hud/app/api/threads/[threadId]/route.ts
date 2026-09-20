@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
+
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import {
   collectThreadCleanupHints,
@@ -35,7 +36,7 @@ export async function PATCH(
     .from("threads")
     .update(update)
     .eq("id", threadId)
-    .eq("user_id", verified.user.id)
+    .eq("user_id", userId)
 
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
@@ -69,7 +70,7 @@ export async function DELETE(
       .from("messages")
       .select("metadata")
       .eq("thread_id", normalizedThreadId)
-      .eq("user_id", verified.user.id)
+      .eq("user_id", userId)
       .limit(10_000)
     const threadMessageCount = Array.isArray(messageMetadataRows) ? messageMetadataRows.length : 0
     const cleanupHints = collectThreadCleanupHints(normalizedThreadId, messageMetadataRows ?? [])
@@ -78,13 +79,13 @@ export async function DELETE(
       .from("threads")
       .delete()
       .eq("id", normalizedThreadId)
-      .eq("user_id", verified.user.id)
+      .eq("user_id", userId)
 
     if (error) {
       await appendThreadDeleteAuditLog({
         workspaceRoot,
         threadId: normalizedThreadId,
-        userContextId: verified.user.id,
+        userContextId: userId,
         removedSessionEntries: 0,
         removedTranscriptFiles: 0,
         cleanupError: error.message || "Thread delete failed.",
@@ -99,7 +100,7 @@ export async function DELETE(
     try {
       transcriptCleanup = await pruneThreadTranscripts(
         workspaceRoot,
-        verified.user.id,
+        userId,
         normalizedThreadId,
         {
           sessionConversationIds: cleanupHints.sessionConversationIds,
@@ -113,7 +114,7 @@ export async function DELETE(
     await appendThreadDeleteAuditLog({
       workspaceRoot,
       threadId: normalizedThreadId,
-      userContextId: verified.user.id,
+      userContextId: userId,
       removedSessionEntries: transcriptCleanup.removedSessionEntries,
       removedTranscriptFiles: transcriptCleanup.removedTranscriptFiles,
       cleanupError: transcriptCleanupError,

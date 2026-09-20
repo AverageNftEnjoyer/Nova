@@ -102,6 +102,16 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_CALENDAR_RESCHEDULE_WRITE_PER_MIN", 40, 1, 500),
     windowMs: 60_000,
   },
+  agentTasksRead: {
+    bucket: "agent-tasks-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_AGENT_TASKS_READ_PER_MIN", 120, 1, 1000),
+    windowMs: 60_000,
+  },
+  agentTasksWrite: {
+    bucket: "agent-tasks-write",
+    limit: readIntEnv("NOVA_RATE_LIMIT_AGENT_TASKS_WRITE_PER_MIN", 60, 1, 500),
+    windowMs: 60_000,
+  },
   homeNotesRead: {
     bucket: "home-notes-read",
     limit: readIntEnv("NOVA_RATE_LIMIT_HOME_NOTES_READ_PER_MIN", 120, 1, 1000),

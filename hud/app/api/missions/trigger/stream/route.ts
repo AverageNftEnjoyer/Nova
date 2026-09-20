@@ -1,4 +1,5 @@
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { executeMission } from "@/lib/missions/workflow/execute-mission"
 import { enqueueMissionRunForQueue, isMissionQueueModeEnabled } from "@/lib/missions/workflow/queue-mode"
 import { loadMissionSkillSnapshot } from "@/lib/missions/skills/snapshot"
@@ -7,7 +8,7 @@ import { appendNotificationDeadLetter } from "@/lib/notifications/dead-letter"
 import { loadMissions } from "../../../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { checkUserRateLimit, createRateLimitHeaders, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import type { Mission, NodeExecutionTrace, WorkflowStepTrace } from "@/lib/missions/types"
 import { ensureMissionSchedulerStarted } from "../../../../../../src/runtime/modules/services/missions/scheduler/index.js"
 
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
   if (unauthorized || !verified?.user?.id) {
     return unauthorized ?? new Response("Unauthorized", { status: 401 })
   }
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.missionTriggerStream)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionTriggerStream)
   if (!limit.allowed) {
     return new Response("Too many requests.", {
       status: 429,
@@ -71,7 +72,7 @@ export async function GET(req: Request) {
       }),
     })
   }
-  const userId = verified.user.id
+  const userId = userId
   const url = new URL(req.url)
   const missionId = String(url.searchParams.get("missionId") || "").trim()
   if (!missionId) {

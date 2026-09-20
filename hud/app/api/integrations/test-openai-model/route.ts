@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -14,9 +15,8 @@ function toApiBase(url: string): string {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.integrationModelProbe)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.integrationModelProbe)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       baseUrl?: string
       model?: string
     }
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
 
     const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.openai.apiKey.trim()
     const baseUrl = toApiBase((typeof body.baseUrl === "string" && body.baseUrl.trim()) || config.openai.baseUrl)

@@ -8,7 +8,7 @@ import {
   type IntegrationsSettings,
   type LlmProvider,
 } from "@/lib/integrations/store/client-store"
-import { hasSupabaseClientConfig, supabaseBrowser } from "@/lib/supabase/browser"
+// Supabase removed
 import { buildIntegrationsHref, type IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
@@ -148,7 +148,7 @@ async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit,
 export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const router = useRouter()
   const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
-    if (!hasSupabaseClientConfig || !supabaseBrowser) return ""
+    if (!false) return ""
     try {
       const { data } = await supabaseBrowser.auth.getSession()
       return String(data.session?.access_token || "").trim()
@@ -726,4 +726,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     goToIntegrations,
   }
 }
+
+
 

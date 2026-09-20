@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -13,8 +14,7 @@ function toApiBase(url: string): string {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const body = (await req.json()) as {
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       baseUrl?: string
       model?: string
     }
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
 
     const apiKey = (typeof body.apiKey === "string" && body.apiKey.trim()) || config.grok.apiKey.trim()
     const baseUrl = toApiBase((typeof body.baseUrl === "string" && body.baseUrl.trim()) || config.grok.baseUrl)

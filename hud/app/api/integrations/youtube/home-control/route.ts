@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { z } from "zod"
 
 import { getYouTubeFeed } from "@/lib/integrations/youtube"
 import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } from "@/lib/security/rate-limit"
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { logYouTubeApi, safeJson, youtubeApiErrorResponse } from "../_shared"
 
@@ -64,11 +65,11 @@ export async function GET(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeFeedRead)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeFeedRead)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     return NextResponse.json({
       ok: true,
       topic: normalizeTopic(config.youtube.homeTopic || "news"),
@@ -92,7 +93,7 @@ export async function POST(req: Request) {
     return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
   }
 
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.youtubeSearch, 2)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeSearch, 2)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
     }
 
     const requestedUserContextId = normalizeUserContextId(parsed.data.userContextId)
-    const verifiedUserContextId = normalizeUserContextId(verified.user.id)
+    const verifiedUserContextId = normalizeUserContextId(userId)
     if (requestedUserContextId && requestedUserContextId !== verifiedUserContextId) {
       logYouTubeApi("home_control.user_scope_hint_mismatch", {
         requestedUserContextId,
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
       )
     }
 
-    const config = await loadIntegrationsConfig(verified)
+    const config = await loadIntegrationsConfig({ userId })
     const tokenConfigured = config.youtube.refreshTokenEnc.trim().length > 0 || config.youtube.accessTokenEnc.trim().length > 0
     if (!config.youtube.connected || !tokenConfigured) {
       return NextResponse.json({ ok: false, code: "youtube.not_connected", error: "YouTube integration is not connected." }, { status: 400 })
@@ -176,7 +177,7 @@ export async function POST(req: Request) {
         : `I couldn't find a strong match for ${topicForReply}. Try a more specific topic or add a channel.`
 
     logYouTubeApi("home_control.success", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       topic: nextTopic,
       action: parsed.data.action,
       itemCount: feed.items.length,

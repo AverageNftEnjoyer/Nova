@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import type { Mission } from "@/lib/missions/types"
 import { loadMissions, upsertMission } from "../../../../../src/runtime/modules/services/missions/persistence/index.js"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { listMissionVersions, restoreMissionVersion, validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/server"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { emitMissionTelemetryEvent } from "@/lib/missions/telemetry"
@@ -12,11 +13,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionVersionsRead)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
   const url = new URL(req.url)
@@ -34,11 +31,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
-  const userId = verified.user.id
+  const { userId } = await requireLocalUser()
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionVersionRestore)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
   let body: {

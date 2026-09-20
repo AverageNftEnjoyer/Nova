@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { buildYouTubeOAuthUrl } from "@/lib/integrations/youtube"
 import { youtubeError } from "@/lib/integrations/youtube/errors/index"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { connectQuerySchema, logYouTubeApi, youtubeApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
     }
     const { returnTo, mode } = parsed.data
     logYouTubeApi("connect.begin", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       returnTo,
       mode: mode || "redirect",
     })

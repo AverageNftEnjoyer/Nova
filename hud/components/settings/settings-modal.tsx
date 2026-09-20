@@ -13,7 +13,6 @@ import { SettingsAppearancePanel } from "@/components/settings/panels/settings-a
 import { SettingsAudioPanel } from "@/components/settings/panels/settings-audio-panel"
 import { SettingsNotificationsPanel } from "@/components/settings/panels/settings-notifications-panel"
 import { SettingsPersonalizationPanel } from "@/components/settings/panels/settings-personalization-panel"
-import { SettingsBootupPanel } from "@/components/settings/panels/settings-bootup-panel"
 import { SettingsAccountPanel } from "@/components/settings/panels/settings-account-panel"
 import { SettingsSkillsPanel } from "@/components/settings/settings-skills-panel"
 
@@ -251,21 +250,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                 {activeSection === "skills" && (
                   <SettingsSkillsPanel isLight={isLight} />
-                )}
-
-                {activeSection === "bootup" && (
-                  <SettingsBootupPanel
-                    isLight={isLight}
-                    settings={state.settings}
-                    updateApp={state.updateApp}
-                    bootMusicAssets={state.bootMusicAssets}
-                    activeBootMusicAssetId={state.activeBootMusicAssetId}
-                    bootMusicError={state.bootMusicError}
-                    setBootMusicError={state.setBootMusicError}
-                    handleBootMusicUpload={state.handleBootMusicUpload}
-                    removeBootMusic={state.removeBootMusic}
-                    selectBootMusicAsset={state.selectBootMusicAsset}
-                  />
                 )}
 
                 {activeSection === "access" && (

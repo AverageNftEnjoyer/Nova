@@ -1,6 +1,7 @@
 import path from "node:path"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import { NextResponse } from "next/server"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import {
   syncWorkspaceContextFiles,
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "assistantName is required." }, { status: 400 })
     }
     const workspaceRoot = resolveWorkspaceRoot()
-    const result = await syncWorkspaceContextFiles(workspaceRoot, verified.user.id, input)
+    const result = await syncWorkspaceContextFiles(workspaceRoot, userId, input)
     return NextResponse.json({
       ok: true,
       userContextDir: path.relative(workspaceRoot, result.userContextDir),

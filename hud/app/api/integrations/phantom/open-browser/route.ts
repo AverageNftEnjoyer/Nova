@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { PHANTOM_APP_URL } from "@/lib/integrations/phantom/browser"
 import { openExternalBrowser } from "@/lib/integrations/phantom/external-browser"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -19,8 +20,7 @@ function resolveTargetUrl(req: Request, target: PhantomBrowserTarget): string {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   const body = await req.json()
   const target = body && typeof body === "object" && body.target === "install" ? "install" : "connect"

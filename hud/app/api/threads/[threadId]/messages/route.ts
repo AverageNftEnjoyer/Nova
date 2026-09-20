@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import crypto from "node:crypto"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 
 export const runtime = "nodejs"
 const MAX_STORED_IMAGE_DATA_URL_CHARS = 180_000
@@ -59,7 +60,7 @@ export async function PUT(
 ) {
   const { unauthorized, verified } = await requireSupabaseApiUser(req)
   if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.threadMessagesWrite)
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.threadMessagesWrite)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   const { threadId } = await context.params
@@ -70,7 +71,7 @@ export async function PUT(
     .from("threads")
     .select("id")
     .eq("id", threadId)
-    .eq("user_id", verified.user.id)
+    .eq("user_id", userId)
     .single()
 
   if (threadError || !thread) {
@@ -79,9 +80,9 @@ export async function PUT(
 
   if (messages.length > 0) {
     const rows = messages.map((m, index) => ({
-      id: buildStableMessageRowId(threadId, verified.user.id, m, index),
+      id: buildStableMessageRowId(threadId, userId, m, index),
       thread_id: threadId,
-      user_id: verified.user.id,
+      user_id: userId,
       role: m.role === "assistant" ? "assistant" : "user",
       content: String(m.content || ""),
       metadata: {
@@ -131,7 +132,7 @@ export async function PUT(
     .from("threads")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", threadId)
-    .eq("user_id", verified.user.id)
+    .eq("user_id", userId)
 
   return NextResponse.json({ ok: true })
 }

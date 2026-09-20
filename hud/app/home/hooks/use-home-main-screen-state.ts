@@ -161,7 +161,6 @@ export function useHomeMainScreenState() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const handleSidebarToggle = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
-  const goToBootup = useCallback(() => router.push("/boot-right"), [router])
   const openMissions = useCallback(() => router.push("/missions"), [router])
   const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
@@ -188,7 +187,6 @@ export function useHomeMainScreenState() {
     handleRenameConvo: conversationState.handleRenameConvo,
     handleArchiveConvo: conversationState.handleArchiveConvo,
     handlePinConvo: conversationState.handlePinConvo,
-    goToBootup,
     novaState,
     connected,
     hasAnimated: visuals.hasAnimated,

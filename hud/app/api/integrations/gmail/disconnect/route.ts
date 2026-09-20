@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { disconnectGmail } from "@/lib/integrations/gmail"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { disconnectBodySchema, gmailApiErrorResponse, logGmailApi, safeJson } from "@/app/api/integrations/gmail/_shared"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const parsed = disconnectBodySchema.safeParse(await safeJson(req))
@@ -18,12 +18,12 @@ export async function POST(req: Request) {
     }
     const accountId = String(parsed.data.accountId || "").trim()
     logGmailApi("disconnect.begin", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       accountId: accountId || "all",
     })
     await disconnectGmail(accountId || undefined, verified)
     logGmailApi("disconnect.success", {
-      userContextId: verified.user.id,
+      userContextId: userId,
       accountId: accountId || "all",
     })
     return NextResponse.json({ ok: true })

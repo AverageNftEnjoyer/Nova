@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
+import { requireLocalUser } from "@/lib/auth/local-user"
 import path from "node:path"
 import { rm } from "node:fs/promises"
-import { requireSupabaseApiUser } from "@/lib/supabase/server"
+
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 
@@ -25,9 +26,8 @@ async function pruneLocalUserArtifacts(workspaceRoot: string, userId: string): P
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  const limit = checkUserRateLimit(verified.user.id, RATE_LIMIT_POLICIES.accountDelete)
+  const { userId } = await requireLocalUser()
+  const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.accountDelete)
   if (!limit.allowed) return rateLimitExceededResponse(limit, "Too many delete-account attempts. Try again later.")
 
   const body = (await req.json()) as { password?: string }
@@ -38,7 +38,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Password is required." }, { status: 400 })
   }
 
-  const userId = verified.user.id
   const workspaceRoot = path.resolve(process.cwd(), "..")
   const userContextId = normalizeUserContextId(userId)
 
