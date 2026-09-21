@@ -5,6 +5,7 @@ import Script from "next/script"
 import { ThemeProvider } from "@/lib/context/theme-context"
 import { AccentProvider } from "@/lib/context/accent-context"
 import { AppBackgroundLayer } from "@/components/background/app-background-layer"
+import { PageActiveController } from "@/components/background/page-active-controller"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -42,6 +43,7 @@ export default function RootLayout({
         </Script>
         <ThemeProvider>
           <AccentProvider>
+            <PageActiveController />
             <AppBackgroundLayer />
             <div className="relative z-10">
               {children}

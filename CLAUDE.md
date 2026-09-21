@@ -15,10 +15,10 @@ NovaAIO is a local-first desktop AI agent orchestration platform. Fully local, o
 - **Frontend Framework**: Next.js 16 (App Router)
 - **UI**: React 19, TypeScript, Tailwind CSS 4
 - **Desktop**: Electron 44 (packaging for .exe distribution)
-- **Storage**: Local filesystem + localStorage (no database)
+- **Storage**: One local SQLite database (`nova.db`, `better-sqlite3`, WAL) + localStorage for UI preferences; markdown workspace docs (SOUL/USER/AGENTS/MEMORY/SKILL.md) stay files
 - **State Management**: React hooks, WebSocket for real-time updates
-- **Agent Orchestration**: In-memory task queue, filesystem persistence
-- **Integrations**: Local-only configs stored in `.nova-data/` directory
+- **Agent Orchestration**: In-memory task queue, SQLite persistence (`agent_tasks`)
+- **Integrations**: Local-only configs stored in `nova.db` (`integration_configs` / `integration_state`); secret fields are encrypted (see Security)
 
 ## Build & Run Commands
 
@@ -55,8 +55,7 @@ hud/                    # Next.js frontend
   electron/             # Electron (main.js, preload.js)
   tests/smoke/          # Playwright tests
 src/                    # Backend runtime
-.nova-data/             # Local user data (gitignored)
-.user/                  # User context files
+.user/                  # Dev-mode data directory (gitignored): nova.db, keys/, user-context/ (see Storage Locations)
 ```
 
 ## Key Configuration Files
@@ -66,26 +65,41 @@ src/                    # Backend runtime
 - `hud/tsconfig.json` - TypeScript configuration
 - `hud/tailwind.config.ts` - Tailwind CSS configuration
 - `hud/playwright.config.ts` - Smoke test configuration
-- `.gitignore` - Excludes `.nova-data/`, test results, builds
+- `.gitignore` - Excludes `.user/`, test results, builds
 
 ## Storage Locations
 
-- `.user/user-context/{userId}/` - Per-user files (agent-tasks, home-notes, etc.)
-- `.nova-data/integrations-{userId}.json` - Encrypted integration configs (API keys)
-- `~/.nova-encryption-key` - Master encryption key (machine-specific, persistent)
-- `localStorage` - User settings, preferences, orb color
+All user data lives in the **data directory**, resolved by `src/db/paths.js` (`resolveDataDir()`) - the single resolver for the HUD, the agent runtime and `nova.js`:
+
+1. `NOVA_DATA_DIR` if set (relative values resolve against cwd)
+2. `NOVA_PACKAGED=1` -> `%APPDATA%\Nova` (never inside the install dir)
+3. otherwise `<repo>/.user` (dev; gitignored). `src/.user` is a forbidden location.
+
+Inside the data directory:
+
+- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail)
+- `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
+- `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
+- `memory.db` - agent memory index (separate SQLite file)
+- `localStorage` - UI-only settings (orb color, theme). Never secrets.
+
+Fresh-data release: there is no importer for the old JSON stores and no `.nova-data/` directory; old files are ignored.
 
 ## Security (API Keys & Secrets)
 
-**Encryption**: AES-256-GCM with PBKDF2 key derivation (100k iterations)
+**Encryption**: AES-256-GCM. Stored ciphertext is a versioned `nv1:` payload; the data key is derived with HKDF from the master key.
 
-**Master Key**: Auto-generated on first run, stored in `~/.nova-encryption-key` (600 permissions)
+**Master key**: random 32 bytes generated on first use, wrapped with **Windows DPAPI (CurrentUser scope)** and stored at `<dataDir>/keys/master.key.dpapi`. The plaintext key exists only in process memory. Nothing to configure: `NOVA_ENCRYPTION_KEY` and `~/.nova-encryption-key` are no longer used.
 
-**Format**: `salt:iv:tag:ciphertext` (all base64)
+**Fail closed**: if DPAPI is unavailable (non-Windows, broken key file) writing a secret throws `SecretsUnavailableError`. There is no plaintext or weaker fallback.
 
-**Storage**: All API keys encrypted before writing to `.nova-data/` files
+**Storage**: every API key/token/webhook URL is encrypted before it is written to `nova.db`. Secrets are never returned unmasked to the browser (`toClientIntegrationsConfig` returns masked hints and `...Configured` flags). Tool-call audit rows (`tool_runs`) go through `redactSecrets()` and are capped at 2 KB per field.
 
-**Persistence**: Keys survive app updates (stored in user home directory, not app directory)
+**Legacy formats are not decrypted**: only `nv1:` payloads are understood. Users re-enter their keys after moving to this release.
+
+**Platform**: Windows only (DPAPI).
+
+**Honest limit**: this protects against a copied `nova.db`, a backup, or another Windows account. It does **not** protect against malware or a person running as the same Windows user. Backup/restore only works on the same Windows account (copy `nova.db` and `keys/` together). Details: `docs/security/local-data.md`; network egress audit: `docs/security/outbound-calls.md`.
 
 ## Code Conventions
 
@@ -99,11 +113,11 @@ src/                    # Backend runtime
 
 ## Key Architecture
 
-**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, file-based persistence
+**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence
 
-**Storage**: Local files (`.user/`, `.nova-data/`), encrypted secrets, no database
+**Storage**: One SQLite `nova.db` in the data directory (`src/db/paths.js`), DPAPI-protected encrypted secrets, markdown workspace docs as files
 
-**Missions**: DAG workflow engine, ReactFlow canvas, job ledger scheduler
+**Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing
 
 **Electron**: Window mgmt (min 1024x768), system tray, deep linking (nova://)
 
@@ -121,7 +135,7 @@ src/                    # Backend runtime
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.64 Alpha**
+Current: **V.66 Alpha**
 
 ## Philosophy
 

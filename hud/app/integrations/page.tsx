@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { Blocks, Settings, User } from "lucide-react"
@@ -24,7 +24,6 @@ import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
-// Supabase removed
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/llm/model-label"
@@ -82,7 +81,7 @@ import { useIntegrationsActions } from "./modules/hooks/use-integrations-actions
 import { useProviderDefinitions } from "./modules/hooks/use-provider-definitions"
 import { IntegrationsMainPanel } from "./modules/components/integrations-main-panel"
 
-export default function IntegrationsPage() {
+function IntegrationsPageContent() {
   const hexToRgbTriplet = (hex: string): string => {
     const clean = hex.replace("#", "")
     const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
@@ -1173,3 +1172,11 @@ export default function IntegrationsPage() {
   )
 }
 
+
+export default function IntegrationsPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <IntegrationsPageContent />
+    </Suspense>
+  )
+}

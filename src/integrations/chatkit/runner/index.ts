@@ -12,13 +12,14 @@ type AgentsSdkModule = {
       store?: boolean;
     };
   }) => unknown;
-  Runner: new (params?: { traceMetadata?: Record<string, string> }) => {
+  Runner: new (params?: { tracingDisabled?: boolean; traceIncludeSensitiveData?: boolean }) => {
     run: (agent: unknown, input: Array<{ role: string; content: Array<{ type: string; text: string }> }>) => Promise<{
       finalOutput?: unknown;
       finalOutputText?: string;
     }>;
   };
   withTrace: <T>(name: string, fn: () => Promise<T>) => Promise<T>;
+  setTracingDisabled: (disabled: boolean) => void;
 };
 
 function isAgentsSdkModule(value: unknown): value is AgentsSdkModule {
@@ -28,7 +29,8 @@ function isAgentsSdkModule(value: unknown): value is AgentsSdkModule {
       typeof candidate === "object" &&
       typeof candidate.Agent === "function" &&
       typeof candidate.Runner === "function" &&
-      typeof candidate.withTrace === "function",
+      typeof candidate.withTrace === "function" &&
+      typeof candidate.setTracingDisabled === "function",
   );
 }
 
@@ -37,6 +39,9 @@ async function loadAgentsSdk(): Promise<AgentsSdkModule> {
   if (!isAgentsSdkModule(moduleValue)) {
     throw new Error("OpenAI Agents SDK shape mismatch.");
   }
+  // The Agents SDK exports traces (prompt and output text plus user/conversation ids) to api.openai.com/v1/traces/ingest
+  // by default whenever an OpenAI key is present. Nova keeps prompts on this PC apart from the completion call itself.
+  moduleValue.setTracingDisabled(true);
   return moduleValue;
 }
 
@@ -151,12 +156,8 @@ export async function runChatKitWorkflow(input: ChatKitRunInput): Promise<ChatKi
         },
       });
       const runner = new sdk.Runner({
-        traceMetadata: {
-          __trace_source__: "nova-chatkit",
-          userContextId,
-          conversationId,
-          missionRunId,
-        },
+        tracingDisabled: true,
+        traceIncludeSensitiveData: false,
       });
       const result = await Promise.race([
         runner.run(agent, [{ role: "user", content: [{ type: "input_text", text: prompt }] }]),

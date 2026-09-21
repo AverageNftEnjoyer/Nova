@@ -4,23 +4,45 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { getDb, nowIso, resolveDataDir } from "../../../db/index.js";
 import { createToolRegistry } from "../../core/registry/index.js";
 
+// Runtime integrations now live in nova.db (integration_state 'runtime'/'snapshot', the row HUD's
+// syncAgentRuntimeIntegrationsSnapshot writes), not in <workspace>/.user/**/integrations-config.json.
+// The DB follows NOVA_DATA_DIR, so refuse to seed anything outside a throwaway dir.
+const seededUserIds = new Set<string>();
+
+function assertIsolatedDataDir(): void {
+  const rel = path.relative(path.resolve(os.tmpdir()), path.resolve(resolveDataDir()));
+  assert.ok(
+    rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel),
+    "test must run with NOVA_DATA_DIR under the OS temp dir (npm run test:node does this)",
+  );
+}
+
 function writeRuntimeConfig(
-  workspaceRoot: string,
+  _workspaceRoot: string,
   userContextId: string,
   payload: Record<string, unknown>,
 ): void {
-  const target = path.join(
-    workspaceRoot,
-    ".user",
-    "user-context",
-    userContextId,
-    "state",
-    "integrations-config.json",
-  );
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, JSON.stringify(payload, null, 2), "utf8");
+  assertIsolatedDataDir();
+  getDb()
+    .prepare(
+      `INSERT INTO integration_state (user_id, integration, key, value_json, expires_at, updated_at)
+       VALUES (?, 'runtime', 'snapshot', ?, NULL, ?)
+       ON CONFLICT(user_id, integration, key) DO UPDATE SET
+         value_json = excluded.value_json, expires_at = NULL, updated_at = excluded.updated_at`,
+    )
+    .run(userContextId, JSON.stringify(payload), nowIso());
+  seededUserIds.add(userContextId);
+}
+
+function removeWorkspace(workspace: string): void {
+  // Snapshots must not leak between tests (the src and dist copies of this file share one DB).
+  const remove = getDb().prepare("DELETE FROM integration_state WHERE user_id = ? AND integration = 'runtime' AND key = 'snapshot'");
+  for (const userId of seededUserIds) remove.run(userId);
+  seededUserIds.clear();
+  fs.rmSync(workspace, { recursive: true, force: true });
 }
 
 function parseJsonOutput(raw: string): Record<string, unknown> {
@@ -30,7 +52,11 @@ function parseJsonOutput(raw: string): Record<string, unknown> {
 }
 
 function makeWorkspace(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "nova-gmail-tools-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nova-gmail-tools-"));
+  // resolveWorkspaceRoot() only recognises a workspace that has both hud/ and src/.
+  fs.mkdirSync(path.join(root, "hud"), { recursive: true });
+  fs.mkdirSync(path.join(root, "src"), { recursive: true });
+  return root;
 }
 
 test("tool registry includes gmail tools when enabled", () => {
@@ -70,7 +96,7 @@ test("tool registry includes gmail tools when enabled", () => {
     assert.ok(names.has("gmail_forward_message"));
     assert.ok(names.has("gmail_reply_draft"));
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    removeWorkspace(workspace);
   }
 });
 
@@ -130,7 +156,7 @@ test("gmail tools return user-safe errors for missing context, disconnected runt
     assert.equal(missingScope.errorCode, "MISSING_SCOPE");
     assert.match(String(missingScope.safeMessage || ""), /permission|scope/i);
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    removeWorkspace(workspace);
   }
 });
 
@@ -211,7 +237,7 @@ test("gmail tool output stays isolated per userContextId", async () => {
     const firstAccount = ((aAccountsPayload.accounts as Array<Record<string, unknown>>)[0] || {});
     assert.equal(Object.prototype.hasOwnProperty.call(firstAccount, "accessToken"), false);
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    removeWorkspace(workspace);
   }
 });
 
@@ -314,6 +340,6 @@ test("gmail list/daily-summary/forward tools run through runtime pipeline with s
     assert.ok(authHeaders.every((value) => value === "Bearer token-a"));
   } finally {
     globalThis.fetch = originalFetch;
-    fs.rmSync(workspace, { recursive: true, force: true });
+    removeWorkspace(workspace);
   }
 });

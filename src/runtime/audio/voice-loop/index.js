@@ -3,6 +3,9 @@
 // All dependencies are injected via the deps parameter from runtime entrypoint.
 
 import fs from "fs";
+import { createFailureBackoff, VOICE_FAILURE_PAUSE_MS } from "./failure-backoff.js";
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function startVoiceLoop(deps) {
   const {
@@ -38,6 +41,8 @@ export async function startVoiceLoop(deps) {
   let lastVoiceTextHandledAt = 0;
   let lastVoiceCommandHandled = "";
   let lastVoiceCommandHandledAt = 0;
+  const failureBackoff = createFailureBackoff();
+  const errorMessage = (error) => (error instanceof Error ? error.message : String(error));
   const resolveVoiceUserContextId = () => {
     if (typeof getVoiceRoutingUserContextId !== "function") return "";
     try {
@@ -73,7 +78,7 @@ export async function startVoiceLoop(deps) {
       broadcastState("listening", voiceUserContextId);
 
       const micCapturePath = createMicCapturePath();
-      recordMic(micCapturePath, MIC_RECORD_SECONDS);
+      await recordMic(micCapturePath, MIC_RECORD_SECONDS);
 
       if (getBusy({ userContextId: voiceUserContextId }) || getMuted({ userContextId: voiceUserContextId })) {
         try { fs.unlinkSync(micCapturePath); } catch {}
@@ -84,12 +89,18 @@ export async function startVoiceLoop(deps) {
         typeof wakeWordRuntime?.getPrimaryWakeWord === "function"
           ? wakeWordRuntime.getPrimaryWakeWord()
           : "nova";
-      let text = await transcribe(micCapturePath, wakeWordHint, voiceUserContextId);
-      try { fs.unlinkSync(micCapturePath); } catch {}
+      let text;
+      try {
+        text = await transcribe(micCapturePath, wakeWordHint, voiceUserContextId);
+      } finally {
+        try { fs.unlinkSync(micCapturePath); } catch {}
+      }
+      // Capture + STT both worked: the pipeline is healthy again.
+      failureBackoff.recordSuccess();
 
       if (!text || !text.trim()) {
         const retryPath = createMicCapturePath();
-        recordMic(retryPath, MIC_RETRY_SECONDS);
+        await recordMic(retryPath, MIC_RETRY_SECONDS);
         if (getBusy({ userContextId: voiceUserContextId }) || getMuted({ userContextId: voiceUserContextId })) {
           try { fs.unlinkSync(retryPath); } catch {}
           continue;
@@ -222,10 +233,35 @@ export async function startVoiceLoop(deps) {
         await new Promise((r) => setTimeout(r, VOICE_POST_RESPONSE_GRACE_MS));
       }
     } catch (e) {
-      console.error("Loop error:", e);
+      const failure = failureBackoff.recordFailure();
+      // One concise line on the first failure; the pause notice below covers the rest (no stack spam).
+      if (failure.first) console.error(`Loop error: ${errorMessage(e)}`);
       const voiceUserContextId = resolveVoiceUserContextId();
       setBusy(false, { userContextId: voiceUserContextId });
       if (!getMuted({ userContextId: voiceUserContextId })) broadcastState("idle", voiceUserContextId);
+
+      if (failure.paused) {
+        console.error(
+          `[VoiceLoop] Paused after ${failure.failures} consecutive failures (last: ${errorMessage(e)}). `
+          + "Toggle the mic off/on to resume, or it retries automatically in 5 minutes.",
+        );
+        await waitForMicToggleOrTimeout(voiceUserContextId);
+        failureBackoff.reset();
+      } else {
+        await sleep(failure.delayMs);
+      }
+    }
+  }
+
+  // Idle until the user mutes+unmutes (fresh intent) or the pause window elapses.
+  async function waitForMicToggleOrTimeout(userContextId) {
+    const deadline = Date.now() + VOICE_FAILURE_PAUSE_MS;
+    let sawMuted = Boolean(getMuted({ userContextId }));
+    while (Date.now() < deadline) {
+      await sleep(Math.max(250, Number(MIC_IDLE_DELAY_MS) || 1000));
+      const muted = Boolean(getMuted({ userContextId }));
+      if (muted) sawMuted = true;
+      else if (sawMuted) return;
     }
   }
 }

@@ -1,6 +1,6 @@
 /**
  * Local-only user authentication
- * Replaces Supabase auth with simple local user model
+ * Fixed local user model (no remote authentication)
  */
 
 import "server-only"

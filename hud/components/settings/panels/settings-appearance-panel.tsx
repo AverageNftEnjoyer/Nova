@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef } from "react"
+import { useRef, useState, useEffect } from "react"
 import { Check } from "lucide-react"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import { cn } from "@/lib/shared/utils"
@@ -55,6 +55,45 @@ export function SettingsAppearancePanel({
   const backgroundVideoInputRef = useRef<HTMLInputElement | null>(null)
   const { setThemeSetting } = useTheme()
   const { setAccentColor } = useAccent()
+  const [autoLaunch, setAutoLaunch] = useState(false)
+  const [autoLaunchLoading, setAutoLaunchLoading] = useState(true)
+
+  // Load auto-launch setting on mount (Electron only)
+  useEffect(() => {
+    const loadAutoLaunch = async () => {
+      const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+      if (api?.getAutoLaunch) {
+        try {
+          const result = await api.getAutoLaunch()
+          if (result.success) {
+            setAutoLaunch(result.enabled ?? false)
+          }
+        } catch (err) {
+          console.error('Failed to load auto-launch setting:', err)
+        } finally {
+          setAutoLaunchLoading(false)
+        }
+      } else {
+        setAutoLaunchLoading(false)
+      }
+    }
+    void loadAutoLaunch()
+  }, [])
+
+  const handleAutoLaunchToggle = async (enabled: boolean) => {
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (api?.setAutoLaunch) {
+      try {
+        const result = await api.setAutoLaunch(enabled)
+        if (result.success) {
+          setAutoLaunch(enabled)
+          playClickSound()
+        }
+      } catch (err) {
+        console.error('Failed to set auto-launch:', err)
+      }
+    }
+  }
 
   const activeBackgroundVideo =
     backgroundVideoAssets.find((a) => a.id === (activeBackgroundVideoAssetId || settings.app.customBackgroundVideoAssetId)) ?? null
@@ -306,6 +345,17 @@ export function SettingsAppearancePanel({
         ]}
         onChange={(v) => updateApp("fontSize", v)}
       />
+
+      {/* Launch on Startup (Electron only) */}
+      {typeof window !== 'undefined' && window.electronAPI && !autoLaunchLoading ? (
+        <SettingToggle
+          label="Launch on Startup"
+          description="Automatically start Nova when you log in to Windows"
+          checked={autoLaunch}
+          onChange={handleAutoLaunchToggle}
+          isLight={isLight}
+        />
+      ) : null}
     </div>
   )
 }

@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readKv, readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
 
 const results = [];
 
@@ -50,19 +52,9 @@ function readJsonl(filePath) {
   }
 }
 
-function resolveUserContextRootCandidates(baseDir, userContextId) {
-  return [
-    path.join(baseDir, ".user", "user-context", userContextId),
-  ];
-}
-
-function resolveScopedRoot(baseDir, userContextId, sessionKeyHint) {
-  const candidates = resolveUserContextRootCandidates(baseDir, userContextId);
-  return candidates.find((candidate) => {
-    const sessions = readJson(path.join(candidate, "state", "sessions.json"), {});
-    return Boolean(sessions[sessionKeyHint]);
-  }) || candidates.find((candidate) => fs.existsSync(candidate))
-    || candidates[0];
+// File-based artifacts (logs/) live under the data dir; sessions, transcripts and follow-up state are nova.db rows.
+function resolveScopedRoot(_baseDir, userContextId) {
+  return userContextDir(userContextId);
 }
 
 const workspaceRoot = process.cwd();
@@ -205,22 +197,21 @@ await run("REM-LIVE-2 reminders artifacts and persisted follow-up state stay use
   const sessionKeyA = await runUserReminderFlow({ userContextId: userA, conversationId, capturedHints: capturedHintsA });
   const sessionKeyB = await runUserReminderFlow({ userContextId: userB, conversationId, capturedHints: capturedHintsB });
 
-  const rootA = resolveScopedRoot(workspaceRoot, userA, sessionKeyA);
-  const rootB = resolveScopedRoot(workspaceRoot, userB, sessionKeyB);
-  const sessionsA = readJson(path.join(rootA, "state", "sessions.json"), {});
-  const sessionsB = readJson(path.join(rootB, "state", "sessions.json"), {});
+  const rootA = resolveScopedRoot(workspaceRoot, userA);
+  const rootB = resolveScopedRoot(workspaceRoot, userB);
+  const sessionsA = readSessions(userA);
+  const sessionsB = readSessions(userB);
   const sessionIdA = String(sessionsA?.[sessionKeyA]?.sessionId || "").trim();
   const sessionIdB = String(sessionsB?.[sessionKeyB]?.sessionId || "").trim();
   assert.equal(sessionIdA.length > 0, true, "user A session missing");
   assert.equal(sessionIdB.length > 0, true, "user B session missing");
 
-  const transcriptA = path.join(rootA, "transcripts", `${sessionIdA}.jsonl`);
-  const transcriptB = path.join(rootB, "transcripts", `${sessionIdB}.jsonl`);
-  assert.equal(fs.existsSync(transcriptA), true, "user A transcript missing");
-  assert.equal(fs.existsSync(transcriptB), true, "user B transcript missing");
-
-  const transcriptLinesA = readJsonl(transcriptA);
-  const transcriptLinesB = readJsonl(transcriptB);
+  const transcriptLinesA = readTranscript(userA, sessionIdA);
+  const transcriptLinesB = readTranscript(userB, sessionIdB);
+  assert.equal(transcriptLinesA.length > 0, true, "user A transcript missing");
+  assert.equal(transcriptLinesB.length > 0, true, "user B transcript missing");
+  assert.equal(readTranscript(userB, sessionIdA).length, 0, "user A transcript leaked to user B");
+  assert.equal(readTranscript(userA, sessionIdB).length, 0, "user B transcript leaked to user A");
   assert.equal(
     transcriptLinesA.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyA),
     true,
@@ -239,17 +230,16 @@ await run("REM-LIVE-2 reminders artifacts and persisted follow-up state stay use
   assert.equal(convoLinesA.some((line) => String(line?.route || "") === "reminder"), true, "user A log missing reminder route");
   assert.equal(convoLinesB.some((line) => String(line?.route || "") === "reminder"), true, "user B log missing reminder route");
 
-  const storePathA = path.join(rootA, "state", "reminders-follow-up-state.json");
-  const storePathB = path.join(rootB, "state", "reminders-follow-up-state.json");
-  const storeA = readJson(storePathA, {});
-  const storeB = readJson(storePathB, {});
+  // Follow-up state is a kv_state row (namespace "reminders-follow-up") scoped to each user.
   const recordKey = `${conversationId}::reminders`;
-  assert.equal(Boolean(storeA?.records?.[recordKey]), true, "user A reminder state missing");
-  assert.equal(Boolean(storeB?.records?.[recordKey]), true, "user B reminder state missing");
-  assert.equal(String(storeA.records[recordKey]?.userContextId || ""), userA.toLowerCase());
-  assert.equal(String(storeB.records[recordKey]?.userContextId || ""), userB.toLowerCase());
-  assert.equal(storeA.records[recordKey]?.slots?.followUpResolved, true);
-  assert.equal(storeB.records[recordKey]?.slots?.followUpResolved, true);
+  const recordA = readKv(userA, "reminders-follow-up", recordKey);
+  const recordB = readKv(userB, "reminders-follow-up", recordKey);
+  assert.equal(Boolean(recordA), true, "user A reminder state missing");
+  assert.equal(Boolean(recordB), true, "user B reminder state missing");
+  assert.equal(String(recordA?.userContextId || ""), userA.toLowerCase());
+  assert.equal(String(recordB?.userContextId || ""), userB.toLowerCase());
+  assert.equal(recordA?.slots?.followUpResolved, true);
+  assert.equal(recordB?.slots?.followUpResolved, true);
 
   console.log(`Reminder artifact root A: ${rootA}`);
   console.log(`Reminder artifact root B: ${rootB}`);
@@ -279,14 +269,13 @@ await run("REM-LIVE-3 real reminders worker writes scoped transcripts and logs",
     ],
   });
 
-  const root = resolveScopedRoot(workspaceRoot, userContextId, sessionKeyHint);
-  const sessions = readJson(path.join(root, "state", "sessions.json"), {});
+  const root = resolveScopedRoot(workspaceRoot, userContextId);
+  const sessions = readSessions(userContextId);
   const sessionId = String(sessions?.[sessionKeyHint]?.sessionId || "").trim();
   assert.equal(sessionId.length > 0, true, "real reminder session missing");
 
-  const transcriptPath = path.join(root, "transcripts", `${sessionId}.jsonl`);
-  assert.equal(fs.existsSync(transcriptPath), true, "real reminder transcript missing");
-  const transcriptLines = readJsonl(transcriptPath);
+  const transcriptLines = readTranscript(userContextId, sessionId);
+  assert.equal(transcriptLines.length > 0, true, "real reminder transcript missing");
   assert.equal(
     transcriptLines.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyHint),
     true,
@@ -298,7 +287,7 @@ await run("REM-LIVE-3 real reminders worker writes scoped transcripts and logs",
   assert.equal(convoLines.some((line) => String(line?.route || "") === "reminder"), true, "real reminder log missing reminder route");
 
   console.log(`Reminder real-worker artifact root: ${root}`);
-  console.log(`Reminder real-worker transcript: ${transcriptPath}`);
+  console.log(`Reminder real-worker transcript turns: ${transcriptLines.length}`);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -36,7 +37,7 @@ await run("src runtime entrypoint owns startup lifecycle", async () => {
   const srcEntrypoint = read(srcEntrypointPath);
   assert.equal(srcEntrypoint.includes("export async function startNovaRuntime()"), true);
   assert.equal(srcEntrypoint.includes("startGateway();"), true);
-  assert.equal(srcEntrypoint.includes("startMetricsBroadcast(broadcast, 2000);"), true);
+  assert.equal(/startMetricsBroadcast\(\s*[\s\S]*?,\s*2000\b/.test(srcEntrypoint), true);
   assert.equal(srcEntrypoint.includes("await startVoiceLoop({"), true);
 });
 

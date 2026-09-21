@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../../db/index.js";
+import { resolveUserContextRoot } from "../../db/paths.js";
 import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
 
 export type ProviderName = "openai" | "claude" | "grok" | "gemini";
@@ -246,7 +247,8 @@ export function resolveRuntimePaths(workspaceRoot?: string): RuntimePaths {
   return {
     workspaceRoot: root,
     integrationsConfigPath,
-    userContextRoot: path.join(root, ".user", "user-context"),
+    // Follows the data dir (NOVA_DATA_DIR / packaged / <root>/.user); the src/.user sentinel is still enforced above.
+    userContextRoot: resolveUserContextRoot(),
     hudRoot,
   };
 }

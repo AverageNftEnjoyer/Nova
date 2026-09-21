@@ -1,7 +1,5 @@
 const electron = require('electron')
-console.log('Electron loaded:', electron)
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = electron
-console.log('app:', app)
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = electron
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -25,6 +23,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
+      // Throttle timers/animations when the window is hidden or minimized to tray.
+      backgroundThrottling: true,
     },
     icon: path.join(__dirname, '../public/images/nova.svg'),
     show: false, // Don't show until ready
@@ -35,12 +35,32 @@ function createWindow() {
     mainWindow.show()
   })
 
+  // Handle file drops - prevent navigation to file:// URLs
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('file://')) {
+      event.preventDefault()
+      // Extract file path and send to renderer
+      const filePath = decodeURIComponent(url.replace('file:///', ''))
+      mainWindow.webContents.send('file-dropped', { filePath })
+    }
+  })
+
+  // Prevent opening new windows from file drops
+  mainWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' }
+  })
+
   const isDev = !app.isPackaged
 
   if (isDev) {
     // Development: load from Next.js dev server
+    // NOTE: production packaging currently loads ../out/index.html below; whether the
+    // packaged app should serve the built Next.js output differently is an open decision.
     mainWindow.loadURL('http://127.0.0.1:3000')
-    mainWindow.webContents.openDevTools()
+    // DevTools are opt-in (they add continuous CPU/GPU overhead): NOVA_DEVTOOLS=1
+    if (process.env.NOVA_DEVTOOLS === '1') {
+      mainWindow.webContents.openDevTools()
+    }
   } else {
     // Production: load from built Next.js app
     mainWindow.loadFile(path.join(__dirname, '../out/index.html'))
@@ -183,6 +203,57 @@ function setupIpcHandlers() {
     return {
       success: true,
       taskIds: Array.from(activeAgentProcesses.keys())
+    }
+  })
+
+  // Auto-launch handlers
+  ipcMain.handle('set-auto-launch', async (event, enabled) => {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: false
+      })
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('get-auto-launch', async () => {
+    try {
+      const settings = app.getLoginItemSettings()
+      return { success: true, enabled: settings.openAtLogin }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // Native Windows notifications
+  ipcMain.handle('show-notification', async (event, { title, body, icon }) => {
+    try {
+      if (!Notification.isSupported()) {
+        return { success: false, error: 'Notifications not supported on this platform' }
+      }
+
+      const notification = new Notification({
+        title,
+        body,
+        icon: icon || path.join(__dirname, '../public/images/nova.svg'),
+        timeoutType: 'default'
+      })
+
+      notification.on('click', () => {
+        if (mainWindow) {
+          mainWindow.show()
+          mainWindow.focus()
+        }
+      })
+
+      notification.show()
+      return { success: true }
+    } catch (error) {
+      console.error('[Electron] Notification error:', error)
+      return { success: false, error: error.message }
     }
   })
 }

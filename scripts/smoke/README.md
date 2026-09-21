@@ -16,12 +16,26 @@ Do not add smoke test files directly in `scripts/smoke/`.
 - `hud/`: HUD/UI-bound smoke tests.
 - `runtime/`: runtime integration and user-context isolation smoke tests.
 - `verification/`: one-off verification scripts tied to release phases.
+- `lib/`: shared helpers. `isolated-data-dir.mjs` points `NOVA_DATA_DIR` at a throwaway temp dir.
+- `local-db/`: SQLite foundation, encryption, persistence and data-path smokes, plus the guard that proves no smoke writes to the real data dir.
 
 ## Naming conventions
 
 - Keep filenames explicit and stable.
 - Prefer `*-smoke.mjs` suffix for smoke tests.
 - Use domain prefixes when useful (for example `src-`, `hud-`, `verify-`).
+
+## Test isolation (mandatory)
+
+Every smoke that can reach `src/db`, the runtime stores or the per-user file area must run against a temporary data
+directory, never the repo's `.user/` folder. Make this the FIRST import of the script (ES imports run in source order):
+
+```js
+import "../lib/isolated-data-dir.mjs" // adjust the relative path
+```
+
+`npm run smoke:local-db` includes `no-real-data-writes-smoke.mjs`, which fails if a representative set of smokes changes
+the real `nova.db` or creates paths in the real data dir.
 
 ## Contribution rule
 

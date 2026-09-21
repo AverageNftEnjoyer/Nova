@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -49,13 +50,18 @@ await run("HSP-2 Playback contract supports now_playing, favorite playlist set, 
 });
 
 await run("HSP-3 Config route includes client-safe spotify shape", async () => {
+  // GET returns toClientIntegrationsConfig(config); the client-safe shape is defined in store/client-config.ts.
   const configRoute = read("hud/app/api/integrations/config/route.ts");
-  assert.equal(configRoute.includes("spotify:"), true);
-  assert.equal(configRoute.includes("tokenConfigured"), true);
-  assert.equal(configRoute.includes("oauthClientId"), true);
-  assert.equal(configRoute.includes("redirectUri"), true);
-  assert.equal(configRoute.includes("accessTokenEnc: config.spotify.accessTokenEnc"), false);
-  assert.equal(configRoute.includes("refreshTokenEnc: config.spotify.refreshTokenEnc"), false);
+  const clientConfig = read("hud/lib/integrations/store/client-config.ts");
+  assert.equal(configRoute.includes("toClientIntegrationsConfig(config)"), true);
+  assert.equal(clientConfig.includes("spotify:"), true);
+  assert.equal(clientConfig.includes("tokenConfigured"), true);
+  assert.equal(clientConfig.includes("oauthClientId"), true);
+  assert.equal(clientConfig.includes("redirectUri"), true);
+  for (const source of [configRoute, clientConfig]) {
+    assert.equal(source.includes("accessTokenEnc: config.spotify.accessTokenEnc"), false);
+    assert.equal(source.includes("refreshTokenEnc: config.spotify.refreshTokenEnc"), false);
+  }
 });
 
 await run("HSP-4 Integrations UI wires Spotify setup flow", async () => {
@@ -64,7 +70,9 @@ await run("HSP-4 Integrations UI wires Spotify setup flow", async () => {
   const grid = read("hud/app/integrations/components/ConnectivityGrid.tsx");
   assert.equal(page.includes("useSpotifySetup"), true);
   assert.equal(page.includes("SpotifyIcon"), true);
-  assert.equal(grid.includes('"spotify"'), true);
+  // ConnectivityGrid is generic (renders `items`); the Spotify tile is registered by the page.
+  assert.equal(page.includes('key: "spotify"'), true);
+  assert.equal(grid.includes("items.map"), true);
   assert.equal(panel.includes('activeSetup === "spotify"'), true);
 });
 

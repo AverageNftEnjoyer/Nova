@@ -14,6 +14,12 @@ import { getDb, nowIso, tx } from "../../db/index.js";
 import { redactSecrets } from "../../security/secrets/index.js";
 
 const MAX_TOOL_RUN_JSON_CHARS = 64 * 1024;
+/** Cap for tool runs recorded from the live tool loop (audit trail, not a transcript). */
+export const TOOL_LOOP_RUN_MAX_CHARS = 2048;
+/** Keep at most this many tool_runs rows per user; older rows are pruned (see recordToolRun). */
+const MAX_TOOL_RUNS_PER_USER = 5000;
+const TOOL_RUN_PRUNE_EVERY = 100;
+let toolRunWritesSincePrune = 0;
 const MESSAGE_ROLES = new Set(["user", "assistant", "tool", "system"]);
 
 function requireUserId(userId) {
@@ -244,7 +250,7 @@ export function findSessionKeysForConversation(userId, conversationIds) {
 }
 
 // ---------------------------------------------------------------------------
-// HUD conversations (Supabase `threads` / `messages` replacement)
+// HUD conversations (`threads` / `messages`)
 // ---------------------------------------------------------------------------
 
 function threadFromRow(row) {
@@ -418,36 +424,86 @@ export function setThreadSummary(userId, threadId, summary) {
   });
 }
 
-function boundedRedactedJson(value) {
+function boundedRedactedJson(value, maxChars = MAX_TOOL_RUN_JSON_CHARS) {
   let text;
   try {
     text = JSON.stringify(redactSecrets(value ?? {}));
   } catch {
     text = JSON.stringify({ unserializable: true });
   }
-  if (text.length > MAX_TOOL_RUN_JSON_CHARS) return JSON.stringify({ truncated: true, chars: text.length });
-  return text;
+  if (text.length <= maxChars) return text;
+  // Over the cap: keep valid JSON with a (already redacted) preview that fits inside the cap.
+  let previewLength = Math.max(0, maxChars - 64);
+  for (;;) {
+    const candidate = JSON.stringify({ truncated: true, chars: text.length, preview: text.slice(0, previewLength) });
+    if (candidate.length <= maxChars || previewLength === 0) return candidate;
+    previewLength = Math.floor(previewLength * 0.8);
+  }
 }
 
 /**
  * Persist a tool invocation. Input and output are redacted with redactSecrets() first (contract §10.5).
- * @param {{id?:string, threadId?:string, toolName:string, input?:unknown, output?:unknown, status?:string, latencyMs?:number}} run
+ * @param {{id?:string, threadId?:string, toolName:string, input?:unknown, output?:unknown, status?:string, latencyMs?:number, maxChars?:number}} run
  * @returns {string} the run id
  */
 export function recordToolRun(userId, run) {
   const uid = requireUserId(userId);
   const toolName = requireText(run?.toolName, "toolName");
   const id = String(run.id ?? "").trim() || randomUUID();
-  const inputJson = boundedRedactedJson(run.input);
-  const outputJson = boundedRedactedJson(run.output);
+  const maxChars = Number.isFinite(Number(run.maxChars)) && Number(run.maxChars) > 0 ? Math.trunc(Number(run.maxChars)) : MAX_TOOL_RUN_JSON_CHARS;
+  const inputJson = boundedRedactedJson(run.input, maxChars);
+  const outputJson = boundedRedactedJson(run.output, maxChars);
   const latency = Number.isFinite(Number(run.latencyMs)) ? Math.trunc(Number(run.latencyMs)) : null;
   tx((db) => {
     db.prepare(
       `INSERT OR REPLACE INTO tool_runs (user_id, id, thread_id, tool_name, input_json, output_json, status, latency_ms, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(uid, id, run.threadId ? String(run.threadId) : null, toolName, inputJson, outputJson, String(run.status || "success"), latency, nowIso());
+    toolRunWritesSincePrune += 1;
+    if (toolRunWritesSincePrune >= TOOL_RUN_PRUNE_EVERY) {
+      toolRunWritesSincePrune = 0;
+      db.prepare(
+        `DELETE FROM tool_runs WHERE user_id = ? AND id IN (
+           SELECT id FROM tool_runs WHERE user_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET ?
+         )`,
+      ).run(uid, uid, MAX_TOOL_RUNS_PER_USER);
+    }
   });
   return id;
+}
+
+function parseIfJsonString(value) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || (trimmed[0] !== "{" && trimmed[0] !== "[")) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Tool-loop audit hook: records one tool invocation and NEVER throws or blocks the caller's control flow
+ * (any failure, including a locked/unavailable database, is swallowed). Arguments and results are redacted
+ * (JSON strings are parsed first so key-based redaction applies to serialized tool payloads too) and capped at
+ * TOOL_LOOP_RUN_MAX_CHARS each. Returns the run id, or null when nothing was recorded.
+ * @param {string} userId
+ * @param {{threadId?:string, toolName:string, input?:unknown, output?:unknown, status?:string, latencyMs?:number}} run
+ * @returns {string|null}
+ */
+export function recordToolRunSafe(userId, run) {
+  try {
+    if (!String(userId ?? "").trim() || !String(run?.toolName ?? "").trim()) return null;
+    return recordToolRun(userId, {
+      ...run,
+      input: parseIfJsonString(run.input),
+      output: parseIfJsonString(run.output),
+      maxChars: TOOL_LOOP_RUN_MAX_CHARS,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function listToolRuns(userId, threadId, limit = 100) {

@@ -38,7 +38,7 @@ export function resolveChatKitRuntimeConfig(): ChatKitRuntimeConfig {
     apiKey: String(process.env.OPENAI_API_KEY || "").trim(),
     model: String(process.env.NOVA_CHATKIT_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL,
     reasoningEffort: parseReasoningEffort(process.env.NOVA_CHATKIT_REASONING_EFFORT),
-    store: toBool(process.env.NOVA_CHATKIT_STORE, true),
+    store: toBool(process.env.NOVA_CHATKIT_STORE, false),
     timeoutMs: toInt(process.env.NOVA_CHATKIT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 3_000, 120_000),
   };
 }

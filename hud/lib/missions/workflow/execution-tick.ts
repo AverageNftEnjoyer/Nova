@@ -6,12 +6,14 @@
  *   - Horizontal scale: multiple workers can execute without double-firing
  *   - Durable retries: ledger re-enqueues failed runs with backoff
  *   - Clean separation of scheduling policy from execution mechanics
- *   - Phase 4: own 5s timer loop, heartbeat support, observability state
+ *   - Phase 4: own adaptive timer loop (5s while busy, 15s while the queue is empty), heartbeat support,
+ *     observability state
  */
 
 import "server-only"
 
 import { jobLedger } from "../job-ledger/store"
+import { subscribeJobEnqueued } from "../../../../src/runtime/modules/services/missions/job-ledger/index.js"
 import { loadMissions, upsertMission } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
 import { deleteRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { executeMission } from "./execute-mission"
@@ -59,8 +61,17 @@ const EXECUTION_TICK_MAX_RUNS_PER_USER = readIntEnv(
 /** How long the execution-tick holds a lease on a claimed run (default 10 min). */
 const EXECUTION_TICK_LEASE_MS = readIntEnv("NOVA_EXECUTION_TICK_LEASE_MS", 10 * 60_000, 60_000, 30 * 60_000)
 
-/** How often the execution-tick timer fires (default 5s). */
+/** How often the execution-tick timer fires while work is flowing (default 5s). */
 const EXECUTION_TICK_INTERVAL_MS = readIntEnv("NOVA_EXECUTION_TICK_INTERVAL_MS", 5_000, 1_000, 60_000)
+
+/**
+ * How often it fires while the queue is empty (default 15s). Enqueues in this process wake the tick back to
+ * EXECUTION_TICK_INTERVAL_MS immediately; runs enqueued by other processes wait at most this long.
+ */
+const EXECUTION_TICK_IDLE_INTERVAL_MS = Math.max(
+  EXECUTION_TICK_INTERVAL_MS,
+  readIntEnv("NOVA_EXECUTION_TICK_IDLE_INTERVAL_MS", 15_000, 1_000, 120_000),
+)
 
 /** Watchdog: reset stuck tickInFlight after this many ms (default 15 min). */
 const EXECUTION_TICK_WATCHDOG_MS = readIntEnv("NOVA_EXECUTION_TICK_WATCHDOG_MS", 15 * 60_000, 60_000, 60 * 60_000)
@@ -84,6 +95,9 @@ type ExecutionTickState = {
   totalTickCount: number
   overlapSkipCount: number
   lastTickError?: string
+  /** Set when work was enqueued while a tick was in flight, so that tick does not back off on stale info. */
+  wakePending?: boolean
+  unsubscribeEnqueue?: (() => void) | null
 }
 
 type TickMissionSnapshotCache = {
@@ -289,9 +303,10 @@ export type ExecutionTickResult = {
  * Internal: reclaim expired leases, then poll + execute pending runs.
  * Called by the timer loop and by the public runExecutionTick() wrapper.
  */
-async function runExecutionTickInternal(): Promise<ExecutionTickResult> {
+async function runExecutionTickInternal(): Promise<{ result: ExecutionTickResult; pendingCount: number }> {
   // Reclaim any 'claimed' or 'running' rows whose lease expired (server crash,
-  // stuck worker). Best-effort — failure here does not abort the tick.
+  // stuck worker). Best-effort — failure here does not abort the tick. The ledger probes with a cheap
+  // read first and only takes the write lock when something has actually expired.
   await jobLedger.reclaimExpiredLeases().catch((err) => {
     console.warn("[ExecutionTick] reclaimExpiredLeases failed:", err instanceof Error ? err.message : err)
   })
@@ -326,7 +341,7 @@ async function runExecutionTickInternal(): Promise<ExecutionTickResult> {
     }),
   )
 
-  return { claimed, completed, failed, skipped }
+  return { result: { claimed, completed, failed, skipped }, pendingCount: pendingRuns.length }
 }
 
 /**
@@ -337,12 +352,36 @@ async function runExecutionTickInternal(): Promise<ExecutionTickResult> {
  * independently claimed so there is no double-execution risk.
  */
 export async function runExecutionTick(): Promise<ExecutionTickResult> {
-  return runExecutionTickInternal()
+  return (await runExecutionTickInternal()).result
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Timer loop (Phase 4 — own background loop, no leader election)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * (Re)arm the single outstanding timeout. The loop is a self-rescheduling setTimeout chain so the delay can
+ * adapt: EXECUTION_TICK_INTERVAL_MS while work exists, EXECUTION_TICK_IDLE_INTERVAL_MS when the queue is empty.
+ */
+function scheduleNextExecutionTick(delayMs: number): void {
+  if (!etState.running) return
+  if (etState.timer) clearTimeout(etState.timer)
+  etState.tickIntervalMs = delayMs
+  etState.timer = setTimeout(() => {
+    void runExecutionTickLoop()
+  }, delayMs)
+  etState.timer.unref() // don't keep the process alive if the event loop is otherwise idle
+}
+
+/** Work was enqueued in this process: snap back to the fast interval (no-op when already fast). */
+function wakeExecutionTick(): void {
+  if (!etState.running) return
+  if (etState.tickInFlight) {
+    etState.wakePending = true
+    return
+  }
+  if (etState.tickIntervalMs > EXECUTION_TICK_INTERVAL_MS) scheduleNextExecutionTick(EXECUTION_TICK_INTERVAL_MS)
+}
 
 async function runExecutionTickLoop(): Promise<void> {
   // Watchdog: if a previous tick has been in-flight for > WATCHDOG_MS it is assumed hung; reset it.
@@ -355,19 +394,25 @@ async function runExecutionTickLoop(): Promise<void> {
   }
   if (etState.tickInFlight) {
     etState.overlapSkipCount += 1
+    // Keep the chain alive so the watchdog above can still fire if the in-flight tick never returns.
+    scheduleNextExecutionTick(EXECUTION_TICK_INTERVAL_MS)
     return
   }
 
   etState.tickInFlight = true
+  etState.wakePending = false
   etState.lastTickStartedAt = new Date().toISOString()
   const tickStartedAt = Date.now()
+  let nextDelayMs = EXECUTION_TICK_INTERVAL_MS
   try {
-    const result = await runExecutionTickInternal()
+    const { result, pendingCount } = await runExecutionTickInternal()
     etState.lastTickClaimedCount = result.claimed
     etState.lastTickCompletedCount = result.completed
     etState.lastTickFailedCount = result.failed
     etState.lastTickSkippedCount = result.skipped
     etState.lastTickError = ""
+    // Back off only when the queue was empty and nothing was enqueued while this tick ran.
+    if (pendingCount === 0 && !etState.wakePending) nextDelayMs = EXECUTION_TICK_IDLE_INTERVAL_MS
   } catch (err) {
     etState.lastTickError = err instanceof Error ? err.message : "Unknown execution-tick error."
   } finally {
@@ -376,6 +421,7 @@ async function runExecutionTickLoop(): Promise<void> {
     etState.totalTickCount += 1
     etState.tickInFlight = false
     // No lease renewal — execution-tick has no leader election (atomic claimRun is sufficient).
+    scheduleNextExecutionTick(nextDelayMs)
   }
 }
 
@@ -402,26 +448,27 @@ export function getExecutionTickState() {
 }
 
 export function ensureExecutionTickStarted(): { running: boolean } {
-  if (etState.running && etState.timer) {
+  if (etState.running && (etState.timer || etState.tickInFlight)) {
     return { running: true }
   }
 
   etState.running = true
   etState.tickIntervalMs = EXECUTION_TICK_INTERVAL_MS
+  etState.unsubscribeEnqueue?.()
+  etState.unsubscribeEnqueue = subscribeJobEnqueued(wakeExecutionTick)
+  // First tick runs immediately (as before); each tick then schedules the next one adaptively.
   void runExecutionTickLoop()
-  etState.timer = setInterval(() => {
-    void runExecutionTickLoop()
-  }, etState.tickIntervalMs)
-  etState.timer.unref() // don't keep the process alive if the event loop is otherwise idle
 
   return { running: true }
 }
 
 export function stopExecutionTick(): { running: boolean } {
   if (etState.timer) {
-    clearInterval(etState.timer)
+    clearTimeout(etState.timer)
     etState.timer = null
   }
   etState.running = false
+  etState.unsubscribeEnqueue?.()
+  etState.unsubscribeEnqueue = null
   return { running: false }
 }

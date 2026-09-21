@@ -31,6 +31,7 @@ const TASK_FILES = [
   "hud/lib/agents/types.ts",
   "hud/lib/agents/task-events.ts",
   "hud/lib/agents/task-stats.ts",
+  "hud/lib/git/worktree-manager.ts",
   "hud/lib/agents/task-store.ts",
   "hud/app/integrations/constants/types.ts",
   "hud/app/integrations/constants/pricing.ts",

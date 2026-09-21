@@ -55,7 +55,7 @@
 }
 
 .mission-canvas-theme .react-flow__edge.animated path {
-  animation: mission-edge-flow 0.9s linear infinite !important;
+  animation: mission-edge-flow 1.6s linear infinite !important;
 }
 
 @keyframes mission-edge-flow {

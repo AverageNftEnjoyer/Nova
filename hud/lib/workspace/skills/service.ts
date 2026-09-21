@@ -1,6 +1,7 @@
 import path from "node:path"
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { kvGet, kvSet } from "../../../../src/db/index.js"
+import { resolveUserContextRoot } from "../../../../src/db/paths.js"
 
 const SKILL_FILE_NAME = "SKILL.md"
 const MAX_SKILL_CHARS = 48_000
@@ -97,18 +98,13 @@ function toTitleCaseSlug(slug: string): string {
     .join(" ")
 }
 
-export function resolveSkillsDir(workspaceRoot: string, userId: string): string {
+// `workspaceRoot` is kept for call-site compatibility; skills live under the data dir (see resolveUserContextRoot).
+export function resolveSkillsDir(_workspaceRoot: string, userId: string): string {
   const scopedUserId = sanitizeUserContextId(userId)
   if (!scopedUserId) {
     throw new Error("resolveSkillsDir requires userContextId.")
   }
-  return path.join(
-    path.resolve(workspaceRoot),
-    ".user",
-    "user-context",
-    scopedUserId,
-    "skills",
-  )
+  return path.join(resolveUserContextRoot(), scopedUserId, "skills")
 }
 
 export function resolveSkillFilePath(workspaceRoot: string, userId: string, skillName: string): string {

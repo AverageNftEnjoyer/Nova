@@ -5,7 +5,7 @@
 
 import fs from "fs";
 import path from "path";
-import { spawn, spawnSync } from "child_process";
+import { spawn } from "child_process";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "url";
 import { FishAudioClient } from "fish-audio";
@@ -156,19 +156,46 @@ export function cleanupAudioArtifacts() {
   } catch {}
 }
 
+// Async so the agent event loop (and the HUD gateway) stays responsive while sox records.
+const MIC_CAPTURE_TIMEOUT_GRACE_MS = 10_000;
+
 export function recordMic(outFile, seconds = 3) {
   const safeSeconds = Math.max(1, Math.min(8, Number.isFinite(seconds) ? seconds : 3));
-  const result = spawnSync("sox", ["-t", "waveaudio", "-d", outFile, "trim", "0", String(safeSeconds)], {
-    stdio: "ignore",
-    shell: false,
-    windowsHide: true,
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = null;
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (err) reject(err);
+      else resolve();
+    };
+
+    let child;
+    try {
+      child = spawn("sox", ["-t", "waveaudio", "-d", outFile, "trim", "0", String(safeSeconds)], {
+        stdio: "ignore",
+        shell: false,
+        windowsHide: true,
+      });
+    } catch (err) {
+      finish(new Error(`Mic capture failed: ${err instanceof Error ? err.message : String(err)}`));
+      return;
+    }
+
+    // A healthy capture ends after `safeSeconds`; kill a hung device/driver so the loop can recover.
+    timer = setTimeout(() => {
+      try { child.kill(); } catch {}
+      finish(new Error(`Mic capture timed out after ${safeSeconds}s (+${MIC_CAPTURE_TIMEOUT_GRACE_MS}ms grace)`));
+    }, safeSeconds * 1000 + MIC_CAPTURE_TIMEOUT_GRACE_MS);
+
+    child.once("error", (err) => finish(new Error(`Mic capture failed: ${err.message}`)));
+    child.once("close", (code, signal) => {
+      if (code === 0) finish();
+      else finish(new Error(`Mic capture failed with exit code ${String(code ?? signal)}`));
+    });
   });
-  if (result.error) {
-    throw new Error(`Mic capture failed: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw new Error(`Mic capture failed with exit code ${String(result.status)}`);
-  }
 }
 
 // ===== STT (Bug Fix 1: configurable model via NOVA_STT_MODEL env var) =====

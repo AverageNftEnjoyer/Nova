@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveDataDir } from "../../../db/paths.js";
 
 type ChatKitEventStatus = "ok" | "error" | "skipped";
 
@@ -18,7 +19,10 @@ export interface ChatKitEventInput {
   details?: Record<string, unknown>;
 }
 
-const CHATKIT_LOG_FILE = path.join(process.cwd(), "archive", "logs", "chatkit-events.jsonl");
+// Logs live under the data dir (NOVA_DATA_DIR / packaged aware), never relative to process.cwd().
+function resolveChatKitLogFile(): string {
+  return path.join(resolveDataDir(), "archive", "logs", "chatkit-events.jsonl");
+}
 
 function safeText(value: unknown, maxChars = 220): string {
   const text = String(value ?? "").replace(/\u0000/g, "").trim();
@@ -44,8 +48,9 @@ export function appendChatKitEvent(input: ChatKitEventInput): void {
       outputChars: Number.isFinite(Number(input.outputChars)) ? Number(input.outputChars) : 0,
       details: input.details && typeof input.details === "object" ? input.details : {},
     };
-    fs.mkdirSync(path.dirname(CHATKIT_LOG_FILE), { recursive: true });
-    fs.appendFileSync(CHATKIT_LOG_FILE, `${JSON.stringify(payload)}\n`, "utf8");
+    const logFile = resolveChatKitLogFile();
+    fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    fs.appendFileSync(logFile, `${JSON.stringify(payload)}\n`, "utf8");
   } catch {
     // Never throw from telemetry append path.
   }

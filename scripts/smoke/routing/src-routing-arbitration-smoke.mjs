@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -23,7 +24,7 @@ function summarize(result) {
 }
 
 const providersModule = await import(
-  pathToFileURL(path.join(process.cwd(), "dist", "providers", "index.js")).href,
+  pathToFileURL(path.join(process.cwd(), "dist", "providers", "index", "index.js")).href,
 );
 const { resolveConfiguredChatRuntime } = providersModule;
 
@@ -48,7 +49,18 @@ function buildIntegrations(params) {
   };
 }
 
-await run("P17-C1 cost preference chooses Gemini as cheapest ready fallback", async () => {
+// V.59 removed ranked/cost/latency provider fallback: resolveConfiguredChatRuntime always answers with the user's
+// active provider (routeReason "strict-active-provider") and never fails over. P17-C1..C4 keep their IDs and assert
+// that contract for the same inputs the old ranking tests used.
+function assertStrictActive(resolved, provider, connected) {
+  assert.equal(resolved.provider, provider);
+  assert.equal(resolved.strict, true);
+  assert.equal(resolved.routeReason, "strict-active-provider");
+  assert.equal(resolved.connected, connected);
+  assert.deepEqual(resolved.rankedCandidates, [provider]);
+}
+
+await run("P17-C1 cost preference never fails over: the active provider is used even when it is not ready", async () => {
   const integrations = buildIntegrations({
     activeProvider: "openai",
     ready: ["claude", "gemini", "grok"],
@@ -57,12 +69,11 @@ await run("P17-C1 cost preference chooses Gemini as cheapest ready fallback", as
     strictActiveProvider: false,
     preference: "cost",
   });
-  assert.equal(resolved.provider, "gemini");
-  assert.equal(resolved.routeReason, "ranked-fallback");
-  assert.deepEqual(resolved.rankedCandidates, ["gemini", "grok", "claude"]);
+  assertStrictActive(resolved, "openai", false);
+  assert.equal(resolved.apiKey, "");
 });
 
-await run("P17-C2 latency+tool bias can override active provider when enabled", async () => {
+await run("P17-C2 latency+tool bias cannot override the active provider", async () => {
   const integrations = buildIntegrations({
     activeProvider: "claude",
     ready: ["openai", "claude", "gemini"],
@@ -73,9 +84,7 @@ await run("P17-C2 latency+tool bias can override active provider when enabled", 
     requiresToolCalling: true,
     allowActiveProviderOverride: true,
   });
-  assert.equal(resolved.provider, "gemini");
-  assert.equal(resolved.routeReason, "ranked-fallback");
-  assert.deepEqual(resolved.rankedCandidates, ["gemini", "openai", "claude"]);
+  assertStrictActive(resolved, "claude", true);
 });
 
 await run("P17-C3 active provider remains sticky when override is disabled", async () => {
@@ -89,12 +98,10 @@ await run("P17-C3 active provider remains sticky when override is disabled", asy
     requiresToolCalling: true,
     allowActiveProviderOverride: false,
   });
-  assert.equal(resolved.provider, "claude");
-  assert.equal(resolved.routeReason, "active-provider-ready");
-  assert.deepEqual(resolved.rankedCandidates, ["claude"]);
+  assertStrictActive(resolved, "claude", true);
 });
 
-await run("P17-C4 preferred provider hints are deterministic and respected", async () => {
+await run("P17-C4 preferred provider hints are ignored deterministically (active provider wins)", async () => {
   const integrations = buildIntegrations({
     activeProvider: "grok",
     ready: ["openai", "claude"],
@@ -107,9 +114,8 @@ await run("P17-C4 preferred provider hints are deterministic and respected", asy
   };
   const first = resolveConfiguredChatRuntime(integrations, options);
   const second = resolveConfiguredChatRuntime(integrations, options);
-  assert.equal(first.provider, "claude");
-  assert.equal(second.provider, "claude");
-  assert.deepEqual(first.rankedCandidates, second.rankedCandidates);
+  assertStrictActive(first, "grok", false);
+  assert.deepEqual(first, second);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

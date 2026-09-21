@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDeepLink: (callback) => {
     ipcRenderer.on('deep-link', (event, url) => callback(url))
   },
+  onFileDrop: (callback) => {
+    ipcRenderer.on('file-dropped', (event, data) => callback(data))
+  },
 
   // Remove event listeners
   removeAgentTaskUpdateListener: () => {
@@ -32,6 +35,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAgentTaskCompleteListener: () => {
     ipcRenderer.removeAllListeners('agent-task-complete')
   },
+
+  // Notifications
+  showNotification: (options) => ipcRenderer.invoke('show-notification', options),
+
+  // Auto-launch
+  setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),
+  getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
 
   // Environment info
   isElectron: true,

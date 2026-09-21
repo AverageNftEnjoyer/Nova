@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -42,7 +43,7 @@ function resolveSmokeUserContextId() {
     || "",
   ).trim();
   if (explicit) return explicit;
-  const root = path.join(process.cwd(), ".user", "user-context");
+  const root = path.join(process.env.NOVA_DATA_DIR, "user-context");
   if (!fs.existsSync(root)) return "";
   const candidates = fs
     .readdirSync(root, { withFileTypes: true })

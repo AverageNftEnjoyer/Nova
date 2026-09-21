@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readKv, readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
 
 const results = [];
 
@@ -67,19 +69,9 @@ function readJsonl(filePath) {
   }
 }
 
-function resolveUserContextRootCandidates(baseDir, userContextId) {
-  return [
-    path.join(baseDir, ".user", "user-context", userContextId),
-  ];
-}
-
-function resolveScopedRoot(baseDir, userContextId, sessionKeyHint) {
-  const candidates = resolveUserContextRootCandidates(baseDir, userContextId);
-  return candidates.find((candidate) => {
-    const sessions = readJson(path.join(candidate, "state", "sessions.json"), {});
-    return Boolean(sessions[sessionKeyHint]);
-  }) || candidates.find((candidate) => fs.existsSync(candidate))
-    || candidates[0];
+// File-based artifacts (logs/) live under the data dir; sessions, transcripts and voice settings are nova.db rows.
+function resolveScopedRoot(_baseDir, userContextId) {
+  return userContextDir(userContextId);
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -216,16 +208,15 @@ await run("VT-LIVE-3 voice and tts artifacts remain user-scoped across shared co
       lane: expected.lane,
     });
 
-    const root = resolveScopedRoot(workspaceRoot, expected.userContextId, sessionKeyHint);
-    const sessions = readJson(path.join(root, "state", "sessions.json"), {});
+    const root = resolveScopedRoot(workspaceRoot, expected.userContextId);
+    const sessions = readSessions(expected.userContextId);
     const sessionEntry = sessions[sessionKeyHint];
     assert.equal(Boolean(sessionEntry), true, `session missing for ${expected.userContextId}`);
     const sessionId = String(sessionEntry?.sessionId || "").trim();
     assert.equal(sessionId.length > 0, true, `sessionId missing for ${expected.userContextId}`);
 
-    const transcriptPath = path.join(root, "transcripts", `${sessionId}.jsonl`);
-    assert.equal(fs.existsSync(transcriptPath), true, `transcript missing for ${expected.userContextId}`);
-    const transcriptLines = readJsonl(transcriptPath);
+    const transcriptLines = readTranscript(expected.userContextId, sessionId);
+    assert.equal(transcriptLines.length > 0, true, `transcript missing for ${expected.userContextId}`);
     assert.equal(
       transcriptLines.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyHint),
       true,
@@ -240,7 +231,8 @@ await run("VT-LIVE-3 voice and tts artifacts remain user-scoped across shared co
       `conversation log missing ${expected.lane} route for ${expected.userContextId}`,
     );
 
-    const scopedVoiceState = readJson(path.join(root, "state", "voice-user-settings.json"), {});
+    // Voice settings are the kv_state row (voice-user-settings/settings); keep the { settings } view the asserts use.
+    const scopedVoiceState = { settings: readKv(expected.userContextId, "voice-user-settings", "settings") || {} };
     assert.equal(
       String(scopedVoiceState?.settings?.userContextId || ""),
       expected.userContextId.toLowerCase(),
@@ -277,7 +269,7 @@ await run("VT-LIVE-3 voice and tts artifacts remain user-scoped across shared co
     assert.equal(String(shortTermState?.userContextId || ""), expected.userContextId.toLowerCase(), `short-term state user mismatch for ${expected.userContextId}`);
 
     console.log(`Voice/TTS artifact root (${expected.userContextId}): ${root}`);
-    console.log(`Voice/TTS transcript (${expected.userContextId}): ${transcriptPath}`);
+    console.log(`Voice/TTS transcript (${expected.userContextId}) turns: ${transcriptLines.length}`);
   }
 });
 

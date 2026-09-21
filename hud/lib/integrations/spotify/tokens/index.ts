@@ -163,7 +163,7 @@ export async function getValidSpotifyAccessToken(
   const now = Date.now()
   const cacheKey = _tokenCacheKey(scope)
 
-  // Fast path: serve from in-process cache (saves a Supabase round trip)
+  // Fast path: serve from in-process cache (saves a token-store read)
   if (!forceRefresh && cacheKey) {
     const cached = _tokenCache.get(cacheKey)
     if (cached && cached.expiry > now + 30_000) return cached.token

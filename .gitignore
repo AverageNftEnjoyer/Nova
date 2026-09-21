@@ -31,6 +31,9 @@ telegram_history.json
 **/keys/
 **/imported-backup/
 
+# git worktrees for agent tasks
+.worktrees/
+
 # local logs
 *.log
 logs/

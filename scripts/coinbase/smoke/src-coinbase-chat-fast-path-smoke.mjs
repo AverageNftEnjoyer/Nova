@@ -1,7 +1,8 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 
 import { isCryptoRequestText, runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
-import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/workers/finance/coinbase-command-parser/index.js";
+import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/services/coinbase/command-parser/index.js";
 
 const availableTools = [
   { name: "coinbase_capabilities" },

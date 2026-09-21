@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readKv, readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
 
 const results = [];
 
@@ -110,11 +112,9 @@ function createRuntimeSelectionOverride() {
   };
 }
 
-function resolveScopedRoot(baseDir, scopedUserContextId) {
-  const candidates = [
-    path.join(baseDir, ".user", "user-context", scopedUserContextId),
-  ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+// File-based artifacts (logs/) live under the data dir; sessions, transcripts and follow-up state are nova.db rows.
+function resolveScopedRoot(_baseDir, scopedUserContextId) {
+  return userContextDir(scopedUserContextId);
 }
 
 async function ask(prompt) {
@@ -148,8 +148,7 @@ await run("PLATFORM-LIVE-1 mission confirmation flow stays on a stable scoped th
 
 await run("PLATFORM-LIVE-2 artifacts and persisted mission state remain user-scoped", async () => {
   const scopedRoot = resolveScopedRoot(workspaceRoot, userContextId);
-  const sessionsPath = path.join(scopedRoot, "state", "sessions.json");
-  const sessions = readJson(sessionsPath, {});
+  const sessions = readSessions(userContextId);
   const sessionEntry = sessions[sessionKeyHint];
   assert.equal(Boolean(sessionEntry), true, "session entry missing");
   assert.equal(String(sessionEntry?.userContextId || ""), userContextId, "session user mismatch");
@@ -157,15 +156,11 @@ await run("PLATFORM-LIVE-2 artifacts and persisted mission state remain user-sco
   const sessionId = String(sessionEntry?.sessionId || "").trim();
   assert.equal(sessionId.length > 0, true, "sessionId missing");
 
-  const transcriptPath = path.join(scopedRoot, "transcripts", `${sessionId}.jsonl`);
   const logPath = path.join(scopedRoot, "logs", "conversation-dev.jsonl");
-  const statePath = path.join(scopedRoot, "state", "short-term-context-state.json");
-
-  assert.equal(fs.existsSync(transcriptPath), true, "transcript missing");
+  const transcriptEntries = readTranscript(userContextId, sessionId);
+  assert.equal(transcriptEntries.length > 0, true, "transcript missing");
   assert.equal(fs.existsSync(logPath), true, "conversation log missing");
-  assert.equal(fs.existsSync(statePath), true, "short-term context state missing");
 
-  const transcriptEntries = readJsonl(transcriptPath);
   const logEntries = readJsonl(logPath);
   const transcriptHasPrompt = transcriptEntries.some((entry) => String(entry?.content || "").includes("bill reminder on discord every friday at 5pm"));
   const transcriptHasReply = transcriptEntries.some((entry) => String(entry?.content || "").includes("Do you want me to create it now?"));
@@ -178,17 +173,17 @@ await run("PLATFORM-LIVE-2 artifacts and persisted mission state remain user-sco
   assert.equal(transcriptHasReply, true, "transcript missing assistant confirmation");
   assert.equal(logScoped, true, "conversation log missing scoped conversation");
 
-  const state = readJson(statePath, {});
+  // Short-term follow-up state is a kv_state row (namespace "short-term-context"), scoped to the user.
   const recordKey = `${conversationId}::mission_task`;
-  assert.equal(Boolean(state?.records?.[recordKey]), true, "mission task record missing");
+  assert.equal(Boolean(readKv(userContextId, "short-term-context", recordKey)), true, "mission task record missing");
+  assert.equal(readKv(`${userContextId}-other`, "short-term-context", recordKey), null, "state leaked to another user");
 
   console.log(JSON.stringify({
     userContextId,
     conversationId,
     sessionKeyHint,
-    transcriptPath,
+    transcriptTurns: transcriptEntries.length,
     logPath,
-    statePath,
   }, null, 2));
 });
 

@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -357,13 +358,23 @@ await run("P22-D11 integration PATCH /api/integrations/config rejects invalid Di
       }),
       updateIntegrationsConfig: async (next) => ({ ...next, updatedAt: new Date().toISOString() }),
     },
+    // The PATCH validation under test rejects before any of these run; identity stubs keep the import graph closed.
+    "@/lib/integrations/store/client-config": { toClientIntegrationsConfig: (config) => config },
+    // Provider base-URL validation only runs for LLM provider patches, which this Discord test never sends.
+    "@/lib/security/provider-base-url": { validateProviderBaseUrl: () => ({ ok: true }) },
+    "@/lib/integrations/store/secrets-errors": { secretsUnavailableResponse: () => null },
+    "@/lib/integrations/phantom/types": { normalizePhantomIntegrationConfig: (config) => config },
+    "@/lib/integrations/polymarket/types": { normalizePolymarketIntegrationConfig: (config) => config },
     "@/lib/integrations/agent-runtime-sync": { syncAgentRuntimeIntegrationsSnapshot: async () => {} },
     "@/lib/integrations/runtime/agent-sync": { syncAgentRuntimeIntegrationsSnapshot: async () => {} },
     "@/lib/coinbase/reporting": {
       createCoinbaseStore: async () => ({ purgeUserData: () => ({}), appendAuditLog: () => {}, close: () => {} }),
     },
-    "@/lib/supabase/server": {
-      requireSupabaseApiUser: async () => ({ verified: { user: { id: "discord-smoke-user" } }, unauthorized: null }),
+    "@/lib/auth/local-user": {
+      requireLocalUser: async () => ({
+        user: { id: "discord-smoke-user", email: "local@novaai.local" },
+        userId: "discord-smoke-user",
+      }),
     },
     "@/lib/workspace/root": {
       resolveWorkspaceRoot: () => process.cwd(),
@@ -406,8 +417,11 @@ await run("P22-D12 integration POST /api/integrations/test-discord redacts targe
           }),
       },
     },
-    "@/lib/supabase/server": {
-      requireSupabaseApiUser: async () => ({ verified: { user: { id: "discord-smoke-user" } }, unauthorized: null }),
+    "@/lib/auth/local-user": {
+      requireLocalUser: async () => ({
+        user: { id: "discord-smoke-user", email: "local@novaai.local" },
+        userId: "discord-smoke-user",
+      }),
     },
     "@/lib/security/rate-limit": {
       RATE_LIMIT_POLICIES: {

@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto"
 
 import { nowIso, tx, type Database } from "../../../src/db/index.js"
 import { resolveModelPricing } from "../../app/integrations/constants/pricing"
+import { createWorktree, deleteWorktree, generateBranchName } from "../git/worktree-manager"
 import { publishTaskEvent } from "./task-events"
 import { computeTaskStats } from "./task-stats"
 import {
@@ -82,6 +83,9 @@ interface AgentTaskRow {
   tokens_out: number
   cost_usd: number
   error: string | null
+  attached_files: string | null
+  worktree_path: string | null
+  branch_name: string | null
   created_at: string
   updated_at: string
   started_at: string | null
@@ -116,6 +120,16 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
     updatedAt: isoOrUndefined(row.updated_at) ?? createdAt,
   }
   if (typeof row.error === "string" && row.error) task.error = row.error
+  if (typeof row.attached_files === "string" && row.attached_files) {
+    try {
+      const parsed = JSON.parse(row.attached_files)
+      if (Array.isArray(parsed) && parsed.length > 0) task.attachedFiles = parsed
+    } catch {
+      // Ignore malformed JSON
+    }
+  }
+  if (typeof row.worktree_path === "string" && row.worktree_path) task.worktreePath = row.worktree_path
+  if (typeof row.branch_name === "string" && row.branch_name) task.branchName = row.branch_name
   const startedAt = isoOrUndefined(row.started_at)
   if (startedAt) task.startedAt = startedAt
   const pausedAt = isoOrUndefined(row.paused_at)
@@ -127,12 +141,25 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
 
 function loadTasks(db: Database, userId: string): AgentTask[] {
   const rows = db
-    .prepare("SELECT * FROM agent_tasks WHERE user_id = ? ORDER BY created_at DESC, id ASC")
-    .all(userId) as AgentTaskRow[]
+    .prepare(
+      `SELECT
+        a.*,
+        c.context_id
+       FROM agent_tasks a
+       LEFT JOIN task_context_assignments c ON a.user_id = c.user_id AND a.id = c.task_id
+       WHERE a.user_id = ?
+       ORDER BY a.created_at DESC, a.id ASC`,
+    )
+    .all(userId) as (AgentTaskRow & { context_id: string | null })[]
   const tasks: AgentTask[] = []
   for (const row of rows) {
     const task = rowToTask(row, userId)
-    if (task) tasks.push(task)
+    if (task) {
+      if (typeof row.context_id === "string" && row.context_id) {
+        task.contextId = row.context_id
+      }
+      tasks.push(task)
+    }
   }
   return tasks
 }
@@ -141,15 +168,16 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
   db.prepare(
     `INSERT INTO agent_tasks
        (user_id, id, name, prompt, agent, model, status, priority, permission_mode, progress, tokens_in, tokens_out,
-        cost_usd, error, created_at, updated_at, started_at, paused_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cost_usd, error, attached_files, worktree_path, branch_name, created_at, updated_at, started_at, paused_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, id) DO UPDATE SET
        name = excluded.name, prompt = excluded.prompt, agent = excluded.agent, model = excluded.model,
        status = excluded.status, priority = excluded.priority, permission_mode = excluded.permission_mode,
        progress = excluded.progress, tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
-       cost_usd = excluded.cost_usd, error = excluded.error, created_at = excluded.created_at,
-       updated_at = excluded.updated_at, started_at = excluded.started_at, paused_at = excluded.paused_at,
-       completed_at = excluded.completed_at`,
+       cost_usd = excluded.cost_usd, error = excluded.error, attached_files = excluded.attached_files,
+       worktree_path = excluded.worktree_path, branch_name = excluded.branch_name,
+       created_at = excluded.created_at, updated_at = excluded.updated_at, started_at = excluded.started_at,
+       paused_at = excluded.paused_at, completed_at = excluded.completed_at`,
   ).run(
     userId,
     task.id,
@@ -165,12 +193,60 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
     task.tokensOut,
     task.costUsd,
     task.error ?? null,
+    task.attachedFiles ? JSON.stringify(task.attachedFiles) : null,
+    task.worktreePath ?? null,
+    task.branchName ?? null,
     task.createdAt,
     task.updatedAt,
     task.startedAt ?? null,
     task.pausedAt ?? null,
     task.completedAt ?? null,
   )
+}
+
+/** Cheap read-only probe (indexed, no write lock): does this user have any queued or running task? */
+export function hasActiveTasks(rawUserId: string): boolean {
+  const userId = sanitizeUserId(rawUserId)
+  return tx(
+    (db) =>
+      db
+        .prepare("SELECT 1 FROM agent_tasks WHERE user_id = ? AND status IN ('queued', 'running') LIMIT 1")
+        .get(userId) !== undefined,
+    "deferred",
+  )
+}
+
+// Kept on globalThis (like the event bus) so every route bundle shares one listener set.
+type TaskActivityListener = (userId: string) => void
+type ActivityGlobal = typeof globalThis & { __novaAgentTaskActivity?: Set<TaskActivityListener> }
+
+function getActivityListeners(): Set<TaskActivityListener> {
+  const g = globalThis as ActivityGlobal
+  if (!g.__novaAgentTaskActivity) g.__novaAgentTaskActivity = new Set()
+  return g.__novaAgentTaskActivity
+}
+
+/**
+ * Notified (after commit) whenever a write leaves a task queued or running for `userId`.
+ * The runner uses this to wake its timer, which otherwise sleeps while nothing is active.
+ */
+export function subscribeTaskActivity(listener: TaskActivityListener): () => void {
+  const listeners = getActivityListeners()
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function notifyTaskActivity(userId: string, changed: AgentTask[]): void {
+  if (!changed.some((t) => t.status === "queued" || t.status === "running")) return
+  for (const listener of [...getActivityListeners()]) {
+    try {
+      listener(userId)
+    } catch {
+      // A failing listener must not affect the write that already committed.
+    }
+  }
 }
 
 /** Read-only snapshot (no write lock), used by list/get/stats. */
@@ -212,6 +288,7 @@ async function transact<T>(
 
   for (const task of outcome.changed) publishTaskEvent(userId, { type: "task.upserted", task })
   for (const id of outcome.removed) publishTaskEvent(userId, { type: "task.deleted", id })
+  notifyTaskActivity(userId, outcome.changed)
   return { result: outcome.result, changed: outcome.changed }
 }
 
@@ -229,7 +306,7 @@ export function computeTaskCostUsd(model: string, tokensIn: number, tokensOut: n
 
 function validateCreateInput(
   input: CreateAgentTaskInput,
-): Pick<AgentTask, "name" | "prompt" | "agent" | "model" | "priority" | "permissionMode"> {
+): Pick<AgentTask, "name" | "prompt" | "agent" | "model" | "priority" | "permissionMode" | "attachedFiles"> {
   const prompt = String(input?.prompt ?? "").trim()
   if (!prompt) throw new AgentTaskValidationError("Prompt is required.")
   if (prompt.length > MAX_PROMPT_CHARS) {
@@ -243,7 +320,7 @@ function validateCreateInput(
     throw new AgentTaskValidationError(`Model must be ${MAX_MODEL_CHARS} characters or fewer.`)
   }
   const name = String(input?.name ?? "").trim().slice(0, MAX_NAME_CHARS) || defaultTaskName(prompt)
-  return {
+  const result: Pick<AgentTask, "name" | "prompt" | "agent" | "model" | "priority" | "permissionMode" | "attachedFiles"> = {
     name,
     prompt,
     agent,
@@ -251,6 +328,10 @@ function validateCreateInput(
     priority: pickEnum(input?.priority, PRIORITIES) ?? "normal",
     permissionMode: pickEnum(input?.permissionMode, PERMISSION_MODES) ?? "default",
   }
+  if (Array.isArray(input?.attachedFiles) && input.attachedFiles.length > 0) {
+    result.attachedFiles = input.attachedFiles.filter((f) => typeof f === "string" && f.trim()).slice(0, 20)
+  }
+  return result
 }
 
 function findTask(tasks: AgentTask[], id: string): AgentTask {
@@ -313,8 +394,10 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
   const fields = validateCreateInput(input)
   const safeUserId = sanitizeUserId(userId)
   const now = nowIso()
+  const taskId = randomUUID()
+
   const task: AgentTask = {
-    id: randomUUID(),
+    id: taskId,
     userId: safeUserId,
     ...fields,
     status: "queued",
@@ -325,6 +408,21 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
     createdAt: now,
     updatedAt: now,
   }
+
+  // Create worktree if requested
+  if (input.useWorktree) {
+    try {
+      const branchName = generateBranchName(input.prompt, taskId)
+      const worktreePath = await createWorktree(taskId, branchName)
+      task.worktreePath = worktreePath
+      task.branchName = branchName
+    } catch (error) {
+      // Log error but don't fail task creation
+      console.error(`Failed to create worktree for task ${taskId}:`, error)
+      // Continue without worktree
+    }
+  }
+
   await transact(userId, (tasks) => {
     if (tasks.length >= MAX_TASKS) {
       const oldestTerminal = tasks
@@ -335,6 +433,18 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
     }
     tasks.unshift(task)
   })
+
+  // Assign to context if provided
+  if (input.contextId) {
+    tx((db) => {
+      db.prepare(
+        `INSERT INTO task_context_assignments (user_id, task_id, context_id, assigned_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(safeUserId, taskId, input.contextId, now)
+    })
+    task.contextId = input.contextId
+  }
+
   return task
 }
 
@@ -348,12 +458,27 @@ export async function applyTaskAction(userId: string, id: string, action: AgentT
 }
 
 export async function deleteTask(userId: string, id: string): Promise<boolean> {
+  // Get task to check for worktree before deleting
+  const task = await getTask(userId, id)
+
   const { result } = await transact(userId, (tasks) => {
     const index = tasks.findIndex((t) => t.id === id)
     if (index === -1) return false
     tasks.splice(index, 1)
     return true
   })
+
+  // Clean up worktree if it exists (do this after successful deletion)
+  if (result && task?.worktreePath) {
+    try {
+      // Force delete worktree since task is being deleted
+      await deleteWorktree(id, undefined, true)
+    } catch (error) {
+      // Log but don't fail deletion if worktree cleanup fails
+      console.error(`Failed to clean up worktree for task ${id}:`, error)
+    }
+  }
+
   return result
 }
 

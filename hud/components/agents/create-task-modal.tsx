@@ -1,7 +1,7 @@
 "use client"
 
-import { Loader2, ShieldAlert, X } from "lucide-react"
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { File, Loader2, ShieldAlert, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
 import { createPortal } from "react-dom"
 
 import {
@@ -50,6 +50,12 @@ function defaultModelFor(provider: AgentProvider): string {
   return MODEL_OPTIONS_BY_PROVIDER[provider][0]?.value ?? ""
 }
 
+function basename(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/")
+  const parts = normalized.split("/")
+  return parts[parts.length - 1] || filePath
+}
+
 export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTaskModalProps) {
   const [agent, setAgent] = useState<AgentProvider>("claude")
   const [model, setModel] = useState(() => defaultModelFor("claude"))
@@ -57,8 +63,15 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
   const [name, setName] = useState("")
   const [priority, setPriority] = useState<AgentTaskPriority>("normal")
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>("default")
+  const [useWorktree, setUseWorktree] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState("")
+  const [attachedFiles, setAttachedFiles] = useState<string[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const [contexts, setContexts] = useState<{ id: string; name: string }[]>([])
+  const [selectedContext, setSelectedContext] = useState<string>("")
+  const [newContextName, setNewContextName] = useState("")
+  const [showNewContextInput, setShowNewContextInput] = useState(false)
 
   const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PROVIDER[agent], [agent])
 
@@ -74,6 +87,38 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [open, pending, onClose])
 
+  useEffect(() => {
+    if (!open) return
+    // Load contexts when modal opens
+    fetch("/api/task-contexts")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok && Array.isArray(data.contexts)) {
+          setContexts(data.contexts)
+        }
+      })
+      .catch(() => {
+        // Ignore errors - contexts are optional
+      })
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    // Listen for file drops from Electron
+    if (typeof window !== "undefined" && (window as unknown as { electronAPI?: { onFileDrop?: (callback: (data: { filePath: string }) => void) => void } }).electronAPI?.onFileDrop) {
+      const handleFileDrop = (data: { filePath: string }) => {
+        if (data.filePath && !attachedFiles.includes(data.filePath)) {
+          setAttachedFiles((prev) => [...prev, data.filePath])
+        }
+      }
+      ;(window as unknown as { electronAPI: { onFileDrop: (callback: (data: { filePath: string }) => void) => void } }).electronAPI.onFileDrop(handleFileDrop)
+    }
+  }, [open, attachedFiles])
+
+  const removeFile = useCallback((filePath: string) => {
+    setAttachedFiles((prev) => prev.filter((f) => f !== filePath))
+  }, [])
+
   if (!open || typeof document === "undefined") return null
 
   const handleAgentChange = (value: string) => {
@@ -88,13 +133,64 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     if (!trimmedPrompt || pending) return
     setPending(true)
     setError("")
+
+    let finalContextId = selectedContext
+
+    // Create new context if requested
+    if (showNewContextInput && newContextName.trim()) {
+      try {
+        const contextRes = await fetch("/api/task-contexts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: newContextName.trim() }),
+        })
+        const contextData = await contextRes.json()
+        if (contextData.ok && contextData.context) {
+          finalContextId = contextData.context.id
+        } else {
+          setError(contextData.error || "Failed to create context")
+          setPending(false)
+          return
+        }
+      } catch {
+        setError("Failed to create context")
+        setPending(false)
+        return
+      }
+    }
+
+    // Generate context summary if task is in a context
+    let finalPrompt = trimmedPrompt
+    if (finalContextId) {
+      try {
+        const contextTasksRes = await fetch(`/api/task-contexts/${finalContextId}`)
+        const contextTasksData = await contextTasksRes.json()
+        if (contextTasksData.ok && contextTasksData.tasks && contextTasksData.tasks.length > 0) {
+          const summaries = contextTasksData.tasks.map((task: { agent: string; model: string; name: string; status: string; progress: number; error?: string }) => {
+            const outcome = task.error
+              ? `Failed: ${task.error.slice(0, 100)}`
+              : task.status === "completed"
+                ? `Completed (${task.progress}% done)`
+                : `${task.status.charAt(0).toUpperCase() + task.status.slice(1)} (${task.progress}% done)`
+            return `- [${task.agent} ${task.model}] "${task.name}" → ${outcome}`
+          })
+          finalPrompt = `Context: Related tasks in "${contextTasksData.context.name}":\n${summaries.join("\n")}\n\nYour task: ${trimmedPrompt}`
+        }
+      } catch {
+        // Continue without context summary if fetch fails
+      }
+    }
+
     const result = await onCreate({
       name: name.trim() || undefined,
-      prompt: trimmedPrompt,
+      prompt: finalPrompt,
       agent,
       model,
       priority,
       permissionMode,
+      attachedFiles: attachedFiles.length > 0 ? attachedFiles : undefined,
+      contextId: finalContextId || undefined,
+      useWorktree,
     })
     setPending(false)
     if (!result.ok) {
@@ -105,6 +201,11 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     setName("")
     setPriority("normal")
     setPermissionMode("default")
+    setAttachedFiles([])
+    setUseWorktree(false)
+    setSelectedContext("")
+    setNewContextName("")
+    setShowNewContextInput(false)
     onClose()
   }
 
@@ -183,6 +284,124 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
             </p>
           </div>
 
+          <div>
+            <label className={labelClass}>Attached files (optional)</label>
+            <div
+              className={cn(
+                "rounded-lg border-2 border-dashed p-3 text-center transition-colors",
+                isDragging
+                  ? "border-accent bg-accent/10"
+                  : isLight
+                    ? "border-[#d5dce8] bg-white/50"
+                    : "border-white/10 bg-black/20",
+              )}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setIsDragging(true)
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setIsDragging(false)
+                // Files will be handled by Electron's file drop handler
+              }}
+            >
+              <File className={cn("mx-auto h-5 w-5 mb-1", isLight ? "text-s-50" : "text-slate-400")} />
+              <p className={cn("text-[11px]", isLight ? "text-s-70" : "text-slate-300")}>
+                Drag files here to attach as context
+              </p>
+            </div>
+            {attachedFiles.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {attachedFiles.map((file) => (
+                  <div
+                    key={file}
+                    className={cn(
+                      "flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs",
+                      isLight ? "border-[#d5dce8] bg-white/50" : "border-white/10 bg-black/20",
+                    )}
+                  >
+                    <File className={cn("h-3 w-3 flex-shrink-0", isLight ? "text-s-50" : "text-slate-400")} />
+                    <span className={cn("flex-1 truncate", isLight ? "text-s-90" : "text-slate-100")}>
+                      {basename(file)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(file)}
+                      className={cn(
+                        "flex-shrink-0 rounded p-0.5 transition-colors",
+                        isLight ? "text-s-50 hover:bg-black/10 hover:text-s-90" : "text-slate-400 hover:bg-white/10 hover:text-slate-100",
+                      )}
+                      aria-label={`Remove ${basename(file)}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div>
+            <label className={labelClass}>Context (optional)</label>
+            {!showNewContextInput ? (
+              <div className="flex gap-2">
+                <select
+                  value={selectedContext}
+                  onChange={(e) => setSelectedContext(e.target.value)}
+                  className={cn(fieldClass, "flex-1")}
+                >
+                  <option value="">None</option>
+                  {contexts.map((ctx) => (
+                    <option key={ctx.id} value={ctx.id}>
+                      {ctx.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowNewContextInput(true)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs transition-colors whitespace-nowrap",
+                    isLight
+                      ? "border-[#d5dce8] text-s-70 hover:bg-black/5"
+                      : "border-white/10 text-slate-300 hover:bg-white/10",
+                  )}
+                >
+                  + New
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  value={newContextName}
+                  onChange={(e) => setNewContextName(e.target.value)}
+                  placeholder="Enter context name"
+                  className={cn(fieldClass, "flex-1")}
+                  maxLength={60}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewContextInput(false)
+                    setNewContextName("")
+                  }}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs transition-colors",
+                    isLight
+                      ? "border-[#d5dce8] text-s-70 hover:bg-black/5"
+                      : "border-white/10 text-slate-300 hover:bg-white/10",
+                  )}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+            <p className={cn("mt-1 text-[11px]", isLight ? "text-s-50" : "text-slate-500")}>
+              Group related tasks to share context
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <span className={labelClass}>Priority</span>
@@ -224,6 +443,23 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
               Bypass allows every operation without confirmation. Only use it for tasks you fully trust.
             </p>
           ) : null}
+
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={useWorktree}
+              onChange={(e) => setUseWorktree(e.target.checked)}
+              className={cn(
+                "h-4 w-4 rounded border transition-colors",
+                isLight
+                  ? "border-[#d5dce8] bg-white checked:bg-accent"
+                  : "border-white/10 bg-black/40 checked:bg-accent",
+              )}
+            />
+            <span className={cn("text-xs", isLight ? "text-s-70" : "text-slate-300")}>
+              Use isolated git worktree (enables parallel agent tasks)
+            </span>
+          </label>
 
           {error ? <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500">{error}</p> : null}
         </div>

@@ -10,7 +10,6 @@ import {
 import { buildIntegrationsHref } from "@/lib/integrations/navigation"
 import { maskPhantomWalletAddress, normalizePhantomIntegrationConfig, type PhantomUserSettings } from "@/lib/integrations/phantom/types"
 import { saveIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
-// Supabase removed
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
 
 interface UsePhantomSetupParams {

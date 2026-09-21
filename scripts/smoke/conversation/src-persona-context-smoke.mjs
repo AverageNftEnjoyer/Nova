@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -28,10 +29,10 @@ function summarize(result) {
 }
 
 const personaWorkspaceModule = await import(
-  pathToFileURL(path.join(process.cwd(), "dist", "agent", "persona-workspace.js")).href
+  pathToFileURL(path.join(process.cwd(), "dist", "agent", "persona-workspace", "index.js")).href
 );
-const bootstrapModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "agent", "bootstrap.js")).href);
-const systemPromptModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "agent", "system-prompt.js")).href);
+const bootstrapModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "agent", "bootstrap", "index.js")).href);
+const systemPromptModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "agent", "system-prompt", "index.js")).href);
 
 const { resolvePersonaWorkspaceDir } = personaWorkspaceModule;
 const { discoverBootstrapFiles } = bootstrapModule;
@@ -98,13 +99,17 @@ await run("P4-C2: template-only seeding behavior preserved", async () => {
   assert.equal(fs.existsSync(seededUserPath), true);
   assert.equal(fs.readFileSync(seededSoulPath, "utf8").includes("TEMPLATE_SOUL"), true);
 
-  const anonDir = resolvePersonaWorkspaceDir({
-    workspaceRoot: ws.root,
-    userContextRoot: ws.userContextRoot,
-    userContextId: "",
-  });
-  assert.equal(path.basename(anonDir), "anonymous");
-  assert.equal(fs.existsSync(path.join(anonDir, "SOUL.md")), false);
+  // There is no shared "anonymous" persona dir any more: a missing userContextId is rejected outright, and
+  // nothing is seeded for it.
+  assert.throws(
+    () => resolvePersonaWorkspaceDir({
+      workspaceRoot: ws.root,
+      userContextRoot: ws.userContextRoot,
+      userContextId: "",
+    }),
+    /requires userContextId/i,
+  );
+  assert.equal(fs.existsSync(path.join(ws.userContextRoot, "anonymous")), false);
 });
 
 await run("P4-C2: persona prompt composition parity (sample intent)", async () => {

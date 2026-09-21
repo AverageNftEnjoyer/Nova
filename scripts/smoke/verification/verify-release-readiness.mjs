@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import { spawnSync } from "node:child_process";
 
 const npmExecPath = String(process.env.npm_execpath || "").trim();

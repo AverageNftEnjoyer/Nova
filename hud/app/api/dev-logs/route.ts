@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireLocalUser } from "@/lib/auth/local-user"
 import fs from "node:fs/promises"
 import path from "node:path"
+import { resolveUserContextRoot } from "../../../../src/db/paths.js"
 
 
 
@@ -146,26 +147,6 @@ function buildSummary(turns: DevTurn[]) {
   }
 }
 
-async function resolveWorkspaceRoot(): Promise<string> {
-  const cwd = process.cwd()
-  const parent = path.resolve(cwd, "..")
-  const cwdAgentPath = path.join(cwd, ".user")
-  const parentAgentPath = path.join(parent, ".user")
-  try {
-    await fs.access(cwdAgentPath)
-    return cwd
-  } catch {
-    // no-op
-  }
-  try {
-    await fs.access(parentAgentPath)
-    return parent
-  } catch {
-    // no-op
-  }
-  return cwd
-}
-
 export async function GET(req: Request) {
   const { userId } = await requireLocalUser()
 
@@ -175,13 +156,13 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const limit = Math.max(20, Math.min(500, Number.parseInt(url.searchParams.get("limit") || "200", 10) || 200))
   const maxBytes = Math.max(128 * 1024, Math.min(8 * 1024 * 1024, Number.parseInt(url.searchParams.get("maxBytes") || `${4 * 1024 * 1024}`, 10) || 4 * 1024 * 1024))
-  const workspaceRoot = await resolveWorkspaceRoot()
-  const logPath = path.join(workspaceRoot, ".user", "user-context", userContextId, "logs", "conversation-dev.jsonl")
-  const lines = await readJsonlTail(logPath, maxBytes)
-  const turns = parseTurns(lines, userContextId, limit)
-  const summary = buildSummary(turns)
+  // The runtime writer (dev-conversation-log) writes under USER_CONTEXT_ROOT = resolveUserContextRoot(), so the
+  // reader follows the same data-dir-aware root (NOVA_DATA_DIR / packaged / <repo>/.user).
+  const logPath = path.join(resolveUserContextRoot(), userContextId, "logs", "conversation-dev.jsonl")
 
+  // Cheap change detection first: stat only. An unchanged log never gets tailed or parsed.
   let fileMeta: { exists: boolean; bytes: number; updatedAt: string | null } = { exists: false, bytes: 0, updatedAt: null }
+  let mtimeMs = 0
   try {
     const stat = await fs.stat(logPath)
     fileMeta = {
@@ -189,17 +170,32 @@ export async function GET(req: Request) {
       bytes: stat.size,
       updatedAt: stat.mtime.toISOString(),
     }
+    mtimeMs = stat.mtimeMs
   } catch {
     // file not present yet
   }
 
-  return NextResponse.json({
-    ok: true,
-    userContextId,
-    logPath,
-    file: fileMeta,
-    summary,
-    turns,
-    generatedAt: new Date().toISOString(),
-  })
+  const etag = `W/"devlogs-${userContextId}-${fileMeta.exists ? 1 : 0}-${fileMeta.bytes}-${Math.trunc(mtimeMs)}-${limit}-${maxBytes}"`
+  const cacheHeaders = { ETag: etag, "Cache-Control": "private, no-cache" }
+  const ifNoneMatch = String(req.headers.get("if-none-match") || "").trim()
+  if (ifNoneMatch && ifNoneMatch.split(",").some((candidate) => candidate.trim() === etag)) {
+    return new NextResponse(null, { status: 304, headers: cacheHeaders })
+  }
+
+  const lines = await readJsonlTail(logPath, maxBytes)
+  const turns = parseTurns(lines, userContextId, limit)
+  const summary = buildSummary(turns)
+
+  return NextResponse.json(
+    {
+      ok: true,
+      userContextId,
+      logPath,
+      file: fileMeta,
+      summary,
+      turns,
+      generatedAt: new Date().toISOString(),
+    },
+    { headers: cacheHeaders },
+  )
 }

@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -129,7 +130,7 @@ await runTsCheck("hud/app/missions/hooks/__tests__/mission-graph-shape.check.ts"
 await runTsCheck(
   "hud/lib/missions/workflow/executors/__tests__/agent-executors.check.ts",
   {
-    "../../store": { loadMissions: async () => [] },
+    "../../../../../src/runtime/modules/services/missions/persistence/index.js": { loadMissions: async () => [] },
   },
 );
 await runTsCheck("hud/lib/missions/workflow/versioning/__tests__/versioning.check.ts");

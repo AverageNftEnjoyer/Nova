@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useDeferredValue, useEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type ReactNode } from "react"
+import { Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type ReactNode } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Activity, ArrowUpRight, CandlestickChart, RefreshCw, Settings, ShieldCheck, TrendingUp, Wallet } from "lucide-react"
 
@@ -39,7 +39,6 @@ import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
-// Supabase removed
 
 function hexToRgbTriplet(hex: string): string {
   const clean = hex.replace("#", "")
@@ -174,7 +173,7 @@ function SectionHeader({ icon, title, action, isLight }: { icon: ReactNode; titl
   )
 }
 
-export default function PolymarketPage() {
+function PolymarketPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const pageActive = usePageActive()
@@ -864,3 +863,11 @@ export default function PolymarketPage() {
 
 
 
+
+export default function PolymarketPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <PolymarketPageContent />
+    </Suspense>
+  )
+}

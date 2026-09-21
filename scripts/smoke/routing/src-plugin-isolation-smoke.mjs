@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -23,7 +24,7 @@ function summarize(result) {
 }
 
 const executorModule = await import(
-  pathToFileURL(path.join(process.cwd(), "dist", "tools", "executor.js")).href,
+  pathToFileURL(path.join(process.cwd(), "dist", "tools", "core", "executor", "index.js")).href,
 );
 const { executeToolUse } = executorModule;
 

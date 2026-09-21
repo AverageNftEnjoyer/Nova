@@ -89,12 +89,54 @@ function providerFromValue(value: unknown): LlmProvider {
   return value === "claude" || value === "grok" || value === "gemini" ? value : "openai"
 }
 
-const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 2_000
-const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 1_000
+// The client interpolates progress between polls (see spotify-home-module), so polls only
+// need to detect track/play-state changes and correct drift.
+const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 4_000
+const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 2_000
 const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 5_000
 const SPOTIFY_POLL_INTERVAL_IDLE_MS = 8_000
 const SPOTIFY_REQUEST_TIMEOUT_MS = 12_000
 const SPOTIFY_UNAUTHORIZED_REDIRECT_COOLDOWN_MS = 2_500
+// Only replace the now-playing snapshot when the server progress differs from the
+// client-interpolated progress by more than this (avoids re-rendering on every poll).
+const SPOTIFY_PROGRESS_DRIFT_THRESHOLD_MS = 1_500
+// Minimum gap between poll cycles triggered by visibility/focus events.
+const SPOTIFY_FOREGROUND_POLL_MIN_GAP_MS = 1_000
+
+interface RefreshSpotifyOptions {
+  /** Background poll: do not toggle the loading flag once a snapshot exists. */
+  silent?: boolean
+}
+
+function expectedSpotifyProgressMs(prev: HomeSpotifyNowPlaying, snapshotAt: number, now: number): number {
+  if (!prev.playing) return prev.progressMs
+  const projected = prev.progressMs + Math.max(0, now - snapshotAt)
+  return prev.durationMs > 0 ? Math.min(prev.durationMs, projected) : projected
+}
+
+function hasMeaningfulSpotifyChange(
+  prev: HomeSpotifyNowPlaying | null,
+  next: HomeSpotifyNowPlaying,
+  snapshotAt: number,
+  now: number,
+): boolean {
+  if (!prev) return true
+  if (
+    prev.connected !== next.connected
+    || prev.playing !== next.playing
+    || prev.trackId !== next.trackId
+    || prev.durationMs !== next.durationMs
+    || prev.trackName !== next.trackName
+    || prev.artistName !== next.artistName
+    || prev.albumName !== next.albumName
+    || prev.albumArtUrl !== next.albumArtUrl
+    || prev.deviceId !== next.deviceId
+    || prev.deviceName !== next.deviceName
+  ) {
+    return true
+  }
+  return Math.abs(next.progressMs - expectedSpotifyProgressMs(prev, snapshotAt, now)) > SPOTIFY_PROGRESS_DRIFT_THRESHOLD_MS
+}
 
 async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = SPOTIFY_REQUEST_TIMEOUT_MS) {
   const controller = new AbortController()
@@ -149,7 +191,12 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
 
   // Keep refs in sync
-  useEffect(() => { spotifyNowPlayingRef.current = spotifyNowPlaying }, [spotifyNowPlaying])
+  // Time the current snapshot was committed; used to project client-side progress for drift checks.
+  const spotifySnapshotAtRef = useRef(0)
+  useEffect(() => {
+    spotifyNowPlayingRef.current = spotifyNowPlaying
+    spotifySnapshotAtRef.current = Date.now()
+  }, [spotifyNowPlaying])
   useEffect(() => { spotifyConnectedRef.current = spotifyConnected }, [spotifyConnected])
   useEffect(() => {
     writeShellUiCache({ spotifyNowPlaying: spotifyNowPlaying ?? null })
@@ -205,7 +252,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     router.push("/login")
   }, [router])
 
-  const refreshSpotifyNowPlaying = useCallback(async (connectedHint?: boolean) => {
+  const refreshSpotifyNowPlaying = useCallback(async (connectedHint?: boolean, options?: RefreshSpotifyOptions) => {
     if (spotifyUnauthorizedRef.current) {
       setSpotifyLoading(false)
       return
@@ -219,7 +266,9 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       return
     }
 
-    setSpotifyLoading(true)
+    // Silent polls (after the first snapshot exists) must not flip the loading flag.
+    const showLoading = !(options?.silent && spotifyNowPlayingRef.current)
+    if (showLoading) setSpotifyLoading(true)
     try {
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/now-playing", {
         cache: "no-store",
@@ -233,7 +282,10 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         throw new Error(String(data?.error || "Failed to read Spotify status."))
       }
       setSpotifyConnected(Boolean(data?.connected))
-      setSpotifyNowPlaying(normalizeSpotifyNowPlaying(data?.nowPlaying))
+      const incoming = normalizeSpotifyNowPlaying(data?.nowPlaying)
+      if (hasMeaningfulSpotifyChange(spotifyNowPlayingRef.current, incoming, spotifySnapshotAtRef.current, Date.now())) {
+        setSpotifyNowPlaying(incoming)
+      }
       setSpotifyError(null)
     } catch (error) {
       if (error instanceof Error && error.message === "Unauthorized") {
@@ -243,7 +295,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       setSpotifyNowPlaying((prev) => prev ?? EMPTY_SPOTIFY_NOW_PLAYING)
       setSpotifyError(error instanceof Error ? error.message : "Failed to read Spotify status.")
     } finally {
-      setSpotifyLoading(false)
+      if (showLoading) setSpotifyLoading(false)
     }
   }, [markSpotifyUnauthorized])
 
@@ -451,31 +503,9 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
   }, [applyLocalSettings, refreshSpotifyNowPlaying])
 
-  useEffect(() => {
-    if (!spotifyConnected) return
-
-    const refreshOnForeground = () => {
-      if (document.visibilityState === "visible" && Date.now() >= spotifyCommandSentAtRef.current + 2_500) {
-        void refreshSpotifyNowPlaying(true)
-      }
-    }
-
-    const onFocus = () => {
-      if (Date.now() >= spotifyCommandSentAtRef.current + 2_500) {
-        void refreshSpotifyNowPlaying(true)
-      }
-    }
-
-    document.addEventListener("visibilitychange", refreshOnForeground)
-    window.addEventListener("focus", onFocus)
-    return () => {
-      document.removeEventListener("visibilitychange", refreshOnForeground)
-      window.removeEventListener("focus", onFocus)
-    }
-  }, [spotifyConnected, refreshSpotifyNowPlaying])
-
-  // Stable polling interval — only restarts when connected state changes, not on every poll.
-  // Playing/paused rate is read from ref inside the interval so no teardown needed.
+  // Stable polling loop — only restarts when connected state changes, not on every poll.
+  // The loop is parked while the page is hidden and resumes with an immediate poll when the
+  // page becomes visible or focused again. Poll cadence is read from refs, so no teardown per poll.
   const pollingTimerRef = useRef<number | null>(null)
   useEffect(() => {
     const clearPollingTimer = () => {
@@ -491,11 +521,15 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     }
 
     let cancelled = false
+    let lastPollStartedAt = 0
+
+    const isPageHidden = () => document.visibilityState === "hidden"
 
     const getNextIntervalMs = (): number => {
       const current = spotifyNowPlayingRef.current
       if (current?.playing) {
-        const remainingMs = Math.max(0, (current.durationMs || 0) - (current.progressMs || 0))
+        const projectedProgressMs = expectedSpotifyProgressMs(current, spotifySnapshotAtRef.current, Date.now())
+        const remainingMs = Math.max(0, (current.durationMs || 0) - projectedProgressMs)
         return remainingMs > 0 && remainingMs <= 5_000
           ? SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS
           : SPOTIFY_POLL_INTERVAL_PLAYING_MS
@@ -506,6 +540,8 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     const scheduleNextPoll = () => {
       if (cancelled) return
       clearPollingTimer()
+      // Hidden page: park the loop. The visibility/focus handler restarts it.
+      if (isPageHidden()) return
       pollingTimerRef.current = window.setTimeout(() => {
         void runPollCycle()
       }, getNextIntervalMs())
@@ -513,21 +549,52 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
 
     const runPollCycle = async () => {
       if (cancelled) return
+      if (isPageHidden()) {
+        clearPollingTimer()
+        return
+      }
       // Suppress this poll if a play/pause command was just sent — prevents an in-flight
       // poll from reading stale Spotify state and overwriting the optimistic UI update.
       if (Date.now() < spotifyCommandSentAtRef.current + 2_500) {
         scheduleNextPoll()
         return
       }
-      await refreshSpotifyNowPlaying(true)
+      lastPollStartedAt = Date.now()
+      await refreshSpotifyNowPlaying(true, { silent: true })
       scheduleNextPoll()
     }
+
+    // Visibility/focus return: poll once right away (deduped) and restart the loop.
+    const resumeOnForeground = () => {
+      if (cancelled || isPageHidden()) return
+      if (Date.now() - lastPollStartedAt < SPOTIFY_FOREGROUND_POLL_MIN_GAP_MS) {
+        // A poll just ran; skip the duplicate but make sure the loop is not left parked after a
+        // quick hide/show (the hidden handler cleared the timer).
+        if (pollingTimerRef.current === null) scheduleNextPoll()
+        return
+      }
+      clearPollingTimer()
+      void runPollCycle()
+    }
+
+    const onVisibilityChange = () => {
+      if (isPageHidden()) {
+        clearPollingTimer()
+        return
+      }
+      resumeOnForeground()
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("focus", resumeOnForeground)
 
     void runPollCycle()
 
     return () => {
       cancelled = true
       clearPollingTimer()
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("focus", resumeOnForeground)
     }
   }, [spotifyConnected, refreshSpotifyNowPlaying])
 

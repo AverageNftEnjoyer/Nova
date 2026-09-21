@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 
 import { createRequestScheduler } from "../../../src/runtime/infrastructure/request-scheduler/index.js";

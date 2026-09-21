@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -212,11 +213,9 @@ await run("P34-C3 reminder follow-up state is user-scoped and stored under the u
   assert.equal(readA?.slots?.reminderId, "rem-a");
   assert.equal(readB?.slots?.reminderId, "rem-b");
   assert.equal(readA?.slots?.reminderId === readB?.slots?.reminderId, false);
-  assert.equal(fs.existsSync(storePathA), true);
-  assert.equal(
-    storePathA.toLowerCase().includes(path.join(".user", "user-context", userA.toLowerCase(), "state").toLowerCase()),
-    true,
-  );
+  // State lives in SQLite kv_state (per-user rows), not in a per-user state file.
+  assert.equal(storePathA.startsWith(`sqlite:kv_state/${userA.toLowerCase()}/`), true, storePathA);
+  assert.equal(fs.existsSync(storePathA), false, "the sqlite: locator must not be a filesystem path");
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

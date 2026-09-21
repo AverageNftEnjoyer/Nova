@@ -167,6 +167,7 @@ export function useHomeMainScreenState() {
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
   const openAgents = useCallback(() => router.push("/agents"), [router])
   const openChat = useCallback(() => router.push("/chat"), [router])
+  const openAnalytics = useCallback(() => router.push("/analytics"), [router])
 
   const liveActivity = [
     { id: "evt-openai", service: "OpenAI", action: "Reasoning turn completed", timeAgo: "14s", status: "success" as const },
@@ -226,6 +227,7 @@ export function useHomeMainScreenState() {
     openDevLogs,
     openAgents,
     openChat,
+    openAnalytics,
     liveActivity,
     devToolsMetrics: devTools.devToolsMetrics,
     integrationBadgeClass: integrations.integrationBadgeClass,

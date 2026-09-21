@@ -17,6 +17,8 @@ import {
   type CoinbaseProvider,
   type CoinbaseRequestContext,
 } from "../../../integrations/coinbase/index.js";
+import { kvGet } from "../../../db/index.js";
+import { resolveUserContextRoot } from "../../../db/paths.js";
 import type { Tool } from "../../core/types/index.js";
 
 const COINBASE_REQUIRED_SCOPES = ["portfolio:view", "accounts:read", "transactions:read"] as const;
@@ -220,101 +222,145 @@ function parseIncludedAssetsFromText(raw: string): string[] {
   return [...symbols];
 }
 
+function parseCoinbaseReportPrefText(raw: string, sourcePath: string): CoinbaseReportSkillPrefs | null {
+  const includeAssets = new Set<string>();
+  const excludeAssets = new Set<string>();
+  let decimalPlaces: number | undefined;
+  let includeTimestamp: boolean | undefined;
+  let includeFreshness: boolean | undefined;
+  let includeRecentNetCashFlow: boolean | undefined;
+  let dateFormat: "MM/DD/YYYY" | "ISO_DATE" | undefined;
+  const rules: string[] = [];
+
+  for (const lineRaw of raw.split(/\r?\n/)) {
+    const line = String(lineRaw || "").trim();
+    if (!line || line.startsWith("#")) continue;
+    rules.push(line);
+
+    const exceptMatch = line.match(/exclude\s+all\s+assets\s+except\s+(.+)$/i);
+    if (exceptMatch?.[1]) {
+      for (const symbol of parseIncludedAssetsFromText(exceptMatch[1])) includeAssets.add(symbol);
+      continue;
+    }
+
+    const includeMatch = line.match(/(?:include_assets|only_assets|coinbase_assets)\s*:\s*(.+)$/i);
+    if (includeMatch?.[1]) {
+      for (const symbol of parseIncludedAssetsFromText(includeMatch[1])) includeAssets.add(symbol);
+      continue;
+    }
+
+    const excludeMatch = line.match(/exclude_assets\s*:\s*(.+)$/i);
+    if (excludeMatch?.[1]) {
+      for (const symbol of parseIncludedAssetsFromText(excludeMatch[1])) excludeAssets.add(symbol);
+      continue;
+    }
+
+    const decimalsMatch = line.match(/decimals\s*:\s*(\d+)/i) || line.match(/\bround(?:ed|ing)?\b.*?\b(\d+)\s+decimal/i);
+    if (decimalsMatch?.[1]) {
+      const parsed = Math.floor(Number(decimalsMatch[1]));
+      if (Number.isFinite(parsed)) decimalPlaces = Math.max(0, Math.min(8, parsed));
+      continue;
+    }
+
+    const explicitTimestamp = line.match(/include_timestamp\s*:\s*(true|false)/i);
+    if (explicitTimestamp?.[1]) {
+      includeTimestamp = explicitTimestamp[1].toLowerCase() === "true";
+      continue;
+    }
+    const explicitFreshness = line.match(/include_freshness\s*:\s*(true|false)/i);
+    if (explicitFreshness?.[1]) {
+      includeFreshness = explicitFreshness[1].toLowerCase() === "true";
+      continue;
+    }
+    const explicitDateFormat = line.match(/date_format\s*:\s*(ISO_DATE|MM\/DD\/YYYY)/i);
+    if (explicitDateFormat?.[1]) {
+      dateFormat = explicitDateFormat[1].toUpperCase() === "ISO_DATE" ? "ISO_DATE" : "MM/DD/YYYY";
+      continue;
+    }
+
+    const noTs = /\b(no|hide|omit|remove)\b.*\b(timestamp|time)\b/i.test(line);
+    const yesTs = /\b(show|include)\b.*\b(timestamp|time)\b/i.test(line);
+    if (noTs) includeTimestamp = false;
+    if (yesTs) includeTimestamp = true;
+
+    const noFresh = /\b(no|hide|omit|remove)\b.*\bfreshness\b/i.test(line);
+    const yesFresh = /\b(show|include)\b.*\bfreshness\b/i.test(line);
+    if (noFresh) includeFreshness = false;
+    if (yesFresh) includeFreshness = true;
+
+    const explicitNetCashFlowMatch = line.match(/include_recent_net_cash_flow\s*:\s*(true|false)/i);
+    if (explicitNetCashFlowMatch?.[1]) {
+      includeRecentNetCashFlow = explicitNetCashFlowMatch[1].toLowerCase() === "true";
+    }
+    const noNetCashFlow = /\b(no|hide|omit|remove|exclude)\b.*\b(net\s*cash[-\s]?flow|p\s*&?\s*l\s*proxy|pnl\s*proxy|recent\s+net)\b/i.test(line);
+    const yesNetCashFlow = /\b(show|include|keep)\b.*\b(net\s*cash[-\s]?flow|p\s*&?\s*l\s*proxy|pnl\s*proxy|recent\s+net)\b/i.test(line);
+    if (noNetCashFlow) includeRecentNetCashFlow = false;
+    if (yesNetCashFlow) includeRecentNetCashFlow = true;
+
+    if (/\biso\s*date\b/i.test(line) || /\byyyy-mm-dd\b/i.test(line)) dateFormat = "ISO_DATE";
+    if (/\bmm\/dd\/yyyy\b/i.test(line) || /\bdate\s+only\b/i.test(line)) dateFormat = "MM/DD/YYYY";
+  }
+
+  if (
+    includeAssets.size > 0 ||
+    excludeAssets.size > 0 ||
+    typeof decimalPlaces === "number" ||
+    typeof includeTimestamp === "boolean" ||
+    typeof includeFreshness === "boolean" ||
+    typeof includeRecentNetCashFlow === "boolean" ||
+    typeof dateFormat === "string"
+  ) {
+    return {
+      includeAssets,
+      excludeAssets,
+      decimalPlaces,
+      includeTimestamp,
+      includeFreshness,
+      includeRecentNetCashFlow,
+      dateFormat,
+      sourcePath,
+      rules,
+    };
+  }
+  return null;
+}
+
+/**
+ * Report preferences saved from chat live in SQLite (kv_state: skill-preferences/coinbase, written by the crypto
+ * fast path); a hand-edited markdown skill file under <dataDir>/user-context/<uid>/ is still honored as a fallback.
+ * `workspaceDir` is unused: both locations follow the data dir.
+ */
 function loadCoinbaseReportSkillPrefs(workspaceDir: string, userContextId: string): CoinbaseReportSkillPrefs | null {
+  void workspaceDir;
   const normalizedUserContextId = toUserContextId(userContextId);
   if (!normalizedUserContextId) return null;
-  const root = resolveWorkspaceRoot(workspaceDir);
-  const candidates = [
-    path.join(root, ".user", "user-context", normalizedUserContextId, "skills", "coinbase", "SKILL.md"),
-    path.join(root, ".user", "user-context", normalizedUserContextId, "skills.md"),
-  ];
+
+  try {
+    const stored = kvGet(normalizedUserContextId, "skill-preferences", "coinbase") as
+      | { values?: Record<string, unknown>; rules?: unknown[] }
+      | null;
+    if (stored) {
+      const lines = [
+        ...Object.values(stored.values || {}).map((value) => String(value ?? "")),
+        ...(Array.isArray(stored.rules) ? stored.rules.map((rule) => String(rule ?? "")) : []),
+      ];
+      const parsed = parseCoinbaseReportPrefText(
+        lines.join("\n"),
+        `sqlite:kv_state/${normalizedUserContextId}/skill-preferences/coinbase`,
+      );
+      if (parsed) return parsed;
+    }
+  } catch (e) {
+    console.warn("[CoinbaseTools] Failed to read stored skill prefs:", (e as Error)?.message);
+  }
+
+  const userDir = path.join(resolveUserContextRoot(), normalizedUserContextId);
+  const candidates = [path.join(userDir, "skills", "coinbase", "SKILL.md"), path.join(userDir, "skills.md")];
   for (const filePath of candidates) {
     try {
       if (!fs.existsSync(filePath)) continue;
-      const raw = fs.readFileSync(filePath, "utf8");
-      const includeAssets = new Set<string>();
-      const excludeAssets = new Set<string>();
-      let decimalPlaces: number | undefined;
-      let includeTimestamp: boolean | undefined;
-      let includeFreshness: boolean | undefined;
-      let includeRecentNetCashFlow: boolean | undefined;
-      let dateFormat: "MM/DD/YYYY" | "ISO_DATE" | undefined;
-      const rules: string[] = [];
-
-      for (const lineRaw of raw.split(/\r?\n/)) {
-        const line = String(lineRaw || "").trim();
-        if (!line || line.startsWith("#")) continue;
-        rules.push(line);
-
-        const exceptMatch = line.match(/exclude\s+all\s+assets\s+except\s+(.+)$/i);
-        if (exceptMatch?.[1]) {
-          for (const symbol of parseIncludedAssetsFromText(exceptMatch[1])) includeAssets.add(symbol);
-          continue;
-        }
-
-        const includeMatch = line.match(/(?:include_assets|only_assets|coinbase_assets)\s*:\s*(.+)$/i);
-        if (includeMatch?.[1]) {
-          for (const symbol of parseIncludedAssetsFromText(includeMatch[1])) includeAssets.add(symbol);
-          continue;
-        }
-
-        const excludeMatch = line.match(/exclude_assets\s*:\s*(.+)$/i);
-        if (excludeMatch?.[1]) {
-          for (const symbol of parseIncludedAssetsFromText(excludeMatch[1])) excludeAssets.add(symbol);
-          continue;
-        }
-
-        const decimalsMatch = line.match(/decimals\s*:\s*(\d+)/i) || line.match(/\bround(?:ed|ing)?\b.*?\b(\d+)\s+decimal/i);
-        if (decimalsMatch?.[1]) {
-          const parsed = Math.floor(Number(decimalsMatch[1]));
-          if (Number.isFinite(parsed)) decimalPlaces = Math.max(0, Math.min(8, parsed));
-          continue;
-        }
-
-        const noTs = /\b(no|hide|omit|remove)\b.*\b(timestamp|time)\b/i.test(line);
-        const yesTs = /\b(show|include)\b.*\b(timestamp|time)\b/i.test(line);
-        if (noTs) includeTimestamp = false;
-        if (yesTs) includeTimestamp = true;
-
-        const noFresh = /\b(no|hide|omit|remove)\b.*\bfreshness\b/i.test(line);
-        const yesFresh = /\b(show|include)\b.*\bfreshness\b/i.test(line);
-        if (noFresh) includeFreshness = false;
-        if (yesFresh) includeFreshness = true;
-
-        const explicitNetCashFlowMatch = line.match(/include_recent_net_cash_flow\s*:\s*(true|false)/i);
-        if (explicitNetCashFlowMatch?.[1]) {
-          includeRecentNetCashFlow = explicitNetCashFlowMatch[1].toLowerCase() === "true";
-        }
-        const noNetCashFlow = /\b(no|hide|omit|remove|exclude)\b.*\b(net\s*cash[-\s]?flow|p\s*&?\s*l\s*proxy|pnl\s*proxy|recent\s+net)\b/i.test(line);
-        const yesNetCashFlow = /\b(show|include|keep)\b.*\b(net\s*cash[-\s]?flow|p\s*&?\s*l\s*proxy|pnl\s*proxy|recent\s+net)\b/i.test(line);
-        if (noNetCashFlow) includeRecentNetCashFlow = false;
-        if (yesNetCashFlow) includeRecentNetCashFlow = true;
-
-        if (/\biso\s*date\b/i.test(line) || /\byyyy-mm-dd\b/i.test(line)) dateFormat = "ISO_DATE";
-        if (/\bmm\/dd\/yyyy\b/i.test(line) || /\bdate\s+only\b/i.test(line)) dateFormat = "MM/DD/YYYY";
-      }
-
-      if (
-        includeAssets.size > 0 ||
-        excludeAssets.size > 0 ||
-        typeof decimalPlaces === "number" ||
-        typeof includeTimestamp === "boolean" ||
-        typeof includeFreshness === "boolean" ||
-        typeof includeRecentNetCashFlow === "boolean" ||
-        typeof dateFormat === "string"
-      ) {
-        return {
-          includeAssets,
-          excludeAssets,
-          decimalPlaces,
-          includeTimestamp,
-          includeFreshness,
-          includeRecentNetCashFlow,
-          dateFormat,
-          sourcePath: filePath,
-          rules,
-        };
-      }
+      const parsed = parseCoinbaseReportPrefText(fs.readFileSync(filePath, "utf8"), filePath);
+      if (parsed) return parsed;
     } catch (e) {
       // Keep report generation resilient if user skill file is malformed.
       console.warn("[CoinbaseTools] Failed to read skill prefs from", filePath, (e as Error)?.message);
@@ -730,7 +776,7 @@ function resolvePersonaMetaFromWorkspace(workspaceDir: string, userContextId: st
   const now = Date.now();
   const cached = personaMetaByWorkspaceAndUser.get(cacheKey);
   if (cached && now - cached.ts < PERSONA_META_CACHE_TTL_MS) return cached.value;
-  const agentsPath = path.join(root, ".user", "user-context", uid, "AGENTS.md");
+  const agentsPath = path.join(resolveUserContextRoot(), uid, "AGENTS.md");
   let assistantName = "Nova";
   let tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed" = "neutral";
   try {

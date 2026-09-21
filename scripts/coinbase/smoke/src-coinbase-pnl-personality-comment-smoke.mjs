@@ -1,3 +1,4 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -25,7 +26,7 @@ function summarize(result) {
 }
 
 function loadPersonalityModule() {
-  const filePath = path.join(process.cwd(), "src", "integrations", "coinbase", "pnl-personality-comment.ts");
+  const filePath = path.join(process.cwd(), "src", "integrations", "coinbase", "pnl-personality-comment", "index.ts");
   const source = fs.readFileSync(filePath, "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: {

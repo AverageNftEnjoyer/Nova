@@ -105,7 +105,7 @@ NovaAIO runs as two cooperating processes, started together by a single launcher
 │  Electron shell          │                          │  voice loop · scheduler  │
 └──────────────────────────┘                          └──────────────────────────┘
              │                                                       │
-             └──────────────► local storage (.nova-data, SQLite) ◄───┘
+             └──────────────► local storage (nova.db, SQLite) ◄───┘
 ```
 
 | Path | What lives there |
@@ -124,7 +124,7 @@ NovaAIO runs as two cooperating processes, started together by a single launcher
 - **Bounded tool loops.** Every chat and agent tool loop has limits on step count, total duration, per-call timeout, and calls per step, all configurable. A runaway model can't spin forever.
 - **Capability and risk policies.** Tools are gated by policy before they execute, and higher-risk actions can require approval from the HUD.
 - **Network safety.** Web fetch goes through an SSRF guard that blocks requests to private and internal addresses.
-- **Secrets handling.** Stored API keys are encrypted at rest. OAuth flows use signed state, comparisons are timing-safe, and API routes are rate limited per user and per IP.
+- **Secrets handling.** Stored API keys are encrypted at rest (AES-256-GCM) with a random master key that Windows DPAPI wraps for your Windows account; secrets are never returned unmasked to the browser. See [docs/security/local-data.md](docs/security/local-data.md) for what this does and does not protect against. OAuth flows use signed state, comparisons are timing-safe, and API routes are rate limited per user and per IP.
 - **Per-user isolation.** Runtime state, memory, and sessions are scoped by user, and there are tests that check the boundaries.
 - **Reliable scheduling.** Missions are enqueued with idempotency keys and claimed with leases, so the scheduler can restart without duplicating runs.
 
@@ -137,7 +137,7 @@ NovaAIO runs as two cooperating processes, started together by a single launcher
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Radix UI, React Flow, D3, GSAP, Three.js / React Three Fiber |
 | Desktop | Electron, electron-builder (Windows NSIS installer) |
 | Runtime | Node.js 20+, WebSockets, Vercel AI SDK |
-| Storage | Local filesystem, SQLite (`better-sqlite3`), encrypted config |
+| Storage | SQLite (`better-sqlite3`, one local `nova.db`), DPAPI-protected encrypted secrets, markdown workspace docs as files |
 | Validation | Zod |
 | Testing | Playwright, custom Node smoke suites, `tsc` and ESLint |
 
@@ -166,17 +166,13 @@ npm run install:all      # installs the HUD dependencies
 copy .env.example .env
 ```
 
-At minimum, set an LLM key and an encryption key:
-
-```bash
-# generate a 32-byte encryption key
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-```
+At minimum, set an LLM key:
 
 ```env
 OPENAI_API_KEY=...        # and/or ANTHROPIC_API_KEY
-NOVA_ENCRYPTION_KEY=...   # output from the command above
 ```
+
+There is no encryption key to configure. Nova generates a random master key on first run and protects it with Windows DPAPI (current Windows user); API keys you enter in the app are encrypted with it before they are written to the local database. See [docs/security/local-data.md](docs/security/local-data.md) for details and limits.
 
 Integrations (Gmail, Telegram, Discord, Spotify, and so on) are optional and can be set up from the in-app Integrations page.
 

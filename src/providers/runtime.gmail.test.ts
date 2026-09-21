@@ -4,29 +4,53 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { getDb, nowIso, resolveDataDir } from "../db/index.js";
 import { loadIntegrationsRuntime } from "./runtime/index.js";
 
 function makeWorkspace(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nova-runtime-gmail-"));
   fs.mkdirSync(path.join(root, "hud", "data"), { recursive: true });
+  // resolveWorkspaceRoot() only recognises a workspace that has both hud/ and src/.
+  fs.mkdirSync(path.join(root, "src"), { recursive: true });
   return root;
 }
 
+// Runtime integrations now live in nova.db (integration_state 'runtime'/'snapshot', the row HUD's
+// syncAgentRuntimeIntegrationsSnapshot writes), not in <workspace>/.user/**/integrations-config.json.
+// The DB follows NOVA_DATA_DIR, so refuse to seed anything outside a throwaway dir.
+const seededUserIds = new Set<string>();
+
+function assertIsolatedDataDir(): void {
+  const rel = path.relative(path.resolve(os.tmpdir()), path.resolve(resolveDataDir()));
+  assert.ok(
+    rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel),
+    "test must run with NOVA_DATA_DIR under the OS temp dir (npm run test:node does this)",
+  );
+}
+
 function writeIntegrationsConfig(
-  workspaceRoot: string,
+  _workspaceRoot: string,
   userContextId: string,
   payload: Record<string, unknown>,
 ): void {
-  const target = path.join(
-    workspaceRoot,
-    ".user",
-    "user-context",
-    userContextId,
-    "state",
-    "integrations-config.json",
-  );
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, JSON.stringify(payload, null, 2), "utf8");
+  assertIsolatedDataDir();
+  getDb()
+    .prepare(
+      `INSERT INTO integration_state (user_id, integration, key, value_json, expires_at, updated_at)
+       VALUES (?, 'runtime', 'snapshot', ?, NULL, ?)
+       ON CONFLICT(user_id, integration, key) DO UPDATE SET
+         value_json = excluded.value_json, expires_at = NULL, updated_at = excluded.updated_at`,
+    )
+    .run(userContextId, JSON.stringify(payload), nowIso());
+  seededUserIds.add(userContextId);
+}
+
+function removeWorkspace(workspace: string): void {
+  // Snapshots must not leak between tests (the src and dist copies of this file share one DB).
+  const remove = getDb().prepare("DELETE FROM integration_state WHERE user_id = ? AND integration = 'runtime' AND key = 'snapshot'");
+  for (const userId of seededUserIds) remove.run(userId);
+  seededUserIds.clear();
+  fs.rmSync(workspace, { recursive: true, force: true });
 }
 
 test("loadIntegrationsRuntime keeps backward compatibility when gmail block is absent", () => {
@@ -48,7 +72,7 @@ test("loadIntegrationsRuntime keeps backward compatibility when gmail block is a
     assert.deepEqual(runtime.gmail.scopes, []);
     assert.deepEqual(runtime.gmail.accounts, []);
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    removeWorkspace(workspace);
   }
 });
 
@@ -111,6 +135,6 @@ test("loadIntegrationsRuntime parses gmail block per userContextId without leaka
     assert.equal(runtimeA.gmail.accounts[0]?.accessToken, "plain-token-a");
     assert.equal(runtimeB.gmail.accounts[0]?.accessToken, "plain-token-b");
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    removeWorkspace(workspace);
   }
 });

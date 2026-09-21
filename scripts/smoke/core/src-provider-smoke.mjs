@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { seedRuntimeIntegrations } from "../lib/seed-runtime-integrations.mjs";
 
 import {
   describeUnknownError as describeCompatError,
@@ -25,6 +27,8 @@ async function run(name, fn) {
   }
 }
 
+// Provider runtime is per-user only (no global fallback): every load addresses a user's runtime snapshot row in
+// nova.db. The smoke seeds a deterministic, unconnected snapshot for its own user in the temp data dir.
 function resolveSmokeUserContextId() {
   const explicit = String(
     process.env.NOVA_SMOKE_USER_CONTEXT_ID
@@ -32,23 +36,17 @@ function resolveSmokeUserContextId() {
     || process.env.USER_CONTEXT_ID
     || "",
   ).trim();
-  if (explicit) return explicit;
-  const root = path.join(process.cwd(), ".user", "user-context");
-  if (!fs.existsSync(root)) return "";
-  const candidates = fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b))
-    .filter(Boolean);
-  if (candidates.length === 1) return candidates[0];
-  if (candidates.includes("smoke-user-ctx")) return "smoke-user-ctx";
-  const withIntegrationsConfig = candidates.filter((name) =>
-    fs.existsSync(path.join(root, name, "state", "integrations-config.json"))
-    || fs.existsSync(path.join(root, name, "integrations-config.json")));
-  if (withIntegrationsConfig.length > 0) return withIntegrationsConfig[0];
-  if (candidates.length > 0) return candidates[0];
-  return "smoke-fallback-user";
+  return explicit || "smoke-provider-user";
+}
+
+function seedSmokeProviderSnapshot(userContextId) {
+  seedRuntimeIntegrations(userContextId, {
+    activeLlmProvider: "claude",
+    openai: { connected: false, defaultModel: "gpt-smoke-model" },
+    claude: { connected: false, defaultModel: "claude-smoke-model" },
+    grok: { connected: false, defaultModel: "grok-smoke-model" },
+    gemini: { connected: false, defaultModel: "gemini-smoke-model" },
+  });
 }
 
 function summarize(result) {
@@ -87,7 +85,7 @@ function assertOpenAiCompletionUsable(completion) {
   );
 }
 
-const providersModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "providers", "index.js")).href);
+const providersModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "providers", "index", "index.js")).href);
 const {
   loadIntegrationsRuntime: loadSrcIntegrationsRuntime,
   resolveConfiguredChatRuntime: resolveSrcConfiguredChatRuntime,
@@ -101,10 +99,18 @@ await run("src/providers module loads from dist", async () => {
   assert.equal(typeof resolveSrcConfiguredChatRuntime, "function");
 });
 
-const legacyGlobal = loadCompatIntegrationsRuntime();
-const srcGlobal = loadSrcIntegrationsRuntime({ workspaceRoot: process.cwd() });
+const smokeUserContextId = resolveSmokeUserContextId();
+seedSmokeProviderSnapshot(smokeUserContextId);
 
-await run("Global provider runtime parity (legacy vs src)", async () => {
+await run("Provider runtime requires a userContextId (no global fallback)", async () => {
+  assert.throws(() => loadCompatIntegrationsRuntime(), /requires userContextId/i);
+  assert.throws(() => loadSrcIntegrationsRuntime({ workspaceRoot: process.cwd() }), /requires userContextId/i);
+});
+
+const legacyGlobal = loadCompatIntegrationsRuntime({ userContextId: smokeUserContextId });
+const srcGlobal = loadSrcIntegrationsRuntime({ workspaceRoot: process.cwd(), userContextId: smokeUserContextId });
+
+await run("Seeded provider runtime parity (legacy vs src)", async () => {
   for (const provider of ["openai", "claude", "grok", "gemini"]) {
     const a = legacyGlobal[provider];
     const b = srcGlobal[provider];
@@ -118,7 +124,7 @@ await run("Global provider runtime parity (legacy vs src)", async () => {
   assert.equal(legacyGlobal.activeProvider, srcGlobal.activeProvider, "activeProvider mismatch");
 });
 
-await run("Global active runtime parity (legacy vs src, strict)", async () => {
+await run("Seeded active runtime parity (legacy vs src, strict)", async () => {
   const legacyStrict = resolveCompatConfiguredChatRuntime(legacyGlobal, { strictActiveProvider: true });
   const srcStrict = resolveSrcConfiguredChatRuntime(srcGlobal, { strictActiveProvider: true });
   assert.equal(legacyStrict.provider, srcStrict.provider);
@@ -127,7 +133,7 @@ await run("Global active runtime parity (legacy vs src, strict)", async () => {
   assert.equal(Boolean(legacyStrict.apiKey), Boolean(srcStrict.apiKey));
 });
 
-await run("Global active runtime parity (legacy vs src, fallback)", async () => {
+await run("Seeded active runtime parity (legacy vs src, fallback)", async () => {
   const legacyFallback = resolveCompatConfiguredChatRuntime(legacyGlobal, { strictActiveProvider: false });
   const srcFallback = resolveSrcConfiguredChatRuntime(srcGlobal, { strictActiveProvider: false });
   assert.equal(legacyFallback.provider, srcFallback.provider);
@@ -135,7 +141,7 @@ await run("Global active runtime parity (legacy vs src, fallback)", async () => 
 });
 
 {
-  const scopedUserContextId = resolveSmokeUserContextId();
+  const scopedUserContextId = smokeUserContextId;
   const legacyScoped = loadCompatIntegrationsRuntime({ userContextId: scopedUserContextId });
   const srcScoped = loadSrcIntegrationsRuntime({ workspaceRoot: process.cwd(), userContextId: scopedUserContextId });
 

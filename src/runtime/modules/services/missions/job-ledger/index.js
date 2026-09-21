@@ -6,8 +6,8 @@
  *
  * Every state transition is ONE `BEGIN IMMEDIATE` transaction. SQLite allows a single writer at a time, so two
  * processes (Next server + agent runtime) can never both win a claim, steal a live lease, or lose a retry row.
- * Semantics follow the retired Supabase functions claim_job_run_lease_with_limits, heartbeat_job_run_lease,
- * complete_job_run, fail_job_run_with_retry, reclaim_expired_job_leases and acquire/renew_scheduler_lease.
+ * Semantics follow the original lease contract (claim_job_run_lease_with_limits, heartbeat_job_run_lease,
+ * complete_job_run, fail_job_run_with_retry, reclaim_expired_job_leases and acquire/renew_scheduler_lease).
  * Timestamps are UTC ISO-8601 strings (lexicographically comparable).
  */
 
@@ -104,6 +104,29 @@ function computeRetryBackoffMs(nextAttempt) {
   return Math.min(Math.round(base * Math.pow(2, Math.max(0, nextAttempt - 1)) * jitter), max);
 }
 
+// In-process wake-up for idle consumers (the HUD execution tick backs off while the queue is empty).
+// Kept on globalThis so every bundle copy of this module shares one listener set.
+function jobEnqueuedListeners() {
+  return (globalThis.__novaJobEnqueuedListeners ??= new Set());
+}
+
+/** Register a callback fired after every successful enqueue in this process. Returns an unsubscribe function. */
+export function subscribeJobEnqueued(listener) {
+  const listeners = jobEnqueuedListeners();
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function notifyJobEnqueued() {
+  for (const listener of [...jobEnqueuedListeners()]) {
+    try {
+      listener();
+    } catch {
+      // A failing listener must never affect the committed enqueue.
+    }
+  }
+}
+
 export const jobLedger = {
   async enqueue(input) {
     const now = nowIso();
@@ -143,6 +166,7 @@ export const jobLedger = {
       if (isConstraintError(error)) return { ok: false, error: "duplicate_idempotency_key" };
       return { ok: false, error: error instanceof Error ? error.message : "enqueue_failed" };
     }
+    notifyJobEnqueued();
     return { ok: true };
   },
 
@@ -388,6 +412,12 @@ export const jobLedger = {
 
   async reclaimExpiredLeases() {
     try {
+      // Cheap indexed read first: the common idle case (nothing expired) must not take the BEGIN IMMEDIATE write lock.
+      // The transaction below re-checks, so a concurrent reclaim by another process cannot cause a double reclaim.
+      const anyExpired = getDb()
+        .prepare(`SELECT 1 FROM job_runs WHERE status IN ${IN_FLIGHT} AND lease_expires_at < ? LIMIT 1`)
+        .get(nowIso());
+      if (!anyExpired) return 0;
       return tx((db) => {
         const now = nowIso();
         const expired = db

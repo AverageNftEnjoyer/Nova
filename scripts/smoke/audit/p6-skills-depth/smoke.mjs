@@ -14,6 +14,7 @@
  *   C) Skills beyond depth 8 are NOT discovered (guard is enforced)
  */
 
+import "../../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

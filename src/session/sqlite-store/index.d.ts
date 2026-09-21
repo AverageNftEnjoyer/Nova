@@ -56,6 +56,8 @@ export interface ToolRunInput {
   output?: unknown
   status?: string
   latencyMs?: number
+  /** Per-field cap (chars) for the redacted JSON; larger payloads are stored as a truncated preview. */
+  maxChars?: number
 }
 
 export interface ToolRunRecord {
@@ -118,4 +120,7 @@ export function upsertThreadMessages(userId: string, threadId: string, messages:
 export function getThreadSummary(userId: string, threadId: string): { summary: string; updatedAt: string } | null
 export function setThreadSummary(userId: string, threadId: string, summary: string): void
 export function recordToolRun(userId: string, run: ToolRunInput): string
+export const TOOL_LOOP_RUN_MAX_CHARS: number
+/** Never throws. Redacts + caps (2KB) and records one tool-loop invocation; returns the run id or null. */
+export function recordToolRunSafe(userId: string, run: Omit<ToolRunInput, "id" | "maxChars">): string | null
 export function listToolRuns(userId: string, threadId?: string, limit?: number): ToolRunRecord[]

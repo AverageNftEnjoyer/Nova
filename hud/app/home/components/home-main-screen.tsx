@@ -180,6 +180,7 @@ export function HomeMainScreen() {
     openIntegrations,
     openDevLogs,
     openAgents,
+    openAnalytics,
     devToolsMetrics,
     integrationBadgeClass,
     goToIntegrations,
@@ -836,6 +837,42 @@ export function HomeMainScreen() {
                     </div>
                   ))}
                 </div>
+              </section>
+
+              {/* Analytics Quick Access */}
+              <section
+                style={panelStyle}
+                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+              >
+                {renderPanelHeader({
+                  icon: <BarChart2 className="w-4 h-4 text-accent" />,
+                  title: "Analytics",
+                  action: renderGearButton({
+                    onClick: openAnalytics,
+                    label: "Open analytics dashboard",
+                    groupName: "analytics-gear",
+                    hoverGlow: false,
+                  }),
+                })}
+                <button
+                  onClick={openAnalytics}
+                  className={cn(
+                    "mt-2 w-full rounded-lg border px-4 py-3 text-left transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    subPanelClass,
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={cn("text-xs font-medium uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-500")}>
+                        View Dashboard
+                      </p>
+                      <p className={cn("mt-1 text-sm", isLight ? "text-s-70" : "text-slate-300")}>
+                        Task metrics & cost tracking
+                      </p>
+                    </div>
+                    <TrendingUp className={cn("w-5 h-5", isLight ? "text-accent" : "text-accent")} />
+                  </div>
+                </button>
               </section>
 
               <WeatherHomeModule

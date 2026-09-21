@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -6,7 +7,6 @@ import vm from "node:vm";
 import ts from "typescript";
 import { createRequire } from "node:module";
 
-const nativeRequire = createRequire(import.meta.url);
 const results = [];
 
 function record(status, name, detail = "") {
@@ -45,13 +45,15 @@ function transpileSource(relativePath) {
 function loadModule(relativePath, requireMap = {}, extraGlobals = {}) {
   const compiled = transpileSource(relativePath);
   const module = { exports: {} };
+  // Resolve relative imports (e.g. ../../../../src/.../persistence/index.js) from the module's own location.
+  const moduleRequire = createRequire(path.join(process.cwd(), relativePath));
   const sandbox = {
     module,
     exports: module.exports,
     require: (specifier) => {
       if (specifier in requireMap) return requireMap[specifier];
       if (specifier === "server-only") return {};
-      return nativeRequire(specifier);
+      return moduleRequire(specifier);
     },
     process,
     console,
@@ -144,7 +146,8 @@ function createAgentExecutors(deps = {}) {
   return loadModule(
     "hud/lib/missions/workflow/executors/agent-executors.ts",
     {
-      "../../store": { loadMissions },
+      // Missions are loaded straight from the SQLite-backed persistence module (not via ../../store any more).
+      "../../../../../src/runtime/modules/services/missions/persistence/index.js": { loadMissions },
       "../execute-mission": { executeMission },
     },
   );

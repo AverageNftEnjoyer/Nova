@@ -94,3 +94,12 @@ export function resolveDataDir() {
   if (!existed) restrictDirToCurrentUser(dir);
   return dir;
 }
+
+/**
+ * Root of the per-user file area (markdown workspace docs such as AGENTS.md / MEMORY.md / SKILL.md and per-user
+ * logs): `<dataDir>/user-context`. Follows resolveDataDir(), so it moves together with nova.db under NOVA_DATA_DIR
+ * and in the packaged app. Not created here; writers create the subfolders they need.
+ */
+export function resolveUserContextRoot() {
+  return path.join(resolveDataDir(), "user-context");
+}

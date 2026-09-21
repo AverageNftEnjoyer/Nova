@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -37,11 +38,11 @@ function summarize(result) {
   console.log(`[${result.status}] ${result.name}${detail}`);
 }
 
-const distCoreRegistryPath = path.join(process.cwd(), "dist", "tools", "core", "registry.js");
-const distCoreExecutorPath = path.join(process.cwd(), "dist", "tools", "core", "executor.js");
-const distCoreProtocolPath = path.join(process.cwd(), "dist", "tools", "core", "protocol.js");
-const distBuiltinExecPath = path.join(process.cwd(), "dist", "tools", "builtin", "exec.js");
-const distWebSearchPath = path.join(process.cwd(), "dist", "tools", "web", "web-search.js");
+const distCoreRegistryPath = path.join(process.cwd(), "dist", "tools", "core", "registry", "index.js");
+const distCoreExecutorPath = path.join(process.cwd(), "dist", "tools", "core", "executor", "index.js");
+const distCoreProtocolPath = path.join(process.cwd(), "dist", "tools", "core", "protocol", "index.js");
+const distBuiltinExecPath = path.join(process.cwd(), "dist", "tools", "builtin", "exec", "index.js");
+const distWebSearchPath = path.join(process.cwd(), "dist", "tools", "web", "web-search", "index.js");
 assertPathExists(distCoreRegistryPath, "tool core registry module");
 assertPathExists(distCoreExecutorPath, "tool core executor module");
 assertPathExists(distCoreProtocolPath, "tool core protocol module");
@@ -93,7 +94,7 @@ function createRuntime(overrides = {}) {
     enabled: true,
     memoryEnabled: false,
     rootDir: process.cwd(),
-    memoryDbPath: path.join(process.cwd(), ".user", "memory.smoke.db"),
+    memoryDbPath: path.join(process.env.NOVA_DATA_DIR, "memory.smoke.db"),
     memorySourceDir: path.join(process.cwd(), "memory"),
     enabledTools: ["read", "write", "edit", "ls", "grep", "exec", "web_search", "web_fetch"],
     execApprovalMode: "ask",

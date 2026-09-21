@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
 
 const results = [];
 
@@ -50,19 +52,9 @@ function readJsonl(filePath) {
   }
 }
 
-function resolveUserContextRootCandidates(baseDir, userContextId) {
-  return [
-    path.join(baseDir, ".user", "user-context", userContextId),
-  ];
-}
-
-function resolveScopedRoot(baseDir, userContextId, sessionKeyHint) {
-  const candidates = resolveUserContextRootCandidates(baseDir, userContextId);
-  return candidates.find((candidate) => {
-    const sessions = readJson(path.join(candidate, "state", "sessions.json"), {});
-    return Boolean(sessions[sessionKeyHint]);
-  }) || candidates.find((candidate) => fs.existsSync(candidate))
-    || candidates[0];
+// File-based artifacts (logs/) live under the data dir; sessions and transcripts are nova.db rows.
+function resolveScopedRoot(_baseDir, userContextId) {
+  return userContextDir(userContextId);
 }
 
 const workspaceRoot = process.cwd();
@@ -167,22 +159,22 @@ await run("POLY-LIVE-2 polymarket artifacts remain scoped to the requesting user
   const sessionKeyA = await runUserPolymarketFlow({ userContextId: userA, conversationId, capturedHints: capturedHintsA });
   const sessionKeyB = await runUserPolymarketFlow({ userContextId: userB, conversationId, capturedHints: capturedHintsB });
 
-  const rootA = resolveScopedRoot(workspaceRoot, userA, sessionKeyA);
-  const rootB = resolveScopedRoot(workspaceRoot, userB, sessionKeyB);
-  const sessionsA = readJson(path.join(rootA, "state", "sessions.json"), {});
-  const sessionsB = readJson(path.join(rootB, "state", "sessions.json"), {});
+  const rootA = resolveScopedRoot(workspaceRoot, userA);
+  const rootB = resolveScopedRoot(workspaceRoot, userB);
+  const sessionsA = readSessions(userA);
+  const sessionsB = readSessions(userB);
   const sessionIdA = String(sessionsA?.[sessionKeyA]?.sessionId || "").trim();
   const sessionIdB = String(sessionsB?.[sessionKeyB]?.sessionId || "").trim();
   assert.equal(sessionIdA.length > 0, true, "user A session missing");
   assert.equal(sessionIdB.length > 0, true, "user B session missing");
 
-  const transcriptA = path.join(rootA, "transcripts", `${sessionIdA}.jsonl`);
-  const transcriptB = path.join(rootB, "transcripts", `${sessionIdB}.jsonl`);
-  assert.equal(fs.existsSync(transcriptA), true, "user A transcript missing");
-  assert.equal(fs.existsSync(transcriptB), true, "user B transcript missing");
-
-  const transcriptLinesA = readJsonl(transcriptA);
-  const transcriptLinesB = readJsonl(transcriptB);
+  // Transcripts are session_turns rows scoped by user; a user cannot read the other's session.
+  const transcriptLinesA = readTranscript(userA, sessionIdA);
+  const transcriptLinesB = readTranscript(userB, sessionIdB);
+  assert.equal(transcriptLinesA.length > 0, true, "user A transcript missing");
+  assert.equal(transcriptLinesB.length > 0, true, "user B transcript missing");
+  assert.equal(readTranscript(userB, sessionIdA).length, 0, "user A transcript leaked to user B");
+  assert.equal(readTranscript(userA, sessionIdB).length, 0, "user B transcript leaked to user A");
   assert.equal(
     transcriptLinesA.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyA),
     true,

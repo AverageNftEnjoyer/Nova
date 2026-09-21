@@ -1,6 +1,6 @@
 /**
  * Nova Job Ledger — Types
- * Durable execution record types for the Supabase-backed job runner backbone.
+ * Durable execution record types for the SQLite-backed job runner backbone.
  * Phase 0: replaces in-memory execution-guard.ts
  * Phase 2: adds scheduler lease types for leader election
  */

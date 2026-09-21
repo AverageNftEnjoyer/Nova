@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readKv, readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
 
 const results = [];
 
@@ -67,15 +69,9 @@ function readJsonl(filePath) {
   }
 }
 
-function resolveScopedRoot(baseDir, userContextId, sessionKeyHint) {
-  const candidates = [
-    path.join(baseDir, ".user", "user-context", userContextId),
-  ];
-  return candidates.find((candidate) => {
-    const sessions = readJson(path.join(candidate, "state", "sessions.json"), {});
-    return Boolean(sessions[sessionKeyHint]);
-  }) || candidates.find((candidate) => fs.existsSync(candidate))
-    || candidates[0];
+// File-based artifacts (logs/) live under the data dir; sessions, transcripts and voice settings are nova.db rows.
+function resolveScopedRoot(_baseDir, userContextId) {
+  return userContextDir(userContextId);
 }
 
 function createRuntimeSelectionOverride() {
@@ -152,18 +148,18 @@ await run("ORG-LIVE-1 real org-chart flows stay isolated across users on a share
     workerAgentId: "voice-agent",
   });
 
-  const rootA = resolveScopedRoot(workspaceRoot, userA, flowA.sessionKeyHint);
-  const rootB = resolveScopedRoot(workspaceRoot, userB, flowB.sessionKeyHint);
-  const sessionsA = readJson(path.join(rootA, "state", "sessions.json"), {});
-  const sessionsB = readJson(path.join(rootB, "state", "sessions.json"), {});
+  const rootA = resolveScopedRoot(workspaceRoot, userA);
+  const rootB = resolveScopedRoot(workspaceRoot, userB);
+  const sessionsA = readSessions(userA);
+  const sessionsB = readSessions(userB);
   const sessionIdA = String(sessionsA?.[flowA.sessionKeyHint]?.sessionId || "").trim();
   const sessionIdB = String(sessionsB?.[flowB.sessionKeyHint]?.sessionId || "").trim();
 
   assert.equal(sessionIdA.length > 0, true, "user A session missing");
   assert.equal(sessionIdB.length > 0, true, "user B session missing");
 
-  const transcriptA = readJsonl(path.join(rootA, "transcripts", `${sessionIdA}.jsonl`));
-  const transcriptB = readJsonl(path.join(rootB, "transcripts", `${sessionIdB}.jsonl`));
+  const transcriptA = readTranscript(userA, sessionIdA);
+  const transcriptB = readTranscript(userB, sessionIdB);
   assert.equal(
     transcriptA.some((line) => String(line?.meta?.sessionKey || "") === flowA.sessionKeyHint),
     true,
@@ -220,7 +216,9 @@ await run("ORG-LIVE-1 real org-chart flows stay isolated across users on a share
     "user B log leaked user A context",
   );
 
-  const voiceStateB = readJson(path.join(rootB, "state", "voice-user-settings.json"), {});
+  // Voice settings are the kv_state row (voice-user-settings/settings); keep the { settings } view the asserts use.
+  const voiceStateB = { settings: readKv(userB, "voice-user-settings", "settings") || {} };
+  assert.equal(readKv(userA, "voice-user-settings", "settings")?.muted === true, false, "voice muted state leaked to user A");
   assert.equal(
     String(voiceStateB?.settings?.userContextId || ""),
     userB.toLowerCase(),

@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -100,16 +101,35 @@ await run("P3 runtime emits stream lifecycle for duplicate and workflow replies"
 });
 
 await run("P4 persistence route uses idempotent incremental upsert", async () => {
+  // The route now persists through the SQLite session store (was a Supabase `.upsert(rows, { onConflict: "id" })`).
   assertIncludesAll(
     messagesRouteSource,
     [
       "stableUuidFromSeed",
       "buildStableMessageRowId",
-      ".upsert(rows, { onConflict: \"id\" })",
+      "upsertThreadMessages(userId, threadId, rows)",
     ],
     "upsert token missing",
   );
-  assert.equal(messagesRouteSource.includes(".from(\"messages\")\n    .delete()"), false);
+  // Incremental: the route must never wipe a thread's messages before writing.
+  assert.equal(/DELETEs+FROMs+messages/i.test(messagesRouteSource), false);
+  assert.equal(/.delete()/.test(messagesRouteSource), false);
+
+  // Behavior: the same client message ids written twice never duplicate rows, and a partial write is additive.
+  const { createThread, upsertThreadMessages, listThreadMessages } = await import("../../../src/session/sqlite-store/index.js");
+  const userId = "p4-poll-user";
+  const thread = createThread(userId, "P4 idempotency");
+  const threadId = String(thread.id);
+  const row = (id, role, content) => ({ id, role, content, createdAt: new Date().toISOString(), metadata: {} });
+  const first = [row("m-1", "user", "hello"), row("m-2", "assistant", "hi there")];
+  assert.equal(upsertThreadMessages(userId, threadId, first), 2);
+  assert.equal(upsertThreadMessages(userId, threadId, first), 2);
+  const countFor = () => listThreadMessages(userId).filter((m) => m.threadId === threadId).length;
+  assert.equal(countFor(), 2);
+  assert.equal(upsertThreadMessages(userId, threadId, [row("m-3", "user", "again")]), 1);
+  assert.equal(countFor(), 3);
+  // Unknown thread -> null (route answers 404) rather than creating one implicitly.
+  assert.equal(upsertThreadMessages(userId, "no-such-thread", first), null);
 });
 
 await run("P5 commit-boundary sync writes are explicit (not merge-loop timers)", async () => {

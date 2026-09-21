@@ -14,6 +14,7 @@ import { buildWebSearchReadableReply } from "../../../routing/intent-router/inde
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
 import { resolveGmailToolErrorReply } from "../prompt-recovery/index.js";
+import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.js";
 
 const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
 
@@ -204,6 +205,14 @@ export async function runToolLoop({
         if (!confirmState.ok) {
           const safeBlockedMessage =
             "I need an explicit confirmation action before sending Gmail content. Please confirm and retry.";
+          recordToolRunSafe(userContextId, {
+            threadId: conversationId,
+            toolName: normalizedToolName,
+            input: toolUse.input,
+            output: { blocked: `sensitive_action_blocked:${confirmState.reason}` },
+            status: "blocked",
+            latencyMs: 0,
+          });
           toolExecutions.push({
             name: normalizedToolName,
             status: "blocked",
@@ -247,6 +256,15 @@ export async function runToolLoop({
           durationMs: Date.now() - toolStartedAt,
           resultPreview: summarizeToolResultPreview(toolResult?.content || ""),
         });
+        // Audit trail (redacted + capped, never throws): every tool invocation lands in tool_runs.
+        recordToolRunSafe(userContextId, {
+          threadId: conversationId,
+          toolName: normalizedToolName || "unknown",
+          input: toolUse.input,
+          output: toolResult?.content,
+          status: toolResult?.is_error ? "error" : "success",
+          latencyMs: Date.now() - toolStartedAt,
+        });
       } catch (toolErr) {
         const errMsg = describeUnknownError(toolErr);
         if (isLikelyTimeoutError(toolErr)) {
@@ -268,6 +286,14 @@ export async function runToolLoop({
           durationMs: Date.now() - toolStartedAt,
           error: errMsg,
           resultPreview: "",
+        });
+        recordToolRunSafe(userContextId, {
+          threadId: conversationId,
+          toolName: normalizedToolName || "unknown",
+          input: toolUse.input,
+          output: { error: errMsg },
+          status: isLikelyTimeoutError(toolErr) ? "timeout" : "error",
+          latencyMs: Date.now() - toolStartedAt,
         });
         toolResult = { content: `Tool execution failed: ${errMsg}` };
       }

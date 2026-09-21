@@ -160,9 +160,16 @@ export function createToolRuntime(options) {
     }
   }
 
+  // tsc emits one directory per module (dist/tools/core/registry/index.js); older layouts used registry.js.
+  function isAgentCoreBuilt() {
+    return [
+      path.join(runtimeRootDir, "dist", "tools", "core", "registry", "index.js"),
+      path.join(runtimeRootDir, "dist", "tools", "core", "registry.js"),
+    ].some((marker) => fs.existsSync(marker));
+  }
+
   async function ensureAgentCoreBuild() {
-    const distMarker = path.join(runtimeRootDir, "dist", "tools", "core", "registry.js");
-    if (fs.existsSync(distMarker)) {
+    if (isAgentCoreBuilt()) {
       buildBootstrapAttempted = true;
       buildBootstrapReady = true;
       return true;
@@ -171,13 +178,13 @@ export function createToolRuntime(options) {
 
     buildBootstrapAttempted = true;
     const npmBuilt = tryBuildAgentCoreWithNpm();
-    if (npmBuilt && fs.existsSync(distMarker)) {
+    if (npmBuilt && isAgentCoreBuilt()) {
       buildBootstrapReady = true;
       return true;
     }
 
     const inProcessBuilt = await tryBuildAgentCoreInProcess();
-    buildBootstrapReady = inProcessBuilt && fs.existsSync(distMarker);
+    buildBootstrapReady = inProcessBuilt && isAgentCoreBuilt();
     if (!buildBootstrapReady) {
       console.warn("[ToolLoop] Agent core build bootstrap unavailable; tool-loop runtime remains disabled until dist exists.");
     }

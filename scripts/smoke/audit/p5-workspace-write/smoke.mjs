@@ -1,24 +1,29 @@
 /**
- * Audit P5 regression — upsertCryptoReportPreferences writes to workspaceDir, not process.cwd()
+ * Audit P5 regression - preference writes never depend on process.cwd() or the caller's workspaceDir
  *
- * Bug: upsertCryptoReportPreferences hardcoded `const workspaceRoot = process.cwd()`.
- * If the caller knew the correct workspace (e.g. a user's persona dir), the pref was
- * written to the wrong location. Future reads from the correct path would find nothing.
+ * Bug: upsertCryptoReportPreferences hardcoded `const workspaceRoot = process.cwd()`, so a preference could be
+ * written to the wrong location and later reads from the correct path would find nothing.
  *
- * Fix: workspaceDir is now threaded from runCryptoRequest → upsertCryptoReportPreferences
- * (crypto-fast-path.js:474-477, chat-handler.js call sites).
+ * Storage contract (current): preferences are stored in SQLite `kv_state` keyed by user id
+ * (namespace "skill-preferences", key "coinbase"). The location no longer varies with workspaceDir/cwd at all, which
+ * removes the original failure mode. NOVA_DATA_DIR is a throwaway directory (see ../../lib/isolated-data-dir.mjs).
  *
  * Tests:
- *   A) With workspaceDir set to tempDir, SKILL.md is written inside tempDir
- *   B) SKILL.md is NOT written inside process.cwd() (different path entirely)
- *   C) A second distinct workspaceDir produces a file in the second dir, not the first
+ *   A) A preference saved with workspaceDir=tmpDir1 is stored in kv_state for that user and the returned locator
+ *      is the sqlite:kv_state path (not a filesystem path)
+ *   B) The same user's row is shared regardless of which workspaceDir later writes pass (no per-workspace split)
+ *      and nothing is written into either workspaceDir or process.cwd()
+ *   C) A second user gets an isolated row, with no leak in either direction
  */
 
+import "../../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { kvGet } from "../../../../src/db/index.js";
 import { runCryptoRequest } from "../../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
+import { upsertCryptoReportPreferences } from "../../../../src/runtime/modules/chat/workers/finance/crypto-service/replies/index.js";
 
 const availableTools = [
   { name: "coinbase_portfolio_report" },
@@ -49,16 +54,22 @@ const runtimeTools = {
   },
 };
 
-function skillPathFor(workspaceDir, userContextId) {
-  return path.join(
-    workspaceDir,
-    ".user",
-    "user-context",
+function storedRules(userContextId) {
+  const stored = kvGet(userContextId, "skill-preferences", "coinbase");
+  return Array.isArray(stored?.rules) ? stored.rules.map((rule) => String(rule)) : null;
+}
+
+async function savePreference({ text, userContextId, conversationId, workspaceDir }) {
+  await runCryptoRequest({
+    text: "show me my coinbase portfolio",
+    runtimeTools,
+    availableTools,
     userContextId,
-    "skills",
-    "coinbase",
-    "SKILL.md",
-  );
+    conversationId,
+    workspaceDir,
+  });
+  const result = await runCryptoRequest({ text, runtimeTools, availableTools, userContextId, conversationId, workspaceDir });
+  assert.equal(result?.source, "preference", `expected a preference reply: ${JSON.stringify(result)}`);
 }
 
 async function run() {
@@ -66,82 +77,50 @@ async function run() {
   const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), "nova-audit-p5b-"));
   const userContextId = `audit-p5-${Date.now()}`;
   const conversationId = `conv-p5-${Date.now()}`;
+  const cwdUserDir = path.join(process.cwd(), ".user", "user-context", userContextId);
 
   try {
-    // ── Seed crypto affinity
-    await runCryptoRequest({
-      text: "show me my coinbase portfolio",
-      runtimeTools,
-      availableTools,
-      userContextId,
-      conversationId,
-      workspaceDir: tmpDir1,
-    });
-
-    // ── Preference message routed to tmpDir1
-    await runCryptoRequest({
+    // -- Test A: stored in kv_state for the user; the locator is sqlite:, not a file
+    await savePreference({
       text: "always show 2 decimals in my coinbase report going forward",
-      runtimeTools,
-      availableTools,
       userContextId,
       conversationId,
       workspaceDir: tmpDir1,
     });
-
-    const skillInTmp1 = skillPathFor(tmpDir1, userContextId);
-    const skillInTmp2 = skillPathFor(tmpDir2, userContextId);
-
-    // ── Test A: file written to the correct tmpDir1
+    const rules1 = storedRules(userContextId);
+    assert.ok(rules1, "preference row must exist in kv_state for the user");
     assert.ok(
-      fs.existsSync(skillInTmp1),
-      `SKILL.md must be written to workspaceDir (tmpDir1). Expected: ${skillInTmp1}`,
+      rules1.some((rule) => rule.includes("always show 2 decimals")),
+      `stored rules must include the saved preference: ${JSON.stringify(rules1)}`,
     );
+    const direct = upsertCryptoReportPreferences({
+      userContextId,
+      workspaceDir: tmpDir2,
+      directives: ["rule: keep it short"],
+    });
+    assert.equal(direct.ok, true);
+    assert.equal(direct.filePath, `sqlite:kv_state/${userContextId}/skill-preferences/coinbase`);
 
-    // ── Test B: file NOT written to tmpDir2 (or process.cwd())
-    assert.ok(
-      !fs.existsSync(skillInTmp2),
-      `SKILL.md must NOT be written to tmpDir2 — indicates wrong workspace used`,
-    );
+    // -- Test B: one row per user regardless of workspaceDir; nothing on disk in workspaces/cwd
+    const merged = storedRules(userContextId);
+    assert.ok(merged.some((rule) => rule.includes("always show 2 decimals")), "earlier rule must survive a write from another workspaceDir");
+    assert.ok(merged.includes("rule: keep it short"), "a write with another workspaceDir must land in the same row");
+    assert.deepEqual(fs.readdirSync(tmpDir1), [], "nothing may be written into workspaceDir (tmpDir1)");
+    assert.deepEqual(fs.readdirSync(tmpDir2), [], "nothing may be written into workspaceDir (tmpDir2)");
+    assert.ok(!fs.existsSync(cwdUserDir), "nothing may be written under process.cwd()/.user for this user");
 
-    const skillInCwd = skillPathFor(process.cwd(), userContextId);
-    assert.ok(
-      !fs.existsSync(skillInCwd),
-      `SKILL.md must NOT be written to process.cwd() — P5 bug would write here`,
-    );
-
-    // ── Test C: second workspace dir gets its own isolated file
+    // -- Test C: per-user isolation
     const userContextId2 = `audit-p5b-${Date.now()}`;
-    const conversationId2 = `conv-p5b-${Date.now()}`;
-
-    await runCryptoRequest({
-      text: "show me my coinbase portfolio",
-      runtimeTools,
-      availableTools,
-      userContextId: userContextId2,
-      conversationId: conversationId2,
-      workspaceDir: tmpDir2,
-    });
-
-    await runCryptoRequest({
+    await savePreference({
       text: "never show timestamps in my coinbase report going forward",
-      runtimeTools,
-      availableTools,
       userContextId: userContextId2,
-      conversationId: conversationId2,
+      conversationId: `conv-p5b-${Date.now()}`,
       workspaceDir: tmpDir2,
     });
-
-    const skillForUser2InTmp2 = skillPathFor(tmpDir2, userContextId2);
-    const skillForUser2InTmp1 = skillPathFor(tmpDir1, userContextId2);
-
-    assert.ok(
-      fs.existsSync(skillForUser2InTmp2),
-      `SKILL.md for user2 must be in tmpDir2. Expected: ${skillForUser2InTmp2}`,
-    );
-    assert.ok(
-      !fs.existsSync(skillForUser2InTmp1),
-      `SKILL.md for user2 must NOT be in tmpDir1 — workspaceDir leak`,
-    );
+    const rules2 = storedRules(userContextId2);
+    assert.ok(rules2, "second user must have its own preference row");
+    assert.ok(!rules2.some((rule) => rule.includes("always show 2 decimals")), "second user must not see the first user's rules");
+    assert.ok(!storedRules(userContextId).some((rule) => rule.includes("timestamps")), "first user must not see the second user's rules");
 
     console.log("PASS smoke/audit/p5-workspace-write");
   } finally {
@@ -154,4 +133,3 @@ run().catch((err) => {
   console.error(`FAIL smoke/audit/p5-workspace-write: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });
-

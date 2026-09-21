@@ -53,6 +53,7 @@ import { useAutoClearStatus, useAutoDismissRunProgress, useMissionActionMenuDism
 import { missionRequiresCanvasEditor } from "./mission-graph-shape"
 import { defaultMissionSettings } from "@/lib/missions/types"
 import type { Mission as NativeMission, MissionConnection, MissionNode } from "@/lib/missions/types"
+import { notifyMissionRun } from "@/lib/notifications/native-notify"
 import type {
   AiIntegrationType,
   MissionActionMenuState,
@@ -76,7 +77,31 @@ const OUTPUT_CHANNEL_VALUES: OutputChannel[] = ["telegram", "discord", "email", 
 const CONNECTED_CHANNEL_PREFERENCE: OutputChannel[] = ["telegram", "discord", "slack", "email", "webhook"]
 const QUEUED_RUN_STATUS_POLL_MS = 4_000
 const QUEUED_RUN_STATUS_MAX_PARALLEL = 4
-const QUEUE_METRICS_POLL_MS = 10_000
+// Single visible-only background poller: queue metrics every 10s while runs are active,
+// backing off to 30s when idle; reliability data piggybacks on it at most once per 60s.
+const QUEUE_METRICS_POLL_ACTIVE_MS = 10_000
+const QUEUE_METRICS_POLL_IDLE_MS = 30_000
+const MISSION_RELIABILITY_POLL_MS = 60_000
+
+function isDocumentHidden(): boolean {
+  return typeof document !== "undefined" && document.visibilityState === "hidden"
+}
+
+function isSameQueueMetrics(a: MissionQueueMetrics | null, b: MissionQueueMetrics): boolean {
+  if (!a) return false
+  return (
+    a.lookbackMinutes === b.lookbackMinutes
+    && a.queueDepth === b.queueDepth
+    && a.dueDepth === b.dueDepth
+    && a.inflight === b.inflight
+    && a.lagMs === b.lagMs
+    && a.lagSeconds === b.lagSeconds
+    && a.oldestDueScheduledFor === b.oldestDueScheduledFor
+    && a.terminalCountLookback === b.terminalCountLookback
+    && a.failedCountLookback === b.failedCountLookback
+    && a.failureRate === b.failureRate
+  )
+}
 
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
@@ -1481,51 +1506,97 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     void refreshSchedules()
   }, [refreshSchedules])
 
+  // Initial (non-silent) reliability load; also re-runs when the lookback window changes.
+  // Periodic refreshes are handled by the combined background poller below.
   useEffect(() => {
-    let cancelled = false
-    const run = async () => {
-      if (cancelled) return
-      await refreshMissionReliability({ silent: false })
-    }
-    void run()
-    const timer = window.setInterval(() => {
-      void refreshMissionReliability({ silent: true })
-    }, 60_000)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
+    void refreshMissionReliability({ silent: false })
   }, [refreshMissionReliability])
 
+  const refreshMissionReliabilityRef = useRef(refreshMissionReliability)
+  useEffect(() => {
+    refreshMissionReliabilityRef.current = refreshMissionReliability
+  }, [refreshMissionReliability])
+
+  // Combined background poller for queue metrics + reliability. Runs only while the page is
+  // visible (parked when hidden, immediate catch-up poll on return), polls faster while runs
+  // are active and backs off when idle.
   useEffect(() => {
     let cancelled = false
     let pollInFlight = false
+    let timer: number | null = null
+    let lastMetrics: MissionQueueMetrics | null = null
+    let lastReliabilityAt = Date.now()
 
-    const pollQueueMetrics = async () => {
-      if (cancelled || pollInFlight) return
-      pollInFlight = true
-      try {
-        const response = await fetchMissionQueueMetrics()
-        if (response.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-          return
-        }
-        const metrics = response.data?.metrics
-        if (!response.ok || response.data?.ok !== true || !metrics) return
-        if (cancelled) return
-        setMissionQueueMetrics(metrics)
-      } finally {
-        pollInFlight = false
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer)
+        timer = null
       }
     }
 
-    void pollQueueMetrics()
-    const timer = window.setInterval(() => {
-      void pollQueueMetrics()
-    }, QUEUE_METRICS_POLL_MS)
+    const hasActiveRuns = (): boolean => {
+      if (lastMetrics && (lastMetrics.inflight > 0 || lastMetrics.queueDepth > 0)) return true
+      return Object.values(missionRuntimeStatusByIdRef.current).some(
+        (runtimeStatus) => runtimeStatus?.kind === "queued" || runtimeStatus?.kind === "running",
+      )
+    }
+
+    const pollQueueMetrics = async () => {
+      const response = await fetchMissionQueueMetrics()
+      if (response.status === 401) {
+        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
+        return
+      }
+      const metrics = response.data?.metrics
+      if (!response.ok || response.data?.ok !== true || !metrics) return
+      if (cancelled) return
+      lastMetrics = metrics
+      setMissionQueueMetrics((prev) => (isSameQueueMetrics(prev, metrics) ? prev : metrics))
+    }
+
+    const scheduleNext = () => {
+      clearTimer()
+      if (cancelled || isDocumentHidden()) return
+      timer = window.setTimeout(() => {
+        void runCycle()
+      }, hasActiveRuns() ? QUEUE_METRICS_POLL_ACTIVE_MS : QUEUE_METRICS_POLL_IDLE_MS)
+    }
+
+    const runCycle = async () => {
+      timer = null
+      if (cancelled || isDocumentHidden()) return
+      if (!pollInFlight) {
+        pollInFlight = true
+        try {
+          await pollQueueMetrics()
+          if (!cancelled && Date.now() - lastReliabilityAt >= MISSION_RELIABILITY_POLL_MS) {
+            lastReliabilityAt = Date.now()
+            await refreshMissionReliabilityRef.current({ silent: true })
+          }
+        } catch {
+          // Transient network/JSON failure: keep the poller alive and retry on the next cycle.
+        } finally {
+          pollInFlight = false
+        }
+      }
+      scheduleNext()
+    }
+
+    const onVisibilityChange = () => {
+      if (isDocumentHidden()) {
+        clearTimer()
+        return
+      }
+      clearTimer()
+      void runCycle()
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    void runCycle()
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      clearTimer()
+      document.removeEventListener("visibilitychange", onVisibilityChange)
     }
   }, [router])
 
@@ -1537,12 +1608,21 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     missionRuntimeStatusByIdRef.current = missionRuntimeStatusById
   }, [missionRuntimeStatusById])
 
+  // The 4s status poll only exists while at least one mission run is queued.
+  const hasQueuedRuns = useMemo(
+    () => Object.values(missionRuntimeStatusById).some(
+      (runtimeStatus) => runtimeStatus?.kind === "queued" && String(runtimeStatus.missionRunId || "").trim().length > 0,
+    ),
+    [missionRuntimeStatusById],
+  )
+
   useEffect(() => {
+    if (!hasQueuedRuns) return
     let cancelled = false
     let pollInFlight = false
 
     const pollQueuedRuns = async () => {
-      if (cancelled || pollInFlight) return
+      if (cancelled || pollInFlight || isDocumentHidden()) return
 
       const queuedEntries = Object.entries(missionRuntimeStatusByIdRef.current).flatMap(([missionId, runtimeStatus]) => {
         if (!runtimeStatus || runtimeStatus.kind !== "queued") return []
@@ -1591,6 +1671,9 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
           const failed = runStatus === "failed" || runStatus === "dead" || runStatus === "cancelled"
           if (runStatus === "succeeded") {
             shouldRefreshSchedules = true
+            // Find mission name for notification
+            const missionName = schedules.find((m: MissionListItem) => m.id === entry.missionId)?.label || "Mission"
+            void notifyMissionRun(missionName, true)
             setMissionRuntimeStatusById((prev) => ({
               ...prev,
               [entry.missionId]: { kind: "completed", at: finishedAt },
@@ -1609,6 +1692,9 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
           if (failed) {
             shouldRefreshSchedules = true
+            // Find mission name for notification
+            const missionName = schedules.find((m: MissionListItem) => m.id === entry.missionId)?.label || "Mission"
+            void notifyMissionRun(missionName, false)
             setMissionRuntimeStatusById((prev) => ({
               ...prev,
               [entry.missionId]: { kind: "failed", at: finishedAt },
@@ -1632,16 +1718,38 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       }
     }
 
-    void pollQueuedRuns()
-    const timer = window.setInterval(() => {
+    // Poll immediately, then every 4s while visible; catch up right away on return to the page.
+    let timer: number | null = null
+    const startTimer = () => {
+      if (timer !== null) return
+      timer = window.setInterval(() => {
+        void pollQueuedRuns()
+      }, QUEUED_RUN_STATUS_POLL_MS)
+    }
+    const stopTimer = () => {
+      if (timer === null) return
+      window.clearInterval(timer)
+      timer = null
+    }
+    const onVisibilityChange = () => {
+      if (isDocumentHidden()) {
+        stopTimer()
+        return
+      }
       void pollQueuedRuns()
-    }, QUEUED_RUN_STATUS_POLL_MS)
+      startTimer()
+    }
+
+    void pollQueuedRuns()
+    if (!isDocumentHidden()) startTimer()
+    document.addEventListener("visibilitychange", onVisibilityChange)
 
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      stopTimer()
+      document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [refreshSchedules, router])
+  }, [hasQueuedRuns, refreshSchedules, router])
 
   useEffect(() => {
     const refresh = () => {

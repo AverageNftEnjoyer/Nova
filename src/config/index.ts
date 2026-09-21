@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Config } from "./types/index.js";
-import { resolveDataDir } from "../db/paths.js";
+import { resolveDataDir, resolveUserContextRoot } from "../db/paths.js";
 
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".myagent", "config.json");
 const RESERVED_SRC_USER_ENTRY = ".user";
@@ -84,9 +84,10 @@ const DEFAULT_CONFIG: Config = {
   session: {
     scope: "per-channel-peer",
     dmScope: "main",
-    storePath: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "sessions.json"),
-    transcriptDir: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "transcripts"),
-    userContextRoot: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "user-context"),
+    // User state follows the data dir (NOVA_DATA_DIR / packaged / <repo>/.user), the same place as nova.db.
+    storePath: path.join(resolveDataDir(), "sessions.json"),
+    transcriptDir: path.join(resolveDataDir(), "transcripts"),
+    userContextRoot: resolveUserContextRoot(),
     mainKey: "main",
     resetMode: "idle",
     resetAtHour: 4,

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { kvGet, kvSet } from "../../../../../../../db/index.js";
+import { resolveUserContextRoot } from "../../../../../../../db/paths.js";
 import {
   CRYPTO_REPORT_ACTION_REGEX,
   CRYPTO_REPORT_CONTEXT_REGEX,
@@ -50,36 +51,17 @@ function normalizePersonaTone(value) {
   return "neutral";
 }
 
-function resolveWorkspaceRoot(workspaceDir, userContextId) {
-  const resolved = path.resolve(String(workspaceDir || "").trim() || process.cwd());
-  const userScopedDir = path.dirname(resolved);
-  const userContextRootDir = path.dirname(userScopedDir);
-  const agentRootDir = path.dirname(userContextRootDir);
-  const maybeUserId = path.basename(resolved).toLowerCase();
-  const maybeUserContext = path.basename(userScopedDir).toLowerCase();
-  const maybeAgent = path.basename(userContextRootDir).toLowerCase();
-  const normalizedUserContextId = String(userContextId || "").trim().toLowerCase();
-
-  if (
-    maybeAgent === ".user"
-    && maybeUserContext === "user-context"
-    && (!normalizedUserContextId || maybeUserId === normalizedUserContextId)
-  ) {
-    return path.dirname(agentRootDir);
-  }
-  return resolved;
-}
-
-function resolvePersonaMeta({ workspaceDir, userContextId }) {
+// AGENTS.md is a markdown workspace doc; it lives under the data dir (<dataDir>/user-context/<uid>/AGENTS.md).
+function resolvePersonaMeta({ userContextId }) {
   const uid = String(userContextId || "").trim().toLowerCase();
   if (!uid) return { assistantName: "Nova", tone: "neutral", communicationStyle: "friendly" };
-  const root = resolveWorkspaceRoot(workspaceDir, uid);
-  const cacheKey = `${root}::${uid}`;
+  const contextRoot = resolveUserContextRoot();
+  const cacheKey = `${contextRoot}::${uid}`;
   const now = Date.now();
   const cached = personaMetaCache.get(cacheKey);
   if (cached && now - Number(cached.ts || 0) < 60_000) return cached.value;
 
-  const agentsPath = path.join(root, ".user", "user-context", uid, "AGENTS.md");
+  const agentsPath = path.join(contextRoot, uid, "AGENTS.md");
   let assistantName = "Nova";
   let tone = "neutral";
   let communicationStyle = "friendly";
@@ -128,7 +110,6 @@ function buildPnlPersonalityComment({
   includeRecentNetCashFlow,
   normalizedInput,
   userContextId,
-  workspaceDir,
   transactionCount,
   valuedAssetCount,
   freshnessMs,
@@ -154,7 +135,7 @@ function buildPnlPersonalityComment({
     : /\bdaily\b/i.test(String(normalizedInput || ""))
       ? "daily"
       : "report";
-  const persona = resolvePersonaMeta({ workspaceDir, userContextId });
+  const persona = resolvePersonaMeta({ userContextId });
   const name = String(persona.assistantName || "Nova").trim() || "Nova";
   const pctText = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
   const seed = hashSeed(`${String(userContextId || "")}:${direction}:${cadence}:${persona.tone}:${Math.round(pct * 10)}`);
@@ -430,7 +411,6 @@ export function buildReportReply(payload, context = {}) {
           includeRecentNetCashFlow,
           normalizedInput: context.normalizedInput || "",
           userContextId: context.userContextId || "",
-          workspaceDir: context.workspaceDir || "",
           transactionCount: summary.transactionCount,
           valuedAssetCount,
           freshnessMs: report?.portfolio?.freshnessMs,

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 
@@ -22,7 +22,15 @@ type NotesApiResponse = {
   id?: unknown
 }
 
-const POLL_INTERVAL_MS = 6_000
+// Notes change rarely and local mutations/focus/visibility return already trigger a refresh,
+// so the background poll is deliberately slow.
+const POLL_INTERVAL_MS = 30_000
+// Minimum gap between refreshes triggered by focus/visibility events.
+const FOREGROUND_REFRESH_MIN_GAP_MS = 2_000
+
+function notesSignature(notes: HomeNote[]): string {
+  return notes.map((note) => `${note.id}${note.updatedAt}${note.content}`).join("")
+}
 
 function normalizeSource(value: unknown): "manual" | "nova" {
   return String(value || "").trim().toLowerCase() === "nova" ? "nova" : "manual"
@@ -83,7 +91,9 @@ export function useHomeNotes() {
       if (!res.ok || !data?.ok) {
         throw new Error(normalizeError(data?.error || "Failed to load notes."))
       }
-      setNotes(normalizeNotes(data.notes))
+      const next = normalizeNotes(data.notes)
+      // Keep the same array identity when nothing changed to avoid re-rendering consumers.
+      setNotes((current) => (notesSignature(current) === notesSignature(next) ? current : next))
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load notes.")
@@ -115,11 +125,12 @@ export function useHomeNotes() {
       }
       setNotes((current) => [note, ...current.filter((entry) => entry.id !== note.id)])
       setError(null)
+      void refreshNotes(true)
       return { ok: true as const, note }
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : "Failed to create note." }
     }
-  }, [])
+  }, [refreshNotes])
 
   const updateNote = useCallback(async (id: string, content: string) => {
     const normalizedId = String(id || "").trim()
@@ -148,11 +159,12 @@ export function useHomeNotes() {
       }
       setNotes((current) => [note, ...current.filter((entry) => entry.id !== note.id)])
       setError(null)
+      void refreshNotes(true)
       return { ok: true as const, note }
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : "Failed to update note." }
     }
-  }, [])
+  }, [refreshNotes])
 
   const deleteNote = useCallback(async (id: string) => {
     const normalizedId = String(id || "").trim()
@@ -173,11 +185,12 @@ export function useHomeNotes() {
       }
       setNotes((current) => current.filter((entry) => entry.id !== normalizedId))
       setError(null)
+      void refreshNotes(true)
       return { ok: true as const }
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : "Failed to delete note." }
     }
-  }, [])
+  }, [refreshNotes])
 
   useEffect(() => {
     void refreshNotes(false)
@@ -194,24 +207,58 @@ export function useHomeNotes() {
     return () => window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, handleActiveUserChanged as EventListener)
   }, [refreshNotes])
 
+  const lastRefreshAtRef = useRef(0)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     let stopped = false
 
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+    }
+
+    const runRefresh = async () => {
+      lastRefreshAtRef.current = Date.now()
+      await refreshNotes(true)
+    }
+
     const schedule = () => {
+      clearTimer()
+      // Hidden page: park the poll; the visibility/focus handler restarts it.
+      if (stopped || document.visibilityState !== "visible") return
       timer = setTimeout(async () => {
         if (stopped) return
         if (document.visibilityState === "visible") {
-          await refreshNotes(true)
+          await runRefresh()
         }
         schedule()
       }, POLL_INTERVAL_MS)
     }
 
+    // Returning to the page (visibility or window focus): refresh once (deduped), then resume polling.
+    const resumeOnForeground = () => {
+      if (stopped || document.visibilityState !== "visible") return
+      if (Date.now() - lastRefreshAtRef.current >= FOREGROUND_REFRESH_MIN_GAP_MS) {
+        void runRefresh()
+      }
+      schedule()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        resumeOnForeground()
+      } else {
+        clearTimer()
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("focus", resumeOnForeground)
     schedule()
     return () => {
       stopped = true
-      if (timer) clearTimeout(timer)
+      clearTimer()
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("focus", resumeOnForeground)
     }
   }, [refreshNotes])
 

@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -30,11 +31,12 @@ await run("Runtime launcher avoids blocking execSync for netstat/PowerShell path
   assert.equal(/execFileSync\("powershell"/.test(content), true);
 });
 
-await run("Voice capture uses argument-array spawnSync and explicit failure handling", () => {
+await run("Voice capture uses argument-array async spawn and explicit failure handling", () => {
   const content = read("src/runtime/modules/audio/voice/index.js");
   assert.equal(/\bexecSync\s*\(/.test(content), false);
-  assert.equal(/spawnSync\("sox",\s*\[/.test(content), true);
-  assert.equal(/if \(result\.status !== 0\)/.test(content), true);
+  assert.equal(/spawnSync\s*\(/.test(content), false);
+  assert.equal(/spawn\("sox",\s*\[/.test(content), true);
+  assert.equal(/Mic capture failed with exit code/.test(content), true);
 });
 
 await run("Tool runtime build bootstrap avoids shell-string execSync", () => {

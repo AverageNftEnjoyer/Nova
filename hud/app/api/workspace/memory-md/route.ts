@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { NextResponse } from "next/server"
 
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
+import { resolveUserContextRoot } from "../../../../../src/db/paths.js"
 
 export const runtime = "nodejs"
 
@@ -19,16 +20,11 @@ function sanitizeUserContextId(value: unknown): string {
   return normalized.slice(0, 96)
 }
 
-function resolveMemoryFilePath(workspaceRoot: string, userId: string): string {
+// `workspaceRoot` is kept for call-site compatibility; MEMORY.md lives under the data dir (see resolveUserContextRoot).
+function resolveMemoryFilePath(_workspaceRoot: string, userId: string): string {
   const scopedUserContextId = sanitizeUserContextId(userId)
   if (!scopedUserContextId) throw new Error("Invalid authenticated user id for MEMORY.md path resolution.")
-  return path.join(
-    path.resolve(workspaceRoot),
-    ".user",
-    "user-context",
-    scopedUserContextId,
-    "MEMORY.md",
-  )
+  return path.join(resolveUserContextRoot(), scopedUserContextId, "MEMORY.md")
 }
 
 function defaultMemoryTemplate(): string {

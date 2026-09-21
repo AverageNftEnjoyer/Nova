@@ -1,3 +1,4 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -13,6 +14,9 @@ import {
   resetCoinbaseObservabilityForTests,
 } from "../../../dist/integrations/coinbase/index.js";
 
+// The observability sink and this smoke's reports live under the data dir (the isolated temp NOVA_DATA_DIR), not the repo cwd.
+const dataRoot = process.env.NOVA_DATA_DIR;
+
 const results = [];
 function run(name, fn) {
   return Promise.resolve()
@@ -22,12 +26,12 @@ function run(name, fn) {
 }
 
 function ensureRemoved(relPath) {
-  const full = path.join(process.cwd(), relPath);
+  const full = path.join(dataRoot, relPath);
   fs.rmSync(full, { force: true });
 }
 
 function readJsonl(relPath) {
-  const full = path.join(process.cwd(), relPath);
+  const full = path.join(dataRoot, relPath);
   if (!fs.existsSync(full)) return [];
   return fs
     .readFileSync(full, "utf8")
@@ -237,8 +241,8 @@ await run("P9-I1 no cross-user leakage in structured log userContextId under fai
 
 const pass = results.filter((r) => r.status === "PASS").length;
 const fail = results.filter((r) => r.status === "FAIL").length;
-const metricsPath = path.join(process.cwd(), "archive", "logs", "coinbase-observability-resilience-metrics-snapshot.json");
-const reportPath = path.join(process.cwd(), "archive", "logs", "coinbase-observability-resilience-smoke-report.json");
+const metricsPath = path.join(dataRoot, "archive", "logs", "coinbase-observability-resilience-metrics-snapshot.json");
+const reportPath = path.join(dataRoot, "archive", "logs", "coinbase-observability-resilience-smoke-report.json");
 fs.mkdirSync(path.dirname(reportPath), { recursive: true });
 fs.writeFileSync(metricsPath, `${JSON.stringify(getCoinbaseMetricsSnapshot(), null, 2)}\n`, "utf8");
 fs.writeFileSync(reportPath, `${JSON.stringify({ ts: new Date().toISOString(), pass, fail, results }, null, 2)}\n`, "utf8");
@@ -248,8 +252,8 @@ for (const result of results) {
 }
 console.log(`report=${reportPath}`);
 console.log(`metrics=${metricsPath}`);
-console.log(`structuredLogs=${path.join(process.cwd(), structuredLogPath)}`);
-console.log(`alerts=${path.join(process.cwd(), alertsPath)}`);
+console.log(`structuredLogs=${path.join(dataRoot, structuredLogPath)}`);
+console.log(`alerts=${path.join(dataRoot, alertsPath)}`);
 console.log(`Summary: pass=${pass} fail=${fail}`);
 if (fail > 0) process.exit(1);
 

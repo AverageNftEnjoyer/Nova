@@ -12,6 +12,7 @@ import type {
   CreateAgentTaskInput,
 } from "@/lib/agents/types"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
+import { notifyTaskComplete } from "@/lib/notifications/native-notify"
 
 type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string }
 
@@ -246,6 +247,25 @@ export function useAgentTasks(): {
   )
 
   const stats = useMemo(() => (loading ? null : computeTaskStats(tasks)), [loading, tasks])
+
+  // Track task completion and send native notifications
+  const taskStatusRef = useRef<Map<string, AgentTaskStatus>>(new Map())
+
+  useEffect(() => {
+    tasks.forEach((task) => {
+      const previousStatus = taskStatusRef.current.get(task.id)
+      const currentStatus = task.status
+
+      // Only notify on status transitions to completed/failed (not on initial load)
+      if (previousStatus && previousStatus !== currentStatus) {
+        if (currentStatus === "completed" || currentStatus === "failed") {
+          void notifyTaskComplete(task.name || task.prompt.slice(0, 50), currentStatus === "completed")
+        }
+      }
+
+      taskStatusRef.current.set(task.id, currentStatus)
+    })
+  }, [tasks])
 
   return { tasks, stats, loading, error, connection, refresh, createTask, runAction }
 }

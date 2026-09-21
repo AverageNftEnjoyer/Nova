@@ -16,6 +16,7 @@ import {
 } from "../../runtime/core/constants/index.js";
 import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace-user-root/index.js";
 import { getDb } from "../../db/index.js";
+import { resolveUserContextRoot } from "../../db/paths.js";
 import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
 
 // ===== Client Cache =====
@@ -26,7 +27,8 @@ export function resolveRuntimePaths(workspaceRoot = process.cwd()) {
   return {
     workspaceRoot: invariant.workspaceRoot,
     integrationsConfigPath: "sqlite:integration_state/runtime/snapshot",
-    userContextRoot: invariant.userContextRoot,
+    // Follows the data dir (NOVA_DATA_DIR / packaged / <root>/.user); the src/.user sentinel is enforced above.
+    userContextRoot: resolveUserContextRoot(),
     hudRoot: path.join(invariant.workspaceRoot, "hud"),
   };
 }

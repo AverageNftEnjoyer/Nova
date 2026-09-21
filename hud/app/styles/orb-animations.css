@@ -184,22 +184,24 @@
   }
 }
 
+/* Blur container: the blur is now a static filter (see the .nova-orb-core-shell rule
+   below) so it is never re-rasterized per frame. The former animated
+   blur + hue-rotate is approximated with a compositor-only transform/opacity shimmer. */
 @keyframes orb-hue-rotate-blur {
-  0% {
-    filter: blur(var(--orb-blur, 6px)) hue-rotate(0deg);
-  }
-  25% {
-    filter: blur(var(--orb-blur, 6px)) hue-rotate(45deg);
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
   }
   50% {
-    filter: blur(var(--orb-blur, 6px)) hue-rotate(90deg);
+    transform: scale(1.02);
+    opacity: 0.96;
   }
-  75% {
-    filter: blur(var(--orb-blur, 6px)) hue-rotate(45deg);
-  }
-  100% {
-    filter: blur(var(--orb-blur, 6px)) hue-rotate(0deg);
-  }
+}
+
+.nova-orb-core-shell [style*="--orb-blur"] {
+  filter: blur(var(--orb-blur, 6px));
+  will-change: transform, opacity;
 }
 
 @keyframes orb-orbit-1 {
@@ -413,25 +415,29 @@
   }
 }
 
+/* Custom-palette blur container: blur radius growth / brightness pulse become a
+   compositor-only scale + opacity pulse (static blur comes from the rule above). */
 @keyframes orb-custom-blur-drift {
   0%,
   100% {
-    filter: blur(var(--orb-blur, 6px)) brightness(0.95) saturate(1.05);
+    transform: scale(1);
+    opacity: 0.94;
   }
   50% {
-    filter: blur(calc(var(--orb-blur, 6px) * 1.15)) brightness(1.08)
-      saturate(1.18);
+    transform: scale(1.03);
+    opacity: 1;
   }
 }
 
 @keyframes orb-custom-blur-surge {
   0%,
   100% {
-    filter: blur(calc(var(--orb-blur, 6px) * 1.1)) brightness(1) saturate(1.15);
+    transform: scale(1.02);
+    opacity: 0.92;
   }
   50% {
-    filter: blur(calc(var(--orb-blur, 6px) * 1.45)) brightness(1.22)
-      saturate(1.35);
+    transform: scale(1.07);
+    opacity: 1;
   }
 }
 
@@ -624,3 +630,13 @@
   }
 }
 
+/* Honor reduced motion: freeze the decorative orb loops. */
+@media (prefers-reduced-motion: reduce) {
+  .nova-orb-core-shell,
+  .nova-orb-core-shell *,
+  .orb-inner-glow,
+  .orb-glow-ring,
+  .orb-glow-ring-2 {
+    animation: none !important;
+  }
+}

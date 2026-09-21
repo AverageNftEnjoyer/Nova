@@ -1,3 +1,4 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -32,6 +33,10 @@ const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts"
 const dataExecutorsSource = read("hud/lib/missions/workflow/executors/data-executors.ts");
 const coinbaseFetchSource = read("hud/lib/missions/coinbase/fetch.ts");
 const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
+// Scheduling gates and prompt->graph generation moved out of hud/ into shared runtime modules.
+const schedulerCoreSource = read("src/runtime/modules/services/missions/scheduler-core/index.js");
+const buildFromPromptSource = read("src/runtime/modules/services/missions/build-from-prompt/index.js");
+const llmGraphParserSource = read("src/runtime/modules/services/missions/llm-graph-parser/index.js");
 const triggerRouteSource = read("hud/app/api/missions/trigger/route.ts");
 const triggerStreamSource = read("hud/app/api/missions/trigger/stream/route.ts");
 const threadMessagesRouteSource = read("hud/app/api/threads/[threadId]/messages/route.ts");
@@ -40,9 +45,11 @@ const conversationsHookSource = read("hud/lib/chat/hooks/useConversations.ts");
 
 await run("P6-E2E-C1 Coinbase mission build path is wired from prompt generation", async () => {
   assert.equal(generationSource.includes("inferRequestedOutputChannel"), true);
-  assert.equal(generateMissionSource.includes('case "coinbase"'), true);
-  assert.equal(generateMissionSource.includes('type: "coinbase"'), true);
-  assert.equal(generateMissionSource.includes("intent: (intent ==="), true);
+  assert.equal(generateMissionSource.includes("runBuildMissionFromPrompt"), true);
+  assert.equal(buildFromPromptSource.includes("inferRequestedOutputChannel"), true);
+  assert.equal(llmGraphParserSource.includes('case "coinbase"'), true);
+  assert.equal(llmGraphParserSource.includes('type: "coinbase"'), true);
+  assert.equal(llmGraphParserSource.includes("intent: (intent ==="), true);
 });
 
 await run("P6-E2E-C2 Mission execution routes Coinbase nodes through the data executor path", async () => {
@@ -73,11 +80,14 @@ await run("P6-E2E-C4 Scheduler path includes retry + dead-letter handling", asyn
   const requiredTokens = [
     "SCHEDULER_MAX_RETRIES_PER_RUN_KEY",
     "computeRetryDelayMs",
-    "Deduplicates enqueue attempts across ticks for the same logical run slot",
+    // Enqueue is idempotent per logical run slot: duplicate keys across ticks are dropped by the job ledger.
+    "duplicate_idempotency_key",
+    "idempotency_key: idempotencyKey",
     "max_attempts",
   ];
+  assert.equal(schedulerSource.includes("runMissionScheduleTick"), true);
   for (const token of requiredTokens) {
-    assert.equal(schedulerSource.includes(token), true, `missing token: ${token}`);
+    assert.equal(schedulerCoreSource.includes(token), true, `missing token: ${token}`);
   }
 });
 

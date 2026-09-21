@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react"
 import { RefreshCw, Shuffle, SkipBack, SkipForward } from "lucide-react"
 
 import { SpotifyIcon } from "@/components/icons"
@@ -40,6 +40,30 @@ function formatTimeFromMs(ms: number): string {
 function progressPercent(nowPlaying: HomeSpotifyNowPlaying | null): number {
   if (!nowPlaying || nowPlaying.durationMs <= 0) return 0
   return Math.max(0, Math.min(100, Math.round((nowPlaying.progressMs / nowPlaying.durationMs) * 100)))
+}
+
+// Progress bar, thumb and time text are updated straight on the DOM at this cadence
+// (no React state), and only while the page is visible.
+const PROGRESS_DOM_TICK_MS = 1_000
+// Glow/beat visuals are React-driven; they re-render at this coarser cadence.
+const GLOW_STATE_TICK_MS = 2_000
+
+interface ProgressSnapshot {
+  /** True when connected and actively playing, i.e. progress advances with wall-clock time. */
+  advancing: boolean
+  progressMs: number
+  durationMs: number
+  trackId: string
+  /** Wall-clock time (Date.now()) at which this snapshot was committed. */
+  at: number
+}
+
+function projectProgressMs(snapshot: ProgressSnapshot, now: number): number {
+  if (snapshot.durationMs <= 0) return 0
+  const projected = snapshot.advancing
+    ? snapshot.progressMs + Math.max(0, now - snapshot.at)
+    : snapshot.progressMs
+  return Math.max(0, Math.min(snapshot.durationMs, projected))
 }
 
 function hashTrackSeed(value: string): number {
@@ -86,83 +110,150 @@ export function SpotifyHomeModule({
   onSeek,
 }: SpotifyHomeModuleProps) {
   const { accentColor } = useAccent()
-  const [liveProgressMs, setLiveProgressMs] = useState(() => nowPlaying?.progressMs || 0)
+  // Coarse (2s) progress clock that feeds the glow/beat visuals only.
+  const [glowProgressMs, setGlowProgressMs] = useState(() => nowPlaying?.progressMs || 0)
   const [repeatTrack, setRepeatTrack] = useState(false)
   const [seekDragPct, setSeekDragPct] = useState<number | null>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
+  const progressFillRef = useRef<HTMLDivElement>(null)
+  const progressThumbRef = useRef<HTMLDivElement>(null)
+  const progressTimeRef = useRef<HTMLSpanElement>(null)
+  const progressSnapshotRef = useRef<ProgressSnapshot>({
+    advancing: false,
+    progressMs: 0,
+    durationMs: 0,
+    trackId: "",
+    at: 0,
+  })
+  const seekDragPctRef = useRef<number | null>(null)
+  const repeatTrackRef = useRef(false)
+  const onSeekRef = useRef(onSeek)
+  const repeatFiredRef = useRef(false)
   const moduleInnerRef = useRef<HTMLDivElement>(null)
   const [moduleInnerSize, setModuleInnerSize] = useState({ width: 0, height: 0 })
   const [currentArtUrl, setCurrentArtUrl] = useState(() => nowPlaying?.albumArtUrl || "")
   const [pendingArtUrl, setPendingArtUrl] = useState<string | null>(null)
   const [pendingArtVisible, setPendingArtVisible] = useState(false)
   const artTransitionRafRef = useRef<number | null>(null)
-  // Track when the last nowPlaying snapshot arrived so we can extrapolate progress
-  const lastSnapshotAt = useRef<number>(0)
-
   const albumColors = useAlbumColors(nowPlaying?.albumArtUrl)
 
-  useEffect(() => {
-    lastSnapshotAt.current = Date.now()
-    const resetTimer = window.setTimeout(() => {
-      setLiveProgressMs(nowPlaying?.progressMs || 0)
-    }, 0)
-    return () => window.clearTimeout(resetTimer)
-  }, [nowPlaying?.trackId, nowPlaying?.durationMs, nowPlaying?.progressMs, nowPlaying?.playing])
-
-  useEffect(() => {
-    if (!connected || !nowPlaying?.playing || nowPlaying.durationMs <= 0) return
-    // Seed immediately from snapshot + time already elapsed since it arrived
-    const elapsed = Date.now() - lastSnapshotAt.current
-    setLiveProgressMs(Math.min(nowPlaying.durationMs, (nowPlaying.progressMs || 0) + elapsed))
-
-    // Use a tighter tick in the final 10s for smooth end-of-track display;
-    // use a coarser tick otherwise to reduce unnecessary re-renders.
-    let timer: number
-    const schedule = () => {
-      const remaining = nowPlaying.durationMs - (Date.now() - lastSnapshotAt.current + (nowPlaying.progressMs || 0))
-      const tick = remaining <= 10_000 ? 250 : 500
-      timer = window.setTimeout(() => {
-        setLiveProgressMs((prev) => {
-          const next = Math.min(nowPlaying.durationMs, prev + tick)
-          return next
-        })
-        schedule()
-      }, tick)
-    }
-    schedule()
-    return () => window.clearTimeout(timer)
-  }, [connected, nowPlaying?.playing, nowPlaying?.durationMs, nowPlaying?.progressMs])
-
-  // When repeat is on and the track finishes, seek back to the start exactly once.
-  // Use a ref to gate so we only fire one seek per track-end event.
-  const repeatFiredRef = useRef(false)
-  useEffect(() => {
-    if (nowPlaying?.trackId) repeatFiredRef.current = false
-  }, [nowPlaying?.trackId])
-  useEffect(() => {
-    if (!repeatTrack || !nowPlaying?.durationMs || nowPlaying.durationMs <= 0) return
-    if (liveProgressMs >= nowPlaying.durationMs && !repeatFiredRef.current) {
-      repeatFiredRef.current = true
-      onSeek(0)
-    }
-  }, [liveProgressMs, nowPlaying?.durationMs, nowPlaying?.trackId, repeatTrack, onSeek])
-
-  const displayProgressMs = nowPlaying ? Math.min(nowPlaying.durationMs || 0, liveProgressMs) : 0
-  const progress = progressPercent(
-    nowPlaying
-      ? {
-          ...nowPlaying,
-          progressMs: displayProgressMs,
-        }
-      : null,
-  )
   const nowPlayingState = Boolean(connected && nowPlaying?.playing)
+
+  // Write the interpolated progress straight to the DOM (bar, thumb, time text, aria) and fire
+  // the repeat-seek once at track end. Reads refs only, so it never triggers a React render.
+  const updateProgressDom = useCallback(() => {
+    const snapshot = progressSnapshotRef.current
+    const dragPct = seekDragPctRef.current
+    const liveMs = projectProgressMs(snapshot, Date.now())
+    const pct = dragPct !== null
+      ? dragPct * 100
+      : snapshot.durationMs > 0 ? Math.max(0, Math.min(100, (liveMs / snapshot.durationMs) * 100)) : 0
+    const widthValue = `${pct}%`
+    const fill = progressFillRef.current
+    if (fill && fill.style.width !== widthValue) fill.style.width = widthValue
+    const thumb = progressThumbRef.current
+    if (thumb && thumb.style.left !== widthValue) thumb.style.left = widthValue
+    const bar = progressBarRef.current
+    if (bar) bar.setAttribute("aria-valuenow", String(Math.round(pct)))
+    const timeEl = progressTimeRef.current
+    if (timeEl) {
+      const text = formatTimeFromMs(dragPct !== null ? Math.floor(dragPct * snapshot.durationMs) : liveMs)
+      if (timeEl.textContent !== text) timeEl.textContent = text
+    }
+    // When repeat is on and the track finishes, seek back to the start exactly once per track.
+    if (
+      repeatTrackRef.current
+      && snapshot.advancing
+      && snapshot.durationMs > 0
+      && liveMs >= snapshot.durationMs
+      && !repeatFiredRef.current
+    ) {
+      repeatFiredRef.current = true
+      onSeekRef.current(0)
+    }
+  }, [])
+
+  // After every commit: refresh the snapshot anchor when the server snapshot changed, sync
+  // the ref mirrors, and repaint the progress DOM so React-controlled style writes never
+  // leave stale values behind.
+  useLayoutEffect(() => {
+    const prev = progressSnapshotRef.current
+    const advancing = Boolean(connected && nowPlaying?.playing && (nowPlaying?.durationMs || 0) > 0)
+    const progressMs = nowPlaying?.progressMs || 0
+    const durationMs = nowPlaying?.durationMs || 0
+    const trackId = nowPlaying?.trackId || ""
+    if (
+      prev.advancing !== advancing
+      || prev.progressMs !== progressMs
+      || prev.durationMs !== durationMs
+      || prev.trackId !== trackId
+    ) {
+      progressSnapshotRef.current = { advancing, progressMs, durationMs, trackId, at: Date.now() }
+    }
+    if (trackId && prev.trackId !== trackId) repeatFiredRef.current = false
+    seekDragPctRef.current = seekDragPct
+    repeatTrackRef.current = repeatTrack
+    onSeekRef.current = onSeek
+    updateProgressDom()
+  })
+
+  // Tick while playing and the page is visible: 1Hz DOM progress, 0.5Hz glow clock state.
+  useEffect(() => {
+    const syncGlowClock = () => {
+      setGlowProgressMs(projectProgressMs(progressSnapshotRef.current, Date.now()))
+    }
+    // Deferred so it never runs synchronously inside the effect body.
+    const resetTimer = window.setTimeout(syncGlowClock, 0)
+    if (!connected || !nowPlaying?.playing || (nowPlaying?.durationMs || 0) <= 0) {
+      return () => window.clearTimeout(resetTimer)
+    }
+
+    let interval: number | null = null
+    let tickCount = 0
+    const onTick = () => {
+      updateProgressDom()
+      tickCount += 1
+      if (tickCount % (GLOW_STATE_TICK_MS / PROGRESS_DOM_TICK_MS) === 0) syncGlowClock()
+    }
+    const start = () => {
+      if (interval === null) interval = window.setInterval(onTick, PROGRESS_DOM_TICK_MS)
+    }
+    const stop = () => {
+      if (interval !== null) {
+        window.clearInterval(interval)
+        interval = null
+      }
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        stop()
+        return
+      }
+      // Catch up immediately after being hidden, then resume ticking.
+      updateProgressDom()
+      syncGlowClock()
+      start()
+    }
+
+    if (document.visibilityState !== "hidden") start()
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      window.clearTimeout(resetTimer)
+      stop()
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [connected, nowPlaying?.playing, nowPlaying?.durationMs, nowPlaying?.trackId, nowPlaying?.progressMs, updateProgressDom])
+
+  // Progress (integer %) as of the last committed snapshot. Used for the initial render and
+  // aria only; live values are written to the DOM by updateProgressDom.
+  const progress = progressPercent(nowPlaying)
+  const glowClockMs = nowPlaying ? Math.min(nowPlaying.durationMs || 0, glowProgressMs) : 0
   const beatSync = useMemo(() => {
     const seedRaw = `${nowPlaying?.trackId || ""}|${nowPlaying?.trackName || ""}|${nowPlaying?.artistName || ""}|${nowPlaying?.durationMs || 0}`
     const seed = hashTrackSeed(seedRaw || "default")
     const estBpm = 78 + (seed % 34)
     const beatMs = Math.max(460, Math.round(60_000 / estBpm))
-    const phase = beatMs > 0 ? (Math.max(0, displayProgressMs) % beatMs) / beatMs : 0
+    const phase = beatMs > 0 ? (Math.max(0, glowClockMs) % beatMs) / beatMs : 0
     const cosine = 0.5 + 0.5 * Math.cos(phase * Math.PI * 2)
     const smoothPulse = 0.72 + 0.28 * Math.pow(cosine, 1.28)
     return {
@@ -174,7 +265,7 @@ export function SpotifyHomeModule({
       pulseRight: 0.76 + smoothPulse * 0.38,
       shellPulse: 0.82 + smoothPulse * 0.20,
     }
-  }, [displayProgressMs, nowPlaying?.artistName, nowPlaying?.durationMs, nowPlaying?.trackId, nowPlaying?.trackName])
+  }, [glowClockMs, nowPlaying?.artistName, nowPlaying?.durationMs, nowPlaying?.trackId, nowPlaying?.trackName])
   const glowTiming = useMemo(() => {
     const seedRaw = `${nowPlaying?.trackId || ""}|${nowPlaying?.trackName || ""}|${nowPlaying?.artistName || ""}|${nowPlaying?.durationMs || 0}`
     const seed = hashTrackSeed(seedRaw || "default")
@@ -221,11 +312,9 @@ export function SpotifyHomeModule({
       controlForeground: controlFg,
     }
   }, [accentColor, albumColors.primary, albumColors.secondary, albumColors.tertiary, nowPlayingState])
-  // Motion offsets use the server-polled progressMs (2 s cadence) rather than the
-  // interpolated displayProgressMs (250–500 ms cadence).  The CSS animation already
-  // provides smooth 60 fps movement; these JS offsets are tiny nudges (±7 px) whose
-  // exact value at any given millisecond is imperceptible.  Switching to the poll
-  // cadence drops React re-renders for this memo from ~4×/s to ~0.5×/s.
+  // Motion offsets use the coarse glow clock (2 s cadence) rather than per-frame progress.
+  // The CSS animation already provides smooth 60 fps movement; these JS offsets are tiny
+  // nudges (±7 px) whose exact value at any given millisecond is imperceptible.
   const dynamicGlowMotion = useMemo(() => {
     if (!nowPlayingState) {
       return {
@@ -246,7 +335,7 @@ export function SpotifyHomeModule({
       }
     }
     // Use the raw poll snapshot — changes every ~2 s instead of every 250–500 ms.
-    const t = Math.max(0, nowPlaying?.progressMs ?? 0) / 1000
+    const t = Math.max(0, glowClockMs) / 1000
     const p1 = (beatSync.seed % 23) / 23 * Math.PI * 2
     const p2 = (beatSync.seed % 31) / 31 * Math.PI * 2
     const p3 = (beatSync.seed % 41) / 41 * Math.PI * 2
@@ -276,15 +365,12 @@ export function SpotifyHomeModule({
       rightX: `${rightX.toFixed(2)}px`,
       rightY: `${rightY.toFixed(2)}px`,
     }
-  }, [beatSync.seed, nowPlaying?.progressMs, nowPlayingState])
-  // Same poll-cadence throttle as dynamicGlowMotion: use the server snapshot
-  // (progressMs, ~2 s) for the drift positions instead of displayProgressMs
-  // (~250–500 ms).  The parent div already has `transition-all duration-700`
-  // which smoothly interpolates the background change across 700 ms, so the
-  // 2 s update cadence produces fluid motion with zero extra JS work.
+  }, [beatSync.seed, glowClockMs, nowPlayingState])
+  // Same 2 s glow-clock throttle as dynamicGlowMotion. The parent div already has
+  // `transition-all duration-700`, which smooths the background change between updates.
   const ambientShellStyle = useMemo<CSSProperties | undefined>(() => {
     if (!nowPlayingState || !albumColors.primary) return undefined
-    const pollMs = nowPlaying?.progressMs ?? 0
+    const pollMs = glowClockMs
     const driftA = Math.sin(pollMs / 1250)
     const driftB = Math.cos(pollMs / 1500)
     const leftX = 16 + driftA * 8
@@ -297,7 +383,7 @@ export function SpotifyHomeModule({
       `,
       opacity: beatSync.shellPulse,
     }
-  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary, beatSync.shellPulse, nowPlaying?.progressMs, nowPlayingState])
+  }, [albumColors.primary, albumColors.secondary, albumColors.tertiary, beatSync.shellPulse, glowClockMs, nowPlayingState])
 
   useEffect(() => {
     const next = nowPlaying?.albumArtUrl || ""
@@ -483,10 +569,9 @@ export function SpotifyHomeModule({
                   {nowPlayingState ? (
                     <div className={cn("pointer-events-none absolute -inset-5 -z-10 overflow-visible", glowVariantClass)}>
                       <span
-                        className="spotify-glow-layer-a absolute inset-0 rounded-3xl blur-2xl animate-spotify-glow-a"
+                        className="spotify-glow-layer-a absolute inset-0 rounded-3xl animate-spotify-glow-a"
                         style={{
                           backgroundColor: albumColors.primary,
-                          opacity: beatSync.pulseA,
                           "--glow-dur-a": glowTiming.durA,
                           "--glow-delay-a": glowTiming.delayA,
                           "--motion-ax": dynamicGlowMotion.aX,
@@ -496,10 +581,9 @@ export function SpotifyHomeModule({
                         } as CSSProperties}
                       />
                       <span
-                        className="spotify-glow-layer-b absolute inset-2 rounded-3xl blur-xl animate-spotify-glow-b"
+                        className="spotify-glow-layer-b absolute inset-2 rounded-3xl animate-spotify-glow-b"
                         style={{
                           backgroundColor: albumColors.secondary,
-                          opacity: beatSync.pulseB,
                           "--glow-dur-b": glowTiming.durB,
                           "--glow-delay-b": glowTiming.delayB,
                           "--motion-bx": dynamicGlowMotion.bX,
@@ -508,10 +592,9 @@ export function SpotifyHomeModule({
                         } as CSSProperties}
                       />
                       <span
-                        className="spotify-glow-layer-c absolute -inset-2 rounded-3xl blur-3xl animate-spotify-glow-c"
+                        className="spotify-glow-layer-c absolute -inset-2 rounded-3xl animate-spotify-glow-c"
                         style={{
                           backgroundColor: albumColors.tertiary,
-                          opacity: beatSync.pulseC,
                           "--glow-dur-c": glowTiming.durC,
                           "--glow-delay-c": glowTiming.delayC,
                           "--motion-cx": dynamicGlowMotion.cX,
@@ -520,19 +603,17 @@ export function SpotifyHomeModule({
                         } as CSSProperties}
                       />
                       <span
-                        className="spotify-glow-layer-left absolute -left-8 -top-4 h-24 w-24 rounded-full blur-2xl animate-spotify-glow-left"
+                        className="spotify-glow-layer-left absolute -left-8 -top-4 h-24 w-24 rounded-full"
                         style={{
                           backgroundColor: albumColors.secondary,
-                          opacity: beatSync.pulseLeft,
                           "--motion-lx": dynamicGlowMotion.leftX,
                           "--motion-ly": dynamicGlowMotion.leftY,
                         } as CSSProperties}
                       />
                       <span
-                        className="spotify-glow-layer-right absolute -right-8 top-8 h-28 w-28 rounded-full blur-2xl animate-spotify-glow-right"
+                        className="spotify-glow-layer-right absolute -right-8 top-8 h-28 w-28 rounded-full"
                         style={{
                           backgroundColor: albumColors.primary,
-                          opacity: beatSync.pulseRight,
                           "--motion-rx": dynamicGlowMotion.rightX,
                           "--motion-ry": dynamicGlowMotion.rightY,
                         } as CSSProperties}
@@ -610,6 +691,7 @@ export function SpotifyHomeModule({
                   )}
                 >
                   <div
+                    ref={progressFillRef}
                     className="h-full rounded-full transition-[background] duration-300"
                     style={{
                       width: `${seekDragPct !== null ? seekDragPct * 100 : progress}%`,
@@ -618,6 +700,7 @@ export function SpotifyHomeModule({
                   />
                   {/* Thumb — visible on hover/drag */}
                   <div
+                    ref={progressThumbRef}
                     className={cn(
                       "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full bg-white shadow transition-opacity duration-100",
                       isCompactUi ? "h-2 w-2" : "h-2.5 w-2.5",
@@ -627,7 +710,8 @@ export function SpotifyHomeModule({
                   />
                 </div>
                 <div className={cn(isCompactUi ? "mt-1 flex items-center justify-between text-[9px] tabular-nums" : "mt-1 flex items-center justify-between text-[10px] tabular-nums", isLight ? "text-s-60" : "text-slate-300")}>
-                  <span>{formatTimeFromMs(seekDragPct !== null ? Math.floor(seekDragPct * (nowPlaying?.durationMs || 0)) : displayProgressMs)}</span>
+                  {/* Text is written by updateProgressDom (no React children, so React never fights the DOM). */}
+                  <span ref={progressTimeRef} />
                   <span>{formatTimeFromMs(nowPlaying?.durationMs || 0)}</span>
                 </div>
               </div>

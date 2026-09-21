@@ -1,5 +1,7 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
@@ -23,6 +25,8 @@ function summarize(result) {
   const detail = result.detail ? ` :: ${result.detail}` : "";
   console.log(`[${result.status}] ${result.name}${detail}`);
 }
+
+const nodeRequire = createRequire(import.meta.url);
 
 function loadTsModule(relativePath, requireMap = {}) {
   const fullPath = path.join(process.cwd(), relativePath);
@@ -93,7 +97,19 @@ await run("P24-S1 scheduler delivery payload includes personality PnL comment li
   assert.equal(rendered.includes(comment), true);
 
   let capturedDispatch = null;
+  // dispatch.ts's other imports are stubbed; the output contract is replaced by a pass-through because it is
+  // covered by smoke:src-mission-output-contract and this test is about the comment surviving delivery.
   const { dispatchOutput } = loadTsModule("hud/lib/missions/output/dispatch.ts", {
+    "node:crypto": nodeRequire("node:crypto"),
+    "@/lib/notifications/slack": { sendSlackMessage: async () => ({ ok: true }) },
+    "@/lib/integrations/store/server-store": { loadIntegrationsConfig: async () => ({}) },
+    "@/lib/shared/timezone": { resolveTimezone: (value) => String(value || "UTC") },
+    "../web/safe-fetch": {
+      fetchWithSsrfGuard: async () => {
+        throw new Error("network is not available in this smoke");
+      },
+    },
+    "./contract": { enforceMissionOutputContract: ({ text }) => ({ text: String(text || "").trim() }) },
     "@/lib/notifications/dispatcher": {
       dispatchNotification: async (input) => {
         capturedDispatch = input;
@@ -108,24 +124,15 @@ await run("P24-S1 scheduler delivery payload includes personality PnL comment li
     },
   });
 
-  const schedule = {
-    id: "mission-smoke-coinbase-comment",
-    userId: "smoke-user-ctx",
-    label: "Weekly PnL",
-    integration: "telegram",
-    message: "weekly pnl",
-    time: "09:00",
+  // dispatchOutput(channel, text, targets, target, scope?, metadata?) - target is a MissionOutputDispatchTarget.
+  const target = {
+    missionId: "mission-smoke-coinbase-comment",
+    missionLabel: "Weekly PnL",
+    userContextId: "smoke-user-ctx",
     timezone: "America/New_York",
-    enabled: true,
-    chatIds: ["chat-1"],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    runCount: 0,
-    successCount: 0,
-    failureCount: 0,
   };
 
-  const rows = await dispatchOutput("telegram", rendered, ["chat-1"], schedule);
+  const rows = await dispatchOutput("telegram", rendered, ["chat-1"], target);
   assert.equal(Array.isArray(rows), true);
   assert.equal(rows.some((row) => row.ok), true);
   assert.equal(Boolean(capturedDispatch), true);

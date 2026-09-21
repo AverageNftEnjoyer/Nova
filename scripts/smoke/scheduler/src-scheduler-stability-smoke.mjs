@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -136,7 +137,8 @@ await run("P16-C9 missions HUD polls and surfaces queue metrics", async () => {
     assert.equal(missionsApiSource.includes(token), true, `missing missions-api token: ${token}`);
   }
   const requiredHookTokens = [
-    "QUEUE_METRICS_POLL_MS",
+    "QUEUE_METRICS_POLL_ACTIVE_MS",
+    "QUEUE_METRICS_POLL_IDLE_MS",
     "fetchMissionQueueMetrics",
     "setMissionQueueMetrics",
   ];

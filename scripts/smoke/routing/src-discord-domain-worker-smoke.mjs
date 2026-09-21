@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { seedRuntimeIntegrations } from "../lib/seed-runtime-integrations.mjs";
 
 const results = [];
 
@@ -33,14 +35,9 @@ const discordServiceModule = await import(
 const { USER_CONTEXT_ROOT } = constantsModule;
 const { runDiscordDomainService } = discordServiceModule;
 
+// Per-user integration config is the nova.db runtime snapshot row (not state/integrations-config.json any more).
 function writeScopedConfig(userContextId, discordConfig) {
-  const scopedDir = path.join(USER_CONTEXT_ROOT, userContextId, "state");
-  fs.mkdirSync(scopedDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(scopedDir, "integrations-config.json"),
-    JSON.stringify({ discord: discordConfig }, null, 2),
-    "utf8",
-  );
+  seedRuntimeIntegrations(userContextId, { discord: discordConfig });
 }
 
 const createdUsers = [];

@@ -27,7 +27,7 @@ export type MissionExecutionSlot = {
   leaseToken: string
   /** Call before returning from the execution engine so release() knows the outcome. */
   reportOutcome: (success: boolean, errorDetail?: string) => void
-  /** Must be called in finally — marks the job run terminal in Supabase. */
+  /** Must be called in finally — marks the job run terminal in the job ledger (SQLite). */
   release: () => Promise<void>
 }
 
@@ -38,7 +38,7 @@ export type MissionExecutionGuardDecision = {
 }
 
 /**
- * Enqueue + atomically claim a job run in Supabase.
+ * Enqueue + atomically claim a job run in the SQLite job ledger.
  * Replaces the former globalThis.__novaMissionExecutionInflight in-memory map.
  *
  * Concurrency caps (per-user and global) are enforced by the job ledger
@@ -72,7 +72,7 @@ export async function acquireMissionExecutionSlot(input: {
     if (enqueueResult.error === "duplicate_idempotency_key") {
       return { ok: false, reason: "Duplicate run — already enqueued with this ID." }
     }
-    // Supabase unavailable — fail open so we don't block all missions during DB outage
+    // Job ledger unavailable — fail open so we don't block all missions during DB outage
     console.warn("[ExecutionGuard] Failed to enqueue job run, proceeding without ledger:", enqueueResult.error)
     return { ok: true, slot: makeNoopSlot() }
   }

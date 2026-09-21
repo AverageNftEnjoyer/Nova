@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -87,7 +88,8 @@ await run("P20-C4 runtime defaults are locked to safe baseline values", async ()
   assert.equal(constantsSource.includes('NOVA_TOOL_ALLOW_DANGEROUS || "0"'), true);
   assert.equal(constantsSource.includes('NOVA_TOOL_ALLOW_ELEVATED || "1"'), true);
   assert.equal(constantsSource.includes('NOVA_TOOL_CAPABILITY_ENFORCE || "0"'), true);
-  assert.equal(constantsSource.includes('NOVA_ALLOW_PROVIDER_FALLBACK || ""'), true);
+  // Provider fallback was removed (V.59): there must be no env switch that re-enables silent provider fallback.
+  assert.equal(constantsSource.includes("NOVA_ALLOW_PROVIDER_FALLBACK"), false);
 });
 
 await run("P20-C5 release smoke chain includes security, memory, routing, and isolation gates", async () => {

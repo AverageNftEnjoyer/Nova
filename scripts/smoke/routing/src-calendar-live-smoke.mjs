@@ -1,7 +1,10 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
+import { getDb } from "../../../src/db/index.js";
 
 const results = [];
 
@@ -170,14 +173,6 @@ async function ask(text) {
   });
 }
 
-function resolveUserContextRootCandidates(baseDir, uid) {
-  return [
-    path.join(baseDir, ".user", "user-context", uid),
-  ];
-}
-
-const userContextRootCandidates = resolveUserContextRootCandidates(process.cwd(), userContextId);
-
 await run("CAL-LIVE-1 calendar prompts stay on calendar lane", async () => {
   const prompts = [
     "calendar status",
@@ -195,26 +190,20 @@ await run("CAL-LIVE-1 calendar prompts stay on calendar lane", async () => {
 });
 
 await run("CAL-LIVE-2 calendar artifacts are scoped to the requested user context", async () => {
-  const resolvedRoot = userContextRootCandidates.find((candidate) => {
-    const sessionsPath = path.join(candidate, "state", "sessions.json");
-    const sessions = readJson(sessionsPath, {});
-    return Boolean(sessions[sessionKeyHint]);
-  }) || userContextRootCandidates.find((candidate) => fs.existsSync(candidate))
-    || userContextRootCandidates[0];
-
-  const sessionsPath = path.join(resolvedRoot, "state", "sessions.json");
-  const sessions = readJson(sessionsPath, {});
-  const scopedSession = sessions[sessionKeyHint];
+  // Sessions and transcripts live in nova.db (sessions / session_turns); only logs/ remain files under the data dir.
+  const scopedSession = readSessions(userContextId)[sessionKeyHint];
   assert.equal(Boolean(scopedSession), true, "session entry missing");
   const sessionId = String(scopedSession?.sessionId || "").trim();
   assert.equal(sessionId.length > 0, true, "sessionId missing");
 
-  const transcriptPath = path.join(resolvedRoot, "transcripts", `${sessionId}.jsonl`);
-  assert.equal(fs.existsSync(transcriptPath), true, "transcript file missing");
-  const transcriptEntries = readJsonl(transcriptPath);
+  const transcriptEntries = readTranscript(userContextId, sessionId);
+  assert.equal(transcriptEntries.length > 0, true, "transcript turns missing");
   const transcriptMatch = transcriptEntries.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyHint);
   assert.equal(transcriptMatch, true, "transcript entries missing scoped session key");
+  // The session is invisible from any other user scope.
+  assert.equal(Boolean(readSessions(`${userContextId}-other`)[sessionKeyHint]), false, "session leaked to another user");
 
+  const resolvedRoot = userContextDir(userContextId);
   const convoLogPath = path.join(resolvedRoot, "logs", "conversation-dev.jsonl");
   assert.equal(fs.existsSync(convoLogPath), true, "conversation-dev log missing");
   const convoLines = readJsonl(convoLogPath);
@@ -226,16 +215,14 @@ await run("CAL-LIVE-2 calendar artifacts are scoped to the requested user contex
   const hasCalendarLine = scopedLines.some((line) => String(line?.route || "") === "calendar");
   assert.equal(hasCalendarLine, true, "expected calendar route evidence in conversation-dev lines");
 
-  const overridesPath = path.join(resolvedRoot, "calendar", "calendar-overrides.json");
-  if (fs.existsSync(overridesPath)) {
-    const overrides = readJson(overridesPath, []);
-    assert.equal(Array.isArray(overrides), true, "override store invalid");
-  }
+  // Calendar overrides are rows in nova.db (calendar_overrides), scoped by user.
+  const overrideRows = getDb().prepare("SELECT * FROM calendar_overrides WHERE user_id = ?").all(userContextId);
+  assert.equal(Array.isArray(overrideRows), true, "override store invalid");
 
   console.log(`Artifact root: ${resolvedRoot}`);
   console.log(`Artifact conversationId: ${conversationId}`);
   console.log(`Artifact sessionKeyHint: ${sessionKeyHint}`);
-  console.log(`Artifact transcript: ${transcriptPath}`);
+  console.log(`Artifact transcript turns: ${transcriptEntries.length}`);
   console.log(`Artifact conversationLog: ${convoLogPath}`);
 });
 

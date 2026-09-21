@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,23 +28,27 @@ function read(relativePath) {
 }
 
 const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
+// The tick gates (day-lock, retry backoff) live in the shared scheduler core; the HUD scheduler delegates to it.
+const schedulerCoreSource = read("src/runtime/modules/services/missions/scheduler-core/index.js");
 const runLogSource = read("hud/lib/notifications/run-log/index.ts");
 const runMetricsSource = read("hud/lib/notifications/run-metrics/index.ts");
 
 await run("P19-C1 scheduler enforces day-lock guard for daily-like triggers", async () => {
+  assert.equal(schedulerSource.includes("runMissionScheduleTick"), true);
   assert.equal(schedulerSource.includes("getLocalParts"), true);
-  assert.equal(schedulerSource.includes("nativeDayStamp"), true);
+  assert.equal(schedulerCoreSource.includes("getLocalParts"), true);
+  assert.equal(schedulerCoreSource.includes("nativeDayStamp"), true);
   // Gate checks use missionForGate (reschedule override applied) not raw liveMission
-  assert.equal(schedulerSource.includes("missionForGate.lastSentLocalDate === nativeDayStamp"), true);
+  assert.equal(schedulerCoreSource.includes("missionForGate.lastSentLocalDate === nativeDayStamp"), true);
 });
 
 await run("P19-C2 scheduler applies mission-level retry backoff and max retry gate", async () => {
-  assert.equal(schedulerSource.includes("SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
-  assert.equal(schedulerSource.includes("SCHEDULER_RETRY_BASE_MS"), true);
-  assert.equal(schedulerSource.includes("computeRetryDelayMs"), true);
+  assert.equal(schedulerCoreSource.includes("SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
+  assert.equal(schedulerCoreSource.includes("SCHEDULER_RETRY_BASE_MS"), true);
+  assert.equal(schedulerCoreSource.includes("computeRetryDelayMs"), true);
   // Gate checks use missionForGate (reschedule override applied) not raw liveMission
-  assert.equal(schedulerSource.includes("missionForGate.lastRunStatus === \"error\""), true);
-  assert.equal(schedulerSource.includes("consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
+  assert.equal(schedulerCoreSource.includes("missionForGate.lastRunStatus === \"error\""), true);
+  assert.equal(schedulerCoreSource.includes("consecutiveFailures >= SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
 });
 
 await run("P19-C3 run log stores and summarizes runKey attempts", async () => {

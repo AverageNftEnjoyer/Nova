@@ -163,6 +163,29 @@ function writeMissionRow(db, userId, mission) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Change tracking (lets read-heavy pollers such as the scheduler cache mission lists safely)
+// ---------------------------------------------------------------------------
+
+// On globalThis so every bundle copy of this module shares one counter.
+function bumpMissionsWriteSeq() {
+  globalThis.__novaMissionsWriteSeq = (globalThis.__novaMissionsWriteSeq || 0) + 1;
+}
+
+/**
+ * Opaque token that changes whenever the missions table may have changed: in-process writes bump a counter and
+ * writes from other connections/processes change SQLite's per-connection `data_version`. Equal tokens mean a
+ * previously loaded mission list is still current. Returns null when the token cannot be computed (do not cache).
+ */
+export function getMissionsChangeToken() {
+  try {
+    const dataVersion = getDb().pragma("data_version", { simple: true });
+    return `${globalThis.__novaMissionsWriteSeq || 0}:${dataVersion}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Distinct user ids that own at least one mission (replaces scanning .user/user-context). */
 export function listMissionUserIds() {
   return getDb()
@@ -202,14 +225,18 @@ export function upsertMissionRecord(userId, missionId, mutate, incoming) {
   if (!uid || !id) return null;
   const existingRow = getDb().prepare("SELECT data_json FROM missions WHERE user_id = ? AND id = ?").get(uid, id);
   warmSecretsFor(existingRow?.data_json, incoming);
-  return tx((db) => {
-    const row = db.prepare("SELECT data_json FROM missions WHERE user_id = ? AND id = ?").get(uid, id);
-    const existing = row ? openMissionSecrets(parseJson(row.data_json, {})) : null;
-    const next = mutate(existing);
-    if (!next) return null;
-    writeMissionRow(db, uid, sealMissionSecrets(next));
-    return next;
-  });
+  try {
+    return tx((db) => {
+      const row = db.prepare("SELECT data_json FROM missions WHERE user_id = ? AND id = ?").get(uid, id);
+      const existing = row ? openMissionSecrets(parseJson(row.data_json, {})) : null;
+      const next = mutate(existing);
+      if (!next) return null;
+      writeMissionRow(db, uid, sealMissionSecrets(next));
+      return next;
+    });
+  } finally {
+    bumpMissionsWriteSeq();
+  }
 }
 
 /** Replace the user's whole mission set atomically (used by saveMissions; rows not in `missions` are deleted). */
@@ -218,13 +245,17 @@ export function replaceMissionRecords(userId, missions) {
   if (!uid) return;
   const list = (Array.isArray(missions) ? missions : []).filter((m) => m && typeof m === "object" && m.id);
   warmSecretsFor(...list);
-  tx((db) => {
-    const keep = new Set(list.map((m) => String(m.id)));
-    const existing = db.prepare("SELECT id FROM missions WHERE user_id = ?").all(uid);
-    const del = db.prepare("DELETE FROM missions WHERE user_id = ? AND id = ?");
-    for (const row of existing) if (!keep.has(row.id)) del.run(uid, row.id);
-    for (const mission of list) writeMissionRow(db, uid, sealMissionSecrets(mission));
-  });
+  try {
+    tx((db) => {
+      const keep = new Set(list.map((m) => String(m.id)));
+      const existing = db.prepare("SELECT id FROM missions WHERE user_id = ?").all(uid);
+      const del = db.prepare("DELETE FROM missions WHERE user_id = ? AND id = ?");
+      for (const row of existing) if (!keep.has(row.id)) del.run(uid, row.id);
+      for (const mission of list) writeMissionRow(db, uid, sealMissionSecrets(mission));
+    });
+  } finally {
+    bumpMissionsWriteSeq();
+  }
 }
 
 /** Deletes one mission. Returns true when a row was removed. */
@@ -232,7 +263,11 @@ export function deleteMissionRecord(userId, missionId) {
   const uid = sanitizeUserContextId(userId);
   const id = String(missionId || "").trim();
   if (!uid || !id) return false;
-  return tx((db) => db.prepare("DELETE FROM missions WHERE user_id = ? AND id = ?").run(uid, id).changes > 0);
+  try {
+    return tx((db) => db.prepare("DELETE FROM missions WHERE user_id = ? AND id = ?").run(uid, id).changes > 0);
+  } finally {
+    bumpMissionsWriteSeq();
+  }
 }
 
 // ---------------------------------------------------------------------------

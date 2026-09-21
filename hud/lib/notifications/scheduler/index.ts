@@ -1,6 +1,7 @@
 import "server-only"
 
 import { loadMissions } from "../../../../src/runtime/modules/services/missions/persistence/index.js"
+import { getMissionsChangeToken } from "../../../../src/runtime/modules/services/missions/persistence/sqlite-store.js"
 import { runMissionScheduleTick } from "../../../../src/runtime/modules/services/missions/scheduler-core/index.js"
 import { getRescheduleOverride } from "@/lib/calendar/reschedule-store"
 import { getLocalParts } from "@/lib/missions/workflow/time"
@@ -52,6 +53,36 @@ const state = (globalThis as { __novaMissionScheduler?: SchedulerState }).__nova
 
 ;(globalThis as { __novaMissionScheduler?: SchedulerState }).__novaMissionScheduler = state
 
+// Idle ticks used to re-read and re-parse (and re-decrypt) every mission twice per tick. A mission list is now
+// reused while the missions table is provably unchanged (in-process write counter + SQLite data_version), with a
+// max age as a safety net so an unforeseen write path can only cause bounded staleness.
+const MISSION_LIST_CACHE_MAX_AGE_MS = 5 * 60_000
+
+type MissionLoadOptions = Parameters<typeof loadMissions>[0]
+type MissionList = Awaited<ReturnType<typeof loadMissions>>
+type MissionListCacheEntry = { token: string; at: number; missions: MissionList }
+
+const missionListCache = new Map<string, MissionListCacheEntry>()
+
+function missionListCacheKey(options: MissionLoadOptions): string {
+  const opts = (options ?? {}) as { allUsers?: boolean; userId?: string }
+  return opts.allUsers ? "all" : `user:${String(opts.userId ?? "")}`
+}
+
+async function loadMissionsForSchedulerTick(options: MissionLoadOptions = {}): Promise<MissionList> {
+  // Token is captured BEFORE the load: a write that lands mid-load changes the token and forces a reload next tick.
+  const token = getMissionsChangeToken()
+  if (token === null) return loadMissions(options)
+
+  const key = missionListCacheKey(options)
+  const hit = missionListCache.get(key)
+  if (hit && hit.token === token && Date.now() - hit.at < MISSION_LIST_CACHE_MAX_AGE_MS) return hit.missions
+
+  const missions = await loadMissions(options)
+  missionListCache.set(key, { token, at: Date.now(), missions })
+  return missions
+}
+
 async function runScheduleTickInternal() {
   // Contract delegated to scheduler-core:
   // - jobLedger.reclaimExpiredLeases()
@@ -60,7 +91,7 @@ async function runScheduleTickInternal() {
   // - jobLedger.enqueue({ ..., idempotency_key: idempotencyKey, source: "scheduler", priority: 5 })
   // - max_attempts: liveMission.settings.retryOnFail ? liveMission.settings.retryCount + 1 : 1
   return runMissionScheduleTick({
-    loadMissions,
+    loadMissions: loadMissionsForSchedulerTick,
     getRescheduleOverride,
     getLocalParts,
     resolveTimezone,
@@ -173,6 +204,7 @@ export function stopMissionScheduler(): { running: boolean } {
   }
   state.running = false
   state.isLeader = false
+  missionListCache.clear()
 
   // Release the leader lease so another instance can acquire it immediately
   // rather than waiting for the TTL to expire.

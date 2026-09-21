@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -6,8 +7,6 @@ import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
 import { createRequire } from "node:module";
-
-const nativeRequire = createRequire(import.meta.url);
 
 const results = [];
 
@@ -41,13 +40,15 @@ function loadTsModule(relativePath, requireMap = {}, extraGlobals = {}) {
     fileName: path.basename(relativePath),
   }).outputText;
   const module = { exports: {} };
+  // Resolve relative imports (e.g. ../../../../src/.../sqlite-store.js) from the module's own location.
+  const moduleRequire = createRequire(fullPath);
   const sandbox = {
     module,
     exports: module.exports,
     require: (specifier) => {
       if (specifier in requireMap) return requireMap[specifier];
       if (specifier === "server-only") return {};
-      return nativeRequire(specifier);
+      return moduleRequire(specifier);
     },
     console,
     process,

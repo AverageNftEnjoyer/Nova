@@ -1,7 +1,9 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { readSessions, readTranscript, userContextDir } from "../lib/user-state-readers.mjs";
 
 const results = [];
 
@@ -76,14 +78,6 @@ const userContextId = String(
 
 const conversationId = String(args["conversation-id"] || `market-live-${Date.now()}`).trim();
 const sessionKeyHint = `agent:nova:hud:user:${userContextId}:dm:${conversationId}`;
-function resolveUserContextRootCandidates(baseDir, uid) {
-  return [
-    path.join(baseDir, ".user", "user-context", uid),
-  ];
-}
-
-const userContextRootCandidates = resolveUserContextRootCandidates(process.cwd(), userContextId);
-
 const chatHandlerModule = await import(
   pathToFileURL(path.join(process.cwd(), "src/runtime/modules/chat/core/chat-handler/index.js")).href,
 );
@@ -191,27 +185,18 @@ await run("MKT-LIVE-2 weather prompt still routes to weather lane", async () => 
 });
 
 await run("MKT-LIVE-3 user-scoped session/transcript/log artifacts exist", async () => {
-  const resolvedRoot = userContextRootCandidates.find((candidate) => {
-    const sessionsPath = path.join(candidate, "state", "sessions.json");
-    const sessions = readJson(sessionsPath, {});
-    return Boolean(sessions[sessionKeyHint]);
-  }) || userContextRootCandidates.find((candidate) => fs.existsSync(candidate))
-    || userContextRootCandidates[0];
-
-  const sessionsPath = path.join(resolvedRoot, "state", "sessions.json");
-  const sessions = readJson(sessionsPath, {});
-  const scopedSession = sessions[sessionKeyHint];
+  // Sessions and transcripts live in nova.db (sessions / session_turns); only logs/ remain files under the data dir.
+  const scopedSession = readSessions(userContextId)[sessionKeyHint];
   assert.equal(Boolean(scopedSession), true, "session entry missing");
   const sessionId = String(scopedSession?.sessionId || "").trim();
   assert.equal(sessionId.length > 0, true, "sessionId missing");
 
-  const transcriptPath = path.join(resolvedRoot, "transcripts", `${sessionId}.jsonl`);
-  assert.equal(fs.existsSync(transcriptPath), true, "transcript file missing");
-  const transcriptEntries = readJsonl(transcriptPath);
-  assert.equal(transcriptEntries.length > 0, true, "empty transcript file");
+  const transcriptEntries = readTranscript(userContextId, sessionId);
+  assert.equal(transcriptEntries.length > 0, true, "empty transcript");
   const transcriptMatch = transcriptEntries.some((line) => String(line?.meta?.sessionKey || "") === sessionKeyHint);
   assert.equal(transcriptMatch, true, "transcript entries missing scoped session key");
 
+  const resolvedRoot = userContextDir(userContextId);
   const convoLogPath = path.join(resolvedRoot, "logs", "conversation-dev.jsonl");
   assert.equal(fs.existsSync(convoLogPath), true, "conversation-dev log missing");
   const convoLines = readJsonl(convoLogPath);
@@ -228,7 +213,7 @@ await run("MKT-LIVE-3 user-scoped session/transcript/log artifacts exist", async
   console.log(`Artifact root: ${resolvedRoot}`);
   console.log(`Artifact conversationId: ${conversationId}`);
   console.log(`Artifact sessionKeyHint: ${sessionKeyHint}`);
-  console.log(`Artifact transcript: ${transcriptPath}`);
+  console.log(`Artifact transcript turns: ${transcriptEntries.length}`);
   console.log(`Artifact conversationLog: ${convoLogPath}`);
 });
 

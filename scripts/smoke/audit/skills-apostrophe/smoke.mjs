@@ -20,6 +20,7 @@
  *   C) A valid skill with double-quoted JSON array in read_when works correctly
  */
 
+import "../../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import { extractSkillMetadata } from "../../../../src/runtime/modules/context/skills/index.js";
 

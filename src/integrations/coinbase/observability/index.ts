@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { resolveDataDir } from "../../../db/paths.js";
 
 type MetricBucket = {
   latenciesMs: number[];
@@ -87,8 +88,8 @@ function appendWindow(list: number[], atMs: number): void {
 
 function appendJsonl(relativePath: string, payload: unknown): void {
   const line = `${JSON.stringify(payload)}\n`;
-  const root = process.cwd();
-  const resolved = path.resolve(root, relativePath);
+  // Under the data dir (NOVA_DATA_DIR / packaged aware), never relative to process.cwd().
+  const resolved = path.resolve(resolveDataDir(), relativePath);
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
   fs.appendFileSync(resolved, line, "utf8");
 }

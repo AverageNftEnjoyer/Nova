@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { enforceWorkspaceUserStateInvariant } from "../workspace-user-root/index.js";
-import { resolveDataDir } from "../../../db/paths.js";
+import { resolveDataDir, resolveUserContextRoot } from "../../../db/paths.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,7 +34,6 @@ function readLowerCsvEnv(name, fallbackCsv = "") {
 export const ROOT_DIR = path.join(__dirname, "..");
 const WORKSPACE_PATHS = enforceWorkspaceUserStateInvariant(__dirname);
 export const ROOT_WORKSPACE_DIR = WORKSPACE_PATHS.workspaceRoot;
-export const USER_DATA_DIR = ".user";
 export const INTEGRATIONS_CONFIG_PATH = "sqlite:integration_state/runtime/snapshot";
 
 // ===== API Base URLs =====
@@ -84,8 +83,8 @@ export const MEMORY_DB_PATH = path.join(resolveDataDir(), "memory.db");
 export const MEMORY_SOURCE_DIR = path.join(ROOT_WORKSPACE_DIR, "memory");
 
 // ===== Session Config =====
-export const SESSION_STORE_PATH = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "sessions.json");
-export const SESSION_TRANSCRIPT_DIR = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "transcripts");
+export const SESSION_STORE_PATH = path.join(resolveDataDir(), "sessions.json");
+export const SESSION_TRANSCRIPT_DIR = path.join(resolveDataDir(), "transcripts");
 export const SESSION_MAX_TURNS = readIntEnv("NOVA_SESSION_MAX_TURNS", 20, { min: 1, max: 1000 });
 export const SESSION_IDLE_MINUTES = readIntEnv("NOVA_SESSION_IDLE_MINUTES", 120, { min: 1, max: 10_080 });
 export const SESSION_MAIN_KEY = String(process.env.NOVA_SESSION_MAIN_KEY || "main").trim() || "main";
@@ -134,7 +133,7 @@ export const RAW_STREAM_ENABLED =
 export const RAW_STREAM_PATH = String(
   process.env.OPENCLAW_RAW_STREAM_PATH ||
     process.env.NOVA_RAW_STREAM_PATH ||
-    path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "raw-stream.jsonl")
+    path.join(resolveDataDir(), "raw-stream.jsonl")
 ).trim();
 
 
@@ -251,7 +250,8 @@ export const MEMORY_FACT_MAX_CHARS = readIntEnv("NOVA_MEMORY_FACT_MAX_CHARS", 28
 export const STT_MODEL = String(process.env.NOVA_STT_MODEL || "whisper-1").trim();
 
 // ===== User Context & Bootstrap =====
-export const USER_CONTEXT_ROOT = WORKSPACE_PATHS.userContextRoot;
+// Per-user markdown docs + logs follow the data dir (NOVA_DATA_DIR / packaged / <repo>/.user), next to nova.db.
+export const USER_CONTEXT_ROOT = resolveUserContextRoot();
 export const BOOTSTRAP_BASELINE_DIR = path.join(ROOT_WORKSPACE_DIR, "templates");
 export const BOOTSTRAP_FILE_NAMES = ["SOUL.md", "USER.md", "AGENTS.md", "MEMORY.md", "IDENTITY.md"];
 

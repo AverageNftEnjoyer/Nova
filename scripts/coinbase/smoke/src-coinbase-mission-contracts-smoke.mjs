@@ -1,3 +1,4 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,8 +22,9 @@ function read(relPath) {
   return fs.readFileSync(path.join(process.cwd(), relPath), "utf8");
 }
 
+// Reports are written under the (isolated temp) data dir, not into the repo checkout.
 function writeJson(relPath, value) {
-  const abs = path.join(process.cwd(), relPath);
+  const abs = path.join(process.env.NOVA_DATA_DIR, relPath);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   return abs;
@@ -38,11 +40,18 @@ function sanitizeUserContextId(value) {
     .slice(0, 96);
 }
 
-const generationSource = read("hud/lib/missions/workflow/generate-mission.ts");
+// Prompt->graph generation lives in shared runtime modules (build-from-prompt prompt text, llm-graph-parser node mapping)
+// and the coinbase intent handling in hud's coinbase-step; the assertions below cover all three.
+const generationSource = [
+  read("src/runtime/modules/services/missions/build-from-prompt/index.js"),
+  read("src/runtime/modules/services/missions/llm-graph-parser/index.js"),
+  read("hud/lib/missions/workflow/coinbase-step.ts"),
+].join("\n");
 const executeMissionSource = read("hud/lib/missions/workflow/execute-mission.ts");
 const dataExecutorsSource = read("hud/lib/missions/workflow/executors/data-executors.ts");
 const coinbaseFetchSource = read("hud/lib/missions/coinbase/fetch.ts");
-const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
+// The scheduler tick (retry gates, idempotency keys) lives in the shared scheduler core the HUD scheduler delegates to.
+const schedulerSource = read("src/runtime/modules/services/missions/scheduler-core/index.js");
 const triggerRouteSource = read("hud/app/api/missions/trigger/route.ts");
 const triggerStreamSource = read("hud/app/api/missions/trigger/stream/route.ts");
 const threadMessagesRouteSource = read("hud/app/api/threads/[threadId]/messages/route.ts");
@@ -119,7 +128,9 @@ await run("P13-C4 retry + dead-letter behavior is present for scheduled and manu
     assert.equal(triggerRouteSource.includes(token), true, `trigger route missing token: ${token}`);
     assert.equal(triggerStreamSource.includes(token), true, `trigger stream missing token: ${token}`);
   }
-  assert.equal(deadLetterSource.includes("notification-dead-letter.jsonl"), true);
+  // Dead letters are nova.db rows (dead_letters, kind "notification"), no longer notification-dead-letter.jsonl.
+  assert.equal(deadLetterSource.includes("appendDeadLetterRecord(\"notification\""), true);
+  assert.equal(deadLetterSource.includes("notification-dead-letter.jsonl"), false);
 });
 
 await run("P13-C5 transcript persistence contains mission metadata fields in API write + read paths", async () => {
@@ -145,13 +156,9 @@ await run("P13-C5 transcript persistence contains mission metadata fields in API
 });
 
 const userContextId = sanitizeUserContextId(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "");
-const deadLetterCandidates = [];
-if (userContextId) {
-  deadLetterCandidates.push(path.join(process.cwd(), ".user", "user-context", userContextId, "state", "notification-dead-letter.jsonl"));
-  deadLetterCandidates.push(path.join(process.cwd(), ".user", "user-context", userContextId, "notification-dead-letter.jsonl"));
-}
-deadLetterCandidates.push(path.join(process.cwd(), "data", "notification-dead-letter.jsonl"));
-const resolvedDeadLetterPath = deadLetterCandidates.find((candidate) => fs.existsSync(candidate)) || "";
+const { listDeadLetterRecords } = await import("../../../src/runtime/modules/services/missions/persistence/sqlite-store.js");
+// Latest notification dead letter for the smoke user (null when none / no user configured).
+const latestDeadLetter = userContextId ? (listDeadLetterRecords("notification", userContextId, 1)[0] ?? null) : null;
 
 const metadataSnapshot = {
   ts: new Date().toISOString(),
@@ -177,21 +184,9 @@ const metadataSnapshot = {
 const deadLetterSnapshot = {
   ts: new Date().toISOString(),
   userContextId: userContextId || null,
-  deadLetterPath: resolvedDeadLetterPath || null,
-  deadLetterExists: Boolean(resolvedDeadLetterPath),
-  sample: (() => {
-    if (!resolvedDeadLetterPath) return null;
-    try {
-      const lines = String(fs.readFileSync(resolvedDeadLetterPath, "utf8") || "")
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (lines.length === 0) return null;
-      return JSON.parse(lines[lines.length - 1]);
-    } catch {
-      return null;
-    }
-  })(),
+  deadLetterStore: "sqlite:dead_letters/notification",
+  deadLetterExists: latestDeadLetter !== null,
+  sample: latestDeadLetter,
 };
 
 const pass = results.filter((r) => r.status === "PASS").length;

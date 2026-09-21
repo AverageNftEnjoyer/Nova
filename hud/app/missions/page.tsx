@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { Settings } from "lucide-react"
 
 import { useTheme } from "@/lib/context/theme-context"
@@ -26,7 +26,7 @@ import { missionToWorkflowSummaryForAutofix } from "./canvas/workflow-autofix-br
 import type { MissionListItem } from "./types"
 import { resolveTimezone } from "@/lib/shared/timezone"
 
-export default function MissionsPage() {
+function MissionsPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnTo = searchParams.get("returnTo")
@@ -587,3 +587,11 @@ export default function MissionsPage() {
 }
 
 
+
+export default function MissionsPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <MissionsPageContent />
+    </Suspense>
+  )
+}

@@ -117,6 +117,9 @@ function resolveTransportSource(value: unknown): "agent" | "hud" | "voice" {
   return "agent"
 }
 
+// Trailing debounce for localStorage writes while assistant text streams in.
+const CONVERSATION_PERSIST_DEBOUNCE_MS = 1_500
+
 export function useConversations({
   agentConnected,
   chatTransportEvents,
@@ -295,10 +298,65 @@ export function useConversations({
     [],
   )
 
+  // Streamed deltas arrive up to ~28x/s. In-memory state and the in-memory shell cache update
+  // immediately; the (synchronous, whole-list) localStorage write is debounced and flushed on
+  // stream completion, page hide, and unmount.
+  const pendingStorageWriteRef = useRef<Conversation[] | null>(null)
+  const storageWriteTimerRef = useRef<number | null>(null)
+
+  const flushPendingStorageWrite = useCallback(() => {
+    if (storageWriteTimerRef.current !== null) {
+      window.clearTimeout(storageWriteTimerRef.current)
+      storageWriteTimerRef.current = null
+    }
+    const pending = pendingStorageWriteRef.current
+    if (!pending) return
+    pendingStorageWriteRef.current = null
+    try {
+      saveConversations(pending)
+    } catch {
+      // Storage may be full or unavailable; in-memory state and the server copy remain authoritative.
+    }
+  }, [])
+
+  const scheduleStorageWrite = useCallback((convos: Conversation[]) => {
+    pendingStorageWriteRef.current = convos
+    if (storageWriteTimerRef.current !== null) return
+    storageWriteTimerRef.current = window.setTimeout(() => {
+      storageWriteTimerRef.current = null
+      flushPendingStorageWrite()
+    }, CONVERSATION_PERSIST_DEBOUNCE_MS)
+  }, [flushPendingStorageWrite])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushPendingStorageWrite()
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    window.addEventListener("pagehide", flushPendingStorageWrite)
+    window.addEventListener("beforeunload", flushPendingStorageWrite)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.removeEventListener("pagehide", flushPendingStorageWrite)
+      window.removeEventListener("beforeunload", flushPendingStorageWrite)
+      flushPendingStorageWrite()
+    }
+  }, [flushPendingStorageWrite])
+
   const persist = useCallback(
-    (convos: Conversation[], active: Conversation | null) => {
+    (convos: Conversation[], active: Conversation | null, options?: { deferStorage?: boolean }) => {
       setConversations(convos)
-      saveConversations(convos)
+      if (options?.deferStorage) {
+        scheduleStorageWrite(convos)
+      } else {
+        // Immediate write supersedes any queued (older) snapshot.
+        pendingStorageWriteRef.current = null
+        if (storageWriteTimerRef.current !== null) {
+          window.clearTimeout(storageWriteTimerRef.current)
+          storageWriteTimerRef.current = null
+        }
+        saveConversations(convos)
+      }
       writeShellUiCache({ conversations: convos })
       if (active) {
         setActiveConvo(active)
@@ -309,7 +367,7 @@ export function useConversations({
         setActiveId(null)
       }
     },
-    [],
+    [scheduleStorageWrite],
   )
 
   const resolveTransportConversationId = useCallback(
@@ -590,6 +648,12 @@ export function useConversations({
     const syncConversationIds = new Set<string>()
     const titledConversationIds = new Set<string>()
 
+    // Only pure streaming-progress batches may defer the localStorage write. Anything else
+    // (final message, stream done, user message, ...) writes through immediately.
+    const deferStorageWrite = pending.every(
+      (event) => event.type === "assistant_stream_delta" || event.type === "assistant_stream_start",
+    )
+
     for (const event of pending) {
       if (
         event.type === "calendar:event:updated" ||
@@ -627,7 +691,12 @@ export function useConversations({
     if (conversationsChanged) {
       const nextActiveId = String(latestActiveConvoIdRef.current || "").trim()
       const nextActive = nextActiveId ? nextConversations.find((entry) => entry.id === nextActiveId) ?? null : null
-      persist(nextConversations, nextActive)
+      persist(nextConversations, nextActive, { deferStorage: deferStorageWrite })
+    }
+
+    // Stream finished: write through immediately rather than waiting for the debounce.
+    if (pending.some((event) => event.type === "assistant_stream_done")) {
+      flushPendingStorageWrite()
     }
 
     if (titledConversationIds.size > 0) {
@@ -650,6 +719,7 @@ export function useConversations({
     applyTransportEventToConversation,
     chatTransportEvents,
     mergedCountRef,
+    flushPendingStorageWrite,
     patchServerConversation,
     persist,
     resolveTransportConversationId,

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { useTheme } from "@/lib/context/theme-context"
@@ -65,6 +65,7 @@ export function AppBackgroundLayer() {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const [mounted, setMounted] = useState(false)
+  const backgroundVideoRef = useRef<HTMLVideoElement | null>(null)
 
   const [orbColor, setOrbColor] = useState<OrbColor>(() => {
     const cached = readShellUiCache().orbColor
@@ -154,6 +155,30 @@ export function AppBackgroundLayer() {
     }
   }, [background, customBackgroundAssetId, isLight, showForPath])
 
+  // Pause the looping background video while the window is hidden/unfocused
+  // (html[data-page-active="false"], set by PageActiveController) and resume on return.
+  useEffect(() => {
+    const video = backgroundVideoRef.current
+    if (!video) return
+    const root = document.documentElement
+    const sync = () => {
+      const active = !document.hidden && root.dataset.pageActive !== "false"
+      if (active) {
+        if (video.paused) void video.play().catch(() => undefined)
+      } else if (!video.paused) {
+        video.pause()
+      }
+    }
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(root, { attributes: true, attributeFilter: ["data-page-active"] })
+    document.addEventListener("visibilitychange", sync)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener("visibilitychange", sync)
+    }
+  }, [mounted, showForPath, isLight, background, backgroundVideoUrl, backgroundMediaIsImage])
+
   const orbPalette = ORB_COLORS[orbColor]
   const blackModeCore = useMemo(() => mixHex("#020204", orbPalette.bg, 0.35), [orbPalette.bg])
 
@@ -214,12 +239,13 @@ export function AppBackgroundLayer() {
             />
           ) : (
             <video
+              ref={backgroundVideoRef}
               className="absolute inset-0 h-full w-full object-cover"
               autoPlay
               muted
               loop
               playsInline
-              preload="auto"
+              preload="metadata"
               src={backgroundVideoUrl}
             />
           )}

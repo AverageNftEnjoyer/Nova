@@ -13,6 +13,7 @@
  *   C) "how does it work exactly" (multi-word, only "it") → zero tool calls
  */
 
+import "../../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import { runCryptoRequest } from "../../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
 

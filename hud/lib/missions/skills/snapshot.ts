@@ -3,6 +3,7 @@ import "server-only"
 import { createHash } from "node:crypto"
 import { readdir, readFile, stat } from "node:fs/promises"
 import path from "node:path"
+import { resolveUserContextRoot } from "../../../../src/db/paths.js"
 
 const DEFAULT_MAX_SKILLS = Math.max(
   1,
@@ -208,7 +209,7 @@ export async function loadMissionSkillSnapshot(params?: {
   const scopedUserId = sanitizeUserContextId(params?.userId || "")
   const dirs = [path.join(workspaceRoot, "skills")]
   if (scopedUserId) {
-    dirs.push(path.join(workspaceRoot, ".user", "user-context", scopedUserId, "skills"))
+    dirs.push(path.join(resolveUserContextRoot(), scopedUserId, "skills"))
   }
 
   const skills = await discoverMissionSkills(dirs)

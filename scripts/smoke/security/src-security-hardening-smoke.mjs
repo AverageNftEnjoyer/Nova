@@ -1,9 +1,10 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 const projectRoot = process.cwd();
-const netGuardModule = await import(pathToFileURL(path.join(projectRoot, "dist/tools/net-guard.js")).href);
+const netGuardModule = await import(pathToFileURL(path.join(projectRoot, "dist/tools/web/net-guard/index.js")).href);
 const externalContentModule = await import(
   pathToFileURL(path.join(projectRoot, "src/runtime/modules/context/external-content/index.js")).href
 );

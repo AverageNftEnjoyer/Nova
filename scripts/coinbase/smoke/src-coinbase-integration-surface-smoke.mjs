@@ -1,3 +1,4 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +12,7 @@ import {
   mapCoinbaseHttpError,
 } from "../../../dist/integrations/coinbase/index.js";
 import { runCryptoRequest } from "../../../src/runtime/modules/chat/workers/finance/crypto-service/index.js";
-import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/chat/workers/finance/coinbase-command-parser/index.js";
+import { normalizeCoinbaseCommandText, parseCoinbaseCommand } from "../../../src/runtime/modules/services/coinbase/command-parser/index.js";
 
 const results = [];
 
@@ -235,10 +236,13 @@ await run("P11-R1 runtime isolation + cross-conversation routing under load", as
 });
 
 await run("P11-M1 mission scheduling/retry/idempotency checks", async () => {
+  // Retry gating lives in the shared scheduler core that the HUD scheduler delegates to.
   const schedulerSource = read("hud/lib/notifications/scheduler/index.ts");
+  const schedulerCoreSource = read("src/runtime/modules/services/missions/scheduler-core/index.js");
   const triggerRouteSource = read("hud/app/api/missions/trigger/route.ts");
-  assert.equal(schedulerSource.includes("SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
-  assert.equal(schedulerSource.includes("computeRetryDelayMs"), true);
+  assert.equal(schedulerSource.includes("runMissionScheduleTick"), true);
+  assert.equal(schedulerCoreSource.includes("SCHEDULER_MAX_RETRIES_PER_RUN_KEY"), true);
+  assert.equal(schedulerCoreSource.includes("computeRetryDelayMs"), true);
   assert.equal(triggerRouteSource.includes("appendNotificationDeadLetter"), true);
 
   const store = new CoinbaseDataStore(tempDb("coinbase-integration-surface-idempotency.sqlite"));

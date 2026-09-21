@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +12,7 @@ function resolveSmokeUserContextId() {
     || "",
   ).trim();
   if (explicit) return explicit;
-  const root = path.join(process.cwd(), ".user", "user-context");
+  const root = path.join(process.env.NOVA_DATA_DIR, "user-context");
   if (!fs.existsSync(root)) return "";
   const candidates = fs
     .readdirSync(root, { withFileTypes: true })
@@ -86,7 +87,7 @@ const LATENCY_THRESHOLDS_MS = {
 
 const userContextId = resolveSmokeUserContextId();
 if (!userContextId) {
-  const contextRoot = path.join(process.cwd(), ".user", "user-context");
+  const contextRoot = path.join(process.env.NOVA_DATA_DIR, "user-context");
   console.error(
     `FAIL: no user context found for latency gate.\n`
     + `  Option 1: set NOVA_SMOKE_USER_CONTEXT_ID=<context-name>\n`
@@ -105,7 +106,7 @@ const activeProvider = String(providerRuntime?.activeProvider || "openai").trim(
 const activeConfig = providerRuntime && typeof providerRuntime === "object" ? providerRuntime[activeProvider] : null;
 const activeApiKey = String(activeConfig?.apiKey || "").trim();
 if (!activeApiKey) {
-  const contextRoot = path.join(process.cwd(), ".user", "user-context");
+  const contextRoot = path.join(process.env.NOVA_DATA_DIR, "user-context");
   console.error(
     `FAIL: missing API key for provider "${activeProvider}" in user context "${userContextId}".\n`
     + `  Expected: ${contextRoot}${path.sep}${userContextId}${path.sep}state${path.sep}integrations-config.json with "${activeProvider}.apiKey"\n`

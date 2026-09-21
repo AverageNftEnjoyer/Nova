@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -27,7 +28,7 @@ import {
   readPendingWeatherConfirmation,
   writePendingWeatherConfirmation,
 } from "../../../src/runtime/modules/chat/workers/market/weather-service/index.js";
-import { USER_CONTEXT_ROOT } from "../../../src/runtime/core/constants/index.js";
+import { kvList } from "../../../src/db/index.js";
 
 const results = [];
 let freshImportNonce = 0;
@@ -54,7 +55,6 @@ async function importFresh(relativePath) {
 await run("Mission, weather, and crypto runtime state persist by user and conversation", async () => {
   const userContextId = "smoke-platform-contract-20260306";
   const conversationId = "smoke-platform-contract-thread";
-  const storePath = path.join(USER_CONTEXT_ROOT, userContextId, "state", "short-term-context-state.json");
 
   clearPendingMissionConfirm({ userContextId, conversationId });
   clearPendingWeatherConfirmation({ userContextId, conversationId });
@@ -99,13 +99,15 @@ await run("Mission, weather, and crypto runtime state persist by user and conver
   assert.equal(String(coinbaseFollowUp?.errorCode || ""), "RATE_LIMITED");
   assert.equal(cryptoReplay, "BTC is up 3% today.");
 
-  assert.equal(fs.existsSync(storePath), true, "expected persistent state store");
-  const raw = fs.readFileSync(storePath, "utf8");
-  assert.equal(raw.includes(`${conversationId}::mission_confirmation`), true);
-  assert.equal(raw.includes(`${conversationId}::weather_confirmation`), true);
-  assert.equal(raw.includes(`${conversationId}::assistant`), true);
-  assert.equal(raw.includes(`${conversationId}::coinbase_followup`), true);
-  assert.equal(raw.includes(`${conversationId}::crypto_report_replay`), true);
+  // Follow-up state is stored in nova.db kv_state (namespace "short-term-context"), keyed `<conversation>::<domain>`
+  // and scoped to the user, not in a per-user short-term-context-state.json file.
+  const persistedKeys = new Set(kvList(userContextId, "short-term-context").map((row) => row.key));
+  assert.equal(persistedKeys.size > 0, true, "expected persistent state rows in kv_state");
+  for (const domain of ["mission_confirmation", "weather_confirmation", "assistant", "coinbase_followup", "crypto_report_replay"]) {
+    assert.equal(persistedKeys.has(`${conversationId}::${domain}`), true, `missing kv_state key for ${domain}`);
+  }
+  // Rows for this user's conversation are invisible from another user scope.
+  assert.equal(kvList("smoke-platform-contract-other", "short-term-context").length, 0);
 });
 
 await run("Persistent runtime follow-up state survives a fresh module load", async () => {

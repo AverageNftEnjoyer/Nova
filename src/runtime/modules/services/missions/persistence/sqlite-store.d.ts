@@ -3,6 +3,7 @@ export const RUN_LOG_KEEP_ROWS: number
 export const MISSION_SECRET_CONTEXT: "missions"
 
 export function sanitizeUserContextId(value: unknown): string
+export function getMissionsChangeToken(): string | null
 export function listMissionUserIds(): string[]
 export function readMissionRecords(userId: string): unknown[]
 export function upsertMissionRecord<T>(

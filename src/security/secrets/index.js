@@ -28,7 +28,8 @@ const KEY_DIR_NAME = "keys"
 const KEY_FILE_NAME = "master.key.dpapi"
 const HKDF_SALT = "nova"
 const HKDF_INFO = "nova/secrets/v1"
-const FAILURE_CACHE_MS = 30_000
+// Failed DPAPI unwraps block the event loop (execFileSync, up to DPAPI_TIMEOUT_MS): retry rarely.
+const FAILURE_CACHE_MS = 10 * 60_000
 const DPAPI_TIMEOUT_MS = 20_000
 const REDACTED = "[redacted]"
 const KEY_FILE_RECOVERY_HINT =
@@ -499,6 +500,11 @@ const INLINE_SECRET_PATTERNS = [
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi,
   /discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/gi,
+  // PEM private keys (Coinbase CDP / wallet keys). The second form also catches a block truncated before its END line.
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*/g,
+  // Serialized JSON fragments inside free text, e.g. {"privateKey":"..."} embedded in a string value.
+  /"[A-Za-z_-]*(?:secret|token|password|private_?key|api_?key)"\s*:\s*"(?:[^"\\]|\\.)*"/gi,
 ]
 
 const MAX_REDACT_DEPTH = 32

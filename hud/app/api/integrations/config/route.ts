@@ -34,6 +34,7 @@ import { isValidDiscordWebhookUrl, redactWebhookTarget } from "@/lib/notificatio
 import { isValidSlackWebhookUrl, redactSlackWebhookUrl } from "@/lib/notifications/slack"
 
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
+import { validateProviderBaseUrl } from "@/lib/security/provider-base-url"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -709,6 +710,20 @@ export async function PATCH(req: Request) {
     const activeLlmProvider = hasActiveProviderPatch
       ? normalizeActiveLlmProvider(body.activeLlmProvider, current.activeLlmProvider)
       : current.activeLlmProvider
+    // A provider base URL receives that provider's API key on every chat call, so a changed one must be a safe https URL.
+    const baseUrlChanges: Array<{ label: string; patched: boolean; next: string; current: string }> = [
+      { label: "OpenAI", patched: hasOpenAIPatch, next: openai.baseUrl, current: current.openai.baseUrl },
+      { label: "Claude", patched: hasClaudePatch, next: claude.baseUrl, current: current.claude.baseUrl },
+      { label: "Grok", patched: hasGrokPatch, next: grok.baseUrl, current: current.grok.baseUrl },
+      { label: "Gemini", patched: hasGeminiPatch, next: gemini.baseUrl, current: current.gemini.baseUrl },
+    ]
+    for (const change of baseUrlChanges) {
+      if (!change.patched || change.next === change.current) continue
+      const validation = validateProviderBaseUrl(change.next)
+      if (!validation.ok) {
+        return NextResponse.json({ error: `${change.label} base URL rejected: ${validation.error}` }, { status: 400 })
+      }
+    }
     const next = await updateIntegrationsConfig({
       telegram,
       discord,

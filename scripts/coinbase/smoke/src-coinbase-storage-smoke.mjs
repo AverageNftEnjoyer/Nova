@@ -1,3 +1,4 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import path from "node:path";
 import fs from "node:fs";
 import { CoinbaseDataStore } from "../../../dist/integrations/coinbase/index.js";

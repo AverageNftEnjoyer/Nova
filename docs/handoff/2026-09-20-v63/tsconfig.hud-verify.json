@@ -1,4 +1,0 @@
-{
-  "extends": "../../../hud/tsconfig.json",
-  "compilerOptions": { "ignoreDeprecations": "5.0", "incremental": false, "noEmit": true }
-}

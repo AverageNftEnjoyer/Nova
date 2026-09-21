@@ -8,6 +8,7 @@ import { sessionRuntime, wakeWordRuntime } from "../../core/config/index.js";
 import { WebSocketServer } from "ws";
 import { createRequestScheduler } from "../request-scheduler/index.js";
 import { handleHudGatewayMessage } from "./message-handler/index.js";
+import { createGatewayVerifyClient } from "./origin-guard/index.js";
 import { grantPolicyApproval } from "../../modules/chat/routing/policy-approval-store/index.js";
 import { createVoiceProviderAdapter } from "../../modules/services/voice/provider-adapter/index.js";
 import {
@@ -929,6 +930,8 @@ export function startGateway() {
       host: "127.0.0.1",
       port: 8765,
       maxPayload: WS_MAX_PAYLOAD_BYTES,
+      // Browsers do not enforce same-origin on WebSockets: reject foreign Origin / non-loopback Host at upgrade time.
+      verifyClient: createGatewayVerifyClient(),
     });
   } catch (err) {
     const details = describeUnknownError(err);
@@ -943,17 +946,8 @@ export function startGateway() {
       resetAt: Date.now() + WS_CONN_RATE_WINDOW_MS,
     };
 
-    void getSystemMetrics()
-      .then((metrics) => {
-        if (!metrics || ws.readyState !== 1) return;
-        sendWsPayload(ws, JSON.stringify({
-          type: "system_metrics",
-          metrics,
-          scheduler: hudRequestScheduler.getSnapshot(),
-          ts: Date.now(),
-        }));
-      })
-      .catch(() => {});
+    // System metrics are intentionally NOT pushed on connect: collecting them spawns a heavy
+    // PowerShell probe. Clients ask explicitly via `request_system_metrics` (TTL-cached, single-flight).
 
     ws.on("close", () => {
       unbindSocketFromUserContext(ws);

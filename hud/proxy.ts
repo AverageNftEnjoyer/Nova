@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { evaluateLocalRequest } from "@/lib/security/local-request-guard"
+
 type IpWindowEntry = {
   count: number
   resetAt: number
@@ -125,6 +127,19 @@ function shouldBypassIpRateLimit(req: NextRequest): boolean {
 }
 
 export function proxy(req: NextRequest): NextResponse {
+  // Local-only API: refuse foreign Host (DNS rebinding) and cross-origin state-changing requests before anything else.
+  const guard = evaluateLocalRequest({
+    method: req.method,
+    host: req.headers.get("host"),
+    origin: req.headers.get("origin"),
+    secFetchSite: req.headers.get("sec-fetch-site"),
+  })
+  if (!guard.ok) {
+    return NextResponse.json(
+      { ok: false, code: "LOCAL_REQUEST_REQUIRED", error: "Forbidden: this API only accepts requests from the local Nova app." },
+      { status: 403 },
+    )
+  }
   if (shouldBypassIpRateLimit(req)) {
     return NextResponse.next()
   }

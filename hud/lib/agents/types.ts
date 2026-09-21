@@ -21,6 +21,10 @@ export interface AgentTask {
   tokensOut: number
   costUsd: number
   error?: string
+  attachedFiles?: string[]
+  contextId?: string
+  worktreePath?: string
+  branchName?: string
   createdAt: string
   updatedAt: string
   startedAt?: string
@@ -35,6 +39,9 @@ export interface CreateAgentTaskInput {
   model: string
   priority?: AgentTaskPriority
   permissionMode?: AgentPermissionMode
+  attachedFiles?: string[]
+  contextId?: string
+  useWorktree?: boolean
 }
 
 export interface AgentTaskStats {

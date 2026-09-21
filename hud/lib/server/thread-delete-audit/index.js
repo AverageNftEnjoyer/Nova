@@ -1,5 +1,6 @@
 import path from "node:path";
 import { appendFile, mkdir } from "node:fs/promises";
+import { resolveUserContextRoot } from "../../../../src/db/paths.js";
 
 const THREAD_DELETE_AUDIT_LOG_FILE = "thread-delete-audit.jsonl";
 const THREAD_DELETE_ALERT_LOG_FILE = "thread-delete-alerts.jsonl";
@@ -26,10 +27,9 @@ async function appendJsonl(filePath, payload) {
 }
 
 export async function appendThreadDeleteAuditLog(input) {
-  const workspaceRoot = String(input?.workspaceRoot || "").trim();
   const userContextId = normalizeUserContextId(input?.userContextId);
   const threadId = String(input?.threadId || "").trim();
-  if (!workspaceRoot || !userContextId || !threadId) return { alertTriggered: false };
+  if (!userContextId || !threadId) return { alertTriggered: false };
 
   const removedSessionEntries = normalizeCount(input?.removedSessionEntries);
   const removedTranscriptFiles = normalizeCount(input?.removedTranscriptFiles);
@@ -46,7 +46,9 @@ export async function appendThreadDeleteAuditLog(input) {
     cleanupError,
   };
 
-  const logsDir = path.join(workspaceRoot, ".user", "user-context", userContextId, "logs");
+  // Per-user logs live under the data dir (NOVA_DATA_DIR / packaged aware), next to nova.db. `input.workspaceRoot` is
+  // still accepted from callers but no longer decides where the files go.
+  const logsDir = path.join(resolveUserContextRoot(), userContextId, "logs");
   await appendJsonl(path.join(logsDir, THREAD_DELETE_AUDIT_LOG_FILE), payload);
 
   const nonEmptyThread = threadMessageCount > 0;

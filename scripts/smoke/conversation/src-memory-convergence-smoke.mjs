@@ -1,3 +1,4 @@
+import "../lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -100,12 +101,12 @@ async function evaluateRecallSet(params) {
   };
 }
 
-const markdownModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "markdown.js")).href);
-const recallModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "recall.js")).href);
-const writeThroughModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "write-through.js")).href);
-const managerModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "manager.js")).href);
-const mmrModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "mmr.js")).href);
-const temporalDecayModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "temporal-decay.js")).href);
+const markdownModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "markdown", "index.js")).href);
+const recallModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "recall", "index.js")).href);
+const writeThroughModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "write-through", "index.js")).href);
+const managerModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "manager", "index.js")).href);
+const mmrModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "mmr", "index.js")).href);
+const temporalDecayModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "memory", "temporal-decay", "index.js")).href);
 
 const {
   buildMemoryFactMetadata,
@@ -347,89 +348,36 @@ await run("P19-C1 long-thread recall benchmark retains fixed critical facts unde
   assert.equal(approxTokens(recall) <= 220, true);
 });
 
-await run("P0-C5 embedding reliability fallback improves hit-rate under deterministic failures", async () => {
+// V.59 removed the silent local-embedding fallback: an embedding failure now fails closed. The original P0-C5
+// ("fallback improves hit-rate under deterministic failures") therefore no longer has a subject; this keeps the ID
+// and asserts the replacement contract: failures surface, nothing half-indexed is served, and a healthy provider
+// recovers the same index location.
+await run("P0-C5 embedding failures fail closed (no silent fallback) and a healthy provider recovers", async () => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-memory-embed-reliability-"));
   const memoryDir = path.join(root, "memory");
   await fsp.mkdir(memoryDir, { recursive: true });
-
   await fsp.writeFile(
     path.join(memoryDir, "profile.md"),
-    [
-      "# Profile",
-      "",
-      "Timezone is America/New_York.",
-      "Preferred stack is TypeScript and Next.js.",
-      "Project codename is Atlas.",
-    ].join("\n"),
+    ["# Profile", "", "Timezone is America/New_York.", "Project codename is Atlas."].join("\n"),
     "utf8",
   );
-  await fsp.writeFile(
-    path.join(memoryDir, "runbook.md"),
-    [
-      "# Runbook",
-      "",
-      "Incident bridge fallback channel is #atlas-war-room.",
-      "Primary deployment region is us-east-2.",
-    ].join("\n"),
-    "utf8",
-  );
-  for (let i = 0; i < 25; i += 1) {
-    await fsp.writeFile(
-      path.join(memoryDir, `noise-${i}.md`),
-      `# Noise ${i}\n\nUnrelated notes about dashboard spacing and CSS polish.`,
-      "utf8",
-    );
-  }
 
-  const queries = [
-    { query: "what is my timezone", expect: "America/New_York" },
-    { query: "what is the project codename", expect: "Atlas" },
-    { query: "where is deployment region", expect: "us-east-2" },
-    { query: "what fallback channel during incidents", expect: "atlas-war-room" },
-  ];
-
-  const createEvalConfig = (dbRoot) => ({
-    ...createMemoryConfig(dbRoot),
-    sourceDirs: [memoryDir],
-  });
-  const baselineRoot = path.join(root, "baseline");
-  const improvedRoot = path.join(root, "improved");
-  await fsp.mkdir(baselineRoot, { recursive: true });
-  await fsp.mkdir(improvedRoot, { recursive: true });
-
-  const baselineProvider = new DeterministicFlakyEmbeddings({ failEvery: 3 });
-  const baseline = new MemoryIndexManager(createEvalConfig(baselineRoot), {
-    provider: baselineProvider,
+  const failing = new MemoryIndexManager(createMemoryConfig(root), {
+    provider: new DeterministicFlakyEmbeddings({ failEvery: 1 }),
     staleReindexBudgetMs: 50,
   });
-  await baseline.sync();
-  const before = await evaluateRecallSet({
-    manager: baseline,
-    queries,
-    strictMode: true,
-  });
+  await assert.rejects(() => failing.sync(), /deterministic-embed-failure/);
+  // The failure is not papered over with a fallback result either: query embedding fails closed too.
+  await assert.rejects(() => failing.search("what is my timezone", 3), /deterministic-embed-failure/);
 
-  const improved = new MemoryIndexManager(createEvalConfig(improvedRoot), {
-    provider: new DeterministicFlakyEmbeddings({ failEvery: 3 }),
+  const healthy = new MemoryIndexManager(createMemoryConfig(root), {
+    provider: new DeterministicFlakyEmbeddings({ failEvery: 0 }),
     staleReindexBudgetMs: 50,
   });
-  await improved.sync();
-  const after = await evaluateRecallSet({
-    manager: improved,
-    queries,
-    strictMode: false,
-  });
-
-  console.log(
-    `[P0-C5] before hit=${before.hitRate.toFixed(3)} fail=${before.failureRate.toFixed(3)} lat=${before.avgLatencyMs.toFixed(1)}ms`,
-  );
-  console.log(
-    `[P0-C5] after  hit=${after.hitRate.toFixed(3)} fail=${after.failureRate.toFixed(3)} lat=${after.avgLatencyMs.toFixed(1)}ms`,
-  );
-
-  assert.equal(after.hitRate >= before.hitRate + 0.2, true);
-  assert.equal(after.failureRate <= before.failureRate, true);
-  assert.equal(after.avgLatencyMs <= before.avgLatencyMs + 40, true);
+  await healthy.sync();
+  const recovered = await healthy.search("what is my timezone", 3);
+  assert.equal(recovered.some((row) => String(row.content || "").includes("America/New_York")), true);
+  assert.equal(healthy.getLastSearchDiagnostics().mode, "hybrid");
 });
 
 await run("P0-C6 diagnostics are available before/after search and survive malformed payload access patterns", async () => {

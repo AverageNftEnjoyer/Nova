@@ -3,6 +3,7 @@ import "server-only"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { kvSet } from "../../../../src/db/index.js"
+import { resolveUserContextRoot } from "../../../../src/db/paths.js"
 
 const MANAGED_START = "<!-- NOVA_SETTINGS_SYNC:START -->"
 const MANAGED_END = "<!-- NOVA_SETTINGS_SYNC:END -->"
@@ -65,8 +66,9 @@ function sanitizeUserContextId(value: unknown): string {
   return normalized.slice(0, 96)
 }
 
-function resolveUserContextDir(workspaceRoot: string, userId: string): string {
-  return path.join(path.resolve(workspaceRoot), ".user", "user-context", sanitizeUserContextId(userId))
+// `workspaceRoot` is kept for call-site compatibility; the location follows the data dir (see resolveUserContextRoot).
+function resolveUserContextDir(_workspaceRoot: string, userId: string): string {
+  return path.join(resolveUserContextRoot(), sanitizeUserContextId(userId))
 }
 
 function compactText(value: unknown, maxLen: number): string {

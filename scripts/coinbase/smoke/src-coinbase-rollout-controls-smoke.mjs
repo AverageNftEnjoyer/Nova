@@ -1,10 +1,11 @@
+import "../../smoke/lib/isolated-data-dir.mjs"; // isolate NOVA_DATA_DIR (must stay the first import)
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
 import {
   createCoinbaseTools,
-} from "../../../dist/tools/builtin/coinbase-tools.js";
+} from "../../../dist/tools/builtin/coinbase-tools/index.js";
 import {
   evaluateCoinbaseRolloutHealth,
   getCoinbaseMetricsSnapshot,

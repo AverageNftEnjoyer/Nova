@@ -1,6 +1,6 @@
 "use client"
 
-import { Ban, CheckCircle2, Clock, Loader2, Pause, PauseCircle, Play, ShieldAlert, Square, Trash2, XCircle } from "lucide-react"
+import { Ban, Bookmark, CheckCircle2, Clock, GitBranch, Loader2, Pause, PauseCircle, Play, ShieldAlert, Square, Trash2, XCircle } from "lucide-react"
 import { useEffect, useState, type ComponentType } from "react"
 
 import type { AgentPermissionMode, AgentTask, AgentTaskStatus, AgentTaskUiAction } from "@/lib/agents/types"
@@ -152,6 +152,16 @@ export function TaskCard({ task, isLight, subPanelClass, onAction }: TaskCardPro
       <div className={cn("mt-0.5 flex items-center justify-between gap-2 pl-[1.375rem] text-[10px]", mutedText)}>
         <span className="min-w-0 truncate">
           {task.agent} · {task.model}
+          {task.contextId ? (
+            <span className={cn("ml-1.5 inline-flex items-center gap-0.5", isLight ? "text-amber-600" : "text-amber-400")} title="In a context group">
+              · <Bookmark className="h-2.5 w-2.5 fill-current" />
+            </span>
+          ) : null}
+          {task.branchName ? (
+            <span className={cn("ml-1.5 inline-flex items-center gap-0.5", isLight ? "text-s-60" : "text-slate-400")}>
+              · <GitBranch className="h-2.5 w-2.5" /> {task.branchName}
+            </span>
+          ) : null}
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
           {task.permissionMode !== "default" ? (

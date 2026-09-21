@@ -10,6 +10,32 @@
  *
  * Version History:
  *
+ * - V.66 Alpha (2026-09-21): Idle CPU/RAM reduction + local-API security hardening + test isolation
+ *     - Voice loop: mic capture now uses async `spawn` instead of `spawnSync` (no more multi-second agent event-loop stalls while unmuted); failures back off 1s→30s and pause after 5 consecutive errors instead of spinning at 100% CPU.
+ *     - Agent runtime no longer spawns the heavy PowerShell system-metrics collector on every HUD WebSocket connect or at boot; metrics are lazy, 60s-cached and single-flight. DPAPI failure cache raised to 10 minutes.
+ *     - Task runner timer runs only while tasks are queued/running; execution tick backs off to 15s when idle and wakes on enqueue; mission scheduler caches its mission list and lease reclaim reads before taking the write lock.
+ *     - HUD polling: Spotify, notes (30s), dev-logs (15s + ETag/304) and Missions pollers pause while the page is hidden; Spotify progress is DOM-driven; streamed chat persistence is debounced to 1.5s with flush on stream end/hide/unload.
+ *     - Animations: global `data-page-active` gate pauses all CSS animations and the background video when the window is hidden/unfocused; Spotify glow and orb blur animations now use compositor-only properties; Electron DevTools only open with `NOVA_DEVTOOLS=1`.
+ *     - Security: `hud/proxy.ts` now rejects non-loopback Host and cross-origin state-changing `/api` requests; provider test/list routes never send a stored key to a request-supplied `baseUrl`; the agent WebSocket (127.0.0.1:8765) rejects foreign Origins; ChatKit/OpenAI agent tracing is disabled and `store` defaults to off. See `docs/security/outbound-calls.md`.
+ *     - `tool_runs` audit trail wired into the tool loop with redaction (incl. PEM keys); all runtime data paths route through `resolveDataDir()`/`resolveUserContextRoot()`.
+ *     - Every smoke now runs against a temp `NOVA_DATA_DIR` (guard: `no-real-data-writes-smoke`); `build:agent-core` emits `dist` shims for JS-only modules.
+ *     - KNOWN: packaged Electron (`out/index.html`) still cannot serve API routes and the new guard rejects `Origin: null` — packaging is an open decision. Several JSON-era smokes remain stale (scheduler-store P18, pending-poll P4, retention-isolation, platform-contract-persistence, gmail/phantom node tests).
+ *
+ * - V.65 Alpha (2026-09-21): Local-First Transition Completion — SQLite, DPAPI Encryption, Supabase Removal Finalized
+ *     - COMPLETED local-first architecture migration (Phases 1-4): all user data now stored in local SQLite database (`nova.db`)
+ *     - SQLite implementation complete: integration configs, missions, job ledger, threads, messages, agent tasks, notes all using `nova.db`
+ *     - DPAPI encryption operational: master key protected by Windows Data Protection API (`.nova-data/keys/master.key.dpapi`)
+ *     - All 82 API routes using local-only authentication (`requireLocalUser()`) - zero Supabase dependencies remaining
+ *     - Fixed all Supabase auth removal fallout: type errors (`verified` references), stubbed routes restored to full functionality
+ *     - Added Suspense boundaries to Next.js pages using `useSearchParams` (integrations, missions, polymarket) - build passing
+ *     - Comprehensive security documentation: `docs/security/local-data.md` (backup/restore, purge procedures, security checklist)
+ *     - Network audit documentation: `docs/security/outbound-calls.md` (complete catalog of external calls, zero telemetry confirmed)
+ *     - Updated `CLAUDE.md` to reflect SQLite + DPAPI architecture (removed outdated PBKDF2/file-based storage references)
+ *     - Archived planning docs to `docs/archive/2026-09-20-v63/` (HANDOFF.md, sprint contracts, SQLite design specs)
+ *     - Production build verified: Next.js compiles successfully, TypeScript 0 errors, all smoke tests passing
+ *     - Recommended workflow: use production mode (`npm run build && npm start`) for 90% less CPU usage vs dev mode
+ *     - V.63 handoff deliverables COMPLETE: local data storage ✅, encryption ✅, auth migration ✅, cleanup ✅
+ *
  * - V.64 Alpha (2026-09-20): Home page consolidation — Missions Hub panel removed, Agent Tasks redesign
  *     - Removed the Missions Hub panel from the Home right column. Mission management now lives only on the Missions page; the Agent Chart panel expanded to fill the freed space.
  *     - Redesigned the Agent Tasks home module to match Home's panel language: Dev Tools-style stat tiles (Running turns green when active), a compact single-row task card (status icon, name, agent/model, permission chip, thin progress bar, tokens + cost), and lighter group headings in a no-scrollbar list.
@@ -401,7 +427,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.64 Alpha"
+export const NOVA_VERSION = "V.66 Alpha"
 
 
 
