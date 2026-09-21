@@ -1,21 +1,31 @@
 import { spawn, exec, execFileSync } from "child_process";
+import { randomBytes } from "crypto";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { enforceWorkspaceUserStateInvariant } from "./src/runtime/core/workspace-user-root/index.js";
+import { checkNativeSqlite } from "./scripts/db/ensure-native.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const WORKSPACE_PATHS = enforceWorkspaceUserStateInvariant(__dirname);
 
 const children = [];
-let hudBaseUrl = "http://localhost:3000";
+let hudBaseUrl = "http://127.0.0.1:3000";
 let shuttingDown = false;
 const HUD_DIR = path.join(WORKSPACE_PATHS.workspaceRoot, "hud");
 const HUD_MODE_ENV = String(process.env.NOVA_HUD_MODE || "").trim().toLowerCase();
 const HUD_MODE_ARG = process.argv.some((arg) => String(arg || "").trim().toLowerCase() === "--dev");
 const HUD_MODE = HUD_MODE_ENV === "dev" || HUD_MODE_ARG ? "dev" : "start";
-const HUD_RUNNER_ENV = process.env;
+const RUNTIME_SHARED_TOKEN = randomBytes(32).toString("base64url");
+const LAUNCH_ENV = {
+  ...process.env,
+  NEXT_TELEMETRY_DISABLED: "1",
+  NOVA_HUD_API_BASE_URL: "http://127.0.0.1:3000",
+  NOVA_RUNTIME_SHARED_TOKEN: RUNTIME_SHARED_TOKEN,
+  NOVA_RUNTIME_REQUIRE_SHARED_TOKEN: "1",
+};
+const HUD_RUNNER_ENV = LAUNCH_ENV;
 
 function launch(label, command, args, cwd, env = process.env) {
   let child = null;
@@ -306,8 +316,19 @@ try {
 const monitors = getMonitors();
 const primaryMonitor = monitors[0];
 
+// ===== local database bootstrap (SQLite) =====
+// Fail fast with the exact fix if the native binding is missing. Schema migrations
+// run when the first application connection opens; this fresh-data release does
+// not import legacy JSON state.
+const nativeSqlite = checkNativeSqlite();
+if (!nativeSqlite.ok) {
+  console.error(`[Nova] better-sqlite3 cannot load: ${nativeSqlite.error}`);
+  console.error(`[Nova] Fix: run "${nativeSqlite.fix}" (and do not install with --ignore-scripts).`);
+  cleanup(1);
+}
+
 // Start the AI runtime shell and HUD concurrently.
-launch("Agent", process.execPath, ["src/runtime/core/entrypoint/index.js"], __dirname);
+launch("Agent", process.execPath, ["src/runtime/core/entrypoint/index.js"], __dirname, LAUNCH_ENV);
 
 const hudArgs = HUD_MODE === "dev" ? ["scripts/next-runner.mjs", "dev"] : ["scripts/next-runner.mjs", "start"];
 let hud = null;
@@ -322,7 +343,7 @@ try {
 let hudOpened = false;
 hud.stdout.on("data", (chunk) => {
   const text = chunk.toString();
-  const localMatch = text.match(/Local:\s+(http:\/\/localhost:\d+)/i);
+  const localMatch = text.match(/Local:\s+(http:\/\/(?:127\.0\.0\.1|localhost):\d+)/i);
   if (localMatch) {
     hudBaseUrl = localMatch[1];
     console.log(`[Nova] HUD URL detected: ${hudBaseUrl}`);

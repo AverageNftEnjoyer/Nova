@@ -31,21 +31,19 @@ export function TaskList({ tasks, isLight, subPanelClass, onAction }: TaskListPr
   )
 
   return (
-    <div className={cn("min-h-0 flex-1 overflow-hidden rounded-[18px] border", subPanelClass)}>
-      <div className="h-full space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
-        {groups.map((group) => (
-          <section key={group.label}>
-            <h3 className={cn("mb-2 text-[11px] font-semibold uppercase tracking-wider", isLight ? "text-gray-700" : "text-slate-300")}>
-              {group.label} ({group.tasks.length})
-            </h3>
-            <div className="space-y-2">
-              {group.tasks.map((task) => (
-                <TaskCard key={task.id} task={task} isLight={isLight} onAction={onAction} />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+    <div className="module-hover-scroll no-scrollbar min-h-0 flex-1 space-y-2.5 overflow-y-auto overflow-x-hidden pr-0.5">
+      {groups.map((group) => (
+        <section key={group.label}>
+          <h3 className={cn("mb-1 px-0.5 text-[9px] font-semibold uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-400")}>
+            {group.label} <span className="tabular-nums">({group.tasks.length})</span>
+          </h3>
+          <div className="space-y-1.5">
+            {group.tasks.map((task) => (
+              <TaskCard key={task.id} task={task} isLight={isLight} subPanelClass={subPanelClass} onAction={onAction} />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }

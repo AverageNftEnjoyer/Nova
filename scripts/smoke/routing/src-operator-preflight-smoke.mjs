@@ -100,7 +100,6 @@ await run("P23-C4 runtime snapshot ensure is ttl-cached per user context", async
   await ensureRuntimeIntegrationsSnapshot(
     {
       userContextId: user,
-      supabaseAccessToken: "token-1",
     },
     {
       sessionRuntimeRef: { normalizeUserContextId: (value) => String(value || "").trim().toLowerCase() },
@@ -111,7 +110,6 @@ await run("P23-C4 runtime snapshot ensure is ttl-cached per user context", async
   await ensureRuntimeIntegrationsSnapshot(
     {
       userContextId: user,
-      supabaseAccessToken: "token-1",
     },
     {
       sessionRuntimeRef: { normalizeUserContextId: (value) => String(value || "").trim().toLowerCase() },
@@ -127,7 +125,6 @@ await run("P23-C5 runtime selection returns model+client and records latency sta
   const out = await selectChatRuntimeForTurn(
     {
       userContextId: "smoke-user",
-      supabaseAccessToken: "token",
       canRunToolLoop: true,
       sessionKey: "agent:nova:hud:user:smoke-user:dm:selection",
       source: "hud",
@@ -158,7 +155,6 @@ await run("P23-C6 preferred provider gracefully falls back when preferred runtim
   const out = await selectChatRuntimeForTurn(
     {
       userContextId: "smoke-user",
-      supabaseAccessToken: "token",
       canRunToolLoop: false,
       sessionKey: "agent:nova:hud:user:smoke-user:dm:selection-preferred-fallback",
       source: "hud",

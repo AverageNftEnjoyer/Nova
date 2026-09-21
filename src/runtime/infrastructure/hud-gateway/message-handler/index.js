@@ -99,7 +99,6 @@ export async function handleHudGatewayMessage({
     if (data.type === "interrupt") {
       const interruptBind = await ensureSocketUserContextBinding(ws, {
         requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
-        supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
       });
       if (!interruptBind.ok) return;
       console.log("[HUD] Interrupt received.");
@@ -124,7 +123,6 @@ export async function handleHudGatewayMessage({
       const requestedUserContextId = typeof data.userId === "string" ? data.userId : "";
       const emitBind = await ensureSocketUserContextBinding(ws, {
         requestedUserContextId,
-        supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
       });
       if (!emitBind.ok) {
         if (ws.readyState === 1) {
@@ -193,7 +191,6 @@ export async function handleHudGatewayMessage({
     if (data.type === "greeting") {
       const greetingBind = await ensureSocketUserContextBinding(ws, {
         requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
-        supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
       });
       if (!greetingBind.ok) {
         if (ws.readyState === 1) {
@@ -261,7 +258,6 @@ export async function handleHudGatewayMessage({
       );
       const bindDecision = await ensureSocketUserContextBinding(ws, {
         requestedUserContextId: incomingUserId,
-        supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
       });
       if (!bindDecision.ok) {
         sendHudStreamError(
@@ -403,10 +399,6 @@ export async function handleHudGatewayMessage({
                       ? data.clientMessageId
                       : "",
                 userContextId: incomingUserId || undefined,
-                supabaseAccessToken:
-                  typeof data.supabaseAccessToken === "string"
-                    ? data.supabaseAccessToken
-                    : "",
                 assistantName: typeof data.assistantName === "string" ? data.assistantName : "",
                 communicationStyle: typeof data.communicationStyle === "string" ? data.communicationStyle : "",
                 tone: typeof data.tone === "string" ? data.tone : "",
@@ -471,7 +463,6 @@ export async function handleHudGatewayMessage({
     if (data.type === "set_voice") {
       const voiceBind = await ensureSocketUserContextBinding(ws, {
         requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
-        supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
       });
       if (!voiceBind.ok) {
         if (ws.readyState === 1) {
@@ -502,7 +493,6 @@ export async function handleHudGatewayMessage({
     if (data.type === "set_mute") {
       const muteBind = await ensureSocketUserContextBinding(ws, {
         requestedUserContextId: typeof data.userId === "string" ? data.userId : "",
-        supabaseAccessToken: typeof data.supabaseAccessToken === "string" ? data.supabaseAccessToken : "",
       });
       if (!muteBind.ok) {
         if (ws.readyState === 1) {

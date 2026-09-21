@@ -7,7 +7,6 @@ import {
   type IntegrationsConfig,
 } from "@/lib/integrations/store/server-store"
 import { normalizePhantomIntegrationConfig } from "@/lib/integrations/phantom/types"
-import type { VerifiedSupabaseRequest } from "@/lib/supabase/server"
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import {
   POLYMARKET_CLOB_API_URL,
@@ -529,13 +528,13 @@ export async function fetchPolymarketPositions(address: string): Promise<Polymar
 }
 
 export async function connectPolymarketIntegration(params: {
-  verified: VerifiedSupabaseRequest
+  scope: { userId: string }
   walletAddress: string
   signatureType?: 0 | 1 | 2
   liveTradingEnabled?: boolean
 }): Promise<IntegrationsConfig["polymarket"]> {
-  const userContextId = assertUserContextId(params.verified?.user?.id)
-  const current = await loadIntegrationsConfig(params.verified)
+  const userContextId = assertUserContextId(params.scope.userId)
+  const current = await loadIntegrationsConfig(params.scope)
   const phantom = normalizePhantomIntegrationConfig(current.phantom)
   const walletAddress = assertPolymarketWalletMatchesVerifiedPhantom({
     walletAddress: params.walletAddress,
@@ -561,18 +560,18 @@ export async function connectPolymarketIntegration(params: {
     {
       polymarket: nextPolymarket,
     } as never,
-    params.verified,
+    params.scope,
   )
   await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userContextId, nextConfig)
   return nextConfig.polymarket
 }
 
 export async function updatePolymarketTradingPreference(params: {
-  verified: VerifiedSupabaseRequest
+  scope: { userId: string }
   liveTradingEnabled: boolean
 }): Promise<IntegrationsConfig["polymarket"]> {
-  const userContextId = assertUserContextId(params.verified?.user?.id)
-  const current = await loadIntegrationsConfig(params.verified)
+  const userContextId = assertUserContextId(params.scope.userId)
+  const current = await loadIntegrationsConfig(params.scope)
   const phantom = normalizePhantomIntegrationConfig(current.phantom)
   if (params.liveTradingEnabled) {
     assertPolymarketWalletMatchesVerifiedPhantom({
@@ -587,22 +586,22 @@ export async function updatePolymarketTradingPreference(params: {
         liveTradingEnabled: current.polymarket.connected && params.liveTradingEnabled === true,
       }),
     } as never,
-    params.verified,
+    params.scope,
   )
   await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userContextId, nextConfig)
   return nextConfig.polymarket
 }
 
 export async function disconnectPolymarketIntegration(params: {
-  verified: VerifiedSupabaseRequest
+  scope: { userId: string }
 }): Promise<IntegrationsConfig["polymarket"]> {
-  const userContextId = assertUserContextId(params.verified?.user?.id)
-  const current = await loadIntegrationsConfig(params.verified)
+  const userContextId = assertUserContextId(params.scope.userId)
+  const current = await loadIntegrationsConfig(params.scope)
   const nextConfig = await updateIntegrationsConfig(
     {
       polymarket: buildDisconnectedPolymarketConfig(current.polymarket),
     } as never,
-    params.verified,
+    params.scope,
   )
   await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userContextId, nextConfig)
   return nextConfig.polymarket

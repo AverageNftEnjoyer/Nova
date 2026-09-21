@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describeUnknownError } from "../../../llm/providers/index.js";
 import { sanitizeYouTubeSource, sanitizeYouTubeTopic } from "../normalization.js";
 
@@ -13,19 +12,13 @@ function toBoundedInt(value, fallback, minValue, maxValue) {
 }
 
 function resolveHudApiBaseUrl(input) {
-  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
+  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://127.0.0.1:3000")
     .trim()
     .replace(/\/+$/, "");
 }
 
 function resolveRuntimeSharedToken(input) {
-  const explicit = String(input || process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
-  if (explicit) return explicit;
-  const encryptionKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
-  if (!encryptionKey) return "";
-  return createHash("sha256")
-    .update(`nova-runtime-shared-token:${encryptionKey}`)
-    .digest("hex");
+  return String(input || process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
 }
 
 function resolveRuntimeSharedTokenHeader(input) {
@@ -45,13 +38,6 @@ function buildJsonHeaders(options = {}) {
   const sharedHeader = resolveRuntimeSharedTokenHeader(options.runtimeSharedTokenHeader);
   if (sharedToken) headers[sharedHeader] = sharedToken;
   return headers;
-}
-
-function buildAuthorizedHeaders(token, options = {}) {
-  return {
-    ...buildJsonHeaders(options),
-    Authorization: `Bearer ${token}`,
-  };
 }
 
 function isTransientStatus(status) {
@@ -118,17 +104,16 @@ export function createYouTubeProviderAdapter() {
     async execute(input = {}, options = {}) {
       const intent = input.intent && typeof input.intent === "object" ? input.intent : {};
       const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
-      const token = String(ctx?.supabaseAccessToken || "").trim();
       const normalizedUserContextId = String(ctx?.userContextId || "").trim();
-      if (!token || !normalizedUserContextId) {
+      if (!normalizedUserContextId) {
         return {
           attempted: false,
           ok: false,
-          message: "I need your authenticated Nova session before I can control YouTube.",
+          message: "I need your user context before I can control YouTube.",
           code: "youtube.unauthorized",
         };
       }
-      const headers = buildAuthorizedHeaders(token, options);
+      const headers = buildJsonHeaders(options);
       const body = {
         action: intent.action === "refresh" ? "refresh" : "set_topic",
         topic: intent.topic ? sanitizeYouTubeTopic(intent.topic) : undefined,

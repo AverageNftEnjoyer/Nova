@@ -35,7 +35,6 @@ const wsContextBySocket = new WeakMap();
 const pendingAssistantStreamDeltas = new Map();
 const recentHudStateEvents = new Map();
 let voiceRoutingUserContextId = "";
-const wsAuthByToken = new Map();
 const conversationOwnerById = new Map();
 const hudOpTokenStateByKey = new Map();
 const HUD_SENSITIVE_ACTIONS = new Set([
@@ -91,18 +90,6 @@ const WS_USER_RATE_GC_MS = Math.max(
     Number.parseInt(process.env.NOVA_WS_USER_RATE_LIMIT_GC_MS || "60000", 10) || 60_000,
   ),
 );
-const WS_AUTH_CACHE_TTL_MS = Math.max(
-  30_000,
-  Math.min(
-    30 * 60 * 1000,
-    Number.parseInt(process.env.NOVA_WS_AUTH_CACHE_TTL_MS || String(5 * 60 * 1000), 10) || 5 * 60 * 1000,
-  ),
-);
-const SUPABASE_URL = String(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "").trim();
-const SUPABASE_ANON_KEY = String(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
-const WS_REQUIRE_AUTH = String(
-  process.env.NOVA_WS_REQUIRE_AUTH || (SUPABASE_URL && SUPABASE_ANON_KEY ? "1" : "0"),
-).trim() !== "0";
 const CONVERSATION_OWNER_TTL_MS = Math.max(
   60_000,
   Math.min(
@@ -175,71 +162,15 @@ let lastHudOpTokenGcAt = 0;
 
 let lastWsUserRateGcAt = 0;
 let lastConversationOwnerGcAt = 0;
-let lastWsAuthGcAt = 0;
 
 function normalizeUserContextId(value) {
   return sessionRuntime.normalizeUserContextId(String(value || ""));
-}
-
-function normalizeSupabaseAccessToken(value) {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  if (!normalized) return "";
-  if (normalized.length > 8192) return "";
-  return normalized;
-}
-
-function resolveSupabaseUserEndpoint() {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return "";
-  return `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1/user`;
-}
-
-function gcWsAuthCache(nowMs = Date.now()) {
-  if (nowMs - lastWsAuthGcAt < 30_000) return;
-  lastWsAuthGcAt = nowMs;
-  for (const [token, entry] of wsAuthByToken.entries()) {
-    if (!entry || nowMs - Number(entry.updatedAt || 0) > WS_AUTH_CACHE_TTL_MS) {
-      wsAuthByToken.delete(token);
-    }
-  }
-}
-
-async function resolveUserContextIdFromSupabaseToken(supabaseAccessToken) {
-  const token = normalizeSupabaseAccessToken(supabaseAccessToken);
-  if (!token) return "";
-  const endpoint = resolveSupabaseUserEndpoint();
-  if (!endpoint) return "";
-
-  const nowMs = Date.now();
-  gcWsAuthCache(nowMs);
-  const cached = wsAuthByToken.get(token);
-  if (cached && nowMs - Number(cached.updatedAt || 0) <= WS_AUTH_CACHE_TTL_MS) {
-    return normalizeUserContextId(cached.userContextId || "");
-  }
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) return "";
-    const data = await response.json().catch(() => null);
-    const resolved = normalizeUserContextId(data?.id || data?.user?.id || "");
-    if (!resolved) return "";
-    wsAuthByToken.set(token, { userContextId: resolved, updatedAt: nowMs });
-    return resolved;
-  } catch {
-    return "";
-  }
 }
 
 async function ensureSocketUserContextBinding(
   ws,
   {
     requestedUserContextId = "",
-    supabaseAccessToken = "",
   } = {},
 ) {
   const requested = normalizeUserContextId(requestedUserContextId);
@@ -253,24 +184,6 @@ async function ensureSocketUserContextBinding(
 
   if (!requested) {
     return { ok: false, code: "missing_user", message: "Missing user context identity." };
-  }
-
-  if (WS_REQUIRE_AUTH) {
-    const resolvedFromToken = await resolveUserContextIdFromSupabaseToken(supabaseAccessToken);
-    if (!resolvedFromToken) {
-      return {
-        ok: false,
-        code: "missing_or_invalid_token",
-        message: "Missing or invalid Supabase access token for websocket binding.",
-      };
-    }
-    if (resolvedFromToken !== requested) {
-      return {
-        ok: false,
-        code: "token_user_mismatch",
-        message: "Token user does not match requested user context.",
-      };
-    }
   }
 
   const bound = bindSocketToUserContext(ws, requested);
@@ -859,7 +772,6 @@ function resetHudGatewayTestState() {
   wss = null;
   wsUserRateWindow.clear();
   wsByUserContext.clear();
-  wsAuthByToken.clear();
   conversationOwnerById.clear();
   hudOpTokenStateByKey.clear();
   hudWorkInFlightByUser.clear();
@@ -1013,10 +925,14 @@ function sendHudStreamError(conversationId, text, ws = null, retryAfterMs = 0, u
 
 export function startGateway() {
   try {
-    wss = new WebSocketServer({ port: 8765, maxPayload: WS_MAX_PAYLOAD_BYTES });
+    wss = new WebSocketServer({
+      host: "127.0.0.1",
+      port: 8765,
+      maxPayload: WS_MAX_PAYLOAD_BYTES,
+    });
   } catch (err) {
     const details = describeUnknownError(err);
-    console.error(`[Gateway] Failed to start HUD WebSocket server on port 8765: ${details}`);
+    console.error(`[Gateway] Failed to start HUD WebSocket server on 127.0.0.1:8765: ${details}`);
     console.error("[Gateway] Another process may be using port 8765. Stop existing Nova/agent processes and retry.");
     process.exit(1);
   }

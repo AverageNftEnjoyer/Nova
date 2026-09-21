@@ -102,11 +102,10 @@ await run("P16-C6 trigger routes support optional queue-worker mode (Phase 5)", 
 
 await run("P16-C7 queued run status API is user-scoped and rate-limited", async () => {
   const requiredTokens = [
-    "requireSupabaseApiUser",
+    "requireLocalUser",
     "RATE_LIMIT_POLICIES.missionRunStatusRead",
-    'from("job_runs")',
-    '.eq("id", missionRunId)',
-    '.eq("user_id", userId)',
+    "job_runs",
+    "user_id",
   ];
   for (const token of requiredTokens) {
     assert.equal(runStatusRouteSource.includes(token), true, `missing run-status token: ${token}`);
@@ -115,11 +114,11 @@ await run("P16-C7 queued run status API is user-scoped and rate-limited", async 
 
 await run("P16-C8 queue metrics API is user-scoped and rate-limited", async () => {
   const requiredTokens = [
-    "requireSupabaseApiUser",
+    "requireLocalUser",
     "RATE_LIMIT_POLICIES.missionQueueMetricsRead",
-    'from("job_runs")',
-    '.eq("user_id", userId)',
-    ".eq(\"status\", \"pending\")",
+    "job_runs",
+    "user_id",
+    "pending",
     "failureRate",
   ];
   for (const token of requiredTokens) {

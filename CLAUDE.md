@@ -121,7 +121,7 @@ src/                    # Backend runtime
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.63 Alpha**
+Current: **V.64 Alpha**
 
 ## Philosophy
 

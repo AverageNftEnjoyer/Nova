@@ -4,6 +4,7 @@ import { createHmac, createPrivateKey, createSign, randomUUID } from "node:crypt
 
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { loadIntegrationsConfig, updateIntegrationsConfig, type CoinbaseIntegrationConfig, type CoinbaseSyncErrorCode } from "@/lib/integrations/store/server-store"
+import { secretsUnavailableResponse } from "@/lib/integrations/store/secrets-errors"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
@@ -226,7 +227,7 @@ export async function POST(req: Request) {
           lastFreshnessMs: 0,
         },
       },
-      verified,
+      { userId },
     )
     return NextResponse.json(
       {
@@ -264,7 +265,7 @@ export async function POST(req: Request) {
             lastFreshnessMs: 0,
           },
         },
-        verified,
+        { userId },
       )
       return NextResponse.json(
         {
@@ -312,7 +313,7 @@ export async function POST(req: Request) {
             lastFreshnessMs: 0,
           },
         },
-        verified,
+        { userId },
       )
       return NextResponse.json(
         {
@@ -349,12 +350,12 @@ export async function POST(req: Request) {
           lastFreshnessMs: freshnessMs,
         },
       },
-      verified,
+      { userId },
     )
     try {
       await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userId, next)
     } catch (error) {
-      console.warn("[integrations/test-coinbase] Failed to sync agent runtime snapshot:", error)
+      console.warn("[integrations/test-coinbase] Failed to sync agent runtime snapshot:", error instanceof Error ? error.message : "unknown error")
     }
     return NextResponse.json({
       ok: true,
@@ -370,6 +371,8 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
+    const unavailable = secretsUnavailableResponse(error)
+    if (unavailable) return unavailable
     const message = error instanceof Error ? error.message : "Coinbase probe failed due to network error."
     const next = await updateIntegrationsConfig(
       {
@@ -382,7 +385,7 @@ export async function POST(req: Request) {
           lastFreshnessMs: 0,
         },
       },
-      verified,
+      { userId },
     )
     return NextResponse.json(
       {

@@ -1,14 +1,13 @@
 /**
- * Personality Profile — Storage
- *
- * Reads and writes personality-profile.json per user context.
- * Mirrors the identity storage pattern for consistency.
+ * Personality profile storage on SQLite kv_state.
+ * Path-like return values are retained as opaque compatibility identifiers.
  */
+import { kvGet, kvSet, tx } from "../../../../../db/index.js";
 
-import fs from "fs";
-import path from "path";
-import { PERSONALITY_FILE_NAME, PERSONALITY_AUDIT_FILE_NAME } from "../constants/index.js";
-import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
+const NAMESPACE = "personality-profile";
+const PROFILE_KEY = "profile";
+const AUDIT_KEY = "audit";
+const MAX_AUDIT_EVENTS = 200;
 
 function normalizeUserContextId(value) {
   return String(value || "")
@@ -20,53 +19,50 @@ function normalizeUserContextId(value) {
     .slice(0, 96);
 }
 
-function readJsonFile(filePath) {
-  try {
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function writeJsonFile(filePath, payload) {
-  if (!filePath) return;
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-}
-
-export function resolvePersonalityPaths({ userContextId = "", workspaceDir = "" } = {}) {
+export function resolvePersonalityPaths({ userContextId = "" } = {}) {
   const uid = normalizeUserContextId(userContextId);
   if (!uid) return { userContextId: "", profilePath: "", auditPath: "" };
-
-  const userContextDir = workspaceDir
-    ? path.resolve(workspaceDir)
-    : path.resolve(path.join(String(USER_CONTEXT_ROOT || ""), uid));
-
   return {
     userContextId: uid,
-    profilePath: path.join(userContextDir, "profile", PERSONALITY_FILE_NAME),
-    auditPath: path.join(userContextDir, "logs", PERSONALITY_AUDIT_FILE_NAME),
+    profilePath: `sqlite:kv_state/${uid}/${NAMESPACE}/${PROFILE_KEY}`,
+    auditPath: `sqlite:kv_state/${uid}/${NAMESPACE}/${AUDIT_KEY}`,
   };
 }
 
 export function loadPersonalityProfile(paths) {
-  if (!paths?.profilePath) return null;
-  const raw = readJsonFile(paths.profilePath);
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid) return null;
+  const raw = kvGet(uid, NAMESPACE, PROFILE_KEY);
   return raw && typeof raw === "object" ? raw : null;
 }
 
 export function persistPersonalityProfile(paths, profile) {
-  if (!paths?.profilePath || !profile) return;
-  writeJsonFile(paths.profilePath, profile);
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid || !profile || typeof profile !== "object") return;
+  kvSet(uid, NAMESPACE, PROFILE_KEY, profile);
 }
 
 export function appendPersonalityAuditEvent(paths, event) {
-  if (!paths?.auditPath || !event || typeof event !== "object") return;
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid || !event || typeof event !== "object") return;
   try {
-    fs.mkdirSync(path.dirname(paths.auditPath), { recursive: true });
-    fs.appendFileSync(paths.auditPath, `${JSON.stringify(event)}\n`, "utf8");
+    tx((db) => {
+      const row = db
+        .prepare("SELECT value_json FROM kv_state WHERE user_id = ? AND namespace = ? AND key = ?")
+        .get(uid, NAMESPACE, AUDIT_KEY);
+      let events = [];
+      try {
+        const parsed = row ? JSON.parse(row.value_json) : [];
+        if (Array.isArray(parsed)) events = parsed;
+      } catch {}
+      events.push(event);
+      events = events.slice(-MAX_AUDIT_EVENTS);
+      db.prepare(
+        `INSERT INTO kv_state (user_id, namespace, key, value_json, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, namespace, key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      ).run(uid, NAMESPACE, AUDIT_KEY, JSON.stringify(events), new Date().toISOString());
+    });
   } catch {
-    // Best-effort audit trail — never throw.
+    // Best-effort audit trail.
   }
 }

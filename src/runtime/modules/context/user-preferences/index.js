@@ -1,10 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
+import { kvGet, kvSet } from "../../../../db/index.js";
 
 const PREFERENCE_SCHEMA_VERSION = 1;
-const PREFERENCE_DIR_NAME = "profile";
-const PREFERENCE_FILE_NAME = "preferences.json";
 const PREFERENCE_CACHE = new Map();
 const PREFERENCE_CACHE_TTL_MS = Math.max(
   500,
@@ -135,30 +133,23 @@ function normalizePreferences(raw) {
 }
 
 function getPreferenceFilePath({ userContextId = "", workspaceDir = "" } = {}) {
-  const normalizedUserContextId = normalizeUserContextId(userContextId);
+  const normalizedUserContextId = normalizeUserContextId(userContextId || path.basename(String(workspaceDir || "")));
   const explicitWorkspaceDir = String(workspaceDir || "").trim();
   if (!explicitWorkspaceDir && !normalizedUserContextId) {
     throw new Error("User preference storage requires userContextId or workspaceDir.");
   }
-  const baseDir = explicitWorkspaceDir || path.join(USER_CONTEXT_ROOT, normalizedUserContextId);
-  return path.join(baseDir, PREFERENCE_DIR_NAME, PREFERENCE_FILE_NAME);
+  return `sqlite:kv_state/${normalizedUserContextId}/user-preferences/profile`;
 }
 
 function readPreferencesFromFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return normalizePreferences({});
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const parsed = JSON.parse(raw);
-    return normalizePreferences(parsed);
-  } catch {
-    return normalizePreferences({});
-  }
+  const uid = String(filePath || "").split("/")[1] || "";
+  if (!uid) return normalizePreferences({});
+  return normalizePreferences(kvGet(uid, "user-preferences", "profile") || {});
 }
 
 function writePreferencesToFile(filePath, preferences) {
-  if (!filePath) return;
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(preferences, null, 2)}\n`, "utf8");
+  const uid = String(filePath || "").split("/")[1] || "";
+  if (uid) kvSet(uid, "user-preferences", "profile", preferences);
 }
 
 function getCachedPreferences(filePath) {
@@ -168,28 +159,13 @@ function getCachedPreferences(filePath) {
     PREFERENCE_CACHE.delete(filePath);
     return null;
   }
-  try {
-    const stat = fs.existsSync(filePath) ? fs.statSync(filePath) : null;
-    const mtimeMs = Number(stat?.mtimeMs || 0);
-    if (mtimeMs !== Number(cached.mtimeMs || 0)) {
-      PREFERENCE_CACHE.delete(filePath);
-      return null;
-    }
-  } catch {
-    // Ignore stat failure and trust cached content.
-  }
   return cached.preferences;
 }
 
 function setCachedPreferences(filePath, preferences) {
   if (!filePath) return;
-  let mtimeMs = 0;
-  try {
-    mtimeMs = Number(fs.existsSync(filePath) ? fs.statSync(filePath).mtimeMs : 0);
-  } catch {}
   PREFERENCE_CACHE.set(filePath, {
     at: Date.now(),
-    mtimeMs,
     preferences,
   });
 }

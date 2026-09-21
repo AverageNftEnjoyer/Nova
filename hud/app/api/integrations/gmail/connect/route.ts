@@ -27,7 +27,7 @@ export async function GET(req: Request) {
       returnTo,
       mode: mode || "redirect",
     })
-    const authUrl = await buildGmailOAuthUrl(returnTo, verified)
+    const authUrl = await buildGmailOAuthUrl(returnTo)
     if (mode === "json") {
       return NextResponse.json({ ok: true, authUrl })
     }

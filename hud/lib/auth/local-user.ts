@@ -23,8 +23,8 @@ export async function getLocalUser(): Promise<LocalUser> {
 }
 
 /**
- * Drop-in replacement for requireSupabaseApiUser
- * Returns local user without authentication
+ * Local identity helper for desktop/local-only mode.
+ * Returns the fixed local user without network authentication.
  */
 export async function requireLocalUser() {
   const user = await getLocalUser()

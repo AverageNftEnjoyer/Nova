@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { normalizeMissionBuildInput } from "../build-service/index.js";
 
 const DEFAULT_BRIDGE_TIMEOUT_MS = 7_500;
@@ -12,19 +11,14 @@ function toBoundedInt(value, fallback, minValue, maxValue) {
 }
 
 function resolveHudApiBaseUrl(input) {
-  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
+  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://127.0.0.1:3000")
     .trim()
     .replace(/\/+$/, "");
 }
 
 function resolveRuntimeSharedToken() {
-  const explicit = String(process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
-  if (explicit) return explicit;
-  const encryptionKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
-  if (!encryptionKey) return "";
-  return createHash("sha256")
-    .update(`nova-runtime-shared-token:${encryptionKey}`)
-    .digest("hex");
+  // Per-launch token is injected by nova.js / Electron. Never derive from encryption keys.
+  return String(process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
 }
 
 function resolveRuntimeSharedTokenHeader() {
@@ -36,14 +30,13 @@ function resolveRuntimeSharedTokenHeader() {
   );
 }
 
-function buildMissionHeaders(token, idempotencyKey) {
+function buildMissionHeaders(idempotencyKey) {
   const headers = {
     "Content-Type": "application/json",
   };
   const sharedToken = resolveRuntimeSharedToken();
   const sharedHeader = resolveRuntimeSharedTokenHeader();
   if (sharedToken) headers[sharedHeader] = sharedToken;
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (idempotencyKey) headers["X-Idempotency-Key"] = idempotencyKey;
   return headers;
 }
@@ -113,9 +106,8 @@ async function fetchWithTimeoutAndRetry(url, init) {
 
 export async function runMissionBuildViaProviderAdapter(input = {}) {
   const normalizedInput = normalizeMissionBuildInput(input);
-  const token = String(input?.supabaseAccessToken || "").trim();
   const idempotencyKey = String(input?.idempotencyKey || "").trim();
-  const headers = buildMissionHeaders(token, idempotencyKey);
+  const headers = buildMissionHeaders(idempotencyKey);
 
   try {
     const response = await fetchWithTimeoutAndRetry(

@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       throw new Error(parsed.error.issues[0]?.message || "Invalid request body.")
     }
-    await disconnectSpotify(verified)
+    await disconnectSpotify({ userId })
     logSpotifyApi("disconnect.success", { userContextId: userId })
     return NextResponse.json({ ok: true })
   } catch (error) {

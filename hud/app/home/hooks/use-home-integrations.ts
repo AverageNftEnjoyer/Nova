@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   INTEGRATIONS_UPDATED_EVENT,
@@ -8,13 +8,8 @@ import {
   type IntegrationsSettings,
   type LlmProvider,
 } from "@/lib/integrations/store/client-store"
-// Supabase removed
 import { buildIntegrationsHref, type IntegrationSetupKey } from "@/lib/integrations/navigation"
-import { resolveTimezone } from "@/lib/shared/timezone"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
-import { compareMissionPriority } from "../helpers"
-import type { MissionSummary, MissionListItem } from "./types"
-import type { Mission as NativeMission } from "@/lib/missions/types"
 
 interface UseHomeIntegrationsInput {
   latestUsage?: { provider?: string; model?: string } | null
@@ -94,30 +89,6 @@ function providerFromValue(value: unknown): LlmProvider {
   return value === "claude" || value === "grok" || value === "gemini" ? value : "openai"
 }
 
-function mapMissionToListItem(mission: NativeMission): MissionListItem {
-  const triggerNode = mission.nodes.find((node) => node.type === "schedule-trigger")
-  const triggerMode = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerMode : "daily"
-  const triggerTime = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTime : undefined
-  const triggerTimezone = triggerNode?.type === "schedule-trigger" ? triggerNode.triggerTimezone : undefined
-  const description = String(mission.description || mission.label || "").trim()
-  return {
-    id: mission.id,
-    integration: String(mission.integration || "telegram").trim() || "telegram",
-    label: String(mission.label || "Untitled mission").trim() || "Untitled mission",
-    message: description,
-    description,
-    priority: "medium",
-    mode: triggerMode === "once" || triggerMode === "daily" || triggerMode === "weekly" || triggerMode === "interval"
-      ? triggerMode
-      : "daily",
-    time: String(triggerTime || "09:00").trim() || "09:00",
-    timezone: resolveTimezone(triggerTimezone, mission.settings?.timezone),
-    enabled: mission.status === "active",
-    chatIds: Array.isArray(mission.chatIds) ? mission.chatIds : [],
-    updatedAt: mission.updatedAt || mission.createdAt || new Date().toISOString(),
-  }
-}
-
 const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 2_000
 const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 1_000
 const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 5_000
@@ -147,17 +118,6 @@ async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit,
 
 export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const router = useRouter()
-  const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
-    if (!false) return ""
-    try {
-      const { data } = await supabaseBrowser.auth.getSession()
-      return String(data.session?.access_token || "").trim()
-    } catch {
-      return ""
-    }
-  }, [])
-
-  const [missionItems, setMissionItems] = useState<MissionListItem[]>([])
   const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [telegramConnected, setTelegramConnected] = useState(false)
   const [discordConnected, setDiscordConnected] = useState(false)
@@ -230,32 +190,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     )
   }, [])
 
-  const refreshMissionItems = useCallback(() => {
-    void fetch("/api/missions", { cache: "no-store" })
-      .then(async (res) => {
-        if (res.status === 401) {
-          throw new Error("Unauthorized")
-        }
-        return res.json()
-      })
-      .then((data) => {
-        const items = (Array.isArray(data?.missions) ? data.missions : [])
-          .map((row: unknown) => row as NativeMission)
-          .filter((row: NativeMission) => row && typeof row.id === "string" && Array.isArray(row.nodes))
-          .map((row: NativeMission) => mapMissionToListItem(row))
-        setMissionItems(items)
-        writeShellUiCache({ missionSchedules: items })
-      })
-      .catch(() => {
-        const cached = readShellUiCache().missionSchedules
-        if (Array.isArray(cached) && cached.length > 0) {
-          setMissionItems(cached as MissionListItem[])
-          return
-        }
-        setMissionItems([])
-      })
-  }, [])
-
   // Stable callback — uses refs so it never needs to be re-created when state changes.
   // This prevents the polling interval from being torn down on every poll response.
   const markSpotifyUnauthorized = useCallback(() => {
@@ -287,11 +221,9 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
 
     setSpotifyLoading(true)
     try {
-      const supabaseAccessToken = await getSupabaseAccessToken()
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/now-playing", {
         cache: "no-store",
         credentials: "include",
-        headers: supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : undefined,
       })
       if (res.status === 401) {
         markSpotifyUnauthorized()
@@ -313,7 +245,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     } finally {
       setSpotifyLoading(false)
     }
-  }, [getSupabaseAccessToken, markSpotifyUnauthorized])
+  }, [markSpotifyUnauthorized])
 
   const seekSpotify = useCallback(async (positionMs: number): Promise<void> => {
     if (spotifyUnauthorizedRef.current) {
@@ -323,13 +255,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
 
     setSpotifyNowPlaying((prev) => prev ? { ...prev, progressMs: positionMs } : prev)
     try {
-      const supabaseAccessToken = await getSupabaseAccessToken()
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/playback", {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : {}),
         },
         body: JSON.stringify({ action: "seek", positionMs }),
       })
@@ -345,7 +275,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       }
       void refreshSpotifyNowPlaying(true)
     }
-  }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying])
+  }, [markSpotifyUnauthorized, refreshSpotifyNowPlaying])
 
   // After a play/pause command, suppress poll cycles for this many ms to prevent
   // an in-flight poll from overwriting the optimistic state before Spotify propagates.
@@ -371,13 +301,11 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     }
 
     try {
-      const supabaseAccessToken = await getSupabaseAccessToken()
       const { res, data } = await fetchJsonWithTimeout("/api/integrations/spotify/playback", {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : {}),
         },
         body: JSON.stringify({ action }),
       })
@@ -436,13 +364,10 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     } finally {
       setSpotifyBusyAction(null)
     }
-  }, [getSupabaseAccessToken, markSpotifyUnauthorized, refreshSpotifyNowPlaying])
+  }, [markSpotifyUnauthorized, refreshSpotifyNowPlaying])
 
   useLayoutEffect(() => {
     const cached = readShellUiCache()
-    if (Array.isArray(cached.missionSchedules)) {
-      setMissionItems(cached.missionSchedules as MissionListItem[])
-    }
     const initialSpotifyNowPlaying = normalizeSpotifyNowPlaying(cached.spotifyNowPlaying)
     const hasInitialSpotifySnapshot = Boolean(
       initialSpotifyNowPlaying.trackId
@@ -506,9 +431,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       .finally(() => {
         preserveSpotifyCacheUntilServerSyncRef.current = false
       })
-
-    refreshMissionItems()
-  }, [markSpotifyUnauthorized, refreshMissionItems, refreshSpotifyNowPlaying])
+  }, [markSpotifyUnauthorized, refreshSpotifyNowPlaying])
 
   useEffect(() => {
     const onUpdate = () => {
@@ -517,7 +440,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       preserveSpotifyCacheUntilServerSyncRef.current = false
       const local = loadIntegrationsSettings()
       applyLocalSettings(local)
-      refreshMissionItems()
       if (local.spotify?.connected) {
         void refreshSpotifyNowPlaying(true)
       } else {
@@ -527,7 +449,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [applyLocalSettings, refreshMissionItems, refreshSpotifyNowPlaying])
+  }, [applyLocalSettings, refreshSpotifyNowPlaying])
 
   useEffect(() => {
     if (!spotifyConnected) return
@@ -637,47 +559,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     router.push(buildIntegrationsHref(setup))
   }, [router])
 
-  const missions = useMemo<MissionSummary[]>(() => {
-    const grouped = new Map<string, MissionSummary>()
-
-    for (const schedule of missionItems) {
-      const description = String(schedule.description || schedule.message || "").trim()
-      const priority = schedule.priority || "medium"
-      const title = schedule.label?.trim() || "Scheduled notification"
-      const integration = schedule.integration?.trim().toLowerCase() || "unknown"
-      const key = `${integration}:${title.toLowerCase()}`
-      const existing = grouped.get(key)
-      if (!existing) {
-        grouped.set(key, {
-          id: schedule.id,
-          integration,
-          title,
-          description,
-          priority,
-          enabledCount: schedule.enabled ? 1 : 0,
-          totalCount: 1,
-          times: [schedule.time],
-          timezone: resolveTimezone(schedule.timezone),
-        })
-        continue
-      }
-
-      existing.totalCount += 1
-      if (schedule.enabled) existing.enabledCount += 1
-      existing.times.push(schedule.time)
-      if (!existing.description && description) existing.description = description
-      if (compareMissionPriority(priority, existing.priority) > 0) existing.priority = priority
-    }
-
-    return Array.from(grouped.values())
-      .map((mission) => ({ ...mission, times: mission.times.sort((a, b) => a.localeCompare(b)) }))
-      .sort((a, b) => {
-        const activeDelta = Number(b.enabledCount > 0) - Number(a.enabledCount > 0)
-        if (activeDelta !== 0) return activeDelta
-        return b.totalCount - a.totalCount
-      })
-  }, [missionItems])
-
   const integrationBadgeClass = (connected: boolean) =>
     !integrationsHydrated
       ? "border-white/15 bg-white/10 text-slate-200"
@@ -695,7 +576,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     : `${runningProvider === "claude" ? "Claude" : runningProvider === "grok" ? "Grok" : runningProvider === "gemini" ? "Gemini" : "OpenAI"} - ${runningModel || "N/A"}`
 
   return {
-    missions,
     runningLabel,
     integrationBadgeClass,
     telegramConnected,

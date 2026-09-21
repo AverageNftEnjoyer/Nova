@@ -9,10 +9,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request, { params }: { params: Promise<{ tokenId: string }> }) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.polymarketRead)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)

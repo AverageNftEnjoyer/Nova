@@ -9,7 +9,7 @@
     "start": "node scripts/next-runner.mjs start",
     "lint": "eslint .",
     "notify:send": "node scripts/send-notification.mjs",
-    "electron:dev": "concurrently \"cross-env BROWSER=none npm run dev\" \"wait-on http://localhost:3000 --timeout 30000 --interval 500 --window 1000 && electron .\"",
+    "electron:dev": "concurrently \"cross-env BROWSER=none NEXT_TELEMETRY_DISABLED=1 npm run dev\" \"wait-on http://127.0.0.1:3000 --timeout 30000 --interval 500 --window 1000 && cross-env NEXT_TELEMETRY_DISABLED=1 electron .\"",
     "electron:build": "npm run build && electron-builder",
     "electron:build:win": "npm run build && electron-builder --win --x64",
     "test:smoke": "playwright test",

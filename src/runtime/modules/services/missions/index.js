@@ -54,7 +54,6 @@ export async function runMissionsDomainService(input = {}, dependencies = {}) {
 
   const missionBuildResult = await runAdapter({
     ...normalizedInput,
-    supabaseAccessToken: String(input?.supabaseAccessToken || "").trim(),
     idempotencyKey: buildMissionBuildIdempotencyKey({
       userContextId,
       conversationId,

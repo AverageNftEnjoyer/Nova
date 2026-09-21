@@ -17,7 +17,7 @@ import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 const POLYMARKET_TTS_TIMEOUT_MS = 10_000;
 
 export async function handlePolymarketWorker(text, ctx, llmCtx = {}, requestHints = {}) {
-  const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId, supabaseAccessToken } = ctx;
+  const { source, sender, sessionId, sessionKey, useVoice, ttsVoice, conversationId, userContextId } = ctx;
   const runtimeTools = llmCtx?.runtimeTools || null;
   const availableTools = Array.isArray(llmCtx?.availableTools) ? llmCtx.availableTools : [];
   const canRunWebSearch = availableTools.some((tool) => String(tool?.name || "") === "web_search");
@@ -129,7 +129,6 @@ export async function handlePolymarketWorker(text, ctx, llmCtx = {}, requestHint
       sessionKey,
       runtimeTools,
       availableTools,
-      supabaseAccessToken: String(supabaseAccessToken || ""),
     });
     summary.ok = result?.ok === true;
     summary.error = summary.ok ? "" : String(result?.code || "polymarket.execution_failed");

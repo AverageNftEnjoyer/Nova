@@ -17,7 +17,6 @@ const integrationsSnapshotEnsuredAtByUser = new Map();
 export async function ensureRuntimeIntegrationsSnapshot(input = {}, deps = {}) {
   const {
     userContextId = "",
-    supabaseAccessToken = "",
   } = input;
   const {
     sessionRuntimeRef = sessionRuntime,
@@ -26,8 +25,7 @@ export async function ensureRuntimeIntegrationsSnapshot(input = {}, deps = {}) {
   } = deps;
 
   const userId = sessionRuntimeRef.normalizeUserContextId(String(userContextId || ""));
-  const token = String(supabaseAccessToken || "").trim();
-  if (!userId || !token) return;
+  if (!userId) return;
 
   const now = Date.now();
   const last = Number(integrationsSnapshotEnsuredAtByUser.get(userId) || 0);
@@ -36,9 +34,6 @@ export async function ensureRuntimeIntegrationsSnapshot(input = {}, deps = {}) {
   try {
     const res = await fetchRef(`${HUD_API_BASE_URL}/api/integrations/config/runtime-snapshot`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
     });
     if (res.ok) {
       integrationsSnapshotEnsuredAtByUser.set(userId, now);

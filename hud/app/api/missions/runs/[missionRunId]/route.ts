@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
+import { getDb } from "../../../../../../src/db/index.js"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -36,6 +37,22 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "missionRunId is required." }, { status: 400 })
   }
 
-  // Local-only mode - no database
-  return NextResponse.json({ ok: false, error: "Mission run not found." }, { status: 404 })
+  try {
+    const row = getDb()
+      .prepare(
+        `SELECT id, mission_id, status, source, attempt, max_attempts, scheduled_for, started_at, finished_at,
+                duration_ms, error_code, error_detail, created_at
+         FROM job_runs WHERE id = ? AND user_id = ?`,
+      )
+      .get(missionRunId, userId) as MissionRunRow | undefined
+
+    if (!row) {
+      return NextResponse.json({ ok: false, error: "Mission run not found." }, { status: 404 })
+    }
+
+    return NextResponse.json({ ok: true, run: row })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load mission run."
+    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+  }
 }

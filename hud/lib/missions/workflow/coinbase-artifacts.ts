@@ -1,8 +1,12 @@
 import "server-only"
 
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
-import path from "node:path"
 import crypto from "node:crypto"
+import {
+  insertArtifactRecord,
+  listArtifactRecords,
+  pruneExpiredArtifactRecords,
+  sanitizeUserContextId,
+} from "../../../../src/runtime/modules/services/missions/persistence/sqlite-store.js"
 
 export interface CoinbaseStepArtifactRecord {
   artifactRef: string
@@ -42,165 +46,48 @@ const DEFAULT_TTL_MS = (() => {
   const parsed = Number.parseInt(process.env.NOVA_COINBASE_STEP_ARTIFACT_TTL_MS || "", 10)
   return Number.isFinite(parsed) && parsed >= 60_000 ? parsed : 3 * 24 * 60 * 60 * 1000
 })()
-
-const MAX_FILES_SCANNED = 8
 const MAX_ENTRIES_RETURNED = 8
 const MAX_CONTEXT_CHARS_DEFAULT = 12_000
-const PRUNE_MAX_FILES = 24
-const COINBASE_ARTIFACT_READ_MAX_PARALLEL = Math.max(
-  1,
-  Math.min(24, Number.parseInt(process.env.NOVA_COINBASE_ARTIFACT_READ_MAX_PARALLEL || "6", 10) || 6),
-)
-const STATE_DIR_NAME = "state"
-const MISSIONS_DIR_NAME = "missions"
-const ARTIFACTS_DIR_NAME = "coinbase-artifacts"
-
-function sanitizeUserContextId(value: unknown): string {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-  return normalized.slice(0, 96)
-}
 
 function sanitizeScopeId(value: unknown): string {
-  const normalized = String(value || "")
+  return String(value || "")
     .trim()
     .replace(/[^a-zA-Z0-9:_-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
-  return normalized.slice(0, 128)
+    .slice(0, 128)
 }
 
-function resolveWorkspaceRoot(): string {
-  const cwd = process.cwd()
-  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd
-}
-
-function resolveArtifactDir(userContextId: string): string {
-  const scopedUserId = sanitizeUserContextId(userContextId)
-  return path.join(
-    resolveWorkspaceRoot(),
-    ".user",
-    "user-context",
-    scopedUserId,
-    STATE_DIR_NAME,
-    MISSIONS_DIR_NAME,
-    ARTIFACTS_DIR_NAME,
-  )
-}
-
-function dayStamp(ts: number): string {
-  const d = new Date(ts)
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0) return []
-  const cappedConcurrency = Math.max(1, Math.floor(concurrency))
-  const output = new Array<R>(items.length)
-  let cursor = 0
-  const workers = new Array(Math.min(cappedConcurrency, items.length)).fill(null).map(async () => {
-    while (cursor < items.length) {
-      const index = cursor++
-      output[index] = await mapper(items[index], index)
-    }
-  })
-  await Promise.all(workers)
-  return output
-}
-
-function parseArtifactLine(line: string): CoinbaseStepArtifactRecord | null {
-  try {
-    const parsed = JSON.parse(line) as CoinbaseStepArtifactRecord
-    if (!parsed || typeof parsed !== "object") return null
-    const artifactRef = sanitizeScopeId(parsed.artifactRef)
-    const userContextId = sanitizeUserContextId(parsed.userContextId)
-    if (!artifactRef || !userContextId) return null
-    return {
-      ...parsed,
-      artifactRef,
-      userContextId,
-      conversationId: sanitizeScopeId(parsed.conversationId),
-      missionId: sanitizeScopeId(parsed.missionId),
-      missionRunId: sanitizeScopeId(parsed.missionRunId),
-      stepId: sanitizeScopeId(parsed.stepId),
-      summary: String(parsed.summary || "").trim().slice(0, 4000),
-      createdAt: String(parsed.createdAt || ""),
-      createdAtMs: Number(parsed.createdAtMs || 0),
-      ttlMs: Number(parsed.ttlMs || DEFAULT_TTL_MS),
-      metadata: {
-        ok: Boolean(parsed.metadata?.ok),
-        retryCount: Number(parsed.metadata?.retryCount || 0),
-        errorCode: parsed.metadata?.errorCode ? String(parsed.metadata.errorCode) : undefined,
-        quoteCurrency: parsed.metadata?.quoteCurrency ? String(parsed.metadata.quoteCurrency) : undefined,
-        assets: Array.isArray(parsed.metadata?.assets)
-          ? parsed.metadata.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
-          : undefined,
-      },
-    }
-  } catch {
-    return null
+function normalizeRecord(record: CoinbaseStepArtifactRecord): CoinbaseStepArtifactRecord | null {
+  const artifactRef = sanitizeScopeId(record?.artifactRef)
+  const userContextId = sanitizeUserContextId(record?.userContextId)
+  if (!artifactRef || !userContextId) return null
+  return {
+    ...record,
+    artifactRef,
+    userContextId,
+    conversationId: sanitizeScopeId(record.conversationId),
+    missionId: sanitizeScopeId(record.missionId),
+    missionRunId: sanitizeScopeId(record.missionRunId),
+    stepId: sanitizeScopeId(record.stepId),
+    summary: String(record.summary || "").trim().slice(0, 4000),
+    createdAtMs: Number(record.createdAtMs || 0),
+    ttlMs: Number(record.ttlMs || DEFAULT_TTL_MS),
+    metadata: {
+      ok: Boolean(record.metadata?.ok),
+      retryCount: Number(record.metadata?.retryCount || 0),
+      errorCode: record.metadata?.errorCode ? String(record.metadata.errorCode) : undefined,
+      quoteCurrency: record.metadata?.quoteCurrency ? String(record.metadata.quoteCurrency) : undefined,
+      assets: Array.isArray(record.metadata?.assets)
+        ? record.metadata.assets.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 12)
+        : undefined,
+    },
   }
 }
 
-async function atomicAppendLine(filePath: string, line: string): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true })
-  let current = ""
-  try {
-    current = await readFile(filePath, "utf8")
-  } catch {
-    current = ""
-  }
-  const next = `${current}${line.endsWith("\n") ? line : `${line}\n`}`
-  const tmpPath = `${filePath}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`
-  await writeFile(tmpPath, next, "utf8")
-  await rename(tmpPath, filePath)
-}
-
-async function pruneExpiredArtifactsForUser(userContextId: string, nowMs: number): Promise<void> {
-  const dir = resolveArtifactDir(userContextId)
-  let files: string[] = []
-  try {
-    files = (await readdir(dir))
-      .filter((name) => name.endsWith(".jsonl"))
-      .sort((a, b) => b.localeCompare(a))
-      .slice(0, PRUNE_MAX_FILES)
-  } catch {
-    return
-  }
-  await mapWithConcurrency(files, COINBASE_ARTIFACT_READ_MAX_PARALLEL, async (fileName) => {
-    const fullPath = path.join(dir, fileName)
-    let body = ""
-    try {
-      body = await readFile(fullPath, "utf8")
-    } catch {
-      return
-    }
-    const lines = body.split(/\r?\n/).filter(Boolean)
-    if (lines.length === 0) return
-    const kept: string[] = []
-    for (const line of lines) {
-      const parsed = parseArtifactLine(line)
-      if (!parsed) continue
-      const ttlMs = Math.max(0, Number(parsed.ttlMs || DEFAULT_TTL_MS))
-      if (parsed.createdAtMs + ttlMs < nowMs) continue
-      kept.push(JSON.stringify(parsed))
-    }
-    if (kept.length === lines.length) return
-    const tmpPath = `${fullPath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`
-    await writeFile(tmpPath, kept.length > 0 ? `${kept.join("\n")}\n` : "", "utf8")
-    await rename(tmpPath, fullPath)
-  })
-}
-
-export async function persistCoinbaseStepArtifact(input: PersistCoinbaseStepArtifactInput): Promise<{ artifactRef: string }> {
+export async function persistCoinbaseStepArtifact(
+  input: PersistCoinbaseStepArtifactInput,
+): Promise<{ artifactRef: string }> {
   const userContextId = sanitizeUserContextId(input.userContextId)
   if (!userContextId) throw new Error("Missing userContextId for Coinbase artifact persistence.")
   const nowMs = Date.now()
@@ -223,14 +110,12 @@ export async function persistCoinbaseStepArtifact(input: PersistCoinbaseStepArti
       errorCode: input.metadata.errorCode ? String(input.metadata.errorCode).trim() : undefined,
       quoteCurrency: input.metadata.quoteCurrency ? String(input.metadata.quoteCurrency).trim() : undefined,
       assets: Array.isArray(input.metadata.assets)
-        ? input.metadata.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 12)
+        ? input.metadata.assets.map(String).map((value) => value.trim()).filter(Boolean).slice(0, 12)
         : undefined,
     },
   }
-  const filePath = path.join(resolveArtifactDir(userContextId), `${dayStamp(nowMs)}.jsonl`)
-  await atomicAppendLine(filePath, JSON.stringify(record))
-  // Best-effort retention enforcement; runs post-write and never blocks callers on error.
-  await pruneExpiredArtifactsForUser(userContextId, nowMs).catch(() => {})
+  insertArtifactRecord(record)
+  pruneExpiredArtifactRecords(userContextId, nowMs)
   return { artifactRef: record.artifactRef }
 }
 
@@ -242,46 +127,20 @@ export async function loadRecentCoinbaseStepArtifacts(input: {
   limit?: number
   ttlMs?: number
 }): Promise<CoinbaseStepArtifactRecord[]> {
-  const userContextId = sanitizeUserContextId(input.userContextId)
-  if (!userContextId) return []
-  const dir = resolveArtifactDir(userContextId)
+  const uid = sanitizeUserContextId(input.userContextId)
+  if (!uid) return []
   const nowMs = Number.isFinite(Number(input.nowMs)) ? Number(input.nowMs) : Date.now()
-  const ttlMs = Number.isFinite(Number(input.ttlMs)) && Number(input.ttlMs) > 0 ? Number(input.ttlMs) : DEFAULT_TTL_MS
+  const fallbackTtl = Number(input.ttlMs) > 0 ? Number(input.ttlMs) : DEFAULT_TTL_MS
   const limit = Math.max(1, Math.min(MAX_ENTRIES_RETURNED, Number(input.limit || 4)))
   const conversationId = sanitizeScopeId(input.conversationId)
   const missionId = sanitizeScopeId(input.missionId)
-  let files: string[] = []
-  try {
-    files = (await readdir(dir))
-      .filter((name) => name.endsWith(".jsonl"))
-      .sort((a, b) => b.localeCompare(a))
-      .slice(0, MAX_FILES_SCANNED)
-  } catch {
-    return []
-  }
-  const out: CoinbaseStepArtifactRecord[] = []
-  const fileBodies = await mapWithConcurrency(files, COINBASE_ARTIFACT_READ_MAX_PARALLEL, async (fileName) => {
-    const fullPath = path.join(dir, fileName)
-    const body = await readFile(fullPath, "utf8").catch(() => "")
-    return { fileName, body }
-  })
-  for (const fileRecord of fileBodies) {
-    if (out.length >= limit) break
-    if (!fileRecord.body) continue
-    const body = fileRecord.body
-    const lines = body.split(/\r?\n/).filter(Boolean).reverse()
-    for (const line of lines) {
-      const parsed = parseArtifactLine(line)
-      if (!parsed) continue
-      if (parsed.userContextId !== userContextId) continue
-      if (conversationId && parsed.conversationId && parsed.conversationId !== conversationId) continue
-      if (missionId && parsed.missionId && parsed.missionId !== missionId) continue
-      if (parsed.createdAtMs + Math.max(0, parsed.ttlMs || ttlMs) < nowMs) continue
-      out.push(parsed)
-      if (out.length >= limit) break
-    }
-  }
-  return out
+  return (listArtifactRecords(uid, 1000) as CoinbaseStepArtifactRecord[])
+    .map(normalizeRecord)
+    .filter((record): record is CoinbaseStepArtifactRecord => record !== null)
+    .filter((record) => !conversationId || record.conversationId === conversationId)
+    .filter((record) => !missionId || record.missionId === missionId)
+    .filter((record) => record.createdAtMs + Math.max(0, record.ttlMs || fallbackTtl) >= nowMs)
+    .slice(0, limit)
 }
 
 export function buildCoinbaseArtifactContextSnippet(input: {
@@ -292,10 +151,11 @@ export function buildCoinbaseArtifactContextSnippet(input: {
   if (!Array.isArray(input.artifacts) || input.artifacts.length === 0) return ""
   const lines: string[] = []
   for (const item of input.artifacts) {
-    const header = `- [${item.artifactRef}] ${item.intent} @ ${item.createdAt}`
-    const status = `  status=${item.metadata.ok ? "ok" : "error"} retryCount=${item.metadata.retryCount}${item.metadata.errorCode ? ` errorCode=${item.metadata.errorCode}` : ""}`
-    const summary = `  summary=${String(item.summary || "").replace(/\s+/g, " ").trim()}`
-    lines.push(header, status, summary)
+    lines.push(
+      `- [${item.artifactRef}] ${item.intent} @ ${item.createdAt}`,
+      `  status=${item.metadata.ok ? "ok" : "error"} retryCount=${item.metadata.retryCount}${item.metadata.errorCode ? ` errorCode=${item.metadata.errorCode}` : ""}`,
+      `  summary=${String(item.summary || "").replace(/\s+/g, " ").trim()}`,
+    )
   }
   const combined = lines.join("\n")
   return combined.length > maxChars ? `${combined.slice(0, maxChars)}\n...` : combined

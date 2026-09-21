@@ -105,35 +105,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
 
   const pushWorkspaceContextSync = useCallback(async (payload: Record<string, unknown>, serialized: string) => {
     // Local-only mode, skip workspace sync
-    lastWorkspaceSyncPayloadRef.current = serialized
-    if (pendingWorkspaceSyncPayloadRef.current === serialized) {
-      pendingWorkspaceSyncPayloadRef.current = ""
-      pendingWorkspaceSyncDataRef.current = null
-    }
-    return
-    const res = await fetch("/api/workspace/context-sync", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(payload),
-      keepalive: true,
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      let message = `Workspace context sync failed (${res.status}).`
-      if (text) {
-        try {
-          const parsed = JSON.parse(text) as { error?: unknown }
-          const apiError = String(parsed.error || "").trim()
-          if (apiError) message = apiError
-        } catch {
-          message = text.slice(0, 240)
-        }
-      }
-      throw new Error(message)
-    }
+    void payload
     lastWorkspaceSyncPayloadRef.current = serialized
     if (pendingWorkspaceSyncPayloadRef.current === serialized) {
       pendingWorkspaceSyncPayloadRef.current = ""
@@ -444,13 +416,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const isMp3 = file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
     if (!isMp3) { setBootMusicError("Only MP3 files are supported."); return }
     if (file.size > 20 * 1024 * 1024) { setBootMusicError("File is too large. Max size is 20MB."); return }
-    // Removed
-    const newSettings = {
-      ...settings,
-      app: { ...settings.app, bootMusicDataUrl: null, bootMusicFileName: asset.fileName, bootMusicAssetId: asset.id },
-    }
-    autoSave(newSettings)
-    setBootMusicError(null)
+    setBootMusicError("Boot music uploads are unavailable in local-only mode.")
   }, [settings, autoSave, refreshMediaLibraries])
 
   const removeBootMusic = useCallback(async () => {
@@ -492,20 +458,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     if (!isVideo && !isImage) { setBackgroundVideoError("Only MP4, JPG, PNG, WEBP, or SVG files are supported."); return }
     if (isVideo && file.size > 300 * 1024 * 1024) { setBackgroundVideoError("File is too large. Max size is 300MB."); return }
     if (isImage && file.size > 25 * 1024 * 1024) { setBackgroundVideoError("Image is too large. Max size is 25MB."); return }
-    // Removed
-    const newSettings = {
-      ...settings,
-      app: {
-        ...settings.app,
-        darkModeBackground: "customVideo" as DarkBackgroundType,
-        customBackgroundVideoDataUrl: null,
-        customBackgroundVideoFileName: asset.fileName,
-        customBackgroundVideoMimeType: asset.mimeType,
-        customBackgroundVideoAssetId: asset.id,
-      },
-    }
-    autoSave(newSettings)
-    setBackgroundVideoError(null)
+    setBackgroundVideoError("Custom background uploads are unavailable in local-only mode.")
   }, [settings, autoSave, refreshMediaLibraries])
 
   const removeBackgroundVideo = useCallback(async () => {

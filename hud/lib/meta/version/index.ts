@@ -10,6 +10,20 @@
  *
  * Version History:
  *
+ * - V.64 Alpha (2026-09-20): Home page consolidation — Missions Hub panel removed, Agent Tasks redesign
+ *     - Removed the Missions Hub panel from the Home right column. Mission management now lives only on the Missions page; the Agent Chart panel expanded to fill the freed space.
+ *     - Redesigned the Agent Tasks home module to match Home's panel language: Dev Tools-style stat tiles (Running turns green when active), a compact single-row task card (status icon, name, agent/model, permission chip, thin progress bar, tokens + cost), and lighter group headings in a no-scrollbar list.
+ *     - Agent Tasks now links to the Mission Hub: a new header button, a footer link under the task list, and a link in the empty state. `AgentTasksHomeModule` takes a new required `onOpenMissions` prop, wired to `openMissions` in `home-main-screen.tsx`.
+ *     - New empty state for Agent Tasks ("No tasks yet" with New task and Mission Hub actions).
+ *     - Elapsed time on a task card now shows only while the task is running (completed/failed cards no longer show a ticking clock).
+ *     - Widened the Notes module to two columns to fill the slot left behind by the Missions Hub removal (revert: `col-span-2` -> `col-span-1` on `NotesHomeModule` in `home-main-screen.tsx`).
+ *     - Removed Home's now-dead mission-list plumbing: `refreshMissionItems`, `mapMissionToListItem`, the `missions` memo, `formatDailyTime`, `compareMissionPriority`, and `app/home/hooks/types.ts` (`MissionSummary`, `MissionListItem`). The Missions page has its own copies and is unaffected.
+ *     - `TaskCard` / `TaskList` (`components/agents/`) restyled with the Home theme tokens; `TaskCard` now takes a `subPanelClass` prop from `TaskList`. `PERMISSION_MODE_LABELS` export is unchanged.
+ *     - Verified: ESLint and `tsc` clean for every file edited; Home rendered in a browser with mocked task data (running/queued/completed/failed) and with the empty state.
+ *     - KNOWN ISSUES (not from this change; left for the SQLite/cleanup pass): (1) `hud/tsconfig.json` sets `ignoreDeprecations: "6.0"` but the installed TypeScript is 5.9.3, so plain `tsc` fails; verify with `--ignoreDeprecations 5.0`. (2) As of this entry, Supabase-removal fallout still produced HUD type errors (`Cannot find name 'verified'` in `app/api/missions/**` and `app/api/integrations/**`, `createSupabaseAdminClient` in `missions/queue/metrics`) and was being cleaned up by the parallel SQLite session; re-run `tsc` before trusting the Missions API routes. (3) Pre-existing lint errors in `notes-home-module.tsx` (unescaped quotes) and `create-task-modal.tsx` (setState in effect).
+ *     - The Agent Tasks module still shows agent-task data, not missions; whether to switch it to mission run status is an open decision.
+ *     - SQLite / DPAPI-encrypted secrets work (`src/db/`, `src/security/secrets/`) was in progress in a parallel session when this entry was written and is NOT part of V.64; see `docs/handoff/2026-09-20-v63/HANDOFF.md` and `sqlite-contract.md`.
+ *
  * - V.63 Alpha (2026-09-20): Phantom Sprint 2 Agent Tasks module + local-first SQLite/encryption design
  *     - Added the Agent Tasks home module (replaces Placeholder 1): task cards with play/pause/stop/delete, status badges, progress, cost + token readouts, grouped task list, stats strip, and a create-task modal (agent, model, prompt, priority, permission mode).
  *     - Added the `/api/agent-tasks` API (GET/POST/PATCH/DELETE), an SSE live stream (`/api/agent-tasks/stream`) with polling fallback, and a per-user JSON task store (`lib/agents/*`). The task runner is SIMULATED until Phase 4 wires real agent processes.
@@ -387,7 +401,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.63 Alpha"
+export const NOVA_VERSION = "V.64 Alpha"
 
 
 

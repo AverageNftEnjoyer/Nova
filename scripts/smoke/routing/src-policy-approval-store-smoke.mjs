@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -33,17 +32,10 @@ const modulePath = pathToFileURL(path.join(
   "policy-approval-store",
   "index.js",
 )).href;
-const constantsModulePath = pathToFileURL(path.join(
-  process.cwd(),
-  "src",
-  "runtime",
-  "core",
-  "constants",
-  "index.js",
-)).href;
+const dbModulePath = pathToFileURL(path.join(process.cwd(), "src", "db", "index.js")).href;
 
 const { grantPolicyApproval, consumePolicyApproval } = await import(modulePath);
-const { USER_CONTEXT_ROOT } = await import(constantsModulePath);
+const { getDb } = await import(dbModulePath);
 
 await run("P32-C1 policy approval grants are user+conversation scoped and one-time consumable", async () => {
   const userContextId = `smoke-policy-${Date.now()}`;
@@ -93,7 +85,7 @@ await run("P32-C2 policy approval does not leak across conversations", async () 
   assert.equal(crossConsume, false);
 });
 
-await run("P32-C3 policy approval store persists under user state directory", async () => {
+await run("P32-C3 policy approval store persists in user-scoped SQLite state", async () => {
   const userContextId = `smoke-policy-${Date.now()}-c`;
   const conversationId = "thread-c";
   const sessionKey = `agent:nova:hud:user:${userContextId}:dm:${conversationId}`;
@@ -104,15 +96,11 @@ await run("P32-C3 policy approval store persists under user state directory", as
     source: "smoke_test",
     ttlMs: 120000,
   });
-  const storePath = path.join(
-    USER_CONTEXT_ROOT,
-    userContextId.toLowerCase(),
-    "state",
-    "policy-approvals.json",
-  );
-  assert.equal(fs.existsSync(storePath), true);
-  const raw = fs.readFileSync(storePath, "utf8");
-  assert.equal(raw.includes("records"), true);
+  const row = getDb()
+    .prepare("SELECT value_json FROM kv_state WHERE user_id = ? AND namespace = 'policy-approvals'")
+    .get(userContextId.toLowerCase());
+  assert.ok(row);
+  assert.equal(JSON.parse(row.value_json).source, "smoke_test");
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

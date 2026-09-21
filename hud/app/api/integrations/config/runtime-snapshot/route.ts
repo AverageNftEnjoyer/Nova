@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic"
 export async function POST(req: Request) {
   const { userId } = await requireLocalUser()
   try {
-    const ensured = await ensureRuntimeIntegrationsSnapshot(userId, verified)
+    const ensured = await ensureRuntimeIntegrationsSnapshot(userId, { userId })
     return NextResponse.json({ ok: true, userId: ensured.userId, cached: ensured.cached })
   } catch (error) {
     return NextResponse.json(

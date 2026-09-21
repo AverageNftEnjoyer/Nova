@@ -84,10 +84,11 @@ await run("Telemetry sanitizer redacts sensitive values", async () => {
 
 await run("Telemetry store persists user-scoped events with retention", async () => {
   const requiredTokens = [
-    "mission-telemetry.jsonl",
+    "insertTelemetryEvent",
+    "listTelemetryRecords",
     "appendMissionTelemetryEvent",
     "listMissionTelemetryEvents",
-    "applyRetention",
+    "MISSION_TELEMETRY_POLICY",
   ];
   for (const token of requiredTokens) {
     assert.equal(telemetryStoreSource.includes(token), true, `missing token: ${token}`);

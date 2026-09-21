@@ -5,9 +5,14 @@ import { existsSync, readFileSync } from "node:fs"
 
 const args = process.argv.slice(2)
 const isDev = args[0] === "dev"
+const servesHttp = isDev || args[0] === "start"
 const hasBundlerFlag = args.includes("--webpack") || args.includes("--turbo") || args.includes("--turbopack")
 const preferWebpack = process.env.NOVA_USE_TURBOPACK !== "1"
-const nextArgs = isDev && !hasBundlerFlag && preferWebpack ? [...args, "--webpack"] : args
+const bundlerArgs = isDev && !hasBundlerFlag && preferWebpack ? [...args, "--webpack"] : args
+const hasHostnameFlag = args.includes("--hostname") || args.includes("-H")
+const nextArgs = servesHttp && !hasHostnameFlag
+  ? [...bundlerArgs, "--hostname", "127.0.0.1"]
+  : bundlerArgs
 const here = dirname(fileURLToPath(import.meta.url))
 const nextBin = resolve(here, "../node_modules/next/dist/bin/next")
 const rootEnvPath = resolve(here, "../../.env")
@@ -56,6 +61,7 @@ try {
     env: {
       ...rootEnv,
       ...process.env,
+      NEXT_TELEMETRY_DISABLED: "1",
       BROWSERSLIST_IGNORE_OLD_DATA: "true",
       BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA: "true",
     },

@@ -1,156 +1,79 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
-const results = [];
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nova-thread-cleanup-"));
+const previousDataDir = process.env.NOVA_DATA_DIR;
+process.env.NOVA_DATA_DIR = tempRoot;
 
-function record(status, name, detail = "") {
-  results.push({ status, name, detail });
-}
-
-async function run(name, fn) {
-  try {
-    await fn();
-    record("PASS", name);
-  } catch (error) {
-    record("FAIL", name, error instanceof Error ? error.message : String(error));
-  }
-}
-
-function summarize(result) {
-  const detail = result.detail ? ` :: ${result.detail}` : "";
-  console.log(`[${result.status}] ${result.name}${detail}`);
-}
-
-async function writeJson(filePath, value) {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
+const db = await import(pathToFileURL(path.join(process.cwd(), "src/db/index.js")).href);
+const sessions = await import(pathToFileURL(path.join(process.cwd(), "src/session/sqlite-store/index.js")).href);
 const cleanup = await import(
   pathToFileURL(path.join(process.cwd(), "hud/lib/server/thread-transcript-cleanup/index.js")).href,
 );
 
-const {
-  buildHudSessionKey,
-  collectThreadCleanupHints,
-  normalizeUserContextId,
-  pruneThreadTranscripts,
-} = cleanup;
+const results = [];
+async function run(name, fn) {
+  try {
+    await fn();
+    results.push({ status: "PASS", name });
+  } catch (error) {
+    results.push({ status: "FAIL", name, detail: error instanceof Error ? error.message : String(error) });
+  }
+}
 
-const smokeUser = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim() || "smoke-user-transcript-delete";
-const normalizedUserContextId = normalizeUserContextId(smokeUser);
+const userId = "smoke-user-transcript-delete";
 
-const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nova-hud-thread-delete-"));
-const workspaceRoot = path.join(tmpRoot, "workspace");
-const scopedRoot = path.join(workspaceRoot, ".user", "user-context", normalizedUserContextId);
-const scopedSessionsPath = path.join(scopedRoot, "state", "sessions.json");
-const scopedTranscriptDir = path.join(scopedRoot, "transcripts");
-
-await run("T1 canonical thread id cleanup removes scoped session and transcript", async () => {
+await run("T1 canonical thread cleanup removes SQLite session and transcript rows", async () => {
   const threadId = "thread-smoke-001";
   const sessionId = "session-smoke-canonical";
-  const sessionKey = buildHudSessionKey(smokeUser, threadId);
-  const transcriptPath = path.join(scopedTranscriptDir, `${sessionId}.jsonl`);
-
-  await writeJson(scopedSessionsPath, {
-    [sessionKey]: {
-      sessionId,
-      sessionKey,
-      userContextId: normalizedUserContextId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    },
+  const sessionKey = cleanup.buildHudSessionKey(userId, threadId);
+  sessions.putSessionEntry(userId, sessionKey, {
+    sessionId,
+    sessionKey,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
   });
-  await mkdir(scopedTranscriptDir, { recursive: true });
-  await writeFile(
-    transcriptPath,
-    `${JSON.stringify({ role: "user", content: "hello", timestamp: Date.now(), meta: { sessionKey, conversationId: threadId } })}\n`,
-    "utf8",
-  );
+  sessions.appendSessionTurn(userId, sessionId, { role: "user", content: "hello", timestamp: Date.now() });
 
-  const result = await pruneThreadTranscripts(workspaceRoot, smokeUser, threadId);
-  assert.equal(result.removedSessionEntries >= 1, true, "expected at least one removed session entry");
-  assert.equal(result.removedTranscriptFiles >= 1, true, "expected at least one removed transcript");
-
-  const remainingStore = JSON.parse(await readFile(scopedSessionsPath, "utf8"));
-  assert.equal(Object.keys(remainingStore).length, 0, "expected scoped sessions store to be empty");
-  const transcriptExists = await readFile(transcriptPath, "utf8").then(() => true).catch(() => false);
-  assert.equal(transcriptExists, false, "expected canonical transcript file to be deleted");
+  const result = await cleanup.pruneThreadTranscripts("unused", userId, threadId);
+  assert.equal(result.removedSessionEntries, 1);
+  assert.equal(result.removedTranscriptFiles, 1);
+  assert.equal(sessions.getSessionEntry(userId, sessionKey), null);
+  assert.deepEqual(sessions.loadSessionTurns(userId, sessionId), []);
 });
 
-await run("T2 optimistic sessionConversationId hint cleanup removes mapped transcript", async () => {
+await run("T2 optimistic conversation hint cleanup is scoped", async () => {
   const threadId = "thread-smoke-002";
-  const optimisticConversationId = "opt-smoke-002";
-  const sessionId = "session-smoke-optimistic";
-  const sessionKey = buildHudSessionKey(smokeUser, optimisticConversationId);
-  const transcriptPath = path.join(scopedTranscriptDir, `${sessionId}.jsonl`);
-  const keepPath = path.join(scopedTranscriptDir, "session-should-stay.jsonl");
+  const optimisticId = "opt-smoke-002";
+  const sessionKey = cleanup.buildHudSessionKey(userId, optimisticId);
+  const keepKey = cleanup.buildHudSessionKey(userId, "keep");
+  sessions.putSessionEntry(userId, sessionKey, { sessionId: "session-opt", sessionKey, createdAt: 1, updatedAt: 1 });
+  sessions.putSessionEntry(userId, keepKey, { sessionId: "session-keep", sessionKey: keepKey, createdAt: 1, updatedAt: 1 });
+  sessions.appendSessionTurn(userId, "session-opt", { role: "user", content: "remove", timestamp: 1 });
+  sessions.appendSessionTurn(userId, "session-keep", { role: "user", content: "keep", timestamp: 1 });
 
-  await writeJson(scopedSessionsPath, {
-    [sessionKey]: {
-      sessionId,
-      sessionKey,
-      userContextId: normalizedUserContextId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    },
-    "agent:nova:hud:user:other-user:dm:keep": {
-      sessionId: "session-should-stay",
-      sessionKey: "agent:nova:hud:user:other-user:dm:keep",
-      userContextId: normalizedUserContextId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    },
-  });
-
-  await writeFile(
-    transcriptPath,
-    `${JSON.stringify({ role: "user", content: "only optimistic id in key", timestamp: Date.now(), meta: { sessionKey } })}\n`,
-    "utf8",
-  );
-  await writeFile(
-    keepPath,
-    `${JSON.stringify({ role: "user", content: "keep this transcript", timestamp: Date.now(), meta: { sessionKey: "agent:nova:hud:user:other-user:dm:keep" } })}\n`,
-    "utf8",
-  );
-
-  const hints = collectThreadCleanupHints(threadId, [
-    {
-      metadata: {
-        sessionConversationId: optimisticConversationId,
-        sessionKey,
-      },
-    },
-  ]);
-
-  assert.equal(
-    hints.sessionConversationIds.includes(optimisticConversationId),
-    true,
-    "expected optimistic session conversation id hint",
-  );
-  assert.equal(hints.sessionKeys.includes(sessionKey), true, "expected session key hint");
-
-  const result = await pruneThreadTranscripts(workspaceRoot, smokeUser, threadId, {
-    sessionConversationIds: hints.sessionConversationIds,
-    sessionKeys: hints.sessionKeys,
-  });
-  assert.equal(result.removedSessionEntries >= 1, true, "expected mapped session entry removal");
-  assert.equal(result.removedTranscriptFiles >= 1, true, "expected mapped transcript removal");
-
-  const transcriptExists = await readFile(transcriptPath, "utf8").then(() => true).catch(() => false);
-  assert.equal(transcriptExists, false, "expected optimistic transcript file to be deleted");
-  const keepExists = await readFile(keepPath, "utf8").then(() => true).catch(() => false);
-  assert.equal(keepExists, true, "expected unrelated transcript to remain");
+  const hints = cleanup.collectThreadCleanupHints(threadId, [{
+    metadata: { sessionConversationId: optimisticId, sessionKey },
+  }]);
+  const result = await cleanup.pruneThreadTranscripts("unused", userId, threadId, hints);
+  assert.equal(result.removedSessionEntries, 1);
+  assert.equal(result.removedTranscriptFiles, 1);
+  assert.ok(sessions.getSessionEntry(userId, keepKey));
+  assert.equal(sessions.loadSessionTurns(userId, "session-keep").length, 1);
 });
 
-const passCount = results.filter((r) => r.status === "PASS").length;
-const failCount = results.filter((r) => r.status === "FAIL").length;
-for (const result of results) summarize(result);
-console.log(`\nSummary: pass=${passCount} fail=${failCount}`);
+db.closeDb();
+if (previousDataDir === undefined) delete process.env.NOVA_DATA_DIR;
+else process.env.NOVA_DATA_DIR = previousDataDir;
+fs.rmSync(tempRoot, { recursive: true, force: true });
 
-await rm(tmpRoot, { recursive: true, force: true }).catch(() => {});
-
-if (failCount > 0) process.exit(1);
+let failed = 0;
+for (const result of results) {
+  if (result.status === "FAIL") failed += 1;
+  console.log(`[${result.status}] ${result.name}${result.detail ? ` :: ${result.detail}` : ""}`);
+}
+console.log(`\nSummary: pass=${results.length - failed} fail=${failed}`);
+if (failed) process.exit(1);

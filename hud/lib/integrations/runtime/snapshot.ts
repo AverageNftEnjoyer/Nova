@@ -2,7 +2,6 @@ import "server-only"
 
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
-import type { VerifiedSupabaseRequest } from "@/lib/supabase/server"
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 
 const ENSURE_TTL_MS = 15_000
@@ -14,10 +13,10 @@ function normalizeUserId(value: unknown): string {
 
 export async function ensureRuntimeIntegrationsSnapshot(
   userId: string,
-  verified: VerifiedSupabaseRequest,
+  scope: { userId: string },
 ): Promise<{ ok: true; filePath: string; userId: string; cached: boolean }> {
   const requestedUserId = normalizeUserId(userId)
-  const verifiedUserId = normalizeUserId(verified?.user?.id)
+  const verifiedUserId = normalizeUserId(scope.userId)
   const scopedUserId = requestedUserId || verifiedUserId
   if (!scopedUserId || scopedUserId !== verifiedUserId) {
     throw new Error("Integration snapshot sync denied: invalid user scope.")
@@ -29,7 +28,7 @@ export async function ensureRuntimeIntegrationsSnapshot(
     return { ok: true, filePath: "", userId: scopedUserId, cached: true }
   }
 
-  const config = await loadIntegrationsConfig(verified)
+  const config = await loadIntegrationsConfig(scope)
   const filePath = await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), scopedUserId, config)
   ensureCache.set(scopedUserId, now)
   return { ok: true, filePath, userId: scopedUserId, cached: false }

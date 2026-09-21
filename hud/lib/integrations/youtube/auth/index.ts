@@ -26,7 +26,7 @@ function getOAuthSecret(): string {
   } catch (error) {
     const message = error instanceof Error && error.message
       ? error.message
-      : "NOVA_ENCRYPTION_KEY is required for OAuth state signing."
+      : "OAuth state signing is unavailable. Configure NOVA_OAUTH_STATE_SECRET or ensure Windows DPAPI secrets are ready."
     throw youtubeError(
       "youtube.internal",
       message,

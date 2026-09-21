@@ -1,6 +1,5 @@
 import "server-only"
 
-import { createHash } from "node:crypto"
 import { NextResponse } from "next/server"
 
 import { timingSafeStringEqual } from "../timing-safe"
@@ -31,21 +30,13 @@ export type RuntimeSharedTokenDecision = {
   code?: "RUNTIME_TOKEN_REQUIRED" | "RUNTIME_TOKEN_INVALID"
 }
 
-function deriveRuntimeSharedTokenFallback(): string {
-  const encryptionKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim()
-  if (!encryptionKey) return ""
-  return createHash("sha256")
-    .update(`nova-runtime-shared-token:${encryptionKey}`)
-    .digest("hex")
-}
-
 export function resolveRuntimeSharedTokenConfig(): RuntimeSharedTokenConfig {
-  const token = String(process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim() || deriveRuntimeSharedTokenFallback()
+  const token = String(process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim()
   const headerName = normalizeHeaderName(
     String(process.env.NOVA_RUNTIME_SHARED_TOKEN_HEADER || "x-nova-runtime-token"),
   )
   const explicitRequireToken = readOptionalBooleanEnv("NOVA_RUNTIME_REQUIRE_SHARED_TOKEN")
-  const requireTokenByDefault = token.length > 0 && process.env.NODE_ENV === "production"
+  const requireTokenByDefault = token.length > 0 || process.env.NODE_ENV === "production"
   return {
     headerName,
     token,

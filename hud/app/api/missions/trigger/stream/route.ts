@@ -59,10 +59,7 @@ export async function GET(req: Request) {
     return new Response(message, { status: 401, headers: { "Content-Type": "text/plain; charset=utf-8" } })
   }
 
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? new Response("Unauthorized", { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionTriggerStream)
   if (!limit.allowed) {
     return new Response("Too many requests.", {
@@ -72,7 +69,6 @@ export async function GET(req: Request) {
       }),
     })
   }
-  const userId = userId
   const url = new URL(req.url)
   const missionId = String(url.searchParams.get("missionId") || "").trim()
   if (!missionId) {
@@ -166,7 +162,7 @@ export async function GET(req: Request) {
             attempt: 1,
             enforceOutputTime: false,
             skillSnapshot,
-            scope: verified,
+            scope: { userId },
             onNodeTrace: async (trace) => {
               const stepTrace = nodeTracesToStepTraces([trace])[0]
               safeStreamPayload({ type: "step", trace: stepTrace })

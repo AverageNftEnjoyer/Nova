@@ -9,10 +9,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.polymarketWrite)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
@@ -24,7 +21,7 @@ export async function POST(req: Request) {
       liveTradingEnabled?: boolean
     }
     const config = await connectPolymarketIntegration({
-      verified,
+      scope: { userId },
       walletAddress: String(body.walletAddress || ""),
       signatureType: body.signatureType,
       liveTradingEnabled: body.liveTradingEnabled === true,

@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { createDecipheriv, createHash } from "crypto";
 import OpenAI from "openai";
 import {
   DEFAULT_OPENAI_BASE_URL,
@@ -16,17 +15,17 @@ import {
   CLAUDE_MODEL_PRICING_USD_PER_1M
 } from "../../runtime/core/constants/index.js";
 import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace-user-root/index.js";
+import { getDb } from "../../db/index.js";
+import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
-const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
-const USER_CONTEXT_STATE_DIR = "state";
 
 export function resolveRuntimePaths(workspaceRoot = process.cwd()) {
   const invariant = enforceWorkspaceUserStateInvariant(workspaceRoot);
   return {
     workspaceRoot: invariant.workspaceRoot,
-    integrationsConfigPath: path.join(invariant.workspaceRoot, "hud", "data", "integrations-config.json"),
+    integrationsConfigPath: "sqlite:integration_state/runtime/snapshot",
     userContextRoot: invariant.userContextRoot,
     hudRoot: path.join(invariant.workspaceRoot, "hud"),
   };
@@ -58,102 +57,17 @@ export function toErrorDetails(err) {
   };
 }
 
-// ===== Encryption =====
-function deriveEncryptionKeyMaterial(rawValue) {
-  const raw = String(rawValue || "").trim();
-  if (!raw) return null;
-  try {
-    const decoded = Buffer.from(raw, "base64");
-    if (decoded.length === 32) return decoded;
-  } catch {}
-  return createHash("sha256").update(raw).digest();
-}
-
-function parseDotenvForKey(filePath, key) {
-  try {
-    if (!fs.existsSync(filePath)) return "";
-    const raw = fs.readFileSync(filePath, "utf8");
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = String(line || "").trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const normalized = trimmed.startsWith("export ") ? trimmed.slice("export ".length).trim() : trimmed;
-      if (!normalized.startsWith(`${key}=`)) continue;
-      const value = normalized.slice(key.length + 1).trim();
-      if (!value) return "";
-      if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-        return value.slice(1, -1).trim();
-      }
-      return value;
-    }
-  } catch {}
-  return "";
-}
-
-function resolveEncryptionKeyCandidates(runtimePaths = resolveRuntimePaths()) {
-  const candidates = [];
-  const envKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
-  if (envKey) candidates.push(envKey);
-  const fallbackRaw = String(process.env.NOVA_ENCRYPTION_KEY_FALLBACKS || "").trim();
-  if (fallbackRaw) {
-    for (const entry of fallbackRaw.split(/[,\n]/).map((v) => v.trim()).filter(Boolean)) {
-      candidates.push(entry);
-    }
-  }
-  const root = String(runtimePaths?.workspaceRoot || resolveRuntimePaths().workspaceRoot);
-  const dotenvPaths = [
-    path.join(root, ".env"),
-    path.join(root, ".env.local"),
-    path.join(root, "hud", ".env.local"),
-  ];
-  for (const dotenvPath of dotenvPaths) {
-    const key = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY");
-    if (key) candidates.push(key);
-  }
-  for (const dotenvPath of dotenvPaths) {
-    const fallback = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY_FALLBACKS");
-    if (!fallback) continue;
-    for (const entry of fallback.split(/[,\n]/).map((v) => v.trim()).filter(Boolean)) {
-      candidates.push(entry);
-    }
-  }
-  return candidates;
-}
-
+// ===== Encryption (DPAPI-backed nv1 via shared secrets core) =====
 export function getEncryptionKeyMaterials(runtimePaths = resolveRuntimePaths()) {
-  const candidates = resolveEncryptionKeyCandidates(runtimePaths);
-
-  const materials = [];
-  const seen = new Set();
-  for (const candidate of candidates) {
-    const normalized = String(candidate || "").trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    const material = deriveEncryptionKeyMaterial(normalized);
-    if (material) {
-      materials.push(material);
-    }
-  }
-  return materials;
+  void runtimePaths;
+  return [];
 }
 
 export function decryptStoredSecret(payload, runtimePaths = resolveRuntimePaths()) {
+  void runtimePaths;
   const input = String(payload || "").trim();
   if (!input) return "";
-  const parts = input.split(".");
-  if (parts.length !== 3) return "";
-  const keyMaterials = getEncryptionKeyMaterials(runtimePaths);
-  if (keyMaterials.length === 0) return "";
-  for (const key of keyMaterials) {
-    try {
-    const iv = Buffer.from(parts[0], "base64");
-    const tag = Buffer.from(parts[1], "base64");
-    const enc = Buffer.from(parts[2], "base64");
-    const decipher = createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    const out = Buffer.concat([decipher.update(enc), decipher.final()]);
-    return out.toString("utf8");
-    } catch {}
-  }
+  if (isSecretCiphertext(input)) return decryptSecret(input);
   return "";
 }
 
@@ -162,16 +76,8 @@ export function unwrapStoredSecret(value, runtimePaths = resolveRuntimePaths()) 
   if (!raw) return "";
   const decrypted = decryptStoredSecret(raw, runtimePaths);
   if (decrypted) return decrypted;
-
-  const parts = raw.split(".");
-  if (parts.length === 3) {
-    try {
-      const iv = Buffer.from(parts[0], "base64");
-      const tag = Buffer.from(parts[1], "base64");
-      const enc = Buffer.from(parts[2], "base64");
-      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return "";
-    } catch {}
-  }
+  // Plaintext passthrough for non-secret configuration fields.
+  if (isSecretCiphertext(raw)) return "";
   return raw;
 }
 
@@ -237,13 +143,17 @@ function requireUserContextId(value, operation) {
 
 function resolveIntegrationsConfigPath(userContextId, runtimePaths = resolveRuntimePaths()) {
   const normalized = requireUserContextId(userContextId, "resolveIntegrationsConfigPath");
-  const userContextRoot = String(runtimePaths?.userContextRoot || resolveRuntimePaths().userContextRoot);
-  return path.join(
-    userContextRoot,
-    normalized,
-    USER_CONTEXT_STATE_DIR,
-    USER_CONTEXT_INTEGRATIONS_FILE,
-  );
+  void runtimePaths;
+  return `sqlite:integration_state/${normalized}/runtime/snapshot`;
+}
+
+function readIntegrationsConfig(userContextId) {
+  const normalized = requireUserContextId(userContextId, "readIntegrationsConfig");
+  const row = getDb()
+    .prepare("SELECT value_json FROM integration_state WHERE user_id = ? AND integration = 'runtime' AND key = 'snapshot'")
+    .get(normalized);
+  if (!row) throw new Error("Runtime integrations snapshot not found.");
+  return JSON.parse(row.value_json);
 }
 
 function resolveProviderApiKey(integrationApiKey, runtimePaths = resolveRuntimePaths()) {
@@ -386,8 +296,7 @@ export function loadIntegrationsRuntime(options = {}) {
   const resolvedUserContextId = requireUserContextId(options.userContextId || "", "loadIntegrationsRuntime");
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, runtimePaths);
   try {
-    const raw = fs.readFileSync(configPath, "utf8");
-    const parsed = JSON.parse(raw);
+    const parsed = readIntegrationsConfig(resolvedUserContextId);
     const openaiIntegration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
     const claudeIntegration = parsed?.claude && typeof parsed.claude === "object" ? parsed.claude : {};
     const grokIntegration = parsed?.grok && typeof parsed.grok === "object" ? parsed.grok : {};
@@ -524,8 +433,7 @@ export function loadOpenAIIntegrationRuntime(options = {}) {
   const resolvedUserContextId = requireUserContextId(options.userContextId || "", "loadOpenAIIntegrationRuntime");
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, runtimePaths);
   try {
-    const raw = fs.readFileSync(configPath, "utf8");
-    const parsed = JSON.parse(raw);
+    const parsed = readIntegrationsConfig(resolvedUserContextId);
     const integration = parsed?.openai && typeof parsed.openai === "object" ? parsed.openai : {};
     const apiKey = resolveProviderApiKey(integration.apiKey, runtimePaths);
     const baseURL = toOpenAiLikeBase(

@@ -1,6 +1,8 @@
-import { createDecipheriv, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { getDb } from "../../db/index.js";
+import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
 
 export type ProviderName = "openai" | "claude" | "grok" | "gemini";
 
@@ -132,8 +134,6 @@ const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
 const DEFAULT_GROK_MODEL = "grok-4-0709";
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
 
-const USER_CONTEXT_INTEGRATIONS_FILE = "integrations-config.json";
-const USER_CONTEXT_STATE_DIR = "state";
 const RESERVED_SRC_USER_ENTRY = ".user";
 const RESERVED_SRC_USER_SENTINEL = [
   "Reserved path: Nova user state must live at /.user, never at /src/.user.",
@@ -241,8 +241,8 @@ export function toErrorDetails(err: unknown): ErrorDetails {
 
 export function resolveRuntimePaths(workspaceRoot?: string): RuntimePaths {
   const root = assertWorkspaceUserRoot(resolveWorkspaceRoot(workspaceRoot));
-  const integrationsConfigPath = path.join(root, "hud", "data", "integrations-config.json");
-  const hudRoot = path.dirname(integrationsConfigPath);
+  const integrationsConfigPath = "sqlite:integration_state/runtime/snapshot";
+  const hudRoot = path.join(root, "hud");
   return {
     workspaceRoot: root,
     integrationsConfigPath,
@@ -251,108 +251,16 @@ export function resolveRuntimePaths(workspaceRoot?: string): RuntimePaths {
   };
 }
 
-function deriveEncryptionKeyMaterial(rawValue: unknown): Buffer | null {
-  const raw = toNonEmptyString(rawValue);
-  if (!raw) return null;
-  try {
-    const decoded = Buffer.from(raw, "base64");
-    if (decoded.length === 32) return decoded;
-  } catch {
-    // ignore
-  }
-  return createHash("sha256").update(raw).digest();
-}
-
-function parseDotenvForKey(filePath: string, key: string): string {
-  try {
-    if (!fs.existsSync(filePath)) return "";
-    const raw = fs.readFileSync(filePath, "utf8");
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const normalized = trimmed.startsWith("export ") ? trimmed.slice("export ".length).trim() : trimmed;
-      if (!normalized.startsWith(`${key}=`)) continue;
-      const value = normalized.slice(key.length + 1).trim();
-      if (!value) return "";
-      if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-        return value.slice(1, -1).trim();
-      }
-      return value;
-    }
-  } catch {
-    // ignore malformed or inaccessible dotenv files
-  }
-  return "";
-}
-
-function resolveEncryptionKeyCandidates(paths: RuntimePaths): string[] {
-  const candidates: string[] = [];
-  const envKey = toNonEmptyString(process.env.NOVA_ENCRYPTION_KEY);
-  if (envKey) candidates.push(envKey);
-  const fallbackKeys = toNonEmptyString(process.env.NOVA_ENCRYPTION_KEY_FALLBACKS)
-    .split(/[,\n]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  candidates.push(...fallbackKeys);
-
-  // Fallbacks for process contexts where dotenv was not hydrated before runtime init.
-  const dotenvPaths = [
-    path.join(paths.workspaceRoot, ".env"),
-    path.join(paths.workspaceRoot, ".env.local"),
-    path.join(paths.hudRoot, ".env.local"),
-  ];
-  for (const dotenvPath of dotenvPaths) {
-    const key = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY");
-    if (key) candidates.push(key);
-  }
-  for (const dotenvPath of dotenvPaths) {
-    const fallback = parseDotenvForKey(dotenvPath, "NOVA_ENCRYPTION_KEY_FALLBACKS");
-    if (!fallback) continue;
-    const parsed = fallback
-      .split(/[,\n]/)
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    candidates.push(...parsed);
-  }
-  return candidates;
-}
-
 export function getEncryptionKeyMaterials(paths = resolveRuntimePaths()): Buffer[] {
-  const candidates = resolveEncryptionKeyCandidates(paths);
-
-  const materials: Buffer[] = [];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const normalized = toNonEmptyString(candidate);
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    const material = deriveEncryptionKeyMaterial(normalized);
-    if (material) materials.push(material);
-  }
-  return materials;
+  void paths;
+  return [];
 }
 
 export function decryptStoredSecret(payload: unknown, paths = resolveRuntimePaths()): string {
+  void paths;
   const input = toNonEmptyString(payload);
   if (!input) return "";
-  const parts = input.split(".");
-  if (parts.length !== 3) return "";
-  const keyMaterials = getEncryptionKeyMaterials(paths);
-  if (keyMaterials.length === 0) return "";
-
-  for (const key of keyMaterials) {
-    try {
-      const iv = Buffer.from(parts[0] || "", "base64");
-      const tag = Buffer.from(parts[1] || "", "base64");
-      const enc = Buffer.from(parts[2] || "", "base64");
-      const decipher = createDecipheriv("aes-256-gcm", key, iv);
-      decipher.setAuthTag(tag);
-      const out = Buffer.concat([decipher.update(enc), decipher.final()]);
-      return out.toString("utf8");
-    } catch {
-      // try next key material
-    }
-  }
+  if (isSecretCiphertext(input)) return decryptSecret(input);
   return "";
 }
 
@@ -361,18 +269,7 @@ export function unwrapStoredSecret(value: unknown, paths = resolveRuntimePaths()
   if (!raw) return "";
   const decrypted = decryptStoredSecret(raw, paths);
   if (decrypted) return decrypted;
-
-  const parts = raw.split(".");
-  if (parts.length === 3) {
-    try {
-      const iv = Buffer.from(parts[0] || "", "base64");
-      const tag = Buffer.from(parts[1] || "", "base64");
-      const enc = Buffer.from(parts[2] || "", "base64");
-      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return "";
-    } catch {
-      // ignore
-    }
-  }
+  if (isSecretCiphertext(raw)) return "";
   return raw;
 }
 
@@ -407,12 +304,17 @@ function requireUserContextId(value: unknown, operation: string): string {
 
 function resolveIntegrationsConfigPath(userContextId: string, paths: RuntimePaths): string {
   const normalized = requireUserContextId(userContextId, "resolveIntegrationsConfigPath");
-  return path.join(
-    paths.userContextRoot,
-    normalized,
-    USER_CONTEXT_STATE_DIR,
-    USER_CONTEXT_INTEGRATIONS_FILE,
-  );
+  void paths;
+  return `sqlite:integration_state/${normalized}/runtime/snapshot`;
+}
+
+function readIntegrationsConfig(userContextId: string): Record<string, unknown> {
+  const uid = requireUserContextId(userContextId, "readIntegrationsConfig");
+  const row = getDb()
+    .prepare("SELECT value_json FROM integration_state WHERE user_id = ? AND integration = 'runtime' AND key = 'snapshot'")
+    .get(uid) as { value_json: string } | undefined;
+  if (!row) throw new Error("Runtime integrations snapshot not found.");
+  return toRecord(JSON.parse(row.value_json));
 }
 
 function resolveProviderApiKey(integrationApiKey: unknown, paths: RuntimePaths): string {
@@ -620,8 +522,7 @@ export function loadIntegrationsRuntime(options?: {
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, paths);
 
   try {
-    const raw = fs.readFileSync(configPath, "utf8");
-    const parsed = toRecord(JSON.parse(raw));
+    const parsed = readIntegrationsConfig(resolvedUserContextId);
     const openaiIntegration = toRecord(parsed.openai);
     const claudeIntegration = toRecord(parsed.claude);
     const grokIntegration = toRecord(parsed.grok);
@@ -715,8 +616,7 @@ export function loadOpenAiIntegrationRuntime(options?: { userContextId?: string;
   const resolvedUserContextId = requireUserContextId(options?.userContextId || "", "loadOpenAiIntegrationRuntime");
   const configPath = resolveIntegrationsConfigPath(resolvedUserContextId, paths);
   try {
-    const raw = fs.readFileSync(configPath, "utf8");
-    const parsed = toRecord(JSON.parse(raw));
+    const parsed = readIntegrationsConfig(resolvedUserContextId);
     const integration = toRecord(parsed.openai);
     const apiKey = resolveProviderApiKey(integration.apiKey, paths);
     const baseURL = toOpenAiLikeBase(integration.baseUrl, DEFAULT_OPENAI_BASE_URL);

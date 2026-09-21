@@ -8,10 +8,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   try {
     const body = (await req.json()) as {
@@ -21,7 +18,7 @@ export async function POST(req: Request) {
       evmChainId?: string
     }
     const result = await verifyPhantomChallenge({
-      verified,
+      scope: { userId },
       walletAddress: String(body.walletAddress || ""),
       signatureBase64: String(body.signatureBase64 || ""),
       evmAddress: String(body.evmAddress || ""),

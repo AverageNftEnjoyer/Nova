@@ -9,16 +9,13 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.polymarketWrite)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
 
   try {
-    const config = await disconnectPolymarketIntegration({ verified })
+    const config = await disconnectPolymarketIntegration({ scope: { userId } })
     return NextResponse.json({ ok: true, config })
   } catch (error) {
     const normalized = toPolymarketServerError(error)

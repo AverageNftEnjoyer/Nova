@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
   try {
-    const probe = await probeSpotifyConnection(verified)
+    const probe = await probeSpotifyConnection({ userId })
     const config = await loadIntegrationsConfig({ userId })
     return NextResponse.json({
       ok: true,

@@ -19,10 +19,13 @@ import {
   type YouTubeIntegrationConfig,
   type GmailIntegrationConfig,
   type GmailCalendarIntegrationConfig,
+  type AgentIntegrationConfig,
   type LlmProvider,
   type OpenAIIntegrationConfig,
   type TelegramIntegrationConfig,
 } from "@/lib/integrations/store/server-store"
+import { toClientIntegrationsConfig } from "@/lib/integrations/store/client-config"
+import { secretsUnavailableResponse } from "@/lib/integrations/store/secrets-errors"
 import { syncAgentRuntimeIntegrationsSnapshot } from "@/lib/integrations/runtime/agent-sync"
 import { normalizePhantomIntegrationConfig } from "@/lib/integrations/phantom/types"
 import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
@@ -40,13 +43,6 @@ const DISCORD_MAX_WEBHOOKS = Math.max(
 )
 
 type CoinbaseCredentialMode = "pem_private_key" | "secret_string" | "unknown"
-
-function maskSecret(value: string): string {
-  const trimmed = value.trim()
-  if (!trimmed) return ""
-  if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}****`
-  return `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`
-}
 
 function looksLikeEncryptedEnvelope(value: string): boolean {
   const parts = value.trim().split(".")
@@ -94,21 +90,6 @@ function validateCoinbaseApiKeyPair(config: CoinbaseIntegrationConfig): { ok: tr
     return { ok: false, message: "Coinbase PEM private key is incomplete. Missing END PRIVATE KEY footer." }
   }
   return { ok: true, credentialMode }
-}
-
-function toClientAgents(config: IntegrationsConfig) {
-  const output: Record<string, { connected: boolean; endpoint: string; apiKeyConfigured: boolean; apiKeyMasked: string }> = {}
-  for (const [id, agent] of Object.entries(config.agents || {})) {
-    const key = String(id || "").trim()
-    if (!key) continue
-    output[key] = {
-      connected: Boolean(agent.connected),
-      endpoint: String(agent.endpoint || "").trim(),
-      apiKeyConfigured: String(agent.apiKey || "").trim().length > 0,
-      apiKeyMasked: maskSecret(String(agent.apiKey || "")),
-    }
-  }
-  return output
 }
 
 function normalizeTelegramInput(raw: unknown, current: TelegramIntegrationConfig): TelegramIntegrationConfig {
@@ -507,6 +488,42 @@ function normalizeYouTubeInput(raw: unknown, current: YouTubeIntegrationConfig):
   }
 }
 
+/**
+ * OAuth tokens of a connected account only ever come from the stored config, matched by account id. The browser never
+ * receives them (see toClientIntegrationsConfig) and must not be able to set or wipe them through a settings patch.
+ */
+function storedAccountTokens(
+  stored: Array<{ id: string; accessTokenEnc: string; refreshTokenEnc: string; tokenExpiry: number }>,
+  accountId: unknown,
+): { accessTokenEnc: string; refreshTokenEnc: string; tokenExpiry: number } {
+  const id = String(accountId || "").trim().toLowerCase()
+  const existing = stored.find((account) => account.id.trim().toLowerCase() === id)
+  return {
+    accessTokenEnc: existing?.accessTokenEnc ?? "",
+    refreshTokenEnc: existing?.refreshTokenEnc ?? "",
+    tokenExpiry: existing?.tokenExpiry ?? 0,
+  }
+}
+
+/** External agent entries: an empty or omitted apiKey keeps the stored key (the browser only ever sees a mask). */
+function normalizeAgentsInput(raw: unknown, current: IntegrationsConfig["agents"]): IntegrationsConfig["agents"] {
+  if (!raw || typeof raw !== "object") return current
+  const next: IntegrationsConfig["agents"] = {}
+  for (const [rawId, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = rawId.trim()
+    if (!id || !value || typeof value !== "object") continue
+    const agent = value as Partial<AgentIntegrationConfig>
+    const existing = current[id]
+    const typedKey = typeof agent.apiKey === "string" ? agent.apiKey.trim() : ""
+    next[id] = {
+      connected: typeof agent.connected === "boolean" ? agent.connected : Boolean(existing?.connected),
+      apiKey: typedKey || existing?.apiKey || "",
+      endpoint: typeof agent.endpoint === "string" ? agent.endpoint.trim() : (existing?.endpoint ?? ""),
+    }
+  }
+  return next
+}
+
 function normalizeGmailInput(raw: unknown, current: GmailIntegrationConfig): GmailIntegrationConfig {
   if (!raw || typeof raw !== "object") return current
   const gmail = raw as Partial<GmailIntegrationConfig> & { scopes?: string[] | string }
@@ -528,9 +545,7 @@ function normalizeGmailInput(raw: unknown, current: GmailIntegrationConfig): Gma
           email: String(account?.email || "").trim(),
           scopes: Array.isArray(account?.scopes) ? account.scopes.map((scope) => String(scope).trim()).filter(Boolean) : [],
           enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
-          accessTokenEnc: String(account?.accessTokenEnc || "").trim(),
-          refreshTokenEnc: String(account?.refreshTokenEnc || "").trim(),
-          tokenExpiry: Number(account?.tokenExpiry || 0),
+          ...storedAccountTokens(current.accounts, account?.id),
           connectedAt: String(account?.connectedAt || "").trim() || new Date().toISOString(),
         }))
         .filter((account) => account.id && account.email)
@@ -567,9 +582,7 @@ function normalizeGmailCalendarInput(raw: unknown, current: GmailCalendarIntegra
           email: String(account?.email || "").trim(),
           scopes: Array.isArray(account?.scopes) ? account.scopes.map((scope) => String(scope).trim()).filter(Boolean) : [],
           enabled: typeof account?.enabled === "boolean" ? account.enabled : true,
-          accessTokenEnc: String(account?.accessTokenEnc || "").trim(),
-          refreshTokenEnc: String(account?.refreshTokenEnc || "").trim(),
-          tokenExpiry: Number(account?.tokenExpiry || 0),
+          ...storedAccountTokens(current.accounts, account?.id),
           connectedAt: String(account?.connectedAt || "").trim() || new Date().toISOString(),
         }))
         .filter((account) => account.id && account.email)
@@ -610,159 +623,6 @@ function normalizeActiveLlmProvider(raw: unknown, current: LlmProvider): LlmProv
   return current
 }
 
-function toClientConfig(config: IntegrationsConfig) {
-  return {
-    ...config,
-    telegram: {
-      ...config.telegram,
-      botToken: "",
-      botTokenConfigured: config.telegram.botToken.trim().length > 0,
-      botTokenMasked: maskSecret(config.telegram.botToken),
-    },
-    discord: {
-      ...config.discord,
-      webhookUrls: [],
-      webhookUrlsConfigured: config.discord.webhookUrls.length > 0,
-      webhookUrlsMasked: config.discord.webhookUrls.map((url) => redactWebhookTarget(url)),
-    },
-    slack: {
-      ...config.slack,
-      webhookUrl: "",
-      webhookUrlConfigured: config.slack.webhookUrl.trim().length > 0,
-      webhookUrlMasked: redactSlackWebhookUrl(config.slack.webhookUrl),
-    },
-    openai: {
-      ...config.openai,
-      apiKey: "",
-      apiKeyConfigured: config.openai.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.openai.apiKey),
-    },
-    brave: {
-      ...config.brave,
-      apiKey: "",
-      apiKeyConfigured: config.brave.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.brave.apiKey),
-    },
-    news: {
-      connected: config.news.connected,
-      apiKey: "",
-      defaultTopics: config.news.defaultTopics,
-      preferredSources: config.news.preferredSources,
-      language: config.news.language,
-      country: config.news.country,
-      apiKeyConfigured: config.news.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.news.apiKey),
-    },
-    coinbase: {
-      ...config.coinbase,
-      apiKey: "",
-      apiSecret: "",
-      apiKeyConfigured: config.coinbase.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.coinbase.apiKey),
-      apiSecretConfigured: config.coinbase.apiSecret.trim().length > 0,
-      apiSecretMasked: maskSecret(config.coinbase.apiSecret),
-    },
-    phantom: {
-      ...config.phantom,
-    },
-    polymarket: {
-      ...config.polymarket,
-    },
-    claude: {
-      ...config.claude,
-      apiKey: "",
-      apiKeyConfigured: config.claude.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.claude.apiKey),
-    },
-    grok: {
-      ...config.grok,
-      apiKey: "",
-      apiKeyConfigured: config.grok.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.grok.apiKey),
-    },
-    gemini: {
-      ...config.gemini,
-      apiKey: "",
-      apiKeyConfigured: config.gemini.apiKey.trim().length > 0,
-      apiKeyMasked: maskSecret(config.gemini.apiKey),
-    },
-    spotify: {
-      connected: config.spotify.connected,
-      spotifyUserId: config.spotify.spotifyUserId,
-      displayName: config.spotify.displayName,
-      scopes: config.spotify.scopes,
-      oauthClientId: config.spotify.oauthClientId,
-      redirectUri: config.spotify.redirectUri,
-      tokenConfigured:
-        config.spotify.refreshTokenEnc.trim().length > 0 ||
-        config.spotify.accessTokenEnc.trim().length > 0,
-    },
-    youtube: {
-      connected: config.youtube.connected,
-      channelId: config.youtube.channelId,
-      channelTitle: config.youtube.channelTitle,
-      scopes: config.youtube.scopes,
-      permissions: {
-        allowFeed: Boolean(config.youtube.permissions?.allowFeed),
-        allowSearch: Boolean(config.youtube.permissions?.allowSearch),
-        allowVideoDetails: Boolean(config.youtube.permissions?.allowVideoDetails),
-      },
-      redirectUri: config.youtube.redirectUri,
-      tokenConfigured:
-        config.youtube.refreshTokenEnc.trim().length > 0 ||
-        config.youtube.accessTokenEnc.trim().length > 0,
-    },
-    gmail: {
-      connected: config.gmail.connected,
-      email: config.gmail.email,
-      scopes: config.gmail.scopes,
-      accounts: config.gmail.accounts.map((account) => ({
-        id: account.id,
-        email: account.email,
-        scopes: account.scopes,
-        enabled: account.enabled,
-        connectedAt: account.connectedAt,
-        active: account.id === config.gmail.activeAccountId,
-      })),
-      activeAccountId: config.gmail.activeAccountId,
-      oauthClientId: config.gmail.oauthClientId,
-      oauthClientSecret: "",
-      oauthClientSecretConfigured: config.gmail.oauthClientSecret.trim().length > 0,
-      oauthClientSecretMasked: maskSecret(config.gmail.oauthClientSecret),
-      redirectUri: config.gmail.redirectUri,
-      tokenConfigured:
-        config.gmail.accounts.some((account) => account.refreshTokenEnc.trim().length > 0 || account.accessTokenEnc.trim().length > 0) ||
-        config.gmail.refreshTokenEnc.trim().length > 0 ||
-        config.gmail.accessTokenEnc.trim().length > 0,
-    },
-    gcalendar: {
-      connected: config.gcalendar.connected,
-      email: config.gcalendar.email,
-      scopes: config.gcalendar.scopes,
-      permissions: {
-        allowCreate: Boolean(config.gcalendar.permissions?.allowCreate),
-        allowEdit: Boolean(config.gcalendar.permissions?.allowEdit),
-        allowDelete: Boolean(config.gcalendar.permissions?.allowDelete),
-      },
-      accounts: config.gcalendar.accounts.map((account) => ({
-        id: account.id,
-        email: account.email,
-        scopes: account.scopes,
-        enabled: account.enabled,
-        connectedAt: account.connectedAt,
-        active: account.id === config.gcalendar.activeAccountId,
-      })),
-      activeAccountId: config.gcalendar.activeAccountId,
-      redirectUri: config.gcalendar.redirectUri,
-      tokenConfigured:
-        config.gcalendar.accounts.some((account) => account.refreshTokenEnc.trim().length > 0 || account.accessTokenEnc.trim().length > 0) ||
-        config.gcalendar.refreshTokenEnc.trim().length > 0 ||
-        config.gcalendar.accessTokenEnc.trim().length > 0,
-    },
-    agents: toClientAgents(config),
-  }
-}
-
 export async function GET(req: Request) {
   const { userId } = await requireLocalUser()
 
@@ -770,9 +630,9 @@ export async function GET(req: Request) {
   try {
     await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userId, config)
   } catch (error) {
-    console.warn("[integrations/config][GET] Failed to sync agent runtime snapshot:", error)
+    console.warn("[integrations/config][GET] Failed to sync agent runtime snapshot:", error instanceof Error ? error.message : "unknown error")
   }
-  return NextResponse.json({ config: toClientConfig(config) })
+  return NextResponse.json({ config: toClientIntegrationsConfig(config) })
 }
 
 export async function PATCH(req: Request) {
@@ -867,8 +727,8 @@ export async function PATCH(req: Request) {
       gmail,
       gcalendar,
       activeLlmProvider,
-      agents: hasAgentsPatch ? (body.agents ?? current.agents) : current.agents,
-    }, verified)
+      agents: hasAgentsPatch ? normalizeAgentsInput(body.agents, current.agents) : current.agents,
+    }, { userId })
     if (wasCoinbaseConnected && !next.coinbase.connected) {
       const userContextId = String(userId || "").trim().toLowerCase()
       if (userContextId) {
@@ -889,10 +749,10 @@ export async function PATCH(req: Request) {
     try {
       await syncAgentRuntimeIntegrationsSnapshot(resolveWorkspaceRoot(), userId, next)
     } catch (error) {
-      console.warn("[integrations/config][PATCH] Failed to sync agent runtime snapshot:", error)
+      console.warn("[integrations/config][PATCH] Failed to sync agent runtime snapshot:", error instanceof Error ? error.message : "unknown error")
     }
     return NextResponse.json({
-      config: toClientConfig(next),
+      config: toClientIntegrationsConfig(next),
       diagnostics: {
         coinbase: {
           credentialMode: coinbaseCredentialMode,
@@ -900,6 +760,8 @@ export async function PATCH(req: Request) {
       },
     })
   } catch (error) {
+    const unavailable = secretsUnavailableResponse(error)
+    if (unavailable) return unavailable
     if (
       error instanceof Error &&
       (/Invalid Discord webhook URL/i.test(error.message) ||
@@ -911,7 +773,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 })
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to update integrations config" },
+      { error: "Failed to update integrations config" },
       { status: 500 },
     )
   }

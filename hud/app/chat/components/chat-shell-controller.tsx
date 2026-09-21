@@ -11,7 +11,6 @@ import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { cn } from "@/lib/shared/utils"
 import { loadUserSettings } from "@/lib/settings/userSettings"
 import { getActiveUserId } from "@/lib/auth/active-user"
-// Supabase removed
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
 
@@ -149,10 +148,6 @@ export function ChatShellController() {
     return false
   }, [activeConversationStreaming, novaState, streamingAssistantId])
 
-  const getSupabaseAccessToken = useCallback(async (): Promise<string> => {
-    return ""
-  }, [])
-
   const buildHudSessionKey = useCallback(
     (userId: string, conversationId: string): string => {
       const normalizedUserId = String(userId || "").trim()
@@ -278,7 +273,6 @@ export function ChatShellController() {
       }
 
       void (async () => {
-        const supabaseAccessToken = await getSupabaseAccessToken()
         const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
         sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
           conversationId: resolveConversationIdForAgent(activeConvo.id),
@@ -287,7 +281,6 @@ export function ChatShellController() {
           ...(pendingMessageId ? { messageId: pendingMessageId } : {}),
           ...(pendingOpToken ? { opToken: pendingOpToken } : {}),
           userId: activeUserId,
-          supabaseAccessToken: supabaseAccessToken || undefined,
           assistantName: settings.personalization.assistantName,
           communicationStyle: settings.personalization.communicationStyle,
           tone: settings.personalization.tone,
@@ -313,7 +306,6 @@ export function ChatShellController() {
     hasHudMessageAck,
     sendToAgent,
     handleSelectConvo,
-    getSupabaseAccessToken,
     ensureServerConversationForOptimistic,
     resolveConversationIdForAgent,
     buildHudSessionKey,
@@ -416,7 +408,6 @@ export function ChatShellController() {
       if (!activeUserId) {
         return
       }
-      const supabaseAccessToken = await getSupabaseAccessToken()
       if (gmailConnected && isEmailAssistantIntent(outboundContent)) {
         const maxResults = extractEmailSummaryMaxResults(outboundContent, 6)
         try {
@@ -425,7 +416,6 @@ export function ChatShellController() {
             credentials: "include",
             headers: {
               "content-type": "application/json",
-              ...(supabaseAccessToken ? { authorization: `Bearer ${supabaseAccessToken}` } : {}),
             },
             body: JSON.stringify({ maxResults }),
           })
@@ -485,7 +475,6 @@ export function ChatShellController() {
         ...(options?.nlpBypass ? { nlpBypass: true } : {}),
         ...(options?.imageData ? { imageData: options.imageData } : {}),
         userId: activeUserId,
-        supabaseAccessToken: supabaseAccessToken || undefined,
         assistantName: settings.personalization.assistantName,
         communicationStyle: settings.personalization.communicationStyle,
         tone: settings.personalization.tone,
@@ -496,7 +485,7 @@ export function ChatShellController() {
         challenge_level: settings.personalization.challenge_level,
       })
     },
-    [activeConvo, agentConnected, sendToAgent, addUserMessage, addAssistantMessage, getSupabaseAccessToken, resolveConversationIdForAgent, buildHudSessionKey, gmailConnected],
+    [activeConvo, agentConnected, sendToAgent, addUserMessage, addAssistantMessage, resolveConversationIdForAgent, buildHudSessionKey, gmailConnected],
   )
 
   const handleUseSuggestedWording = useCallback(

@@ -25,6 +25,11 @@ telegram_history.json
 *.db
 *.db-shm
 *.db-wal
+*.db-journal
+
+# local data dir contents (nova.db, DPAPI-wrapped master key, importer backups) if NOVA_DATA_DIR points inside the repo
+**/keys/
+**/imported-backup/
 
 # local logs
 *.log

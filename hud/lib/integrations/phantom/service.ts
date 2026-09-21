@@ -9,7 +9,6 @@ import {
   DEFAULT_POLYMARKET_INTEGRATION_CONFIG,
   normalizePolymarketIntegrationConfig,
 } from "@/lib/integrations/polymarket/types"
-import type { VerifiedSupabaseRequest } from "@/lib/supabase/server"
 import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 import { readPhantomWalletAuthState, updatePhantomWalletAuthState } from "./auth-state.ts"
 import { createPhantomAuthChallenge } from "./challenge.ts"
@@ -144,18 +143,18 @@ function emptyVerificationResult(): PhantomVerificationResult {
 }
 
 export async function issuePhantomChallenge(params: {
-  verified: VerifiedSupabaseRequest
+  scope: { userId: string }
   walletAddress: string
   origin?: string
 }): Promise<PhantomChallengeResponse> {
-  const userContextId = assertUserContextId(params.verified?.user?.id)
+  const userContextId = assertUserContextId(params.scope.userId)
   const walletAddress = normalizeSolanaWalletAddressOrThrow(params.walletAddress)
   return runScopedOperation(userContextId, async () => {
     const authState = await readPhantomWalletAuthState(userContextId, resolveWorkspaceRoot())
     const challenge = createPhantomAuthChallenge({
       userContextId,
       walletAddress,
-      accessTokenHash: hashAccessToken(params.verified.accessToken),
+      accessTokenHash: hashAccessToken(""),
       version: authState.version,
       origin: params.origin,
       ttlMs: PHANTOM_CHALLENGE_TTL_MS,
@@ -187,13 +186,13 @@ export async function issuePhantomChallenge(params: {
 }
 
 export async function verifyPhantomChallenge(params: {
-  verified: VerifiedSupabaseRequest
+  scope: { userId: string }
   walletAddress: string
   signatureBase64: string
   evmAddress?: string
   evmChainId?: string
 }): Promise<PhantomVerificationResult> {
-  const userContextId = assertUserContextId(params.verified?.user?.id)
+  const userContextId = assertUserContextId(params.scope.userId)
   const walletAddress = normalizeSolanaWalletAddressOrThrow(params.walletAddress)
   const evmAddress = normalizeOptionalEvmAddressOrThrow(params.evmAddress)
   const evmChainId = String(params.evmChainId || "").trim().slice(0, 64)
@@ -202,7 +201,7 @@ export async function verifyPhantomChallenge(params: {
     const validation = validatePhantomChallengeState({
       authState,
       walletAddress,
-      accessTokenHash: hashAccessToken(params.verified.accessToken),
+      accessTokenHash: hashAccessToken(""),
     })
     if (!validation.ok) {
       if (validation.clearChallenge) {
@@ -230,7 +229,7 @@ export async function verifyPhantomChallenge(params: {
       throw new PhantomServiceError("PHANTOM_SIGNATURE_INVALID", "Wallet signature could not be verified.", 401)
     }
 
-    const currentConfig = await loadIntegrationsConfig(params.verified)
+    const currentConfig = await loadIntegrationsConfig(params.scope)
     const previousPhantom = normalizePhantomIntegrationConfig((currentConfig as typeof currentConfig & { phantom?: unknown }).phantom)
     const now = new Date().toISOString()
     const shouldResetPolymarket = shouldResetPolymarketForPhantomIdentity(currentConfig.polymarket, {
@@ -284,7 +283,7 @@ export async function verifyPhantomChallenge(params: {
             }
           : {}),
       } as never,
-      params.verified,
+      params.scope,
     )
     await updatePhantomWalletAuthState(
       userContextId,
@@ -311,13 +310,13 @@ export async function verifyPhantomChallenge(params: {
 }
 
 export async function disconnectPhantomBinding(params: {
-  verified: VerifiedSupabaseRequest
+  scope: { userId: string }
   reason?: PhantomDisconnectReason
 }): Promise<PhantomVerificationResult & { lastDisconnectedAt: string }> {
-  const userContextId = assertUserContextId(params.verified?.user?.id)
+  const userContextId = assertUserContextId(params.scope.userId)
   return runScopedOperation(userContextId, async () => {
     const now = new Date().toISOString()
-    const currentConfig = await loadIntegrationsConfig(params.verified)
+    const currentConfig = await loadIntegrationsConfig(params.scope)
     const previousPhantom = normalizePhantomIntegrationConfig((currentConfig as typeof currentConfig & { phantom?: unknown }).phantom)
     const nextConfig = await updateIntegrationsConfig(
       {
@@ -337,7 +336,7 @@ export async function disconnectPhantomBinding(params: {
             }
           : {}),
       } as never,
-      params.verified,
+      params.scope,
     )
     await updatePhantomWalletAuthState(
       userContextId,

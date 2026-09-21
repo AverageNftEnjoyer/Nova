@@ -4,6 +4,7 @@ import { requireLocalUser } from "@/lib/auth/local-user"
 import { disconnectGmail } from "@/lib/integrations/gmail"
 import { deriveGmailAfterSetEnabled, deriveGmailAfterSetPrimary } from "@/lib/integrations/gmail/accounts"
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import { secretsUnavailableResponse } from "@/lib/integrations/store/secrets-errors"
 
 import { accountsBodySchema, gmailApiErrorResponse, logGmailApi, safeJson } from "@/app/api/integrations/gmail/_shared"
 
@@ -26,7 +27,7 @@ export async function PATCH(req: Request) {
     })
 
     if (action === "delete") {
-      await disconnectGmail(accountId, verified)
+      await disconnectGmail(accountId)
       logGmailApi("accounts.patch.success", {
         userContextId: userId,
         action,
@@ -45,7 +46,7 @@ export async function PATCH(req: Request) {
     if (action === "set_primary") {
       await updateIntegrationsConfig({
         gmail: deriveGmailAfterSetPrimary(current.gmail, accountId),
-      }, verified)
+      })
       logGmailApi("accounts.patch.success", {
         userContextId: userId,
         action,
@@ -58,7 +59,7 @@ export async function PATCH(req: Request) {
       const enabled = parsed.data.enabled
       await updateIntegrationsConfig({
         gmail: deriveGmailAfterSetEnabled(current.gmail, accountId, enabled),
-      }, verified)
+      })
       logGmailApi("accounts.patch.success", {
         userContextId: userId,
         action,
@@ -70,6 +71,8 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({ ok: false, error: "Unsupported action." }, { status: 400 })
   } catch (error) {
+    const unavailable = secretsUnavailableResponse(error)
+    if (unavailable) return unavailable
     return gmailApiErrorResponse(error, "Failed to update Gmail account.")
   }
 }

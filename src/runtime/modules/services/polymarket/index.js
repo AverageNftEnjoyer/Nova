@@ -849,7 +849,6 @@ export async function runPolymarketDomainService(input = {}, deps = {}) {
         userContextId,
         conversationId,
         sessionKey,
-        supabaseAccessToken: normalizeText(input.supabaseAccessToken),
       });
 
       if (missionResult?.ok !== true) {

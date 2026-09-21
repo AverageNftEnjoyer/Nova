@@ -8,9 +8,9 @@ import {
   SKILL_DISCOVERY_CACHE_TTL_MS,
   STARTER_SKILLS_CATALOG_VERSION,
   STARTER_SKILLS,
-  STARTER_SKILL_META_FILE,
   STARTER_SKILL_NAMES,
 } from "../../../core/constants/index.js";
+import { kvGet, kvSet } from "../../../../db/index.js";
 
 // Module-internal cache — not exported
 const SKILL_DISCOVERY_CACHE = new Map();
@@ -453,11 +453,19 @@ function discoverRuntimeSkills(dirs) {
       if (!name) continue;
       const metadata = extractSkillMetadata(raw);
       const requirements = extractSkillRequirements(raw);
+      const normalizedParts = path.resolve(skillFile).split(path.sep);
+      const userContextIndex = normalizedParts.lastIndexOf("user-context");
+      const userContextId = userContextIndex >= 0 ? String(normalizedParts[userContextIndex + 1] || "") : "";
+      const preferenceProfile = userContextId ? kvGet(userContextId, "skill-preferences", name) : null;
+      const preferenceRules = Array.isArray(preferenceProfile?.rules)
+        ? preferenceProfile.rules.map((rule) => String(rule || "").trim()).filter(Boolean)
+        : [];
       byName.set(name, {
         name,
         description: metadata.description,
         readWhen: metadata.readWhen,
         requirements,
+        preferenceRules,
         location: skillFile,
       });
     }
@@ -524,7 +532,10 @@ function formatRuntimeSkillsPrompt(skills, requestText = "") {
     const readWhen = Array.isArray(skill.readWhen) && skill.readWhen.length > 0 && includeReadWhen
       ? `<read_when>${escapeXml(compactText(skill.readWhen.join(" | "), SKILL_PROMPT_MAX_HINT_CHARS))}</read_when>`
       : "";
-    return `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(compactText(skill.description, 120))}</description>${readWhen}<location>${escapeXml(promptLocation(resolvedLocation))}</location></skill>`;
+    const preferenceRules = Array.isArray(skill.preferenceRules) && skill.preferenceRules.length > 0
+      ? `<preference_rules>${escapeXml(compactText(skill.preferenceRules.join(" | "), 500))}</preference_rules>`
+      : "";
+    return `<skill><name>${escapeXml(skill.name)}</name><description>${escapeXml(compactText(skill.description, 120))}</description>${readWhen}${preferenceRules}<location>${escapeXml(promptLocation(resolvedLocation))}</location></skill>`;
   };
 
   const prefix = [
@@ -595,12 +606,9 @@ export function buildStarterSkillTemplate(skillName, description) {
 }
 
 function readStarterSkillMeta(userSkillsDir) {
-  const metaPath = path.join(userSkillsDir, STARTER_SKILL_META_FILE);
   try {
-    if (!fs.existsSync(metaPath)) return { startersInitialized: false, disabledStarters: [], catalogVersion: 0 };
-    const raw = String(fs.readFileSync(metaPath, "utf8") || "").trim();
-    if (!raw) return { startersInitialized: false, disabledStarters: [], catalogVersion: 0 };
-    const parsed = JSON.parse(raw) || {};
+    const userContextId = String(path.basename(path.dirname(userSkillsDir)) || "").trim().toLowerCase();
+    const parsed = userContextId ? kvGet(userContextId, "skills-profile", "starter-meta") || {} : {};
     const disabled = Array.isArray(parsed.disabledStarters)
       ? parsed.disabledStarters.map((v) => String(v || "").trim()).filter((v) => STARTER_SKILL_NAMES.has(v))
       : [];
@@ -612,7 +620,6 @@ function readStarterSkillMeta(userSkillsDir) {
 }
 
 function writeStarterSkillMeta(userSkillsDir, meta) {
-  const metaPath = path.join(userSkillsDir, STARTER_SKILL_META_FILE);
   const safe = {
     startersInitialized: Boolean(meta?.startersInitialized),
     disabledStarters: Array.isArray(meta?.disabledStarters)
@@ -620,7 +627,8 @@ function writeStarterSkillMeta(userSkillsDir, meta) {
       : [],
     catalogVersion: Number.isFinite(meta?.catalogVersion) ? Math.max(0, Number(meta.catalogVersion || 0)) : 0,
   };
-  fs.writeFileSync(metaPath, `${JSON.stringify(safe, null, 2)}\n`, "utf8");
+  const userContextId = String(path.basename(path.dirname(userSkillsDir)) || "").trim().toLowerCase();
+  if (userContextId) kvSet(userContextId, "skills-profile", "starter-meta", safe);
 }
 
 export function ensureStarterSkillsForUser(personaWorkspaceDir) {

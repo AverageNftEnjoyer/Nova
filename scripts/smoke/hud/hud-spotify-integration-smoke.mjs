@@ -98,9 +98,10 @@ await run("HSP-8 Home Spotify hook enforces request timeouts to avoid UI lock", 
 
 await run("HSP-9 Spotify favorite playlist preferences are user-scoped", async () => {
   const prefs = read("hud/lib/integrations/spotify/skill-prefs/index.ts");
-  assert.equal(prefs.includes("USER_CONTEXT_ROOT"), true);
   assert.equal(prefs.includes("normalizeUserId"), true);
-  assert.equal(prefs.includes('path.join(USER_CONTEXT_ROOT, id, "skills", "spotify", SKILL_FILE)'), true);
+  assert.equal(prefs.includes('const NAMESPACE = "skill-preferences"'), true);
+  assert.equal(prefs.includes("kvGet(uid, NAMESPACE, KEY)"), true);
+  assert.equal(prefs.includes("kvSet(uid, NAMESPACE, KEY"), true);
 });
 
 await run("HSP-10 Playlist matching resolves against user playlists, not generic global search", async () => {

@@ -10,10 +10,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   try {
     const url = new URL(req.url)
@@ -30,7 +27,7 @@ export async function GET(req: Request) {
       returnTo,
       mode: mode || "redirect",
     })
-    const authUrl = await buildGmailCalendarOAuthUrl(returnTo, verified)
+    const authUrl = await buildGmailCalendarOAuthUrl(returnTo)
     if (mode === "json") {
       return NextResponse.json({ ok: true, authUrl })
     }

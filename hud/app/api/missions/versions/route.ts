@@ -89,7 +89,7 @@ export async function POST(req: Request) {
     )
   }
   await upsertMission(restored.mission, userId)
-  await syncMissionScheduleToGoogleCalendar({ mission: restored.mission, scope: verified }).catch((error) => {
+  await syncMissionScheduleToGoogleCalendar({ mission: restored.mission, scope: { userId } }).catch((error) => {
     console.warn("[missions.versions][gcalendar_sync] schedule mirror failed:", error instanceof Error ? error.message : String(error))
   })
   await emitMissionTelemetryEvent({

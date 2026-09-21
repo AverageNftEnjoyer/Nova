@@ -8,15 +8,12 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   try {
     const body = (await req.json()) as { reason?: string }
     const result = await disconnectPhantomBinding({
-      verified,
+      scope: { userId },
       reason:
         body.reason === "user_disconnect" ||
         body.reason === "wallet_changed" ||

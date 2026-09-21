@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { enforceWorkspaceUserStateInvariant } from "../workspace-user-root/index.js";
+import { resolveDataDir } from "../../../db/paths.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,7 +35,7 @@ export const ROOT_DIR = path.join(__dirname, "..");
 const WORKSPACE_PATHS = enforceWorkspaceUserStateInvariant(__dirname);
 export const ROOT_WORKSPACE_DIR = WORKSPACE_PATHS.workspaceRoot;
 export const USER_DATA_DIR = ".user";
-export const INTEGRATIONS_CONFIG_PATH = path.join(ROOT_WORKSPACE_DIR, "hud", "data", "integrations-config.json");
+export const INTEGRATIONS_CONFIG_PATH = "sqlite:integration_state/runtime/snapshot";
 
 // ===== API Base URLs =====
 export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -79,7 +80,7 @@ export const TOOL_CAPABILITY_DENYLIST = readLowerCsvEnv("NOVA_TOOL_CAPABILITY_DE
 export const TOOL_WEB_SEARCH_PROVIDER = "brave";
 
 // ===== Memory Paths =====
-export const MEMORY_DB_PATH = path.join(ROOT_WORKSPACE_DIR, USER_DATA_DIR, "memory.db");
+export const MEMORY_DB_PATH = path.join(resolveDataDir(), "memory.db");
 export const MEMORY_SOURCE_DIR = path.join(ROOT_WORKSPACE_DIR, "memory");
 
 // ===== Session Config =====
@@ -264,7 +265,6 @@ export const STARTER_SKILLS = [
   { name: "pickup", description: "Rapid context rehydration workflow that checks repo state, running processes, and next actions before execution." },
   { name: "handoff", description: "Structured handoff workflow that captures status, risks, checks, and precise next steps for seamless continuation." },
 ];
-export const STARTER_SKILL_META_FILE = ".meta.json";
 export const STARTER_SKILL_NAMES = new Set(STARTER_SKILLS.map((s) => String(s.name || "").trim()));
 export const SKILL_DISCOVERY_CACHE_TTL_MS = readIntEnv("NOVA_SKILL_DISCOVERY_CACHE_TTL_MS", 15000, {
   min: 0,

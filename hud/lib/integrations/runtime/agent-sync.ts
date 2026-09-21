@@ -1,8 +1,7 @@
 import "server-only"
 
-import { mkdir, writeFile } from "node:fs/promises"
-import path from "node:path"
-import { encryptSecret } from "../../security/encryption"
+import { nowIso, tx } from "../../../../src/db/index.js"
+import { encryptSecret, isSecretCiphertext } from "../../security/encryption"
 import type { IntegrationsConfig } from "../store/server-store"
 import { buildRuntimeSafeGmailSnapshot } from "../gmail/runtime-safe"
 import { buildRuntimeSafePhantomSnapshot } from "../phantom/runtime-safe"
@@ -19,35 +18,20 @@ function sanitizeUserContextId(value: unknown): string {
   return normalized.slice(0, 96)
 }
 
-function looksEncryptedEnvelope(raw: string): boolean {
-  const parts = raw.split(".")
-  if (parts.length !== 3) return false
-  try {
-    const iv = Buffer.from(parts[0], "base64")
-    const tag = Buffer.from(parts[1], "base64")
-    const enc = Buffer.from(parts[2], "base64")
-    return iv.length === 12 && tag.length === 16 && enc.length > 0
-  } catch {
-    return false
-  }
-}
-
+/** Ciphertext for the runtime snapshot: already-encrypted values (any format) pass through, plaintext is encrypted. */
 function wrapSecret(value: unknown): string {
   const raw = String(value || "").trim()
   if (!raw) return ""
-  if (looksEncryptedEnvelope(raw)) return raw
+  if (isSecretCiphertext(raw)) return raw
   return encryptSecret(raw)
 }
 
-function resolveUserRuntimeConfigPath(workspaceRoot: string, userId: string): string {
+function resolveUserRuntimeConfigPath(_workspaceRoot: string, userId: string): string {
   const scopedUserId = sanitizeUserContextId(userId)
   if (!scopedUserId) {
     throw new Error("syncAgentRuntimeIntegrationsSnapshot requires userContextId.")
   }
-  const normalizedRoot = path.resolve(workspaceRoot)
-  const rootName = path.basename(normalizedRoot).toLowerCase()
-  const workspaceUserRoot = rootName === "src" ? path.resolve(normalizedRoot, "..") : normalizedRoot
-  return path.join(workspaceUserRoot, ".user", "user-context", scopedUserId, "state", "integrations-config.json")
+  return `sqlite:integration_state/${scopedUserId}/runtime/snapshot`
 }
 
 export async function syncAgentRuntimeIntegrationsSnapshot(
@@ -149,8 +133,14 @@ export async function syncAgentRuntimeIntegrationsSnapshot(
     source: "user-scoped-runtime-sync",
   }
 
-  const serializedPayload = JSON.stringify(payload, null, 2)
-  await mkdir(path.dirname(filePath), { recursive: true })
-  await writeFile(filePath, serializedPayload, "utf8")
+  const scopedUserId = sanitizeUserContextId(userId)
+  tx((db) => {
+    db.prepare(
+      `INSERT INTO integration_state (user_id, integration, key, value_json, expires_at, updated_at)
+       VALUES (?, 'runtime', 'snapshot', ?, NULL, ?)
+       ON CONFLICT(user_id, integration, key) DO UPDATE SET
+         value_json = excluded.value_json, expires_at = NULL, updated_at = excluded.updated_at`,
+    ).run(scopedUserId, JSON.stringify(payload), nowIso())
+  })
   return filePath
 }

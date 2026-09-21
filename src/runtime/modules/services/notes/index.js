@@ -1,16 +1,9 @@
-import path from "node:path";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
-import { USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
+import { nowIso, tx } from "../../../../db/index.js";
 
-const STORE_FILE_NAME = "home-notes.json";
-const STORE_VERSION = 1;
 const MAX_NOTES = 300;
 const MAX_CONTENT_CHARS = 400;
-
-const writesByPath = new Map();
-const locksByUser = new Map();
 
 function sanitizeUserContextId(value = "") {
   return String(value || "")
@@ -53,101 +46,30 @@ function normalizeContent(value = "") {
     .slice(0, MAX_CONTENT_CHARS);
 }
 
-function defaultStore() {
+function rowToNote(row) {
   return {
-    version: STORE_VERSION,
-    updatedAt: new Date().toISOString(),
-    notes: [],
+    id: row.id,
+    content: row.content,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by === "nova" ? "nova" : "manual",
+    updatedBy: row.updated_by === "nova" ? "nova" : "manual",
+    ...(row.conversation_id ? { conversationId: row.conversation_id } : {}),
   };
 }
 
-function resolveUserStateDir(userContextId = "") {
-  const uid = sanitizeUserContextId(userContextId);
-  if (!uid) return "";
-  return path.join(USER_CONTEXT_ROOT, uid, "state");
+function selectNote(db, uid, noteId) {
+  const row = db.prepare("SELECT * FROM notes WHERE user_id = ? AND id = ?").get(uid, noteId);
+  return row ? rowToNote(row) : null;
 }
 
-export function resolveHomeNotesStorePath(userContextId = "") {
-  const stateDir = resolveUserStateDir(userContextId);
-  if (!stateDir) return "";
-  return path.join(stateDir, STORE_FILE_NAME);
-}
-
-async function atomicWriteJson(filePath, payload) {
-  const resolved = path.resolve(filePath);
-  const previous = writesByPath.get(resolved) ?? Promise.resolve();
-  const next = previous
-    .catch(() => undefined)
-    .then(async () => {
-      await mkdir(path.dirname(resolved), { recursive: true });
-      const tmpPath = `${resolved}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-      await writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-      await rename(tmpPath, resolved);
-    });
-  writesByPath.set(resolved, next);
-  try {
-    await next;
-  } finally {
-    if (writesByPath.get(resolved) === next) writesByPath.delete(resolved);
-  }
-}
-
-function normalizeNote(raw = null) {
-  if (!raw || typeof raw !== "object") return null;
-  const id = sanitizeNoteId(raw.id || "");
-  const content = normalizeContent(raw.content || "");
-  if (!id || !content) return null;
-
-  const createdAt = String(raw.createdAt || "").trim() || new Date().toISOString();
-  const updatedAt = String(raw.updatedAt || "").trim() || createdAt;
-  const createdBy = normalizeSource(raw.createdBy || "manual");
-  const updatedBy = normalizeSource(raw.updatedBy || createdBy);
-  const conversationId = sanitizeConversationId(raw.conversationId || "");
-
-  return {
-    id,
-    content,
-    createdAt,
-    updatedAt,
-    createdBy,
-    updatedBy,
-    ...(conversationId ? { conversationId } : {}),
-  };
-}
-
-function normalizeStore(raw = null) {
-  const source = raw && typeof raw === "object" ? raw : {};
-  const notes = Array.isArray(source.notes)
-    ? source.notes.map((note) => normalizeNote(note)).filter(Boolean)
-    : [];
-
-  const sortedNotes = [...notes]
-    .sort((a, b) => {
-      const byUpdated = Date.parse(String(b.updatedAt || "")) - Date.parse(String(a.updatedAt || ""));
-      if (Number.isFinite(byUpdated) && byUpdated !== 0) return byUpdated;
-      return String(b.id || "").localeCompare(String(a.id || ""));
-    })
-    .slice(0, MAX_NOTES);
-
-  return {
-    version: STORE_VERSION,
-    updatedAt: String(source.updatedAt || "").trim() || new Date().toISOString(),
-    notes: sortedNotes,
-  };
-}
-
-async function loadStore(userContextId = "") {
-  const storePath = resolveHomeNotesStorePath(userContextId);
-  if (!storePath) return { storePath: "", store: defaultStore() };
-
-  try {
-    const parsed = JSON.parse(await readFile(storePath, "utf8"));
-    return { storePath, store: normalizeStore(parsed) };
-  } catch {
-    const next = defaultStore();
-    await atomicWriteJson(storePath, next);
-    return { storePath, store: next };
-  }
+/** Keeps only the newest MAX_NOTES rows (updated_at, then id, descending) for this user. */
+function trimToLimit(db, uid) {
+  db.prepare(
+    `DELETE FROM notes WHERE user_id = ? AND id NOT IN (
+       SELECT id FROM notes WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?
+     )`,
+  ).run(uid, uid, MAX_NOTES);
 }
 
 function notePreview(content = "") {
@@ -284,29 +206,18 @@ export function parseHomeNoteCommand(text = "") {
   return { matched: false, action: "" };
 }
 
-async function withUserLock(userContextId = "", work = async () => ({})) {
-  const uid = sanitizeUserContextId(userContextId);
-  if (!uid) return { ok: false, error: "invalid_user_context" };
-
-  const previous = locksByUser.get(uid) ?? Promise.resolve();
-  const next = previous
-    .catch(() => undefined)
-    .then(async () => work(uid));
-
-  locksByUser.set(uid, next);
-  try {
-    return await next;
-  } finally {
-    if (locksByUser.get(uid) === next) locksByUser.delete(uid);
-  }
-}
-
 export async function listHomeNotes({ userContextId = "", limit = 150 } = {}) {
   const uid = sanitizeUserContextId(userContextId);
   if (!uid) return [];
-  const { store } = await loadStore(uid);
   const nextLimit = Math.max(1, Math.min(500, Number.parseInt(String(limit || 150), 10) || 150));
-  return [...store.notes].slice(0, nextLimit);
+  const rows = tx(
+    (db) =>
+      db
+        .prepare("SELECT * FROM notes WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?")
+        .all(uid, nextLimit),
+    "deferred",
+  );
+  return rows.map(rowToNote);
 }
 
 export async function createHomeNote({ userContextId = "", content = "", source = "manual", conversationId = "" } = {}) {
@@ -314,27 +225,21 @@ export async function createHomeNote({ userContextId = "", content = "", source 
   if (!normalizedContent) {
     return { ok: false, code: "notes.content_missing", message: "Note content is required.", note: null };
   }
+  const uid = sanitizeUserContextId(userContextId);
+  if (!uid) return { ok: false, error: "invalid_user_context" };
 
-  return withUserLock(userContextId, async (uid) => {
-    const { storePath, store } = await loadStore(uid);
-    const now = new Date().toISOString();
-    const note = normalizeNote({
-      id: `note-${randomUUID().slice(0, 8)}`,
-      content: normalizedContent,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: normalizeSource(source),
-      updatedBy: normalizeSource(source),
-      conversationId: sanitizeConversationId(conversationId),
-    });
-    const nextStore = normalizeStore({
-      ...store,
-      updatedAt: now,
-      notes: [note, ...store.notes],
-    });
-    await atomicWriteJson(storePath, nextStore);
-    return { ok: true, code: "notes.create_ok", message: "Note created.", note };
+  const now = nowIso();
+  const by = normalizeSource(source);
+  const noteId = `note-${randomUUID().slice(0, 8)}`;
+  const note = tx((db) => {
+    db.prepare(
+      `INSERT INTO notes (user_id, id, content, created_at, updated_at, created_by, updated_by, conversation_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(uid, noteId, normalizedContent, now, now, by, by, sanitizeConversationId(conversationId) || null);
+    trimToLimit(db, uid);
+    return selectNote(db, uid, noteId);
   });
+  return { ok: true, code: "notes.create_ok", message: "Note created.", note };
 }
 
 export async function updateHomeNote({ userContextId = "", noteId = "", content = "", source = "manual" } = {}) {
@@ -346,32 +251,19 @@ export async function updateHomeNote({ userContextId = "", noteId = "", content 
   if (!normalizedContent) {
     return { ok: false, code: "notes.content_missing", message: "Note content is required.", note: null };
   }
+  const uid = sanitizeUserContextId(userContextId);
+  if (!uid) return { ok: false, error: "invalid_user_context" };
 
-  return withUserLock(userContextId, async (uid) => {
-    const { storePath, store } = await loadStore(uid);
-    const targetIndex = store.notes.findIndex((note) => sanitizeNoteId(note.id) === normalizedNoteId);
-    if (targetIndex < 0) {
-      return { ok: false, code: "notes.not_found", message: "Note not found.", note: null };
-    }
-
-    const now = new Date().toISOString();
-    const updated = normalizeNote({
-      ...store.notes[targetIndex],
-      content: normalizedContent,
-      updatedAt: now,
-      updatedBy: normalizeSource(source),
-    });
-
-    const nextNotes = [...store.notes];
-    nextNotes[targetIndex] = updated;
-    const nextStore = normalizeStore({
-      ...store,
-      updatedAt: now,
-      notes: nextNotes,
-    });
-    await atomicWriteJson(storePath, nextStore);
-    return { ok: true, code: "notes.update_ok", message: "Note updated.", note: updated };
+  const note = tx((db) => {
+    const info = db
+      .prepare("UPDATE notes SET content = ?, updated_at = ?, updated_by = ? WHERE user_id = ? AND id = ?")
+      .run(normalizedContent, nowIso(), normalizeSource(source), uid, normalizedNoteId);
+    if (info.changes === 0) return null;
+    trimToLimit(db, uid);
+    return selectNote(db, uid, normalizedNoteId);
   });
+  if (!note) return { ok: false, code: "notes.not_found", message: "Note not found.", note: null };
+  return { ok: true, code: "notes.update_ok", message: "Note updated.", note };
 }
 
 export async function deleteHomeNote({ userContextId = "", noteId = "" } = {}) {
@@ -379,21 +271,14 @@ export async function deleteHomeNote({ userContextId = "", noteId = "" } = {}) {
   if (!normalizedNoteId) {
     return { ok: false, code: "notes.id_missing", message: "Note id is required.", deleted: false };
   }
+  const uid = sanitizeUserContextId(userContextId);
+  if (!uid) return { ok: false, error: "invalid_user_context" };
 
-  return withUserLock(userContextId, async (uid) => {
-    const { storePath, store } = await loadStore(uid);
-    const nextNotes = store.notes.filter((note) => sanitizeNoteId(note.id) !== normalizedNoteId);
-    if (nextNotes.length === store.notes.length) {
-      return { ok: false, code: "notes.not_found", message: "Note not found.", deleted: false };
-    }
-    const nextStore = normalizeStore({
-      ...store,
-      updatedAt: new Date().toISOString(),
-      notes: nextNotes,
-    });
-    await atomicWriteJson(storePath, nextStore);
-    return { ok: true, code: "notes.delete_ok", message: "Note deleted.", deleted: true };
-  });
+  const removed = tx(
+    (db) => db.prepare("DELETE FROM notes WHERE user_id = ? AND id = ?").run(uid, normalizedNoteId).changes > 0,
+  );
+  if (!removed) return { ok: false, code: "notes.not_found", message: "Note not found.", deleted: false };
+  return { ok: true, code: "notes.delete_ok", message: "Note deleted.", deleted: true };
 }
 
 async function resolveTargetNoteId({ userContextId = "", noteId = "", useLast = false } = {}) {

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +7,7 @@ import {
   loadIdentityIntelligenceSnapshot,
   syncIdentityIntelligenceFromTurn,
 } from "../../../src/runtime/modules/context/identity/engine/index.js";
+import { kvDelete, kvGet } from "../../../src/db/index.js";
 
 const results = [];
 
@@ -28,23 +28,11 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return String(fs.readFileSync(filePath, "utf8") || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-}
-
 await run("Concurrent scheduler load keeps identity profiles divergent per user", async () => {
+  for (const userId of ["user-a", "user-b"]) {
+    kvDelete(userId, "identity-profile", "snapshot");
+    kvDelete(userId, "identity-profile", "audit");
+  }
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-identity-divergence-"));
   const workspaceA = path.join(root, "user-context", "user-a");
   const workspaceB = path.join(root, "user-context", "user-b");
@@ -152,10 +140,8 @@ await run("Concurrent scheduler load keeps identity profiles divergent per user"
   assert.equal(snapshotA.dynamicPreferences.responseVerbosity.selectedValue, "concise");
   assert.equal(snapshotB.dynamicPreferences.responseVerbosity.selectedValue, "detailed");
 
-  const auditAPath = path.join(workspaceA, "logs", "identity-intelligence.jsonl");
-  const auditBPath = path.join(workspaceB, "logs", "identity-intelligence.jsonl");
-  const auditA = parseJsonl(auditAPath);
-  const auditB = parseJsonl(auditBPath);
+  const auditA = kvGet("user-a", "identity-profile", "audit") || [];
+  const auditB = kvGet("user-b", "identity-profile", "audit") || [];
   assert.equal(auditA.length >= 20, true);
   assert.equal(auditB.length >= 20, true);
   assert.equal(auditA.every((entry) => String(entry.userContextId || "") === "user-a"), true);

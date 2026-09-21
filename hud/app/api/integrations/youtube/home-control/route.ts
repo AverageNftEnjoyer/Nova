@@ -7,6 +7,7 @@ import { checkUserRateLimit, RATE_LIMIT_POLICIES, rateLimitExceededResponse } fr
 import { runtimeSharedTokenErrorResponse, verifyRuntimeSharedToken } from "@/lib/security/runtime-auth"
 
 import { loadIntegrationsConfig, updateIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import { secretsUnavailableResponse } from "@/lib/integrations/store/secrets-errors"
 import { logYouTubeApi, safeJson, youtubeApiErrorResponse } from "../_shared"
 
 export const runtime = "nodejs"
@@ -60,10 +61,7 @@ function normalizePreferredSources(value: unknown): string[] {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeFeedRead)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
@@ -88,10 +86,7 @@ export async function POST(req: Request) {
   const runtimeTokenDecision = verifyRuntimeSharedToken(req)
   if (!runtimeTokenDecision.ok) return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
 
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeSearch, 2)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
@@ -144,7 +139,7 @@ export async function POST(req: Request) {
           homeCommandNonce: nextNonce,
         },
       },
-      verified,
+      { userId },
     )
 
     const preferredSources = Array.isArray(config.news.preferredSources)
@@ -162,7 +157,7 @@ export async function POST(req: Request) {
         strictSources,
         historyChannelIds: [],
       },
-      verified,
+      { userId },
     )
 
     const lead = feed.items[0] || null
@@ -211,6 +206,8 @@ export async function POST(req: Request) {
         : null,
     })
   } catch (error) {
+    const unavailable = secretsUnavailableResponse(error)
+    if (unavailable) return unavailable
     return youtubeApiErrorResponse(error, "Failed to update YouTube home module.")
   }
 }

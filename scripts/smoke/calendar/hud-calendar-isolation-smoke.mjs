@@ -27,8 +27,8 @@ await run("Calendar API routes enforce authenticated user scoping", () => {
   const conflictsRoute = read("hud/app/api/calendar/conflicts/route.ts");
 
   for (const route of [eventsRoute, rescheduleRoute, conflictsRoute]) {
-    assert.equal(route.includes("requireSupabaseApiUser"), true);
-    assert.equal(route.includes("const userId = verified.user.id"), true);
+    assert.equal(route.includes("requireLocalUser"), true);
+    assert.equal(route.includes("const { userId } = await requireLocalUser()"), true);
     assert.equal(route.includes("checkUserRateLimit(userId"), true);
   }
 
@@ -37,13 +37,19 @@ await run("Calendar API routes enforce authenticated user scoping", () => {
   assert.equal(conflictsRoute.includes("aggregateCalendarEvents(userId"), true);
 });
 
-await run("Reschedule store persists per-user overrides under user-context path", () => {
-  const store = read("hud/lib/calendar/reschedule-store/index.ts");
-  assert.equal(store.includes('path.join(resolveWorkspaceRoot(), ".user", "user-context")'), true);
-  assert.equal(store.includes("resolveUserContextRoot()"), true);
-  assert.equal(store.includes("resolveOverridesFile(uid)"), true);
-  assert.equal(store.includes("missionId"), true);
-  assert.equal(store.includes("userId"), true);
+await run("Reschedule store persists per-user overrides in SQLite, every statement scoped by user_id", () => {
+  const wrapper = read("hud/lib/calendar/reschedule-store/index.ts");
+  assert.equal(wrapper.includes("services/calendar/overrides-store/index.js"), true);
+  assert.equal(wrapper.includes("missionId"), true);
+  assert.equal(wrapper.includes("userId"), true);
+
+  const store = read("src/runtime/modules/services/calendar/overrides-store/index.js");
+  const statements = [...store.matchAll(/\.prepare\(\s*(`[^`]*`|"[^"]*")/g)].map((match) => match[1]);
+  assert.equal(statements.length >= 5, true, "expected the store to use prepared statements");
+  for (const sql of statements) {
+    assert.equal(/user_id\s*=\s*\?/.test(sql) || /\(\s*user_id\b/.test(sql), true, `statement is not user-scoped: ${sql.slice(0, 60)}`);
+  }
+  assert.equal(store.includes('".user"'), false, "no file-based user-context path may remain");
 });
 
 await run("Calendar websocket event types are scoped-only and user-bound", () => {

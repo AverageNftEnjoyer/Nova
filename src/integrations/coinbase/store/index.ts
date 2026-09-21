@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { decryptTokenFromStorage, encryptTokenForStorage } from "../crypto/index.js";
+import { resolveDataDir } from "../../../db/paths.js";
 
 export type CoinbaseSnapshotType = "spot_price" | "portfolio" | "transactions";
 export type CoinbaseAuditStatus = "ok" | "error";
@@ -697,18 +698,8 @@ export function coinbaseDbPathForUserContext(userContextIdInput: string, workspa
   if (!userContextId) {
     throw new Error("Missing userContextId for Coinbase DB path.");
   }
-  const fallback = path.resolve(workspaceRootInput || process.cwd());
-  let workspaceRoot = fallback;
-  for (let depth = 0; depth < 8; depth += 1) {
-    if (fs.existsSync(path.join(workspaceRoot, "hud")) && fs.existsSync(path.join(workspaceRoot, "src"))) break;
-    const parent = path.dirname(workspaceRoot);
-    if (!parent || parent === workspaceRoot) {
-      workspaceRoot = fallback;
-      break;
-    }
-    workspaceRoot = parent;
-  }
-  return path.join(workspaceRoot, ".user", "user-context", userContextId, "coinbase", "coinbase.sqlite");
+  void workspaceRootInput;
+  return path.join(resolveDataDir(), "user-context", userContextId, "coinbase", "coinbase.sqlite");
 }
 
 function ensureCoinbaseSchema(db: Database.Database): void {

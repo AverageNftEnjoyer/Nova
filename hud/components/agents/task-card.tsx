@@ -9,23 +9,25 @@ import { cn } from "@/lib/shared/utils"
 interface TaskCardProps {
   task: AgentTask
   isLight: boolean
+  subPanelClass: string
   onAction: (taskId: string, action: AgentTaskUiAction) => Promise<void>
 }
 
 interface StatusStyle {
   label: string
   Icon: ComponentType<{ className?: string }>
-  badge: string
+  lightText: string
+  darkText: string
   bar: string
 }
 
 const STATUS_STYLES: Record<AgentTaskStatus, StatusStyle> = {
-  running: { label: "Running", Icon: Loader2, badge: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600", bar: "bg-emerald-500" },
-  queued: { label: "Queued", Icon: Clock, badge: "border-yellow-500/40 bg-yellow-500/10 text-yellow-600", bar: "bg-yellow-500" },
-  paused: { label: "Paused", Icon: PauseCircle, badge: "border-sky-500/40 bg-sky-500/10 text-sky-600", bar: "bg-sky-500" },
-  completed: { label: "Completed", Icon: CheckCircle2, badge: "border-emerald-600/40 bg-emerald-600/10 text-emerald-600", bar: "bg-emerald-600" },
-  failed: { label: "Failed", Icon: XCircle, badge: "border-red-500/40 bg-red-500/10 text-red-500", bar: "bg-red-500" },
-  cancelled: { label: "Cancelled", Icon: Ban, badge: "border-slate-500/40 bg-slate-500/10 text-slate-500", bar: "bg-slate-500" },
+  running: { label: "Running", Icon: Loader2, lightText: "text-emerald-600", darkText: "text-emerald-400", bar: "bg-emerald-500" },
+  queued: { label: "Queued", Icon: Clock, lightText: "text-yellow-600", darkText: "text-yellow-400", bar: "bg-yellow-500" },
+  paused: { label: "Paused", Icon: PauseCircle, lightText: "text-sky-600", darkText: "text-sky-400", bar: "bg-sky-500" },
+  completed: { label: "Completed", Icon: CheckCircle2, lightText: "text-emerald-600", darkText: "text-emerald-400", bar: "bg-emerald-600" },
+  failed: { label: "Failed", Icon: XCircle, lightText: "text-red-600", darkText: "text-red-400", bar: "bg-red-500" },
+  cancelled: { label: "Cancelled", Icon: Ban, lightText: "text-slate-500", darkText: "text-slate-400", bar: "bg-slate-500" },
 }
 
 export const PERMISSION_MODE_LABELS: Record<AgentPermissionMode, string> = {
@@ -47,15 +49,15 @@ function formatTokens(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}M`
 }
 
-function formatStartedAgo(startedAt: string | undefined): string {
-  if (!startedAt) return "Not started"
+function formatElapsed(startedAt: string | undefined): string {
+  if (!startedAt) return ""
   const ts = Date.parse(startedAt)
-  if (!Number.isFinite(ts)) return "Not started"
+  if (!Number.isFinite(ts)) return ""
   const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000))
-  if (seconds < 60) return `Started ${seconds}s ago`
-  if (seconds < 3_600) return `Started ${Math.floor(seconds / 60)}m ago`
-  if (seconds < 86_400) return `Started ${Math.floor(seconds / 3_600)}h ago`
-  return `Started ${Math.floor(seconds / 86_400)}d ago`
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)}h`
+  return `${Math.floor(seconds / 86_400)}d`
 }
 
 interface ControlButtonProps {
@@ -74,14 +76,14 @@ function ControlButton({ title, tone, disabled, onClick, Icon }: ControlButtonPr
       aria-label={title}
       disabled={disabled}
       onClick={onClick}
-      className={cn("rounded p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50", tone)}
+      className={cn("inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-50", tone)}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-3.5 w-3.5" />
     </button>
   )
 }
 
-export function TaskCard({ task, isLight, onAction }: TaskCardProps) {
+export function TaskCard({ task, isLight, subPanelClass, onAction }: TaskCardProps) {
   const [isActing, setIsActing] = useState(false)
   const [, setClockTick] = useState(0)
 
@@ -91,7 +93,10 @@ export function TaskCard({ task, isLight, onAction }: TaskCardProps) {
   }, [])
   const style = STATUS_STYLES[task.status]
   const StatusIcon = style.Icon
+  const statusText = isLight ? style.lightText : style.darkText
   const isBypass = task.permissionMode === "bypass"
+  const elapsed = task.status === "running" ? formatElapsed(task.startedAt) : ""
+  const mutedText = isLight ? "text-s-50" : "text-slate-400"
 
   const handleAction = async (action: AgentTaskUiAction) => {
     setIsActing(true)
@@ -105,7 +110,7 @@ export function TaskCard({ task, isLight, onAction }: TaskCardProps) {
   const playTone = isLight ? "text-emerald-600 hover:bg-emerald-500/15" : "text-emerald-400 hover:bg-emerald-500/20"
   const pauseTone = isLight ? "text-sky-600 hover:bg-sky-500/15" : "text-sky-400 hover:bg-sky-500/20"
   const stopTone = isLight ? "text-orange-600 hover:bg-orange-500/15" : "text-orange-400 hover:bg-orange-500/20"
-  const deleteTone = isLight ? "text-red-600 hover:bg-red-500/15" : "text-red-400 hover:bg-red-500/20"
+  const deleteTone = isLight ? "text-s-50 hover:bg-red-500/15 hover:text-red-600" : "text-slate-400 hover:bg-red-500/20 hover:text-red-400"
 
   const canPlay = task.status === "paused" || task.status === "failed" || task.status === "cancelled"
   const canPause = task.status === "running" || task.status === "queued"
@@ -114,21 +119,17 @@ export function TaskCard({ task, isLight, onAction }: TaskCardProps) {
   return (
     <div
       className={cn(
-        "min-w-0 rounded-lg border p-3 transition-opacity",
-        isLight ? "border-gray-200 bg-white" : "border-slate-700 bg-slate-900/50",
+        "home-spotlight-card home-border-glow min-w-0 rounded-md border px-2.5 py-2 transition-opacity",
+        subPanelClass,
         isActing && "opacity-60",
       )}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <h3 className={cn("truncate text-sm font-semibold", isLight ? "text-gray-900" : "text-white")} title={task.name}>
-            {task.name}
-          </h3>
-          <p className={cn("truncate text-xs", isLight ? "text-gray-600" : "text-slate-400")}>
-            {task.agent} · {task.model}
-          </p>
-        </div>
-        <div className="flex flex-shrink-0 items-center gap-0.5">
+      <div className="flex items-center gap-2">
+        <StatusIcon className={cn("h-3.5 w-3.5 shrink-0", statusText, task.status === "running" && "animate-spin")} />
+        <h3 className={cn("min-w-0 flex-1 truncate text-[12px] font-semibold", isLight ? "text-s-90" : "text-slate-100")} title={task.name}>
+          {task.name}
+        </h3>
+        <div className="flex shrink-0 items-center gap-0.5">
           {canPlay ? (
             <ControlButton
               title={task.status === "paused" ? "Resume task" : "Retry task"}
@@ -148,31 +149,34 @@ export function TaskCard({ task, isLight, onAction }: TaskCardProps) {
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide", style.badge)}>
-          <StatusIcon className={cn("h-3 w-3", task.status === "running" && "animate-spin")} />
-          {style.label}
+      <div className={cn("mt-0.5 flex items-center justify-between gap-2 pl-[1.375rem] text-[10px]", mutedText)}>
+        <span className="min-w-0 truncate">
+          {task.agent} · {task.model}
         </span>
-        {task.permissionMode !== "default" ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-              isBypass
-                ? "border-red-500/50 bg-red-500/10 text-red-500"
-                : isLight
-                  ? "border-gray-300 text-gray-600"
-                  : "border-slate-600 text-slate-300",
-            )}
-          >
-            {isBypass ? <ShieldAlert className="h-3 w-3" /> : null}
-            {PERMISSION_MODE_LABELS[task.permissionMode]}
-          </span>
-        ) : null}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {task.permissionMode !== "default" ? (
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 rounded-full border px-1.5 text-[9px] font-medium uppercase tracking-wide",
+                isBypass
+                  ? "border-red-500/50 bg-red-500/10 text-red-500"
+                  : isLight
+                    ? "border-[#cdd9ea] text-s-60"
+                    : "border-white/15 text-slate-300",
+              )}
+            >
+              {isBypass ? <ShieldAlert className="h-2.5 w-2.5" /> : null}
+              {PERMISSION_MODE_LABELS[task.permissionMode]}
+            </span>
+          ) : null}
+          <span className={cn("font-medium", statusText)}>{style.label}</span>
+          {elapsed ? <span className="tabular-nums">· {elapsed}</span> : null}
+        </span>
       </div>
 
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-1.5 flex items-center gap-2 pl-[1.375rem]">
         <div
-          className={cn("h-1.5 flex-1 overflow-hidden rounded-full", isLight ? "bg-gray-200" : "bg-slate-700")}
+          className={cn("h-1 min-w-0 flex-1 overflow-hidden rounded-full", isLight ? "bg-black/10" : "bg-white/10")}
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
@@ -183,18 +187,15 @@ export function TaskCard({ task, isLight, onAction }: TaskCardProps) {
             style={{ width: `${task.progress}%` }}
           />
         </div>
-        <span className={cn("w-8 text-right text-[11px] tabular-nums", isLight ? "text-gray-600" : "text-slate-400")}>{task.progress}%</span>
-      </div>
-
-      <div className={cn("mt-2 flex items-center justify-between gap-2 text-xs", isLight ? "text-gray-600" : "text-slate-400")}>
-        <span className="min-w-0 truncate">{formatStartedAgo(task.startedAt)}</span>
-        <span className="flex flex-shrink-0 items-center gap-2 tabular-nums">
-          <span>{formatTokens(task.tokensIn + task.tokensOut)} tok</span>
-          <span className={cn("font-medium", isLight ? "text-gray-900" : "text-white")}>{formatCost(task.costUsd)}</span>
+        <span className={cn("shrink-0 text-[10px] tabular-nums", mutedText)}>
+          {task.progress}% · {formatTokens(task.tokensIn + task.tokensOut)} tok ·{" "}
+          <span className={cn("font-medium", isLight ? "text-s-80" : "text-slate-200")}>{formatCost(task.costUsd)}</span>
         </span>
       </div>
 
-      {task.error ? <div className="mt-2 rounded bg-red-500/10 px-2 py-1 text-xs text-red-500">{task.error}</div> : null}
+      {task.error ? (
+        <p className={cn("mt-1.5 line-clamp-2 pl-[1.375rem] text-[10px] leading-4", isLight ? "text-[#a53b3b]" : "text-rose-300")}>{task.error}</p>
+      ) : null}
     </div>
   )
 }

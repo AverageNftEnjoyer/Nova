@@ -149,7 +149,7 @@ export async function POST(req: Request) {
         )
       }
       await upsertMission(mission, userId)
-      await syncMissionScheduleBestEffort(mission, verified)
+      await syncMissionScheduleBestEffort(mission)
       await appendMissionVersionEntry({
         userContextId: userId,
         mission,
@@ -253,7 +253,7 @@ export async function POST(req: Request) {
         },
       }).catch(() => {})
       await upsertMission(diffResult.mission, userId)
-      await syncMissionScheduleBestEffort(diffResult.mission, verified)
+      await syncMissionScheduleBestEffort(diffResult.mission)
       await appendMissionVersionEntry({
         userContextId: userId,
         mission: diffResult.mission,
@@ -402,7 +402,7 @@ export async function POST(req: Request) {
         },
       }).catch(() => {})
       await upsertMission(diffResult.mission, userId)
-      await syncMissionScheduleBestEffort(diffResult.mission, verified)
+      await syncMissionScheduleBestEffort(diffResult.mission)
       await appendMissionVersionEntry({
         userContextId: userId,
         mission: diffResult.mission,
@@ -415,7 +415,7 @@ export async function POST(req: Request) {
     }
     const createdMission = { ...mission, userId }
     await upsertMission(createdMission, userId)
-    await syncMissionScheduleBestEffort(createdMission, verified)
+    await syncMissionScheduleBestEffort(createdMission)
     await appendMissionVersionEntry({
       userContextId: userId,
       mission: createdMission,
@@ -484,7 +484,7 @@ export async function DELETE(req: Request) {
 
     const deleted = missionDelete.deleted
     if (deleted) {
-      await removeMissionScheduleBestEffort(id, userId, verified)
+      await removeMissionScheduleBestEffort(id, userId)
     }
     const reason = deleted ? "deleted" : "not_found"
     console.info(

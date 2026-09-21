@@ -37,9 +37,7 @@ function normalizeBody(body: unknown): WorkspaceContextSyncInput {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized) return unauthorized
-  if (!verified?.user?.id) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const body = await req.json()

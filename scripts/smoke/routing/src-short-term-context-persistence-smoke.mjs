@@ -1,13 +1,10 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import path from "node:path";
-
 import {
   clearShortTermContextState,
   readShortTermContextState,
   upsertShortTermContextState,
 } from "../../../src/runtime/modules/chat/core/short-term-context-engine/index.js";
-import { USER_CONTEXT_ROOT } from "../../../src/runtime/core/constants/index.js";
+import { getDb } from "../../../src/db/index.js";
 
 const results = [];
 
@@ -43,17 +40,13 @@ await run("Calendar, voice, and tts short-term contexts persist to user-scoped s
     assert.equal(String(loaded?.slots?.smoke || ""), `${domainId}-slot`);
   }
 
-  const storePath = path.join(
-    USER_CONTEXT_ROOT,
-    userContextId,
-    "state",
-    "short-term-context-state.json",
-  );
-  assert.equal(fs.existsSync(storePath), true, "expected short-term context state store file");
-  const raw = fs.readFileSync(storePath, "utf8");
-  assert.equal(raw.includes(`${conversationId}::calendar`), true);
-  assert.equal(raw.includes(`${conversationId}::voice`), true);
-  assert.equal(raw.includes(`${conversationId}::tts`), true);
+  const keys = getDb()
+    .prepare("SELECT key FROM kv_state WHERE user_id = ? AND namespace = 'short-term-context' ORDER BY key")
+    .all(userContextId)
+    .map((row) => row.key);
+  assert.equal(keys.includes(`${conversationId}::calendar`), true);
+  assert.equal(keys.includes(`${conversationId}::voice`), true);
+  assert.equal(keys.includes(`${conversationId}::tts`), true);
 });
 
 await run("Persistent short-term context clearing is scoped by user and conversation", async () => {

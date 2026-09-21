@@ -214,7 +214,6 @@ export function useHomeMainScreenState() {
     panelClass: visuals.panelClass,
     subPanelClass: visuals.subPanelClass,
     missionHover: visuals.missionHover,
-    missions: integrations.missions,
     cryptoAssets: cryptoMarket.cryptoAssets,
     cryptoRange: cryptoMarket.cryptoRange,
     setCryptoRange: cryptoMarket.setCryptoRange,

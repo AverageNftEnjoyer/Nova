@@ -2,9 +2,6 @@ import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 
 export const IDENTITY_SCHEMA_VERSION = 1;
 export const IDENTITY_SEED_SCHEMA_VERSION = 1;
-export const IDENTITY_FILE_NAME = "identity-intelligence.json";
-export const IDENTITY_SEED_FILE_NAME = "identity-seed.json";
-export const IDENTITY_AUDIT_FILE_NAME = "identity-intelligence.jsonl";
 export const IDENTITY_MAX_AUDIT_DECISIONS = 24;
 export const IDENTITY_MAX_AUDIT_SIGNALS = 32;
 export const IDENTITY_MAX_CANDIDATES_PER_FIELD = 12;

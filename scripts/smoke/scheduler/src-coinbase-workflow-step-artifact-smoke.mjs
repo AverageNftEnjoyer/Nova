@@ -65,10 +65,21 @@ const repoRoot = process.cwd();
 const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-cb-step-smoke-"));
 const hudRoot = path.join(tmpRoot, "hud");
 await fsp.mkdir(hudRoot, { recursive: true });
+const persistedArtifacts = [];
 
 const artifactModule = loadTsModule(
   "hud/lib/missions/workflow/coinbase-artifacts.ts",
-  {},
+  {
+    "../../../../src/runtime/modules/services/missions/persistence/sqlite-store.js": {
+      sanitizeUserContextId: (value) => String(value || "").trim().toLowerCase(),
+      insertArtifactRecord: (record) => {
+        persistedArtifacts.unshift(structuredClone(record));
+      },
+      listArtifactRecords: (userId, limit) =>
+        persistedArtifacts.filter((record) => record.userContextId === userId).slice(0, limit),
+      pruneExpiredArtifactRecords: () => 0,
+    },
+  },
   {
     process: { ...process, cwd: () => hudRoot, env: process.env },
   },
@@ -152,17 +163,7 @@ await run("P26-CB2 coinbase step executes, persists artifact, and re-reads on ne
   assert.equal(second.recentArtifacts.length >= 1, true);
   assert.equal(second.priorArtifactContextSnippet.includes(String(first.artifactRef)), true);
 
-  const artifactDir = path.join(
-    tmpRoot,
-    ".user",
-    "user-context",
-    "smoke-user-a",
-    "state",
-    "missions",
-    "coinbase-artifacts",
-  );
-  const files = await fsp.readdir(artifactDir);
-  assert.equal(files.some((name) => name.endsWith(".jsonl")), true);
+  assert.equal(persistedArtifacts.some((record) => record.userContextId === "smoke-user-a"), true);
 });
 
 await run("P26-CB4 telemetry emits user-safe structured events with required ids", async () => {

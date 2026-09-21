@@ -20,6 +20,7 @@ import {
   resolveConfiguredChatRuntime,
 } from "../../llm/providers/index.js";
 import { countApproxTokens } from "../../../core/context-prompt/index.js";
+import { getDb } from "../../../../db/index.js";
 
 function requireScopedUserContextId(userContextId, operation) {
   const normalized = sessionRuntime.normalizeUserContextId(userContextId || "");
@@ -49,15 +50,13 @@ export function resolvePersonaWorkspaceDir(userContextId) {
 }
 
 export function resolvePersonaProfileDir(userContextId = "") {
-  const userDir = resolvePersonaWorkspaceDir(userContextId);
-  if (!userDir) return "";
-  return path.join(userDir, "profile");
+  const normalized = requireScopedUserContextId(userContextId, "resolvePersonaProfileDir");
+  return `sqlite:kv_state/${normalized}/persona-profile`;
 }
 
 export function resolveIdentitySnapshotPath(userContextId = "") {
-  const profileDir = resolvePersonaProfileDir(userContextId);
-  if (!profileDir) return "";
-  return path.join(profileDir, "identity-intelligence.json");
+  const normalized = requireScopedUserContextId(userContextId, "resolveIdentitySnapshotPath");
+  return `sqlite:kv_state/${normalized}/identity-profile/snapshot`;
 }
 
 // ===== Raw stream logging =====
@@ -96,10 +95,12 @@ export function logUpgradeIndexSummary() {
 // ===== Preflight diagnostics =====
 function readIntegrationsConfigSnapshot(userContextId = "") {
   const filePath = resolveScopedIntegrationsConfigPath(userContextId);
-  if (!fs.existsSync(filePath)) return { exists: false, parsed: null, parseError: null, filePath };
   try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    return { exists: true, parsed: JSON.parse(raw), parseError: null, filePath };
+    const row = getDb()
+      .prepare("SELECT value_json FROM integration_state WHERE user_id = ? AND integration = 'runtime' AND key = 'snapshot'")
+      .get(requireScopedUserContextId(userContextId, "readIntegrationsConfigSnapshot"));
+    if (!row) return { exists: false, parsed: null, parseError: null, filePath };
+    return { exists: true, parsed: JSON.parse(row.value_json), parseError: null, filePath };
   } catch (err) {
     return { exists: true, parsed: null, parseError: describeUnknownError(err), filePath };
   }
@@ -119,15 +120,10 @@ function extractIntegrationConfigHints(parsed) {
 
 function listScopedIntegrationContextIds() {
   try {
-    if (!fs.existsSync(USER_CONTEXT_ROOT)) return [];
-    const entries = fs.readdirSync(USER_CONTEXT_ROOT, { withFileTypes: true });
-    return entries
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .filter((id) => {
-        const statePath = path.join(USER_CONTEXT_ROOT, id, "state", "integrations-config.json");
-        return fs.existsSync(statePath);
-      });
+    return getDb()
+      .prepare("SELECT DISTINCT user_id FROM integration_state WHERE integration = 'runtime' AND key = 'snapshot' ORDER BY user_id")
+      .all()
+      .map((row) => row.user_id);
   } catch {
     return [];
   }
@@ -210,21 +206,13 @@ const _integrationWatcherKeys = new Set();
 
 function resolveScopedIntegrationsConfigPath(userContextId = "") {
   const normalized = requireScopedUserContextId(userContextId, "resolveScopedIntegrationsConfigPath");
-  return path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
+  return `sqlite:integration_state/${normalized}/runtime/snapshot`;
 }
 
 function ensureIntegrationsFileWatcher(userContextId = "") {
   const normalized = requireScopedUserContextId(userContextId, "ensureIntegrationsFileWatcher");
   if (_integrationWatcherKeys.has(normalized)) return;
-  const scopedPath = resolveScopedIntegrationsConfigPath(normalized);
-  try {
-    fs.watch(scopedPath, { persistent: false }, () => {
-      _integrationsCache.delete(normalized);
-    });
-    _integrationWatcherKeys.add(normalized);
-  } catch {
-    // File may not exist yet; cache will still TTL-expire correctly.
-  }
+  _integrationWatcherKeys.add(normalized);
 }
 
 export function cachedLoadIntegrationsRuntime(opts = {}) {

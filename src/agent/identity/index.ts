@@ -51,8 +51,8 @@ function normalizeText(value: unknown): string {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function resolveSnapshotPath(personaWorkspaceDir: string): string {
-  return path.join(path.resolve(personaWorkspaceDir), "profile", "identity-intelligence.json");
+function resolveSnapshotPath(userContextId: string): string {
+  return `sqlite:kv_state/${userContextId}/identity-profile/snapshot`;
 }
 
 function resolveConversationId(params: { conversationId?: string; threadId?: string; chatId?: string }): string {
@@ -109,7 +109,7 @@ export async function syncAgentIdentitySignals(params: AgentIdentitySyncParams):
   const sessionKey = normalizeText(params.sessionKey || "");
   const source = normalizeText(params.source || "agent") || "agent";
   const conversationId = resolveConversationId(params);
-  const snapshotPath = resolveSnapshotPath(personaWorkspaceDir);
+  const snapshotPath = resolveSnapshotPath(userContextId);
   const userInputText = normalizeText(params.userInputText || "");
   const toolCalls = Array.isArray(params.toolCalls) ? params.toolCalls.filter((name) => normalizeText(name)) : [];
 

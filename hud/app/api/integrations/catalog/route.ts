@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"
 export async function GET(req: Request) {
   const { userId } = await requireLocalUser()
 
-  const [catalog, config] = await Promise.all([loadIntegrationCatalog(verified), loadIntegrationsConfig({ userId })])
+  const [catalog, config] = await Promise.all([loadIntegrationCatalog({ userId }), loadIntegrationsConfig({ userId })])
   return NextResponse.json({
     catalog,
     updatedAt: config.updatedAt,

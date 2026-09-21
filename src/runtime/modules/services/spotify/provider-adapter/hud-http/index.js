@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describeUnknownError } from "../../../../llm/providers/index.js";
 
 const DEFAULT_TIMEOUT_MS = 7_500;
@@ -12,19 +11,13 @@ function toBoundedInt(value, defaultValue, minValue, maxValue) {
 }
 
 function resolveHudApiBaseUrl(input) {
-  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
+  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://127.0.0.1:3000")
     .trim()
     .replace(/\/+$/, "");
 }
 
 function resolveRuntimeSharedToken(input) {
-  const explicit = String(input || process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
-  if (explicit) return explicit;
-  const encryptionKey = String(process.env.NOVA_ENCRYPTION_KEY || "").trim();
-  if (!encryptionKey) return "";
-  return createHash("sha256")
-    .update(`nova-runtime-shared-token:${encryptionKey}`)
-    .digest("hex");
+  return String(input || process.env.NOVA_RUNTIME_SHARED_TOKEN || "").trim();
 }
 
 function resolveRuntimeSharedTokenHeader(input) {
@@ -42,13 +35,6 @@ function buildJsonHeaders(options = {}) {
   const sharedHeader = resolveRuntimeSharedTokenHeader(options.runtimeSharedTokenHeader);
   if (sharedToken) headers[sharedHeader] = sharedToken;
   return headers;
-}
-
-function buildAuthorizedHeaders(token, options = {}) {
-  return {
-    ...buildJsonHeaders(options),
-    Authorization: `Bearer ${token}`,
-  };
 }
 
 function isTransientStatus(status) {
@@ -115,7 +101,6 @@ export function createSpotifyHudHttpAdapter() {
       const action = String(input.action || "").trim();
       const intent = input.intent && typeof input.intent === "object" ? input.intent : {};
       const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
-      const token = String(ctx?.supabaseAccessToken || "").trim();
       const normalizedUserContextId = String(ctx?.userContextId || "").trim();
 
       if (action === "open") {
@@ -130,7 +115,7 @@ export function createSpotifyHudHttpAdapter() {
         };
       }
 
-      const headers = token ? buildAuthorizedHeaders(token, options) : buildJsonHeaders(options);
+      const headers = buildJsonHeaders(options);
       const body = {
         action,
         query: String(intent?.query || "").trim(),

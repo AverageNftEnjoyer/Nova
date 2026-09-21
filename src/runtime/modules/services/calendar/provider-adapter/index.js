@@ -1,14 +1,12 @@
-import path from "node:path";
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
-
-import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
 import { loadMissions } from "../../missions/persistence/index.js";
 import { resolveTimezone } from "../../shared/timezone/index.js";
+import {
+  deleteRescheduleOverride,
+  loadRescheduleOverrides,
+  setRescheduleOverride,
+} from "../overrides-store/index.js";
 import { createGoogleCalendarHudHttpAdapter } from "./google-events-hud-http/index.js";
 
-const CALENDAR_DIR_NAME = "calendar";
-const OVERRIDES_FILE_NAME = "calendar-overrides.json";
 const DEFAULT_CALENDAR_WINDOW_DAYS = 7;
 const DEFAULT_GOOGLE_EVENT_LOOKUP_PAST_DAYS = 365;
 const DEFAULT_GOOGLE_EVENT_LOOKUP_FUTURE_DAYS = 365;
@@ -32,9 +30,6 @@ const DAY_MAP = Object.freeze({
   sat: 6,
 });
 
-const writesByPath = new Map();
-const locksByUserId = new Map();
-
 function normalizeText(value = "") {
   return String(value || "").trim();
 }
@@ -52,14 +47,6 @@ function normalizeMissionQuery(value = "") {
   return normalizeText(value)
     .replace(/^["']|["']$/g, "")
     .replace(/\s+/g, " ");
-}
-
-function resolveUserContextRoot() {
-  return USER_CONTEXT_ROOT;
-}
-
-function resolveOverridesFile(userId = "") {
-  return path.join(resolveUserContextRoot(), userId, CALENDAR_DIR_NAME, OVERRIDES_FILE_NAME);
 }
 
 function estimateDurationMs(nodeCount = 1) {
@@ -190,139 +177,6 @@ function normalizeGoogleEvent(raw = {}) {
     provider: "gcalendar",
     status: normalizeText(raw?.status || "confirmed") || "confirmed",
   };
-}
-
-async function atomicWriteJson(filePath, payload) {
-  const resolved = path.resolve(filePath);
-  const previous = writesByPath.get(resolved) ?? Promise.resolve();
-  const next = previous
-    .catch(() => undefined)
-    .then(async () => {
-      await mkdir(path.dirname(resolved), { recursive: true });
-      const tmpPath = `${resolved}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
-      await writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-      try {
-        await copyFile(resolved, `${resolved}.bak`);
-      } catch {
-      }
-      await rename(tmpPath, resolved);
-    });
-  writesByPath.set(resolved, next);
-  try {
-    await next;
-  } finally {
-    if (writesByPath.get(resolved) === next) writesByPath.delete(resolved);
-  }
-}
-
-function validateOverrideRecord(raw = {}) {
-  const source = raw && typeof raw === "object" ? raw : {};
-  const missionId = normalizeText(source.missionId);
-  const userId = normalizeUserId(source.userId);
-  const originalTime = normalizeText(source.originalTime);
-  const overriddenTime = normalizeText(source.overriddenTime);
-  if (!missionId || !userId || !Date.parse(originalTime) || !Date.parse(overriddenTime)) return null;
-  return {
-    missionId,
-    userId,
-    originalTime,
-    overriddenTime,
-    overriddenBy: source.overriddenBy === "builder" ? "builder" : "calendar",
-    createdAt: normalizeText(source.createdAt) || new Date().toISOString(),
-    updatedAt: normalizeText(source.updatedAt) || new Date().toISOString(),
-  };
-}
-
-async function readOverridesFile(filePath) {
-  try {
-    const raw = await readFile(filePath, "utf8");
-    if (!raw.trim()) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return null;
-    return parsed.map((entry) => validateOverrideRecord(entry)).filter(Boolean);
-  } catch {
-    return null;
-  }
-}
-
-async function loadRescheduleOverrides(userId = "") {
-  const normalizedUserId = normalizeUserId(userId);
-  if (!normalizedUserId) return [];
-  const filePath = resolveOverridesFile(normalizedUserId);
-  const primary = await readOverridesFile(filePath);
-  if (primary) return primary;
-  const backup = await readOverridesFile(`${filePath}.bak`);
-  if (backup) {
-    await atomicWriteJson(filePath, backup);
-    return backup;
-  }
-  return [];
-}
-
-async function setRescheduleOverride(userId = "", missionId = "", newStartAt = "", originalTime = "") {
-  const normalizedUserId = normalizeUserId(userId);
-  const normalizedMissionId = normalizeText(missionId);
-  const normalizedNewStartAt = normalizeText(newStartAt);
-  const normalizedOriginalTime = normalizeText(originalTime);
-  if (!normalizedUserId || !normalizedMissionId || !Date.parse(normalizedNewStartAt) || !Date.parse(normalizedOriginalTime)) {
-    throw new Error("Invalid calendar override input.");
-  }
-
-  const previous = locksByUserId.get(normalizedUserId) ?? Promise.resolve();
-  let result = null;
-  const next = previous.catch(() => undefined).then(async () => {
-    const overrides = await loadRescheduleOverrides(normalizedUserId);
-    const now = new Date().toISOString();
-    const existing = overrides.find((entry) => entry.missionId === normalizedMissionId);
-    if (existing) {
-      existing.overriddenTime = normalizedNewStartAt;
-      existing.updatedAt = now;
-      result = existing;
-    } else {
-      result = {
-        missionId: normalizedMissionId,
-        userId: normalizedUserId,
-        originalTime: normalizedOriginalTime,
-        overriddenTime: normalizedNewStartAt,
-        overriddenBy: "calendar",
-        createdAt: now,
-        updatedAt: now,
-      };
-      overrides.push(result);
-    }
-    await atomicWriteJson(resolveOverridesFile(normalizedUserId), overrides);
-  });
-  locksByUserId.set(normalizedUserId, next);
-  try {
-    await next;
-  } finally {
-    if (locksByUserId.get(normalizedUserId) === next) locksByUserId.delete(normalizedUserId);
-  }
-  return result;
-}
-
-async function deleteRescheduleOverride(userId = "", missionId = "") {
-  const normalizedUserId = normalizeUserId(userId);
-  const normalizedMissionId = normalizeText(missionId);
-  if (!normalizedUserId || !normalizedMissionId) return false;
-
-  const previous = locksByUserId.get(normalizedUserId) ?? Promise.resolve();
-  let deleted = false;
-  const next = previous.catch(() => undefined).then(async () => {
-    const overrides = await loadRescheduleOverrides(normalizedUserId);
-    const filtered = overrides.filter((entry) => entry.missionId !== normalizedMissionId);
-    deleted = filtered.length !== overrides.length;
-    if (deleted) {
-      await atomicWriteJson(resolveOverridesFile(normalizedUserId), filtered);
-    }
-  });
-  locksByUserId.set(normalizedUserId, next);
-  try {
-    await next;
-  } finally {
-    if (locksByUserId.get(normalizedUserId) === next) locksByUserId.delete(normalizedUserId);
-  }
-  return deleted;
 }
 
 function buildWindow(windowKey = "week") {

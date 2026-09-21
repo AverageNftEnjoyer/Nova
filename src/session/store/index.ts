@@ -1,16 +1,23 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { SessionConfig } from "../../config/types/index.js";
 import {
   normalizeUserContextId,
   parseSessionKeyUserContext,
 } from "../key/index.js";
+// The data layer is plain JS beside the runtime (src/session/sqlite-store). It is imported by repo-root-relative path
+// so the same file is used from src/ (tsx/tests) and from the compiled dist/ output.
+import {
+  appendSessionTurn,
+  deleteSessionEntry,
+  findSessionEntryAcrossUsers,
+  findUserIdForSessionId,
+  getSessionEntry,
+  loadSessionTurns,
+  pruneSessionTurnsOlderThan,
+  putSessionEntry,
+} from "../../../src/session/sqlite-store/index.js";
 import type { SessionEntry, TranscriptTurn } from "../types/index.js";
 
 export class SessionStore {
-  private readonly storePath: string;
-  private readonly transcriptDir: string;
-  private readonly userContextRoot: string;
   private readonly transcriptsEnabled: boolean;
   private readonly maxTranscriptLines: number;
   private readonly transcriptRetentionDays: number;
@@ -28,11 +35,6 @@ export class SessionStore {
       allowCrossContextLookup?: boolean;
     };
 
-    this.storePath = path.resolve(config.storePath);
-    this.transcriptDir = path.resolve(config.transcriptDir);
-    this.userContextRoot = path.resolve(
-      extended.userContextRoot || path.join(this.transcriptDir, "..", "user-context"),
-    );
     this.transcriptsEnabled = extended.transcriptsEnabled !== false;
     this.maxTranscriptLines = Number.isFinite(extended.maxTranscriptLines)
       ? Math.trunc(Number(extended.maxTranscriptLines))
@@ -44,8 +46,6 @@ export class SessionStore {
       typeof extended.allowCrossContextLookup === "boolean"
         ? extended.allowCrossContextLookup
         : String(process.env.NOVA_SESSION_ALLOW_CROSS_CONTEXT_LOOKUP || "").trim() === "1";
-
-    this.ensurePaths();
   }
 
   public appendTurn(sessionKey: string, role: string, content: unknown): void {
@@ -64,7 +64,6 @@ export class SessionStore {
     meta?: Record<string, unknown>,
   ): void {
     if (!this.transcriptsEnabled) return;
-    this.ensurePaths();
 
     const normalizedSessionId = String(sessionId || "").trim();
     if (!normalizedSessionId) return;
@@ -74,8 +73,6 @@ export class SessionStore {
     if (!effectiveContextId) {
       throw new Error(`appendTurnBySessionId requires mapped userContextId for session ${normalizedSessionId}`);
     }
-    const transcriptFile = this.getScopedTranscriptPath(normalizedSessionId, effectiveContextId);
-    if (!transcriptFile) return;
 
     const entry: TranscriptTurn = {
       role,
@@ -84,9 +81,7 @@ export class SessionStore {
       ...(tokens ? { tokens } : {}),
       ...(meta ? { meta } : {}),
     };
-    fs.mkdirSync(path.dirname(transcriptFile), { recursive: true });
-    fs.appendFileSync(transcriptFile, `${JSON.stringify(entry)}\n`, "utf8");
-    this.trimTranscriptFile(transcriptFile);
+    appendSessionTurn(effectiveContextId, normalizedSessionId, entry, { maxTurns: this.maxTranscriptLines });
   }
 
   public loadTranscript(sessionId: string, userContextId = ""): TranscriptTurn[] {
@@ -97,9 +92,7 @@ export class SessionStore {
     const scopedUserContextId =
       normalizeUserContextId(userContextId) || this.resolveUserContextIdForSessionId(normalizedSessionId);
     if (!scopedUserContextId) return [];
-    const scopedPath = this.getScopedTranscriptPath(normalizedSessionId, scopedUserContextId);
-    if (!scopedPath) return [];
-    return this.readTranscriptFile(scopedPath);
+    return loadSessionTurns(scopedUserContextId, normalizedSessionId) as TranscriptTurn[];
   }
 
   public getEntry(sessionKey: string, userContextId = ""): SessionEntry | null {
@@ -111,9 +104,7 @@ export class SessionStore {
       parseSessionKeyUserContext(normalizedKey);
 
     if (normalizedContext) {
-      const scopedPath = this.getScopedSessionStorePath(normalizedContext);
-      const scopedStore = this.loadStoreFromPath(scopedPath);
-      const scopedEntry = scopedStore[normalizedKey] ?? null;
+      const scopedEntry = getSessionEntry(normalizedContext, normalizedKey) as SessionEntry | null;
       if (scopedEntry) {
         if (scopedEntry.sessionId) this.sessionUserContextCache.set(String(scopedEntry.sessionId), normalizedContext);
         return scopedEntry;
@@ -121,23 +112,15 @@ export class SessionStore {
     }
 
     if (this.allowCrossContextLookup) {
-      try {
-        const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
-        for (const contextEntry of contextDirs) {
-          if (!contextEntry.isDirectory()) continue;
-          const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
-          const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
-          const entry = scopedStore[normalizedKey];
-          if (!entry) continue;
-          const resolved =
-            normalizeUserContextId(entry.userContextId || "") ||
-            normalizeUserContextId(contextEntry.name) ||
-            parseSessionKeyUserContext(entry.sessionKey || normalizedKey);
-          if (resolved && entry.sessionId) this.sessionUserContextCache.set(String(entry.sessionId), resolved);
-          return entry;
-        }
-      } catch {
-        // Ignore scan failures and report no entry.
+      const found = findSessionEntryAcrossUsers(normalizedKey);
+      if (found) {
+        const entry = found.entry as SessionEntry;
+        const resolved =
+          normalizeUserContextId(entry.userContextId || "") ||
+          normalizeUserContextId(found.userId) ||
+          parseSessionKeyUserContext(entry.sessionKey || normalizedKey);
+        if (resolved && entry.sessionId) this.sessionUserContextCache.set(String(entry.sessionId), resolved);
+        return entry;
       }
     }
 
@@ -155,15 +138,10 @@ export class SessionStore {
       throw new Error(`setEntry requires userContextId for session key ${normalizedKey}`);
     }
 
-    const storeInfo = this.loadSessionStoreForContext(normalizedContext, normalizedKey);
-    const normalizedEntry: SessionEntry = normalizedContext
-      ? { ...entry, userContextId: normalizedContext }
-      : { ...entry };
+    const normalizedEntry: SessionEntry = { ...entry, userContextId: normalizedContext };
+    putSessionEntry(normalizedContext, normalizedKey, normalizedEntry);
 
-    storeInfo.store[normalizedKey] = normalizedEntry;
-    this.saveStoreToPath(storeInfo.storePath, storeInfo.store);
-
-    if (normalizedContext && normalizedEntry.sessionId) {
+    if (normalizedEntry.sessionId) {
       this.sessionUserContextCache.set(String(normalizedEntry.sessionId), normalizedContext);
     }
   }
@@ -175,29 +153,8 @@ export class SessionStore {
     const normalizedContext =
       normalizeUserContextId(userContextId) ||
       parseSessionKeyUserContext(normalizedKey);
-
-    if (normalizedContext) {
-      const scopedPath = this.getScopedSessionStorePath(normalizedContext);
-      const scopedStore = this.loadStoreFromPath(scopedPath);
-      delete scopedStore[normalizedKey];
-      this.saveStoreToPath(scopedPath, scopedStore);
-      return;
-    }
-  }
-
-  public getTranscriptPath(sessionId: string, userContextId = ""): string {
-    const normalizedSessionId = String(sessionId || "").trim();
-    if (!normalizedSessionId) return "";
-    const normalizedContext = normalizeUserContextId(userContextId);
-    if (normalizedContext) {
-      return this.getScopedTranscriptPath(normalizedSessionId, normalizedContext);
-    }
-    return path.join(this.transcriptDir, `${normalizedSessionId}.jsonl`);
-  }
-
-  public ensurePaths(): void {
-    fs.mkdirSync(path.dirname(this.storePath), { recursive: true });
-    fs.mkdirSync(this.userContextRoot, { recursive: true });
+    if (!normalizedContext) return;
+    deleteSessionEntry(normalizedContext, normalizedKey);
   }
 
   public resolveUserContextIdForSessionId(sessionId: string): string {
@@ -207,28 +164,7 @@ export class SessionStore {
     const cached = this.sessionUserContextCache.get(normalizedSessionId);
     if (cached) return cached;
 
-    let resolved = "";
-    try {
-      const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
-      for (const contextEntry of contextDirs) {
-        if (!contextEntry.isDirectory()) continue;
-        const scopedPath = this.getScopedSessionStorePath(contextEntry.name);
-        const scopedStore = this.loadStoreFromPath(scopedPath, { createIfMissing: false });
-        for (const entry of Object.values(scopedStore)) {
-          if (!entry || typeof entry !== "object") continue;
-          if (String(entry.sessionId || "").trim() !== normalizedSessionId) continue;
-          resolved =
-            normalizeUserContextId(entry.userContextId || "") ||
-            normalizeUserContextId(contextEntry.name) ||
-            parseSessionKeyUserContext(entry.sessionKey || "");
-          break;
-        }
-        if (resolved) break;
-      }
-    } catch {
-      // Ignore lookup failures.
-    }
-
+    const resolved = normalizeUserContextId(findUserIdForSessionId(normalizedSessionId));
     if (resolved) this.sessionUserContextCache.set(normalizedSessionId, resolved);
     return resolved;
   }
@@ -245,148 +181,6 @@ export class SessionStore {
         ? this.transcriptRetentionDays
         : 0;
     if (retentionDays <= 0) return;
-    const retentionMs = retentionDays * 24 * 60 * 60 * 1000;
-
-    const pruneDir = (dirPath: string) => {
-      try {
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".jsonl")) continue;
-          const fullPath = path.join(dirPath, entry.name);
-          try {
-            const stat = fs.statSync(fullPath);
-            if (now - stat.mtimeMs > retentionMs) {
-              fs.unlinkSync(fullPath);
-            }
-          } catch {
-            // Ignore per-file failures.
-          }
-        }
-      } catch {
-        // Ignore per-directory failures.
-      }
-    };
-
-    pruneDir(this.transcriptDir);
-    try {
-      const contextDirs = fs.readdirSync(this.userContextRoot, { withFileTypes: true });
-      for (const contextEntry of contextDirs) {
-        if (!contextEntry.isDirectory()) continue;
-        pruneDir(path.join(this.userContextRoot, contextEntry.name, "transcripts"));
-      }
-    } catch {
-      // Ignore pruning failures.
-    }
-  }
-
-  private getScopedTranscriptPath(sessionId: string, userContextId: string): string {
-    const normalized = normalizeUserContextId(userContextId);
-    if (!normalized) return "";
-    return path.join(this.userContextRoot, normalized, "transcripts", `${sessionId}.jsonl`);
-  }
-
-  private getScopedSessionStorePath(userContextId: string): string {
-    const normalized = normalizeUserContextId(userContextId);
-    if (!normalized) return "";
-    return path.join(this.userContextRoot, normalized, "state", "sessions.json");
-  }
-
-  private ensureStoreFile(storePath: string): void {
-    if (!storePath) return;
-    fs.mkdirSync(path.dirname(storePath), { recursive: true });
-    if (!fs.existsSync(storePath)) {
-      fs.writeFileSync(storePath, "{}", "utf8");
-    }
-  }
-
-  private loadStoreFromPath(
-    storePath: string,
-    opts: { createIfMissing?: boolean } = {},
-  ): Record<string, SessionEntry> {
-    if (!storePath) return {};
-
-    const createIfMissing = opts.createIfMissing !== false;
-    if (createIfMissing) {
-      this.ensureStoreFile(storePath);
-    } else if (!fs.existsSync(storePath)) {
-      return {};
-    }
-
-    try {
-      const raw = fs.readFileSync(storePath, "utf8");
-      const parsed = JSON.parse(raw) as Record<string, SessionEntry>;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-    } catch {
-      // Ignore parse errors.
-    }
-    return {};
-  }
-
-  private saveStoreToPath(storePath: string, store: Record<string, SessionEntry>): void {
-    if (!storePath) return;
-    this.ensureStoreFile(storePath);
-    fs.writeFileSync(storePath, JSON.stringify(store, null, 2), "utf8");
-  }
-
-  private loadSessionStoreForContext(
-    userContextId: string,
-    sessionKey = "",
-  ): {
-    userContextId: string;
-    storePath: string;
-    store: Record<string, SessionEntry>;
-  } {
-    const normalized =
-      normalizeUserContextId(userContextId) ||
-      parseSessionKeyUserContext(sessionKey);
-    if (!normalized) {
-      throw new Error("Session store operations require userContextId.");
-    }
-    const scopedPath = this.getScopedSessionStorePath(normalized);
-    const scopedStore = this.loadStoreFromPath(scopedPath);
-
-    return {
-      userContextId: normalized,
-      storePath: scopedPath,
-      store: scopedStore,
-    };
-  }
-
-  private readTranscriptFile(transcriptPath: string): TranscriptTurn[] {
-    try {
-      if (!fs.existsSync(transcriptPath)) return [];
-      const raw = fs.readFileSync(transcriptPath, "utf8");
-      const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-      const out: TranscriptTurn[] = [];
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line) as TranscriptTurn;
-          if (typeof parsed.role !== "string") continue;
-          out.push(parsed);
-        } catch {
-          // Ignore malformed JSONL lines.
-        }
-      }
-      return out;
-    } catch {
-      return [];
-    }
-  }
-
-  private trimTranscriptFile(transcriptPath: string): void {
-    const maxLines =
-      Number.isFinite(this.maxTranscriptLines) && this.maxTranscriptLines > 0
-        ? this.maxTranscriptLines
-        : 0;
-    if (maxLines <= 0) return;
-    try {
-      const raw = fs.readFileSync(transcriptPath, "utf8");
-      const lines = raw.split(/\r?\n/).filter(Boolean);
-      if (lines.length <= maxLines) return;
-      const trimmed = lines.slice(-maxLines).join("\n");
-      fs.writeFileSync(transcriptPath, `${trimmed}\n`, "utf8");
-    } catch {
-      // Ignore best-effort pruning failures.
-    }
+    pruneSessionTurnsOlderThan(now - retentionDays * 24 * 60 * 60 * 1000);
   }
 }

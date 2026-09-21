@@ -41,55 +41,12 @@ export async function POST(req: Request) {
       throw new Error(parsed.error.issues[0]?.message || "Invalid playback request.")
     }
     const payload = parsed.data
-    const { unauthorized, verified } = await requireSupabaseApiUser(req)
-    const requestedUserContextId = normalizeUserContextId(payload.userContextId)
-    const runtimeTokenDecision = verified
-      ? { ok: true, authenticated: false as const }
-      : verifyRuntimeSharedToken(req)
-    if (!verified && !runtimeTokenDecision.ok) {
-      const hasAuthorizationHeader = String(req.headers.get("authorization") || "").trim().length > 0
-      if (!hasAuthorizationHeader) {
-        return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
-      }
-    }
-    const runtimeAuthenticated = runtimeTokenDecision.authenticated === true
+    const { userId } = await requireLocalUser()
 
-    let userId = ""
     let scope: Parameters<typeof controlSpotifyPlayback>[2]
 
-    if (verified) {
-      const verifiedUserContextId = normalizeUserContextId(userId)
-      if (requestedUserContextId && requestedUserContextId !== verifiedUserContextId) {
-        // Treat userContextId in payload as a client hint only; authenticated user scope
-        // is always derived from verified Supabase identity.
-        logSpotifyApi("playback.user_scope_hint_mismatch", {
-          requestedUserContextId,
-          verifiedUserContextId,
-        })
-      }
-      userId = verifiedUserContextId || userId
-      scope = verified
-    } else {
-      if (!runtimeAuthenticated) {
-        return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-      }
-      if (!requestedUserContextId) {
-        return NextResponse.json(
-          { ok: false, code: "spotify.user_context_required", error: "Spotify runtime requests require userContextId." },
-          { status: 400 },
-        )
-      }
-      userId = requestedUserContextId
-      scope = {
-        userId,
-        allowServiceRole: true,
-        serviceRoleReason: "runtime-bridge",
-      }
-      logSpotifyApi("playback.runtime_bridge", {
-        userContextId: userId,
-        action: payload.action,
-      })
-    }
+    // Local-only mode - simple scope
+    scope = { userId }
 
     const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.spotifyPlayback)
     if (!limit.allowed) return rateLimitExceededResponse(limit)

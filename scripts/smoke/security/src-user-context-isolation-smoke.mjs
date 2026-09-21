@@ -245,54 +245,12 @@ await run("User memory writes remain isolated for similar prompts", async () => 
 });
 
 await run("SessionStore does not cross-scan user contexts without explicit scope", async () => {
-  const storeModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "store.js")).href);
+  const storeModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "store", "index.js")).href);
   const { SessionStore } = storeModule;
 
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-session-store-isolation-"));
   const userContextRoot = path.join(root, "user-context");
-  const userAPath = path.join(userContextRoot, "user-a", "state", "sessions.json");
-  const userBPath = path.join(userContextRoot, "user-b", "state", "sessions.json");
-  await fsp.mkdir(path.dirname(userAPath), { recursive: true });
-  await fsp.mkdir(path.dirname(userBPath), { recursive: true });
-
   const sharedKey = "agent:nova:hud:main";
-  await fsp.writeFile(
-    userAPath,
-    JSON.stringify({
-      [sharedKey]: {
-        sessionId: "sess-a",
-        sessionKey: sharedKey,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        contextTokens: 0,
-        model: "",
-        userContextId: "user-a",
-      },
-    }, null, 2),
-    "utf8",
-  );
-  await fsp.writeFile(
-    userBPath,
-    JSON.stringify({
-      [sharedKey]: {
-        sessionId: "sess-b",
-        sessionKey: sharedKey,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-        contextTokens: 0,
-        model: "",
-        userContextId: "user-b",
-      },
-    }, null, 2),
-    "utf8",
-  );
-
   const store = new SessionStore({
     scope: "per-channel-peer",
     dmScope: "main",
@@ -309,6 +267,18 @@ await run("SessionStore does not cross-scan user contexts without explicit scope
     maxTranscriptLines: 400,
     transcriptRetentionDays: 30,
   });
+  const baseEntry = {
+    sessionKey: sharedKey,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    contextTokens: 0,
+    model: "",
+  };
+  store.setEntry(sharedKey, { ...baseEntry, sessionId: "sess-a", userContextId: "user-a" }, "user-a");
+  store.setEntry(sharedKey, { ...baseEntry, sessionId: "sess-b", userContextId: "user-b" }, "user-b");
 
   const unscoped = store.getEntry(sharedKey);
   const scopedA = store.getEntry(sharedKey, "user-a");

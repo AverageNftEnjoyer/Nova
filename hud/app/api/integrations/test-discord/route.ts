@@ -9,8 +9,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.integrationModelProbe)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
 
@@ -18,7 +17,7 @@ export async function POST(req: Request) {
     const now = new Date().toISOString()
     const results = await sendDiscordMessage({
       text: `Nova Discord integration test successful at ${now}`,
-    }, verified)
+    })
     const redactedResults = results.map((result) => ({
       webhookId: result.webhookId,
       ok: result.ok,

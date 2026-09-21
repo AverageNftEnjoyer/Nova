@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const results = [];
+const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-identity-db-"));
+process.env.NOVA_DATA_DIR = dataDir;
+const db = await import(
+  pathToFileURL(path.join(process.cwd(), "src/db/index.js")).href,
+);
 const engine = await import(
   pathToFileURL(path.join(process.cwd(), "src/runtime/modules/context/identity/engine/index.js")).href,
 );
@@ -35,23 +39,18 @@ async function createWorkspace(prefix) {
   return root;
 }
 
-function writeSeed(workspaceDir, data) {
-  const seedPath = path.join(workspaceDir, "profile", "identity-seed.json");
-  fs.writeFileSync(
-    seedPath,
-    `${JSON.stringify({
-      schemaVersion: 1,
-      source: "settings_sync",
-      updatedAt: new Date().toISOString(),
-      data,
-    }, null, 2)}\n`,
-    "utf8",
-  );
+function writeSeed(userContextId, data) {
+  db.kvSet(userContextId, "identity-profile", "seed", {
+    schemaVersion: 1,
+    source: "settings_sync",
+    updatedAt: new Date().toISOString(),
+    data,
+  });
 }
 
 await run("Identity scoring promotes explicit preference over seed defaults", async () => {
   const workspaceDir = await createWorkspace("nova-identity-unit-");
-  writeSeed(workspaceDir, {
+  writeSeed("identity-user-a", {
     assistantName: "Nova",
     userName: "Alex",
     communicationStyle: "casual",
@@ -117,24 +116,26 @@ await run("Identity prompt output respects explicit token cap", async () => {
 await run("Identity snapshots stay isolated per user context workspace", async () => {
   const workspaceA = await createWorkspace("nova-identity-unit-a-");
   const workspaceB = await createWorkspace("nova-identity-unit-b-");
+  const userA = `identity-isolation-a-${process.pid}-${Date.now()}`;
+  const userB = `identity-isolation-b-${process.pid}-${Date.now()}`;
 
   engine.recordIdentityMemoryUpdate({
-    userContextId: "identity-user-a",
+    userContextId: userA,
     workspaceDir: workspaceA,
     memoryFact: "my preferred name is Alpha",
   });
   engine.recordIdentityMemoryUpdate({
-    userContextId: "identity-user-b",
+    userContextId: userB,
     workspaceDir: workspaceB,
     memoryFact: "my preferred name is Beta",
   });
 
   const snapshotA = engine.loadIdentityIntelligenceSnapshot({
-    userContextId: "identity-user-a",
+    userContextId: userA,
     workspaceDir: workspaceA,
   }).snapshot;
   const snapshotB = engine.loadIdentityIntelligenceSnapshot({
-    userContextId: "identity-user-b",
+    userContextId: userB,
     workspaceDir: workspaceB,
   }).snapshot;
 
@@ -145,8 +146,9 @@ await run("Identity snapshots stay isolated per user context workspace", async (
 
 await run("Corrupt snapshot metadata fails closed and recovers to fresh schema", async () => {
   const workspaceDir = await createWorkspace("nova-identity-unit-");
-  const snapshotPath = path.join(workspaceDir, "profile", "identity-intelligence.json");
-  fs.writeFileSync(snapshotPath, "{broken-json", "utf8");
+  db.getDb().prepare(
+    "INSERT OR REPLACE INTO kv_state (user_id, namespace, key, value_json, updated_at) VALUES (?, 'identity-profile', 'snapshot', ?, ?)",
+  ).run("identity-user-d", "{broken-json", new Date().toISOString());
   const loaded = engine.loadIdentityIntelligenceSnapshot({
     userContextId: "identity-user-d",
     workspaceDir,

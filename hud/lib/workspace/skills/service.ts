@@ -1,8 +1,8 @@
 import path from "node:path"
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { kvGet, kvSet } from "../../../../src/db/index.js"
 
 const SKILL_FILE_NAME = "SKILL.md"
-const SKILL_META_FILE_NAME = ".meta.json"
 const MAX_SKILL_CHARS = 48_000
 export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SUPPORTED_FRONTMATTER_KEYS = new Set([
@@ -115,19 +115,16 @@ export function resolveSkillFilePath(workspaceRoot: string, userId: string, skil
   return path.join(resolveSkillsDir(workspaceRoot, userId), skillName, SKILL_FILE_NAME)
 }
 
-function resolveSkillMetaPath(workspaceRoot: string, userId: string): string {
-  return path.join(resolveSkillsDir(workspaceRoot, userId), SKILL_META_FILE_NAME)
-}
-
 export async function readSkillMeta(workspaceRoot: string, userId: string): Promise<SkillMeta> {
   const skillsDir = resolveSkillsDir(workspaceRoot, userId)
   await mkdir(skillsDir, { recursive: true })
-  const raw = await readFile(resolveSkillMetaPath(workspaceRoot, userId), "utf8").catch(() => "")
-  if (!raw) {
+  const scopedUserId = sanitizeUserContextId(userId)
+  const stored = scopedUserId ? kvGet(scopedUserId, "skills-profile", "starter-meta") : null
+  if (!stored) {
     return { startersInitialized: false, disabledStarters: [], catalogVersion: 0 }
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<SkillMeta>
+    const parsed = stored as Partial<SkillMeta>
     const disabled = Array.isArray(parsed.disabledStarters)
       ? parsed.disabledStarters.map((value) => normalizeSkillName(value)).filter((value) => STARTER_SKILL_NAMES.has(value))
       : []
@@ -147,19 +144,13 @@ export async function readSkillMeta(workspaceRoot: string, userId: string): Prom
 export async function writeSkillMeta(workspaceRoot: string, userId: string, meta: SkillMeta): Promise<void> {
   const skillsDir = resolveSkillsDir(workspaceRoot, userId)
   await mkdir(skillsDir, { recursive: true })
-  await writeFile(
-    resolveSkillMetaPath(workspaceRoot, userId),
-    JSON.stringify(
-      {
-        startersInitialized: Boolean(meta.startersInitialized),
-        disabledStarters: Array.from(new Set(meta.disabledStarters.map((value) => normalizeSkillName(value)).filter((value) => STARTER_SKILL_NAMES.has(value)))),
-        catalogVersion: Number.isFinite(meta.catalogVersion) ? Math.max(0, Number(meta.catalogVersion || 0)) : 0,
-      },
-      null,
-      2,
-    ),
-    "utf8",
-  )
+  const scopedUserId = sanitizeUserContextId(userId)
+  if (!scopedUserId) return
+  kvSet(scopedUserId, "skills-profile", "starter-meta", {
+    startersInitialized: Boolean(meta.startersInitialized),
+    disabledStarters: Array.from(new Set(meta.disabledStarters.map((value) => normalizeSkillName(value)).filter((value) => STARTER_SKILL_NAMES.has(value)))),
+    catalogVersion: Number.isFinite(meta.catalogVersion) ? Math.max(0, Number(meta.catalogVersion || 0)) : 0,
+  })
 }
 
 function compactStrings(values: unknown[]): string[] {

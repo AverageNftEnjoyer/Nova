@@ -11,10 +11,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeFeedRead, 2)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
@@ -53,7 +50,7 @@ export async function GET(req: Request) {
         preferredSources,
         historyChannelIds: parseCsv(parsed.data.historyChannelIds || ""),
       },
-      verified,
+      { userId },
     )
 
     logYouTubeApi("feed.success", {

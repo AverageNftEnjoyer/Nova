@@ -9,10 +9,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   try {
     const body = await safeJson(req)
@@ -20,7 +17,7 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       throw new Error(parsed.error.issues[0]?.message || "Invalid request body.")
     }
-    await disconnectYouTube(verified)
+    await disconnectYouTube({ userId })
     logYouTubeApi("disconnect.success", { userContextId: userId })
     return NextResponse.json({ ok: true })
   } catch (error) {

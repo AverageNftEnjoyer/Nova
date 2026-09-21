@@ -93,11 +93,9 @@ export async function POST(req: Request) {
   const runtimeTokenDecision = verifyRuntimeSharedToken(req)
   if (!runtimeTokenDecision.ok) return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
 
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionTrigger)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
-  const userId = userId
 
   ensureMissionSchedulerStarted({ startScheduler: ensureHudMissionSchedulerStarted })
 
@@ -160,7 +158,7 @@ export async function POST(req: Request) {
         attempt: 1,
         enforceOutputTime: false,
         skillSnapshot,
-        scope: verified,
+        scope: { userId },
       })
 
       const durationMs = Date.now() - startedAtMs
@@ -271,7 +269,7 @@ export async function POST(req: Request) {
     }
 
     const startedAt = new Date().toISOString()
-    const results = await dispatchOutput(integration, text, chatIds, adHocTarget, verified)
+    const results = await dispatchOutput(integration, text, chatIds, adHocTarget)
     const endedAt = new Date().toISOString()
     const ok = results.some((r) => r.ok)
 

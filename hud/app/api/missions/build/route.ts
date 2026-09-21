@@ -28,13 +28,9 @@ export async function POST(req: Request) {
   const runtimeTokenDecision = verifyRuntimeSharedToken(req)
   if (!runtimeTokenDecision.ok) return runtimeSharedTokenErrorResponse(runtimeTokenDecision)
 
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.missionBuild)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
-  const userId = userId
   const body = (await req.json()) as {
     prompt?: string
     deploy?: boolean
@@ -47,7 +43,7 @@ export async function POST(req: Request) {
     {
       ...body,
       userContextId: userId,
-      scope: verified,
+      scope: { userId },
     },
     {
       ensureMissionSchedulerStarted: () => ensureMissionSchedulerStarted({

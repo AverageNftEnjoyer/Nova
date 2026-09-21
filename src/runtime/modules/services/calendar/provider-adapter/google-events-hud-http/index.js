@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 const DEFAULT_TIMEOUT_MS = 7_500;
 const DEFAULT_RETRY_COUNT = 1;
 const TRANSIENT_RETRY_DELAY_MS = 180;
@@ -15,19 +13,13 @@ function toBoundedInt(value, fallback, minValue, maxValue) {
 }
 
 function resolveHudApiBaseUrl(input) {
-  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://localhost:3000")
+  return String(input || process.env.NOVA_HUD_API_BASE_URL || "http://127.0.0.1:3000")
     .trim()
     .replace(/\/+$/, "");
 }
 
 function resolveRuntimeSharedToken(input) {
-  const explicit = normalizeText(input || process.env.NOVA_RUNTIME_SHARED_TOKEN);
-  if (explicit) return explicit;
-  const encryptionKey = normalizeText(process.env.NOVA_ENCRYPTION_KEY);
-  if (!encryptionKey) return "";
-  return createHash("sha256")
-    .update(`nova-runtime-shared-token:${encryptionKey}`)
-    .digest("hex");
+  return normalizeText(input || process.env.NOVA_RUNTIME_SHARED_TOKEN);
 }
 
 function resolveRuntimeSharedTokenHeader(input) {
@@ -43,13 +35,6 @@ function buildJsonHeaders(options = {}) {
   const sharedHeader = resolveRuntimeSharedTokenHeader(options.runtimeSharedTokenHeader);
   if (sharedToken) headers[sharedHeader] = sharedToken;
   return headers;
-}
-
-function buildAuthorizedHeaders(token, options = {}) {
-  return {
-    ...buildJsonHeaders(options),
-    Authorization: `Bearer ${token}`,
-  };
 }
 
 function getTimeoutMs(options = {}) {
@@ -115,7 +100,6 @@ export function createGoogleCalendarHudHttpAdapter() {
     id: "google-calendar-hud-http-adapter",
     async list(input = {}, options = {}) {
       const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
-      const token = normalizeText(ctx.supabaseAccessToken);
       const userContextId = normalizeText(input.userContextId || ctx.userContextId);
       if (!userContextId) {
         return {
@@ -130,7 +114,7 @@ export function createGoogleCalendarHudHttpAdapter() {
         start: new Date(input.startAt || Date.now()).toISOString(),
         end: new Date(input.endAt || Date.now()).toISOString(),
       });
-      const headers = token ? buildAuthorizedHeaders(token, options) : buildJsonHeaders(options);
+      const headers = buildJsonHeaders(options);
       try {
         const res = await fetchWithTimeoutAndRetry(
           `${resolveHudApiBaseUrl(options.hudApiBaseUrl)}/api/calendar/google-events?${params.toString()}`,
@@ -157,9 +141,8 @@ export function createGoogleCalendarHudHttpAdapter() {
     },
     async create(input = {}, options = {}) {
       const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
-      const token = normalizeText(ctx.supabaseAccessToken);
       const userContextId = normalizeText(input.userContextId || ctx.userContextId);
-      const headers = token ? buildAuthorizedHeaders(token, options) : buildJsonHeaders(options);
+      const headers = buildJsonHeaders(options);
       try {
         const res = await fetchWithTimeoutAndRetry(
           `${resolveHudApiBaseUrl(options.hudApiBaseUrl)}/api/calendar/google-events`,
@@ -197,8 +180,7 @@ export function createGoogleCalendarHudHttpAdapter() {
     },
     async update(input = {}, options = {}) {
       const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
-      const token = normalizeText(ctx.supabaseAccessToken);
-      const headers = token ? buildAuthorizedHeaders(token, options) : buildJsonHeaders(options);
+      const headers = buildJsonHeaders(options);
       const eventId = encodeURIComponent(normalizeText(input.eventId));
       try {
         const res = await fetchWithTimeoutAndRetry(
@@ -237,8 +219,7 @@ export function createGoogleCalendarHudHttpAdapter() {
     },
     async delete(input = {}, options = {}) {
       const ctx = input.ctx && typeof input.ctx === "object" ? input.ctx : {};
-      const token = normalizeText(ctx.supabaseAccessToken);
-      const headers = token ? buildAuthorizedHeaders(token, options) : buildJsonHeaders(options);
+      const headers = buildJsonHeaders(options);
       const eventId = encodeURIComponent(normalizeText(input.eventId));
       try {
         const res = await fetchWithTimeoutAndRetry(

@@ -18,7 +18,6 @@ function toProviderLabel(provider = "") {
 export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
   const {
     userContextId = "",
-    supabaseAccessToken = "",
     sessionKey = "",
     source = "hud",
     latencyTelemetry = null,
@@ -33,7 +32,6 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
   const providerResolutionStartedAt = Date.now();
   await ensureRuntimeIntegrationsSnapshotRef({
     userContextId,
-    supabaseAccessToken,
   });
   const integrationsRuntime = cachedLoadIntegrationsRuntimeRef({ userContextId });
   const activeChatRuntime = resolveConfiguredChatRuntimeRef(integrationsRuntime);

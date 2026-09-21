@@ -11,10 +11,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.youtubeVideoRead)
   if (!limit.allowed) return rateLimitExceededResponse(limit)
@@ -32,7 +29,7 @@ export async function GET(req: Request) {
     if (!parsed.success) {
       throw new Error(parsed.error.issues[0]?.message || "Invalid YouTube video request.")
     }
-    const details = await getYouTubeVideoDetails(parsed.data.id, verified)
+    const details = await getYouTubeVideoDetails(parsed.data.id)
     logYouTubeApi("video.success", {
       userContextId: userId,
       videoId: details.id,

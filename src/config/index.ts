@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Config } from "./types/index.js";
+import { resolveDataDir } from "../db/paths.js";
 
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".myagent", "config.json");
 const RESERVED_SRC_USER_ENTRY = ".user";
@@ -98,7 +99,7 @@ const DEFAULT_CONFIG: Config = {
   },
   memory: {
     enabled: false,
-    dbPath: path.join(DEFAULT_WORKSPACE_ROOT, ".user", "memory.db"),
+    dbPath: path.join(resolveDataDir(), "memory.db"),
     embeddingProvider: "openai",
     embeddingModel: "text-embedding-3-small",
     embeddingApiKey: "",

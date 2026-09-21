@@ -9,10 +9,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function PATCH(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.polymarketWrite)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)
@@ -20,7 +17,7 @@ export async function PATCH(req: Request) {
   try {
     const body = (await req.json()) as { liveTradingEnabled?: boolean }
     const config = await updatePolymarketTradingPreference({
-      verified,
+      scope: { userId },
       liveTradingEnabled: body.liveTradingEnabled === true,
     })
     return NextResponse.json({ ok: true, config })

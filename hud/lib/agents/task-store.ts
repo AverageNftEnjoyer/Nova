@@ -1,18 +1,15 @@
 /**
  * Agent Task Store
  *
- * Persists per-user agent tasks as JSON at:
- *   .user/user-context/<userId>/agent-tasks/agent-tasks.json
- *
- * Every read-modify-write runs under a per-user promise-chain lock and writes
- * atomically (tmp + rename). This module is the only publisher of task events:
- * each write path publishes after the file write succeeds.
+ * Persists per-user agent tasks in the local SQLite database (nova.db, table `agent_tasks`).
+ * Every read-modify-write runs in one BEGIN IMMEDIATE transaction (serialized across processes and
+ * atomic: an error thrown by the mutator rolls everything back). This module is the only publisher of
+ * task events: each write path publishes after its transaction has committed.
  */
 
-import { copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises"
-import { randomBytes, randomUUID } from "node:crypto"
-import path from "node:path"
+import { randomUUID } from "node:crypto"
 
+import { nowIso, tx, type Database } from "../../../src/db/index.js"
 import { resolveModelPricing } from "../../app/integrations/constants/pricing"
 import { publishTaskEvent } from "./task-events"
 import { computeTaskStats } from "./task-stats"
@@ -28,8 +25,6 @@ import {
   type CreateAgentTaskInput,
 } from "./types"
 
-const AGENT_TASKS_DIR_NAME = "agent-tasks"
-const AGENT_TASKS_FILE_NAME = "agent-tasks.json"
 const MAX_TASKS = 300
 const MAX_PROMPT_CHARS = 4000
 const MAX_NAME_CHARS = 80
@@ -45,11 +40,6 @@ export class AgentTaskValidationError extends Error {}
 export class AgentTaskNotFoundError extends Error {}
 export class AgentTaskTransitionError extends Error {}
 
-function resolveWorkspaceRoot(): string {
-  const cwd = process.cwd()
-  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd
-}
-
 function sanitizeUserId(value: unknown): string {
   const normalized = String(value ?? "")
     .trim()
@@ -60,10 +50,6 @@ function sanitizeUserId(value: unknown): string {
     .slice(0, 96)
   if (!normalized) throw new AgentTaskValidationError("A user id is required.")
   return normalized
-}
-
-function resolveTasksFile(userId: string): string {
-  return path.join(resolveWorkspaceRoot(), ".user", "user-context", userId, AGENT_TASKS_DIR_NAME, AGENT_TASKS_FILE_NAME)
 }
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
@@ -82,109 +68,133 @@ function isoOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : undefined
 }
 
-function normalizeStoredTask(raw: unknown, userId: string): AgentTask | null {
-  if (!raw || typeof raw !== "object") return null
-  const r = raw as Record<string, unknown>
-  const id = typeof r.id === "string" ? r.id : ""
-  const prompt = typeof r.prompt === "string" ? r.prompt : ""
-  const agent = pickEnum(r.agent, PROVIDERS)
-  const status = pickEnum(r.status, STATUSES)
-  const createdAt = isoOrUndefined(r.createdAt)
+interface AgentTaskRow {
+  id: string
+  name: string
+  prompt: string
+  agent: string
+  model: string
+  status: string
+  priority: string
+  permission_mode: string
+  progress: number
+  tokens_in: number
+  tokens_out: number
+  cost_usd: number
+  error: string | null
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  paused_at: string | null
+  completed_at: string | null
+}
+
+/** Validates a stored row; rows that fail are skipped rather than surfaced. */
+function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
+  const id = typeof row.id === "string" ? row.id : ""
+  const prompt = typeof row.prompt === "string" ? row.prompt : ""
+  const agent = pickEnum(row.agent, PROVIDERS)
+  const status = pickEnum(row.status, STATUSES)
+  const createdAt = isoOrUndefined(row.created_at)
   if (!id || !prompt || !agent || !status || !createdAt) return null
 
   const task: AgentTask = {
     id,
     userId,
-    name: typeof r.name === "string" && r.name ? r.name.slice(0, MAX_NAME_CHARS) : defaultTaskName(prompt),
+    name: typeof row.name === "string" && row.name ? row.name.slice(0, MAX_NAME_CHARS) : defaultTaskName(prompt),
     prompt,
     agent,
-    model: typeof r.model === "string" ? r.model.slice(0, MAX_MODEL_CHARS) : "",
+    model: typeof row.model === "string" ? row.model.slice(0, MAX_MODEL_CHARS) : "",
     status,
-    priority: pickEnum(r.priority, PRIORITIES) ?? "normal",
-    permissionMode: pickEnum(r.permissionMode, PERMISSION_MODES) ?? "default",
-    progress: clampInt(r.progress, 0, 100),
-    tokensIn: clampInt(r.tokensIn, 0, Number.MAX_SAFE_INTEGER),
-    tokensOut: clampInt(r.tokensOut, 0, Number.MAX_SAFE_INTEGER),
-    costUsd: Math.max(0, Number(r.costUsd) || 0),
+    priority: pickEnum(row.priority, PRIORITIES) ?? "normal",
+    permissionMode: pickEnum(row.permission_mode, PERMISSION_MODES) ?? "default",
+    progress: clampInt(row.progress, 0, 100),
+    tokensIn: clampInt(row.tokens_in, 0, Number.MAX_SAFE_INTEGER),
+    tokensOut: clampInt(row.tokens_out, 0, Number.MAX_SAFE_INTEGER),
+    costUsd: Math.max(0, Number(row.cost_usd) || 0),
     createdAt,
-    updatedAt: isoOrUndefined(r.updatedAt) ?? createdAt,
+    updatedAt: isoOrUndefined(row.updated_at) ?? createdAt,
   }
-  if (typeof r.error === "string" && r.error) task.error = r.error
-  const startedAt = isoOrUndefined(r.startedAt)
+  if (typeof row.error === "string" && row.error) task.error = row.error
+  const startedAt = isoOrUndefined(row.started_at)
   if (startedAt) task.startedAt = startedAt
-  const pausedAt = isoOrUndefined(r.pausedAt)
+  const pausedAt = isoOrUndefined(row.paused_at)
   if (pausedAt) task.pausedAt = pausedAt
-  const completedAt = isoOrUndefined(r.completedAt)
+  const completedAt = isoOrUndefined(row.completed_at)
   if (completedAt) task.completedAt = completedAt
   return task
 }
 
-function sortNewestFirst(tasks: AgentTask[]): AgentTask[] {
-  return tasks.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-}
-
-async function readTasksFile(userId: string): Promise<AgentTask[]> {
-  const filePath = resolveTasksFile(userId)
-  let text: string
-  try {
-    text = await readFile(filePath, "utf8")
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
-    throw error
+function loadTasks(db: Database, userId: string): AgentTask[] {
+  const rows = db
+    .prepare("SELECT * FROM agent_tasks WHERE user_id = ? ORDER BY created_at DESC, id ASC")
+    .all(userId) as AgentTaskRow[]
+  const tasks: AgentTask[] = []
+  for (const row of rows) {
+    const task = rowToTask(row, userId)
+    if (task) tasks.push(task)
   }
-  try {
-    const parsed = JSON.parse(text) as { tasks?: unknown }
-    if (!parsed || !Array.isArray(parsed.tasks)) throw new Error("Malformed agent tasks file.")
-    const tasks: AgentTask[] = []
-    for (const raw of parsed.tasks) {
-      const task = normalizeStoredTask(raw, userId)
-      if (task) tasks.push(task)
-    }
-    return sortNewestFirst(tasks)
-  } catch {
-    await copyFile(filePath, `${filePath}.corrupt-${Date.now()}`).catch(() => undefined)
-    return []
-  }
+  return tasks
 }
 
-async function writeTasksFile(userId: string, tasks: AgentTask[]): Promise<void> {
-  const filePath = resolveTasksFile(userId)
-  await mkdir(path.dirname(filePath), { recursive: true })
-  const tmpPath = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
-  const payload = { version: 1, updatedAt: new Date().toISOString(), tasks }
-  await writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8")
-  await rename(tmpPath, filePath)
+function upsertTask(db: Database, userId: string, task: AgentTask): void {
+  db.prepare(
+    `INSERT INTO agent_tasks
+       (user_id, id, name, prompt, agent, model, status, priority, permission_mode, progress, tokens_in, tokens_out,
+        cost_usd, error, created_at, updated_at, started_at, paused_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, id) DO UPDATE SET
+       name = excluded.name, prompt = excluded.prompt, agent = excluded.agent, model = excluded.model,
+       status = excluded.status, priority = excluded.priority, permission_mode = excluded.permission_mode,
+       progress = excluded.progress, tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
+       cost_usd = excluded.cost_usd, error = excluded.error, created_at = excluded.created_at,
+       updated_at = excluded.updated_at, started_at = excluded.started_at, paused_at = excluded.paused_at,
+       completed_at = excluded.completed_at`,
+  ).run(
+    userId,
+    task.id,
+    task.name,
+    task.prompt,
+    task.agent,
+    task.model,
+    task.status,
+    task.priority,
+    task.permissionMode,
+    task.progress,
+    task.tokensIn,
+    task.tokensOut,
+    task.costUsd,
+    task.error ?? null,
+    task.createdAt,
+    task.updatedAt,
+    task.startedAt ?? null,
+    task.pausedAt ?? null,
+    task.completedAt ?? null,
+  )
 }
 
-const locksByUserId = new Map<string, Promise<unknown>>()
-
-function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
-  const previous = locksByUserId.get(userId) ?? Promise.resolve()
-  const next = previous.catch(() => undefined).then(fn)
-  const tail = next.catch(() => undefined)
-  locksByUserId.set(userId, tail)
-  void tail.then(() => {
-    if (locksByUserId.get(userId) === tail) locksByUserId.delete(userId)
-  })
-  return next
+/** Read-only snapshot (no write lock), used by list/get/stats. */
+function readTasks(rawUserId: string): AgentTask[] {
+  const userId = sanitizeUserId(rawUserId)
+  return tx((db) => loadTasks(db, userId), "deferred")
 }
 
 /**
- * Runs `fn` against the freshly loaded tasks under the user lock. If `fn`
- * changed, added or removed tasks, writes the file and then publishes events.
- * If `fn` throws, nothing is written or published.
+ * Runs `fn` against the freshly loaded tasks inside one write transaction. If `fn` changed, added or removed
+ * tasks, they are persisted and, once the transaction has committed, events are published. If `fn` throws,
+ * nothing is written or published. `fn` must be synchronous (tx callbacks cannot await).
  */
-function transact<T>(
+async function transact<T>(
   rawUserId: string,
   fn: (tasks: AgentTask[]) => T,
 ): Promise<{ result: T; changed: AgentTask[] }> {
   const userId = sanitizeUserId(rawUserId)
-  return withUserLock(userId, async () => {
-    const tasks = await readTasksFile(userId)
+  const outcome = tx((db) => {
+    const tasks = loadTasks(db, userId)
     const before = new Map(tasks.map((t) => [t.id, JSON.stringify(t)]))
     const result = fn(tasks)
 
-    const now = new Date().toISOString()
+    const now = nowIso()
     const changed: AgentTask[] = []
     for (const task of tasks) {
       const prev = before.get(task.id)
@@ -194,13 +204,15 @@ function transact<T>(
     }
     const present = new Set(tasks.map((t) => t.id))
     const removed = [...before.keys()].filter((id) => !present.has(id))
-    if (changed.length === 0 && removed.length === 0) return { result, changed }
 
-    await writeTasksFile(userId, sortNewestFirst(tasks))
-    for (const task of changed) publishTaskEvent(userId, { type: "task.upserted", task })
-    for (const id of removed) publishTaskEvent(userId, { type: "task.deleted", id })
-    return { result, changed }
+    for (const id of removed) db.prepare("DELETE FROM agent_tasks WHERE user_id = ? AND id = ?").run(userId, id)
+    for (const task of changed) upsertTask(db, userId, task)
+    return { result, changed, removed }
   })
+
+  for (const task of outcome.changed) publishTaskEvent(userId, { type: "task.upserted", task })
+  for (const id of outcome.removed) publishTaskEvent(userId, { type: "task.deleted", id })
+  return { result: outcome.result, changed: outcome.changed }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -290,17 +302,17 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function listTasks(userId: string): Promise<AgentTask[]> {
-  return (await transact(userId, (tasks) => tasks.map((t) => ({ ...t })))).result
+  return readTasks(userId)
 }
 
 export async function getTask(userId: string, id: string): Promise<AgentTask | null> {
-  return (await transact(userId, (tasks) => tasks.find((t) => t.id === id) ?? null)).result
+  return readTasks(userId).find((t) => t.id === id) ?? null
 }
 
 export async function createTask(userId: string, input: CreateAgentTaskInput): Promise<AgentTask> {
   const fields = validateCreateInput(input)
   const safeUserId = sanitizeUserId(userId)
-  const now = new Date().toISOString()
+  const now = nowIso()
   const task: AgentTask = {
     id: randomUUID(),
     userId: safeUserId,
@@ -346,7 +358,7 @@ export async function deleteTask(userId: string, id: string): Promise<boolean> {
 }
 
 export async function getTaskStats(userId: string): Promise<AgentTaskStats> {
-  return (await transact(userId, (tasks) => computeTaskStats(tasks))).result
+  return computeTaskStats(readTasks(userId))
 }
 
 /** Runner-only: mutate tasks in place. Returns the tasks whose JSON changed. */

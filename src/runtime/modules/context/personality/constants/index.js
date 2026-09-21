@@ -6,8 +6,6 @@
  */
 
 export const PERSONALITY_SCHEMA_VERSION = 1;
-export const PERSONALITY_FILE_NAME = "personality-profile.json";
-export const PERSONALITY_AUDIT_FILE_NAME = "personality-profile.jsonl";
 export const PERSONALITY_PROMPT_MAX_TOKENS = Math.max(
   80,
   Number.parseInt(process.env.NOVA_PERSONALITY_PROMPT_MAX_TOKENS || "160", 10) || 160,

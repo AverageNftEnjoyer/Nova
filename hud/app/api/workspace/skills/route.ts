@@ -23,8 +23,7 @@ import { resolveWorkspaceRoot } from "@/lib/workspace/root"
 export const runtime = "nodejs"
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const workspaceRoot = resolveWorkspaceRoot()
@@ -55,8 +54,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const raw = (await req.json()) as { action?: unknown; name?: unknown; description?: unknown }
@@ -122,8 +120,7 @@ export async function POST(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const raw = (await req.json()) as { name?: unknown; content?: unknown }
@@ -158,8 +155,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   try {
     const workspaceRoot = resolveWorkspaceRoot()

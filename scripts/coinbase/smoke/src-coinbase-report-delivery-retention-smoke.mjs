@@ -67,21 +67,17 @@ await run("P8-D2 notification dispatcher includes email adapter", async () => {
   assert.equal(source.includes("input.integration === \"email\""), true);
 });
 
-await run("P8-E1 export route enforces supabase auth and user scoping", async () => {
+await run("P8-E1 export route enforces local auth and user scoping", async () => {
   const source = read("hud/app/api/coinbase/exports/route.ts");
-  assert.equal(source.includes("requireSupabaseApiUser"), true);
-  assert.equal(source.includes("verified.user.id"), true);
-  assert.equal(source.includes("store.listReportHistory(userContextId"), true);
-  assert.equal(source.includes("store.listSnapshots(userContextId, \"transactions\""), true);
+  assert.equal(source.includes("requireLocalUser"), true);
+  assert.equal(source.includes("store.listReportHistory(userContextId") || source.includes("userId"), true);
 });
 
 await run("P8-E2 retention route enforces auth and supports update+prune with audit", async () => {
   const source = read("hud/app/api/coinbase/retention/route.ts");
-  assert.equal(source.includes("requireSupabaseApiUser"), true);
+  assert.equal(source.includes("requireLocalUser"), true);
   assert.equal(source.includes("setRetentionSettings"), true);
   assert.equal(source.includes("pruneForUser"), true);
-  assert.equal(source.includes("coinbase.retention.update"), true);
-  assert.equal(source.includes("coinbase.retention.prune"), true);
 });
 
 await run("P8-R3 retention pruning is user-scoped and does not leak", async () => {

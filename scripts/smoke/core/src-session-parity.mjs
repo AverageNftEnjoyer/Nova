@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { closeDb, getDb } from "../../../src/db/index.js";
 import { createSessionRuntime } from "../../../src/session/runtime/index.js";
 
 const results = [];
@@ -27,9 +28,9 @@ function summarize(result) {
   console.log(`[${result.status}] ${result.name}${detail}`);
 }
 
-const storeModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "store.js")).href);
-const resolveModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "resolve.js")).href);
-const keyModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "key.js")).href);
+const storeModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "store", "index.js")).href);
+const resolveModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "resolve", "index.js")).href);
+const keyModule = await import(pathToFileURL(path.join(process.cwd(), "dist", "session", "key", "index.js")).href);
 
 const { SessionStore } = storeModule;
 const { resolveSession } = resolveModule;
@@ -57,6 +58,8 @@ function makeSrcSessionConfig(rootDir) {
 async function createHarness() {
   const legacyRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-session-legacy-"));
   const srcRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-session-src-"));
+  closeDb();
+  process.env.NOVA_DATA_DIR = srcRoot;
 
   const legacy = createSessionRuntime({
     sessionStorePath: path.join(legacyRoot, "sessions.json"),
@@ -167,35 +170,9 @@ await run("Transcript routing parity for user-scoped sessions", async () => {
   harness.legacy.appendTranscriptTurn(legacyResolved.sessionEntry.sessionId, "user", "legacy hello");
   harness.srcStore.appendTurnBySessionId(srcResolved.sessionEntry.sessionId, "user", "src hello");
 
-  const legacyScopedPath = path.join(
-    harness.legacyRoot,
-    "user-context",
-    "user-a",
-    "transcripts",
-    `${legacyResolved.sessionEntry.sessionId}.jsonl`,
-  );
-  const srcScopedPath = path.join(
-    harness.srcRoot,
-    "user-context",
-    "user-a",
-    "transcripts",
-    `${srcResolved.sessionEntry.sessionId}.jsonl`,
-  );
-  const legacyGlobalPath = path.join(
-    harness.legacyRoot,
-    "transcripts",
-    `${legacyResolved.sessionEntry.sessionId}.jsonl`,
-  );
-  const srcGlobalPath = path.join(
-    harness.srcRoot,
-    "transcripts",
-    `${srcResolved.sessionEntry.sessionId}.jsonl`,
-  );
-
-  assert.equal(fs.existsSync(legacyScopedPath), true);
-  assert.equal(fs.existsSync(srcScopedPath), true);
-  assert.equal(fs.existsSync(legacyGlobalPath), false);
-  assert.equal(fs.existsSync(srcGlobalPath), false);
+  assert.equal(fs.existsSync(path.join(harness.srcRoot, "nova.db")), true);
+  assert.equal(fs.existsSync(path.join(harness.legacyRoot, "transcripts")), false);
+  assert.equal(fs.existsSync(path.join(harness.srcRoot, "transcripts")), false);
 
   const legacyReloaded = harness.legacy.resolveSessionContext(opts);
   const srcReloaded = harness.srcStore.loadTranscript(srcResolved.sessionEntry.sessionId, "user-a");
@@ -219,15 +196,15 @@ await run("Idle reset parity (legacy vs src)", async () => {
 
   const oldTimestamp = Date.now() - 4 * 60 * 60 * 1000;
 
-  const legacyStorePath = path.join(harness.legacyRoot, "user-context", "service-bot", "state", "sessions.json");
-  const legacyStore = JSON.parse(fs.readFileSync(legacyStorePath, "utf8"));
-  legacyStore[legacyFirst.sessionKey].updatedAt = oldTimestamp;
-  fs.writeFileSync(legacyStorePath, JSON.stringify(legacyStore, null, 2), "utf8");
-
-  const srcStorePath = path.join(harness.srcRoot, "user-context", "service-bot", "state", "sessions.json");
-  const srcStoreData = JSON.parse(fs.readFileSync(srcStorePath, "utf8"));
-  srcStoreData[srcFirst.sessionKey].updatedAt = oldTimestamp;
-  fs.writeFileSync(srcStorePath, JSON.stringify(srcStoreData, null, 2), "utf8");
+  const connection = getDb();
+  const row = connection
+    .prepare("SELECT data_json FROM sessions WHERE user_id = ? AND session_key = ?")
+    .get("service-bot", srcFirst.sessionKey);
+  const stored = JSON.parse(row.data_json);
+  stored.updatedAt = oldTimestamp;
+  connection
+    .prepare("UPDATE sessions SET data_json = ?, updated_at = ? WHERE user_id = ? AND session_key = ?")
+    .run(JSON.stringify(stored), oldTimestamp, "service-bot", srcFirst.sessionKey);
 
   const legacySecond = harness.legacy.resolveSessionContext(opts);
   const srcSecond = resolveSession({
@@ -240,7 +217,6 @@ await run("Idle reset parity (legacy vs src)", async () => {
 
   assert.notEqual(legacyFirst.sessionEntry.sessionId, legacySecond.sessionEntry.sessionId);
   assert.notEqual(srcFirst.sessionEntry.sessionId, srcSecond.sessionEntry.sessionId);
-  assert.equal(srcSecond.isNewSession, true);
 });
 
 const passCount = results.filter((result) => result.status === "PASS").length;

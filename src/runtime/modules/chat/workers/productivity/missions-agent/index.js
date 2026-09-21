@@ -19,7 +19,6 @@ export async function handleMissionBuildWorker(text, ctx, options = {}) {
     source,
     useVoice,
     ttsVoice,
-    supabaseAccessToken,
     conversationId,
     userContextId,
     sessionKey,
@@ -89,7 +88,6 @@ export async function handleMissionBuildWorker(text, ctx, options = {}) {
       userContextId,
       conversationId,
       sessionKey,
-      supabaseAccessToken,
     });
     const data = missionBuildResult?.data || {};
     const normalizedReply = normalizeAssistantReply(missionBuildResult?.reply || "");

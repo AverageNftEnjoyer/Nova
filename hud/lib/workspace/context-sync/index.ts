@@ -2,6 +2,7 @@ import "server-only"
 
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { kvSet } from "../../../../src/db/index.js"
 
 const MANAGED_START = "<!-- NOVA_SETTINGS_SYNC:START -->"
 const MANAGED_END = "<!-- NOVA_SETTINGS_SYNC:END -->"
@@ -122,19 +123,6 @@ async function upsertManagedMarkdown(
   updatedFiles.push(filePath)
 }
 
-async function upsertManagedJson(
-  filePath: string,
-  payload: unknown,
-  updatedFiles: string[],
-): Promise<void> {
-  const serialized = `${JSON.stringify(payload, null, 2)}\n`
-  const existing = await readTextFile(filePath)
-  if (existing === serialized) return
-  await mkdir(path.dirname(filePath), { recursive: true })
-  await writeFile(filePath, serialized, "utf8")
-  updatedFiles.push(filePath)
-}
-
 export async function syncWorkspaceContextFiles(
   workspaceRoot: string,
   userId: string,
@@ -223,9 +211,7 @@ export async function syncWorkspaceContextFiles(
   await upsertManagedMarkdown(path.join(userContextDir, "AGENTS.md"), "# AGENTS", agentsBlock, updatedFiles)
   await upsertManagedMarkdown(path.join(userContextDir, "MEMORY.md"), "# Persistent Memory", memoryBlock, updatedFiles)
   await upsertManagedMarkdown(path.join(userContextDir, "IDENTITY.md"), "# Identity", identityBlock, updatedFiles)
-  await upsertManagedJson(
-    path.join(userContextDir, "profile", "identity-seed.json"),
-    {
+  const identitySeed = {
       schemaVersion: 1,
       source: "settings_sync",
       updatedAt: new Date().toISOString(),
@@ -241,9 +227,9 @@ export async function syncWorkspaceContextFiles(
         customInstructions: input.customInstructions || "",
         interests: Array.isArray(input.interests) ? input.interests : [],
       },
-    },
-    updatedFiles,
-  )
+    }
+  kvSet(sanitizeUserContextId(userId), "identity-profile", "seed", identitySeed)
+  updatedFiles.push(`sqlite:kv_state/${sanitizeUserContextId(userId)}/identity-profile/seed`)
 
   return { userContextDir, updatedFiles }
 }

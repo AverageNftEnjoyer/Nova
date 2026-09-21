@@ -1,7 +1,8 @@
 /**
  * Agent Tasks Behavior Smoke
- * Exercises hud/lib/agents (store + SIMULATED runner + events) against a temp workspace,
- * plus source guards for the SSE route and hook. hud TS is transpiled into an OS temp dir.
+ * Exercises hud/lib/agents (SQLite store + SIMULATED runner + events) against a throwaway NOVA_DATA_DIR,
+ * plus source guards for the SSE route and hook. hud TS is transpiled into an OS temp dir; the store's
+ * relative import of src/db is rewritten to the real module so a single better-sqlite3 binding is used.
  */
 import assert from "node:assert/strict"
 import fs from "node:fs"
@@ -16,6 +17,9 @@ const originalCwd = process.cwd()
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nova-agent-tasks-smoke-"))
 const workspace = path.join(tempRoot, "workspace")
 fs.mkdirSync(workspace, { recursive: true })
+const previousDataDir = process.env.NOVA_DATA_DIR
+process.env.NOVA_DATA_DIR = path.join(tempRoot, "data")
+const dbModulePath = path.join(repoRoot, "src", "db", "index.js").replace(/\\/g, "/")
 
 const results = []
 
@@ -44,7 +48,7 @@ function transpile(relativePaths) {
     })
     const target = path.join(tempRoot, relativePath.replace(/\.ts$/, ".js"))
     fs.mkdirSync(path.dirname(target), { recursive: true })
-    fs.writeFileSync(target, output.outputText, "utf8")
+    fs.writeFileSync(target, output.outputText.split("../../../src/db/index.js").join(dbModulePath), "utf8")
   }
 }
 
@@ -68,7 +72,7 @@ const runner = require("./hud/lib/agents/task-runner.js")
 const events = require("./hud/lib/agents/task-events.js")
 const { AGENT_TASK_MAX_CONCURRENT } = require("./hud/lib/agents/types.js")
 
-// The store resolves its files from process.cwd(); the basename must not be "hud".
+const dbModule = require(dbModulePath)
 process.chdir(workspace)
 
 const PRICED_MODEL = "claude-sonnet-4-5"
@@ -354,6 +358,9 @@ await run("B-12 core lib files avoid server-only and the @/ alias", () => {
 
 process.chdir(originalCwd)
 runner.stopTaskRunner()
+dbModule.closeDb()
+if (previousDataDir === undefined) delete process.env.NOVA_DATA_DIR
+else process.env.NOVA_DATA_DIR = previousDataDir
 fs.rmSync(tempRoot, { recursive: true, force: true })
 
 let failed = 0

@@ -7,6 +7,11 @@ import {
   pruneThreadTranscripts,
 } from "@/lib/server/thread-transcript-cleanup"
 import { appendThreadDeleteAuditLog } from "@/lib/server/thread-delete-audit"
+import {
+  deleteThread,
+  listThreadMessageMetadata,
+  patchThread,
+} from "../../../../../src/session/sqlite-store/index.js"
 
 export const runtime = "nodejs"
 
@@ -17,41 +22,31 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ threadId: string }> },
 ) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   const { threadId } = await context.params
-  const body = (await req.json()) as {
+  const body = (await req.json().catch(() => ({}))) as {
     title?: string
     pinned?: boolean
     archived?: boolean
   }
-
-  const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (typeof body.title === "string" && body.title.trim()) update.title = body.title.trim()
-  if (typeof body.pinned === "boolean") update.pinned = body.pinned
-  if (typeof body.archived === "boolean") update.archived = body.archived
-
-  const { error } = await verified.client
-    .from("threads")
-    .update(update)
-    .eq("id", threadId)
-    .eq("user_id", userId)
-
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
+  try {
+    const exists = patchThread(userId, threadId, body)
+    if (!exists) return NextResponse.json({ ok: false, error: "Thread not found." }, { status: 404 })
+    return NextResponse.json({ ok: true })
+  } catch {
+    return NextResponse.json({ ok: false, error: "Failed to update thread." }, { status: 500 })
   }
-  return NextResponse.json({ ok: true })
 }
 
 export async function DELETE(
   req: Request,
   context: { params: Promise<{ threadId: string }> },
 ) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified?.user?.id) return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
+  const { userId } = await requireLocalUser()
 
   const { threadId } = await context.params
+
   const normalizedThreadId = String(threadId || "").trim()
 
   // Deduplicate concurrent deletes for the same thread.
@@ -66,32 +61,32 @@ export async function DELETE(
   let deleteResult: { ok: boolean; transcriptCleanup?: { removedSessionEntries: number; removedTranscriptFiles: number }; transcriptCleanupError?: string; error?: string } = { ok: false }
 
   const doDelete = async (): Promise<void> => {
-    const { data: messageMetadataRows } = await verified.client
-      .from("messages")
-      .select("metadata")
-      .eq("thread_id", normalizedThreadId)
-      .eq("user_id", userId)
-      .limit(10_000)
-    const threadMessageCount = Array.isArray(messageMetadataRows) ? messageMetadataRows.length : 0
-    const cleanupHints = collectThreadCleanupHints(normalizedThreadId, messageMetadataRows ?? [])
-
-    const { error } = await verified.client
-      .from("threads")
-      .delete()
-      .eq("id", normalizedThreadId)
-      .eq("user_id", userId)
-
-    if (error) {
+    let messageMetadataRows: ReturnType<typeof listThreadMessageMetadata>
+    try {
+      messageMetadataRows = listThreadMessageMetadata(userId, normalizedThreadId, 10_000)
+    } catch {
+      messageMetadataRows = []
+    }
+    const threadMessageCount = messageMetadataRows.length
+    const cleanupHints = collectThreadCleanupHints(normalizedThreadId, messageMetadataRows)
+    let deleted = false
+    try {
+      deleted = deleteThread(userId, normalizedThreadId)
+    } catch {
       await appendThreadDeleteAuditLog({
         workspaceRoot,
         threadId: normalizedThreadId,
         userContextId: userId,
         removedSessionEntries: 0,
         removedTranscriptFiles: 0,
-        cleanupError: error.message || "Thread delete failed.",
+        cleanupError: "Thread delete failed.",
         threadMessageCount,
       }).catch(() => {})
-      deleteResult = { ok: false, error: error.message }
+      deleteResult = { ok: false, error: "Thread delete failed." }
+      return
+    }
+    if (!deleted) {
+      deleteResult = { ok: true, transcriptCleanup: { removedSessionEntries: 0, removedTranscriptFiles: 0 } }
       return
     }
 

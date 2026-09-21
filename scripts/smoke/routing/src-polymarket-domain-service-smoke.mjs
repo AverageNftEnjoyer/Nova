@@ -272,7 +272,6 @@ await run("P32-C7 polymarket service routes alert intent through mission builder
       userContextId: "tenant-alert",
       conversationId: "thread-alert",
       sessionKey: "agent:nova:hud:user:tenant-alert:dm:thread-alert",
-      supabaseAccessToken: "test-token",
     }, {
       runMissionsDomainService: async (input = {}) => {
         capturedMissionPrompt = String(input.text || "");

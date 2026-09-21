@@ -60,7 +60,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, connected: cached.data.connected, nowPlaying: cached.data })
     }
 
-    const nowPlaying = await getSpotifyNowPlaying(verified)
+    const nowPlaying = await getSpotifyNowPlaying({ userId })
     evictStaleNowPlayingCache(now)
     nowPlayingCacheByUser.set(userContextId, { data: nowPlaying, cachedAt: now })
     const previous = nowPlayingLogStateByUser.get(userContextId)

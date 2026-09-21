@@ -33,10 +33,7 @@ function normalizeAscending(value: string | null): boolean | undefined {
 }
 
 export async function GET(req: Request) {
-  const { unauthorized, verified } = await requireSupabaseApiUser(req)
-  if (unauthorized || !verified) {
-    return unauthorized ?? NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 })
-  }
+  const { userId } = await requireLocalUser()
 
   const limitDecision = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.polymarketRead)
   if (!limitDecision.allowed) return rateLimitExceededResponse(limitDecision)

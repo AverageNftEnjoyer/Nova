@@ -22,7 +22,7 @@
     "lib/integrations/runtime/agent-sync.ts",
     "lib/integrations/store/server-store.ts",
     "lib/security/encryption/index.ts",
-    "lib/supabase/server/index.ts"
+    "lib/auth/local-user.ts"
   ],
   "exclude": [
     "node_modules"

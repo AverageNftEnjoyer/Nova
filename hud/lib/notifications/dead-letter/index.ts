@@ -1,8 +1,9 @@
 ﻿import "server-only"
 
-import { appendFile, mkdir, readFile, writeFile, rename } from "node:fs/promises"
-import { randomBytes } from "node:crypto"
-import path from "node:path"
+import {
+  appendDeadLetterRecord,
+  purgeDeadLetterRecords,
+} from "../../../../src/runtime/modules/services/missions/persistence/sqlite-store.js"
 
 export interface NotificationDeadLetterEntry {
   id: string
@@ -19,97 +20,13 @@ export interface NotificationDeadLetterEntry {
   metadata?: Record<string, unknown>
 }
 
-const writesByPath = new Map<string, Promise<void>>()
-
-function resolveWorkspaceRoot(): string {
-  const cwd = process.cwd()
-  return path.basename(cwd).toLowerCase() === "hud" ? path.resolve(cwd, "..") : cwd
+export async function purgeDeadLetterForMission(userId: string | undefined, scheduleId: string): Promise<void> {
+  purgeDeadLetterRecords("notification", userId, scheduleId)
 }
 
-function sanitizeUserContextId(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 96)
-}
-
-function resolveScopedDeadLetterPath(root: string, scopedUserId: string): string {
-  return path.join(root, ".user", "user-context", scopedUserId, "state", "notification-dead-letter.jsonl")
-}
-
-function resolveDeadLetterPath(userId?: string): string {
-  const root = resolveWorkspaceRoot()
-  const scoped = sanitizeUserContextId(userId)
-  if (scoped) {
-    return resolveScopedDeadLetterPath(root, scoped)
-  }
-  return path.join(root, "data", "notification-dead-letter.jsonl")
-}
-
-export async function purgeDeadLetterForMission(
-  userId: string | undefined,
-  scheduleId: string,
-): Promise<void> {
-  const mid = String(scheduleId || "").trim()
-  if (!mid) return
-  const filePath = resolveDeadLetterPath(userId)
-  const resolved = path.resolve(filePath)
-  const previous = writesByPath.get(resolved) ?? Promise.resolve()
-  const next = previous.catch(() => undefined).then(async () => {
-    let raw = ""
-    try {
-      raw = await readFile(filePath, "utf8")
-    } catch {
-      return
-    }
-    const lines = raw.split("\n").filter(Boolean)
-    const kept = lines.filter((line) => {
-      try {
-        const row = JSON.parse(line) as Partial<NotificationDeadLetterEntry>
-        return String(row.scheduleId || "") !== mid
-      } catch {
-        return true
-      }
-    })
-    if (kept.length === lines.length) return
-    const tmpPath = `${filePath}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`
-    await writeFile(tmpPath, `${kept.join("\n")}${kept.length > 0 ? "\n" : ""}`, "utf8")
-    await rename(tmpPath, filePath)
-  })
-  writesByPath.set(resolved, next)
-  try {
-    await next
-  } finally {
-    if (writesByPath.get(resolved) === next) {
-      writesByPath.delete(resolved)
-    }
-  }
-}
-
-export async function appendNotificationDeadLetter(entry: Omit<NotificationDeadLetterEntry, "id" | "ts">): Promise<string> {
-  const id = crypto.randomUUID()
-  const row: NotificationDeadLetterEntry = {
-    ...entry,
-    id,
-    ts: Date.now(),
-  }
-  const filePath = resolveDeadLetterPath(entry.userId)
-  const resolved = path.resolve(filePath)
-  const previous = writesByPath.get(resolved) ?? Promise.resolve()
-  const next = previous.catch(() => undefined).then(async () => {
-    await mkdir(path.dirname(filePath), { recursive: true })
-    await appendFile(filePath, `${JSON.stringify(row)}\n`, "utf8")
-  })
-  writesByPath.set(resolved, next)
-  try {
-    await next
-  } finally {
-    if (writesByPath.get(resolved) === next) {
-      writesByPath.delete(resolved)
-    }
-  }
-  return id
+export async function appendNotificationDeadLetter(
+  entry: Omit<NotificationDeadLetterEntry, "id" | "ts">,
+): Promise<string> {
+  const row: NotificationDeadLetterEntry = { ...entry, id: crypto.randomUUID(), ts: Date.now() }
+  return appendDeadLetterRecord("notification", entry.userId, row)
 }

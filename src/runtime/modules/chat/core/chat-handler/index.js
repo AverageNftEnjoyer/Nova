@@ -258,7 +258,6 @@ async function handleInputCore(text, opts = {}) {
     runtimeProactivity, runtimeHumorLevel, runtimeRiskTolerance, runtimeStructurePreference, runtimeChallengeLevel,
     conversationId,
     hudOpToken,
-    supabaseAccessToken: String(opts.supabaseAccessToken || "").trim(),
     imageData,
     sessionId: sessionContext.sessionEntry?.sessionId,
     // NLP: raw_text for display/persistence; clean_text already in `text`
@@ -595,7 +594,6 @@ async function handleInputCore(text, opts = {}) {
       }
     : await selectChatRuntimeForTurn({
       userContextId,
-      supabaseAccessToken: ctx.supabaseAccessToken,
       canRunToolLoop,
       sessionKey,
       source,

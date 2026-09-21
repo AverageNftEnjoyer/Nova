@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { kvGet, kvSet } from "../../../../../../../db/index.js";
 import {
   CRYPTO_REPORT_ACTION_REGEX,
   CRYPTO_REPORT_CONTEXT_REGEX,
@@ -276,60 +277,10 @@ export function parseCryptoReportPreferenceDirectives(text, options = {}) {
 export function upsertCryptoReportPreferences({ userContextId, workspaceDir, directives }) {
   const uid = String(userContextId || "").trim().toLowerCase();
   if (!uid) return { ok: false, error: "Missing user context." };
-  const workspaceRoot = resolveWorkspaceRoot(workspaceDir, uid);
-  const userSkillPath = path.join(
-    workspaceRoot,
-    ".user",
-    "user-context",
-    uid,
-    "skills",
-    "coinbase",
-    "SKILL.md",
-  );
-  const baselinePath = path.join(workspaceRoot, "skills", "coinbase", "SKILL.md");
-  const sectionHeader = "## Crypto Report Preferences";
-  let content = "";
-  try {
-    if (fs.existsSync(userSkillPath)) {
-      content = fs.readFileSync(userSkillPath, "utf8");
-    } else if (fs.existsSync(baselinePath)) {
-      content = fs.readFileSync(baselinePath, "utf8");
-    } else {
-      content = "# Nova Skills\n\n";
-    }
-  } catch {
-    content = "# Nova Skills\n\n";
-  }
-  const lines = content.split(/\r?\n/);
-  let sectionStart = lines.findIndex((line) => String(line || "").trim().toLowerCase() === sectionHeader.toLowerCase());
-  let sectionEnd = -1;
-  if (sectionStart >= 0) {
-    for (let i = sectionStart + 1; i < lines.length; i += 1) {
-      if (/^##\s+/.test(String(lines[i] || "").trim())) {
-        sectionEnd = i;
-        break;
-      }
-    }
-    if (sectionEnd < 0) sectionEnd = lines.length;
-  } else {
-    if (lines.length > 0 && String(lines[lines.length - 1] || "").trim() !== "") lines.push("");
-    sectionStart = lines.length;
-    lines.push(sectionHeader, "");
-    sectionEnd = lines.length;
-  }
-
-  const known = new Map();
-  const rules = [];
-  for (let i = sectionStart + 1; i < sectionEnd; i += 1) {
-    const line = String(lines[i] || "").trim();
-    if (!line || line.startsWith("#")) continue;
-    const kv = line.match(/^([a-z_]+)\s*:\s*(.+)$/i);
-    if (kv) {
-      const key = kv[1].toLowerCase();
-      if (key === "rule") rules.push(`rule: ${kv[2].trim()}`);
-      else known.set(key, `${kv[1]}: ${kv[2].trim()}`);
-    }
-  }
+  void workspaceDir;
+  const stored = kvGet(uid, "skill-preferences", "coinbase");
+  const known = new Map(Object.entries(stored?.values || {}));
+  const rules = Array.isArray(stored?.rules) ? stored.rules.map((rule) => String(rule || "").trim()).filter(Boolean) : [];
 
   for (const directiveRaw of directives) {
     const directive = String(directiveRaw || "").trim();
@@ -344,20 +295,16 @@ export function upsertCryptoReportPreferences({ userContextId, workspaceDir, dir
     known.set(key, `${kv[1]}: ${kv[2].trim()}`);
   }
 
-  const sectionLines = [
-    sectionHeader,
-    ...[...known.values()],
-    ...rules.slice(-25),
-    "",
-  ];
-  const rebuilt = [
-    ...lines.slice(0, sectionStart),
-    ...sectionLines,
-    ...lines.slice(sectionEnd),
-  ].join("\n");
-  fs.mkdirSync(path.dirname(userSkillPath), { recursive: true });
-  fs.writeFileSync(userSkillPath, rebuilt, "utf8");
-  return { ok: true, filePath: userSkillPath, applied: directives };
+  kvSet(uid, "skill-preferences", "coinbase", {
+    values: Object.fromEntries(known),
+    rules: rules.slice(-25),
+    updatedAt: Date.now(),
+  });
+  return {
+    ok: true,
+    filePath: `sqlite:kv_state/${uid}/skill-preferences/coinbase`,
+    applied: directives,
+  };
 }
 
 export async function executeCoinbaseTool(runtimeTools, availableTools, toolName, input) {

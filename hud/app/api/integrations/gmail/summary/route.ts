@@ -26,7 +26,7 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
       maxResults,
       accountId: accountId || "active",
     })
-    const emails = await listRecentGmailMessages(maxResults, accountId, verified)
+    const emails = await listRecentGmailMessages(maxResults, accountId)
     if (emails.length === 0) {
       return NextResponse.json({
         ok: true,
@@ -42,7 +42,7 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
       "You summarize inbox emails for an automation dashboard. Produce concise bullets: urgent, action-needed, and FYI.",
       `Summarize these recent inbox emails:\n\n${digestInput}`,
       700,
-      verified,
+      { userId },
     )
 
     return NextResponse.json({

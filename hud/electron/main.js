@@ -5,6 +5,8 @@ console.log('app:', app)
 const path = require('path')
 const { spawn } = require('child_process')
 
+process.env.NEXT_TELEMETRY_DISABLED = '1'
+
 let mainWindow = null
 let tray = null
 
@@ -37,7 +39,7 @@ function createWindow() {
 
   if (isDev) {
     // Development: load from Next.js dev server
-    mainWindow.loadURL('http://localhost:3000')
+    mainWindow.loadURL('http://127.0.0.1:3000')
     mainWindow.webContents.openDevTools()
   } else {
     // Production: load from built Next.js app

@@ -11,10 +11,23 @@ files:
   - electron/**/*
   - package.json
   - node_modules/**/*
+  # User data must never ship inside an installer (see docs/security/local-data.md).
+  - "!**/.user/**"
+  - "!**/.nova-data/**"
+  - "!data/**"
+  - "!keys/**"
+  - "!**/*.db"
+  - "!**/*.db-wal"
+  - "!**/*.db-shm"
+  - "!**/*.db-journal"
 
 asarUnpack:
   - node_modules/@lobehub/**
   - node_modules/next/**
+  # Native addon cannot load from inside an asar archive. The DB code (src/db) runs in plain Node processes, so the
+  # binding must match Node's ABI, NOT Electron's: do not let npmRebuild recompile it for Electron unless the DB is
+  # moved into the Electron main process (then use @electron/rebuild for Electron 44's ABI).
+  - node_modules/better-sqlite3/**
 
 win:
   target:

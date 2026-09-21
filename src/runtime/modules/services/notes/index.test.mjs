@@ -89,3 +89,22 @@ test("runHomeNoteCommandService creates note from nova note-down command", async
   assert.equal(notes.some((note) => note.content === "call mom this week"), true);
 });
 
+test("home notes keep only the newest 300 per user and cap content length", async () => {
+  const userContextId = `notes-cap-${Date.now()}`;
+  const first = await createHomeNote({ userContextId, content: "x".repeat(900), source: "manual" });
+  assert.equal(first.note?.content.length, 400);
+  await new Promise((resolve) => setTimeout(resolve, 5)); // strictly older updated_at than the rest
+  for (let i = 0; i < 300; i += 1) {
+    await createHomeNote({ userContextId, content: `note ${i}`, source: "manual" });
+  }
+  const notes = await listHomeNotes({ userContextId, limit: 500 });
+  assert.equal(notes.length, 300);
+  assert.equal(notes.some((note) => note.id === first.note?.id), false, "oldest note is evicted");
+});
+
+test("home notes reject a missing user context without touching storage", async () => {
+  const created = await createHomeNote({ userContextId: "", content: "orphan" });
+  assert.equal(created.ok, false);
+  assert.equal(created.error, "invalid_user_context");
+  assert.deepEqual(await listHomeNotes({ userContextId: "" }), []);
+});

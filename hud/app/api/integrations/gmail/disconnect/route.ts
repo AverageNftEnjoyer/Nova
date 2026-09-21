@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       userContextId: userId,
       accountId: accountId || "all",
     })
-    await disconnectGmail(accountId || undefined, verified)
+    await disconnectGmail(accountId || undefined)
     logGmailApi("disconnect.success", {
       userContextId: userId,
       accountId: accountId || "all",

@@ -1,8 +1,12 @@
 import "server-only"
 
-import { promises as fs } from "fs"
-import path from "path"
-import { decryptSecret, decryptSecretWithMeta, encryptSecret } from "@/lib/security/encryption"
+import { getDb, nowIso, tx } from "../../../../src/db/index.js"
+import {
+  SecretsUnavailableError,
+  decryptSecret,
+  encryptSecret,
+  isSecretCiphertext,
+} from "@/lib/security/encryption"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import {
   DEFAULT_PHANTOM_INTEGRATION_CONFIG,
@@ -238,22 +242,6 @@ function getDefaultYouTubeRedirectUri(): string {
   return getDefaultRedirectUri(YOUTUBE_CALLBACK_PATH)
 }
 
-// Local filesystem storage configuration
-const getConfigFilePath = (userId: string): string => {
-  // Store in project data directory
-  const dataDir = path.join(process.cwd(), ".nova-data")
-  return path.join(dataDir, `integrations-${userId}.json`)
-}
-
-const ensureDataDir = async (): Promise<void> => {
-  const dataDir = path.join(process.cwd(), ".nova-data")
-  try {
-    await fs.mkdir(dataDir, { recursive: true })
-  } catch {
-    // Directory might already exist, ignore error
-  }
-}
-
 export type IntegrationsStoreScope =
   | {
       userId?: string | null
@@ -405,51 +393,19 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
   updatedAt: new Date().toISOString(),
 }
 
+/** Plaintext for a stored secret. Undecryptable ciphertext yields "" and is never passed through as a secret. */
 function unwrapStoredSecret(value: unknown): string {
   const raw = typeof value === "string" ? value.trim() : ""
   if (!raw) return ""
-  const decrypted = decryptSecret(raw)
-  if (decrypted) return decrypted
-  // If this looks like our encrypted envelope but cannot be decrypted
-  // (for example key rotation/mismatch), never pass ciphertext through as a secret.
-  const parts = raw.split(".")
-  if (parts.length === 3) {
-    try {
-      const iv = Buffer.from(parts[0], "base64")
-      const tag = Buffer.from(parts[1], "base64")
-      const enc = Buffer.from(parts[2], "base64")
-      const looksEncryptedEnvelope = iv.length === 12 && tag.length === 16 && enc.length > 0
-      if (looksEncryptedEnvelope) return ""
-    } catch {
-      // fall through to plaintext handling
-    }
-  }
+  if (isSecretCiphertext(raw)) return decryptSecret(raw)
   return raw
 }
 
+/** Ciphertext for a secret about to be persisted. Existing nv1 ciphertext is never nested. */
 function wrapStoredSecret(value: unknown): string {
   const raw = typeof value === "string" ? value.trim() : ""
   if (!raw) return ""
-  const decrypted = decryptSecretWithMeta(raw)
-  if (decrypted.value) {
-    // Opportunistically re-encrypt old-key envelopes with the current primary key.
-    if (decrypted.keyIndex > 0) return encryptSecret(decrypted.value)
-    return raw
-  }
-  // Preserve already-encrypted envelopes even if decrypt fails in this process.
-  // This avoids nesting ciphertext inside new ciphertext.
-  const parts = raw.split(".")
-  if (parts.length === 3) {
-    try {
-      const iv = Buffer.from(parts[0], "base64")
-      const tag = Buffer.from(parts[1], "base64")
-      const enc = Buffer.from(parts[2], "base64")
-      if (iv.length === 12 && tag.length === 16 && enc.length > 0) return raw
-    } catch {
-      // not an envelope, continue to encrypt
-    }
-  }
-  return encryptSecret(raw)
+  return isSecretCiphertext(raw) ? raw : encryptSecret(raw)
 }
 
 function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined): IntegrationsConfig {
@@ -1051,64 +1007,77 @@ function mergeIntegrationsConfig(current: IntegrationsConfig, partial: DeepParti
   })
 }
 
+interface StoredConfigRow {
+  config_json: string
+}
+
+function readStoredConfig(userId: string): DeepPartial<IntegrationsConfig> | null {
+  const row = getDb().prepare("SELECT config_json FROM integration_configs WHERE user_id = ?").get(userId) as
+    | StoredConfigRow
+    | undefined
+  if (!row) return null
+  try {
+    const parsed: unknown = JSON.parse(row.config_json)
+    return parsed && typeof parsed === "object" ? (parsed as DeepPartial<IntegrationsConfig>) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The first encryptSecret call spawns PowerShell (DPAPI), which must never happen while a write transaction is open:
+ * other processes would hit SQLITE_BUSY. Warm the cached key before any tx(); failures surface on the real call.
+ */
+function warmSecretKey(): void {
+  try {
+    encryptSecret("warm")
+  } catch {
+    // SecretsUnavailableError is reported by the write that actually needs the key.
+  }
+}
+
+function writeStoredConfig(userId: string, config: IntegrationsConfig): void {
+  getDb()
+    .prepare(
+      "INSERT INTO integration_configs (user_id, config_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET config_json = excluded.config_json, updated_at = excluded.updated_at",
+    )
+    .run(userId, JSON.stringify(config), nowIso())
+}
+
 export async function loadIntegrationsConfig(scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
   try {
     const normalizedScope = normalizeStoreScope(scope)
     assertScopedIntegrationsAccess(normalizedScope)
     const { userId } = normalizedScope
-
-    const configPath = getConfigFilePath(userId)
-
-    try {
-      const fileContent = await fs.readFile(configPath, "utf-8")
-      const raw = JSON.parse(fileContent) as Partial<IntegrationsConfig>
-      return normalizeConfig(raw)
-    } catch {
-      // File doesn't exist or is invalid, return default config
-      return normalizeConfig(DEFAULT_CONFIG)
-    }
+    return normalizeConfig(readStoredConfig(userId) ?? DEFAULT_CONFIG)
   } catch {
     return normalizeConfig(DEFAULT_CONFIG)
   }
 }
 
 export async function saveIntegrationsConfig(config: IntegrationsConfig, scope?: IntegrationsStoreScope): Promise<void> {
+  const normalizedScope = normalizeStoreScope(scope)
+  assertScopedIntegrationsAccess(normalizedScope)
+  const { userId } = normalizedScope
+  warmSecretKey()
   const normalized = normalizeConfig({
     ...config,
     updatedAt: new Date().toISOString(),
   })
   const toStore = toEncryptedStoreConfig(normalized)
-
-  const normalizedScope = normalizeStoreScope(scope)
-  assertScopedIntegrationsAccess(normalizedScope)
-  const { userId } = normalizedScope
-
-  await ensureDataDir()
-  const configPath = getConfigFilePath(userId)
-  await fs.writeFile(configPath, JSON.stringify(toStore, null, 2), "utf-8")
+  tx(() => writeStoredConfig(userId, toStore))
 }
 
-// Serializes concurrent updateIntegrationsConfig calls per-user to prevent
-// read→merge→write races where two concurrent callers both load stale state
-// and the last writer silently overwrites the other's changes.
-const _configUpdateLocks = new Map<string, Promise<void>>()
-
+/** Read-merge-write in ONE immediate transaction, so concurrent updates (in-process or from the agent runtime) never lose changes. */
 export async function updateIntegrationsConfig(partial: DeepPartial<IntegrationsConfig>, scope?: IntegrationsStoreScope): Promise<IntegrationsConfig> {
   const normalizedScope = normalizeStoreScope(scope)
   assertScopedIntegrationsAccess(normalizedScope)
   const { userId } = normalizedScope
-
-  let result!: IntegrationsConfig
-  const prev = _configUpdateLocks.get(userId) ?? Promise.resolve()
-  const next = prev.catch(() => undefined).then(async () => {
-    const current = await loadIntegrationsConfig(scope)
+  warmSecretKey()
+  return tx(() => {
+    const current = normalizeConfig(readStoredConfig(userId) ?? DEFAULT_CONFIG)
     const merged = mergeIntegrationsConfig(current, partial)
-    await saveIntegrationsConfig(merged, scope)
-    result = merged
+    writeStoredConfig(userId, toEncryptedStoreConfig(merged))
+    return merged
   })
-  _configUpdateLocks.set(userId, next)
-  await next
-  // Evict the settled promise so the Map doesn't grow unboundedly.
-  if (_configUpdateLocks.get(userId) === next) _configUpdateLocks.delete(userId)
-  return result
 }

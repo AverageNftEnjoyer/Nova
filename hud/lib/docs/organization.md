@@ -17,7 +17,8 @@ Keep `hud/lib` domain-organized. Avoid adding operational source files directly 
 - `security/`: auth hardening, encryption, rate limiting.
 - `settings/`: persistent user/UI settings and caches.
 - `shared/`: small cross-domain utilities.
-- `supabase/`: Supabase clients/env utilities.
+- `lib/security/`: encryption, runtime auth, rate limits, and OAuth state helpers.
+- `src/db/` (repo root): shared local SQLite module used by HUD API routes.
 - `workspace/`: workspace-scoped sync/state modules.
 - `docs/`: internal structure/maintenance documentation.
 

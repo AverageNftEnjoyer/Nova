@@ -3,6 +3,8 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { kvGet } from "../../../src/db/index.js";
+import { getSessionEntry, loadSessionTurns } from "../../../src/session/sqlite-store/index.js";
 
 const results = [];
 
@@ -93,24 +95,8 @@ await run("Runtime memory update writes identity snapshot and audit trail under 
   assert.equal(String(memoryUpdateResult?.route || ""), "memory_update");
   assert.equal(String(memoryUpdateResult?.reply || "").trim().length > 0, true);
 
-  const profilePath = path.join(
-    process.cwd(),
-    ".user",
-    "user-context",
-    userContextId,
-    "profile",
-    "identity-intelligence.json",
-  );
-  const auditPath = path.join(
-    process.cwd(),
-    ".user",
-    "user-context",
-    userContextId,
-    "logs",
-    "identity-intelligence.jsonl",
-  );
-  const profile = JSON.parse(await fsp.readFile(profilePath, "utf8"));
-  const auditLines = parseJsonLines(await fsp.readFile(auditPath, "utf8"));
+  const profile = kvGet(userContextId, "identity-profile", "snapshot");
+  const auditLines = kvGet(userContextId, "identity-profile", "audit") || [];
   const relevantAudit = auditLines.filter(
     (entry) =>
       String(entry.conversationId || "") === conversationId
@@ -144,27 +130,10 @@ await run("Runtime chat turn keeps stable scoped session and logs identity promp
   assert.equal(String(chatResult?.sessionKey || ""), sessionKeyHint);
   assert.equal(String(chatResult?.reply || "").trim().length > 0, true);
 
-  const sessionsPath = path.join(
-    process.cwd(),
-    ".user",
-    "user-context",
-    userContextId,
-    "state",
-    "sessions.json",
-  );
-  const sessions = JSON.parse(await fsp.readFile(sessionsPath, "utf8"));
-  const scopedEntry = sessions[sessionKeyHint];
+  const scopedEntry = getSessionEntry(userContextId, sessionKeyHint);
   assert.equal(Boolean(scopedEntry?.sessionId), true);
 
-  const transcriptPath = path.join(
-    process.cwd(),
-    ".user",
-    "user-context",
-    userContextId,
-    "transcripts",
-    `${scopedEntry.sessionId}.jsonl`,
-  );
-  const transcriptLines = parseJsonLines(await fsp.readFile(transcriptPath, "utf8"));
+  const transcriptLines = loadSessionTurns(userContextId, scopedEntry.sessionId);
   const conversationTranscript = transcriptLines.filter(
     (line) => String(line?.meta?.sessionKey || "") === sessionKeyHint,
   );

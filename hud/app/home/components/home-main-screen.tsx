@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import type { Conversation } from "@/lib/chat/conversations"
-import { Blocks, Pin, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
+import { Blocks, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
 import {
   BraveIcon,
@@ -32,7 +32,7 @@ import { NOVA_VERSION } from "@/lib/meta/version"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
-import { formatDailyTime, hexToRgba } from "../helpers"
+import { hexToRgba } from "../helpers"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
 import { YouTubeHomeModule } from "./youtube-home-module"
@@ -167,7 +167,6 @@ export function HomeMainScreen() {
     panelClass,
     subPanelClass,
     conversations,
-    missions,
     cryptoAssets,
     cryptoRange,
     setCryptoRange,
@@ -668,13 +667,14 @@ export function HomeMainScreen() {
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
                 className="col-span-2 min-h-0 h-full"
+                onOpenMissions={openMissions}
               />
               <NotesHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
-                className="col-span-1 min-h-0 h-full"
+                className="col-span-2 min-h-0 h-full"
               />
             </div>
 
@@ -851,7 +851,7 @@ export function HomeMainScreen() {
             </div>
             </div>
 
-          {/* ── ZONE 3: Right column (Integrations / News / Agent Chart) ── */}
+          {/* ── ZONE 3: Right column (Integrations / Agent Chart) ── */}
           <div className="w-67 shrink-0 flex flex-col gap-1.5 min-h-0">
 
             {/* Integrations */}
@@ -894,102 +894,11 @@ export function HomeMainScreen() {
               </div>
             </section>
 
-            <section
-              ref={pipelineSectionRef}
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell p-4 min-h-0 flex-1 flex flex-col`}
-            >
-              {renderPanelHeader({
-                icon: <Pin className="w-4 h-4 text-accent" />,
-                title: "Missions Hub",
-                action: renderGearButton({
-                  onClick: openMissions,
-                  label: "Open mission settings",
-                  groupName: "mission-gear",
-                  hoverGlow: false,
-                }),
-              })}
-              <div className="mt-1 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
-                {missions.length === 0 && (
-                  <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
-                    No missions yet. Add one in Mission Settings.
-                  </p>
-                )}
-                {missions.map((mission) => (
-                  <div
-                    key={mission.id}
-                    className={cn(
-                      `${subPanelClass} p-2 home-spotlight-card home-border-glow`,
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>
-                        {mission.title}
-                      </p>
-                      <span
-                        className={cn(
-                          "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap shrink-0",
-                          mission.enabledCount > 0
-                            ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                            : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                        )}
-                      >
-                        {mission.enabledCount > 0 ? "Active" : "Paused"}
-                      </span>
-                    </div>
-                    {mission.description ? (
-                      <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>
-                        {mission.description}
-                      </p>
-                    ) : null}
-                    <div className="mt-1.5 flex items-end justify-between gap-2">
-                      <div className="flex flex-wrap gap-1">
-                        {mission.times.map((time, index) => (
-                          <span
-                            key={`${mission.id}-${time}-${index}`}
-                            className={cn(
-                              "text-[10px] px-1.5 py-0.5 rounded-md border",
-                              isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "home-subpanel-surface text-slate-300",
-                            )}
-                          >
-                            {formatDailyTime(time, mission.timezone)}
-                          </span>
-                        ))}
-                      </div>
-                      <span
-                        className={cn(
-                          "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap capitalize shrink-0",
-                          mission.priority === "low" &&
-                            (isLight
-                              ? "border-emerald-300 bg-emerald-100 text-emerald-700"
-                              : "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
-                          mission.priority === "medium" &&
-                            (isLight
-                              ? "border-amber-300 bg-amber-100 text-amber-700"
-                              : "border-amber-300/40 bg-amber-500/15 text-amber-300"),
-                          mission.priority === "high" &&
-                            (isLight
-                              ? "border-orange-300 bg-orange-100 text-orange-700"
-                              : "border-orange-300/40 bg-orange-500/15 text-orange-300"),
-                          mission.priority === "critical" &&
-                            (isLight
-                              ? "border-rose-300 bg-rose-100 text-rose-700"
-                              : "border-rose-300/40 bg-rose-500/15 text-rose-300"),
-                        )}
-                      >
-                        {mission.priority}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
             {/* Agent Chart */}
             <section
               ref={agentModuleSectionRef}
               style={panelStyle}
-              className={`${panelClass} home-spotlight-shell h-47 px-3 py-2 shrink-0 flex flex-col`}
+              className={`${panelClass} home-spotlight-shell px-3 py-2 min-h-0 flex-1 flex flex-col`}
             >
               {renderPanelHeader({
                 icon: <Network className="w-4 h-4 text-accent" />,
@@ -1001,7 +910,7 @@ export function HomeMainScreen() {
                   hoverGlow: false,
                 }),
               })}
-              <div className="mt-2.5">
+              <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar">
                 <div
                   className={cn(
                     "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow",

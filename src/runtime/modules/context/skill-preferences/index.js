@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { ROOT_WORKSPACE_DIR, USER_CONTEXT_ROOT } from "../../../core/constants/index.js";
+import { kvGet, kvSet } from "../../../../db/index.js";
 
 const SKILL_FILE_NAME = "SKILL.md";
 const SKILL_UPDATE_VERBS_REGEX =
@@ -352,18 +353,28 @@ export function applySkillPreferenceUpdateFromMessage({
     };
   }
 
-  const update = upsertPreferenceSection(ensured.content, directive);
+  const existingProfile = kvGet(normalizedUserContextId, "skill-preferences", skillName);
+  const existingRules = Array.isArray(existingProfile?.rules)
+    ? existingProfile.rules.map((rule) => compactWhitespace(rule)).filter(Boolean)
+    : [];
+  const duplicate = existingRules.some((rule) => rule.toLowerCase() === directive.toLowerCase());
+  const rules = duplicate ? existingRules : [...existingRules, directive].slice(-SKILL_PREFERENCE_MAX_RULES);
   try {
-    fs.writeFileSync(ensured.filePath, update.content, "utf8");
+    kvSet(normalizedUserContextId, "skill-preferences", skillName, {
+      skillName,
+      rules,
+      updatedAt: Date.now(),
+    });
     return {
       handled: true,
-      updated: update.updated || update.duplicate,
-      duplicate: update.duplicate,
+      updated: true,
+      duplicate,
       skillName,
       directive,
       filePath: ensured.filePath,
-      ruleCount: update.ruleCount,
-      reply: buildPreferenceAck(skillName, directive, { duplicate: update.duplicate }),
+      profilePath: `sqlite:kv_state/${normalizedUserContextId}/skill-preferences/${skillName}`,
+      ruleCount: rules.length,
+      reply: buildPreferenceAck(skillName, directive, { duplicate }),
     };
   } catch {
     return {

@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     const now = new Date().toISOString()
     const results = await sendTelegramMessage({
       text: `Nova integration test successful at ${now}`,
-    }, verified)
+    })
     const ok = results.some((r) => r.ok)
     const firstFailure = results.find((r) => !r.ok)
     return NextResponse.json(

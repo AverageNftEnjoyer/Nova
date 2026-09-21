@@ -1,7 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
 import { sessionRuntime } from "../../../infrastructure/config/index.js";
-import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
+import { getDb } from "../../../../../db/index.js";
 import { unwrapStoredSecret } from "../../../../../providers/runtime/index.js";
 
 function normalizeContextId(value = "") {
@@ -39,7 +37,7 @@ function normalizeWebhookList(value) {
 
 function buildScopedIntegrationsPath(userContextId = "") {
   const normalized = requireContextId(userContextId, "buildScopedIntegrationsPath");
-  return path.join(USER_CONTEXT_ROOT, normalized, "state", "integrations-config.json");
+  return `sqlite:integration_state/${normalized}/runtime/snapshot`;
 }
 
 function normalizeState(raw = {}, statePath = "") {
@@ -52,7 +50,14 @@ function normalizeState(raw = {}, statePath = "") {
 }
 
 export function createDiscordIntegrationStateAdapter(deps = {}) {
-  const readFileSync = typeof deps.readFileSync === "function" ? deps.readFileSync : fs.readFileSync;
+  const readSnapshot = typeof deps.readSnapshot === "function"
+    ? deps.readSnapshot
+    : (userId) => {
+        const row = getDb()
+          .prepare("SELECT value_json FROM integration_state WHERE user_id = ? AND integration = 'runtime' AND key = 'snapshot'")
+          .get(userId);
+        return row ? JSON.parse(row.value_json) : {};
+      };
   return Object.freeze({
     id: "discord-integration-state-adapter",
     normalizeContextId,
@@ -61,8 +66,7 @@ export function createDiscordIntegrationStateAdapter(deps = {}) {
       const normalizedUserContextId = requireContextId(userContextId, "discord.getState");
       const statePath = buildScopedIntegrationsPath(normalizedUserContextId);
       try {
-        const raw = readFileSync(statePath, "utf8");
-        const parsed = JSON.parse(raw);
+        const parsed = readSnapshot(normalizedUserContextId);
         return normalizeState(parsed, statePath);
       } catch {
         return normalizeState({}, statePath);

@@ -1,15 +1,11 @@
 import crypto from "node:crypto";
-import path from "node:path";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
-import { USER_CONTEXT_ROOT } from "../../../../core/constants/index.js";
+import { nowIso, tx } from "../../../../../db/index.js";
 import { normalizeMissionBuildInput } from "../build-service/index.js";
 
-const PENDING_TTL_MS = 120000;
+const PENDING_TTL_MS = 120_000;
 const RESULT_TTL_MS = 5 * 60 * 1000;
-const DATA_FILE_NAME = "mission-build-idempotency.json";
-const LOCK_FILE_NAME = "mission-build-idempotency.lock";
-const STATE_DIR_NAME = "state";
+const NAMESPACE = "mission-build-idempotency";
 
 function sanitizeScopePart(value) {
   return String(value || "")
@@ -21,15 +17,11 @@ function sanitizeScopePart(value) {
     .slice(0, 120);
 }
 
-function normalizePromptSeed(value) {
-  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 1200);
-}
-
 function computeDeterministicFingerprint(input = {}) {
   const normalized = normalizeMissionBuildInput(input);
   const seed = JSON.stringify({
     userContextId: sanitizeScopePart(normalized.userContextId),
-    prompt: normalizePromptSeed(normalized.prompt),
+    prompt: String(normalized.prompt || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 1200),
     deploy: normalized.deploy,
     timezone: normalized.timezone,
     enabled: normalized.enabled,
@@ -37,98 +29,38 @@ function computeDeterministicFingerprint(input = {}) {
   return crypto.createHash("sha256").update(seed).digest("hex").slice(0, 32);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveUserContextRoot() {
-  return USER_CONTEXT_ROOT;
-}
-
-function resolveScopedDataFile(userContextId) {
-  return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), STATE_DIR_NAME, DATA_FILE_NAME);
-}
-
-function resolveScopedLockFile(userContextId) {
-  return path.join(resolveUserContextRoot(), sanitizeScopePart(userContextId), STATE_DIR_NAME, LOCK_FILE_NAME);
-}
-
-async function ensureDataFile(userContextId) {
-  const file = resolveScopedDataFile(userContextId);
-  await mkdir(path.dirname(file), { recursive: true });
+function readRow(db, userId, key) {
+  const row = db
+    .prepare("SELECT value_json FROM kv_state WHERE user_id = ? AND namespace = ? AND key = ?")
+    .get(userId, NAMESPACE, key);
+  if (!row) return null;
   try {
-    await readFile(file, "utf8");
+    return JSON.parse(row.value_json);
   } catch {
-    await writeFile(file, "[]", "utf8");
+    return null;
   }
 }
 
-async function acquireLock(lockFile, timeoutMs = 3000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await mkdir(path.dirname(lockFile), { recursive: true });
-      await writeFile(lockFile, `${process.pid}`, { encoding: "utf8", flag: "wx" });
-      return async () => {
-        try {
-          await unlink(lockFile);
-        } catch {
-        }
-      };
-    } catch (error) {
-      if (!(error instanceof Error) || !String(error.code || "").includes("EEXIST")) throw error;
-      await sleep(30);
-    }
-  }
-  throw new Error("Failed to acquire mission idempotency lock.");
-}
-
-async function withLockedStore(userContextId, action) {
-  const scopedUserId = sanitizeScopePart(userContextId);
-  if (!scopedUserId) throw new Error("Missing user context id for mission idempotency.");
-  await ensureDataFile(scopedUserId);
-  const file = resolveScopedDataFile(scopedUserId);
-  const lockFile = resolveScopedLockFile(scopedUserId);
-  const release = await acquireLock(lockFile);
-  try {
-    const raw = await readFile(file, "utf8").catch(() => "[]");
-    const parsed = JSON.parse(raw);
-    const rows = Array.isArray(parsed) ? parsed : [];
-    const result = await action(rows, scopedUserId);
-    if (Array.isArray(result)) {
-      await writeFile(file, JSON.stringify(result, null, 2), "utf8");
-      return undefined;
-    }
-    if (result && Array.isArray(result.nextRows)) {
-      await writeFile(file, JSON.stringify(result.nextRows, null, 2), "utf8");
-      return result.value;
-    }
-    return result;
-  } finally {
-    await release();
-  }
-}
-
-function pruneExpiredRows(rows, nowMs) {
-  return rows.filter((entry) => Number(entry?.expiresAt || 0) > nowMs);
+function writeRow(db, userId, key, value) {
+  db.prepare(
+    `INSERT INTO kv_state (user_id, namespace, key, value_json, updated_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, namespace, key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+  ).run(userId, NAMESPACE, key, JSON.stringify(value), nowIso());
 }
 
 export function resolveMissionBuildIdempotencyKey(input = {}) {
-  const userScope = sanitizeScopePart(input.userContextId);
-  const fingerprint = computeDeterministicFingerprint(input);
-  return `mission-build:${userScope}:${fingerprint}`;
+  return `mission-build:${sanitizeScopePart(input.userContextId)}:${computeDeterministicFingerprint(input)}`;
 }
 
 export async function reserveMissionBuildRequest(input = {}) {
   const nowMs = Date.now();
   const key = resolveMissionBuildIdempotencyKey(input);
-  const userContextId = sanitizeScopePart(input.userContextId);
-  return await withLockedStore(userContextId, (rows) => {
-    const nextRows = pruneExpiredRows(rows, nowMs);
-    const existing = nextRows.find((entry) => String(entry?.key || "") === key);
-    if (!existing) {
-      nextRows.push({
-        key,
+  const userId = sanitizeScopePart(input.userContextId);
+  if (!userId) throw new Error("Missing user context id for mission idempotency.");
+  return tx((db) => {
+    const existing = readRow(db, userId, key);
+    if (!existing || Number(existing.expiresAt || 0) <= nowMs) {
+      writeRow(db, userId, key, {
         status: "pending",
         createdAt: nowMs,
         updatedAt: nowMs,
@@ -136,61 +68,37 @@ export async function reserveMissionBuildRequest(input = {}) {
         result: null,
         error: "",
       });
-      return {
-        nextRows,
-        value: {
-          status: "started",
-          key,
-        },
-      };
+      return { status: "started", key };
     }
     if (existing.status === "pending") {
       return {
-        nextRows,
-        value: {
-          status: "pending",
-          key,
-          retryAfterMs: Math.max(250, Math.min(4000, Number(existing.expiresAt || nowMs) - nowMs)),
-        },
+        status: "pending",
+        key,
+        retryAfterMs: Math.max(250, Math.min(4000, Number(existing.expiresAt) - nowMs)),
       };
     }
     if (existing.status === "completed" && existing.result) {
-      return {
-        nextRows,
-        value: {
-          status: "completed",
-          key,
-          result: existing.result,
-        },
-      };
+      return { status: "completed", key, result: existing.result };
     }
-    return {
-      nextRows,
-      value: {
-        status: "failed",
-        key,
-        error: String(existing.error || "Mission build previously failed."),
-      },
-    };
+    return { status: "failed", key, error: String(existing.error || "Mission build previously failed.") };
   });
 }
 
 export async function finalizeMissionBuildRequest(input = {}) {
   const nowMs = Date.now();
-  const scopedUser = String(input.userContextId || "").trim();
-  if (!scopedUser || !String(input.key || "").trim()) return;
-  await withLockedStore(scopedUser, (rows) => {
-    const nextRows = pruneExpiredRows(rows, nowMs);
-    const index = nextRows.findIndex((entry) => String(entry?.key || "") === String(input.key || ""));
-    if (index === -1) return { nextRows, value: undefined };
-    nextRows[index] = {
-      ...nextRows[index],
+  const userId = sanitizeScopePart(input.userContextId);
+  const key = String(input.key || "").trim();
+  if (!userId || !key) return;
+  tx((db) => {
+    const existing = readRow(db, userId, key);
+    if (!existing || Number(existing.expiresAt || 0) <= nowMs) return;
+    writeRow(db, userId, key, {
+      ...existing,
       status: input.ok ? "completed" : "failed",
       updatedAt: nowMs,
       expiresAt: nowMs + RESULT_TTL_MS,
       result: input.ok ? input.result : null,
       error: input.ok ? "" : String(input.error || "Mission build failed."),
-    };
-    return { nextRows, value: undefined };
+    });
   });
 }

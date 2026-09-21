@@ -5,6 +5,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const results = [];
+const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-pref-db-"));
+process.env.NOVA_DATA_DIR = dataDir;
 
 function record(status, name, detail = "") {
   results.push({ status, name, detail });
@@ -117,6 +119,7 @@ await run("A newer explicit my-name statement overrides stale call-me aliases", 
 
 await run("Falls back to MEMORY.md preferred-name marker for migration continuity", async () => {
   const workspace = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-pref-smoke-"));
+  const userContextId = `u4-${process.pid}-${Date.now()}`;
   await fsp.writeFile(
     path.join(workspace, "MEMORY.md"),
     [
@@ -128,13 +131,13 @@ await run("Falls back to MEMORY.md preferred-name marker for migration continuit
     "utf8",
   );
   const hydrated = captureUserPreferencesFromMessage({
-    userContextId: "u4",
+    userContextId,
     workspaceDir: workspace,
     userInputText: "",
     nlpConfidence: 1,
   });
   assert.equal(hydrated.preferences.preferredName, "Alex");
-  const reloaded = loadUserPreferences({ userContextId: "u4", workspaceDir: workspace });
+  const reloaded = loadUserPreferences({ userContextId, workspaceDir: workspace });
   assert.equal(String(reloaded.preferences.fields?.preferredName?.value || ""), "Alex");
 });
 

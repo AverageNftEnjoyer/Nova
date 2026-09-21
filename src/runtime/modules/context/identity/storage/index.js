@@ -1,13 +1,15 @@
-import fs from "fs";
 import path from "path";
 import {
-  IDENTITY_AUDIT_FILE_NAME,
-  IDENTITY_FILE_NAME,
-  IDENTITY_SEED_FILE_NAME,
   createEmptyIdentitySnapshot,
   normalizeIdentitySnapshot,
   resolveDefaultIdentityRoot,
 } from "../constants/index.js";
+import { kvDelete, kvGet, kvSet, tx } from "../../../../../db/index.js";
+
+const NAMESPACE = "identity-profile";
+const SNAPSHOT_KEY = "snapshot";
+const AUDIT_KEY = "audit";
+const MAX_AUDIT_EVENTS = 300;
 
 function normalizeUserContextId(value) {
   return String(value || "")
@@ -19,25 +21,9 @@ function normalizeUserContextId(value) {
     .slice(0, 96);
 }
 
-function readJsonFile(filePath) {
-  try {
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function writeJsonFile(filePath, payload) {
-  if (!filePath) return;
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-}
-
-export function resolveIdentityPaths({ userContextId = "", workspaceDir = "", rootDir = "" } = {}) {
-  const normalizedUserContextId = normalizeUserContextId(userContextId);
-  if (!normalizedUserContextId) {
+export function resolveIdentityPaths({ userContextId = "", workspaceDir = "" } = {}) {
+  const uid = normalizeUserContextId(userContextId);
+  if (!uid) {
     return {
       userContextId: "",
       userContextDir: "",
@@ -48,55 +34,32 @@ export function resolveIdentityPaths({ userContextId = "", workspaceDir = "", ro
       auditPath: "",
     };
   }
-  const explicitWorkspaceDir = String(workspaceDir || "").trim();
-  const baseRoot =
-    explicitWorkspaceDir ||
-    String(rootDir || "").trim() ||
-    path.join(path.resolve(resolveDefaultIdentityRoot()), "..", normalizedUserContextId);
-  const userContextDir = explicitWorkspaceDir
-    ? path.resolve(explicitWorkspaceDir)
-    : path.resolve(path.join(resolveDefaultIdentityRoot(), normalizedUserContextId));
-  if (baseRoot && !explicitWorkspaceDir) {
-    const rootResolved = path.resolve(baseRoot);
-    if (rootResolved.endsWith(path.sep + normalizedUserContextId)) {
-      // already scoped
-    }
-  }
+  const userContextDir = workspaceDir
+    ? path.resolve(workspaceDir)
+    : path.resolve(resolveDefaultIdentityRoot(), uid);
   const profileDir = path.join(userContextDir, "profile");
-  const logsDir = path.join(userContextDir, "logs");
   return {
-    userContextId: normalizedUserContextId,
+    userContextId: uid,
     userContextDir,
     profileDir,
-    logsDir,
-    snapshotPath: path.join(profileDir, IDENTITY_FILE_NAME),
-    seedPath: path.join(profileDir, IDENTITY_SEED_FILE_NAME),
-    auditPath: path.join(logsDir, IDENTITY_AUDIT_FILE_NAME),
+    logsDir: path.join(userContextDir, "logs"),
+    snapshotPath: `sqlite:kv_state/${uid}/${NAMESPACE}/${SNAPSHOT_KEY}`,
+    seedPath: `sqlite:kv_state/${uid}/${NAMESPACE}/seed`,
+    auditPath: `sqlite:kv_state/${uid}/${NAMESPACE}/${AUDIT_KEY}`,
   };
 }
 
 export function loadIdentitySeed(paths) {
-  const rawSeed = readJsonFile(paths?.seedPath || "");
-  if (!rawSeed || typeof rawSeed !== "object") return null;
-  const schemaVersion = Number(rawSeed.schemaVersion || 0);
-  if (!Number.isFinite(schemaVersion) || schemaVersion <= 0) return null;
-  return rawSeed;
-}
-
-function archiveCorruptSnapshot(snapshotPath, nowMs) {
-  if (!snapshotPath || !fs.existsSync(snapshotPath)) return "";
-  const corruptPath = `${snapshotPath}.corrupt.${nowMs}`;
-  try {
-    fs.renameSync(snapshotPath, corruptPath);
-    return corruptPath;
-  } catch {
-    return "";
-  }
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid) return null;
+  const raw = kvGet(uid, NAMESPACE, "seed");
+  const schemaVersion = Number(raw?.schemaVersion || 0);
+  return raw && typeof raw === "object" && schemaVersion > 0 ? raw : null;
 }
 
 export function loadIdentitySnapshot(paths, nowMs = Date.now()) {
-  const userContextId = String(paths?.userContextId || "").trim();
-  if (!userContextId || !paths?.snapshotPath) {
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid) {
     return {
       snapshot: createEmptyIdentitySnapshot({ userContextId: "", nowMs }),
       snapshotPath: "",
@@ -104,50 +67,55 @@ export function loadIdentitySnapshot(paths, nowMs = Date.now()) {
       recoveredCorruptPath: "",
     };
   }
-
-  const raw = readJsonFile(paths.snapshotPath);
-  if (!raw) {
-    return {
-      snapshot: createEmptyIdentitySnapshot({ userContextId, nowMs }),
-      snapshotPath: paths.snapshotPath,
-      createdFresh: true,
-      recoveredCorruptPath: "",
-    };
+  let raw = null;
+  let recoveredCorruptPath = "";
+  try {
+    raw = kvGet(uid, NAMESPACE, SNAPSHOT_KEY);
+  } catch {
+    kvDelete(uid, NAMESPACE, SNAPSHOT_KEY);
+    recoveredCorruptPath = `${paths.snapshotPath}.corrupt.${nowMs}`;
   }
-
-  const normalized = normalizeIdentitySnapshot(raw, { userContextId, nowMs });
   return {
-    snapshot: normalized,
+    snapshot: raw
+      ? normalizeIdentitySnapshot(raw, { userContextId: uid, nowMs })
+      : createEmptyIdentitySnapshot({ userContextId: uid, nowMs }),
     snapshotPath: paths.snapshotPath,
-    createdFresh: false,
-    recoveredCorruptPath: "",
+    createdFresh: !raw,
+    recoveredCorruptPath,
   };
 }
 
 export function recoverOrCreateIdentitySnapshot(paths, nowMs = Date.now()) {
-  const direct = loadIdentitySnapshot(paths, nowMs);
-  if (!paths?.snapshotPath) return direct;
-  if (direct.createdFresh && fs.existsSync(paths.snapshotPath)) {
-    const recoveredCorruptPath = archiveCorruptSnapshot(paths.snapshotPath, nowMs);
-    return {
-      ...direct,
-      recoveredCorruptPath,
-    };
-  }
-  return direct;
+  return loadIdentitySnapshot(paths, nowMs);
 }
 
 export function persistIdentitySnapshot(paths, snapshot) {
-  if (!paths?.snapshotPath || !snapshot) return;
-  writeJsonFile(paths.snapshotPath, snapshot);
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid || !snapshot || typeof snapshot !== "object") return;
+  kvSet(uid, NAMESPACE, SNAPSHOT_KEY, snapshot);
 }
 
 export function appendIdentityAuditEvent(paths, event) {
-  if (!paths?.auditPath || !event || typeof event !== "object") return;
+  const uid = normalizeUserContextId(paths?.userContextId);
+  if (!uid || !event || typeof event !== "object") return;
   try {
-    fs.mkdirSync(path.dirname(paths.auditPath), { recursive: true });
-    fs.appendFileSync(paths.auditPath, `${JSON.stringify(event)}\n`, "utf8");
+    tx((db) => {
+      const row = db
+        .prepare("SELECT value_json FROM kv_state WHERE user_id = ? AND namespace = ? AND key = ?")
+        .get(uid, NAMESPACE, AUDIT_KEY);
+      let events = [];
+      try {
+        const parsed = row ? JSON.parse(row.value_json) : [];
+        if (Array.isArray(parsed)) events = parsed;
+      } catch {}
+      events.push(event);
+      events = events.slice(-MAX_AUDIT_EVENTS);
+      db.prepare(
+        `INSERT INTO kv_state (user_id, namespace, key, value_json, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, namespace, key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      ).run(uid, NAMESPACE, AUDIT_KEY, JSON.stringify(events), new Date().toISOString());
+    });
   } catch {
-    // Best effort audit trail.
+    // Best-effort audit trail.
   }
 }

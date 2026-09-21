@@ -5,6 +5,7 @@ import { rm } from "node:fs/promises"
 
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
+import { purgeLocalUserData, resolveDataDir } from "../../../../../src/db/index.js"
 
 export const runtime = "nodejs"
 
@@ -18,10 +19,10 @@ function normalizeUserContextId(value: unknown): string {
     .slice(0, 96)
 }
 
-async function pruneLocalUserArtifacts(workspaceRoot: string, userId: string): Promise<void> {
+async function pruneLocalUserArtifacts(dataDir: string, userId: string): Promise<void> {
   const userContextId = normalizeUserContextId(userId)
   if (!userContextId) return
-  const userContextPath = path.join(workspaceRoot, ".user", "user-context", userContextId)
+  const userContextPath = path.join(dataDir, "user-context", userContextId)
   await rm(userContextPath, { recursive: true, force: true }).catch(() => {})
 }
 
@@ -38,8 +39,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Password is required." }, { status: 400 })
   }
 
-  const workspaceRoot = path.resolve(process.cwd(), "..")
   const userContextId = normalizeUserContextId(userId)
+  const dataDir = resolveDataDir()
 
   // Clean up Coinbase data
   if (userContextId) {
@@ -57,24 +58,8 @@ export async function POST(req: Request) {
     }
   }
 
-  // Local-only mode: Clean up local artifacts
-  // In a local deployment, there's no centralized database to clean up
-  // All data is stored locally on the user's device:
-  // - Integration configs in .nova-data/
-  // - User settings in browser localStorage
-  // - Chat history in memory/localStorage
-  // - Mission job runs in memory
-
-  await pruneLocalUserArtifacts(workspaceRoot, userId)
-
-  // Clean up integration configs
-  try {
-    const fs = await import("fs/promises")
-    const configPath = path.join(process.cwd(), ".nova-data", `integrations-${userId}.json`)
-    await fs.unlink(configPath).catch(() => {})
-  } catch {
-    // Ignore errors
-  }
+  if (userContextId) purgeLocalUserData(userContextId)
+  await pruneLocalUserArtifacts(dataDir, userId)
 
   return NextResponse.json({ ok: true })
 }
