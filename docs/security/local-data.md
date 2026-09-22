@@ -107,27 +107,42 @@ not Electron's.
 - `npm run db:ensure-native` checks the binding without touching the network; `nova.js` runs the same check at startup and
   exits with the exact fix command if it fails.
 - Both processes resolve `better-sqlite3` from the repo-root `node_modules`, so exactly one binding exists in development.
-  `hud/next.config.ts` lists it in `serverExternalPackages` so Next never bundles the `.node` file.
+  `hud/next.config.js` lists it in `serverExternalPackages` so Next never bundles the `.node` file.
 - `hud/electron-builder.yml`: `asarUnpack` includes `node_modules/better-sqlite3/**` (a `.node` file cannot load from an
   asar), and user-data patterns (`.user`, `.nova-data`, `data/`, `keys/`, `*.db*`) are excluded from `files` so a
   developer's data can never ship in an installer.
 - If the database is ever moved into the Electron main process, rebuild for Electron 44's ABI with `@electron/rebuild`
   (`npmRebuild: true`). Do not do this while the DB still runs in Node child processes: one binary cannot serve both ABIs.
 
-### Packaging requirements (open items)
+### Packaging (Closure 4)
 
-- The installed app must run with `NOVA_PACKAGED=1` so data goes to `%APPDATA%\Nova` and not next to the install
-  directory. **Nothing in the repo sets this today** (`hud/electron/main.js` and `nova.js` do not); whoever launches the
-  Next server and agent runtime from the installed app must export it to both processes.
-- The Electron build is **not** an offline bundle today: `electron/main.js` loads `http://127.0.0.1:3000` in dev and a
-  static `out/` in production, which cannot serve the API routes. Full packaging of the Next and agent servers is still
-  to do.
-- `electron-builder.yml` currently packages only `hud/out`, `hud/electron`, `hud/package.json` and `hud/node_modules`.
-  It omits `nova.js`, `src/`, and the repository-root dependencies used by the runtime. Its `asarUnpack` rule for
-  `better-sqlite3` therefore does not make the current root installation available to the packaged app.
-- The supported product is Windows x64 because secrets require Windows DPAPI and the runtime uses PowerShell. Remove
-  or explicitly mark the macOS/Linux targets in `electron-builder.yml` unsupported until a cross-platform secret and
-  runtime design exists.
+The installed app now hosts one execution plane: Electron's main process starts the Next.js production server
+(`next({ dev: false })`'s custom-server API, API routes included, not a static export) and the `src/` runtime
+scheduler in-process — no spawned child processes, no separately started `npm run dev`. See
+`hud/electron/production-server.js` (started from `hud/electron/main.js`'s production branch) and
+`hud/scripts/prepare-runtime-resources.mjs` (the packaging step that stages the repo-root `src/`, `dist/` and
+`node_modules` into `hud/runtime-resources/`, which `electron-builder.yml`'s `extraResources` then copies to
+`<resourcesPath>/runtime`).
+
+- `NOVA_PACKAGED=1` is now set at the top of `hud/electron/main.js` whenever `app.isPackaged` is true, before the
+  in-process Next server or runtime scheduler start, so `resolveDataDir()` resolves to `%APPDATA%\Nova`.
+- `electron-builder.yml` sets `asar: false` for this app: Next's custom server reads its own `.next` build output off
+  disk at request time, and `better-sqlite3`'s native addon cannot load from inside an asar archive at all, so the
+  whole packaged app ships unarchived rather than fighting either constraint. This is a deliberate, conservative
+  choice made without the ability to install-test it; revisit once someone has verified a real install.
+- Because the DB now runs inside Electron's main process in the packaged build, its `better-sqlite3` copy needs
+  Electron's Node ABI, not plain Node's. `prepare-runtime-resources.mjs` rebuilds **only the staged copy** under
+  `hud/runtime-resources/node_modules/better-sqlite3` for Electron's ABI (via `prebuild-install --runtime electron`,
+  falling back to `@electron/rebuild`); the real repo-root `node_modules/better-sqlite3` used by `nova.js` and
+  `npm run dev` (plain Node child processes) is never touched, and stays on Node's own ABI. One binary cannot serve
+  both ABIs — do not merge these two copies.
+- The supported product is Windows x64 because secrets require Windows DPAPI and the runtime uses PowerShell. The
+  macOS/Linux targets left in `electron-builder.yml` were not part of this closure and remain unsupported: packaging
+  for them would need a non-Windows secrets design first.
+- Not yet done in any session: an actual install-and-launch test of the packaged app (no `npm run dev` running,
+  create an Agent Task, confirm the runtime scheduler claims it, quit cleanly). The pieces above were built and
+  typechecked, and the staging script was run end-to-end producing a real `better-sqlite3` rebuild for Electron's
+  ABI, but that binary was never load-tested inside an actual Electron process.
 
 ## Tests must never touch real data
 

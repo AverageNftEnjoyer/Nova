@@ -20,6 +20,9 @@
 # production
 /build
 
+# staged repo-root runtime for Electron packaging (see scripts/prepare-runtime-resources.mjs)
+/runtime-resources
+
 # misc
 .DS_Store
 *.pem

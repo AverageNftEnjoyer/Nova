@@ -5,7 +5,21 @@
 import fs from "fs";
 import { createFailureBackoff, VOICE_FAILURE_PAUSE_MS } from "./failure-backoff.js";
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms, signal) => new Promise((resolve) => {
+  if (signal?.aborted) {
+    resolve();
+    return;
+  }
+  const timer = setTimeout(() => {
+    signal?.removeEventListener("abort", onAbort);
+    resolve();
+  }, ms);
+  const onAbort = () => {
+    clearTimeout(timer);
+    resolve();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+});
 
 export async function startVoiceLoop(deps) {
   const {
@@ -36,6 +50,7 @@ export async function startVoiceLoop(deps) {
     VOICE_AFTER_WAKE_SUPPRESS_MS,
   } = deps;
 
+  const abortSignal = deps.abortSignal;
   let lastWakeHandledAt = 0;
   let lastVoiceTextHandled = "";
   let lastVoiceTextHandledAt = 0;
@@ -52,26 +67,26 @@ export async function startVoiceLoop(deps) {
     }
   };
 
-  while (true) {
+  while (!abortSignal?.aborted) {
     try {
       const voiceUserContextId = resolveVoiceUserContextId();
       if (!voiceUserContextId) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        await sleep(MIC_IDLE_DELAY_MS, abortSignal);
         continue;
       }
 
       if (getMuted({ userContextId: voiceUserContextId })) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        await sleep(MIC_IDLE_DELAY_MS, abortSignal);
         continue;
       }
 
       if (getBusy({ userContextId: voiceUserContextId })) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        await sleep(MIC_IDLE_DELAY_MS, abortSignal);
         continue;
       }
 
       if (Date.now() < getSuppressVoiceWakeUntilMs({ userContextId: voiceUserContextId })) {
-        await new Promise((r) => setTimeout(r, MIC_IDLE_DELAY_MS));
+        await sleep(MIC_IDLE_DELAY_MS, abortSignal);
         continue;
       }
       if (getMuted({ userContextId: voiceUserContextId })) continue;
@@ -230,7 +245,7 @@ export async function startVoiceLoop(deps) {
       }
 
       if (VOICE_POST_RESPONSE_GRACE_MS > 0) {
-        await new Promise((r) => setTimeout(r, VOICE_POST_RESPONSE_GRACE_MS));
+        await sleep(VOICE_POST_RESPONSE_GRACE_MS, abortSignal);
       }
     } catch (e) {
       const failure = failureBackoff.recordFailure();
@@ -248,7 +263,7 @@ export async function startVoiceLoop(deps) {
         await waitForMicToggleOrTimeout(voiceUserContextId);
         failureBackoff.reset();
       } else {
-        await sleep(failure.delayMs);
+        await sleep(failure.delayMs, abortSignal);
       }
     }
   }
@@ -257,8 +272,8 @@ export async function startVoiceLoop(deps) {
   async function waitForMicToggleOrTimeout(userContextId) {
     const deadline = Date.now() + VOICE_FAILURE_PAUSE_MS;
     let sawMuted = Boolean(getMuted({ userContextId }));
-    while (Date.now() < deadline) {
-      await sleep(Math.max(250, Number(MIC_IDLE_DELAY_MS) || 1000));
+    while (Date.now() < deadline && !abortSignal?.aborted) {
+      await sleep(Math.max(250, Number(MIC_IDLE_DELAY_MS) || 1000), abortSignal);
       const muted = Boolean(getMuted({ userContextId }));
       if (muted) sawMuted = true;
       else if (sawMuted) return;

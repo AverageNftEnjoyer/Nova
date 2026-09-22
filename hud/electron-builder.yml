@@ -6,11 +6,35 @@ directories:
   output: dist
   buildResources: electron/build
 
+# asar is OFF for this app. Closure 4 moved the DB and the Next.js production server into Electron's
+# main process (see hud/electron/production-server.js): Next's custom server reads its own build
+# output (.next/**) off disk at request time, and better-sqlite3's .node addon cannot load from
+# inside an asar archive at all. Packing everything unarchived avoids both problems outright, at the
+# cost of a larger, unarchived install directory. This is the conservative choice for a closure that
+# could not be install-tested end-to-end in the session that wrote it; re-scoping to asar: true plus
+# targeted asarUnpack entries is a reasonable follow-up once someone has verified a real install.
+asar: false
+
 files:
-  - out/**/*
+  - .next/**/*
+  # `output: "standalone"` traces a second tree under `.next/standalone`, and that trace follows
+  # whatever is on disk at build time — including a previous `dist/win-unpacked` Electron binary.
+  # The custom server in electron/production-server.js serves `.next/server` via next({ dev: false }).
+  # Do not ship the standalone copy.
+  - '!.next/standalone/**'
+  - public/**/*
   - electron/**/*
   - package.json
   - node_modules/**/*
+  # electron-builder inserts `!**/node_modules/**` before the first node_modules include above, which
+  # drops `.next/node_modules/<pkg>-<hash>` even though `.next/**/*` matched it. Turbopack externalizes
+  # better-sqlite3 to that hashed directory (see hud/scripts/prepare-runtime-resources.mjs, which
+  # replaces the symlink with a real copy). This later include puts that directory back. Without it,
+  # `/api/agent-tasks` returns 500: Cannot find module 'better-sqlite3-<hash>'.
+  - .next/node_modules/**/*
+  # Staged separately (see hud/scripts/prepare-runtime-resources.mjs) and copied in via
+  # extraResources below, so it is not also packed here.
+  - "!runtime-resources/**"
   # User data must never ship inside an installer (see docs/security/local-data.md).
   - "!**/.user/**"
   - "!**/.nova-data/**"
@@ -21,13 +45,30 @@ files:
   - "!**/*.db-shm"
   - "!**/*.db-journal"
 
-asarUnpack:
-  - node_modules/@lobehub/**
-  - node_modules/next/**
-  # Native addon cannot load from inside an asar archive. The DB code (src/db) runs in plain Node processes, so the
-  # binding must match Node's ABI, NOT Electron's: do not let npmRebuild recompile it for Electron unless the DB is
-  # moved into the Electron main process (then use @electron/rebuild for Electron 44's ABI).
-  - node_modules/better-sqlite3/**
+# The repo-root `src/` runtime (agent-task scheduler, chat handler, tool loop, SQLite layer, ...),
+# its compiled `dist/` shims, and its own node_modules — staged by
+# hud/scripts/prepare-runtime-resources.mjs, wired into `npm run electron:build`/`electron:build:win`
+# before electron-builder runs. Landed at <resourcesPath>/runtime-resources (sibling of the app
+# directory, not inside it), so hud/electron/production-server.js finds it via `process.resourcesPath`.
+#
+# `from: .` + a `runtime-resources/**/*` filter (NOT `from: runtime-resources`) is deliberate:
+# electron-builder's file walker unconditionally drops a directory literally named `node_modules`
+# when it sits at the root of `from` (app-builder-lib's createFilter — true for every matcher, `files`
+# and `extraResources` alike, no pattern can override it), which silently dropped
+# `runtime-resources/node_modules` end to end when `from` pointed straight at `runtime-resources`.
+# Nesting one level deeper means the offending path is `runtime-resources/node_modules`, not a bare
+# `node_modules`, so it copies normally. Confirmed with a real `--dir` build during Closure 4.
+#
+# better-sqlite3 >=13 ships a bundled N-API prebuild (prebuilds/win32-x64.node). That binary is not
+# ABI-pinned to Node vs. Electron, so the staging script verifies it and does not run an Electron-ABI
+# rebuild. electron-builder's own `npmRebuild` (default true) only walks node_modules inside `files`
+# above (hud's own), which does not include better-sqlite3, so it never touches this staged copy or
+# the repo-root copy used by `nova.js`.
+extraResources:
+  - from: .
+    to: .
+    filter:
+      - "runtime-resources/**/*"
 
 win:
   target:

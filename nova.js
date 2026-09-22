@@ -144,7 +144,7 @@ function ensureHudBuildIfNeeded() {
     path.join(HUD_DIR, "scripts"),
     path.join(HUD_DIR, "package.json"),
     path.join(HUD_DIR, "tsconfig.json"),
-    path.join(HUD_DIR, "next.config.ts"),
+    path.join(HUD_DIR, "next.config.js"),
     path.join(HUD_DIR, "postcss.config.mjs"),
   ];
 

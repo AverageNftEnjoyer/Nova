@@ -223,7 +223,17 @@ export function HomeMainScreen() {
   const fmtUsd = (value: number) => {
     if (!Number.isFinite(value) || value <= 0) return "-"
     const abs = Math.abs(value)
-    const decimals = abs >= 1000 ? 0 : abs >= 1 ? 2 : 4
+    // Compact notation ($86.4K) keeps crypto tiles narrow enough to never clip,
+    // even in the 5-across bottom row at the 1024px minimum window width.
+    if (abs >= 1000) {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        notation: "compact",
+        maximumFractionDigits: 1,
+      }).format(value)
+    }
+    const decimals = abs >= 1 ? 2 : 4
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -308,17 +318,17 @@ export function HomeMainScreen() {
     title: string
     action?: React.ReactNode
   }) => (
-    <div className="relative flex items-center justify-between gap-2 shrink-0">
+    <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
       <div className="flex items-center gap-2 text-s-80">{icon}</div>
       <h2
         className={cn(
-          "absolute left-1/2 -translate-x-1/2 text-sm uppercase tracking-[0.22em] font-semibold whitespace-nowrap",
+          "min-w-0 truncate text-center text-[11px] @xs:text-xs @sm:text-sm uppercase tracking-[0.14em] @sm:tracking-[0.22em] font-semibold",
           isLight ? "text-s-90" : "text-slate-200",
         )}
       >
         {title}
       </h2>
-      <div className="flex items-center gap-1.5">{action}</div>
+      <div className="flex items-center justify-end gap-1.5 min-w-0">{action}</div>
     </div>
   )
 
@@ -520,7 +530,7 @@ export function HomeMainScreen() {
           <div className="flex-1 min-h-0 flex gap-1.5">
 
             {/* ── ZONE 1: Schedule (left column) ─────────────────────────── */}
-            <div className="w-[15.5rem] shrink-0 min-h-0 grid grid-rows-2 gap-1.5">
+            <div className="w-52 xl:w-[15.5rem] shrink-0 min-h-0 grid grid-rows-[minmax(0,2fr)_minmax(0,3fr)] gap-1.5">
               <section
                 ref={pipelineSectionRef}
                 style={panelStyle}
@@ -627,13 +637,13 @@ export function HomeMainScreen() {
             {/* ── ZONE 2: Center column ──────────────────────────────────── */}
             <div className="flex-1 flex flex-col gap-1.5 min-w-0 min-h-0">
             {/* ── Top row: YouTube + Spotify + Polymarket (left of Integrations) ── */}
-            <div className="shrink-0 min-h-0 flex flex-col xl:flex-row xl:items-stretch gap-1.5 xl:h-[clamp(15rem,30vh,18.5rem)]">
+            <div className="shrink-0 min-h-0 flex flex-col lg:flex-row lg:items-stretch gap-1.5 lg:h-[clamp(13rem,26vh,18.5rem)]">
               <YouTubeHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
-                className="w-full xl:w-[24rem] 2xl:w-[26rem] min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full shrink-0"
+                className="w-full lg:w-52 xl:w-[24rem] 2xl:w-[26rem] min-w-0 h-[clamp(13rem,26vh,18.5rem)] lg:h-full shrink-0"
                 connected={youtubeConnected}
                 onOpenIntegrations={openIntegrations}
               />
@@ -643,7 +653,7 @@ export function HomeMainScreen() {
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
                 sectionRef={spotifyModuleSectionRef}
-                className="w-full xl:w-67 min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full shrink-0"
+                className="w-full lg:w-44 xl:w-67 min-w-0 h-[clamp(13rem,26vh,18.5rem)] lg:h-full shrink-0"
                 connected={spotifyConnected}
                 nowPlaying={spotifyNowPlaying}
                 error={spotifyError}
@@ -660,13 +670,13 @@ export function HomeMainScreen() {
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
-                className="w-full xl:flex-1 min-w-0 h-[clamp(15rem,30vh,18.5rem)] xl:h-full"
+                className="w-full lg:flex-1 min-w-0 h-[clamp(13rem,26vh,18.5rem)] lg:h-full"
                 onOpenIntegrations={openIntegrations}
                 onOpenPolymarket={() => router.push("/polymarket")}
               />
             </div>
 
-            <div className="grid flex-1 min-h-0 grid-cols-4 gap-1.5">
+            <div className="grid min-h-0 flex-[3] grid-cols-4 gap-1.5">
               <AgentTasksHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
@@ -685,15 +695,15 @@ export function HomeMainScreen() {
             </div>
 
             {/* ── Bottom row: market + dev + history panels ── */}
-            <div className="grid grid-cols-4 gap-1.5 shrink-0 h-47">
+            <div className="grid min-h-[11rem] flex-[2] grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 shrink-0">
 
               {/* Crypto Prices */}
               <section
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
-                  icon: <TrendingUp className="w-4 h-4 text-accent" />,
+                  icon: <TrendingUp className="w-4 h-4 text-accent shrink-0" />,
                   title: "Crypto Prices",
                   action: (
                     <button
@@ -703,7 +713,7 @@ export function HomeMainScreen() {
                         setCryptoRange(order[(idx + 1) % order.length])
                       }}
                       className={cn(
-                        "h-5 min-w-7 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                        "h-5 min-w-7 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors shrink-0",
                         isLight ? "text-accent" : "text-slate-100",
                       )}
                       aria-label={`Crypto range: ${cryptoRange}. Click to cycle.`}
@@ -712,7 +722,7 @@ export function HomeMainScreen() {
                     </button>
                   ),
                 })}
-                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                <div className="mt-2 grid min-h-0 flex-1 grid-cols-1 @[20rem]:grid-cols-2 auto-rows-fr gap-1">
                   {cryptoRows.map((asset) => {
                     const up = asset.changePct >= 0
                     const trendStroke = up ? "#34d399" : "#fb7185"
@@ -720,14 +730,14 @@ export function HomeMainScreen() {
                     <div
                       key={asset.symbol}
                       className={cn(
-                        "flex items-center justify-between px-2 py-1 rounded-sm home-spotlight-card home-border-glow",
+                        "flex min-w-0 items-center justify-between gap-1 px-2 py-1 rounded-sm home-spotlight-card home-border-glow",
                         subPanelClass,
                       )}
                     >
-                      <span className={cn("text-[11px] font-semibold", isLight ? "text-s-60" : "text-slate-400")}>
+                      <span className={cn("shrink-0 text-[11px] font-semibold", isLight ? "text-s-60" : "text-slate-400")}>
                           {asset.symbol}
                         </span>
-                      <div className="mx-2 flex-1 min-w-0">
+                      <div className="mx-1 hidden min-w-0 flex-1 @[11rem]:block">
                         <svg
                           viewBox="0 0 56 12"
                           className="h-3 w-full"
@@ -744,16 +754,16 @@ export function HomeMainScreen() {
                           />
                         </svg>
                       </div>
-                      <div className="text-right">
+                      <div className="flex min-w-0 shrink-0 items-baseline gap-1.5">
                         <p
                           className={cn(
-                            "text-[13px] font-semibold tabular-nums leading-tight",
+                            "truncate text-[12px] font-semibold tabular-nums leading-tight",
                             isLight ? "text-s-90" : "text-slate-100",
                           )}
                         >
                           {fmtUsd(asset.price)}
                         </p>
-                        <p className={cn("text-[10px] tabular-nums", up ? "text-emerald-400" : "text-rose-400")}>
+                        <p className={cn("shrink-0 truncate text-[10px] tabular-nums", up ? "text-emerald-400" : "text-rose-400")}>
                           {fmtPct(asset.changePct)}
                         </p>
                       </div>
@@ -766,35 +776,35 @@ export function HomeMainScreen() {
               {/* Commodities */}
               <section
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
-                  icon: <BarChart2 className="w-4 h-4 text-accent" />,
+                  icon: <BarChart2 className="w-4 h-4 text-accent shrink-0" />,
                   title: "Commodities",
                 })}
-                <p className={cn("text-[11px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>
+                <p className={cn("hidden @[10rem]:block text-[11px] mt-0.5 truncate", isLight ? "text-s-50" : "text-slate-400")}>
                   Placeholder pricing tiles
                 </p>
-                <div className="mt-2 grid min-h-0 flex-1 grid-rows-3 gap-1.5">
+                <div className="mt-2 grid min-h-0 flex-1 grid-rows-3 gap-1">
                   {COMMODITIES.map((c) => (
                     <div
                       key={c.name}
                       className={cn(
-                        "flex items-center justify-between rounded-sm border px-2 py-1.5 home-spotlight-card home-border-glow",
+                        "flex min-h-0 min-w-0 items-center justify-between gap-2 rounded-sm border px-2 home-spotlight-card home-border-glow",
                         subPanelClass,
                       )}
                     >
-                      <span className={cn("text-[12px] font-medium", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
-                      <div className="flex items-baseline gap-2">
+                      <span className={cn("min-w-[2.5rem] flex-1 truncate text-[11px] @[10rem]:text-[12px] font-medium", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
+                      <div className="flex shrink-0 items-baseline gap-1 @[10rem]:gap-2">
                         <span
                           className={cn(
-                            "text-[13px] font-semibold tabular-nums",
+                            "text-[11px] @[10rem]:text-[13px] font-semibold tabular-nums",
                             isLight ? "text-s-90" : "text-slate-100",
                           )}
                         >
                           {c.price}
                         </span>
-                        <span className={cn("text-[10px] tabular-nums", c.up ? "text-emerald-400" : "text-rose-400")}>
+                        <span className={cn("hidden @[8rem]:inline text-[10px] tabular-nums", c.up ? "text-emerald-400" : "text-rose-400")}>
                           {c.change}
                         </span>
                       </div>
@@ -807,10 +817,10 @@ export function HomeMainScreen() {
               <section
                 ref={devToolsSectionRef}
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
-                  icon: <Activity className="w-4 h-4 text-accent" />,
+                  icon: <Activity className="w-4 h-4 text-accent shrink-0" />,
                   title: "Dev Tools",
                   action: renderGearButton({
                     onClick: openDevLogs,
@@ -819,21 +829,21 @@ export function HomeMainScreen() {
                     hoverGlow: false,
                   }),
                 })}
-                <div className="mt-2 grid min-h-0 flex-1 grid-cols-3 gap-1.5">
+                <div className="mt-2 grid min-h-0 flex-1 grid-cols-2 @[11rem]:grid-cols-3 gap-1">
                   {devMetricTiles.map(({ label, value, color }) => (
                     <div
                       key={label}
                       className={cn(
-                        "rounded-sm border px-2 py-1.5 text-center home-spotlight-card home-border-glow",
+                        "min-w-0 rounded-sm border px-1.5 py-1 text-center home-spotlight-card home-border-glow",
                         subPanelClass,
                       )}
                     >
-                      <p className={cn("text-[9px] uppercase tracking-widest whitespace-nowrap", isLight ? "text-s-50" : "text-slate-500")}>
+                      <p className={cn("truncate text-[8px] @[11rem]:text-[9px] uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-500")}>
                         {label}
                       </p>
                       <p
                         className={cn(
-                          "mt-0.5 text-[15px] font-semibold tabular-nums leading-tight",
+                          "mt-0.5 truncate text-[13px] @[11rem]:text-[15px] font-semibold tabular-nums leading-tight",
                           color || (isLight ? "text-s-90" : "text-slate-100"),
                         )}
                       >
@@ -847,10 +857,10 @@ export function HomeMainScreen() {
               {/* Analytics Quick Access */}
               <section
                 style={panelStyle}
-                className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}
+                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
               >
                 {renderPanelHeader({
-                  icon: <BarChart2 className="w-4 h-4 text-accent" />,
+                  icon: <BarChart2 className="w-4 h-4 text-accent shrink-0" />,
                   title: "Analytics",
                   action: renderGearButton({
                     onClick: openAnalytics,
@@ -862,20 +872,20 @@ export function HomeMainScreen() {
                 <button
                   onClick={openAnalytics}
                   className={cn(
-                    "mt-2 w-full rounded-lg border px-4 py-3 text-left transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    "mt-2 w-full min-h-0 flex-1 rounded-lg border px-3 @[10rem]:px-4 py-2 @[10rem]:py-3 text-left transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
                     subPanelClass,
                   )}
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={cn("text-xs font-medium uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-500")}>
+                  <div className="flex h-full items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className={cn("truncate text-[10px] @[10rem]:text-xs font-medium uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-500")}>
                         View Dashboard
                       </p>
-                      <p className={cn("mt-1 text-sm", isLight ? "text-s-70" : "text-slate-300")}>
+                      <p className={cn("hidden @[9rem]:block mt-1 truncate text-sm", isLight ? "text-s-70" : "text-slate-300")}>
                         Task metrics & cost tracking
                       </p>
                     </div>
-                    <TrendingUp className={cn("w-5 h-5", isLight ? "text-accent" : "text-accent")} />
+                    <TrendingUp className={cn("w-5 h-5 shrink-0", isLight ? "text-accent" : "text-accent")} />
                   </div>
                 </button>
               </section>
@@ -894,7 +904,7 @@ export function HomeMainScreen() {
             </div>
 
           {/* ── ZONE 3: Right column (Integrations / Agent Chart) ── */}
-          <div className="w-67 shrink-0 flex flex-col gap-1.5 min-h-0">
+          <div className="w-56 xl:w-67 shrink-0 flex flex-col gap-1.5 min-h-0">
 
             {/* Integrations */}
             <section

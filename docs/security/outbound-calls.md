@@ -2,7 +2,7 @@
 
 Audited 2026-09-21 against commit `c69f234` plus the working tree of that day (static review; nothing was run against
 live services). Scope: `src/`, `hud/lib`, `hud/app` (API routes and client code), `hud/components`, `hud/electron`,
-`hud/scripts`, `nova.js`, `hud/next.config.ts`, `hud/proxy.ts` and both `package.json` dependency lists.
+`hud/scripts`, `nova.js`, `hud/next.config.js`, `hud/proxy.ts` and both `package.json` dependency lists.
 
 Reverify this audit before each release that adds or changes an integration, network client, Electron capability,
 telemetry dependency, provider endpoint, or updater. Record the new commit and date here when that review is complete.

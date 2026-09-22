@@ -16,6 +16,7 @@ Do not add smoke test files directly in `scripts/smoke/`.
 - `hud/`: HUD/UI-bound smoke tests.
 - `runtime/`: runtime integration and user-context isolation smoke tests.
 - `verification/`: one-off verification scripts tied to release phases.
+- `packaging/`: packaged production-server boot (Next plus the runtime scheduler) against `hud/dist/win-unpacked`.
 - `lib/`: shared helpers. `isolated-data-dir.mjs` points `NOVA_DATA_DIR` at a throwaway temp dir.
 - `local-db/`: SQLite foundation, encryption, persistence and data-path smokes, plus the guard that proves no smoke writes to the real data dir.
 

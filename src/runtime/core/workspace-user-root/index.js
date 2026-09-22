@@ -21,6 +21,16 @@ function isSamePathOrChild(candidatePath, parentPath) {
 }
 
 export function resolveWorkspaceRoot(startDir = process.cwd()) {
+  // Packaged Electron builds stage the repo-root `src/` runtime into a directory
+  // (`<resourcesPath>/runtime-resources`, see hud/electron-builder.yml) that has no `hud/` sibling at
+  // all — the HUD app lives in a separate `<resourcesPath>/app` directory instead — so the walk-up
+  // heuristic below can never find a valid root there, no matter how far it climbs (the real repo
+  // checkout this was staged from is not present on an end user's machine). hud/electron/
+  // production-server.js sets this before starting the runtime so ROOT_WORKSPACE_DIR (skills/,
+  // templates/, dotenv, ...) resolves to the staged directory instead of walking off into nowhere.
+  const override = String(process.env.NOVA_WORKSPACE_ROOT || "").trim();
+  if (override) return path.resolve(override);
+
   const fallback = path.resolve(String(startDir || process.cwd() || "."));
   let current = fallback;
   for (let depth = 0; depth < 8; depth += 1) {

@@ -6,8 +6,10 @@
  *   - recordMic is async (spawn-based; rejects instead of throwing synchronously)
  *   - on-demand system metrics are TTL-cached and single-flight; no boot-time spawn; no push on WS connect
  *   - DPAPI failure cache is >= 10 minutes
- *   - agent task runner timer sleeps when nothing is queued/running and wakes on create/resume
  *   - job ledger reclaim/execution-tick/scheduler idle paths (no write lock at idle, enqueue wake hook, mission cache)
+ *
+ * Agent Task execution is not covered here. The HUD task runner is an intentional no-op; the
+ * scheduler lives in src/runtime/modules/agent-tasks/index.js and is checked by npm run smoke:agent-tasks.
  *
  * Everything runs against a throwaway NOVA_DATA_DIR.
  */
@@ -17,7 +19,6 @@ import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import ts from "typescript"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nova-perf-server-smoke-"))
@@ -25,7 +26,6 @@ const previousDataDir = process.env.NOVA_DATA_DIR
 process.env.NOVA_DATA_DIR = path.join(tempRoot, "data")
 process.env.NOVA_ALLOW_TEST_KEY = "1"
 process.env.NOVA_TEST_MASTER_KEY_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-const dbModulePath = path.join(repoRoot, "src", "db", "index.js").replace(/\\/g, "/")
 
 const results = []
 async function run(name, fn) {
@@ -182,68 +182,7 @@ await run("SE-1 DPAPI failure cache is at least 10 minutes", () => {
   assert.ok(value >= 10 * 60_000, `FAILURE_CACHE_MS is ${value}`)
 })
 
-// ─── 4. agent task runner idle stop ──────────────────────────────────────────
-
-function transpile(relativePaths) {
-  for (const relativePath of relativePaths) {
-    const output = ts.transpileModule(read(relativePath), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-    })
-    const target = path.join(tempRoot, "ts", relativePath.replace(/\.ts$/, ".js"))
-    fs.mkdirSync(path.dirname(target), { recursive: true })
-    fs.writeFileSync(target, output.outputText.split("../../../src/db/index.js").join(dbModulePath), "utf8")
-  }
-}
-transpile([
-  "hud/lib/agents/types.ts",
-  "hud/lib/agents/task-events.ts",
-  "hud/lib/agents/task-stats.ts",
-  "hud/lib/git/worktree-manager.ts",
-
-  "hud/lib/agents/task-store.ts",
-  "hud/lib/agents/task-runner.ts",
-  "hud/app/integrations/constants/types.ts",
-  "hud/app/integrations/constants/pricing.ts",
-  "hud/app/integrations/constants/openai-models.ts",
-  "hud/app/integrations/constants/claude-models.ts",
-  "hud/app/integrations/constants/grok-models.ts",
-  "hud/app/integrations/constants/gemini-models.ts",
-])
-const tsRequire = createRequire(path.join(tempRoot, "ts", "loader.cjs"))
-const taskStore = tsRequire("./hud/lib/agents/task-store.js")
-const taskRunner = tsRequire("./hud/lib/agents/task-runner.js")
-
-await run("TR-1 runner timer stops when nothing is queued/running and wakes on create and resume", async () => {
-  const user = "perf-user"
-  const g = globalThis
-  taskRunner.stopTaskRunner()
-
-  taskRunner.ensureTaskRunnerStarted(user)
-  assert.ok(g.__novaAgentTaskRunner.timer, "a newly seen user gets one tick to look for work")
-  await sleep(1400)
-  assert.equal(g.__novaAgentTaskRunner.timer, null, "idle tick clears the interval")
-
-  taskRunner.ensureTaskRunnerStarted(user)
-  assert.equal(g.__novaAgentTaskRunner.timer, null, "re-registering an idle user does not restart the timer")
-
-  const task = await taskStore.createTask(user, { prompt: "idle test", agent: "claude", model: "claude-sonnet-4-5" })
-  assert.ok(g.__novaAgentTaskRunner.timer, "create wakes the timer")
-
-  await taskStore.applyTaskAction(user, task.id, "stop")
-  await sleep(1400)
-  assert.equal(g.__novaAgentTaskRunner.timer, null, "cancelled task leaves nothing active, timer sleeps again")
-
-  await taskStore.applyTaskAction(user, task.id, "play")
-  assert.ok(g.__novaAgentTaskRunner.timer, "resume/retry wakes the timer")
-
-  await taskStore.applyTaskAction(user, task.id, "pause")
-  await sleep(1400)
-  assert.equal(g.__novaAgentTaskRunner.timer, null, "paused task is not active")
-  assert.equal(taskStore.hasActiveTasks(user), false)
-  taskRunner.stopTaskRunner()
-})
-
-// ─── 5. job ledger / execution tick / scheduler idle paths ───────────────────
+// ─── 4. job ledger / execution tick / scheduler idle paths ───────────────────
 
 await run("JL-1 reclaimExpiredLeases takes no write lock when nothing is expired; enqueue notifies subscribers", async () => {
   const { jobLedger, subscribeJobEnqueued } = await importRepo("src/runtime/modules/services/missions/job-ledger/index.js")
@@ -298,7 +237,6 @@ await run("JL-2 mission change token moves on in-process writes; scheduler and e
 
 // ─── cleanup + report ────────────────────────────────────────────────────────
 
-taskRunner.stopTaskRunner()
 try {
   const { closeDb } = await importRepo("src/db/index.js")
   closeDb()

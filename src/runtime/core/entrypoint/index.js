@@ -33,6 +33,7 @@ import {
 } from "../../modules/audio/voice/index.js";
 import {
   startGateway,
+  stopGateway,
   broadcast,
   broadcastState,
   getVoiceRoutingUserContextId,
@@ -57,36 +58,102 @@ import { createRequire } from "module";
 
 const __filename = fileURLToPath(import.meta.url);
 
-export async function startNovaRuntime() {
+/**
+ * `startNovaRuntime` never returns under normal operation: it ends in an infinite voice loop
+ * (see `startVoiceLoop`), matching its historical role as the entire lifetime of a
+ * dedicated "Agent" process (see nova.js). A caller that hosts this in-process (the packaged Electron
+ * main process) and needs to shut pieces down on quit cannot `await` this function's return value to
+ * get a stop handle, so `onReady(handle)` is called once the gateway and the agent-task scheduler are
+ * up, before the function blocks on the voice loop. This is purely additive: `onReady` is optional and
+ * the dev/nova.js call site below (which awaits with no arguments) is unaffected.
+ *
+ * `handleInput`, when passed, replaces the chat-handler import for this process only. The packaged
+ * boot smoke uses that to prove the scheduler claims a SQLite row without a live model call. It is
+ * an in-process argument, not an IPC channel, and Electron main does not pass it.
+ */
+function delay(ms, signal) {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function startNovaRuntime({ onReady, handleInput } = {}) {
+  const abort = new AbortController();
+  let stopped = false;
+
   initVoiceBroadcast(broadcastState, getVoiceRoutingUserContextId);
 
   let runtimeHandleInput = async () => "Nova runtime is starting. Chat handler unavailable.";
-  try {
-    const chatModule = await import("../../modules/chat/core/chat-handler/index.js");
-    if (typeof chatModule?.handleInput === "function") {
-      runtimeHandleInput = chatModule.handleInput;
+  if (typeof handleInput === "function") {
+    runtimeHandleInput = handleInput;
+  } else {
+    try {
+      const chatModule = await import("../../modules/chat/core/chat-handler/index.js");
+      if (typeof chatModule?.handleInput === "function") {
+        runtimeHandleInput = chatModule.handleInput;
+      }
+    } catch (err) {
+      console.error(`[CoreEngine] Chat handler load failed: ${String(err?.message || err)}`);
     }
-  } catch (err) {
-    console.error(`[CoreEngine] Chat handler load failed: ${String(err?.message || err)}`);
   }
   registerHandleInput(runtimeHandleInput);
 
   startGateway();
+  let stopAgentTaskService = () => {};
   try {
     const taskModule = await import("../../modules/agent-tasks/index.js");
     if (typeof taskModule?.startAgentTaskService === "function") {
-      taskModule.startAgentTaskService({ handleInput: runtimeHandleInput });
+      stopAgentTaskService = taskModule.startAgentTaskService({ handleInput: runtimeHandleInput }) || (() => {});
     }
   } catch (err) {
     console.error(`[AgentTasks] Runtime service failed to start: ${String(err?.message || err)}`);
   }
+
   // Metrics events are intentionally global (empty userContextId) because payloads are host-level telemetry.
   const userContextId = "";
-  startMetricsBroadcast(
+  const stopMetrics = startMetricsBroadcast(
     (payload) => broadcast(payload, { userContextId: payload?.userContextId ?? userContextId }),
     2000,
     { userContextId },
-  );
+  ) || (() => {});
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    abort.abort();
+    try {
+      stopAgentTaskService();
+    } catch {
+      // best effort only
+    }
+    try {
+      stopMetrics();
+    } catch {
+      // best effort only
+    }
+    try {
+      stopGateway();
+    } catch {
+      // best effort only
+    }
+  };
+
+  if (typeof onReady === "function") {
+    try {
+      onReady({ stop });
+    } catch (err) {
+      console.error(`[CoreEngine] onReady hook failed: ${String(err?.message || err)}`);
+    }
+  }
 
   sessionRuntime.ensureSessionStorePaths();
   try {
@@ -98,7 +165,9 @@ export async function startNovaRuntime() {
   }
   console.log("[CoreEngine] mode=src");
 
-  await new Promise((r) => setTimeout(r, 15000));
+  await delay(15000, abort.signal);
+  if (stopped || abort.signal.aborted) return;
+
   cleanupAudioArtifacts();
   console.log("Nova online.");
   const startupVoiceUserContextId = getVoiceRoutingUserContextId();
@@ -108,6 +177,7 @@ export async function startNovaRuntime() {
   );
 
   await startVoiceLoop({
+    abortSignal: abort.signal,
     handleInput: runtimeHandleInput,
     wakeWordRuntime,
     broadcast,

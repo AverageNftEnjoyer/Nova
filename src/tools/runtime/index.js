@@ -34,6 +34,12 @@ function parseCsvList(values) {
 }
 
 function resolveToolRuntimeRootDir(rootDir) {
+  // Packaged Electron sets this to the staged runtime (resources/runtime-resources). Do not walk
+  // parents from there: an unpacked build that still sits inside this repo would otherwise latch
+  // onto hud/ just because that directory has package.json and tsconfig.json.
+  const override = String(process.env.NOVA_WORKSPACE_ROOT || "").trim();
+  if (override) return path.resolve(override);
+
   const fallback = path.resolve(String(rootDir || process.cwd() || "."));
   let current = fallback;
   for (let depth = 0; depth < 8; depth += 1) {

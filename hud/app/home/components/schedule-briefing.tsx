@@ -336,7 +336,7 @@ export function ScheduleBriefing({
               <style>{`@keyframes calDot { 0%,100%{opacity:0.2;transform:scale(0.8)} 50%{opacity:1;transform:scale(1)} }`}</style>
             </div>
           ) : (
-            <div className="grid w-full" style={{ gridTemplateColumns: "1.5rem 1fr", columnGap: 4 }}>
+            <div className="grid w-full" style={{ gridTemplateColumns: "2.25rem 1fr", columnGap: 4 }}>
 
               {/* ── Time label column ── */}
               <div className="relative shrink-0" style={{ height: totalHeight }}>

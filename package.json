@@ -117,6 +117,7 @@
     "smoke:audit:starter-seeding": "node scripts/smoke/audit/starter-seeding/smoke.mjs",
     "smoke:worktree": "node --experimental-strip-types scripts/smoke/worktree/worktree-smoke.mjs",
     "smoke:agent-tasks": "npm run build:agent-core && node scripts/smoke/agent-tasks/agent-task-runtime-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-provider-contract-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-store-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-execution-context-smoke.mjs && node scripts/smoke/agent-tasks/agent-tasks-ui-smoke.mjs && node scripts/smoke/agent-tasks/file-drop-smoke.mjs",
+    "smoke:production-boot": "node scripts/smoke/packaging/production-boot-smoke.mjs",
     "db:ensure-native": "node scripts/db/ensure-native.mjs",
     "db:fix-native": "node scripts/db/ensure-native.mjs --fix",
     "smoke:local-db": "node scripts/smoke/local-db/db-foundation-smoke.mjs && node scripts/smoke/local-db/multiprocess-smoke.mjs && node scripts/smoke/local-db/job-ledger-sqlite-smoke.mjs && node scripts/smoke/local-db/authoritative-persistence-smoke.mjs && node scripts/smoke/local-db/tool-runs-smoke.mjs && node scripts/smoke/local-db/data-paths-smoke.mjs && node scripts/smoke/local-db/no-real-data-writes-smoke.mjs",
@@ -174,13 +175,13 @@
     "rollback:coinbase-store": "node scripts/coinbase/rollback-store.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.77.0",
     "@mozilla/readability": "^0.6.0",
     "@openai/agents": "^0.5.1",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^13.0.3",
     "dictionary-en": "^4.0.0",
     "dotenv": "^17.2.3",
     "fish-audio": "^0.0.3",
@@ -192,7 +193,7 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/jsdom": "^27.0.0",
     "@types/node": "^25.3.0",
     "@types/turndown": "^5.0.6",

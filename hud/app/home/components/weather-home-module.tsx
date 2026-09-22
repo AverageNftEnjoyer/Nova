@@ -78,7 +78,7 @@ export function WeatherHomeModule({
   const shouldRenderWeatherIcon = Boolean(weatherIconAssetPath && weatherIconKey && failedIconKey !== weatherIconKey)
 
   return (
-    <section style={panelStyle} className={`${panelClass} home-spotlight-shell px-3 py-2.5 flex flex-col`}>
+    <section style={panelStyle} className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}>
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_1.75rem] items-center gap-2 text-s-80">
         <div className="flex items-center gap-2 text-s-80">
           <CloudSun className="w-4 h-4 text-accent" />

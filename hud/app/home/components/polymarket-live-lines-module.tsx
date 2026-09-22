@@ -501,13 +501,19 @@ export function PolymarketLiveLinesModule({
   const closeInspect = () => setPhase("closing")
 
   return (
-    <section style={panelStyle} className={cn(`${panelClass} home-spotlight-shell h-[clamp(15rem,30vh,18.5rem)] px-3 pb-2 pt-2.5 flex flex-col`, className)}>
-      <div className="relative flex shrink-0 items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-s-80"><BarChart2 className="h-4 w-4 text-accent" /></div>
-        <h2 className={cn("absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-sm font-semibold uppercase tracking-[0.22em]", isLight ? "text-s-90" : "text-slate-200")}>Polymarket</h2>
-        <div className="flex items-center gap-1">
-          <button onClick={onOpenIntegrations} className={cn("home-spotlight-card home-border-glow home-spotlight-card--hover h-7 rounded-md border px-2 text-[10px] uppercase tracking-[0.12em] transition-colors", subPanelClass)}>Setup</button>
-          <button onClick={onOpenPolymarket} className={cn("home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] uppercase tracking-[0.12em] transition-colors", subPanelClass)}>Trade<ArrowUpRight className="h-3 w-3" /></button>
+    <section style={panelStyle} className={cn(`${panelClass} home-spotlight-shell @container h-[clamp(15rem,30vh,18.5rem)] px-3 pb-2 pt-2.5 flex flex-col`, className)}>
+      <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+        <div className="flex items-center gap-2 text-s-80"><BarChart2 className="h-4 w-4 text-accent shrink-0" /></div>
+        <h2 className={cn("min-w-0 truncate text-center text-xs @sm:text-sm font-semibold uppercase tracking-[0.14em] @sm:tracking-[0.22em]", isLight ? "text-s-90" : "text-slate-200")}>Polymarket</h2>
+        <div className="flex min-w-0 items-center justify-end gap-1">
+          <button onClick={onOpenIntegrations} aria-label="Open Polymarket setup" title="Setup" className={cn("home-spotlight-card home-border-glow home-spotlight-card--hover h-7 shrink-0 rounded-md border px-2 text-[10px] uppercase tracking-[0.12em] transition-colors", subPanelClass)}>
+            <span className="hidden @xs:inline">Setup</span>
+            <Wallet className="h-3.5 w-3.5 @xs:hidden" />
+          </button>
+          <button onClick={onOpenPolymarket} aria-label="Open Polymarket trading" title="Trade" className={cn("home-spotlight-card home-border-glow home-spotlight-card--hover inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] uppercase tracking-[0.12em] transition-colors", subPanelClass)}>
+            <span className="hidden @xs:inline">Trade</span>
+            <ArrowUpRight className="h-3 w-3" />
+          </button>
         </div>
       </div>
 

@@ -525,19 +525,16 @@ export function SpotifyHomeModule({
             </div>
           ) : null}
           {!connected ? (
-            <div className="flex items-center justify-between">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-flex h-7 w-7 items-center justify-center text-accent">
-                  <EqualizerBars
-                    isPlaying={nowPlayingState}
-                    className="h-4"
-                    barStyle={{ "--eq-bar-color": "#f8fafc" } as CSSProperties}
-                  />
-                </span>
-              </div>
+            <div className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 text-center">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full text-accent">
+                <SpotifyIcon className="h-6 w-6" />
+              </span>
+              <p className={cn("truncate text-xs font-medium", isLight ? "text-s-70" : "text-slate-300")}>
+                Spotify disconnected
+              </p>
               <button
                 onClick={onOpenIntegrations}
-                className={cn("rounded-lg border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors home-spotlight-card home-border-glow", subPanelClass)}
+                className={cn("rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors home-spotlight-card home-border-glow", subPanelClass)}
               >
                 Connect
               </button>

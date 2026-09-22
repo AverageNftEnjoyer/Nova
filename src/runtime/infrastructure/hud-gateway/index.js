@@ -924,6 +924,32 @@ function sendHudStreamError(conversationId, text, ws = null, retryAfterMs = 0, u
   }
 }
 
+// Additive, in-process shutdown hook: closes the WS server and drops the reference. Only used by the
+// packaged Electron main process (which now hosts this gateway in-process); the dev/nova.js path never
+// calls it, since that process's lifetime is the whole gateway's lifetime.
+export function stopGateway() {
+  try {
+    if (wss) {
+      // wss.close() alone only stops accepting new connections; it does not close sockets already
+      // connected (e.g. the HUD window's own live chat/voice connection). Terminate them immediately
+      // rather than leaving them open indefinitely during shutdown (same gotcha as http.Server#close()
+      // — see hud/electron/production-server.js's stop(), where this was confirmed necessary in
+      // practice by a smoke test that found real open Socket handles after a "clean" shutdown).
+      for (const client of wss.clients) {
+        try {
+          client.terminate();
+        } catch {
+          // best effort only
+        }
+      }
+      wss.close();
+      wss = null;
+    }
+  } catch {
+    // best effort only
+  }
+}
+
 export function startGateway() {
   try {
     wss = new WebSocketServer({
