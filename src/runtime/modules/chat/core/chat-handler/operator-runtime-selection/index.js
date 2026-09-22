@@ -20,6 +20,8 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
     userContextId = "",
     sessionKey = "",
     source = "hud",
+    preferredProvider = "",
+    preferredModel = "",
     latencyTelemetry = null,
   } = input;
   const {
@@ -34,7 +36,10 @@ export async function selectChatRuntimeForTurn(input = {}, deps = {}) {
     userContextId,
   });
   const integrationsRuntime = cachedLoadIntegrationsRuntimeRef({ userContextId });
-  const activeChatRuntime = resolveConfiguredChatRuntimeRef(integrationsRuntime);
+  const activeChatRuntime = resolveConfiguredChatRuntimeRef(integrationsRuntime, {
+    preferredProvider,
+    preferredModel,
+  });
   if (latencyTelemetry && typeof latencyTelemetry.addStage === "function") {
     latencyTelemetry.addStage("provider_resolution", Date.now() - providerResolutionStartedAt);
   }

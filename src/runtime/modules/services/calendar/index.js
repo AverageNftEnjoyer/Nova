@@ -5,6 +5,7 @@ import {
 } from "../../../infrastructure/hud-gateway/index.js";
 import { createCalendarProviderAdapter } from "./provider-adapter/index.js";
 import { parseStandaloneCalendarEventCommand } from "./direct-google-events/index.js";
+import { assertAgentTaskExternalAction } from "../../chat/core/chat-handler/task-tool-policy/index.js";
 
 function normalizeText(value = "") {
   return String(value || "").trim();
@@ -193,6 +194,9 @@ export async function runCalendarDomainService(input = {}, deps = {}) {
     });
   const directEventIntent = parseStandaloneCalendarEventCommand(text);
   const action = resolveCalendarAction(text, requestHints, directEventIntent);
+  assertAgentTaskExternalAction(ctx, `calendar:${action}`, {
+    readOnly: action === "agenda" || action === "status" || action === "sync",
+  });
 
   if (action === "agenda" || action === "status") {
     const windowKey = action === "agenda" ? resolveAgendaWindow(text, requestHints) : "week";

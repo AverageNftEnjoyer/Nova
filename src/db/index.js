@@ -353,6 +353,7 @@ export function purgeLocalUserData(userId) {
     "session_turns",
     "sessions",
     "calendar_overrides",
+    "task_contexts",
     "agent_tasks",
     "notes",
     "integration_state",

@@ -99,6 +99,16 @@ export function TaskCard({ task, isLight, subPanelClass, onAction }: TaskCardPro
   const mutedText = isLight ? "text-s-50" : "text-slate-400"
 
   const handleAction = async (action: AgentTaskUiAction) => {
+    if (
+      action === "play"
+      && task.pauseReason === "approval"
+      && task.pendingApproval
+      && !window.confirm(
+        `Allow this task to run "${task.pendingApproval.toolName}"?\n\n${task.pendingApproval.reason}`,
+      )
+    ) {
+      return
+    }
     setIsActing(true)
     try {
       await onAction(task.id, action)
@@ -132,7 +142,13 @@ export function TaskCard({ task, isLight, subPanelClass, onAction }: TaskCardPro
         <div className="flex shrink-0 items-center gap-0.5">
           {canPlay ? (
             <ControlButton
-              title={task.status === "paused" ? "Resume task" : "Retry task"}
+              title={
+                task.pauseReason === "approval" && task.pendingApproval
+                  ? `Approve ${task.pendingApproval.toolName} and resume`
+                  : task.status === "paused"
+                    ? "Resume task"
+                    : "Retry task"
+              }
               tone={playTone}
               disabled={isActing}
               onClick={() => void handleAction("play")}
@@ -205,6 +221,14 @@ export function TaskCard({ task, isLight, subPanelClass, onAction }: TaskCardPro
 
       {task.error ? (
         <p className={cn("mt-1.5 line-clamp-2 pl-[1.375rem] text-[10px] leading-4", isLight ? "text-[#a53b3b]" : "text-rose-300")}>{task.error}</p>
+      ) : null}
+      {task.result ? (
+        <p
+          className={cn("mt-1.5 line-clamp-3 whitespace-pre-wrap pl-[1.375rem] text-[10px] leading-4", isLight ? "text-s-70" : "text-slate-300")}
+          title={task.result}
+        >
+          {task.result}
+        </p>
       ) : null}
     </div>
   )

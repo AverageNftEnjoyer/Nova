@@ -1,4 +1,5 @@
 import { createFilesProviderAdapter } from "./provider-adapter/index.js";
+import { assertTaskToolAllowed } from "../../chat/core/chat-handler/task-tool-policy/index.js";
 
 function normalizeText(value = "", fallback = "") {
   const normalized = String(value || "").trim();
@@ -83,6 +84,7 @@ function resolveContext(input = {}) {
     sessionKey: normalizeText(input.sessionKey || ctx.sessionKey),
     runtimeTools: llmCtx.runtimeTools || null,
     availableTools: Array.isArray(llmCtx.availableTools) ? llmCtx.availableTools : [],
+    ctx,
   };
 }
 
@@ -140,6 +142,7 @@ export async function runFilesDomainService(input = {}, deps = {}) {
     sessionKey,
     runtimeTools,
     availableTools,
+    ctx,
   } = resolveContext(input);
 
   if (!userContextId || !conversationId || !sessionKey) {
@@ -202,6 +205,25 @@ export async function runFilesDomainService(input = {}, deps = {}) {
     userContextId,
     conversationId,
     sessionKey,
+    policyContext: ctx.autonomousTask === true
+      ? {
+          ...assertTaskToolAllowed(
+            ctx.permissionMode,
+            toolName,
+            availableTools,
+            ctx.approvedTools,
+            ctx.executionFenceCheck,
+            toolInput,
+            ctx.consumeTaskApproval,
+            ctx.reserveTaskEffect,
+          ),
+          abortSignal: ctx.abortSignal,
+          workspaceDir: ctx.workspaceDir,
+        }
+      : {
+          abortSignal: ctx.abortSignal,
+          workspaceDir: ctx.workspaceDir,
+        },
   });
 
   if (toolResult?.ok !== true) {

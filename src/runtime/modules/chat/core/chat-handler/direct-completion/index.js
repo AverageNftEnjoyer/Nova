@@ -28,6 +28,7 @@ export async function runClaudeDirectCompletion({
   conversationId,
   userContextId,
   broadcastAssistantStreamDelta,
+  abortSignal,
 }) {
   let emittedAssistantDelta = false;
   const claudeMessages = [...historyMessages, { role: "user", content: text }];
@@ -41,6 +42,7 @@ export async function runClaudeDirectCompletion({
         messages: claudeMessages,
         userText: text,
         maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+        signal: abortSignal,
       }),
       OPENAI_REQUEST_TIMEOUT_MS,
       `Claude model ${selectedChatModel}`,
@@ -58,6 +60,7 @@ export async function runClaudeDirectCompletion({
         emittedAssistantDelta = true;
         broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
       },
+      signal: abortSignal,
     });
 
   return {
@@ -87,6 +90,7 @@ export async function runOpenAiDirectCompletion({
   broadcastThinkingStatus,
   retries,
   markRecovery,
+  abortSignal,
 }) {
   let reply = "";
   let promptTokens = 0;
@@ -97,12 +101,15 @@ export async function runOpenAiDirectCompletion({
   if (hasStrictOutputRequirements) {
     let completion = null;
     completion = await withTimeout(
-      activeOpenAiCompatibleClient.chat.completions.create({
-        model: modelUsed,
-        messages,
-        max_completion_tokens: openAiMaxCompletionTokens,
-        ...openAiRequestTuningForModel(modelUsed),
-      }),
+      activeOpenAiCompatibleClient.chat.completions.create(
+        {
+          model: modelUsed,
+          messages,
+          max_completion_tokens: openAiMaxCompletionTokens,
+          ...openAiRequestTuningForModel(modelUsed),
+        },
+        { signal: abortSignal },
+      ),
       OPENAI_REQUEST_TIMEOUT_MS,
       `OpenAI model ${modelUsed}`,
     );
@@ -124,6 +131,7 @@ export async function runOpenAiDirectCompletion({
         emittedAssistantDelta = true;
         broadcastAssistantStreamDelta(assistantStreamId, delta, source, undefined, conversationId, userContextId);
       },
+      signal: abortSignal,
     });
     reply = streamed.reply;
     promptTokens = streamed.promptTokens || 0;
@@ -159,6 +167,7 @@ export async function runOpenAiDirectCompletion({
           maxCompletionTokens: openAiMaxCompletionTokens,
           requestTuning: openAiRequestTuningForModel(modelUsed),
           label: "OpenAI empty-reply recovery",
+          signal: abortSignal,
         });
         llmFinishReason = String(recovered.finishReason || llmFinishReason || "").trim().toLowerCase();
         promptTokens += Number(recovered.promptTokens || 0);

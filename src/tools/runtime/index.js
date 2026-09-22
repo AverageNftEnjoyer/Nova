@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { pathToFileURL } from "url";
 
 const NPM_BIN = "npm";
@@ -87,6 +87,7 @@ export function createToolRuntime(options) {
     memorySourceDirs: [memorySourceDir],
   };
   const scopedStates = new Map();
+  const memoryManagersByScope = new Map();
   let runtimeModules = null;
   let runtimeModulesPromise = null;
   let buildBootstrapAttempted = false;
@@ -248,7 +249,14 @@ export function createToolRuntime(options) {
   }
 
   function resolveScopeId(opts = {}) {
-    return normalizeUserContextId(opts.userContextId || "");
+    const userId = normalizeUserContextId(opts.userContextId || "");
+    const workspaceDir = path.resolve(String(opts.workspaceDir || runtimeRootDir));
+    const workspaceHash = createHash("sha256").update(workspaceDir).digest("hex").slice(0, 16);
+    return {
+      userId,
+      stateKey: `${userId || "global"}:${workspaceHash}`,
+      workspaceDir,
+    };
   }
 
   function resolveMemoryScope(scopeId) {
@@ -271,7 +279,41 @@ export function createToolRuntime(options) {
     };
   }
 
-  async function initStateForScope(runtimeState, scope) {
+  async function resolveMemoryManager(scope, modules) {
+    if (!memoryEnabled || !modules.MemoryIndexManager) return null;
+    if (memoryManagersByScope.has(scope.scopeId)) {
+      return memoryManagersByScope.get(scope.scopeId);
+    }
+    const pending = (async () => {
+      try {
+        fs.mkdirSync(path.dirname(scope.dbPath), { recursive: true });
+        for (const sourceDir of scope.sourceDirs) fs.mkdirSync(sourceDir, { recursive: true });
+        const manager = new modules.MemoryIndexManager({
+          enabled: true,
+          dbPath: scope.dbPath,
+          embeddingProvider: memoryConfig.embeddingProvider,
+          embeddingModel: memoryConfig.embeddingModel,
+          embeddingApiKey: memoryConfig.embeddingApiKey,
+          chunkSize: memoryConfig.chunkSize,
+          chunkOverlap: memoryConfig.chunkOverlap,
+          hybridVectorWeight: memoryConfig.hybridVectorWeight,
+          hybridBm25Weight: memoryConfig.hybridBm25Weight,
+          topK: memoryConfig.topK,
+          syncOnSessionStart: true,
+          sourceDirs: scope.sourceDirs,
+        });
+        manager.warmSession();
+        return manager;
+      } catch (err) {
+        console.warn(`[MemoryLoop] Disabled for scope=${scope.scopeId} due to init error: ${describeUnknownError(err)}`);
+        return null;
+      }
+    })();
+    memoryManagersByScope.set(scope.scopeId, pending);
+    return pending;
+  }
+
+  async function initStateForScope(runtimeState, scope, workspaceDir = runtimeRootDir) {
     if (runtimeState.initialized) {
       return runtimeState;
     }
@@ -285,35 +327,7 @@ export function createToolRuntime(options) {
         return runtimeState;
       }
 
-      let memoryManager = null;
-      if (memoryEnabled && modules.MemoryIndexManager) {
-        try {
-          fs.mkdirSync(path.dirname(scope.dbPath), { recursive: true });
-          for (const sourceDir of scope.sourceDirs) {
-            fs.mkdirSync(sourceDir, { recursive: true });
-          }
-          memoryManager = new modules.MemoryIndexManager({
-            enabled: true,
-            dbPath: scope.dbPath,
-            embeddingProvider: memoryConfig.embeddingProvider,
-            embeddingModel: memoryConfig.embeddingModel,
-            embeddingApiKey: memoryConfig.embeddingApiKey,
-            chunkSize: memoryConfig.chunkSize,
-            chunkOverlap: memoryConfig.chunkOverlap,
-            hybridVectorWeight: memoryConfig.hybridVectorWeight,
-            hybridBm25Weight: memoryConfig.hybridBm25Weight,
-            topK: memoryConfig.topK,
-            syncOnSessionStart: true,
-            sourceDirs: scope.sourceDirs,
-          });
-          memoryManager.warmSession();
-        } catch (err) {
-          memoryManager = null;
-          console.warn(
-            `[MemoryLoop] Disabled for scope=${scope.scopeId} due to init error: ${describeUnknownError(err)}`,
-          );
-        }
-      }
+      const memoryManager = await resolveMemoryManager(scope, modules);
 
       const tools = modules.createToolRegistry(
         {
@@ -324,7 +338,7 @@ export function createToolRuntime(options) {
           webSearchApiKey,
         },
         {
-          workspaceDir: runtimeRootDir,
+          workspaceDir,
           memoryManager,
         },
       );
@@ -357,6 +371,7 @@ export function createToolRuntime(options) {
       runtimeState.scopeId = scope.scopeId;
       runtimeState.memoryDbPath = scope.dbPath;
       runtimeState.memorySourceDirs = scope.sourceDirs;
+      runtimeState.workspaceDir = workspaceDir;
       runtimeState.initialized = true;
       console.log(
         `[ToolLoop] Initialized tools=${runtimeState.tools.length}` +
@@ -375,13 +390,13 @@ export function createToolRuntime(options) {
       return sharedState;
     }
 
-    const scopeId = resolveScopeId(opts);
-    if (!scopeId) {
+    const resolvedScope = resolveScopeId(opts);
+    if (!resolvedScope.userId) {
       const globalScope = resolveMemoryScope("");
-      return initStateForScope(sharedState, globalScope);
+      return initStateForScope(sharedState, globalScope, resolvedScope.workspaceDir);
     }
 
-    let scopedState = scopedStates.get(scopeId);
+    let scopedState = scopedStates.get(resolvedScope.stateKey);
     if (!scopedState) {
       scopedState = {
         initialized: false,
@@ -389,14 +404,14 @@ export function createToolRuntime(options) {
         tools: [],
         memoryManager: null,
         executeToolUse: null,
-        scopeId,
+        scopeId: resolvedScope.userId,
         memoryDbPath: "",
         memorySourceDirs: [],
       };
-      scopedStates.set(scopeId, scopedState);
+      scopedStates.set(resolvedScope.stateKey, scopedState);
     }
-    const scope = resolveMemoryScope(scopeId);
-    return initStateForScope(scopedState, scope);
+    const scope = resolveMemoryScope(resolvedScope.userId);
+    return initStateForScope(scopedState, scope, resolvedScope.workspaceDir);
   }
 
   function toOpenAiToolDefinitions(tools) {

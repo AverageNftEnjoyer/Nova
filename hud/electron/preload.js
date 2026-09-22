@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -22,8 +22,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('deep-link', (event, url) => callback(url))
   },
   onFileDrop: (callback) => {
-    ipcRenderer.on('file-dropped', (event, data) => callback(data))
+    const listener = (_event, data) => callback(data)
+    ipcRenderer.on('file-dropped', listener)
+    return () => ipcRenderer.removeListener('file-dropped', listener)
   },
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // Remove event listeners
   removeAgentTaskUpdateListener: () => {
@@ -42,6 +45,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Auto-launch
   setAutoLaunch: (enabled) => ipcRenderer.invoke('set-auto-launch', enabled),
   getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
+
+  // Window controls (for frameless window)
+  windowMinimize: () => ipcRenderer.invoke('window-minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window-maximize'),
+  windowClose: () => ipcRenderer.invoke('window-close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window-is-maximized'),
 
   // Environment info
   isElectron: true,

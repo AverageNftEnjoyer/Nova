@@ -465,23 +465,31 @@ function getProviderRuntime(integrations, provider) {
 }
 
 export function resolveConfiguredChatRuntime(integrations, options = {}) {
-  void options;
-  const activeProvider =
+  const configuredProvider =
     integrations.activeProvider === "claude" ||
     integrations.activeProvider === "grok" ||
     integrations.activeProvider === "gemini" ||
     integrations.activeProvider === "openai"
       ? integrations.activeProvider
       : "openai";
+  const preferredProvider = String(options?.preferredProvider || "").trim().toLowerCase();
+  const activeProvider =
+    preferredProvider === "claude" ||
+    preferredProvider === "grok" ||
+    preferredProvider === "gemini" ||
+    preferredProvider === "openai"
+      ? preferredProvider
+      : configuredProvider;
   const activeRuntime = getProviderRuntime(integrations, activeProvider);
+  const preferredModel = String(options?.preferredModel || "").trim();
   return {
     provider: activeProvider,
     apiKey: String(activeRuntime?.apiKey || "").trim(),
     baseURL: String(activeRuntime?.baseURL || "").trim(),
-    model: String(activeRuntime?.model || "").trim(),
+    model: preferredModel || String(activeRuntime?.model || "").trim(),
     connected: Boolean(activeRuntime?.connected),
     strict: true,
-    routeReason: "strict-active-provider",
+    routeReason: preferredProvider ? "task-selected-provider" : "strict-active-provider",
     rankedCandidates: [activeProvider],
   };
 }
@@ -569,9 +577,13 @@ export async function streamOpenAiChatCompletion({
   onDelta,
   maxCompletionTokens = 0,
   requestOverrides = {},
+  signal,
 }) {
   let timer = null;
   const controller = new AbortController();
+  const onAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) controller.abort(signal.reason);
+  else signal?.addEventListener("abort", onAbort, { once: true });
   timer = setTimeout(() => controller.abort(new Error(`OpenAI model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
 
   let stream = null;
@@ -633,6 +645,7 @@ export async function streamOpenAiChatCompletion({
     }
   } finally {
     if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 
   return { reply, promptTokens, completionTokens, sawDelta, finishReason };
@@ -660,7 +673,8 @@ export async function claudeMessagesCreate({
   system,
   userText,
   messages,
-  maxTokens = 1200
+  maxTokens = 1200,
+  signal,
 }) {
   const requestMessages = normalizeClaudeMessages(messages, userText);
   const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
@@ -676,7 +690,8 @@ export async function claudeMessagesCreate({
       max_tokens: maxTokens,
       system,
       messages: requestMessages
-    })
+    }),
+    signal,
   });
   const data = await res.json();
   if (!res.ok) {
@@ -704,11 +719,15 @@ export async function claudeMessagesStream({
   messages,
   maxTokens = 1200,
   timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
-  onDelta
+  onDelta,
+  signal,
 }) {
   const requestMessages = normalizeClaudeMessages(messages, userText);
   const endpoint = `${toClaudeBase(baseURL)}/v1/messages`;
   const controller = new AbortController();
+  const onAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) controller.abort(signal.reason);
+  else signal?.addEventListener("abort", onAbort, { once: true });
   const timer = setTimeout(() => controller.abort(new Error(`Claude model ${model} timed out after ${timeoutMs}ms`)), timeoutMs);
 
   const res = await fetch(endpoint, {
@@ -730,6 +749,7 @@ export async function claudeMessagesStream({
 
   if (!res.ok) {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
     const data = await res.json();
     const message = data?.error?.message || `Claude request failed (${res.status})`;
     throw new Error(message);
@@ -737,6 +757,7 @@ export async function claudeMessagesStream({
 
   if (!res.body) {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
     throw new Error("Claude stream returned no body.");
   }
 
@@ -806,7 +827,8 @@ export async function claudeMessagesStream({
       }
     }
   } finally {
-    clearTimeout(timer);
+  clearTimeout(timer);
+  signal?.removeEventListener("abort", onAbort);
     try {
       reader.releaseLock();
     } catch {}

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import type { Conversation } from "@/lib/chat/conversations"
 import { Blocks, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
+import { WindowControls } from "@/components/window/window-controls"
 import {
   BraveIcon,
   ClaudeIcon,
@@ -445,8 +446,11 @@ export function HomeMainScreen() {
       <div ref={homeShellRef} className="flex-1 relative overflow-hidden home-spotlight-shell">
         {/* ── 3-zone flex layout ─────────────────────────────────────────── */}
         <div className="relative z-10 h-full w-full px-4 pt-3 pb-4 flex flex-col gap-1.5">
-          <header className="shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-3">
-              <div className="flex items-center gap-3 min-w-0">
+          <header
+            className="shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-3"
+            style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+          >
+              <div className="flex items-center gap-3 min-w-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
                 <button
                   onClick={() => router.push("/home")}
                   onMouseEnter={() => setOrbHovered(true)}
@@ -481,7 +485,7 @@ export function HomeMainScreen() {
                 </div>
               </div>
               <div />
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
                 <div className={cn("flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg home-spotlight-card home-border-glow", subPanelClass)}>
                   <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface")}>
                     {profileAvatar ? (
@@ -509,6 +513,7 @@ export function HomeMainScreen() {
                 >
                   <Settings className="w-5 h-5 mx-auto text-s-50 group-hover/home-gear:text-accent group-hover/home-gear:rotate-90 transition-transform duration-200" />
                 </button>
+                <WindowControls />
               </div>
           </header>
 

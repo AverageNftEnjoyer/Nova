@@ -12,6 +12,11 @@ import { randomUUID } from "node:crypto"
 import { nowIso, tx, type Database } from "../../../src/db/index.js"
 import { resolveModelPricing } from "../../app/integrations/constants/pricing"
 import { createWorktree, deleteWorktree, generateBranchName } from "../git/worktree-manager"
+import {
+  deleteTaskAttachmentFiles,
+  ingestTaskAttachments,
+  type ManagedTaskAttachment,
+} from "./task-attachments"
 import { publishTaskEvent } from "./task-events"
 import { computeTaskStats } from "./task-stats"
 import {
@@ -83,9 +88,15 @@ interface AgentTaskRow {
   tokens_out: number
   cost_usd: number
   error: string | null
+  result_text: string | null
+  tool_calls: string | null
   attached_files: string | null
   worktree_path: string | null
   branch_name: string | null
+  pause_reason: string | null
+  pending_approval_json: string | null
+  approved_tools_json: string | null
+  deleted_at: string | null
   created_at: string
   updated_at: string
   started_at: string | null
@@ -120,6 +131,17 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
     updatedAt: isoOrUndefined(row.updated_at) ?? createdAt,
   }
   if (typeof row.error === "string" && row.error) task.error = row.error
+  if (typeof row.result_text === "string" && row.result_text) task.result = row.result_text
+  if (typeof row.tool_calls === "string" && row.tool_calls) {
+    try {
+      const parsed = JSON.parse(row.tool_calls)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        task.toolCalls = parsed.filter((value): value is string => typeof value === "string" && value.length > 0)
+      }
+    } catch {
+      // Ignore malformed JSON
+    }
+  }
   if (typeof row.attached_files === "string" && row.attached_files) {
     try {
       const parsed = JSON.parse(row.attached_files)
@@ -130,6 +152,51 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
   }
   if (typeof row.worktree_path === "string" && row.worktree_path) task.worktreePath = row.worktree_path
   if (typeof row.branch_name === "string" && row.branch_name) task.branchName = row.branch_name
+  if (row.pause_reason === "user" || row.pause_reason === "approval") task.pauseReason = row.pause_reason
+  if (typeof row.pending_approval_json === "string" && row.pending_approval_json) {
+    try {
+      const parsed = JSON.parse(row.pending_approval_json) as {
+        toolName?: unknown
+        reason?: unknown
+        approvalKey?: unknown
+        expiresAt?: unknown
+      }
+      if (typeof parsed.toolName === "string" && typeof parsed.reason === "string") {
+        task.pendingApproval = {
+          toolName: parsed.toolName,
+          reason: parsed.reason,
+          approvalKey: typeof parsed.approvalKey === "string" && parsed.approvalKey
+            ? parsed.approvalKey
+            : parsed.toolName,
+          expiresAt: typeof parsed.expiresAt === "string" && Number.isFinite(Date.parse(parsed.expiresAt))
+            ? parsed.expiresAt
+            : new Date(0).toISOString(),
+        }
+      }
+    } catch {
+      // Ignore malformed approval state.
+    }
+  }
+  if (typeof row.approved_tools_json === "string" && row.approved_tools_json) {
+    try {
+      const parsed = JSON.parse(row.approved_tools_json)
+      if (Array.isArray(parsed)) {
+        const grants = parsed.flatMap((entry): Array<{ key: string; expiresAt: string }> => {
+          if (!entry || typeof entry !== "object") return []
+          const grant = entry as { key?: unknown; expiresAt?: unknown }
+          if (typeof grant.key !== "string" || !grant.key) return []
+          if (typeof grant.expiresAt !== "string" || !Number.isFinite(Date.parse(grant.expiresAt))) return []
+          return [{ key: grant.key, expiresAt: grant.expiresAt }]
+        })
+        task.approvedTools = grants.map((grant) => grant.key)
+        task.approvedToolExpiries = Object.fromEntries(
+          grants.map((grant) => [grant.key, grant.expiresAt]),
+        )
+      }
+    } catch {
+      // Ignore malformed approval grants.
+    }
+  }
   const startedAt = isoOrUndefined(row.started_at)
   if (startedAt) task.startedAt = startedAt
   const pausedAt = isoOrUndefined(row.paused_at)
@@ -147,7 +214,7 @@ function loadTasks(db: Database, userId: string): AgentTask[] {
         c.context_id
        FROM agent_tasks a
        LEFT JOIN task_context_assignments c ON a.user_id = c.user_id AND a.id = c.task_id
-       WHERE a.user_id = ?
+       WHERE a.user_id = ? AND a.deleted_at IS NULL
        ORDER BY a.created_at DESC, a.id ASC`,
     )
     .all(userId) as (AgentTaskRow & { context_id: string | null })[]
@@ -168,16 +235,21 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
   db.prepare(
     `INSERT INTO agent_tasks
        (user_id, id, name, prompt, agent, model, status, priority, permission_mode, progress, tokens_in, tokens_out,
-        cost_usd, error, attached_files, worktree_path, branch_name, created_at, updated_at, started_at, paused_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cost_usd, error, result_text, tool_calls, attached_files, worktree_path, branch_name, created_at, updated_at,
+        started_at, paused_at, completed_at, pause_reason, pending_approval_json, approved_tools_json, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, id) DO UPDATE SET
        name = excluded.name, prompt = excluded.prompt, agent = excluded.agent, model = excluded.model,
        status = excluded.status, priority = excluded.priority, permission_mode = excluded.permission_mode,
        progress = excluded.progress, tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
-       cost_usd = excluded.cost_usd, error = excluded.error, attached_files = excluded.attached_files,
+       cost_usd = excluded.cost_usd, error = excluded.error, result_text = excluded.result_text,
+       tool_calls = excluded.tool_calls, attached_files = excluded.attached_files,
        worktree_path = excluded.worktree_path, branch_name = excluded.branch_name,
        created_at = excluded.created_at, updated_at = excluded.updated_at, started_at = excluded.started_at,
-       paused_at = excluded.paused_at, completed_at = excluded.completed_at`,
+       paused_at = excluded.paused_at, completed_at = excluded.completed_at,
+       pause_reason = excluded.pause_reason, pending_approval_json = excluded.pending_approval_json,
+       approved_tools_json = excluded.approved_tools_json,
+       deleted_at = excluded.deleted_at`,
   ).run(
     userId,
     task.id,
@@ -193,6 +265,8 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
     task.tokensOut,
     task.costUsd,
     task.error ?? null,
+    task.result ?? null,
+    task.toolCalls ? JSON.stringify(task.toolCalls) : null,
     task.attachedFiles ? JSON.stringify(task.attachedFiles) : null,
     task.worktreePath ?? null,
     task.branchName ?? null,
@@ -201,6 +275,15 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
     task.startedAt ?? null,
     task.pausedAt ?? null,
     task.completedAt ?? null,
+    task.pauseReason ?? null,
+    task.pendingApproval ? JSON.stringify(task.pendingApproval) : null,
+    task.approvedTools
+      ? JSON.stringify(task.approvedTools.map((key) => ({
+          key,
+          expiresAt: task.approvedToolExpiries?.[key] ?? new Date(0).toISOString(),
+        })))
+      : null,
+    null,
   )
 }
 
@@ -263,6 +346,7 @@ function readTasks(rawUserId: string): AgentTask[] {
 async function transact<T>(
   rawUserId: string,
   fn: (tasks: AgentTask[]) => T,
+  afterPersist?: (db: Database) => void,
 ): Promise<{ result: T; changed: AgentTask[] }> {
   const userId = sanitizeUserId(rawUserId)
   const outcome = tx((db) => {
@@ -283,6 +367,7 @@ async function transact<T>(
 
     for (const id of removed) db.prepare("DELETE FROM agent_tasks WHERE user_id = ? AND id = ?").run(userId, id)
     for (const task of changed) upsertTask(db, userId, task)
+    afterPersist?.(db)
     return { result, changed, removed }
   })
 
@@ -350,8 +435,22 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
   if (action === "play") {
     if (status === "running" || status === "queued") return
     if (status === "paused") {
+      const approvalIsCurrent = task.pendingApproval
+        && Number.isFinite(Date.parse(task.pendingApproval.expiresAt))
+        && Date.parse(task.pendingApproval.expiresAt) > Date.now()
+      if (task.pauseReason === "approval" && task.pendingApproval?.toolName && approvalIsCurrent) {
+        task.approvedTools = [
+          ...new Set([...(task.approvedTools ?? []), task.pendingApproval.approvalKey]),
+        ]
+        task.approvedToolExpiries = {
+          ...(task.approvedToolExpiries ?? {}),
+          [task.pendingApproval.approvalKey]: task.pendingApproval.expiresAt,
+        }
+      }
       task.status = "queued"
       delete task.pausedAt
+      delete task.pauseReason
+      delete task.pendingApproval
       return
     }
     if (status === "failed" || status === "cancelled") {
@@ -361,9 +460,15 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
       task.tokensOut = 0
       task.costUsd = 0
       delete task.error
+      delete task.result
+      delete task.toolCalls
       delete task.completedAt
       delete task.startedAt
       delete task.pausedAt
+      delete task.pauseReason
+      delete task.pendingApproval
+      delete task.approvedTools
+      delete task.approvedToolExpiries
       return
     }
     throw transitionError(action, status)
@@ -372,12 +477,18 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
     if (status !== "running" && status !== "queued") throw transitionError(action, status)
     task.status = "paused"
     task.pausedAt = now
+    task.pauseReason = "user"
+    delete task.pendingApproval
     return
   }
   if (AGENT_TASK_TERMINAL.includes(status)) throw transitionError(action, status)
   task.status = "cancelled"
   task.completedAt = now
   delete task.pausedAt
+  delete task.pauseReason
+  delete task.pendingApproval
+  delete task.approvedTools
+  delete task.approvedToolExpiries
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -395,6 +506,17 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
   const safeUserId = sanitizeUserId(userId)
   const now = nowIso()
   const taskId = randomUUID()
+  const contextId = typeof input.contextId === "string" ? input.contextId.trim() : ""
+
+  if (contextId) {
+    const contextExists = tx(
+      (db) =>
+        db.prepare("SELECT 1 FROM task_contexts WHERE user_id = ? AND id = ?").get(safeUserId, contextId)
+        !== undefined,
+      "deferred",
+    )
+    if (!contextExists) throw new AgentTaskValidationError("Selected task context does not exist.")
+  }
 
   const task: AgentTask = {
     id: taskId,
@@ -409,41 +531,64 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
     updatedAt: now,
   }
 
-  // Create worktree if requested
-  if (input.useWorktree) {
-    try {
+  let managedAttachments: ManagedTaskAttachment[] = []
+  let worktreeCreated = false
+  try {
+    if (input.useWorktree) {
       const branchName = generateBranchName(input.prompt, taskId)
       const worktreePath = await createWorktree(taskId, branchName)
       task.worktreePath = worktreePath
       task.branchName = branchName
-    } catch (error) {
-      // Log error but don't fail task creation
-      console.error(`Failed to create worktree for task ${taskId}:`, error)
-      // Continue without worktree
+      worktreeCreated = true
     }
-  }
 
-  await transact(userId, (tasks) => {
-    if (tasks.length >= MAX_TASKS) {
-      const oldestTerminal = tasks
-        .filter((t) => AGENT_TASK_TERMINAL.includes(t.status))
-        .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0]
-      if (!oldestTerminal) throw new AgentTaskValidationError("Task limit reached. Delete a task first.")
-      tasks.splice(tasks.indexOf(oldestTerminal), 1)
+    managedAttachments = await ingestTaskAttachments(safeUserId, taskId, fields.attachedFiles ?? [])
+    if (managedAttachments.length > 0) {
+      task.attachedFiles = managedAttachments.map((attachment) => attachment.displayName)
     }
-    tasks.unshift(task)
-  })
 
-  // Assign to context if provided
-  if (input.contextId) {
-    tx((db) => {
-      db.prepare(
-        `INSERT INTO task_context_assignments (user_id, task_id, context_id, assigned_at)
-         VALUES (?, ?, ?, ?)`,
-      ).run(safeUserId, taskId, input.contextId, now)
-    })
-    task.contextId = input.contextId
+    await transact(
+      userId,
+      (tasks) => {
+        if (tasks.length >= MAX_TASKS) {
+          throw new AgentTaskValidationError("Task limit reached. Delete a task first.")
+        }
+        tasks.unshift(task)
+      },
+      (db) => {
+        const insertAttachment = db.prepare(
+          `INSERT INTO agent_task_attachments
+             (user_id, task_id, id, display_name, stored_path, mime_type, size_bytes, sha256, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        for (const attachment of managedAttachments) {
+          insertAttachment.run(
+            safeUserId,
+            taskId,
+            attachment.id,
+            attachment.displayName,
+            attachment.storedPath,
+            attachment.mimeType,
+            attachment.sizeBytes,
+            attachment.sha256,
+            now,
+          )
+        }
+        if (contextId) {
+          db.prepare(
+            `INSERT INTO task_context_assignments (user_id, task_id, context_id, assigned_at)
+             VALUES (?, ?, ?, ?)`,
+          ).run(safeUserId, taskId, contextId, now)
+        }
+      },
+    )
+  } catch (error) {
+    await deleteTaskAttachmentFiles(safeUserId, taskId).catch(() => {})
+    if (worktreeCreated) await deleteWorktree(taskId, undefined, true).catch(() => {})
+    if (error instanceof AgentTaskValidationError) throw error
+    throw new AgentTaskValidationError(error instanceof Error ? error.message : "Failed to prepare task execution context.")
   }
+  if (contextId) task.contextId = contextId
 
   return task
 }
@@ -458,28 +603,54 @@ export async function applyTaskAction(userId: string, id: string, action: AgentT
 }
 
 export async function deleteTask(userId: string, id: string): Promise<boolean> {
-  // Get task to check for worktree before deleting
-  const task = await getTask(userId, id)
-
-  const { result } = await transact(userId, (tasks) => {
-    const index = tasks.findIndex((t) => t.id === id)
-    if (index === -1) return false
-    tasks.splice(index, 1)
-    return true
+  const safeUserId = sanitizeUserId(userId)
+  const now = nowIso()
+  const deleted = tx((db) => {
+    const row = db.prepare(
+      `SELECT worktree_path, lease_owner, lease_expires_at
+       FROM agent_tasks
+       WHERE user_id = ? AND id = ? AND deleted_at IS NULL`,
+    ).get(safeUserId, id) as {
+      worktree_path: string | null
+      lease_owner: string | null
+      lease_expires_at: string | null
+    } | undefined
+    if (!row) return null
+    db.prepare(
+      `UPDATE agent_tasks
+       SET status = 'cancelled', completed_at = ?, deleted_at = ?, updated_at = ?,
+           pause_reason = NULL, pending_approval_json = NULL
+       WHERE user_id = ? AND id = ?`,
+    ).run(now, now, now, safeUserId, id)
+    const leaseActive = Boolean(
+      row.lease_owner
+      && row.lease_expires_at
+      && Number.isFinite(Date.parse(row.lease_expires_at))
+      && Date.parse(row.lease_expires_at) >= Date.now(),
+    )
+    return { worktreePath: row.worktree_path, leaseActive }
   })
+  if (!deleted) return false
 
-  // Clean up worktree if it exists (do this after successful deletion)
-  if (result && task?.worktreePath) {
+  publishTaskEvent(safeUserId, { type: "task.deleted", id })
+
+  // If no runtime owns the task, clean it immediately. Runtime-owned tasks are
+  // finalized by the scheduler only after their model/tool execution releases its lease.
+  if (!deleted.leaseActive) {
     try {
-      // Force delete worktree since task is being deleted
-      await deleteWorktree(id, undefined, true)
+      if (deleted.worktreePath) await deleteWorktree(id, undefined, true)
+      await deleteTaskAttachmentFiles(safeUserId, id)
+      tx((db) => {
+        db.prepare("DELETE FROM agent_tasks WHERE user_id = ? AND id = ? AND deleted_at IS NOT NULL").run(
+          safeUserId,
+          id,
+        )
+      })
     } catch (error) {
-      // Log but don't fail deletion if worktree cleanup fails
-      console.error(`Failed to clean up worktree for task ${id}:`, error)
+      console.error(`Deferred cleanup required for deleted task ${id}:`, error)
     }
   }
-
-  return result
+  return true
 }
 
 export async function getTaskStats(userId: string): Promise<AgentTaskStats> {
@@ -489,14 +660,4 @@ export async function getTaskStats(userId: string): Promise<AgentTaskStats> {
 /** Runner-only: mutate tasks in place. Returns the tasks whose JSON changed. */
 export async function mutateTasks(userId: string, mutator: (tasks: AgentTask[]) => void): Promise<AgentTask[]> {
   return (await transact(userId, mutator)).changed
-}
-
-/** Tasks left "running" by a dead process go back to the queue. Returns how many. */
-export async function recoverInterruptedTasks(userId: string): Promise<number> {
-  const changed = await mutateTasks(userId, (tasks) => {
-    for (const task of tasks) {
-      if (task.status === "running") task.status = "queued"
-    }
-  })
-  return changed.length
 }

@@ -1,6 +1,6 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
-import type { Tool } from "../../core/types/index.js";
+import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js";
 
 const execFileAsync = promisify(execFileCb);
 
@@ -146,7 +146,7 @@ export function createBrowserAgentTool(): Tool {
       actionPolicyPath?: string;
       confirmActions?: string[];
       maxOutputChars?: number;
-    }) => {
+    }, context?: ToolExecutionPolicyContext) => {
       const session = String(input?.session ?? "").trim();
       if (!session) return "browser_agent error: session is required.";
       if (!SESSION_RE.test(session)) {
@@ -186,6 +186,8 @@ export function createBrowserAgentTool(): Tool {
           windowsHide: true,
           maxBuffer: 1024 * 1024,
           env: process.env,
+          cwd: context?.workspaceDir,
+          signal: context?.abortSignal,
         });
         const output = [String(stdout || "").trim(), String(stderr || "").trim()]
           .filter(Boolean)

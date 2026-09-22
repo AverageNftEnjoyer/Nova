@@ -20,6 +20,7 @@ import {
   extractOpenAIChatText,
   withTimeout,
 } from "../../../../llm/providers/index.js";
+import { assertAgentTaskExternalAction } from "../../../core/chat-handler/task-tool-policy/index.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
 import {
   normalizeSpotifyAction,
@@ -230,6 +231,9 @@ Output ONLY valid JSON, nothing else.`;
     };
 
     let reply = rawResponse;
+    assertAgentTaskExternalAction(ctx, `spotify:${action}`, {
+      readOnly: action === "now_playing" || action === "list_devices",
+    });
     const requiresVerifiedSpotifyApiAction = new Set([
       "set_favorite_playlist",
       "clear_favorite_playlist",
@@ -298,6 +302,11 @@ Output ONLY valid JSON, nothing else.`;
     const safeReply = String(reply || "Done.").replace(/[\r\n]/g, " ").trim().slice(0, 120);
     summary.reply = await emitSpotifyAssistantReply(safeReply);
   } catch (e) {
+    if (
+      ctx.abortSignal?.aborted
+      || e?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+      || e?.code === "AGENT_TASK_TOOL_DENIED"
+    ) throw e;
     console.error("[Spotify] Handler error:", e?.message || e);
     summary.ok = false;
     summary.error = String(e instanceof Error ? e.message : describeUnknownError(e));

@@ -105,6 +105,7 @@ import {
   resolveOpenAiRequestTuning,
 } from "../prompt-recovery/index.js";
 import { runToolLoop } from "../tool-loop-runner/index.js";
+import { runClaudeToolLoop } from "../claude-tool-loop/index.js";
 import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "../direct-completion/index.js";
 import { buildPromptContextForTurn } from "../prompt-context-builder/index.js";
 import { refineAssistantReply } from "../response-refinement/index.js";
@@ -174,7 +175,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   const { source, sender, sessionContext, sessionKey, useVoice, ttsVoice, userContextId, conversationId,
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions,
     runtimeProactivity, runtimeHumorLevel, runtimeRiskTolerance, runtimeStructurePreference, runtimeChallengeLevel,
-    raw_text: displayText, hudOpToken } = ctx;
+    raw_text: displayText, hudOpToken, abortSignal, permissionMode, approvedTools, workspaceDir,
+    executionFenceCheck, consumeTaskApproval, reserveTaskEffect } = ctx;
   const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   // displayText: original user text for UI/transcript; text: clean_text for LLM/tools
   const uiText = displayText || text;
@@ -434,7 +436,35 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       usedMemoryRecall = promptContext.usedMemoryRecall;
       usedWebSearchPreload = promptContext.usedWebSearchPreload;
       usedLinkUnderstanding = promptContext.usedLinkUnderstanding;
-      if (activeChatRuntime.provider === "claude") {
+      if (activeChatRuntime.provider === "claude" && shouldRunToolLoop) {
+        llmStartedAt = Date.now();
+        responseRoute = "claude_tool_loop";
+        broadcastThinkingStatus("Running agent task", userContextId);
+        const claudeToolResult = await runClaudeToolLoop({
+          activeChatRuntime,
+          selectedChatModel,
+          systemPrompt,
+          historyMessages,
+          text,
+          availableTools,
+          runtimeTools,
+          userContextId,
+          conversationId,
+          observedToolCalls,
+          toolExecutions,
+          abortSignal,
+          permissionMode,
+          approvedTools,
+          workspaceDir,
+          executionFenceCheck,
+          consumeTaskApproval,
+          reserveTaskEffect,
+        });
+        reply = claudeToolResult.reply;
+        promptTokens = claudeToolResult.promptTokens;
+        completionTokens = claudeToolResult.completionTokens;
+        modelUsed = claudeToolResult.modelUsed || selectedChatModel;
+      } else if (activeChatRuntime.provider === "claude") {
         llmStartedAt = Date.now();
         responseRoute = "claude_direct";
         broadcastThinkingStatus("Drafting response", userContextId);
@@ -450,6 +480,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           conversationId,
           userContextId,
           broadcastAssistantStreamDelta,
+          abortSignal,
         });
         reply = claudeDirect.reply;
         promptTokens = claudeDirect.promptTokens;
@@ -481,6 +512,13 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           toolExecutions,
           retries,
           markRecovery,
+          abortSignal,
+          permissionMode,
+          approvedTools,
+          workspaceDir,
+          executionFenceCheck,
+          consumeTaskApproval,
+          reserveTaskEffect,
         });
         reply = toolLoopResult.reply;
         promptTokens += Number(toolLoopResult.promptTokens || 0);
@@ -508,6 +546,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           broadcastThinkingStatus,
           retries,
           markRecovery,
+          abortSignal,
         });
         reply = directResult.reply;
         promptTokens += Number(directResult.promptTokens || 0);
@@ -641,7 +680,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 
     const memoryCaptureStartedAt = Date.now();
     try {
-      const autoFacts = extractAutoMemoryFacts(text);
+      const autoFacts = ctx.autonomousTask === true ? [] : extractAutoMemoryFacts(text);
       const autoCaptured = applyMemoryFactsToWorkspace(personaWorkspaceDir, autoFacts);
       memoryAutoCaptured = autoCaptured;
       if (autoCaptured > 0) {
@@ -742,6 +781,14 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       userContextId,
     );
     runSummary.error = msg;
+    runSummary.errorCode = String(err?.code || details.code || "");
+    runSummary.pendingApproval = err?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+      ? {
+          toolName: String(err?.toolName || "unknown"),
+          reason: msg,
+          approvalKey: String(err?.approvalKey || ""),
+        }
+      : null;
     runSummary.ok = false;
     runSummary.reply = errorReply;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));

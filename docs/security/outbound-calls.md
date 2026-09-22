@@ -4,6 +4,9 @@ Audited 2026-09-21 against commit `c69f234` plus the working tree of that day (s
 live services). Scope: `src/`, `hud/lib`, `hud/app` (API routes and client code), `hud/components`, `hud/electron`,
 `hud/scripts`, `nova.js`, `hud/next.config.ts`, `hud/proxy.ts` and both `package.json` dependency lists.
 
+Reverify this audit before each release that adds or changes an integration, network client, Electron capability,
+telemetry dependency, provider endpoint, or updater. Record the new commit and date here when that review is complete.
+
 Method: grep for `fetch(`, `axios`, `http(s).request/get`, `WebSocket`/`WebSocketServer`, `EventSource`, `sendBeacon`,
 SDK clients (`openai`, `@anthropic-ai/sdk`, `@openai/agents`, `fish-audio`, `viem`, `@polymarket/clob-client`), every
 hard-coded `https://` host, telemetry/analytics/crash/update keywords, `<iframe>`/`<script>`/`<link>`/`next/font`, then
@@ -11,10 +14,11 @@ reading each call site for what it sends and which credential it attaches.
 
 ## Summary
 
-- **No telemetry, analytics, crash reporting or update checks were found**: no analytics/crash SDK in either
+- **No third-party telemetry, crash reporting or update checks were found**: no analytics/crash SDK in either
   `package.json`, no `electron-updater`/`autoUpdater`/`crashReporter`, no `publish` block in `electron-builder.yml`.
   Next.js telemetry is disabled in `nova.js:23`, `hud/electron/main.js:6` and `hud/scripts/next-runner.mjs:64` (and the
-  `electron:dev` npm script). Nothing phones home to the project author.
+  `electron:dev` npm script). The `/analytics` page computes local task statistics from `nova.db`; it does not transmit
+  analytics. Nothing phones home to the project author.
 - Every call below goes to a service the user configured or asked for, except Finding 3 (fixed) and the residual items in
   **Findings**. Credentials are attached only to their own provider; Finding 1 (fixed) was the exception.
 - The HUD server binds `127.0.0.1:3000` and the agent WebSocket gateway binds `127.0.0.1:8765`; neither is reachable from
@@ -24,6 +28,7 @@ reading each call site for what it sends and which credential it attaches.
 ## Findings (read these first)
 
 Severity is my judgement for a single-user desktop app. Findings 1-3 were fixed on 2026-09-21 (details in each entry).
+Findings 4-8 remain open or accepted by design and should be reviewed before release.
 
 1. **HIGH - saved LLM keys could be redirected by any local web page. FIXED (2026-09-21).** The HUD `/api` routes had no
    Origin/Sec-Fetch-Site/Host check, and six routes (`hud/app/api/integrations/list-claude-models`, `list-gemini-models`,
@@ -78,8 +83,9 @@ Severity is my judgement for a single-user desktop app. Findings 1-3 were fixed 
    (`hud/lib/missions/workflow/executors/data-executors.ts`), `webhook` output (`hud/lib/missions/output/dispatch.ts`)
    and the `web_fetch` tool can POST/GET mission or conversation text to any public URL. They pass through an SSRF guard
    (private/loopback/link-local blocked, redirects bounded) but a mission generated from a prompt, or a prompt-injected
-   agent, can still choose the destination. I did not verify whether mission templating (`resolveExpr`) can reach stored
-   secrets; treat that as unverified.
+   agent, can still choose the destination. Mission templating (`resolveExpr`) directly resolves only mission variables
+   and node outputs, not integration configuration or stored secrets. A secret could still be exposed indirectly if an
+   agent or earlier node placed it in those values.
 5. **LOW - plaintext keys in `.env`.** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `FISH_API_KEY`, etc. read from `.env`
    are plain text on disk and used by the runtime (LLM, embeddings, TTS). They are not covered by the DPAPI encryption.
 6. **LOW - direct browser-to-third-party requests.** The user's browser (not the Nova server) contacts Open-Meteo

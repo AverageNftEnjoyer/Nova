@@ -1,5 +1,6 @@
 import { VOICE_MAP } from "../../audio/voice/index.js";
 import { createTtsProviderAdapter } from "./provider-adapter/index.js";
+import { assertAgentTaskExternalAction } from "../../chat/core/chat-handler/task-tool-policy/index.js";
 
 function normalizeText(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -76,6 +77,9 @@ export async function runTtsDomainService(input = {}, deps = {}) {
       getActiveUserContextId: () => userContextId,
     });
   const parsedCommand = parseTtsCommand(input.text);
+  assertAgentTaskExternalAction(ctx, `tts:${parsedCommand.kind}`, {
+    readOnly: parsedCommand.kind === "status" || parsedCommand.kind === "unknown",
+  });
 
   if (parsedCommand.kind !== "unknown") {
     if (!userContextId || !conversationId || !sessionKey) {

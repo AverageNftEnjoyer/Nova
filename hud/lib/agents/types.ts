@@ -21,6 +21,17 @@ export interface AgentTask {
   tokensOut: number
   costUsd: number
   error?: string
+  result?: string
+  toolCalls?: string[]
+  pauseReason?: "user" | "approval"
+  pendingApproval?: {
+    toolName: string
+    reason: string
+    approvalKey: string
+    expiresAt: string
+  }
+  approvedTools?: string[]
+  approvedToolExpiries?: Record<string, string>
   attachedFiles?: string[]
   contextId?: string
   worktreePath?: string

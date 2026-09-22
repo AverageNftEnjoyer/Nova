@@ -104,16 +104,15 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
 
   useEffect(() => {
     if (!open) return
-    // Listen for file drops from Electron
-    if (typeof window !== "undefined" && (window as unknown as { electronAPI?: { onFileDrop?: (callback: (data: { filePath: string }) => void) => void } }).electronAPI?.onFileDrop) {
-      const handleFileDrop = (data: { filePath: string }) => {
-        if (data.filePath && !attachedFiles.includes(data.filePath)) {
-          setAttachedFiles((prev) => [...prev, data.filePath])
-        }
-      }
-      ;(window as unknown as { electronAPI: { onFileDrop: (callback: (data: { filePath: string }) => void) => void } }).electronAPI.onFileDrop(handleFileDrop)
+    const unsubscribe = window.electronAPI?.onFileDrop?.((data) => {
+      const filePath = String(data?.filePath || "").trim()
+      if (!filePath) return
+      setAttachedFiles((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]))
+    })
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe()
     }
-  }, [open, attachedFiles])
+  }, [open])
 
   const removeFile = useCallback((filePath: string) => {
     setAttachedFiles((prev) => prev.filter((f) => f !== filePath))
@@ -159,31 +158,9 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
       }
     }
 
-    // Generate context summary if task is in a context
-    let finalPrompt = trimmedPrompt
-    if (finalContextId) {
-      try {
-        const contextTasksRes = await fetch(`/api/task-contexts/${finalContextId}`)
-        const contextTasksData = await contextTasksRes.json()
-        if (contextTasksData.ok && contextTasksData.tasks && contextTasksData.tasks.length > 0) {
-          const summaries = contextTasksData.tasks.map((task: { agent: string; model: string; name: string; status: string; progress: number; error?: string }) => {
-            const outcome = task.error
-              ? `Failed: ${task.error.slice(0, 100)}`
-              : task.status === "completed"
-                ? `Completed (${task.progress}% done)`
-                : `${task.status.charAt(0).toUpperCase() + task.status.slice(1)} (${task.progress}% done)`
-            return `- [${task.agent} ${task.model}] "${task.name}" → ${outcome}`
-          })
-          finalPrompt = `Context: Related tasks in "${contextTasksData.context.name}":\n${summaries.join("\n")}\n\nYour task: ${trimmedPrompt}`
-        }
-      } catch {
-        // Continue without context summary if fetch fails
-      }
-    }
-
     const result = await onCreate({
       name: name.trim() || undefined,
-      prompt: finalPrompt,
+      prompt: trimmedPrompt,
       agent,
       model,
       priority,
@@ -302,8 +279,20 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
               onDragLeave={() => setIsDragging(false)}
               onDrop={(e) => {
                 e.preventDefault()
+                e.stopPropagation()
                 setIsDragging(false)
-                // Files will be handled by Electron's file drop handler
+                const paths = Array.from(e.dataTransfer?.files ?? [])
+                  .map((file) => {
+                    try {
+                      return window.electronAPI?.getPathForFile(file) || ""
+                    } catch {
+                      return ""
+                    }
+                  })
+                  .map((filePath) => filePath.trim())
+                  .filter(Boolean)
+                if (paths.length === 0) return
+                setAttachedFiles((prev) => [...prev, ...paths.filter((filePath) => !prev.includes(filePath))])
               }}
             >
               <File className={cn("mx-auto h-5 w-5 mb-1", isLight ? "text-s-50" : "text-slate-400")} />
@@ -440,7 +429,7 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
           {permissionMode === "bypass" ? (
             <p className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-500">
               <ShieldAlert className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-              Bypass allows every operation without confirmation. Only use it for tasks you fully trust.
+              Bypass allows elevated operations without confirmation. Workspace confinement and platform-level dangerous-operation blocks still apply.
             </p>
           ) : null}
 

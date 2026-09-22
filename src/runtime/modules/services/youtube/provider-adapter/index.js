@@ -75,6 +75,10 @@ async function fetchWithTimeoutAndRetry(url, init, options = {}) {
   while (attempt <= retryCount) {
     attempt += 1;
     const abortController = new AbortController();
+    const externalSignal = options.signal;
+    const onAbort = () => abortController.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abortController.abort(externalSignal.reason);
+    else externalSignal?.addEventListener("abort", onAbort, { once: true });
     const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
     try {
       const res = await fetch(url, {
@@ -87,12 +91,15 @@ async function fetchWithTimeoutAndRetry(url, init, options = {}) {
       }
       return res;
     } catch (err) {
+      if (externalSignal?.aborted) throw externalSignal.reason || err;
       lastError = err;
       const shouldRetry = attempt <= retryCount;
       if (!shouldRetry) throw err;
+      if (externalSignal?.aborted) throw externalSignal.reason || err;
       await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS * attempt));
     } finally {
       clearTimeout(timeoutId);
+      externalSignal?.removeEventListener("abort", onAbort);
     }
   }
   throw lastError || new Error("YouTube provider adapter request failed.");
@@ -132,7 +139,7 @@ export function createYouTubeProviderAdapter() {
             headers,
             body: JSON.stringify(body),
           },
-          options,
+          { ...options, signal: ctx.abortSignal },
         );
         const data = await res.json();
         if (res.ok && data?.ok === true) {
@@ -199,6 +206,7 @@ export function createYouTubeProviderAdapter() {
           selected: null,
         };
       } catch (err) {
+        if (ctx.abortSignal?.aborted) throw ctx.abortSignal.reason || err;
         const errorCode = isAbortError(err) ? "youtube.timeout" : "youtube.network";
         return {
           attempted: true,

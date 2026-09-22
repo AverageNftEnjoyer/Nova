@@ -79,8 +79,22 @@ function computeRetryDelayMs(attempt, policy, retryAfterMs = null) {
   return Math.min(30_000, Math.max(policy.retryBaseMs, Math.floor(exponential + jitter)));
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new Error("Discord delivery aborted."));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason || new Error("Discord delivery aborted."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function sendDiscordWebhookTarget(input = {}) {
@@ -89,6 +103,7 @@ export async function sendDiscordWebhookTarget(input = {}) {
     payload = {},
     fetchImpl = globalThis.fetch,
     policy = resolveDiscordWebhookPolicy(),
+    signal,
   } = input;
 
   const redactedTarget = redactWebhookTarget(webhookUrl);
@@ -116,6 +131,9 @@ export async function sendDiscordWebhookTarget(input = {}) {
   const maxAttempts = Math.max(1, policy.maxRetries + 1);
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = new AbortController();
+    const onAbort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) controller.abort(signal.reason);
+    else signal?.addEventListener("abort", onAbort, { once: true });
     const timeout = setTimeout(() => controller.abort(), policy.timeoutMs);
     try {
       const response = await fetchImpl(webhookUrl, {
@@ -126,6 +144,7 @@ export async function sendDiscordWebhookTarget(input = {}) {
         signal: controller.signal,
       });
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
 
       if (response.ok) {
         return {
@@ -141,7 +160,7 @@ export async function sendDiscordWebhookTarget(input = {}) {
       const status = Number(response.status || 0);
       const retryable = isRetryableStatus(status);
       if (retryable && attempt < maxAttempts) {
-        await sleep(computeRetryDelayMs(attempt, policy, parseRetryAfterMs(response.headers)));
+        await sleep(computeRetryDelayMs(attempt, policy, parseRetryAfterMs(response.headers)), signal);
         continue;
       }
 
@@ -155,9 +174,11 @@ export async function sendDiscordWebhookTarget(input = {}) {
       };
     } catch (error) {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) throw signal.reason || error;
       const aborted = Boolean(controller.signal.aborted);
       if (attempt < maxAttempts) {
-        await sleep(computeRetryDelayMs(attempt, policy, null));
+        await sleep(computeRetryDelayMs(attempt, policy, null), signal);
         continue;
       }
       return {

@@ -2,6 +2,7 @@ const electron = require('electron')
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = electron
 const path = require('path')
 const { spawn } = require('child_process')
+const { fileUrlToPath } = require('./file-url-path')
 
 process.env.NEXT_TELEMETRY_DISABLED = '1'
 
@@ -18,6 +19,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 768,
     backgroundColor: '#0a0a0f',
+    frame: false, // Remove native title bar and window chrome
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -30,27 +32,45 @@ function createWindow() {
     show: false, // Don't show until ready
   })
 
+  // Remove application menu entirely
+  Menu.setApplicationMenu(null)
+
+  // Determine if running in development mode
+  const isDev = !app.isPackaged
+
+  // Dev-only keyboard shortcuts (since menu is removed)
+  if (isDev) {
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+      // Ctrl+R or F5: Reload
+      if ((input.control && input.key === 'r') || input.key === 'F5') {
+        mainWindow.webContents.reload()
+      }
+      // Ctrl+Shift+I or F12: DevTools
+      if ((input.control && input.shift && input.key === 'i') || input.key === 'F12') {
+        mainWindow.webContents.toggleDevTools()
+      }
+    })
+  }
+
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize()
     mainWindow.show()
   })
 
-  // Handle file drops - prevent navigation to file:// URLs
+  // A file drop must never navigate the app to a file:// URL. The drop zone reads
+  // the path directly; this is the fallback when the page does not handle the drop.
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('file://')) {
-      event.preventDefault()
-      // Extract file path and send to renderer
-      const filePath = decodeURIComponent(url.replace('file:///', ''))
-      mainWindow.webContents.send('file-dropped', { filePath })
-    }
+    if (!url.startsWith('file://')) return
+    event.preventDefault()
+    const filePath = fileUrlToPath(url)
+    if (filePath) mainWindow.webContents.send('file-dropped', { filePath })
   })
 
   // Prevent opening new windows from file drops
   mainWindow.webContents.setWindowOpenHandler(() => {
     return { action: 'deny' }
   })
-
-  const isDev = !app.isPackaged
 
   if (isDev) {
     // Development: load from Next.js dev server
@@ -65,6 +85,15 @@ function createWindow() {
     // Production: load from built Next.js app
     mainWindow.loadFile(path.join(__dirname, '../out/index.html'))
   }
+
+  // Handle close button - hide to tray instead of quitting
+  mainWindow.on('close', (event) => {
+    if (!app.isQuitting && tray) {
+      event.preventDefault()
+      mainWindow.hide()
+      return false
+    }
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -108,6 +137,7 @@ function createTray() {
     {
       label: 'Quit',
       click: () => {
+        app.isQuitting = true
         app.quit()
       }
     }
@@ -256,6 +286,50 @@ function setupIpcHandlers() {
       return { success: false, error: error.message }
     }
   })
+
+  // Window control handlers (for frameless window)
+  ipcMain.handle('window-minimize', () => {
+    if (mainWindow) {
+      mainWindow.minimize()
+    }
+  })
+
+  ipcMain.handle('window-maximize', () => {
+    if (mainWindow) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize()
+      } else {
+        mainWindow.maximize()
+      }
+    }
+  })
+
+  ipcMain.handle('window-close', () => {
+    if (mainWindow) {
+      mainWindow.close()
+    }
+  })
+
+  ipcMain.handle('window-is-maximized', () => {
+    return mainWindow ? mainWindow.isMaximized() : false
+  })
+}
+
+// Prevent multiple instances
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // Another instance is already running, quit this one
+  app.quit()
+} else {
+  // Second instance attempted to launch - focus the existing window
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
+  })
 }
 
 // App lifecycle
@@ -279,11 +353,19 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  app.isQuitting = true
+
   // Clean up all agent processes
   for (const [taskId, process] of activeAgentProcesses.entries()) {
     process.kill('SIGTERM')
   }
   activeAgentProcesses.clear()
+
+  // Destroy tray icon
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
 })
 
 // Handle deep links (nova://)

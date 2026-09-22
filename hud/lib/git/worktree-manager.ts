@@ -9,6 +9,8 @@ import { spawn } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 
+import { resolveWorkspaceRoot } from "../../../src/db/paths.js"
+
 export class WorktreeError extends Error {
   public readonly cause?: unknown
 
@@ -30,7 +32,11 @@ interface ExecGitResult {
  */
 function execGit(args: string[], cwd?: string): Promise<ExecGitResult> {
   return new Promise((resolve) => {
-    const git = spawn("git", args, { cwd: cwd || process.cwd(), shell: true })
+    const git = spawn("git", args, {
+      cwd: cwd || resolveWorkspaceRoot(),
+      shell: false,
+      windowsHide: true,
+    })
 
     let stdout = ""
     let stderr = ""
@@ -109,8 +115,8 @@ export function generateBranchName(prompt: string, taskId: string): string {
       return `${prefix}-${taskId.slice(0, 8)}`
     }
 
-    const description = sanitizeBranchName(words.join(" "))
-    return `${prefix}/${description}`
+    const description = sanitizeBranchName(words.join(" "), 40)
+    return `${prefix}/${description}-${taskId.slice(0, 8)}`
   } catch {
     // Fallback to timestamped branch name
     return `task-${taskId.slice(0, 8)}-${Date.now()}`
@@ -126,7 +132,7 @@ export function generateBranchName(prompt: string, taskId: string): string {
  * @returns Absolute path to the created worktree
  */
 export async function createWorktree(taskId: string, branchName: string, baseDir?: string): Promise<string> {
-  const repoRoot = process.cwd()
+  const repoRoot = resolveWorkspaceRoot()
   const worktreesDir = baseDir || path.join(repoRoot, ".worktrees")
   const worktreePath = path.join(worktreesDir, taskId)
 
@@ -182,7 +188,7 @@ export async function checkUncommittedChanges(worktreePath: string): Promise<boo
  * @throws WorktreeError if worktree has uncommitted changes and force is false
  */
 export async function deleteWorktree(taskId: string, baseDir?: string, force: boolean = false): Promise<void> {
-  const repoRoot = process.cwd()
+  const repoRoot = resolveWorkspaceRoot()
   const worktreesDir = baseDir || path.join(repoRoot, ".worktrees")
   const worktreePath = path.join(worktreesDir, taskId)
 
@@ -212,7 +218,7 @@ export async function deleteWorktree(taskId: string, baseDir?: string, force: bo
  * @returns Absolute path to the worktree, or null if it doesn't exist
  */
 export function getWorktreePath(taskId: string, baseDir?: string): string | null {
-  const repoRoot = process.cwd()
+  const repoRoot = resolveWorkspaceRoot()
   const worktreesDir = baseDir || path.join(repoRoot, ".worktrees")
   const worktreePath = path.join(worktreesDir, taskId)
 

@@ -1,5 +1,6 @@
 import { createVoiceProviderAdapter } from "./provider-adapter/index.js";
 import { broadcastState } from "../../../infrastructure/hud-gateway/index.js";
+import { assertAgentTaskExternalAction } from "../../chat/core/chat-handler/task-tool-policy/index.js";
 
 function normalizeText(value, fallback = "") {
   const normalized = String(value || "").trim();
@@ -64,6 +65,9 @@ export async function runVoiceDomainService(input = {}, deps = {}) {
       getActiveUserContextId: () => userContextId,
     });
   const parsedCommand = parseVoiceCommand(input.text);
+  assertAgentTaskExternalAction(ctx, `voice:${parsedCommand.kind}`, {
+    readOnly: parsedCommand.kind === "status" || parsedCommand.kind === "unknown",
+  });
 
   if (parsedCommand.kind !== "unknown") {
     if (!userContextId || !conversationId || !sessionKey) {

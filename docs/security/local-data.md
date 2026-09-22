@@ -15,7 +15,7 @@ This release moved everything into one SQLite database and re-did secret encrypt
   this version. **Re-enter your API keys** and reconnect integrations (Gmail, Spotify, ...) after upgrading.
 - `~/.nova-encryption-key` and `NOVA_ENCRYPTION_KEY` are no longer used by any code and can be deleted.
 
-`src/db/import/` is intentionally empty. If a migration is ever wanted it needs its own, explicit design; do not assume
+There is no `src/db/import/` module. If a migration is ever wanted it needs its own, explicit design; do not assume
 one exists.
 
 ## Where data lives
@@ -40,7 +40,10 @@ Inside the data directory:
 | `nova.db`, `nova.db-wal`, `nova.db-shm` | SQLite (WAL): integrations, missions, job ledger, agent tasks, notes, chat threads and messages, sessions, per-user state (`kv_state`), calendar overrides, `tool_runs` audit trail | Chat text, notes, mission definitions are **plain** (SQLite is not encrypted). Secret fields are `nv1:` ciphertext. |
 | `keys/master.key.dpapi` | The DPAPI-wrapped master key | Useless outside this Windows account |
 | `user-context/<userId>/` | Markdown workspace docs (`SOUL.md`, `USER.md`, `AGENTS.md`, `MEMORY.md`, `skills/*/SKILL.md`) and per-user logs | Plain text. Use `resolveUserContextRoot()` from `src/db/paths.js` to build this path. |
-| `memory.db` | Agent memory index (separate SQLite file) | Plain |
+| `memory.db` | Shared agent memory index (separate SQLite file) | Plain |
+| `user-context/<userId>/memory.db` | Per-user memory index used by the tool runtime | Plain |
+| `agent-task-files/<userId>/<taskId>/` | Immutable, size-limited copies of files explicitly attached to Agent Tasks | Plain. Database rows store relative managed paths plus SHA-256 digests; original host paths are not exposed to models or clients. |
+| `sessions.json`, `transcripts/` | Runtime session metadata and conversation transcript artifacts | Plain |
 | `archive/logs/` | Coinbase/ChatKit observability JSONL | Plain; no secrets by design |
 
 UI-only preferences (theme, orb color) stay in the browser's `localStorage`. Never secrets.
@@ -70,8 +73,10 @@ DPAPI ties the key to your Windows login. This protects against: a copied `nova.
 the data folder, another Windows account on the same PC, and anyone who steals the disk without your login.
 
 It does **not** protect against: malware or any program running as **your** Windows user (it can ask DPAPI to unwrap
-the key exactly as Nova does), or someone who is logged in as you. Nova's HUD API also currently has no origin check
-(see the findings in `outbound-calls.md`), so treat the running app as trusted-local, not as a security boundary.
+the key exactly as Nova does), or someone who is logged in as you. The HUD rejects non-loopback hosts and cross-origin
+state-changing API requests, but requests from local non-browser processes without `Origin`/`Sec-Fetch-Site` headers
+remain allowed by design. Treat the running app as trusted-local, not as a boundary against programs running as the
+same Windows user. See the fixed and residual findings in `outbound-calls.md`.
 
 Also outside this protection: values you put in `.env` (for example `OPENAI_API_KEY`) are plain text on disk. Prefer
 entering keys in the app.
@@ -83,17 +88,19 @@ entering keys in the app.
 - Restore **only on the same Windows account** (same user, same PC profile). DPAPI cannot unwrap the key elsewhere.
 - Moving to a new PC or Windows account: copy the data, then delete `keys/master.key.dpapi` and re-enter your API
   keys. Chats, notes and missions carry over; secrets do not (by design).
-- Copy `user-context/` too if you want your markdown docs and skills.
+- Copy `user-context/` too if you want your markdown docs and skills, and `agent-task-files/` if queued tasks must retain attachments.
 
 ## Purging data
 
-The in-app account-delete flow removes a user's rows (`purgeLocalUserData` in `src/db/index.js`) and their
-`user-context/<id>/` folder. To wipe everything, close Nova and delete the data directory.
+The in-app account-delete flow removes a user's rows (`purgeLocalUserData` in `src/db/index.js`), their
+`user-context/<id>/` folder and managed `agent-task-files/<id>/` attachments. To wipe everything, close Nova and
+delete the data directory.
 
 ## Native module and packaging
 
-`better-sqlite3` is a native addon. The database code lives in `src/db` and runs in **plain Node processes** (the agent
-runtime and the Next.js server started by `nova.js`), so the binding must match **Node's** ABI, not Electron's.
+`better-sqlite3` is a native addon. In development, the database code lives in `src/db` and runs in **plain Node
+processes** (the agent runtime and the Next.js server started by `nova.js`), so the binding must match **Node's** ABI,
+not Electron's.
 
 - Install with scripts enabled (`npm ci`), or run `npm run db:fix-native` (downloads the prebuilt binary once, falls back
   to `npm rebuild better-sqlite3`, which needs MSVC build tools). Do not install with `--ignore-scripts`.
@@ -115,7 +122,12 @@ runtime and the Next.js server started by `nova.js`), so the binding must match 
 - The Electron build is **not** an offline bundle today: `electron/main.js` loads `http://127.0.0.1:3000` in dev and a
   static `out/` in production, which cannot serve the API routes. Full packaging of the Next and agent servers is still
   to do.
-- Windows x64 only (DPAPI, PowerShell helper, NSIS target).
+- `electron-builder.yml` currently packages only `hud/out`, `hud/electron`, `hud/package.json` and `hud/node_modules`.
+  It omits `nova.js`, `src/`, and the repository-root dependencies used by the runtime. Its `asarUnpack` rule for
+  `better-sqlite3` therefore does not make the current root installation available to the packaged app.
+- The supported product is Windows x64 because secrets require Windows DPAPI and the runtime uses PowerShell. Remove
+  or explicitly mark the macOS/Linux targets in `electron-builder.yml` unsupported until a cross-platform secret and
+  runtime design exists.
 
 ## Tests must never touch real data
 

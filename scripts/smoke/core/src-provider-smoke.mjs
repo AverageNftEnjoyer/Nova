@@ -133,6 +133,22 @@ await run("Seeded active runtime parity (legacy vs src, strict)", async () => {
   assert.equal(Boolean(legacyStrict.apiKey), Boolean(srcStrict.apiKey));
 });
 
+await run("Agent tasks pin each selected provider and model", async () => {
+  for (const provider of ["openai", "claude", "grok", "gemini"]) {
+    const selectedModel = `task-selected-${provider}-model`;
+    const selected = resolveSrcConfiguredChatRuntime(srcGlobal, {
+      preferredProvider: provider,
+      preferredModel: selectedModel,
+    });
+    assert.equal(selected.provider, provider);
+    assert.equal(selected.model, selectedModel);
+    assert.equal(selected.apiKey, srcGlobal[provider].apiKey);
+    assert.equal(selected.baseURL, srcGlobal[provider].baseURL);
+    assert.equal(selected.connected, srcGlobal[provider].connected);
+    assert.equal(selected.routeReason, "task-selected-provider");
+  }
+});
+
 await run("Seeded active runtime parity (legacy vs src, fallback)", async () => {
   const legacyFallback = resolveCompatConfiguredChatRuntime(legacyGlobal, { strictActiveProvider: false });
   const srcFallback = resolveSrcConfiguredChatRuntime(srcGlobal, { strictActiveProvider: false });

@@ -18,6 +18,7 @@ import {
   normalizeYouTubeIntentFallback,
 } from "./intent-utils/index.js";
 import { runYouTubeDomainService } from "../../../../services/youtube/index.js";
+import { assertAgentTaskExternalAction } from "../../../core/chat-handler/task-tool-policy/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 
 export async function handleYouTubeWorker(text, ctx) {
@@ -109,6 +110,7 @@ export async function handleYouTubeWorker(text, ctx) {
 
   try {
     const intent = normalizeYouTubeIntentFallback(text);
+    assertAgentTaskExternalAction(ctx, "youtube:update");
     broadcastThinkingStatus("Applying YouTube update", userContextId);
     const hudResult = await runYouTubeDomainService({
       intent,
@@ -175,6 +177,12 @@ export async function handleYouTubeWorker(text, ctx) {
     }
     summary.reply = await emitAssistantReply(String(reply || "Done.").slice(0, 180));
   } catch (e) {
+    if (
+      ctx.abortSignal?.aborted
+      || e?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+      || e?.code === "AGENT_TASK_FENCE_REVOKED"
+      || e?.code === "AGENT_TASK_DUPLICATE_EFFECT"
+    ) throw e;
     summary.ok = false;
     summary.error = String(e instanceof Error ? e.message : describeUnknownError(e));
     summary.reply = await emitAssistantReply("I couldn't update YouTube right now.");

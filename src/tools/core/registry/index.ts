@@ -60,6 +60,7 @@ export function createToolRegistry(
       createExecTool({
         approvalMode: config.execApprovalMode,
         safeBinaries: config.safeBinaries,
+        workspaceDir: params.workspaceDir,
       }),
     );
   }

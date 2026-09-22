@@ -11,7 +11,7 @@ export interface Tool {
     type: "object";
     [key: string]: unknown;
   };
-  execute: (input: any) => Promise<string>;
+  execute: (input: any, context?: ToolExecutionPolicyContext) => Promise<string>;
 }
 
 export interface ToolResult {
@@ -41,4 +41,6 @@ export interface ToolExecutionPolicyContext {
   enforceCapabilities?: boolean;
   capabilityAllowlist?: string[];
   capabilityDenylist?: string[];
+  abortSignal?: AbortSignal;
+  workspaceDir?: string;
 }

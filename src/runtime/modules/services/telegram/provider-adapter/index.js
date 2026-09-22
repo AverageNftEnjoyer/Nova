@@ -33,8 +33,22 @@ function extractProviderMessage(body, status) {
   return redactTelegramSecrets(`Telegram provider request failed (${Number(status || 0)}).`);
 }
 
-async function sleep(ms) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+async function sleep(ms, signal) {
+  await new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new Error("Telegram request aborted."));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason || new Error("Telegram request aborted."));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function executeProviderRequest(input = {}) {
@@ -44,6 +58,7 @@ async function executeProviderRequest(input = {}) {
     timeoutMs = 10_000,
     retryCount = 1,
     retryBaseMs = 150,
+    signal,
   } = input;
 
   const normalizedUrl = String(url || "").trim();
@@ -66,6 +81,9 @@ async function executeProviderRequest(input = {}) {
   while (attempt <= boundedRetryCount) {
     attempt += 1;
     const controller = new AbortController();
+    const onAbort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) controller.abort(signal.reason);
+    else signal?.addEventListener("abort", onAbort, { once: true });
     const timeoutId = setTimeout(() => controller.abort(), boundedTimeoutMs);
     try {
       const response = await fetch(normalizedUrl, {
@@ -76,6 +94,7 @@ async function executeProviderRequest(input = {}) {
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
       const responseBody = await response.json().catch(() => null);
       const providerOk = response.ok && responseBody?.ok === true;
       if (providerOk) {
@@ -93,7 +112,7 @@ async function executeProviderRequest(input = {}) {
       const errorMessage = extractProviderMessage(responseBody, statusCode);
       const retryable = statusCode === 429 || statusCode >= 500;
       if (retryable && attempt <= boundedRetryCount) {
-        await sleep(boundedRetryBaseMs * attempt);
+        await sleep(boundedRetryBaseMs * attempt, signal);
         continue;
       }
       return {
@@ -106,9 +125,11 @@ async function executeProviderRequest(input = {}) {
       };
     } catch (error) {
       clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) throw signal.reason || error;
       const timeoutError = String(error?.name || "").trim().toLowerCase() === "aborterror";
       if (attempt <= boundedRetryCount) {
-        await sleep(boundedRetryBaseMs * attempt);
+        await sleep(boundedRetryBaseMs * attempt, signal);
         continue;
       }
         return {
@@ -161,6 +182,7 @@ export function createTelegramBotApiAdapter() {
         body: payload,
         timeoutMs: input.timeoutMs,
         retryCount: input.retryCount,
+        signal: input.signal,
         retryBaseMs: input.retryBaseMs,
       });
     },
@@ -182,6 +204,7 @@ export function createTelegramBotApiAdapter() {
         body: {},
         timeoutMs: input.timeoutMs,
         retryCount: input.retryCount,
+        signal: input.signal,
         retryBaseMs: input.retryBaseMs,
       });
     },

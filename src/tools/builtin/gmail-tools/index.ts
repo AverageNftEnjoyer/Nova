@@ -1,6 +1,6 @@
 
 import { loadIntegrationsRuntime } from "../../../providers/runtime/index.js";
-import type { Tool } from "../../core/types/index.js";
+import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js";
 
 const GMAIL_SCOPE_READONLY = "https://www.googleapis.com/auth/gmail.readonly";
 const GMAIL_SCOPE_SEND = "https://www.googleapis.com/auth/gmail.send";
@@ -227,7 +227,7 @@ function grantedScopes(runtime: GmailRuntime): string[] {
 async function gmailRequest(
   token: string,
   endpoint: string,
-  options?: { method?: "GET" | "POST"; body?: Record<string, unknown> },
+  options?: { method?: "GET" | "POST"; body?: Record<string, unknown>; signal?: AbortSignal },
 ): Promise<unknown> {
   const method = options?.method || "GET";
   const res = await fetch(`https://gmail.googleapis.com/gmail/v1${endpoint}`, {
@@ -237,6 +237,7 @@ async function gmailRequest(
       "Content-Type": "application/json",
     },
     body: method === "POST" ? JSON.stringify(options?.body || {}) : undefined,
+    signal: options?.signal,
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -628,7 +629,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     riskLevel: "elevated",
     capabilities: ["integration.gmail.send"],
     input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, messageId: { type: "string" }, to: { type: "string" }, note: { type: "string" }, requireExplicitUserConfirm: { type: "boolean" } }, required: ["userContextId", "messageId", "to", "requireExplicitUserConfirm"], additionalProperties: false },
-    execute: async (input) => {
+    execute: async (input, context?: ToolExecutionPolicyContext) => {
       const kind = "gmail_forward_message";
       const ctx = normalizeCtx(input || {});
       const messageId = toString(input.messageId);
@@ -651,6 +652,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
       if (!ready.ok) return toJson(ready.error);
       try {
         const source = await getMessageByIdMetadata(ready.token, messageId);
+        if (context?.abortSignal?.aborted) throw context.abortSignal.reason || new Error("Gmail forward aborted.");
         const subject = String(source.subject || "(no subject)");
         const forwardSubject = /^fwd:/i.test(subject) ? subject : `Fwd: ${subject}`;
         const body = [
@@ -671,7 +673,11 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
           "",
           body,
         ].join("\r\n");
-        const sent = await gmailRequest(ready.token, "/users/me/messages/send", { method: "POST", body: { raw: b64urlEncode(raw) } }) as { id?: string; threadId?: string };
+        const sent = await gmailRequest(ready.token, "/users/me/messages/send", {
+          method: "POST",
+          body: { raw: b64urlEncode(raw) },
+          signal: context?.abortSignal,
+        }) as { id?: string; threadId?: string };
         return toJson({ ok: true, kind, source: "gmail", forwarded: { sentMessageId: toString(sent.id), threadId: toString(sent.threadId), to, subject: forwardSubject }, checkedAtMs: Date.now() });
       } catch (error) {
         return toJson(mapApiError(kind, error, [GMAIL_SCOPE_SEND]));
@@ -685,7 +691,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     riskLevel: "elevated",
     capabilities: ["integration.gmail.send"],
     input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, messageId: { type: "string" }, replyText: { type: "string" }, requireExplicitUserConfirm: { type: "boolean" } }, required: ["userContextId", "messageId", "replyText", "requireExplicitUserConfirm"], additionalProperties: false },
-    execute: async (input) => {
+    execute: async (input, context?: ToolExecutionPolicyContext) => {
       const kind = "gmail_reply_draft";
       const ctx = normalizeCtx(input || {});
       const messageId = toString(input.messageId);
@@ -708,6 +714,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
       if (!ready.ok) return toJson(ready.error);
       try {
         const source = await getMessageByIdMetadata(ready.token, messageId);
+        if (context?.abortSignal?.aborted) throw context.abortSignal.reason || new Error("Gmail draft aborted.");
         const to = String(source.replyTo || source.from || "");
         const subjectRaw = String(source.subject || "(no subject)");
         const subject = /^re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`;
@@ -732,6 +739,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
               threadId: String(source.threadId || ""),
             },
           },
+          signal: context?.abortSignal,
         }) as { id?: string; message?: { id?: string } };
         return toJson({
           ok: true,

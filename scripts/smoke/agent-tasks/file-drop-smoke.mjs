@@ -79,18 +79,39 @@ check("create-task-modal clears attachedFiles on success", () => {
 
 check("create-task-modal listens for Electron file drops", () => {
   const modal = read("components/agents/create-task-modal.tsx")
-  assert.match(modal, /electronAPI.*onFileDrop/, "onFileDrop listener not found")
+  assert.match(modal, /electronAPI\?\.onFileDrop/, "onFileDrop listener not found")
+  assert.match(modal, /return \(\) => \{[\s\S]*unsubscribe\(\)/, "file-drop listener is not removed on cleanup")
+})
+
+check("create-task-modal reads dropped file paths", () => {
+  const modal = read("components/agents/create-task-modal.tsx")
+  assert.match(modal, /e\.dataTransfer\?\.files/, "drop handler does not read dropped files")
+  assert.match(modal, /getPathForFile\(file\)/, "drop handler does not resolve the Electron file path")
 })
 
 check("electron/main.js handles file drops", () => {
   const main = read("electron/main.js")
   assert.match(main, /will-navigate/, "will-navigate handler not found")
+  assert.match(main, /event\.preventDefault\(\)/, "file navigation is not blocked")
   assert.match(main, /file-dropped/, "file-dropped event not found")
+  assert.match(main, /require\('\.\/file-url-path'\)/, "file URL path decoder is not used")
+})
+
+check("file URLs decode to local paths", async () => {
+  const { fileUrlToPath } = await import("../../../hud/electron/file-url-path.js")
+  if (process.platform === "win32") {
+    assert.equal(fileUrlToPath("file:///C:/Users/Jack/My%20File.txt"), "C:/Users/Jack/My File.txt")
+  } else {
+    assert.equal(fileUrlToPath("file:///tmp/My%20File.txt"), "/tmp/My File.txt")
+  }
+  assert.equal(fileUrlToPath("notaurl"), "")
 })
 
 check("electron/preload.js exposes onFileDrop", () => {
   const preload = read("electron/preload.js")
   assert.match(preload, /onFileDrop:/, "onFileDrop not exposed")
+  assert.match(preload, /removeListener\('file-dropped', listener\)/, "onFileDrop does not unsubscribe its own listener")
+  assert.match(preload, /getPathForFile: \(file\) => webUtils\.getPathForFile\(file\)/, "getPathForFile is not exposed")
 })
 
 check("task-store handles attachedFiles in rowToTask", () => {

@@ -122,6 +122,7 @@ export async function handleTelegramWorker(text, ctx, llmCtx = {}, requestHints 
       userContextId,
       conversationId,
       sessionKey,
+      ctx,
     });
     summary.ok = result?.ok === true;
     summary.error = summary.ok ? "" : String(result?.code || "telegram.execution_failed");
@@ -156,6 +157,11 @@ export async function handleTelegramWorker(text, ctx, llmCtx = {}, requestHints 
       String(result?.reply || "Telegram request completed.").trim().slice(0, 220),
     );
   } catch (error) {
+    if (
+      ctx.abortSignal?.aborted
+      || error?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+      || error?.code === "AGENT_TASK_TOOL_DENIED"
+    ) throw error;
     summary.ok = false;
     summary.error = "telegram.execution_failed";
     summary.errorMessage = describeUnknownError(error);

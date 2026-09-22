@@ -69,7 +69,7 @@ export async function executeToolUse(
   }
 
   try {
-    const output = await tool.execute(toolUse.input);
+    const output = await tool.execute(toolUse.input, policyContext);
     return {
       tool_use_id: toolUse.id,
       content: output,

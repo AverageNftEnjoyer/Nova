@@ -5,6 +5,7 @@ import {
   readReminderFollowUpState,
   upsertReminderFollowUpState,
 } from "./follow-up-state/index.js";
+import { assertAgentTaskExternalAction } from "../../chat/core/chat-handler/task-tool-policy/index.js";
 
 const REMINDER_FOLLOW_UP_TTL_MS = Math.max(
   60_000,
@@ -151,6 +152,7 @@ export async function runRemindersDomainService(input = {}) {
   }
 
   const action = resolveReminderAction(text, requestHints);
+  assertAgentTaskExternalAction(input.ctx, `reminders:${action}`, { readOnly: action === "status" || action === "unknown" });
   if (action === "unknown") {
     return buildResponse({
       ok: true,

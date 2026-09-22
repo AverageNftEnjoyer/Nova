@@ -13,6 +13,7 @@ import { withTimeout } from "../../../../llm/providers/index.js";
 import { normalizeAssistantReply, normalizeAssistantSpeechText } from "../../../quality/reply-normalizer/index.js";
 import { runDiscordDomainService } from "../../../../services/discord/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
+import { assertAgentTaskExternalAction } from "../../../core/chat-handler/task-tool-policy/index.js";
 
 const DISCORD_TTS_TIMEOUT_MS = 10_000;
 
@@ -111,6 +112,7 @@ export async function handleDiscordWorker(text, ctx, llmCtx = {}, requestHints =
   }
 
   try {
+    assertAgentTaskExternalAction(ctx, "discord:send");
     const serviceResult = await runDiscordDomainService({
       text,
       userContextId,
@@ -118,6 +120,7 @@ export async function handleDiscordWorker(text, ctx, llmCtx = {}, requestHints =
       sessionKey,
       requestHints,
       fetchImpl,
+      abortSignal: ctx.abortSignal,
     });
     summary.ok = serviceResult?.ok === true;
     summary.error = summary.ok ? "" : String(serviceResult?.code || "discord_delivery_failed");
@@ -149,7 +152,12 @@ export async function handleDiscordWorker(text, ctx, llmCtx = {}, requestHints =
           }))
         : [],
     };
-  } catch {
+  } catch (error) {
+    if (
+      ctx.abortSignal?.aborted
+      || error?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+      || error?.code === "AGENT_TASK_TOOL_DENIED"
+    ) throw error;
     summary.ok = false;
     summary.error = "discord_worker_execution_failed";
     summary.reply = await emitAssistantReply("I couldn't complete the Discord delivery right now. Please retry.");

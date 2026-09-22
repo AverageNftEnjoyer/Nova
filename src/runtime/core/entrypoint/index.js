@@ -72,6 +72,14 @@ export async function startNovaRuntime() {
   registerHandleInput(runtimeHandleInput);
 
   startGateway();
+  try {
+    const taskModule = await import("../../modules/agent-tasks/index.js");
+    if (typeof taskModule?.startAgentTaskService === "function") {
+      taskModule.startAgentTaskService({ handleInput: runtimeHandleInput });
+    }
+  } catch (err) {
+    console.error(`[AgentTasks] Runtime service failed to start: ${String(err?.message || err)}`);
+  }
   // Metrics events are intentionally global (empty userContextId) because payloads are host-level telemetry.
   const userContextId = "";
   startMetricsBroadcast(

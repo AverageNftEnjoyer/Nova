@@ -65,6 +65,7 @@ export function createFilesProviderAdapter(deps = {}) {
             type: "tool_use",
           },
           availableTools,
+          input.policyContext,
         );
         const content = String(result?.content || "").trim();
         return {
@@ -76,6 +77,11 @@ export function createFilesProviderAdapter(deps = {}) {
           content,
         };
       } catch (error) {
+        if (
+          error?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+          || error?.code === "AGENT_TASK_FENCE_REVOKED"
+          || error?.code === "AGENT_TASK_DUPLICATE_EFFECT"
+        ) throw error;
         return {
           ok: false,
           code: "files.tool_execution_failed",

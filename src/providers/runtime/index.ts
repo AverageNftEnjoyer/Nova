@@ -107,6 +107,8 @@ export interface ResolvedChatRuntime extends ProviderRuntime {
 export type RoutingPreference = "balanced" | "cost" | "latency" | "quality";
 
 export interface ResolveChatRuntimeOptions {
+  preferredProvider?: ProviderName;
+  preferredModel?: string;
 }
 
 export interface RuntimePaths {
@@ -637,17 +639,21 @@ export function resolveConfiguredChatRuntime(
   integrations: IntegrationsRuntime,
   options?: ResolveChatRuntimeOptions,
 ): ResolvedChatRuntime {
-  void options;
-  const activeProvider = parseActiveProvider(integrations.activeProvider);
+  const configuredProvider = parseActiveProvider(integrations.activeProvider);
+  const preferredProvider = options?.preferredProvider
+    ? parseActiveProvider(options.preferredProvider)
+    : null;
+  const activeProvider = preferredProvider || configuredProvider;
   const activeRuntime = getProviderRuntime(integrations, activeProvider);
+  const preferredModel = toNonEmptyString(options?.preferredModel);
   return {
     provider: activeProvider,
     apiKey: toNonEmptyString(activeRuntime.apiKey),
     baseURL: toNonEmptyString(activeRuntime.baseURL),
-    model: toNonEmptyString(activeRuntime.model),
+    model: preferredModel || toNonEmptyString(activeRuntime.model),
     connected: boolFlag(activeRuntime.connected),
     strict: true,
-    routeReason: "strict-active-provider",
+    routeReason: preferredProvider ? "task-selected-provider" : "strict-active-provider",
     rankedCandidates: [activeProvider],
   };
 }

@@ -34,10 +34,14 @@ import {
 } from "../../workers/shared/direct-assistant-reply/index.js";
 import { handleMemoryWorker } from "../../workers/system/memory-agent/index.js";
 import { handleShutdownWorker } from "../../workers/system/shutdown-agent/index.js";
-import { runHomeNoteCommandService } from "../../../services/notes/index.js";
+import { parseHomeNoteCommand, runHomeNoteCommandService } from "../../../services/notes/index.js";
 import { handleMissionBuildWorker } from "../../workers/productivity/missions-agent/index.js";
 import { handleCoinbaseWorker } from "../../workers/finance/coinbase-agent/index.js";
 import { handlePolymarketWorker } from "../../workers/finance/polymarket-agent/index.js";
+import {
+  AgentTaskApprovalRequiredError,
+  createTaskApprovalKey,
+} from "./task-tool-policy/index.js";
 import { handleMarketWorker } from "../../workers/market/market-agent/index.js";
 import {
   isWeatherRequestText,
@@ -154,6 +158,40 @@ async function handleInputCore(text, opts = {}) {
   if (!text) return;
   const source = opts.source || "hud";
   const userContextId = sessionRuntime.resolveUserContextId(opts);
+  const autonomousTask = opts.autonomousTask === true;
+  const taskPermissionMode = String(opts.permissionMode || "default");
+  const taskCanMutateLocalState = !autonomousTask
+    || taskPermissionMode === "accept-edits"
+    || taskPermissionMode === "bypass";
+  const requireTaskLocalMutationPermission = (actionName) => {
+    if (autonomousTask && typeof opts.executionFenceCheck === "function") opts.executionFenceCheck();
+    if (!autonomousTask) return;
+    const requiredApprovalKey = createTaskApprovalKey(actionName, { text: raw_text || text });
+    if (taskCanMutateLocalState) {
+      if (typeof opts.reserveTaskEffect === "function") {
+        opts.reserveTaskEffect(`local:${requiredApprovalKey}`);
+      }
+      return;
+    }
+    const approved = Array.isArray(opts.approvedTools)
+      && opts.approvedTools.map((entry) => String(entry || "").trim().toLowerCase())
+        .includes(requiredApprovalKey);
+    if (approved) {
+      if (typeof opts.consumeTaskApproval === "function") opts.consumeTaskApproval(requiredApprovalKey);
+      const index = opts.approvedTools.indexOf(requiredApprovalKey);
+      if (index >= 0) opts.approvedTools.splice(index, 1);
+      if (typeof opts.reserveTaskEffect === "function") {
+        opts.reserveTaskEffect(`local:${requiredApprovalKey}`);
+      }
+      return;
+    }
+    if (taskPermissionMode === "default") {
+      throw new AgentTaskApprovalRequiredError(actionName, requiredApprovalKey);
+    }
+    const error = new Error(`Agent Task permission mode "${taskPermissionMode}" blocks ${actionName}.`);
+    error.code = "AGENT_TASK_TOOL_DENIED";
+    throw error;
+  };
   const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   if (source === "hud" && !userContextId) throw new Error("Missing user context id for HUD request.");
   const sessionContext = sessionRuntime.resolveSessionContext({
@@ -265,6 +303,15 @@ async function handleInputCore(text, opts = {}) {
     nlpCorrections,
     nlpConfidence,
     nlpBypass,
+    abortSignal: opts.abortSignal,
+    permissionMode: opts.permissionMode,
+    approvedTools: opts.approvedTools,
+    taskId: opts.taskId,
+    workspaceDir: opts.workspaceDir,
+    autonomousTask,
+    executionFenceCheck: opts.executionFenceCheck,
+    consumeTaskApproval: opts.consumeTaskApproval,
+    reserveTaskEffect: opts.reserveTaskEffect,
   };
 
   // System workers short-circuit before any LLM call.
@@ -272,6 +319,11 @@ async function handleInputCore(text, opts = {}) {
     ? opts.shutdownWorker
     : handleShutdownWorker;
   if (rawRoutingText === "nova shutdown" || rawRoutingText === "nova shut down" || rawRoutingText === "shutdown nova") {
+    if (autonomousTask) {
+      const error = new Error("Agent Tasks cannot shut down Nova.");
+      error.code = "AGENT_TASK_TOOL_DENIED";
+      throw error;
+    }
     return await delegateToOrgChartWorker({
       routeHint: "shutdown",
       responseRoute: "shutdown",
@@ -290,6 +342,7 @@ async function handleInputCore(text, opts = {}) {
     ? opts.memoryWorker
     : handleMemoryWorker;
   if (isMemoryUpdateRequest(text)) {
+    requireTaskLocalMutationPermission("memory update");
     return await delegateToOrgChartWorker({
       routeHint: "memory",
       responseRoute: "memory",
@@ -305,11 +358,13 @@ async function handleInputCore(text, opts = {}) {
   }
 
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
-  const skillPreferenceUpdate = applySkillPreferenceUpdateFromMessage({
-    userContextId,
-    workspaceDir: personaWorkspaceDir,
-    userInputText: text,
-  });
+  const skillPreferenceUpdate = taskCanMutateLocalState
+    ? applySkillPreferenceUpdateFromMessage({
+        userContextId,
+        workspaceDir: personaWorkspaceDir,
+        userInputText: text,
+      })
+    : null;
   if (skillPreferenceUpdate?.handled) {
     if (skillPreferenceUpdate.updated && String(skillPreferenceUpdate.skillName || "").trim()) {
       recordIdentitySkillPreferenceUpdate({
@@ -352,6 +407,10 @@ async function handleInputCore(text, opts = {}) {
   }
 
 
+  const noteCommand = parseHomeNoteCommand(text);
+  if (autonomousTask && noteCommand?.matched && noteCommand.action !== "list") {
+    requireTaskLocalMutationPermission(`notes:${String(noteCommand.action || "write")}`);
+  }
   const notesCommandResult = await runHomeNoteCommandService({
     text,
     userContextId,
@@ -415,6 +474,9 @@ async function handleInputCore(text, opts = {}) {
   });
   if (weatherConfirmationRouteResult) return weatherConfirmationRouteResult;
 
+  if (autonomousTask && (shouldBuildWorkflowFromPrompt(text) || shouldConfirmWorkflowFromPrompt(text))) {
+    requireTaskLocalMutationPermission("mission creation");
+  }
   const missionBuildRouteResult = await handleMissionBuildRouting({
     text,
     userContextId,
@@ -483,7 +545,19 @@ async function handleInputCore(text, opts = {}) {
     clearShortTermContextState,
     summarizeShortTermContextForPrompt,
   });
-  const requestHints = contextHints.requestHints;
+  const requestHints = {
+    ...contextHints.requestHints,
+    ...(autonomousTask
+      ? {
+          forceToolLoop: true,
+          operatorExecutionControls: {
+            forceToolLoopAllowed: true,
+            forceWebSearchPreloadAllowed: true,
+            forceWebFetchPreloadAllowed: true,
+          },
+        }
+      : {}),
+  };
   const spotifyShortTermFollowUp = contextHints.spotifyShortTermFollowUp;
   const youtubeShortTermFollowUp = contextHints.youtubeShortTermFollowUp;
   const polymarketShortTermFollowUp = contextHints.polymarketShortTermFollowUp;
@@ -556,9 +630,12 @@ async function handleInputCore(text, opts = {}) {
 
   let runtimeTools = null;
   let availableTools = [];
-  if (turnPolicy.likelyNeedsToolRuntime) {
+  if (turnPolicy.likelyNeedsToolRuntime || autonomousTask) {
     const runtimeToolInitStartedAt = Date.now();
-    runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({ userContextId });
+    runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({
+      userContextId,
+      workspaceDir: autonomousTask ? opts.workspaceDir : undefined,
+    });
     availableTools = Array.isArray(runtimeTools?.tools) ? runtimeTools.tools : [];
     latencyTelemetry.addStage("runtime_tool_init", Date.now() - runtimeToolInitStartedAt);
   }
@@ -571,7 +648,9 @@ async function handleInputCore(text, opts = {}) {
   });
   const canRunWebSearch = executionPolicy.canRunWebSearch;
   const canRunWebFetch = executionPolicy.canRunWebFetch;
-  const canRunToolLoop = executionPolicy.canRunToolLoop;
+  const canRunToolLoop = autonomousTask
+    ? Boolean(TOOL_LOOP_ENABLED && typeof runtimeTools?.executeToolUse === "function" && availableTools.length > 0)
+    : executionPolicy.canRunToolLoop;
 
   // Resolve provider + model + client for this turn.
   const runtimeSelectionOverride = opts.runtimeSelectionOverride
@@ -597,7 +676,8 @@ async function handleInputCore(text, opts = {}) {
       canRunToolLoop,
       sessionKey,
       source,
-      preferredProvider: shouldPreferGrokForImageTurn ? "grok" : "",
+      preferredProvider: String(opts.preferredProvider || "").trim() || (shouldPreferGrokForImageTurn ? "grok" : ""),
+      preferredModel: String(opts.preferredModel || "").trim(),
       latencyTelemetry,
     });
 

@@ -66,7 +66,7 @@ check("modal wires all 5 permission modes and the bypass warning", () => {
   }
   assert.match(modal, /PERMISSION_MODE_LABELS/);
   assert.match(modal, /permissionMode === "bypass"/);
-  assert.match(modal, /Bypass allows every operation/);
+  assert.match(modal, /Bypass allows elevated operations/);
 });
 
 check("modal offers all four providers from the shared model option constants", () => {

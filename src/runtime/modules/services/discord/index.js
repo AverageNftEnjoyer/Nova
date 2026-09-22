@@ -237,6 +237,7 @@ export async function runDiscordDomainService(input = {}) {
       payload,
       fetchImpl,
       policy,
+      signal: input.abortSignal,
     }),
   );
 

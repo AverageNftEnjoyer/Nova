@@ -15,6 +15,7 @@ import { summarizeToolResultPreview } from "../../chat-utils/index.js";
 import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from "../../tool-loop-guardrails/index.js";
 import { resolveGmailToolErrorReply } from "../prompt-recovery/index.js";
 import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.js";
+import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
 
 const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
 
@@ -56,6 +57,13 @@ export async function runToolLoop({
   toolExecutions,
   retries,
   markRecovery,
+  abortSignal,
+  permissionMode,
+  approvedTools,
+  workspaceDir,
+  executionFenceCheck,
+  consumeTaskApproval,
+  reserveTaskEffect,
 }) {
   const loopMessages = [...messages];
   const toolOutputsForRecovery = [];
@@ -82,6 +90,7 @@ export async function runToolLoop({
   };
 
   for (let step = 0; step < Math.max(1, TOOL_LOOP_MAX_STEPS); step += 1) {
+    if (abortSignal?.aborted) throw abortSignal.reason || new Error("Agent task aborted.");
     if (toolLoopBudget.isExhausted()) {
       toolLoopGuardrails.budgetExhausted = true;
       latencyTelemetry.incrementCounter("tool_loop_budget_exhausted");
@@ -101,14 +110,17 @@ export async function runToolLoop({
     }
     try {
       completion = await withTimeout(
-        activeOpenAiCompatibleClient.chat.completions.create({
-          model: modelUsed,
-          messages: loopMessages,
-          max_completion_tokens: openAiMaxCompletionTokens,
-          ...openAiRequestTuningForModel(modelUsed),
-          tools: openAiToolDefs,
-          tool_choice: "auto",
-        }),
+        activeOpenAiCompatibleClient.chat.completions.create(
+          {
+            model: modelUsed,
+            messages: loopMessages,
+            max_completion_tokens: openAiMaxCompletionTokens,
+            ...openAiRequestTuningForModel(modelUsed),
+            tools: openAiToolDefs,
+            tool_choice: "auto",
+          },
+          abortSignal ? { signal: abortSignal } : undefined,
+        ),
         stepTimeoutMs,
         `Tool loop model ${modelUsed}`,
       );
@@ -165,6 +177,7 @@ export async function runToolLoop({
       : chunkToolCalls(cappedToolCalls, maxParallelToolCallsPerStep);
 
     const executeToolCall = async (toolCall) => {
+      if (abortSignal?.aborted) throw abortSignal.reason || new Error("Agent task aborted.");
       if (toolLoopBudget.isExhausted()) {
         return {
           toolCallId: toolCall?.id,
@@ -191,7 +204,23 @@ export async function runToolLoop({
           conversationId,
         };
       }
-      if (GMAIL_CONFIRM_REQUIRED_ACTIONS.has(normalizedToolName)) {
+      const taskPolicy = permissionMode
+        ? {
+            ...assertTaskToolAllowed(
+              permissionMode,
+              normalizedToolName,
+              availableTools,
+              approvedTools,
+              executionFenceCheck,
+              toolUse?.input || {},
+              consumeTaskApproval,
+              reserveTaskEffect,
+            ),
+            abortSignal,
+            workspaceDir,
+          }
+        : undefined;
+      if (GMAIL_CONFIRM_REQUIRED_ACTIONS.has(normalizedToolName) && !permissionMode) {
         toolUse.input = {
           ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
           requireExplicitUserConfirm: true,
@@ -246,7 +275,7 @@ export async function runToolLoop({
           throw new Error("tool loop execution budget exhausted");
         }
         toolResult = await withTimeout(
-          runtimeTools.executeToolUse(toolUse, availableTools),
+          runtimeTools.executeToolUse(toolUse, availableTools, taskPolicy),
           toolExecTimeoutMs,
           `Tool ${normalizedToolName || "unknown"}`,
         );
@@ -266,6 +295,10 @@ export async function runToolLoop({
           latencyMs: Date.now() - toolStartedAt,
         });
       } catch (toolErr) {
+        if (
+          toolErr?.code === "AGENT_TASK_APPROVAL_REQUIRED"
+          || toolErr?.code === "AGENT_TASK_FENCE_REVOKED"
+        ) throw toolErr;
         const errMsg = describeUnknownError(toolErr);
         if (isLikelyTimeoutError(toolErr)) {
           toolLoopGuardrails.toolExecutionTimeouts += 1;
@@ -394,18 +427,21 @@ export async function runToolLoop({
         throw new Error("tool loop recovery budget exhausted");
       }
       const recovery = await withTimeout(
-        activeOpenAiCompatibleClient.chat.completions.create({
-          model: modelUsed,
-          messages: [
-            ...loopMessages,
-            {
-              role: "user",
-              content: "Provide the final answer to the user using the tool results above. Keep it concise and actionable.",
-            },
-          ],
-          max_completion_tokens: openAiMaxCompletionTokens,
-          ...openAiRequestTuningForModel(modelUsed),
-        }),
+        activeOpenAiCompatibleClient.chat.completions.create(
+          {
+            model: modelUsed,
+            messages: [
+              ...loopMessages,
+              {
+                role: "user",
+                content: "Provide the final answer to the user using the tool results above. Keep it concise and actionable.",
+              },
+            ],
+            max_completion_tokens: openAiMaxCompletionTokens,
+            ...openAiRequestTuningForModel(modelUsed),
+          },
+          abortSignal ? { signal: abortSignal } : undefined,
+        ),
         recoveryTimeoutMs,
         `Tool loop recovery model ${modelUsed}`,
       );

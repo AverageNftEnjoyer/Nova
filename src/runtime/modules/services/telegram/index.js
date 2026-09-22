@@ -2,6 +2,7 @@ import { describeUnknownError } from "../../llm/providers/index.js";
 import { createTelegramProviderRegistry } from "./provider-adapter/index.js";
 import { createTelegramIntegrationStateAdapter } from "./integration-state/index.js";
 import { redactTelegramSecrets } from "./redaction.js";
+import { assertAgentTaskExternalAction } from "../../chat/core/chat-handler/task-tool-policy/index.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_COUNT = 1;
@@ -151,6 +152,7 @@ export async function runTelegramDomainService(input = {}, deps = {}) {
   const conversationId = String(input.conversationId || "").trim();
   const sessionKey = String(input.sessionKey || "").trim();
   const action = normalizeTelegramAction(text, requestHints);
+  assertAgentTaskExternalAction(input.ctx, `telegram:${action}`, { readOnly: action === "status" });
   const policy = normalizeExecutionPolicy(requestHints);
 
   if (!userContextId || !conversationId || !sessionKey) {
@@ -287,6 +289,7 @@ export async function runTelegramDomainService(input = {}, deps = {}) {
         timeoutMs: policy.timeoutMs,
         retryCount: policy.retryCount,
         retryBaseMs: policy.retryBaseMs,
+        signal: input.ctx?.abortSignal,
       });
       const ok = statusResult?.ok === true;
       const providerUsername = String(statusResult?.responseBody?.result?.username || "").trim();
@@ -343,6 +346,7 @@ export async function runTelegramDomainService(input = {}, deps = {}) {
         timeoutMs: policy.timeoutMs,
         retryCount: policy.retryCount,
         retryBaseMs: policy.retryBaseMs,
+        signal: input.ctx?.abortSignal,
         latencyMs: Date.now() - startedAt,
         chatIdCount: runtime.chatIds.length,
       });

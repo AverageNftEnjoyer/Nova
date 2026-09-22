@@ -123,6 +123,7 @@ export async function attemptOpenAiEmptyReplyRecovery({
   maxCompletionTokens,
   requestTuning = {},
   label = "OpenAI empty reply recovery",
+  signal,
 }) {
   const cappedMax = Number.isFinite(Number(maxCompletionTokens)) && Number(maxCompletionTokens) > 0
     ? Number(maxCompletionTokens)
@@ -138,7 +139,7 @@ export async function attemptOpenAiEmptyReplyRecovery({
     ...(requestTuning && typeof requestTuning === "object" ? requestTuning : {}),
   };
   const completion = await withTimeout(
-    client.chat.completions.create(request),
+    client.chat.completions.create(request, { signal }),
     timeoutMs,
     `${label} ${model}`,
   );

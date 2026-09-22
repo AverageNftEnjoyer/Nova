@@ -68,6 +68,10 @@ async function fetchWithTimeoutAndRetry(url, init, options = {}) {
   while (attempt <= retryCount) {
     attempt += 1;
     const abortController = new AbortController();
+    const externalSignal = options.signal;
+    const onAbort = () => abortController.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) abortController.abort(externalSignal.reason);
+    else externalSignal?.addEventListener("abort", onAbort, { once: true });
     const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
     try {
       const res = await fetch(url, {
@@ -80,11 +84,13 @@ async function fetchWithTimeoutAndRetry(url, init, options = {}) {
       }
       return res;
     } catch (error) {
+      if (externalSignal?.aborted) throw externalSignal.reason || error;
       lastError = error;
       if (attempt > retryCount) throw error;
       await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS * attempt));
     } finally {
       clearTimeout(timeoutId);
+      externalSignal?.removeEventListener("abort", onAbort);
     }
   }
 
@@ -119,7 +125,7 @@ export function createGoogleCalendarHudHttpAdapter() {
         const res = await fetchWithTimeoutAndRetry(
           `${resolveHudApiBaseUrl(options.hudApiBaseUrl)}/api/calendar/google-events?${params.toString()}`,
           { method: "GET", headers },
-          options,
+          { ...options, signal: ctx.abortSignal },
         );
         const data = await parseJsonSafe(res);
         return {
@@ -130,6 +136,7 @@ export function createGoogleCalendarHudHttpAdapter() {
           events: Array.isArray(data?.events) ? data.events : [],
         };
       } catch (error) {
+        if (ctx.abortSignal?.aborted) throw ctx.abortSignal.reason || error;
         return {
           attempted: true,
           ok: false,
@@ -158,7 +165,7 @@ export function createGoogleCalendarHudHttpAdapter() {
               timeZone: input.timeZone,
             }),
           },
-          options,
+          { ...options, signal: ctx.abortSignal },
         );
         const data = await parseJsonSafe(res);
         return {
@@ -169,6 +176,7 @@ export function createGoogleCalendarHudHttpAdapter() {
           event: data?.event || null,
         };
       } catch (error) {
+        if (ctx.abortSignal?.aborted) throw ctx.abortSignal.reason || error;
         return {
           attempted: true,
           ok: false,
@@ -197,7 +205,7 @@ export function createGoogleCalendarHudHttpAdapter() {
               timeZone: input.timeZone,
             }),
           },
-          options,
+          { ...options, signal: ctx.abortSignal },
         );
         const data = await parseJsonSafe(res);
         return {
@@ -208,6 +216,7 @@ export function createGoogleCalendarHudHttpAdapter() {
           event: data?.event || null,
         };
       } catch (error) {
+        if (ctx.abortSignal?.aborted) throw ctx.abortSignal.reason || error;
         return {
           attempted: true,
           ok: false,
@@ -231,7 +240,7 @@ export function createGoogleCalendarHudHttpAdapter() {
               userContextId: normalizeText(input.userContextId || ctx.userContextId),
             }),
           },
-          options,
+          { ...options, signal: ctx.abortSignal },
         );
         const data = await parseJsonSafe(res);
         return {
@@ -241,6 +250,7 @@ export function createGoogleCalendarHudHttpAdapter() {
           message: normalizeText(data?.error || data?.message) || `Google Calendar delete request failed (${res.status}).`,
         };
       } catch (error) {
+        if (ctx.abortSignal?.aborted) throw ctx.abortSignal.reason || error;
         return {
           attempted: true,
           ok: false,
