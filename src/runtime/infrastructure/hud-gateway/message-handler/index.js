@@ -216,6 +216,8 @@ export async function handleHudGatewayMessage({
         broadcastRuntimeState: false,
       });
       if (data.voiceEnabled === false || getVoiceEnabled({ userContextId: scopedUserContextId }) === false) return;
+      // Voice mode is opt-in: nothing is spoken until the user has unmuted.
+      if (getMuted({ userContextId: scopedUserContextId })) return;
       if (!getBusy({ userContextId: scopedUserContextId })) {
         setBusy(true, { userContextId: scopedUserContextId });
         try {

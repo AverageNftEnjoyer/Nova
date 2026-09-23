@@ -20,14 +20,6 @@ const workspaceRoot = path.resolve(__dirname, "..")
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Portable, self-contained build output (`.next/standalone/`): copies only the node_modules this
-  // app actually needs as real files, using Next's own output-file-tracing. Needed because Turbopack
-  // otherwise resolves `serverExternalPackages` (better-sqlite3) to a content-hashed symlink under
-  // `.next/node_modules/<hash>` pointing at an ABSOLUTE path on the machine that ran the build —
-  // meaningless once copied elsewhere, and electron-builder's own node_modules handling (a semantic
-  // dependency-tree copy driven by package.json, not a plain file copy) has no way to preserve a
-  // symlink outside that tree anyway. `output: standalone` sidesteps both problems.
-  output: "standalone",
   // Native addon used by src/db (imported via ../src, resolved from the repo-root node_modules). Never bundle the .node binary.
   serverExternalPackages: ["better-sqlite3"],
   // The dev-mode "N" indicator overlaps card content on the home screen at small

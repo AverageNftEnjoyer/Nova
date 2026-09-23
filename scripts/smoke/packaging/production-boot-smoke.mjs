@@ -190,6 +190,18 @@ async function main() {
   assert.equal(home.status < 500, true, `GET / returned ${home.status}`)
   console.log(`[production-boot] GET / -> ${home.status}`)
 
+  // The window's WebSocket to the runtime gateway must be accepted from the HUD's real (random) port.
+  // A refused upgrade is what makes the packaged HUD show the agent as DOWN.
+  const { WebSocket } = require(path.join(runtimeRoot, "node_modules", "ws"))
+  const gatewayOpened = await new Promise((resolve) => {
+    const socket = new WebSocket("ws://127.0.0.1:8765", { headers: { Origin: `http://127.0.0.1:${services.port}` } })
+    const timer = setTimeout(() => { socket.terminate(); resolve(false) }, 10_000)
+    socket.on("open", () => { clearTimeout(timer); socket.close(); resolve(true) })
+    socket.on("error", () => { clearTimeout(timer); resolve(false) })
+  })
+  assert.equal(gatewayOpened, true, "runtime gateway refused a WebSocket from the HUD origin (HUD would show DOWN)")
+  console.log("[production-boot] gateway accepted WebSocket from HUD origin")
+
   const hashedSqlite = fs
     .readdirSync(path.join(hudDir, ".next", "node_modules"))
     .filter((name) => name.startsWith("better-sqlite3-"))

@@ -17,11 +17,6 @@ asar: false
 
 files:
   - .next/**/*
-  # `output: "standalone"` traces a second tree under `.next/standalone`, and that trace follows
-  # whatever is on disk at build time — including a previous `dist/win-unpacked` Electron binary.
-  # The custom server in electron/production-server.js serves `.next/server` via next({ dev: false }).
-  # Do not ship the standalone copy.
-  - '!.next/standalone/**'
   - public/**/*
   - electron/**/*
   - package.json

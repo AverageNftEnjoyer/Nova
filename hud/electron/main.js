@@ -135,15 +135,8 @@ async function createWindow() {
     }
   }
 
-  // Handle close button - hide to tray instead of quitting
-  mainWindow.on('close', (event) => {
-    if (!app.isQuitting && tray) {
-      event.preventDefault()
-      mainWindow.hide()
-      return false
-    }
-  })
-
+  // The close button (X) fully quits: window-all-closed -> app.quit() -> before-quit stops the in-process
+  // Next server and runtime. Nothing keeps running in the background after the window is closed.
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -343,6 +336,8 @@ app.on('before-quit', (event) => {
     event.preventDefault()
     const services = productionServices
     productionServices = null
+    // Backstop: if a handle keeps shutdown from finishing, exit hard rather than linger in the background.
+    setTimeout(() => app.exit(0), 10_000)
     services
       .stop()
       .catch((err) => console.error('[Electron] Shutdown error:', err))

@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.62). Actively developed and used daily by the author.
+**Status:** Alpha (V.68). Actively developed and used daily by the author.
 
 ---
 
@@ -93,7 +93,7 @@ Skills are plain `SKILL.md` files the assistant discovers at startup. Included: 
 
 ## Architecture
 
-NovaAIO runs as two cooperating processes, started together by a single launcher (`nova.js`), and packaged as a desktop app with Electron.
+In development NovaAIO runs as two cooperating processes, started together by a single launcher (`nova.js`). In the packaged desktop app, Electron's main process hosts both halves in-process: the Next.js production server (API routes included) on a loopback port and the agent runtime (`hud/electron/production-server.js`).
 
 ```
 ┌──────────────────────────┐        WebSocket         ┌──────────────────────────┐
@@ -136,7 +136,7 @@ NovaAIO runs as two cooperating processes, started together by a single launcher
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Radix UI, React Flow, D3, GSAP, Three.js / React Three Fiber |
 | Desktop | Electron, electron-builder (Windows NSIS installer) |
-| Runtime | Node.js 20+, WebSockets, Vercel AI SDK |
+| Runtime | Node.js 22+, WebSockets, Vercel AI SDK |
 | Storage | SQLite (`better-sqlite3`, one local `nova.db`), DPAPI-protected encrypted secrets, markdown workspace docs as files |
 | Validation | Zod |
 | Testing | Playwright, custom Node smoke suites, `tsc` and ESLint |
@@ -147,7 +147,7 @@ NovaAIO runs as two cooperating processes, started together by a single launcher
 
 ### Prerequisites
 - Windows 10 or 11 (the launcher and installer target Windows)
-- Node.js 20 or newer
+- Node.js 22 or newer
 - An API key for at least one LLM provider (OpenAI or Anthropic to start)
 
 ### Install
@@ -192,7 +192,13 @@ cd hud
 npm run electron:build:win
 ```
 
-The installer is written to `hud/dist/`.
+This builds the HUD, stages the agent runtime (`src/`, `dist/`, runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The installer is written to `hud/dist/`. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory.
+
+To check a packaged build boots without clicking through the installer (from the repo root):
+
+```bash
+npm run smoke:production-boot   # boots hud/dist/win-unpacked in Node and claims a queued agent task
+```
 
 ---
 

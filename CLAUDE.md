@@ -14,7 +14,7 @@ NovaAIO is a local-first desktop AI agent orchestration platform. Fully local, o
 
 - **Frontend Framework**: Next.js 16 (App Router)
 - **UI**: React 19, TypeScript, Tailwind CSS 4
-- **Desktop**: Electron 44 (packaging for .exe distribution)
+- **Desktop**: Electron 44 (packaging for .exe distribution). The packaged main process hosts the Next production server + `src/` runtime in-process (`hud/electron/production-server.js`)
 - **Storage**: One local SQLite database (`nova.db`, `better-sqlite3`, WAL) + localStorage for UI preferences; markdown workspace docs (SOUL/USER/AGENTS/MEMORY/SKILL.md) stay files
 - **State Management**: React hooks, WebSocket for real-time updates
 - **Agent Orchestration**: In-memory task queue, SQLite persistence (`agent_tasks`)
@@ -35,9 +35,12 @@ npm run electron:dev
 cd hud
 npm run build
 
-# Build Windows executable
+# Build Windows executable (build + electron:prepare-runtime + electron-builder)
 cd hud
 npm run electron:build:win
+
+# Verify the packaged build boots (repo root, after electron:build:win)
+npm run smoke:production-boot
 
 # Smoke tests
 cd hud
@@ -52,7 +55,7 @@ hud/                    # Next.js frontend
     api/                # API routes (tasks, missions, integrations)
   components/           # React components (agents, chat, settings, ui)
   lib/                  # Libraries (agents, integrations, missions, settings)
-  electron/             # Electron (main.js, preload.js)
+  electron/             # Electron (main.js, preload.js, production-server.js, icons/nova.ico)
   tests/smoke/          # Playwright tests
 src/                    # Backend runtime
 .user/                  # Dev-mode data directory (gitignored): nova.db, keys/, user-context/ (see Storage Locations)
@@ -61,7 +64,8 @@ src/                    # Backend runtime
 ## Key Configuration Files
 
 - `hud/package.json` - Dependencies, scripts, Electron config
-- `hud/electron-builder.yml` - Electron build configuration
+- `hud/electron-builder.yml` - Electron build configuration (`asar: false`; runtime staged to `resources/runtime-resources` by `hud/scripts/prepare-runtime-resources.mjs`)
+- `hud/next.config.js` - Next.js config (JS, not TS: the packaged server cannot transpile a `.ts` config)
 - `hud/tsconfig.json` - TypeScript configuration
 - `hud/tailwind.config.ts` - Tailwind CSS configuration
 - `hud/playwright.config.ts` - Smoke test configuration
@@ -119,13 +123,15 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 **Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing
 
-**Electron**: Window mgmt (min 1024x768), system tray, deep linking (nova://)
+**Electron**: Window mgmt (min 1024x768), system tray, deep linking (nova://). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
 
 ## Development Guidelines
 
 **Before changes**: Read files, check patterns, verify types, test locally
 
 **When adding features**: Types first → API → UI → tests → leave unstaged
+
+**Every change**: update `hud/lib/meta/version/index.ts` (history entry + `NOVA_VERSION`), `README.md` and this `CLAUDE.md` wherever the change affects them
 
 **Responsive**: Min 1024x768, target 1920x1080, support 4K
 
@@ -135,7 +141,13 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.66 Alpha**
+Current: **V.68 Alpha**
+
+**Every new version updates all three files together — never just one:**
+
+1. `hud/lib/meta/version/index.ts` — add a dated history entry at the top of Version History and bump `NOVA_VERSION`
+2. `README.md` — bump the `**Status:** Alpha (V.XX)` line and update any setup, build, requirement or architecture text the release changed
+3. `CLAUDE.md` — bump `Current:` above and update any stack, build, config or architecture notes the release changed
 
 ## Philosophy
 

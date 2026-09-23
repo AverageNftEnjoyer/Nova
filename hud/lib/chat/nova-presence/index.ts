@@ -1,7 +1,7 @@
 import type { NovaState } from "@/lib/chat/hooks/useNovaState"
 
 type NovaPresence = {
-  label: "ONLINE" | "SPEAKING" | "DOWN"
+  label: "IDLE" | "LISTENING" | "THINKING" | "SPEAKING" | "DOWN"
   dotClassName: string
   textClassName: string
 }
@@ -20,7 +20,7 @@ export function getNovaPresence(params: {
     }
   }
 
-  if (novaState === "thinking" || novaState === "speaking") {
+  if (novaState === "speaking") {
     return {
       label: "SPEAKING",
       dotClassName: "bg-amber-400",
@@ -28,8 +28,24 @@ export function getNovaPresence(params: {
     }
   }
 
+  if (novaState === "thinking") {
+    return {
+      label: "THINKING",
+      dotClassName: "bg-amber-400",
+      textClassName: "text-amber-300",
+    }
+  }
+
+  if (novaState === "listening") {
+    return {
+      label: "LISTENING",
+      dotClassName: "bg-sky-400",
+      textClassName: "text-sky-300",
+    }
+  }
+
   return {
-    label: "ONLINE",
+    label: "IDLE",
     dotClassName: "bg-emerald-400",
     textClassName: "text-emerald-300",
   }

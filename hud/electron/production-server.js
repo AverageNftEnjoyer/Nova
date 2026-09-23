@@ -17,6 +17,9 @@ const http = require('http')
 const crypto = require('crypto')
 const { pathToFileURL } = require('url')
 
+// Not 3000: keeps the packaged app clear of a dev server. Override with NOVA_PACKAGED_HUD_PORT for testing.
+const PREFERRED_HUD_PORT = Number.parseInt(process.env.NOVA_PACKAGED_HUD_PORT || '', 10) || 47831
+
 /**
  * @param {{ hudDir: string, runtimeRoot: string, handleInput?: Function }} opts
  * `handleInput` is optional and in-process only. Electron main omits it, so the packaged app uses the
@@ -40,6 +43,10 @@ async function startProductionServices({ hudDir, runtimeRoot, handleInput } = {}
 
   const { server, port, closeNext } = await startNextServer(hudDir)
   process.env.NOVA_HUD_API_BASE_URL = `http://127.0.0.1:${port}`
+  // The runtime gateway (ws://127.0.0.1:8765) only accepts browser Origins on the HUD port (default 3000).
+  // This server listens on an OS-assigned port, so without this the window's WebSocket is refused with a
+  // 403 on every reconnect and the HUD shows the agent as DOWN. Must be set before the gateway starts.
+  process.env.NOVA_HUD_PORT = String(port)
 
   const runtimeHandle = await startRuntimeScheduler(runtimeRoot, handleInput)
 
@@ -100,10 +107,7 @@ function startNextServer(hudDir) {
       .prepare()
       .then(() => {
         const server = http.createServer((req, res) => handler(req, res))
-        server.on('error', reject)
-        // Port 0 = OS-assigned free loopback port; avoids colliding with a dev server on 3000 or
-        // anything else already listening. The window is only pointed at the URL once this resolves.
-        server.listen(0, '127.0.0.1', () => {
+        const onListening = () => {
           const address = server.address()
           const port = typeof address === 'object' && address ? address.port : null
           if (!port) {
@@ -116,7 +120,20 @@ function startNextServer(hudDir) {
             port,
             closeNext: () => nextApp.close(),
           })
+        }
+        // Prefer a stable loopback port: the window's origin (http://127.0.0.1:<port>) owns localStorage and
+        // sessionStorage, so a port that changes every launch wipes saved settings. If the preferred port is
+        // taken, fall back to an OS-assigned free port (port 0) rather than failing to start.
+        server.once('error', (err) => {
+          if (err && err.code === 'EADDRINUSE') {
+            console.warn(`[ProductionServer] Port ${PREFERRED_HUD_PORT} is in use; falling back to a free port.`)
+            server.once('error', reject)
+            server.listen(0, '127.0.0.1', onListening)
+            return
+          }
+          reject(err)
         })
+        server.listen(PREFERRED_HUD_PORT, '127.0.0.1', onListening)
       })
       .catch(reject)
   })

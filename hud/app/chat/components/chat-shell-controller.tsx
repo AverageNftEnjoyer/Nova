@@ -10,6 +10,7 @@ import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
 import { cn } from "@/lib/shared/utils"
 import { loadUserSettings } from "@/lib/settings/userSettings"
+import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
 import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
@@ -168,15 +169,13 @@ export function ChatShellController() {
   const handleMuteToggle = useCallback(() => {
     const newMuted = !isMuted
     setIsMuted(newMuted)
-    localStorage.setItem("nova-muted", String(newMuted))
+    writeVoiceMuted(newMuted)
     const name = !newMuted ? loadUserSettings().personalization.assistantName : undefined
     setMuted(newMuted, name)
   }, [isMuted, setMuted])
 
   useLayoutEffect(() => {
-    const storedMuted = localStorage.getItem("nova-muted")
-    const muted = storedMuted === null ? true : storedMuted === "true"
-    setIsMuted(muted)
+    setIsMuted(readVoiceMuted())
     setMuteHydrated(true)
   }, [])
 

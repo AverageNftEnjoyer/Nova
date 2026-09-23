@@ -59,7 +59,7 @@ const { normalizeAssistantReply, normalizeAssistantSpeechText } = replyNormalize
 const { createWakeWordRuntime } = wakeRuntimeModule;
 
 await run("P14-C1 src runtime shell entrypoint wiring exists", async () => {
-  assert.equal(srcEntrypoint.includes("export async function startNovaRuntime()"), true);
+  assert.equal(srcEntrypoint.includes("export async function startNovaRuntime({ onReady, handleInput } = {})"), true);
   assert.equal(srcEntrypoint.includes("startGateway();"), true);
   assert.equal(srcEntrypoint.includes("await startVoiceLoop({"), true);
   assert.equal(srcEntrypoint.includes("registerHandleInput(runtimeHandleInput);"), true);

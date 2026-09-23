@@ -10,6 +10,29 @@
  *
  * Version History:
  *
+ * - V.68 Alpha (2026-09-23): Voice mode is opt-in + packaged-app launch fixes
+ *     - Nova never listens or speaks on its own: the home screen no longer sends a spoken greeting on connect (that greeting is what left Nova stuck on "speaking" at boot), and home TTS announcements only fire in voice mode. Speaking-mode code is unchanged.
+ *     - Every launch starts muted. The mute flag moved from localStorage to sessionStorage (`hud/lib/chat/voice-mode`), so voice mode carries across pages in one window but never carries into the next launch.
+ *     - Runtime gateway refuses a spoken greeting while muted, even if a client requests one.
+ *     - Presence label: idle now reads IDLE (was ONLINE); THINKING and LISTENING are shown as themselves (thinking used to be labeled SPEAKING).
+ *     - Packaged app: the runtime WebSocket gateway now accepts the HUD's real origin (`NOVA_HUD_PORT` is set to the server port), which fixes the header stuck on DOWN in the .exe.
+ *     - Packaged app: the HUD prefers a fixed loopback port (47831, `NOVA_PACKAGED_HUD_PORT` to override) and falls back to a free port if taken. A per-launch random port wiped localStorage (settings, theme) every launch.
+ *     - Packaged app: the window's X button now fully quits (previously hid to tray and kept running); `before-quit` stops the in-process server and runtime, with a 10s hard-exit backstop. Minimize-to-tray and tray Quit are unchanged.
+ *     - `smoke:production-boot` now also asserts the gateway accepts a WebSocket from the HUD origin; `src-transport-stability-smoke` updated for the `startNovaRuntime({ onReady, handleInput })` signature.
+ *
+ * - V.67 Alpha (2026-09-22): Desktop .exe packaging fixes + Home page layout fixes
+ *     - Packaged Electron now works end to end: the main process hosts the Next.js production server (real API routes, no static `out/index.html` export) and the `src/` runtime scheduler in-process, then loads the loopback URL (`hud/electron/production-server.js`). Replaces the V.66 KNOWN packaging gap.
+ *     - `NOVA_PACKAGED=1` is set at main-process load so `resolveDataDir()` puts `nova.db`/`keys/` in `%APPDATA%\Nova`; `NOVA_WORKSPACE_ROOT` points the runtime at the staged `resources/runtime-resources` tree.
+ *     - New `electron:prepare-runtime` step (`hud/scripts/prepare-runtime-resources.mjs`) stages `src/`, `dist/` and runtime `node_modules` for electron-builder; `asar: false`; `better-sqlite3` bumped to `^13.0.3` (N-API prebuild, no Electron-ABI rebuild); Node engine `>=22`.
+ *     - `next.config.ts` -> `next.config.js` (fixes the packaged "Failed to transpile next.config.ts" startup error). Startup failures now show the full `cause` chain and stack instead of a vague one-liner.
+ *     - Window, tray and notification icons use a real `electron/icons/nova.ico` (Electron's nativeImage cannot decode SVG, which left the tray/taskbar icon blank).
+ *     - Clean shutdown: `startNovaRuntime({ onReady })` returns a stop handle; voice loop and startup delay honor an abort signal; `stopGateway()` terminates open WebSocket clients.
+ *     - Removed the dead Electron IPC agent-spawn path (`start-agent-task`/`stop-agent-task` in `main.js`, matching `preload.js` bridge and `global.d.ts` types); agent tasks run in the `src/` runtime scheduler.
+ *     - Home page at the 1024x768 minimum: panels use container queries and truncation instead of clipping; module headers switched from absolute-centered titles to a 3-column grid; bottom row is 2/3/5 columns responsive; crypto prices use compact notation (`$86.4K`); side columns narrow below `xl`.
+ *     - Polymarket module header collapses Setup/Trade to icons in narrow panels; Spotify disconnected state redesigned (centered icon + label + Connect); schedule briefing/weather layout tweaks.
+ *     - Added `smoke:production-boot` (`scripts/smoke/packaging/production-boot-smoke.mjs`) which boots the packaged `startProductionServices` from `hud/dist/win-unpacked` and proves a queued agent task is claimed. It does not click through `Nova.exe` or test the NSIS installer.
+ *     - Removed stale `scripts/test-task-contexts.mjs`; trimmed `server-idle-cost-smoke`. Handoff notes for the remaining closures: `docs/NEXT_INSTANCE.md`.
+ *
  * - V.66 Alpha (2026-09-21): Idle CPU/RAM reduction + local-API security hardening + test isolation
  *     - Voice loop: mic capture now uses async `spawn` instead of `spawnSync` (no more multi-second agent event-loop stalls while unmuted); failures back off 1s→30s and pause after 5 consecutive errors instead of spinning at 100% CPU.
  *     - Agent runtime no longer spawns the heavy PowerShell system-metrics collector on every HUD WebSocket connect or at boot; metrics are lazy, 60s-cached and single-flight. DPAPI failure cache raised to 10 minutes.
@@ -427,7 +450,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.66 Alpha"
+export const NOVA_VERSION = "V.68 Alpha"
 
 
 

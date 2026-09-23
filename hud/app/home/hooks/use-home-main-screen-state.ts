@@ -5,9 +5,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { useRouter } from "next/navigation"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import { useTheme } from "@/lib/context/theme-context"
-import { loadUserSettings, normalizeResponseTone } from "@/lib/settings/userSettings"
+import { loadUserSettings } from "@/lib/settings/userSettings"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
-import { pickGreetingForTone } from "../constants"
+import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
 import { useHomeConversations } from "./use-home-conversations"
 import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
@@ -15,7 +15,6 @@ import { useHomeCryptoMarket } from "./use-home-crypto-market"
 import { useHomeVisuals } from "./use-home-visuals"
 import { useHomeWeather } from "./use-home-weather"
 
-const GREETING_COOLDOWN_MS = 60_000
 const HOME_COMMAND_CONVERSATION_ID = "home-command-surface"
 
 function buildHomeCommandSessionKey(userId: string): string {
@@ -45,6 +44,8 @@ export function useHomeMainScreenState() {
   const visuals = useHomeVisuals({ isLight })
 
   const speakTts = useCallback((text: string) => {
+    // Voice mode is opt-in: never speak while muted.
+    if (readVoiceMuted()) return
     const settings = loadUserSettings()
     if (!settings.app.voiceEnabled) return
     sendGreeting(text, settings.app.ttsVoice, settings.app.voiceEnabled, settings.personalization.assistantName)
@@ -100,12 +101,10 @@ export function useHomeMainScreenState() {
 
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
-  const greetingSentRef = useRef(false)
+  const voicePreferenceSyncedRef = useRef(false)
 
   useLayoutEffect(() => {
-    const storedMuted = localStorage.getItem("nova-muted")
-    const muted = storedMuted === null ? true : storedMuted === "true"
-    setIsMuted(muted)
+    setIsMuted(readVoiceMuted())
     setMuteHydrated(true)
   }, [])
 
@@ -118,7 +117,7 @@ export function useHomeMainScreenState() {
   const handleMuteToggle = useCallback(() => {
     const nextMuted = !isMuted
     setIsMuted(nextMuted)
-    localStorage.setItem("nova-muted", String(nextMuted))
+    writeVoiceMuted(nextMuted)
     setMuted(nextMuted, !nextMuted ? visuals.assistantName : undefined)
   }, [isMuted, setMuted, visuals.assistantName])
 
@@ -128,35 +127,19 @@ export function useHomeMainScreenState() {
     }
   }, [connected, isMuted, muteHydrated, setMuted, visuals.assistantName])
 
+  // Sync the saved voice preference once per connection. The home screen never speaks on its own:
+  // there is no auto-greeting, and spoken replies only happen in voice mode (see speakTts).
   useEffect(() => {
-    if (!connected || greetingSentRef.current) return
+    if (!connected || voicePreferenceSyncedRef.current) return
 
-    greetingSentRef.current = true
+    voicePreferenceSyncedRef.current = true
     const settings = loadUserSettings()
     setVoicePreference(
       settings.app.ttsVoice,
       settings.app.voiceEnabled,
       settings.personalization.assistantName,
     )
-    if (!settings.app.voiceEnabled) return
-
-    const now = Date.now()
-    const lastGreetingAt = Number(localStorage.getItem("nova-last-greeting-at") || "0")
-    if (Number.isFinite(lastGreetingAt) && now - lastGreetingAt < GREETING_COOLDOWN_MS) return
-
-    const greeting = pickGreetingForTone(normalizeResponseTone(settings.personalization?.tone))
-    const timer = window.setTimeout(() => {
-      localStorage.setItem("nova-last-greeting-at", String(Date.now()))
-      sendGreeting(
-        greeting,
-        settings.app.ttsVoice,
-        settings.app.voiceEnabled,
-        settings.personalization.assistantName,
-      )
-    }, 1500)
-
-    return () => window.clearTimeout(timer)
-  }, [connected, sendGreeting, setVoicePreference])
+  }, [connected, setVoicePreference])
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const handleSidebarToggle = useCallback(() => setSidebarOpen((prev) => !prev), [])
