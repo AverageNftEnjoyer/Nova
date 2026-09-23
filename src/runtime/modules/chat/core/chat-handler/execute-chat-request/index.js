@@ -352,6 +352,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   if (useVoice) playThinking();
 
   let systemPrompt = "";
+  let userTurnText = "";
   let historyMessages = [];
   let messages = [];
 
@@ -440,6 +441,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         broadcastThinkingStatus,
       });
       systemPrompt = promptContext.systemPrompt;
+      userTurnText = promptContext.userTurnText;
       historyMessages = promptContext.historyMessages;
       messages = promptContext.messages;
       preparedPromptHash = promptContext.preparedPromptHash;
@@ -460,10 +462,12 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           systemPrompt,
           historyMessages,
           text,
+          userTurnText,
           availableTools,
           runtimeTools,
           userContextId,
           conversationId,
+          hudOpToken,
           observedToolCalls,
           toolExecutions,
           abortSignal,
@@ -487,6 +491,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           systemPrompt,
           historyMessages,
           text,
+          userTurnText,
           hasStrictOutputRequirements,
           assistantStreamId,
           source,
@@ -594,6 +599,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       selectedChatModel,
       systemPrompt,
       historyMessages,
+      userTurnText,
       messages,
       activeOpenAiCompatibleClient,
       openAiMaxCompletionTokens,

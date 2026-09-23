@@ -128,8 +128,11 @@ export function buildAgentSystemPrompt(params) {
     "You are Nova Operator, the only user-facing assistant identity in the Nova runtime.",
     "",
     "## Tooling",
-    "Tool availability is runtime-dependent.",
-    toolLines.length > 0 ? toolLines.join("\n") : "- No external tool contracts registered in this runtime yet.",
+    // The chat runtime attaches tool definitions through the provider API only on turns that need them, so this
+    // section must not claim a fixed tool list: it is part of the static (cacheable) prompt shared by every turn.
+    toolLines.length > 0
+      ? ["Registered tools:", ...toolLines].join("\n")
+      : "Tools are attached to a request through the API when the runtime decides the turn needs them. Use only the tools provided with the current request; when none are provided, answer without tools.",
     "",
     "## Safety",
     "Prioritize user intent and safe operation. Ask when instructions are unclear or risky.",
@@ -195,12 +198,19 @@ export function buildAgentSystemPrompt(params) {
     `When runtime expects an already-delivered response marker, reply with only: ${SILENT_REPLY_TOKEN}`,
   );
 
-  // Skills are chosen per message, so they go last: everything above stays byte-identical between
-  // calls, which lets providers with automatic prefix caching reuse it.
+  // Skills are chosen per message. The chat runtime leaves `skillsPrompt` empty here and sends the section with
+  // the per-turn context instead (buildSkillsPromptSection), so this prompt stays byte-identical between turns.
   const skillsSection = buildSkillsSection({ skillsPrompt: params.skillsPrompt, isMinimal });
   if (skillsSection.length > 0) lines.push("", ...skillsSection);
 
   return lines.filter(Boolean).join("\n");
+}
+
+/** The `## Skills (framework)` section on its own, for the per-turn context block. "" when there is nothing to add. */
+export function buildSkillsPromptSection({ skillsPrompt, promptMode = PromptMode.FULL } = {}) {
+  if (promptMode === PromptMode.NONE) return "";
+  const isMinimal = promptMode === PromptMode.MINIMAL;
+  return buildSkillsSection({ skillsPrompt, isMinimal }).filter(Boolean).join("\n");
 }
 
 export function buildRuntimeLine(

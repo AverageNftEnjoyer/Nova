@@ -8,6 +8,8 @@ import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.
 import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
 import { addLlmUsage, emptyLlmUsage, normalizeAnthropicUsage } from "../../../../../../providers/usage/index.js";
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
+import { toCachedClaudeSystem, withClaudeCacheBreakpoints } from "../../../../../../providers/anthropic-cache/index.js";
+import { gateSensitiveGmailAction, scopeToolInputToUser } from "../tool-input-scope/index.js";
 
 function claudeBase(value) {
   const trimmed = String(value || "").trim().replace(/\/+$/, "");
@@ -57,10 +59,12 @@ export async function runClaudeToolLoop({
   systemPrompt,
   historyMessages,
   text,
+  userTurnText,
   availableTools,
   runtimeTools,
   userContextId,
   conversationId,
+  hudOpToken,
   observedToolCalls,
   toolExecutions,
   abortSignal,
@@ -90,8 +94,14 @@ export async function runClaudeToolLoop({
       role: message.role === "assistant" ? "assistant" : "user",
       content: typeof message.content === "string" ? message.content : JSON.stringify(message.content),
     })),
-    { role: "user", content: text },
+    // The final user turn carries the per-turn context prefix (prompt-context-builder); `text` is the bare message.
+    { role: "user", content: userTurnText || text },
   ];
+  // Prompt caching (src/providers/anthropic-cache): the static system block (which also covers the tools), the end of
+  // the chat history, and the latest message of each step, so step N reads steps 1..N-1 from cache. At most 3 of
+  // Anthropic's 4 breakpoints. Breakpoints are applied to a per-request copy; `messages` itself stays unmarked.
+  const cachedSystem = toCachedClaudeSystem(systemPrompt);
+  const historyBreakpointIndex = historyMessages.length > 0 ? historyMessages.length - 1 : -1;
   const startedAt = Date.now();
   let loopUsage = emptyLlmUsage();
 
@@ -104,8 +114,8 @@ export async function runClaudeToolLoop({
     const response = await createMessage({
       runtime: activeChatRuntime,
       model: selectedChatModel,
-      system: systemPrompt,
-      messages,
+      system: cachedSystem,
+      messages: withClaudeCacheBreakpoints(messages, [historyBreakpointIndex, messages.length - 1]),
       tools: toolDefinitions,
       signal: abortSignal,
     });
@@ -141,6 +151,44 @@ export async function runClaudeToolLoop({
       const toolName = String(toolUse?.name || "").trim();
       if (toolName) observedToolCalls.push(toolName);
       const startedToolAt = Date.now();
+      // Same scoping as the OpenAI-compatible loop (tool-input-scope): the runtime, not the model, picks the user.
+      let toolInput = scopeToolInputToUser(toolName, toolUse?.input, { userContextId, conversationId });
+      const gmailGate = gateSensitiveGmailAction({
+        toolName,
+        input: toolInput,
+        permissionMode,
+        userContextId,
+        conversationId,
+        hudOpToken,
+      });
+      toolInput = gmailGate.input;
+      if (gmailGate.blocked) {
+        const normalizedName = toolName.toLowerCase();
+        toolExecutions.push({
+          name: normalizedName,
+          status: "blocked",
+          durationMs: 0,
+          error: gmailGate.blocked.reason,
+          resultPreview: "",
+        });
+        recordToolRunSafe(userContextId, {
+          threadId: conversationId,
+          toolName: normalizedName,
+          input: toolInput,
+          output: { blocked: gmailGate.blocked.reason },
+          status: "blocked",
+          latencyMs: 0,
+        });
+        // Like the OpenAI-compatible loop: stop and tell the user a confirmation is needed.
+        return {
+          reply: gmailGate.blocked.message,
+          promptTokens: loopUsage.inputTokens,
+          completionTokens: loopUsage.outputTokens,
+          cachedInputTokens: loopUsage.cachedInputTokens,
+          cacheWriteInputTokens: loopUsage.cacheWriteInputTokens,
+          modelUsed: selectedChatModel,
+        };
+      }
       try {
         const taskPolicy = permissionMode
           ? {
@@ -150,7 +198,7 @@ export async function runClaudeToolLoop({
                 availableTools,
                 approvedTools,
                 executionFenceCheck,
-                toolUse?.input || {},
+                toolInput,
                 consumeTaskApproval,
                 reserveTaskEffect,
               ),
@@ -163,7 +211,7 @@ export async function runClaudeToolLoop({
             {
               id: String(toolUse?.id || ""),
               name: toolName,
-              input: toolUse?.input && typeof toolUse.input === "object" ? toolUse.input : {},
+              input: toolInput,
               type: "tool_use",
             },
             availableTools,
@@ -182,7 +230,7 @@ export async function runClaudeToolLoop({
         recordToolRunSafe(userContextId, {
           threadId: conversationId,
           toolName: toolName || "unknown",
-          input: toolUse?.input || {},
+          input: toolInput,
           output: content,
           status: result?.is_error ? "error" : "success",
           latencyMs: Date.now() - startedToolAt,
@@ -209,7 +257,7 @@ export async function runClaudeToolLoop({
         recordToolRunSafe(userContextId, {
           threadId: conversationId,
           toolName: toolName || "unknown",
-          input: toolUse?.input || {},
+          input: toolInput,
           output: { error: message },
           status: "error",
           latencyMs: Date.now() - startedToolAt,

@@ -9,12 +9,6 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function toIsoDate(ts) {
-  const ms = Number(ts || 0);
-  if (!Number.isFinite(ms) || ms <= 0) return "unknown";
-  return new Date(ms).toISOString();
-}
-
 function compactForPrompt(lines, maxTokens) {
   const filtered = lines.map((line) => String(line || "").trim()).filter(Boolean);
   if (filtered.length === 0) return "";
@@ -34,7 +28,9 @@ function renderField(label, fieldState, minConfidence = 0.55) {
   const confidence = clamp(Number(state.selectedConfidence || 0), 0, 1);
   if (!value || confidence < minConfidence) return "";
   const source = String(state.selectedSource || "unknown").trim();
-  return `- ${label}: ${value} (confidence=${confidence.toFixed(2)}, source=${source}, updated=${toIsoDate(state.selectedUpdatedAt)})`;
+  // No per-field timestamp: it changed whenever a trait was re-scored, carried no instruction for the model and
+  // made this section differ between otherwise identical turns.
+  return `- ${label}: ${value} (confidence=${confidence.toFixed(2)}, source=${source})`;
 }
 
 function renderToolAffinity(toolAffinity) {

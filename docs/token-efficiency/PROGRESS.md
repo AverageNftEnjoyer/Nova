@@ -9,16 +9,18 @@ The plan is [PLAN.md](PLAN.md) (revised 2026-09-23: stages 0 tracking/baseline +
 | Stage | State |
 | --- | --- |
 | 0 — Tracking & baseline | **Done** (user-confirmed 2026-09-23). Step 8 (live check) is deferred: the user will run it later. |
-| 1 — Stable prefix & caching | **In progress.** Step 1a done: Skills section moved to the end of the base system prompt. |
-| 2–5 | Not started |
+| 1 — Stable prefix & caching | **Implemented (V.72), offline-verified.** Static/per-turn split, Anthropic `cache_control`, side fixes. Live check (real cache hits) still deferred to the user. |
+| 2 — Tool output ceilings | Next (this run's scope ends after Stage 2 + release docs, then pause) |
+| 3–5 | Not started; do not start without the owner |
 
 Rules: see PLAN.md "Ground rules".
 
 ## Resume state
 
-- Last session: 2026-09-23 (Session 2). Stage 0 is implemented, apart from the live check. Migration 13, `src/db/llm-usage.js`, `src/providers/usage` and `src/providers/pricing` were committed by the user in V.70 (`dce2799`). Everything else listed in the Session 2 log is **uncommitted**.
-- Next action: Stage 1, next smallest change (user asked to go one small change at a time). Candidates: remove the live `updated=` timestamp from Personality Calibration; then move sections 7–13 into a per-turn block after history; then Anthropic `cache_control`. Step 8 (live check) still deferred to the user.
-- Baseline numbers are in [BASELINE.md](BASELINE.md). Rerun them with `npm run smoke:token-baseline`.
+- Last session: 2026-09-23 (Session 4, Stage 1). Stage 0 is committed: migration 13 and the usage/pricing modules in V.70 (`dce2799`), the rest of Session 2 in V.71 (`36bc6c2`). Stage 1 ships as V.72 on branch `claude/intelligent-euler-dfu94w` (commit per stage; the owner authorised commits and pushes to this branch for this run).
+- The whole run lands as ONE version, V.72: its history entry in `hud/lib/meta/version/index.ts` is extended as stages finish; do not bump per stage.
+- Next action: Stage 2 (tool output ceilings, PLAN.md). Then pause for the owner. Step 8 (live check) is still deferred to the user; the Stage 1 numbers use simulated caches.
+- Baseline numbers and the Stage 1 before/after are in [BASELINE.md](BASELINE.md). Rerun with `npm run smoke:token-baseline` (needs `npm ci` at the root and in `hud/` on a fresh clone).
 
 ## Stage 0 implementation (Session 2)
 
@@ -110,18 +112,16 @@ Sources and rates are in BASELINE.md "Pricing used for cost". All official pages
    - ChatKit serving and shadow calls (their usage still counts in the run summary)
    - embeddings (`src/memory/embeddings`)
    - The Gmail summary route goes through `completeWithConfiguredLlm`, so its calls land as source `mission` with an empty ref. `build-from-prompt` also lands as `mission` with an empty ref.
-3. `sessionContext.persistUsage` (`src/session/runtime/index.js`) and operator-finalization telemetry ignore the cached fields.
+3. ~~`sessionContext.persistUsage` ignores the cached fields.~~ Fixed in Stage 1 (session entries accumulate `cachedInputTokens` / `cacheWriteInputTokens`). Operator-finalization telemetry still ignores them.
 4. `resolveOpenAiRequestTuning` (prompt-recovery) sends `reasoning_effort: "minimal"` on strict passes for any `gpt-5*` model, which now includes gpt-5.6-*. OpenAI's per-model pages list none/low/medium/high/xhigh/max for gpt-5.6, **not** minimal. Strict correction passes on the new OpenAI default may be rejected. It was not changed (no request changes in Stage 0); it needs a decision before or with the release. `verbosity` support per model is also unverified.
-5. The Claude tool loop doesn't inject `userContextId`/`conversationId` into `gmail_*` and `coinbase_*` tool inputs, unlike the OpenAI loop (found by the harness).
-6. The web-search preload runs a real search on research turns and agent tasks, but its result is dropped by the `no_system_budget` bug (known issue #1), so the call is wasted.
-7. The Personality Calibration section embeds a live `updated=<timestamp>`. It will break a Stage 1 cached prefix.
+5. ~~The Claude tool loop doesn't inject `userContextId`/`conversationId` into `gmail_*` and `coinbase_*` tool inputs.~~ Fixed in Stage 1 (shared `chat-handler/tool-input-scope`, which also gives the Claude loop the HUD confirmation gate for Gmail forward/reply).
+6. ~~The web-search preload result is dropped by the `no_system_budget` bug.~~ Fixed in Stage 1 with issue #1.
+7. ~~A live `updated=<timestamp>` in the prompt.~~ It was in Identity Intelligence (`context/identity/prompt`), not Personality Calibration. Removed in Stage 1.
 8. `scripts/smoke/local-db/local-data-smoke.mjs` (not in any npm script) fails on a pre-existing worktree-manager import path.
 9. `src-delegated-chat-worker-contract-smoke` P31-C4 fails at HEAD because it expects `fallbackReason`, which `normalizeWorkerSummary` never had. This is pre-existing.
-10. Release files (version, README, CLAUDE.md) were not bumped. When this ships, they should mention:
-    - `NOVA_LLM_USAGE_RETENTION_DAYS`
-    - the `llm_usage` table in the CLAUDE.md storage list
-    - the new default models
-    - migration 13
+10. ~~Release files were not bumped.~~ Done in Stage 1: V.71 history now records Stage 0 (ledger, migration 13, retention env, default models); V.72 records Stage 1; README, CLAUDE.md and `.env.example` updated.
+11. There is no CI (`.github/` does not exist). PLAN.md Stage 5's "CI regression gate" needs a CI to run in, or has to be a local `npm run` gate; decide with the owner before Stage 5.
+12. The Claude tool loop still does not wrap `web_search` / `web_fetch` tool results with `wrapWebContent` or detect suspicious patterns, unlike the OpenAI-compatible loop. Not in Stage 1 scope.
 
 ## Corrections to the plan's architecture context
 
@@ -165,6 +165,8 @@ Sections 7–13 are added through `appendBudgetedPromptSection` (`src/runtime/mo
 Then the messages array is `[system, ...history, user]` (prompt-context-builder:461). Claude gets `system` as a top-level string and the same history + user message.
 
 **Consequence for caching:** the first byte that changes between turns is the Skills section at ~517 tokens. Everything after it (persona ≈2.1k tokens) can't be a cached prefix. OpenAI only caches when the first 1,024 tokens are identical, so **OpenAI/Gemini/Grok prefix caching cannot hit today**, and dynamic sections 7–13 are interleaved after the persona inside the same system string.
+
+> **Superseded by Stage 1 (V.72):** sections 2 and 7–13 above now go into the per-turn block at the start of the final user turn, Conversation Continuity is always in the static prompt, and the order is `[static system, ...history, user(turn context + message)]` for every provider. See Session 4.
 
 ### 2. Provider clients and prompt caching today
 
@@ -248,8 +250,8 @@ Fresh-install workspace built from `templates/`:
 
 ## Pre-existing issues found (not fixed — zero-behavior-change rule)
 
-1. **Dynamic context is silently dropped at default settings.** Input budget = 6,000 − 1,400 reserve = 4,600; with a 1,400 history target the system prompt may use ~3,195 tokens. The fresh-install base prompt is ~3,187–3,240, so `appendBudgetedPromptSection` returns `no_system_budget` for Live Memory Recall, Web Search preload, Link Context, Identity and Preference sections. Verified with the real function: included at 3,000 tokens, dropped at 3,187+. Users with longer persona files are further over. This is a quality bug that probably deserves its own fix, but fixing it **increases** tokens, so it needs your call.
-2. `## Tooling` tells the model "No external tool contracts registered in this runtime yet." even when tools are attached (`toolNames` never passed).
+1. ~~**Dynamic context is silently dropped at default settings.**~~ **Fixed in Stage 1** (per-turn block has its own budget, floor `NOVA_PROMPT_TURN_CONTEXT_MIN_TOKENS` = 2000). Original note: Input budget = 6,000 − 1,400 reserve = 4,600; with a 1,400 history target the system prompt may use ~3,195 tokens. The fresh-install base prompt is ~3,187–3,240, so `appendBudgetedPromptSection` returns `no_system_budget` for Live Memory Recall, Web Search preload, Link Context, Identity and Preference sections. Verified with the real function: included at 3,000 tokens, dropped at 3,187+. Users with longer persona files are further over. This is a quality bug that probably deserves its own fix, but fixing it **increases** tokens, so it needs your call.
+2. ~~`## Tooling` tells the model "No external tool contracts registered in this runtime yet."~~ Fixed in Stage 1: the static text now says tools are attached per request through the API (a per-turn tool list would break the cached prefix).
 3. AGENTS.md (~1.5k tokens) is copied into every workspace and loaded from disk each time the persona signature changes, but never used in the prompt.
 4. ~~Gemini/Grok cost is never computed (missing pricing); mission LLM calls report no usage.~~ Fixed in Stage 0.
 5. ~~Agent tasks that fail or pause record zero tokens even though tokens were spent.~~ Fixed in Stage 0.
@@ -298,3 +300,21 @@ Recorded in PLAN.md ("Decided", "Needs your answer"). The original stages 3 (mem
 - Measured with `npm run smoke:token-baseline`: total tokens identical in every scenario (same content). 10-turn chat, unchanged lead-in vs previous call (calls 2+): OpenAI shape avg 1,555 → **3,511**, min 533 → **3,048**; Claude shape avg 1,547 → **3,504**, min 525 → **3,041**. Every chat call now clears OpenAI's 1,024-token automatic-caching minimum. Tool-loop scenarios unchanged (already stable within a loop).
 - Checks: typecheck, smoke:src-prompt, smoke:src-routing, smoke:audit, smoke:agent-tasks, smoke:token-usage, smoke:token-baseline 18/18 — all pass.
 - Not yet proven with real billing: that providers actually report cached tokens for these calls (needs the deferred live check).
+
+### 2026-09-23 — Session 4 (Stage 1 complete, V.72)
+- Run by a managing agent with owner decisions: commit + push once per stage to `claude/intelligent-euler-dfu94w`; Claude per-turn context goes as a prefix of the last user turn; include side fixes (a) `no_system_budget`, (b) `## Tooling`, (c) Claude-loop user scoping, (d) `persistUsage` cache fields; scope is Stage 1 + Stage 2 + release docs, then pause.
+- **Found and fixed first:** `scripts/build/link-src-js-modules.mjs` (second half of `build:agent-core`, writes `dist/` re-export shims for `src/db/index.js`, `src/db/paths.js`, `src/security/secrets/index.js`) was never committed because `.gitignore` ignores every `build/` directory. On a fresh clone `build:agent-core`, most src smokes and packaging failed. Recreated it (re-export shims, so the DB singleton stays one module instance) and un-ignored `scripts/build/`.
+- Baseline before any change (HEAD 36bc6c2): typecheck, smoke:token-baseline 18/18, smoke:token-usage 28/28, smoke:openai-request-tuning 4/4, smoke:src-prompt 4/4, smoke:src-routing, smoke:agent-tasks, smoke:src-tools, smoke:src-providers, smoke:local-db: all pass.
+- **Stage 1 changes:**
+  - Identity section: no per-trait `updated=` timestamp.
+  - `prompt-context-builder`: `systemPrompt` is now static only (base prompt without Skills + HUD persona overlay + Conversation Continuity, now unconditional + a short "Per-turn Context" section). Skills, preferences, identity, personality, short-term context, operator routing, web/link/memory context and strict output rules go into `turnContext`, sent as `<nova_turn_context>...</nova_turn_context>` + blank line + the user's message in the final user turn, for **every provider** (`userTurnText`; the OpenAI-shape `messages` use it too, including the image-message text part). History is still budgeted against the static prompt.
+  - Why the user turn for OpenAI/Gemini/Grok too (PLAN.md suggested a second system message): Gemini and xAI docs could not be reached from this environment to confirm that a trailing system message is accepted on their OpenAI-compatible endpoints, and the user turn works everywhere. OpenAI's cache is unaffected either way (the static system message stays first).
+  - `prompt-budget`: `appendBudgetedPromptSection` takes `maxContextTokens`; new `computeTurnContextTokenBudget` (input budget − static − user − history target, floored at `PROMPT_TURN_CONTEXT_MIN_TOKENS`, env `NOVA_PROMPT_TURN_CONTEXT_MIN_TOKENS`, default 2000).
+  - Anthropic: `src/providers/anthropic-cache` (`toCachedClaudeSystem`, `withClaudeCacheBreakpoint(s)`). `claudeMessagesCreate/Stream` always send `system` as one cached block and, with `cacheConversationPrefix` (chat direct path), a breakpoint on the message before the final user turn. The Claude tool loop marks the system block, the end of the history and the latest message per step (max 3 breakpoints; applied to a per-request copy). `normalizeClaudeMessages` now passes content-block arrays through (it used to stringify them).
+  - Not changed: the TS client in `src/providers/clients` (no live importer) and HUD missions (`hud/lib/missions/llm/providers.ts`, ~550-token one-shot prompts, below every cache minimum).
+  - Side fixes (b) `## Tooling` text, (c) `chat-handler/tool-input-scope` shared by both loops (the Claude loop also gets the Gmail forward/reply HUD confirmation gate outside agent tasks, which it lacked), (d) `persistUsage` + session entry types carry the cache fields.
+- **Tests (real behaviour only):** `smoke:token-baseline` 18 → 41 checks (static system identical on every call and free of per-turn sections; per-turn block reaches the model before the user's words and changes per turn; Claude breakpoints present; simulated caches read on every call after the first; cache tokens reach `llm_usage` and session totals; Gmail tools get the runtime's user in both loops). The fake providers now simulate each provider's documented caching rules. `smoke:src-prompt` +P18-C5 (per-turn context survives a fresh-install persona; static prompt identical across turns). P18-C3's source-token list was updated for the new code.
+- **Measured:** see BASELINE.md "Stage 1 re-measure". Claude input cost −42 % to −67 % per scenario; OpenAI +6 % to +27 % (context now delivered); static system prompt identical on 10/10 chat calls (was 1/10).
+- After: typecheck, smoke:token-baseline 41/41, smoke:token-usage, smoke:openai-request-tuning, smoke:src-prompt 5/5, smoke:src-routing, smoke:agent-tasks, smoke:src-tools, smoke:src-providers, smoke:local-db, smoke:src-tool-loop-guardrails, prompt-context-builder node test, smoke:version-sync: all pass.
+- Release: NOVA_VERSION V.72 (package versions synced to 0.72.0).
+- Not verified: real provider cache hits (live check deferred), Gemini/xAI acceptance of the request shape (unchanged roles, so low risk).

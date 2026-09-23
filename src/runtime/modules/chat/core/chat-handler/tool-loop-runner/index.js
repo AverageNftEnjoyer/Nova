@@ -7,7 +7,7 @@ import {
   TOOL_LOOP_MAX_TOOL_CALLS_PER_STEP,
   TOOL_LOOP_MAX_PARALLEL_TOOL_CALLS_PER_STEP,
 } from "../../../../../core/constants/index.js";
-import { consumeHudOpTokenForSensitiveAction, broadcastThinkingStatus, broadcastAssistantStreamDelta } from "../../../../infrastructure/hud-gateway/index.js";
+import { broadcastThinkingStatus, broadcastAssistantStreamDelta } from "../../../../infrastructure/hud-gateway/index.js";
 import { describeUnknownError, extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
 import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
 import { buildWebSearchReadableReply } from "../../../routing/intent-router/index.js";
@@ -18,8 +18,7 @@ import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.
 import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
 import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
-
-const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
+import { GMAIL_CONFIRM_REQUIRED_ACTIONS, gateSensitiveGmailAction, scopeToolInputToUser } from "../tool-input-scope/index.js";
 
 function chunkToolCalls(toolCalls, chunkSize) {
   const chunks = [];
@@ -201,16 +200,7 @@ export async function runToolLoop({
       if (toolName) observedToolCalls.push(toolName);
 
       const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
-      if (
-        String(toolUse?.name || "").toLowerCase().startsWith("coinbase_")
-        || String(toolUse?.name || "").toLowerCase().startsWith("gmail_")
-      ) {
-        toolUse.input = {
-          ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
-          userContextId,
-          conversationId,
-        };
-      }
+      toolUse.input = scopeToolInputToUser(toolUse?.name, toolUse.input, { userContextId, conversationId });
       const taskPolicy = permissionMode
         ? {
             ...assertTaskToolAllowed(
@@ -227,51 +217,39 @@ export async function runToolLoop({
             workspaceDir,
           }
         : undefined;
-      if (GMAIL_CONFIRM_REQUIRED_ACTIONS.has(normalizedToolName) && !permissionMode) {
-        toolUse.input = {
-          ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
-          requireExplicitUserConfirm: true,
-        };
-        const confirmState = consumeHudOpTokenForSensitiveAction({
-          userContextId,
-          opToken: hudOpToken,
-          conversationId,
-          action: normalizedToolName,
+      const gmailGate = gateSensitiveGmailAction({
+        toolName: normalizedToolName,
+        input: toolUse.input,
+        permissionMode,
+        userContextId,
+        conversationId,
+        hudOpToken,
+      });
+      toolUse.input = gmailGate.input;
+      if (gmailGate.blocked) {
+        recordToolRunSafe(userContextId, {
+          threadId: conversationId,
+          toolName: normalizedToolName,
+          input: toolUse.input,
+          output: { blocked: gmailGate.blocked.reason },
+          status: "blocked",
+          latencyMs: 0,
         });
-        if (!confirmState.ok) {
-          const safeBlockedMessage =
-            "I need an explicit confirmation action before sending Gmail content. Please confirm and retry.";
-          recordToolRunSafe(userContextId, {
-            threadId: conversationId,
-            toolName: normalizedToolName,
-            input: toolUse.input,
-            output: { blocked: `sensitive_action_blocked:${confirmState.reason}` },
-            status: "blocked",
-            latencyMs: 0,
-          });
-          toolExecutions.push({
-            name: normalizedToolName,
-            status: "blocked",
-            durationMs: 0,
-            error: `sensitive_action_blocked:${confirmState.reason}`,
-            resultPreview: "",
-          });
-          return {
-            toolCallId: toolCall.id,
-            toolName,
-            normalizedToolName,
-            toolResultContent: JSON.stringify({
-              ok: false,
-              kind: normalizedToolName,
-              errorCode: "CONFIRM_REQUIRED",
-              safeMessage: safeBlockedMessage,
-              guidance: "Use the UI confirmation and retry.",
-              retryable: true,
-            }),
-            forcedReply: safeBlockedMessage,
-            stopRemainingToolCalls: true,
-          };
-        }
+        toolExecutions.push({
+          name: normalizedToolName,
+          status: "blocked",
+          durationMs: 0,
+          error: gmailGate.blocked.reason,
+          resultPreview: "",
+        });
+        return {
+          toolCallId: toolCall.id,
+          toolName,
+          normalizedToolName,
+          toolResultContent: gmailGate.blocked.content,
+          forcedReply: gmailGate.blocked.message,
+          stopRemainingToolCalls: true,
+        };
       }
 
       let toolResult;

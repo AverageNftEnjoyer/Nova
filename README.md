@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.71). Actively developed and used daily by the author.
+**Status:** Alpha (V.72). Actively developed and used daily by the author.
 
 ---
 
@@ -54,7 +54,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 
 ### Conversational assistant
 - Streaming chat with tool use, conversation history, and per-user context isolation.
-- Works with **OpenAI, Anthropic (Claude), Gemini, and Grok**. Provider fallback and routing preference (balanced, latency, cost, quality) are configurable.
+- Works with **OpenAI, Anthropic (Claude), Gemini, and Grok**. Provider fallback and routing preference (balanced, latency, cost, quality) are configurable. Defaults are gpt-5.6-terra, claude-sonnet-5, gemini-3.8-flash and grok-4.3; a model you already picked is kept.
 - Persona files (`SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`) let you shape how the assistant talks and what it knows about you.
 
 ### Voice
@@ -70,7 +70,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 ### Agent Tasks
 - Queue background tasks against Claude, OpenAI, Gemini, or Grok.
 - Play, pause, stop, and delete controls. Up to 5 tasks run at once.
-- Priority levels, permission modes (default, accept-edits, plan-mode, don't-ask, bypass), and live token and cost tracking per task.
+- Priority levels, permission modes (default, accept-edits, plan-mode, don't-ask, bypass), and live token and cost tracking per task, including cached tokens. Failed and paused tasks keep the tokens they spent.
 
 ### Memory
 - Hybrid retrieval that combines keyword and embedding search.
@@ -126,6 +126,7 @@ In development NovaAIO runs as two cooperating processes, started together by a 
 - **Network safety.** Web fetch goes through an SSRF guard that blocks requests to private and internal addresses.
 - **Secrets handling.** Stored API keys are encrypted at rest (AES-256-GCM) with a random master key that Windows DPAPI wraps for your Windows account; secrets are never returned unmasked to the browser. See [docs/security/local-data.md](docs/security/local-data.md) for what this does and does not protect against. OAuth flows use signed state, comparisons are timing-safe, and API routes are rate limited per user and per IP.
 - **Per-user isolation.** Runtime state, memory, and sessions are scoped by user, and there are tests that check the boundaries.
+- **Prompt caching and a usage ledger.** The system prompt is kept byte-identical between turns and everything chosen per turn is sent with the user's message, so providers can bill the repeated part at their cached rate (Claude gets explicit `cache_control` breakpoints; OpenAI, Gemini and Grok cache automatically). Every LLM call, from chat, agent tasks and missions, writes one row with input, output, cached and cache-write tokens and cost to the `llm_usage` table (pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90). Measurements live in `docs/token-efficiency/`.
 - **Reliable scheduling.** Missions are enqueued with idempotency keys and claimed with leases, so the scheduler can restart without duplicating runs.
 
 ---

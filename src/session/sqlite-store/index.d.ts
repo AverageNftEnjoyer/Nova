@@ -7,6 +7,10 @@ export interface StoredSessionEntry {
   outputTokens: number
   totalTokens: number
   contextTokens: number
+  /** Cached subset of inputTokens (provider-reported). */
+  cachedInputTokens?: number
+  /** Anthropic cache-write tokens, also inside inputTokens. */
+  cacheWriteInputTokens?: number
   model: string
   userContextId?: string
   origin?: { label: string; provider: string; from: string; to: string }

@@ -39,6 +39,7 @@ export async function refineAssistantReply({
   selectedChatModel,
   systemPrompt,
   historyMessages,
+  userTurnText,
   messages,
   activeOpenAiCompatibleClient,
   openAiMaxCompletionTokens,
@@ -125,7 +126,7 @@ export async function refineAssistantReply({
         if (activeChatRuntime.provider === "claude") {
           const correctionMessages = [
             ...historyMessages,
-            { role: "user", content: text },
+            { role: "user", content: userTurnText || text },
             { role: "assistant", content: nextReply },
             { role: "user", content: correctionInstruction },
           ];

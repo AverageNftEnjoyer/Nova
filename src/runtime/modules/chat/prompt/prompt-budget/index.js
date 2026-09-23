@@ -114,6 +114,7 @@ export function appendBudgetedPromptSection({
   responseReserveTokens,
   historyTargetTokens,
   sectionMaxTokens,
+  maxContextTokens,
   debug = false,
 }) {
   const basePrompt = String(prompt || "");
@@ -123,10 +124,16 @@ export function appendBudgetedPromptSection({
     return { prompt: basePrompt, included: false, compacted: false, reason: "empty_body" };
   }
 
-  const inputBudget = computeInputPromptBudget(maxPromptTokens, responseReserveTokens);
-  const userTokens = countApproxTokens(userMessage || "");
-  const desiredHistoryTokens = Number.isFinite(historyTargetTokens) ? Math.max(0, Math.floor(historyTargetTokens)) : 0;
-  const maxSystemTokens = Math.max(240, inputBudget - userTokens - desiredHistoryTokens);
+  // `maxContextTokens` budgets `prompt` on its own (the per-turn context block, which sits outside the static
+  // system prompt). Without it, `prompt` is the whole system prompt and shares the input budget with history.
+  const maxSystemTokens = Number.isFinite(maxContextTokens)
+    ? Math.max(0, Math.floor(maxContextTokens))
+    : Math.max(
+      240,
+      computeInputPromptBudget(maxPromptTokens, responseReserveTokens)
+        - countApproxTokens(userMessage || "")
+        - (Number.isFinite(historyTargetTokens) ? Math.max(0, Math.floor(historyTargetTokens)) : 0),
+    );
   const currentSystemTokens = countApproxTokens(basePrompt);
   const availableSystemTokens = maxSystemTokens - currentSystemTokens;
   if (availableSystemTokens <= 28) {
@@ -190,6 +197,29 @@ export function appendBudgetedPromptSection({
     availableSystemTokens,
     maxSystemTokens,
   };
+}
+
+/**
+ * Token budget for the per-turn context block (preferences, identity, memory recall, web/link context, ...).
+ * It is whatever the input budget leaves after the static system prompt, the user message and the history
+ * target, but never less than `minContextTokens`: the static prompt alone (~3.2k tokens on a fresh install)
+ * used to fill the whole system budget, so every per-turn section was dropped with `no_system_budget`.
+ */
+export function computeTurnContextTokenBudget({
+  maxPromptTokens,
+  responseReserveTokens,
+  userMessage,
+  staticSystemPrompt,
+  historyTargetTokens,
+  minContextTokens,
+}) {
+  const inputBudget = computeInputPromptBudget(maxPromptTokens, responseReserveTokens);
+  const remaining = inputBudget
+    - countApproxTokens(staticSystemPrompt || "")
+    - countApproxTokens(userMessage || "")
+    - (Number.isFinite(historyTargetTokens) ? Math.max(0, Math.floor(historyTargetTokens)) : 0);
+  const floor = Number.isFinite(minContextTokens) ? Math.max(0, Math.floor(minContextTokens)) : 0;
+  return Math.max(floor, remaining);
 }
 
 export function computeHistoryTokenBudget({

@@ -51,6 +51,7 @@ import {
   formatMetricsTable,
   installNetworkGuard,
   summarizeMetrics,
+  systemText,
 } from "./token-harness-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -242,7 +243,14 @@ async function prepareToolScope({ userContextId, workspaceDir }) {
     const originalExecute = tool.execute;
     const name = String(tool.name || "");
     tool.execute = async (input, context) => {
-      toolLog.push({ scenario: capture.current.scenario, shape: capture.current.shape, tool: name });
+      toolLog.push({
+        scenario: capture.current.scenario,
+        shape: capture.current.shape,
+        tool: name,
+        // Only the scoping fields, so the JSON report stays small.
+        userContextId: input && typeof input === "object" ? input.userContextId ?? null : null,
+        conversationId: input && typeof input === "object" ? input.conversationId ?? null : null,
+      });
       if (CANNED_TOOLS[name]) return CANNED_TOOLS[name](input);
       if (NETWORK_TOOL.test(name)) throw new Error(`[token-harness] network tool ${name} has no canned result`);
       return originalExecute(input, context);
@@ -646,6 +654,107 @@ check("chat-10-turn: 10 turns answered through the LLM path for both shapes", ()
     assert.equal(llmTurns.length, 10, `${r.shape}: routes ${r.turns.map((t) => t.responseRoute).join(",")}`);
   }
 });
+
+// Stage 1 (stable prefix + caching). Request order for every provider:
+//   [static system] [history...] [<nova_turn_context>...</nova_turn_context> + user message]
+const TURN_CONTEXT_TAG = "<nova_turn_context>";
+const CACHE_SCENARIOS = scenarioResults.filter((r) => r.scenario !== "mission-run");
+const lastMessage = (request) => (Array.isArray(request?.messages) ? request.messages[request.messages.length - 1] : null);
+const lastBlock = (message) => (Array.isArray(message?.content) ? message.content[message.content.length - 1] : null);
+const firstUserTurnText = (call) => {
+  // The turn's own user message: the last user message that is not a tool_result turn.
+  const messages = Array.isArray(call.request?.messages) ? call.request.messages : [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    if (typeof m.content === "string") return m.content;
+    const text = (m.content || []).filter((b) => b?.type === "text").map((b) => String(b.text || "")).join("");
+    if (text) return text;
+  }
+  return "";
+};
+
+for (const r of CACHE_SCENARIOS) {
+  check(`${r.scenario}/${r.shape}: static system prompt is byte-identical on every call and holds no per-turn content`, () => {
+    const systems = r.calls.map((c) => systemText(r.shape, c.request));
+    assert.ok(systems.every((sys) => sys === systems[0]), "system prompt changed between calls");
+    assert.ok(!systems[0].includes("## Skills (framework)"), "skills section is in the static system prompt");
+    for (const perTurn of ["</nova_turn_context>", "## Short-Term Context", "## Live Memory Recall", "## Live Web Search Context", "## Identity Intelligence"]) {
+      assert.ok(!systems[0].includes(perTurn), `per-turn content in the system prompt: ${perTurn}`);
+    }
+    assert.ok(Math.floor(systems[0].length / 3.5) >= 1024, `static system prompt ~${Math.floor(systems[0].length / 3.5)} tok, below OpenAI's 1,024-token cache minimum`);
+  });
+}
+
+check("chat-10-turn: per-turn context reaches the model in the final user turn, before the user's words", () => {
+  for (const r of scenarioResults.filter((x) => x.scenario === "chat-10-turn")) {
+    const turnTexts = r.calls.map(firstUserTurnText);
+    CHAT_TURNS.forEach(([userText], index) => {
+      const call = r.calls.find((c) => firstUserTurnText(c).endsWith(userText));
+      assert.ok(call, `${r.shape}: turn ${index + 1} user text is not at the end of any final user turn`);
+    });
+    const withContext = turnTexts.filter((t) => t.startsWith(TURN_CONTEXT_TAG));
+    assert.ok(withContext.length >= 9, `${r.shape}: only ${withContext.length}/10 turns carried a per-turn context block`);
+    assert.ok(new Set(withContext).size === withContext.length, `${r.shape}: per-turn blocks did not change with the message`);
+    assert.ok(withContext.some((t) => t.includes("## Skills (framework)")), `${r.shape}: skills never reached the model`);
+  }
+});
+
+for (const r of CACHE_SCENARIOS.filter((x) => x.shape === "claude")) {
+  check(`${r.scenario}/claude: cache_control on the static system block, the history end and the latest tool-loop message`, () => {
+    r.calls.forEach((call, index) => {
+      const system = call.request.system;
+      assert.ok(Array.isArray(system) && system.length === 1, `call ${index + 1}: system is not a single block`);
+      assert.deepEqual(system[0].cache_control, { type: "ephemeral" }, `call ${index + 1}: system block not cached`);
+      const isToolStep = Array.isArray(call.request.tools) && call.request.tools.length > 0;
+      if (isToolStep) {
+        assert.ok(lastBlock(lastMessage(call.request))?.cache_control, `call ${index + 1}: latest tool-loop message has no breakpoint`);
+      }
+      const messages = call.request.messages;
+      if (!isToolStep && messages.length >= 2) {
+        assert.ok(lastBlock(messages[messages.length - 2])?.cache_control, `call ${index + 1}: end of history has no breakpoint`);
+      }
+    });
+  });
+}
+
+for (const r of CACHE_SCENARIOS) {
+  check(`${r.scenario}/${r.shape}: simulated provider cache reads on every call after the first`, () => {
+    const later = r.calls.slice(1);
+    const misses = later.map((c, i) => (Number(c.simulatedCache?.readTokens || 0) > 0 ? null : i + 2)).filter(Boolean);
+    assert.deepEqual(misses, [], `calls without a cache read: ${misses.join(", ")}`);
+  });
+}
+
+check("gmail-triage: Gmail tools run for the task's user and conversation in both tool loops", () => {
+  for (const shape of SHAPES) {
+    const calls = toolLog.filter((t) => t.scenario === "gmail-triage" && t.shape === shape && t.tool.startsWith("gmail_"));
+    assert.ok(calls.length >= 3, `${shape}: only ${calls.length} gmail tool calls`);
+    for (const call of calls) {
+      assert.equal(call.userContextId, `tb-gmail-triage-${shape}`, `${shape}: ${call.tool} ran with userContextId=${call.userContextId}`);
+      assert.equal(call.conversationId, `agent-task-tb-gmail-triage-${shape}-task`, `${shape}: ${call.tool} conversationId=${call.conversationId}`);
+    }
+  }
+});
+
+{
+  const { getDb } = await import(pathToFileURL(path.join(repoRoot, "src/db/index.js")).href);
+  const db = getDb();
+  check("cache reads land in the llm_usage ledger and the chat session totals (persistUsage)", () => {
+    for (const shape of SHAPES) {
+      const userId = `tb-chat-${shape}`;
+      const ledger = db.prepare(
+        "SELECT COALESCE(SUM(cached_input_tokens), 0) AS cached, COALESCE(SUM(cache_write_input_tokens), 0) AS written FROM llm_usage WHERE user_id = ?",
+      ).get(userId);
+      assert.ok(Number(ledger.cached) > 0, `${shape}: llm_usage has no cached_input_tokens`);
+      if (shape === "claude") assert.ok(Number(ledger.written) > 0, "claude: llm_usage has no cache_write_input_tokens");
+      const sessions = db.prepare("SELECT data_json FROM sessions WHERE user_id = ?").all(userId).map((row) => JSON.parse(row.data_json));
+      const sessionCached = sessions.reduce((total, entry) => total + Number(entry.cachedInputTokens || 0), 0);
+      assert.ok(sessionCached > 0, `${shape}: session entry has no cachedInputTokens`);
+      assert.ok(sessionCached <= Number(ledger.cached), `${shape}: session cached total exceeds the ledger`);
+    }
+  });
+}
 
 // ── Report ───────────────────────────────────────────────────────────────────────────────────────────────────
 

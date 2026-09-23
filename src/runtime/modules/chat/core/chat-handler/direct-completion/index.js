@@ -24,6 +24,7 @@ export async function runClaudeDirectCompletion({
   systemPrompt,
   historyMessages,
   text,
+  userTurnText,
   hasStrictOutputRequirements,
   assistantStreamId,
   source,
@@ -39,7 +40,8 @@ export async function runClaudeDirectCompletion({
     provider: activeChatRuntime.provider,
   });
   let emittedAssistantDelta = false;
-  const claudeMessages = [...historyMessages, { role: "user", content: text }];
+  // The final user turn carries the per-turn context prefix (prompt-context-builder); `text` is the bare message.
+  const claudeMessages = [...historyMessages, { role: "user", content: userTurnText || text }];
   const claudeCompletion = hasStrictOutputRequirements
     ? await withTimeout(
       claudeMessagesCreate({
@@ -50,6 +52,7 @@ export async function runClaudeDirectCompletion({
         messages: claudeMessages,
         userText: text,
         maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+        cacheConversationPrefix: true,
         signal: abortSignal,
       }),
       OPENAI_REQUEST_TIMEOUT_MS,
@@ -63,6 +66,7 @@ export async function runClaudeDirectCompletion({
       messages: claudeMessages,
       userText: text,
       maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+      cacheConversationPrefix: true,
       timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
       onDelta: (delta) => {
         emittedAssistantDelta = true;

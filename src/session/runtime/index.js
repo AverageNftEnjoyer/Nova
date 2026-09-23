@@ -293,6 +293,8 @@ export function createSessionRuntime({
             outputTokens: 0,
             totalTokens: 0,
             contextTokens: 0,
+            cachedInputTokens: 0,
+            cacheWriteInputTokens: 0,
             model: "",
             userContextId: effectiveUserContextId,
           }
@@ -312,7 +314,9 @@ export function createSessionRuntime({
       sessionKey,
       sessionEntry,
       transcript,
-      persistUsage: ({ model, promptTokens, completionTokens }) => {
+      // promptTokens is the total input (cached and cache-write tokens included, see src/providers/usage);
+      // the two cache fields are the cached subset and Anthropic's cache writes, accumulated per session.
+      persistUsage: ({ model, promptTokens, completionTokens, cachedInputTokens, cacheWriteInputTokens }) => {
         updateSessionEntry(effectiveUserContextId, sessionKey, (current) => {
           const latestEntry = current || sessionEntry;
           return {
@@ -327,6 +331,8 @@ export function createSessionRuntime({
               Number(promptTokens || 0) +
               Number(completionTokens || 0),
             contextTokens: Number(latestEntry.contextTokens || 0) + Number(promptTokens || 0),
+            cachedInputTokens: Number(latestEntry.cachedInputTokens || 0) + Number(cachedInputTokens || 0),
+            cacheWriteInputTokens: Number(latestEntry.cacheWriteInputTokens || 0) + Number(cacheWriteInputTokens || 0),
           };
         });
       },

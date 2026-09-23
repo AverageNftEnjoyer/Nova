@@ -48,6 +48,8 @@ pnpm-debug.log*
 .npm-cache/
 out/
 build/
+# agent-core build helpers are source, not output
+!scripts/build/
 # staged repo-root runtime for Electron packaging (see hud/scripts/prepare-runtime-resources.mjs)
 hud/runtime-resources/
 !hud/app/api/missions/build/

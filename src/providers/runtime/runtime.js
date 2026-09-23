@@ -14,6 +14,7 @@ import {
 } from "../../runtime/core/constants/index.js";
 import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace-user-root/index.js";
 import { getDb } from "../../db/index.js";
+import { toCachedClaudeSystem, withClaudeCacheBreakpoint } from "../anthropic-cache/index.js";
 import { resolveUserContextRoot } from "../../db/paths.js";
 import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
 import {
@@ -663,6 +664,8 @@ function normalizeClaudeMessages(messages, userText) {
     return messages
       .map((msg) => {
         const role = msg?.role === "assistant" ? "assistant" : "user";
+        // Content blocks pass through as-is; strings are trimmed and empty turns dropped.
+        if (Array.isArray(msg?.content)) return msg.content.length > 0 ? { role, content: msg.content } : null;
         const content = String(msg?.content || "").trim();
         if (!content) return null;
         return { role, content };
@@ -670,6 +673,22 @@ function normalizeClaudeMessages(messages, userText) {
       .filter(Boolean);
   }
   return [{ role: "user", content: String(userText || "") }];
+}
+
+// Request body for /v1/messages with prompt caching: the system prompt is one cached block, and with
+// `cacheConversationPrefix` the message before the final user turn (the end of the history) is a second
+// breakpoint, so the next turn reads the earlier conversation from cache (src/providers/anthropic-cache).
+function buildClaudeRequestBody({ model, maxTokens, stream, system, messages, cacheConversationPrefix }) {
+  const requestMessages = cacheConversationPrefix && messages.length >= 2
+    ? withClaudeCacheBreakpoint(messages, messages.length - 2)
+    : messages;
+  return {
+    model,
+    max_tokens: maxTokens,
+    ...(stream ? { stream: true } : {}),
+    system: toCachedClaudeSystem(system),
+    messages: requestMessages,
+  };
 }
 
 export async function claudeMessagesCreate({
@@ -680,6 +699,7 @@ export async function claudeMessagesCreate({
   userText,
   messages,
   maxTokens = 1200,
+  cacheConversationPrefix = false,
   signal,
 }) {
   const requestMessages = normalizeClaudeMessages(messages, userText);
@@ -691,12 +711,14 @@ export async function claudeMessagesCreate({
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01"
     },
-    body: JSON.stringify({
+    body: JSON.stringify(buildClaudeRequestBody({
       model,
-      max_tokens: maxTokens,
+      maxTokens,
+      stream: false,
       system,
-      messages: requestMessages
-    }),
+      messages: requestMessages,
+      cacheConversationPrefix,
+    })),
     signal,
   });
   const data = await res.json();
@@ -725,6 +747,7 @@ export async function claudeMessagesStream({
   maxTokens = 1200,
   timeoutMs = OPENAI_REQUEST_TIMEOUT_MS,
   onDelta,
+  cacheConversationPrefix = false,
   signal,
 }) {
   const requestMessages = normalizeClaudeMessages(messages, userText);
@@ -742,13 +765,14 @@ export async function claudeMessagesStream({
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01"
     },
-    body: JSON.stringify({
+    body: JSON.stringify(buildClaudeRequestBody({
       model,
-      max_tokens: maxTokens,
+      maxTokens,
       stream: true,
       system,
-      messages: requestMessages
-    }),
+      messages: requestMessages,
+      cacheConversationPrefix,
+    })),
     signal: controller.signal
   });
 

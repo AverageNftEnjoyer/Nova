@@ -50,6 +50,14 @@ npm run smoke:production-routes
 # Where the installed megabytes go (hud/, after a build)
 npm run package:size
 
+# Compile the TS agent core into dist/ plus re-export shims for JS-only modules
+# (scripts/build/link-src-js-modules.mjs); repo root, needed by most src smokes and by packaging
+npm run build:agent-core
+
+# Offline token/caching harness (no API keys) and usage/cost smokes (repo root)
+npm run smoke:token-baseline
+npm run smoke:token-usage
+
 # Smoke tests
 cd hud
 npm run test:smoke
@@ -89,7 +97,7 @@ All user data lives in the **data directory**, resolved by `src/db/paths.js` (`r
 
 Inside the data directory:
 
-- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail)
+- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail), `llm_usage` (one row per LLM call: source chat/agent-task/mission, provider, model, input/output/cached/cache-write tokens, cost; migration 13; pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90)
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
@@ -125,13 +133,14 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence
+**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking (incl. cached/cache-write tokens), SQLite persistence
+
+**Prompt & caching**: `prompt-context-builder` returns a static system prompt (never depends on the user's message; keep it byte-stable) and a per-turn context block sent as a `<nova_turn_context>` prefix of the final user turn. Order for every provider: [static system][history][per-turn context + user message]. Claude requests carry `cache_control` breakpoints (`src/providers/anthropic-cache`); OpenAI/Gemini/Grok cache automatically. Every LLM call records usage through `src/providers/usage` into `llm_usage`; pricing lives in `src/providers/pricing`. Default models: gpt-5.6-terra, claude-sonnet-5, gemini-3.8-flash, grok-4.3. Measurements and plan: `docs/token-efficiency/`
 
 **Storage**: One SQLite `nova.db` in the data directory (`src/db/paths.js`), DPAPI-protected encrypted secrets, markdown workspace docs as files
 
 **Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing
 **Electron**: Window mgmt (min 1024x768), single-instance lock. X quits the app (stops the in-process server + runtime); minimize goes to the taskbar and everything keeps running. System tray: Show/Hide/Check for Updates/Quit. Installed builds auto-update from GitHub Releases (`electron/auto-updater.js`, see `docs/release/auto-update.md`). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
-**Electron**: Window mgmt (min 1024x768), system tray, deep linking (nova://). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
 
 ## Development Guidelines
 
@@ -151,7 +160,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.71 Alpha**
+Current: **V.72 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

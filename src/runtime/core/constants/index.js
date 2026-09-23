@@ -172,6 +172,15 @@ export const PROMPT_CONTEXT_SECTION_MAX_TOKENS = readIntEnv(
   { min: 1, max: 1_000_000 },
 );
 
+// Floor for the per-turn context block (memory recall, web/link context, identity, preferences, ...). The static
+// system prompt no longer eats this budget; see computeTurnContextTokenBudget in chat/prompt/prompt-budget.
+const DEFAULT_PROMPT_TURN_CONTEXT_MIN_TOKENS = 2000;
+export const PROMPT_TURN_CONTEXT_MIN_TOKENS = readIntEnv(
+  "NOVA_PROMPT_TURN_CONTEXT_MIN_TOKENS",
+  DEFAULT_PROMPT_TURN_CONTEXT_MIN_TOKENS,
+  { min: 0, max: 1_000_000 },
+);
+
 export const PROMPT_BUDGET_DEBUG =
   String(process.env.NOVA_PROMPT_BUDGET_DEBUG || "").trim() === "1";
 

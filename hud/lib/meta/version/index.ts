@@ -10,8 +10,18 @@
  *
  * Version History:
  *
+ * - V.72 Alpha (2026-09-24): Token efficiency: stable prompt prefix + prompt caching
+ *     - The chat/agent prompt is split in two. The static system prompt (identity, policies, persona files, runtime line, HUD persona) is byte-identical between turns; everything chosen per turn (skills, preferences, identity, personality, short-term context, routing contract, web/link/memory context, strict output rules) now rides in a `<nova_turn_context>` block at the start of the final user turn. Request order for every provider: [static system] [history] [per-turn context + user message]. The identity section no longer embeds an `updated=<timestamp>` per trait.
+ *     - Anthropic prompt caching: `cache_control` breakpoints on the static system block (also covers the tools), the end of the chat history, and the latest tool-loop message (max 3 of 4). OpenAI, Grok and Gemini cache automatically once the prefix repeats; the static prompt is ~3.3k tokens, above OpenAI's 1,024-token minimum. Cache reads/writes are recorded in `llm_usage` and now also in the chat session totals.
+ *     - Fixed: per-turn context (memory recall, web preload, link context, identity, preferences) was silently dropped at default settings (`no_system_budget`) because the static prompt filled the whole system budget. It now has its own budget (`NOVA_PROMPT_TURN_CONTEXT_MIN_TOKENS`, default 2000). This sends more context per turn by design.
+ *     - Fixed: the `## Tooling` prompt section claimed no tools were registered. Fixed: the Claude tool loop now scopes Gmail/Coinbase tool inputs to the current user and conversation and applies the HUD confirmation gate for Gmail forward/reply, like the OpenAI-compatible loop (shared `chat-handler/tool-input-scope`).
+ *     - Measured offline (`docs/token-efficiency/BASELINE.md`, simulated provider caches, not yet a live bill): Claude input cost per scenario -42% to -67%; OpenAI +6% to +27%, because the context that used to be dropped now reaches the model (OpenAI already cached after the V.71 Skills move).
+ *     - Build: restored `scripts/build/link-src-js-modules.mjs` (the `dist/` re-export shims step of `build:agent-core`), which was never committed because `build/` is gitignored; fresh clones could not run `build:agent-core` or package the app. `scripts/build/` is now tracked.
+ *     - Tests: `smoke:token-baseline` checks the static prefix is identical on every call, the per-turn block reaches the model, Claude requests carry the breakpoints, simulated provider caches hit on every call after the first, and cache reads reach `llm_usage` and the session totals; `smoke:src-prompt` checks per-turn context survives a fresh-install persona.
+ *
  * - V.71 Alpha (2026-09-24): Installer diet + handoff closures complete
  *     - Much smaller install (about 1,043 MB -> 595 MB, 64k -> 23k files): Turbopack already bundles the UI libraries into `.next`, so `hud/package.json` now lists only what the packaged server loads at runtime (`next`, `react`, `react-dom`, `electron-updater`, `jsdom`) under `dependencies` and everything else under `devDependencies` (electron-builder does not ship those); unused packages removed; Electron ships English locales only; source maps, `.next/dev`, `.next/cache`, `.next/types`, `@next/swc-*` and `sharp` are excluded (`images.unoptimized`); the agent runtime is staged with a production-only `npm ci` instead of a full node_modules copy; better-sqlite3 is trimmed to the win32-x64 binary (`hud/scripts/after-pack.js`). Guarded by the new `smoke:production-routes` (loads every page and GET API route on the packaged build and fails on any unexpected runtime `require`); `npm run package:size` in `hud/` reports where the megabytes go.
+ *     - Token-efficiency Stage 0 (tracking + baseline; migration 13 and the usage/pricing modules landed with the V.70 commit): every LLM call (chat, agent tasks, missions) writes one row to the new `llm_usage` table (migration 13, which also adds `agent_tasks.cached_input_tokens` / `cache_write_input_tokens`); rows are pruned after `NOVA_LLM_USAGE_RETENTION_DAYS` (default 90). Usage is normalised across providers including cached tokens, pricing covers Gemini and Grok plus cached-input rates (`src/providers/pricing`), failed and paused agent tasks now record their tokens, and mission LLM calls report usage. New default models: gpt-5.6-terra, claude-sonnet-5, gemini-3.8-flash, grok-4.3 (stored choices are not rewritten). Strict correction passes send `reasoning_effort: "low"` to gpt-5.6 models. Offline harness: `smoke:token-baseline`, `smoke:token-usage` (see `docs/token-efficiency/`).
  *     - All release closures from the V.67 handoff are done and the handoff note was removed: release gate green (`npm run verify:release-readiness`), `smoke:agent-tasks` in the chain, `smoke:live-latency` is the separate opt-in live check, real Coinbase unit tests remain backlog, and the packaged build is verified by `smoke:production-boot` and `smoke:production-routes`. Auto-update is built and source-checked but has not yet been run against a real published release (see `docs/release/auto-update.md`).
  *
  * - V.70 Alpha (2026-09-23): Release gate cleanup + settings mirror hardening + desktop behavior
@@ -469,7 +479,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.71 Alpha"
+export const NOVA_VERSION = "V.72 Alpha"
 
 
 

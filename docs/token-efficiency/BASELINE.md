@@ -17,7 +17,7 @@ Recorded 2026-09-23 against HEAD `dce2799` (V.70) plus the uncommitted Stage 0 c
   - **~tok**: `countApproxTokens` = ceil(chars / 3.5).
   - **stable prefix**: leading characters identical to the previous call in the same scenario and shape. The serialization is `JSON(tools) \n JSON(messages)` for OpenAI and `JSON(tools) \n JSON(system) \n JSON(messages)` for Claude, which is the order a provider sees as a cacheable prefix.
 - Models: `gpt-5.6-terra` and `claude-sonnet-5` (the new defaults). The model name only affects the `## Runtime` line.
-- Determinism: four reruns gave identical numbers. Payload bytes also matched, except chat call 1. The Personality Calibration section embeds `updated=<ISO timestamp>` there; the field is fixed-width, so the counts don't change. That timestamp will also break a cached prefix in Stage 1.
+- Determinism: four reruns gave identical numbers. Payload bytes also matched, except chat call 1. The Identity Intelligence section (`src/runtime/modules/context/identity/prompt`) embedded `updated=<ISO timestamp>` there (earlier notes wrongly said Personality Calibration); the field is fixed-width, so the counts didn't change. Removed in Stage 1.
 
 ## How to rerun
 
@@ -105,3 +105,35 @@ Current models (offered in Nova's pickers; default first):
 - grok-3-mini and grok-code-fast-1 billing after the redirect.
 - Gemini long-context tiers and explicit-cache storage charges (not modelled).
 - The gemini-3.8-flash price change after 2026-12-31 (not modelled).
+
+## Stage 1 re-measure (2026-09-23, V.72)
+
+Same harness, same scenarios, same models. "Before" is HEAD `36bc6c2` (V.71, which already includes Stage 1 step 1a, Skills moved to the end of the system prompt) run with the Stage 1 harness in a temporary worktree, so both sides use the same metrics. "After" is the V.72 working tree. Offline and exact for the request bytes; token counts use the runtime estimator (chars / 3.5).
+
+**Simulated provider caches.** The fake providers now model each provider's documented caching rules, so the harness can show cache reads without a key (rules in the header of `token-harness-lib.mjs`):
+- OpenAI-compatible: automatic prefix caching against any earlier request in the scenario, from 1,024 tokens, in 128-token steps.
+- Anthropic: only at `cache_control` breakpoints, with the 20-block lookback, max 4 breakpoints and the 1,024-token minimum for claude-sonnet-5.
+These are models of the docs, not real billing. Only the deferred live check can confirm real cache hits.
+
+Input $ per run uses the Stage 0 rates: gpt-5.6-terra $2.00 in / $0.20 cached; claude-sonnet-5 $2.00 in / $0.20 cache read / $2.50 cache write, per 1M tokens. Output tokens are the same before and after, so they are left out.
+
+| Scenario | Shape | Total input ~tok (b→a) | Sim cached (b→a) | Sim cache-write (a) | Uncached (b→a) | Input $ per run (b→a) | Static sys ~tok (b→a) | Calls with identical system (b→a) | Prefix avg/min calls 2+ (b→a) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| chat-10-turn | openai | 38,757 → 43,154 | 31,488 → 33,280 | 0 | 7,269 → 9,874 | 0.0208 → 0.0264 | 3,014 → 3,195 | 1/10 → 10/10 | 3423/2960 → 3756/3283 |
+| chat-10-turn | claude | 38,685 → 43,420 | 0 → 33,948 | 4,420 | 38,685 → 5,052 | 0.0774 → 0.0279 | 3,015 → 3,196 | 1/10 → 10/10 | 3416/2953 → 3673/3284 |
+| web-research | openai | 20,305 → 22,433 | 12,672 → 14,208 | 0 | 7,633 → 8,225 | 0.0178 → 0.0193 | 3,200 → 3,195 | 3/3 → 3/3 | 6414/6222 → 7124/6931 |
+| web-research | claude | 19,528 → 21,749 | 0 → 13,805 | 7,853 | 19,528 → 91 | 0.0391 → 0.0226 | 3,201 → 3,196 | 3/3 → 3/3 | 6188/6008 → 6533/5980 |
+| agent-task | openai | 40,528 → 42,760 | 32,896 → 34,688 | 0 | 7,632 → 8,072 | 0.0218 → 0.0231 | 3,360 → 3,253 | 6/6 → 6/6 | 6645/6426 → 7017/6799 |
+| agent-task | claude | 39,274 → 41,682 | 0 → 34,020 | 7,418 | 39,274 → 244 | 0.0785 → 0.0258 | 3,362 → 3,254 | 6/6 → 6/6 | 6438/6212 → 6707/6038 |
+| gmail-triage | openai | 31,014 → 33,853 | 22,016 → 24,192 | 0 | 8,998 → 9,661 | 0.0224 → 0.0242 | 3,452 → 3,253 | 4/4 → 4/4 | 7409/6495 → 8118/7204 |
+| gmail-triage | claude | 30,179 → 33,138 | 0 → 23,725 | 9,288 | 30,179 → 125 | 0.0604 → 0.0282 | 3,453 → 3,254 | 4/4 → 4/4 | 7198/6281 → 7595/6038 |
+| mission-run | openai | 550 → 550 | 0 → 0 | 0 | 550 → 550 | 0.0011 → 0.0011 | 28 → 28 | 1/1 → 1/1 | 0/0 → 0/0 |
+| mission-run | claude | 542 → 542 | 0 → 0 | 0 | 542 → 542 | 0.0011 → 0.0011 | 28 → 28 | 1/1 → 1/1 | 0/0 → 0/0 |
+
+What changed and why:
+- **The static system prompt is identical on every call** in every scenario (chat: 1/10 → 10/10). It is ~3,195–3,254 ~tok, above OpenAI's 1,024-token automatic-caching minimum and Anthropic's 1,024-token minimum for claude-sonnet-5. It is below Gemini 3.x's 4,096-token implicit-caching minimum on its own, so Gemini chat only caches once the history pushes the prefix past 4,096. It is also below claude-haiku-4-5's 4,096 minimum; there the history breakpoint does the caching after a few turns.
+- **Claude**: cache reads on every call after the first in every scenario (0/19 → 19/19). Uncached input drops 87 % in chat and 99 % in tool loops. Input cost per run drops **42–67 %** (chat 0.0774 → 0.0279 $, web research 0.0391 → 0.0226 $, agent task 0.0785 → 0.0258 $), after paying for the cache writes.
+- **OpenAI**: it already cached from the Skills move in step 1a, and still does on every call after the first. Its input cost per run goes **up 6–27 %**, because the `no_system_budget` fix now delivers the per-turn context (identity, preferences, short-term context, memory/web/link context) that was silently dropped before. That is the intended trade (PLAN.md "Found issues" #1): same caching, more of the context that was meant to reach the model.
+- **Total input tokens** rise 5–12 % for the same reason (plus ~180 ~tok of new static text: Conversation Continuity is now always in the static prompt, and a short section explains the per-turn block).
+- The chat "stable prefix vs the previous call" stays at ~3.3k minimum rather than growing with history, because the previous call's final user turn carried its per-turn block and the history copy of that message does not. Caches still read the history: OpenAI matches against every earlier request, and Anthropic's history breakpoint is written one turn and read the next.
+- Mission runs are unchanged (~550 ~tok, below every cache minimum).
