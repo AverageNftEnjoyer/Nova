@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../net-guard/index.js";
 import type { Tool } from "../../core/types/index.js";
+import { WEB_FETCH_PAGE_CHARS, pageTextByOffset } from "../../core/output-caps/index.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
@@ -107,17 +108,18 @@ async function parseHtmlToMarkdown(params: {
 export function createWebFetchTool(): Tool {
   return {
     name: "web_fetch",
-    description: "Fetch a URL and extract readable Markdown content.",
+    description: "Fetch a URL and extract readable Markdown content. Long pages come in parts (see offset).",
     capabilities: ["network.fetch"],
     input_schema: {
       type: "object",
       properties: {
         url: { type: "string", description: "HTTP or HTTPS URL to fetch." },
+        offset: { type: "number" },
       },
       required: ["url"],
       additionalProperties: false,
     },
-    execute: async (input: { url?: string }) => {
+    execute: async (input: { url?: string; offset?: number }) => {
       const url = String(input?.url ?? "").trim();
       if (!url) return "web_fetch error: url is required";
 
@@ -163,9 +165,15 @@ export function createWebFetchTool(): Tool {
           finalUrl,
           fallbackTitle: parsed.hostname,
         });
-        let markdown = parsedMarkdown;
-        markdown = truncate(markdown.trim(), 16_000);
-        return `# ${title}\n\nSource: ${finalUrl}\n\n${markdown}`;
+        // One page of the markdown (output-caps registry); the marker names the offset of the next page.
+        const { page, offset } = pageTextByOffset({
+          text: parsedMarkdown.trim(),
+          offset: input?.offset,
+          pageChars: WEB_FETCH_PAGE_CHARS,
+          nextCall: (nextOffset) => `call web_fetch with {"url": ${JSON.stringify(url)}, "offset": ${nextOffset}}.`,
+        });
+        const continued = offset > 0 ? `(continued from character ${offset + 1})\n\n` : "";
+        return `# ${title}\n\nSource: ${finalUrl}\n\n${continued}${page}`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `web_fetch error: ${message}`;

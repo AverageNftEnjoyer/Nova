@@ -3,6 +3,7 @@ import {
   resolveToolCapabilities,
 } from "../capability-policy/index.js";
 import { classifyToolRisk, evaluateToolPolicy } from "../risk-policy/index.js";
+import { capToolOutput } from "../output-caps/index.js";
 import type {
   AnthropicToolUseBlock,
   Tool,
@@ -68,17 +69,19 @@ export async function executeToolUse(
     };
   }
 
+  // Every result, including errors that echo the input, passes the output-cap registry (src/tools/core/output-caps).
+  const input = toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {};
   try {
     const output = await tool.execute(toolUse.input, policyContext);
     return {
       tool_use_id: toolUse.id,
-      content: output,
+      content: capToolOutput(tool.name, input, output).content,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       tool_use_id: toolUse.id,
-      content: `Tool execution failed: ${message}\nInput:\n${stringifyInput(toolUse.input)}`,
+      content: capToolOutput(tool.name, input, `Tool execution failed: ${message}\nInput:\n${stringifyInput(toolUse.input)}`).content,
       is_error: true,
     };
   }

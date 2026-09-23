@@ -121,7 +121,7 @@ In development NovaAIO runs as two cooperating processes, started together by a 
 
 ### Engineering decisions worth calling out
 
-- **Bounded tool loops.** Every chat and agent tool loop has limits on step count, total duration, per-call timeout, and calls per step, all configurable. A runaway model can't spin forever.
+- **Bounded tool loops.** Every chat and agent tool loop has limits on step count, total duration, per-call timeout, and calls per step, all configurable. A runaway model can't spin forever. Tool results are capped too (`src/tools/core/output-caps`): a long file, page or command output comes back one window at a time, with a note telling the model exactly how to request the next part.
 - **Capability and risk policies.** Tools are gated by policy before they execute, and higher-risk actions can require approval from the HUD.
 - **Network safety.** Web fetch goes through an SSRF guard that blocks requests to private and internal addresses.
 - **Secrets handling.** Stored API keys are encrypted at rest (AES-256-GCM) with a random master key that Windows DPAPI wraps for your Windows account; secrets are never returned unmasked to the browser. See [docs/security/local-data.md](docs/security/local-data.md) for what this does and does not protect against. OAuth flows use signed state, comparisons are timing-safe, and API routes are rate limited per user and per IP.

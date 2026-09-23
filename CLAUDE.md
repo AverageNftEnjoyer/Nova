@@ -137,6 +137,8 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 **Prompt & caching**: `prompt-context-builder` returns a static system prompt (never depends on the user's message; keep it byte-stable) and a per-turn context block sent as a `<nova_turn_context>` prefix of the final user turn. Order for every provider: [static system][history][per-turn context + user message]. Claude requests carry `cache_control` breakpoints (`src/providers/anthropic-cache`); OpenAI/Gemini/Grok cache automatically. Every LLM call records usage through `src/providers/usage` into `llm_usage`; pricing lives in `src/providers/pricing`. Default models: gpt-5.6-terra, claude-sonnet-5, gemini-3.8-flash, grok-4.3. Measurements and plan: `docs/token-efficiency/`
 
+**Tool output caps**: every tool result passes `capToolOutput` in `src/tools/core/executor`; all limits and truncation markers live in `src/tools/core/output-caps` (never add a per-tool `truncate`). Paging tools (`read` 400-line window, `memory_get`/`web_fetch` `offset`) return one page and name the exact next call; others are cut by the executor with a how-to-get-more marker; unlisted tools get a 64,000-char safety net
+
 **Storage**: One SQLite `nova.db` in the data directory (`src/db/paths.js`), DPAPI-protected encrypted secrets, markdown workspace docs as files
 
 **Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing

@@ -287,6 +287,98 @@ await run("P5-C4 link understanding extracts + compacts URL context", async () =
   assert.equal(formatted.length <= 900 + 20, true);
 });
 
+// ── Stage 2: tool output caps (src/tools/core/output-caps), through the real executor ─────────────────────────
+
+const distOutputCapsPath = path.join(process.cwd(), "dist", "tools", "core", "output-caps", "index.js");
+const distMemoryToolsPath = path.join(process.cwd(), "dist", "tools", "builtin", "memory-tools", "index.js");
+const { TRUNCATION_MARKER_PREFIX } = await import(pathToFileURL(distOutputCapsPath).href);
+const { createMemoryTools } = await import(pathToFileURL(distMemoryToolsPath).href);
+
+/** The JSON arguments of the follow-up call a truncation marker names, e.g. `call read with {...}.` */
+function followUpInput(content, toolName) {
+  const markerAt = content.lastIndexOf(TRUNCATION_MARKER_PREFIX);
+  if (markerAt < 0) return null;
+  // Only a paging marker names a follow-up call; a note such as an over-long line does not.
+  const match = content.slice(markerAt).match(new RegExp(`call ${toolName} with (\\{.*\\})\\.\\]$`));
+  return match ? JSON.parse(match[1]) : null;
+}
+
+/** Pages through a tool by following its markers; returns every page body (markers stripped) and the call count. */
+async function followPages(tools, toolName, firstInput, maxCalls = 50) {
+  const bodies = [];
+  let input = firstInput;
+  let calls = 0;
+  while (input && calls < maxCalls) {
+    const result = await executeToolUse({ id: `page_${calls}`, name: toolName, input, type: "tool_use" }, tools);
+    calls += 1;
+    assert.equal(result.is_error, undefined, `page ${calls} failed: ${String(result.content).slice(0, 200)}`);
+    const content = String(result.content);
+    const markerAt = content.lastIndexOf(`\n\n${TRUNCATION_MARKER_PREFIX}`);
+    bodies.push({ content, body: markerAt >= 0 ? content.slice(0, markerAt) : content });
+    input = followUpInput(content, toolName);
+  }
+  return { bodies, calls };
+}
+
+await run("P5-C5 read caps a huge file to a 400-line window and its markers page through the whole file", async () => {
+  const dir = fs.mkdtempSync(path.join(process.env.NOVA_DATA_DIR, "caps-read-"));
+  const lines = Array.from({ length: 1_234 }, (_, i) => `line ${i + 1}: ${"x".repeat(40)}`);
+  fs.writeFileSync(path.join(dir, "big.log"), `${lines.join("\n")}\n`, "utf8");
+  // A minified-style file: 3 lines of 40k characters each, past the read character budget.
+  const wide = Array.from({ length: 3 }, (_, i) => `${i}`.repeat(40_000));
+  fs.writeFileSync(path.join(dir, "wide.js"), wide.join("\n"), "utf8");
+  const tools = createToolRegistry(
+    { enabledTools: ["read"], execApprovalMode: "ask", safeBinaries: [], webSearchProvider: "brave", webSearchApiKey: "" },
+    { workspaceDir: dir, memoryManager: null },
+  );
+
+  const { bodies, calls } = await followPages(tools, "read", { path: "big.log" });
+  assert.equal(calls, 4, `expected 4 windows (400+400+400+34 lines), got ${calls}`);
+  assert.equal(bodies[0].body.split("\n").length, 400, "first window is not 400 lines");
+  assert.match(bodies[0].content, /showed lines 1-400 of 1,234; 834 more lines not shown\. To get more, call read with \{"path": "big\.log", "startLine": 401, "endLine": 800\}\.\]$/);
+  assert.equal(bodies.map((b) => b.body).join("\n"), lines.join("\n"), "paged windows do not reassemble the file");
+
+  const explicit = await executeToolUse({ id: "r2", name: "read", input: { path: "big.log", startLine: 1000, endLine: 1010 }, type: "tool_use" }, tools);
+  assert.equal(String(explicit.content).split("\n")[0], lines[999], "explicit range ignored");
+
+  // Lines longer than the whole character budget: one line per call, cut, and the cut is stated.
+  const widePages = await followPages(tools, "read", { path: "wide.js" });
+  assert.equal(widePages.calls, 3, `expected one call per oversized line, got ${widePages.calls}`);
+  for (const page of widePages.bodies) {
+    assert.ok(page.content.length <= 33_000, `wide page is ${page.content.length} chars`);
+    assert.match(page.content, /is 40,000 characters long; showed the first 32,000/);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+await run("P5-C6 memory_get pages a huge doc by offset; other tools get a capped result with a how-to marker", async () => {
+  const source = Array.from({ length: 4_000 }, (_, i) => `Fact ${i}: the deploy key rotates every ${i % 7} days.`).join("\n");
+  const memoryManager = { getSourceContentByChunkId: async (id) => (id === "chunk-1" ? source : null), search: async () => [] };
+  const memoryTools = createMemoryTools(memoryManager);
+  const { bodies, calls } = await followPages(memoryTools, "memory_get", { chunk_id: "chunk-1" });
+  assert.ok(source.length > 150_000, "fixture too small");
+  assert.ok(calls >= Math.ceil(source.length / 12_000) && calls <= Math.ceil(source.length / 10_800), `unexpected page count ${calls} for ${source.length} chars`);
+  for (const page of bodies) assert.ok(page.content.length <= 13_000, `memory_get page is ${page.content.length} chars`);
+  assert.equal(bodies.map((b) => b.body).join(""), source, "memory_get pages do not reassemble the source");
+
+  // exec: a command printing 200k characters is cut to the registry's 8,000 with a marker that says how to get more.
+  const runtime = createRuntime({ execApprovalMode: "auto" });
+  const state = await runtime.initToolRuntimeIfNeeded();
+  const execResult = await state.executeToolUse(
+    { id: "e1", name: "exec", input: { command: "node -e \"process.stdout.write('y'.repeat(200000))\"" }, type: "tool_use" },
+    state.tools,
+  );
+  const execText = String(execResult.content);
+  assert.ok(execText.length < 8_600, `exec output is ${execText.length} chars`);
+  assert.match(execText, /showed characters 1-8,000 of 200,000; 192,000 more characters not shown\. To get more, re-run the command/);
+
+  // A tool with no registry entry still cannot return an unbounded blob.
+  const blob = [{ name: "blob_tool", description: "test", riskLevel: "safe", input_schema: { type: "object" }, execute: async () => "z".repeat(500_000) }];
+  const blobResult = await executeToolUse({ id: "b1", name: "blob_tool", input: {}, type: "tool_use" }, blob);
+  assert.ok(String(blobResult.content).length < 65_000, "unregistered tool output was not capped");
+  assert.ok(String(blobResult.content).includes(TRUNCATION_MARKER_PREFIX), "unregistered tool cap has no marker");
+});
+
 const passCount = results.filter((r) => r.status === "PASS").length;
 const failCount = results.filter((r) => r.status === "FAIL").length;
 const skipCount = results.filter((r) => r.status === "SKIP").length;

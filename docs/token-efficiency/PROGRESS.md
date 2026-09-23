@@ -10,7 +10,7 @@ The plan is [PLAN.md](PLAN.md) (revised 2026-09-23: stages 0 tracking/baseline +
 | --- | --- |
 | 0 — Tracking & baseline | **Done** (user-confirmed 2026-09-23). Step 8 (live check) is deferred: the user will run it later. |
 | 1 — Stable prefix & caching | **Implemented (V.72), offline-verified.** Static/per-turn split, Anthropic `cache_control`, side fixes. Live check (real cache hits) still deferred to the user. |
-| 2 — Tool output ceilings | Next (this run's scope ends after Stage 2 + release docs, then pause) |
+| 2 — Tool output ceilings | **Implemented (V.72).** Cap registry in `src/tools/core/output-caps`, applied by the executor. **Run paused here for the owner.** |
 | 3–5 | Not started; do not start without the owner |
 
 Rules: see PLAN.md "Ground rules".
@@ -19,7 +19,7 @@ Rules: see PLAN.md "Ground rules".
 
 - Last session: 2026-09-23 (Session 4, Stage 1). Stage 0 is committed: migration 13 and the usage/pricing modules in V.70 (`dce2799`), the rest of Session 2 in V.71 (`36bc6c2`). Stage 1 ships as V.72 on branch `claude/intelligent-euler-dfu94w` (commit per stage; the owner authorised commits and pushes to this branch for this run).
 - The whole run lands as ONE version, V.72: its history entry in `hud/lib/meta/version/index.ts` is extended as stages finish; do not bump per stage.
-- Next action: Stage 2 (tool output ceilings, PLAN.md). Then pause for the owner. Step 8 (live check) is still deferred to the user; the Stage 1 numbers use simulated caches.
+- Next action: **paused after Stage 2, waiting for the owner.** Next per PLAN.md: decide whether Stage 3 (tool schema diet) is worth doing. With caching, schemas are ~2.9k ~tok per tool-loop call and mostly billed at the cached rate after the first step, so it looks marginal. Then Stage 4 (budgets) and Stage 5 (analytics + gate; there is no CI, see open issue 11). Step 8 (live check) is still deferred to the user; all Stage 1/2 numbers use simulated caches.
 - Baseline numbers and the Stage 1 before/after are in [BASELINE.md](BASELINE.md). Rerun with `npm run smoke:token-baseline` (needs `npm ci` at the root and in `hud/` on a fresh clone).
 
 ## Stage 0 implementation (Session 2)
@@ -121,7 +121,9 @@ Sources and rates are in BASELINE.md "Pricing used for cost". All official pages
 9. `src-delegated-chat-worker-contract-smoke` P31-C4 fails at HEAD because it expects `fallbackReason`, which `normalizeWorkerSummary` never had. This is pre-existing.
 10. ~~Release files were not bumped.~~ Done in Stage 1: V.71 history now records Stage 0 (ledger, migration 13, retention env, default models); V.72 records Stage 1; README, CLAUDE.md and `.env.example` updated.
 11. There is no CI (`.github/` does not exist). PLAN.md Stage 5's "CI regression gate" needs a CI to run in, or has to be a local `npm run` gate; decide with the owner before Stage 5.
-12. The Claude tool loop still does not wrap `web_search` / `web_fetch` tool results with `wrapWebContent` or detect suspicious patterns, unlike the OpenAI-compatible loop. Not in Stage 1 scope.
+12. ~~The Claude tool loop does not wrap `web_search` / `web_fetch` results.~~ Fixed in Stage 2 (same `wrapWebContent` + `detectSuspiciousPatterns` as the OpenAI-compatible loop).
+13. `read` cannot show the rest of a single line longer than 32,000 characters (minified code, one-line JSON). It shows the start of that line and says so, pointing to exec/grep. A character offset for `read` was left out as over-scope.
+14. `web_search` still cuts each snippet at 400 chars and error details at 800 with the old `... [truncated]` text (web_fetch errors too). These shape the content; they are not output caps, so they are left as they are.
 
 ## Corrections to the plan's architecture context
 
@@ -255,7 +257,7 @@ Fresh-install workspace built from `templates/`:
 3. AGENTS.md (~1.5k tokens) is copied into every workspace and loaded from disk each time the persona signature changes, but never used in the prompt.
 4. ~~Gemini/Grok cost is never computed (missing pricing); mission LLM calls report no usage.~~ Fixed in Stage 0.
 5. ~~Agent tasks that fail or pause record zero tokens even though tokens were spent.~~ Fixed in Stage 0.
-6. `read` has no output cap.
+6. ~~`read` has no output cap.~~ Fixed in Stage 2.
 
 ## Decisions
 
@@ -318,3 +320,17 @@ Recorded in PLAN.md ("Decided", "Needs your answer"). The original stages 3 (mem
 - After: typecheck, smoke:token-baseline 41/41, smoke:token-usage, smoke:openai-request-tuning, smoke:src-prompt 5/5, smoke:src-routing, smoke:agent-tasks, smoke:src-tools, smoke:src-providers, smoke:local-db, smoke:src-tool-loop-guardrails, prompt-context-builder node test, smoke:version-sync: all pass.
 - Release: NOVA_VERSION V.72 (package versions synced to 0.72.0).
 - Not verified: real provider cache hits (live check deferred), Gemini/xAI acceptance of the request shape (unchanged roles, so low risk).
+
+### 2026-09-23 — Session 5 (Stage 2 complete, still V.72)
+- **Registry** `src/tools/core/output-caps/index.ts`: all caps and every marker in one place. `capToolOutput()` runs in `executeToolUse` on every result, errors included (an error echoes its input, which can be big for `write`). Markers start with `[Output truncated by Nova:` and say what was shown (1-based), how much more there is, and the exact call that gets more. Cuts snap to a line break in the last 10 % of the budget and never split a surrogate pair.
+- **Paging tools** return one page themselves and name the next call: `read` (400-line window from PLAN.md, 32,000-char budget, keeps lines whole, one over-long line per call with a note), `memory_get` (new `offset`, 12,000 per page), `web_fetch` (new `offset`, 16,000 of markdown per page; a continued page says so). Their executor cap is the page size plus 1,000 chars of marker room, so it is only a backstop.
+- **Executor-capped:** `web_search` 6,000, `memory_search` 8,000, `exec` 8,000, `browser_agent` `maxOutputChars` (12,000 default, 32,000 max), `grep` 12,000 (plus the existing 200-match stop, now with a marker), `ls` 8,000, and everything else 64,000. The per-tool `truncate` helpers in exec, browser-agent, memory-tools and the web-search total cut were removed.
+- **Consumers checked:** the files, web-research, Gmail and Coinbase domain adapters and the link preload all read `executeToolUse` output as text, which they already did with the old markers. Gmail and Coinbase outputs are bounded by `maxResults` and are far below the 64,000 safety net.
+- **Claude loop:** web results are wrapped with `wrapWebContent` and scanned by `detectSuspiciousPatterns`, the same as the OpenAI-compatible loop (checked in the captured payloads).
+- **Tests:**
+  - `smoke:src-tools` gains P5-C5, run through the real executor: a 1,234-line file comes back as 400-line windows whose markers, followed as written, rebuild the file exactly; an explicit range is honoured; three 40k-char lines come back as one capped line per call with a note.
+  - It also gains P5-C6: a ~200k-char `memory_get` source paged by the marker offsets rebuilds exactly; `exec` printing 200k chars comes back at 8,000 with the how-to marker; an unregistered tool returning 500k chars is capped with a marker.
+  - `smoke:token-baseline` gains the large-read scenario and a check that its read reaches the model as a capped window whose marker names the next line. 51 checks.
+- **Measured:** BASELINE.md "Stage 2 re-measure". large-read input −78 %, cost −80 % (OpenAI) / −81 % (Claude). Other tool scenarios +0.1–1 %, from +44 ~tok of tool schema per call.
+- **Suites after:** typecheck, smoke:token-baseline 51/51, token-usage, openai-request-tuning, src-prompt, src-routing, agent-tasks, src-tools 8/8, src-providers, local-db, src-tool-loop-guardrails, version-sync: all pass. ESLint is clean on the touched JS.
+- **Numbers chosen here (not in PLAN.md):** read 32,000 chars per call (24,000 first, but that cut 400 normal log lines to 252); memory_get 12,000; grep 12,000; ls 8,000; 64,000 safety net for tools not in the registry.

@@ -10,6 +10,7 @@ import { addLlmUsage, emptyLlmUsage, normalizeAnthropicUsage } from "../../../..
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 import { toCachedClaudeSystem, withClaudeCacheBreakpoints } from "../../../../../../providers/anthropic-cache/index.js";
 import { gateSensitiveGmailAction, scopeToolInputToUser } from "../tool-input-scope/index.js";
+import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
 
 function claudeBase(value) {
   const trimmed = String(value || "").trim().replace(/\/+$/, "");
@@ -235,10 +236,22 @@ export async function runClaudeToolLoop({
           status: result?.is_error ? "error" : "success",
           latencyMs: Date.now() - startedToolAt,
         });
+        // Web results are untrusted page text: mark them as external content, like the OpenAI-compatible loop.
+        const normalizedName = toolName.toLowerCase();
+        let toolResultContent = content;
+        if (normalizedName === "web_search" || normalizedName === "web_fetch") {
+          const suspiciousPatterns = detectSuspiciousPatterns(content);
+          if (suspiciousPatterns.length > 0) {
+            console.warn(
+              `[Security] suspicious ${normalizedName} tool output patterns=${suspiciousPatterns.length} conversation=${conversationId || "unknown"}`,
+            );
+          }
+          toolResultContent = wrapWebContent(content, normalizedName);
+        }
         toolResults.push({
           type: "tool_result",
           tool_use_id: String(toolUse?.id || ""),
-          content,
+          content: toolResultContent,
           is_error: result?.is_error === true,
         });
       } catch (error) {

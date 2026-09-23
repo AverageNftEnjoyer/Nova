@@ -36,7 +36,7 @@ Almost everything is paid in full on every call because nothing is cached. That 
 | 2 Lazy tool schemas | **Reduced, conditional** | Per-turn tool sets would break the cache from Stage 1. Once cached, schemas cost a fraction. Only trim/scope per task if still significant after Stage 1. Lazy hydration dropped. |
 | 3 Memory token budget | **Dropped** | Chat recall is already top-3 × 600 chars inside a 1,000-token cap. The two large memory outputs (`memory_get`, `memory_search`) are tool outputs, covered in Stage 2 below. |
 | 4 Conversation compaction | **Dropped** | Agent tasks are one tool loop (≤ 6 steps, 32 s), not long conversations. Chat history is already a ~1.4k-token sliding window. Summarising would add LLM calls. Resending tool results inside a loop is handled by caching in Stage 1. |
-| 5 Tool output ceilings | **Kept, smaller** | Most tools already cap by characters. `read` is uncapped and `memory_get` allows 32k chars. Gmail already never fetches bodies. |
+| 5 Tool output ceilings | **Kept, smaller** (done as Stage 2 in V.72) | Most tools already cap by characters. `read` is uncapped and `memory_get` allows 32k chars. Gmail already never fetches bodies. |
 | 6 Tiered model routing | **Dropped** | The memory pipeline makes no LLM calls. The only extra calls are the rare output-constraint correction pass, empty-reply recovery and Spotify intent parsing. A classifier would cost more to build and maintain than it saves. |
 | 7 Per-task budgets | **Kept, adapted** (Stage 4) | Existing limits (6 steps, 32 s) cap the time spent on a task, not the money. A budget adds an explicit cost ceiling and makes spend visible. The degradation order is adapted because compaction was dropped: trim loop context → cheapest model → pause and ask. |
 | 8 Dashboard, gates, report | **Kept** (Stage 5) | Built into the existing Home Analytics panel and `/analytics` page rather than a new dashboard, fed by a per-call usage ledger so chat, agent tasks and missions all count. |
@@ -68,6 +68,8 @@ Acceptance: usage and cost are recorded correctly for all four providers (unit t
 
 ## Stage 1 — Stable prefix and caching (the main win)
 
+**Status: implemented in V.72 (2026-09-23), verified offline.** The live check is still pending. The per-turn context goes into the final user turn for every provider rather than a second system message; PROGRESS.md Session 4 explains why.
+
 Goal: the large unchanging part of each request is billed at the cached rate from the second call on.
 
 1. **Split the system prompt into two parts** in `prompt-context-builder`:
@@ -83,6 +85,21 @@ Goal: the large unchanging part of each request is billed at the cached rate fro
 Acceptance: cache hit on > 90% of calls after the first in the live multi-turn and tool-loop checks; conversation-quality, routing and agent-task smokes green; spot-check shows no answer changes.
 
 ## Stage 2 — Tool output ceilings
+
+**Status: implemented in V.72 (2026-09-23).** The registry is `src/tools/core/output-caps` and the executor applies it. The numbers used are listed below; PROGRESS.md Session 5 has the details and BASELINE.md "Stage 2 re-measure" the results. `web_fetch` paging is covered only by the shared pager's tests (no live fetch offline).
+
+| Tool | Cap | How the model gets more |
+| --- | --- | --- |
+| `read` | 400-line window when no range is given (as planned), and at most 32,000 chars per call | the marker names the exact next `startLine`/`endLine` |
+| `memory_get` | 12,000 chars per page (was 32,000) | new `offset` param; the marker names it |
+| `web_fetch` | 16,000 chars of markdown per page (unchanged) | new `offset` param; the marker names it |
+| `web_search` | 6,000 (unchanged) | more specific query, or `web_fetch` a result |
+| `memory_search` | 8,000 (unchanged) | smaller `top_k`, or `memory_get` |
+| `exec` | 8,000 (unchanged) | narrow the output, or redirect to a file and page it with `read` |
+| `browser_agent` | `maxOutputChars`, default 12,000, max 32,000 (unchanged) | larger `maxOutputChars` or a narrower command |
+| `grep` | 200 matches (unchanged) plus 12,000 chars (new); the 200-match stop now has a marker | narrower pattern or path |
+| `ls` | 8,000 chars (new) | ls a subdirectory |
+| anything else | 64,000 chars (new safety net) | narrower inputs |
 
 Goal: no single tool result can dump an unbounded blob into the loop.
 

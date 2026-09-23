@@ -3,11 +3,6 @@ import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
-function truncate(text: string, maxChars = 8000): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
-
 function getCommandBinary(command: string): string {
   return command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
 }
@@ -80,7 +75,8 @@ function executeCommand(
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n").trim();
-      resolve(truncate(message || output || "(no output)"));
+      // Output cap: exec entry in src/tools/core/output-caps (applied by the executor).
+      resolve(message || output || "(no output)");
     };
     const onAbort = () => {
       aborted = true;

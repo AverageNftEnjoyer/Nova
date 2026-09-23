@@ -1,6 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js";
+import {
+  GREP_MAX_MATCHES,
+  READ_DEFAULT_LINE_WINDOW,
+  READ_MAX_CHARS,
+  findCutIndex,
+  formatTruncationMarker,
+} from "../../core/output-caps/index.js";
 
 const FILE_GREP_MAX_PARALLEL = Math.max(
   1,
@@ -116,10 +123,58 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/**
+ * One window of a file for `read`: the requested 1-based inclusive line range, or the first
+ * READ_DEFAULT_LINE_WINDOW lines when none is given, further cut to READ_MAX_CHARS for very long lines. When lines
+ * are left out after the window, a marker names the exact startLine/endLine of the next window.
+ */
+export function readLineWindow(raw: string, requestedPath: string, startLine?: unknown, endLine?: unknown): string {
+  const lines = raw.split(/\r?\n/);
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+  const totalLines = lines.length;
+  const parsedStart = Number(startLine ?? 1);
+  const parsedEnd = Number(endLine ?? NaN);
+  const start = Number.isFinite(parsedStart) && parsedStart >= 1 ? Math.floor(parsedStart) : 1;
+  if (start > totalLines) {
+    return `read: ${requestedPath} has ${totalLines} lines; startLine ${start} is past the end.`;
+  }
+  const requestedEnd = Number.isFinite(parsedEnd) && parsedEnd >= start
+    ? Math.floor(parsedEnd)
+    : start + READ_DEFAULT_LINE_WINDOW - 1;
+  let end = Math.min(totalLines, requestedEnd);
+  let text = lines.slice(start - 1, end).join("\n");
+  let oversizedLineNote = "";
+  if ((lines[start - 1] ?? "").length > READ_MAX_CHARS) {
+    // One line is longer than the whole budget (minified code, one-line JSON): show its start, one line per call.
+    const line = lines[start - 1] ?? "";
+    end = start;
+    text = line.slice(0, findCutIndex(line, READ_MAX_CHARS));
+    oversizedLineNote = `\n\n[Output truncated by Nova: line ${start} is ${line.length.toLocaleString("en-US")} characters long; showed the first ${text.length.toLocaleString("en-US")}. To see the rest of that line, use exec or grep on the file.]`;
+  } else if (text.length > READ_MAX_CHARS) {
+    let kept = text.slice(0, findCutIndex(text, READ_MAX_CHARS));
+    // Keep whole lines so the next window starts on the first line not shown.
+    if (!kept.endsWith("\n") && kept.includes("\n")) kept = kept.slice(0, kept.lastIndexOf("\n") + 1);
+    const keptLines = kept.endsWith("\n") ? kept.split("\n").length - 1 : kept.split("\n").length;
+    // A single line longer than the whole budget: show the part that fits of that one line.
+    end = start + Math.max(1, keptLines) - 1;
+    text = kept.replace(/\n$/, "");
+  }
+  if (end >= totalLines) return `${text}${oversizedLineNote}`;
+  const nextEnd = Math.min(totalLines, end + (requestedEnd - start + 1));
+  const path = JSON.stringify(requestedPath);
+  return `${text}${oversizedLineNote}${formatTruncationMarker({
+    unit: "lines",
+    shownFrom: start,
+    shownTo: end,
+    total: totalLines,
+    howToGetMore: `call read with {"path": ${path}, "startLine": ${end + 1}, "endLine": ${nextEnd}}.`,
+  })}`;
+}
+
 export function createFileTools(workspaceDir: string): Tool[] {
   const readTool: Tool = {
     name: "read",
-    description: "Read file content from workspace. Optional line range support.",
+    description: `Read file content from workspace, up to ${READ_DEFAULT_LINE_WINDOW} lines per call. Optional line range support.`,
     capabilities: ["filesystem.read"],
     input_schema: {
       type: "object",
@@ -132,15 +187,10 @@ export function createFileTools(workspaceDir: string): Tool[] {
       additionalProperties: false,
     },
     execute: async (input: { path?: string; startLine?: number; endLine?: number }) => {
-      const target = await resolveExistingInsideWorkspace(workspaceDir, String(input?.path ?? ""));
+      const requestedPath = String(input?.path ?? "");
+      const target = await resolveExistingInsideWorkspace(workspaceDir, requestedPath);
       const raw = await fs.readFile(target, "utf8");
-      const start = Number(input?.startLine ?? 1);
-      const end = Number(input?.endLine ?? Number.MAX_SAFE_INTEGER);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) {
-        return raw;
-      }
-      const lines = raw.split(/\r?\n/);
-      return lines.slice(start - 1, end).join("\n");
+      return readLineWindow(raw, requestedPath, input?.startLine, input?.endLine);
     },
   };
 
@@ -253,7 +303,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
             if (re.test(line)) {
               const rel = path.relative(workspaceDir, file).replace(/\\/g, "/");
               hits.push(`${rel}:${i + 1}: ${line.trim()}`);
-              if (hits.length >= 200) break;
+              if (hits.length >= GREP_MAX_MATCHES) break;
             }
           }
           return hits;
@@ -264,12 +314,16 @@ export function createFileTools(workspaceDir: string): Tool[] {
       for (const fileHits of perFileHits) {
         for (const hit of fileHits) {
           hits.push(hit);
-          if (hits.length >= 200) break;
+          if (hits.length >= GREP_MAX_MATCHES) break;
         }
-        if (hits.length >= 200) break;
+        if (hits.length >= GREP_MAX_MATCHES) break;
       }
 
-      return hits.length ? hits.join("\n") : "No matches.";
+      if (!hits.length) return "No matches.";
+      const stoppedEarly = hits.length >= GREP_MAX_MATCHES
+        ? `\n\n[Output truncated by Nova: stopped at ${GREP_MAX_MATCHES} matching lines; more matches may exist. To get more, grep again with a more specific pattern or a narrower path.]`
+        : "";
+      return `${hits.join("\n")}${stoppedEarly}`;
     },
   };
 

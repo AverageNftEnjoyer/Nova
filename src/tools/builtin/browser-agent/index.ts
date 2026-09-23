@@ -1,13 +1,12 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js";
+import { BROWSER_AGENT_DEFAULT_OUTPUT_CHARS, BROWSER_AGENT_MAX_OUTPUT_CHARS } from "../../core/output-caps/index.js";
 
 const execFileAsync = promisify(execFileCb);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
-const DEFAULT_MAX_OUTPUT_CHARS = 12_000;
-const MAX_OUTPUT_CHARS = 32_000;
 const MAX_ARGS = 64;
 const MAX_ARG_LENGTH = 1_024;
 const SESSION_RE = /^browser:[a-z0-9_-]{1,96}:[a-z0-9._-]{1,128}$/i;
@@ -30,21 +29,10 @@ function isReservedFlagArg(value: string): boolean {
   return false;
 }
 
-function truncate(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
-
 function normalizeTimeoutMs(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_TIMEOUT_MS;
   return Math.min(MAX_TIMEOUT_MS, Math.max(1_000, Math.floor(parsed)));
-}
-
-function normalizeMaxOutputChars(value: unknown): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_OUTPUT_CHARS;
-  return Math.min(MAX_OUTPUT_CHARS, Math.max(1_000, Math.floor(parsed)));
 }
 
 function normalizeCsv(values: unknown): string {
@@ -129,7 +117,7 @@ export function createBrowserAgentTool(): Tool {
         },
         maxOutputChars: {
           type: "number",
-          description: "Maximum output characters in tool response (default 12000, max 32000).",
+          description: `Maximum output characters in tool response (default ${BROWSER_AGENT_DEFAULT_OUTPUT_CHARS}, max ${BROWSER_AGENT_MAX_OUTPUT_CHARS}).`,
         },
       },
       required: ["session", "command"],
@@ -178,7 +166,6 @@ export function createBrowserAgentTool(): Tool {
       argv.push(command, ...args);
 
       const timeoutMs = normalizeTimeoutMs(input?.timeoutMs);
-      const maxOutputChars = normalizeMaxOutputChars(input?.maxOutputChars);
 
       try {
         const { stdout, stderr } = await execFileAsync("agent-browser", argv, {
@@ -193,7 +180,8 @@ export function createBrowserAgentTool(): Tool {
           .filter(Boolean)
           .join("\n")
           .trim();
-        return truncate(output || "(no output)", maxOutputChars);
+        // Output cap (maxOutputChars): browser_agent entry in src/tools/core/output-caps, applied by the executor.
+        return output || "(no output)";
       } catch (err) {
         const error = err as {
           code?: string | number;
@@ -213,7 +201,7 @@ export function createBrowserAgentTool(): Tool {
           .filter(Boolean)
           .join("\n")
           .trim();
-        return truncate(parts || "browser_agent error: command failed", maxOutputChars);
+        return parts || "browser_agent error: command failed";
       }
     },
   };

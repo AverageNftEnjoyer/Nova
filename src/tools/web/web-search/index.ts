@@ -60,7 +60,8 @@ async function searchBrave(query: string, apiKey: string): Promise<string> {
     return `[${index + 1}] ${title}\n${link}\n${snippet}`;
   });
 
-  return truncate(lines.join("\n\n"), 6000);
+  // Output cap: web_search entry in src/tools/core/output-caps (applied by the executor).
+  return lines.join("\n\n");
 }
 
 export function createWebSearchTool(params: {

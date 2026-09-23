@@ -316,6 +316,20 @@ const GMAIL_PLAN = [
 ];
 const GMAIL_REPLY = "Reply today:\n1. Dana Kim - contract redlines due Thursday: confirm sections 4 and 7 are reviewed.\n2. Priya Shah - Q4 timeline: accept or counter the Tuesday demo slot.\n\nCan wait:\n3. Billing - invoice INV-20931 due in 5 days: schedule payment.\n4. Sam Rivera - lunch: reply by Wednesday.\n5. GitHub - CI failure on main: check build #1842 when you are back at your desk.\n\nNoise:\n6. Weekly Digest newsletter: archive.";
 
+// Stage 2 scenario: an agent task that reads a large log file (tool output caps). 3,000 lines, ~200 KB.
+const LARGE_LOG = Array.from({ length: 3_000 }, (_, i) => {
+  const level = i % 97 === 0 ? "ERROR" : i % 13 === 0 ? "WARN" : "INFO";
+  const ts = `2026-09-22T${String(Math.floor(i / 120) % 24).padStart(2, "0")}:${String(Math.floor(i / 2) % 60).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`;
+  return `${ts} ${level} orders-api request_id=r${100000 + i} route=/users status=${level === "ERROR" ? 500 : 200} latency_ms=${(i * 37) % 900}`;
+}).join("\n") + "\n";
+const LARGE_READ_PROMPT = "Look through logs/server.log in this workspace and tell me whether there are errors I should worry about.";
+const LARGE_READ_PLAN = [
+  [{ name: "read", input: { path: "logs/server.log" } }],
+  [{ name: "grep", input: { pattern: "ERROR", path: "logs" } }],
+];
+const LARGE_READ_REPLY = "The log has 31 ERROR lines, all 500s on /users, spread evenly through the day, plus routine WARN entries. "
+  + "Nothing clusters in time, so it looks like a steady low error rate on /users rather than an outage; check the handler for the failing requests.";
+
 const WORKSPACE_FILES = {
   "README.md": "# Orders API\n\nSmall Express service that exposes users and orders for the internal dashboard.\n\n## Running\n\n```\nnpm install\nnpm start\n```\n\nThe server listens on PORT (default 3000). See notes/TODO.md for open work.\n",
   "package.json": JSON.stringify({ name: "orders-api", version: "0.4.2", main: "src/server.js", scripts: { start: "node src/server.js", test: "node --test" }, dependencies: { express: "^5.1.0" } }, null, 2) + "\n",
@@ -324,9 +338,9 @@ const WORKSPACE_FILES = {
   "notes/TODO.md": "# Open work\n\n- [ ] Rate limiting on public routes\n- [ ] Structured logging (pino)\n- [x] Move to Express 5\n",
 };
 
-function createFixtureWorkspace(name) {
+function createFixtureWorkspace(name, extraFiles = {}) {
   const dir = path.join(isolatedDataDir, "token-baseline-workspaces", name);
-  for (const [rel, content] of Object.entries(WORKSPACE_FILES)) {
+  for (const [rel, content] of Object.entries({ ...WORKSPACE_FILES, ...extraFiles })) {
     const file = path.join(dir, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content, "utf8");
@@ -394,10 +408,10 @@ async function runWebResearch(shape) {
   return [summarizeTurn(result)];
 }
 
-async function runAgentTask(scenario, shape, { prompt, plan, reply }) {
+async function runAgentTask(scenario, shape, { prompt, plan, reply, extraFiles = {} }) {
   const userContextId = `tb-${scenario}-${shape}`;
   const taskId = `tb-${scenario}-${shape}-task`;
-  const workspaceDir = createFixtureWorkspace(`${scenario}-${shape}`);
+  const workspaceDir = createFixtureWorkspace(`${scenario}-${shape}`, extraFiles);
   await prepareToolScope({ userContextId, workspaceDir });
   begin(scenario, shape, { plan, reply: () => reply });
   // Same options the agent-task service passes (src/runtime/modules/agent-tasks/index.js executeTask).
@@ -584,6 +598,12 @@ const SCENARIOS = [
   ["web-research", runWebResearch],
   ["agent-task", (shape) => runAgentTask("agent-task", shape, { prompt: AGENT_TASK_PROMPT, plan: AGENT_TASK_PLAN, reply: AGENT_TASK_REPLY })],
   ["gmail-triage", (shape) => runAgentTask("gmail-triage", shape, { prompt: GMAIL_PROMPT, plan: GMAIL_PLAN, reply: GMAIL_REPLY })],
+  ["large-read", (shape) => runAgentTask("large-read", shape, {
+    prompt: LARGE_READ_PROMPT,
+    plan: LARGE_READ_PLAN,
+    reply: LARGE_READ_REPLY,
+    extraFiles: { "logs/server.log": LARGE_LOG },
+  })],
   ["mission-run", runMission],
 ];
 const SHAPES = ["openai", "claude"];
@@ -725,6 +745,23 @@ for (const r of CACHE_SCENARIOS) {
     assert.deepEqual(misses, [], `calls without a cache read: ${misses.join(", ")}`);
   });
 }
+
+check("large-read: a 3,000-line read reaches the model as one capped window (<= 400 lines, <= 32k chars) with a paging marker", () => {
+  for (const shape of SHAPES) {
+    const r = scenarioResults.find((x) => x.scenario === "large-read" && x.shape === shape);
+    const texts = r.calls.flatMap((c) => (c.request.messages || []).flatMap((m) => {
+      if (typeof m.content === "string") return [m.content];
+      return (m.content || []).map((b) => String(b?.content ?? b?.text ?? ""));
+    }));
+    const readResult = texts.find((t) => t.includes("INFO orders-api request_id=r100001 "));
+    assert.ok(readResult, `${shape}: read result not sent to the model`);
+    assert.ok(!readResult.includes("request_id=r100400"), `${shape}: read result goes past line 400`);
+    assert.ok(readResult.length <= 33_000, `${shape}: read result is ${readResult.length} chars`);
+    const marker = readResult.match(/showed lines 1-(\d+) of 3,000; [\d,]+ more lines not shown\. To get more, call read with \{"path": "logs\/server\.log", "startLine": (\d+), "endLine": \d+\}/);
+    assert.ok(marker, `${shape}: no paging marker naming the next read call`);
+    assert.equal(Number(marker[2]), Number(marker[1]) + 1, `${shape}: next startLine is not the first line not shown`);
+  }
+});
 
 check("gmail-triage: Gmail tools run for the task's user and conversation in both tool loops", () => {
   for (const shape of SHAPES) {

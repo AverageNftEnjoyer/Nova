@@ -137,3 +137,29 @@ What changed and why:
 - **Total input tokens** rise 5–12 % for the same reason (plus ~180 ~tok of new static text: Conversation Continuity is now always in the static prompt, and a short section explains the per-turn block).
 - The chat "stable prefix vs the previous call" stays at ~3.3k minimum rather than growing with history, because the previous call's final user turn carried its per-turn block and the history copy of that message does not. Caches still read the history: OpenAI matches against every earlier request, and Anthropic's history breakpoint is written one turn and read the next.
 - Mission runs are unchanged (~550 ~tok, below every cache minimum).
+
+## Stage 2 re-measure: tool output caps (2026-09-23, V.72)
+
+"Before" is the Stage 1 commit `1ae8acc` and "after" is the Stage 2 working tree, both run with the Stage 2 harness in the same way as the Stage 1 comparison (before in a temporary worktree). Same rates and the same simulated caches as above.
+
+New scenario **large-read**: an agent task reads `logs/server.log` (3,000 lines, ~95 characters each, ~285 KB) and then greps it for `ERROR`. The older scenarios' fixture files are all under 30 lines, so caps don't touch them. This scenario is the case caps exist for.
+
+| Scenario | Shape | Total input ~tok (b→a) | Sim cached (b→a) | Sim cache-write (a) | Uncached (b→a) | Input $ per run (b→a) | Static sys ~tok (b→a) | Calls with identical system (b→a) | Prefix avg/min calls 2+ (b→a) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| chat-10-turn | openai | 43,349 → 43,154 | 33,408 → 33,280 | 0 | 9,941 → 9,874 | 0.0266 → 0.0264 | 3,214 → 3,195 | 10/10 → 10/10 | 3775/3303 → 3756/3283 |
+| chat-10-turn | claude | 43,613 → 43,420 | 34,123 → 33,948 | 4,420 | 5,050 → 5,052 | 0.0280 → 0.0279 | 3,215 → 3,196 | 10/10 → 10/10 | 3692/3303 → 3673/3284 |
+| web-research | openai | 22,491 → 22,565 | 14,208 → 14,208 | 0 | 8,283 → 8,357 | 0.0194 → 0.0196 | 3,214 → 3,195 | 3/3 → 3/3 | 7143/6951 → 7168/6976 |
+| web-research | claude | 21,807 → 22,026 | 13,844 → 13,922 | 8,015 | 91 → 89 | 0.0226 → 0.0230 | 3,215 → 3,196 | 3/3 → 3/3 | 6552/5999 → 6591/6024 |
+| agent-task | openai | 42,878 → 43,021 | 34,816 → 34,944 | 0 | 8,062 → 8,077 | 0.0231 → 0.0231 | 3,272 → 3,253 | 6/6 → 6/6 | 7037/6818 → 7061/6843 |
+| agent-task | claude | 41,801 → 41,971 | 34,117 → 34,239 | 7,488 | 247 → 244 | 0.0259 → 0.0261 | 3,274 → 3,254 | 6/6 → 6/6 | 6727/6058 → 6751/6083 |
+| gmail-triage | openai | 33,930 → 34,029 | 24,192 → 24,320 | 0 | 9,738 → 9,709 | 0.0243 → 0.0243 | 3,272 → 3,253 | 4/4 → 4/4 | 8138/7224 → 8162/7248 |
+| gmail-triage | claude | 33,216 → 33,314 | 23,785 → 23,859 | 9,332 | 124 → 123 | 0.0283 → 0.0283 | 3,274 → 3,254 | 4/4 → 4/4 | 7615/6058 → 7639/6083 |
+| large-read | openai | 185,635 → 39,902 | 95,488 → 22,656 | 0 | 90,147 → 17,246 | 0.1994 → 0.0390 | 3,272 → 3,253 | 3/3 → 3/3 | 47798/6673 → 11371/6698 |
+| large-read | claude | 185,095 → 39,362 | 95,182 → 22,329 | 16,944 | 91 → 89 | 0.2438 → 0.0470 | 3,274 → 3,254 | 3/3 → 3/3 | 47389/6058 → 10963/6083 |
+| mission-run | openai | 550 → 550 | 0 → 0 | 0 | 550 → 550 | 0.0011 → 0.0011 | 28 → 28 | 1/1 → 1/1 | 0/0 → 0/0 |
+| mission-run | claude | 542 → 542 | 0 → 0 | 0 | 542 → 542 | 0.0011 → 0.0011 | 28 → 28 | 1/1 → 1/1 | 0/0 → 0/0 |
+
+- **large-read**: input drops **~78 %** (185k → 40k ~tok per run). Input cost drops **80 %** on OpenAI ($0.199 → $0.039) and **81 %** on Claude ($0.244 → $0.047). Before, `read` returned the whole file (~81k ~tok), which was then resent on the next step. Now it returns lines 1–337: the 32,000-character budget ends the window before 400 lines of this log. The window ends with `[Output truncated by Nova: showed lines 1-337 of 3,000; 2,663 more lines not shown. To get more, call read with {"path": "logs/server.log", "startLine": 338, "endLine": 737}.]`
+- **Other tool scenarios** are +0.1–1.0 % input tokens. Tool schemas grew by 44 ~tok per tool-loop call (OpenAI shape 2,905 → 2,949): the `offset` parameter on `memory_get` / `web_fetch` and a longer `read` description. On Claude, web results are now wrapped as external content, as the OpenAI-compatible loop already did.
+- **Chat and missions:** no change; they don't run tools.
+- **Measurement artifact:** the ~19 ~tok difference in "Static sys ~tok" between the two columns is the temporary worktree path in the prompt's `## Workspace` line; the code is identical. The Stage 1 table above has the same artifact on its "before" side.
