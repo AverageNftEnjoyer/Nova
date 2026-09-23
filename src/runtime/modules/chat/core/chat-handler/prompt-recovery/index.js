@@ -1,5 +1,6 @@
 import { OPENAI_TOOL_LOOP_MAX_COMPLETION_TOKENS } from "../../../../../core/constants/index.js";
 import { extractOpenAIChatText, withTimeout } from "../../../../llm/providers/index.js";
+import { normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
 
 function readIntEnv(name, defaultValue, minValue, maxValue) {
   const parsed = Number.parseInt(String(process.env[name] || "").trim(), 10);
@@ -42,9 +43,20 @@ export function resolveOpenAiRequestTuning(provider, model, { strict = false } =
     verbosity: strict ? "low" : "medium",
   };
   if (!normalizedModel.startsWith("gpt-5-pro")) {
-    tuning.reasoning_effort = strict ? "minimal" : "low";
+    tuning.reasoning_effort = strict ? resolveLowestReasoningEffort(normalizedModel) : "low";
   }
   return tuning;
+}
+
+// GPT-5.6 models accept none/low/medium/high/xhigh/max, not "minimal"; OpenAI's migration
+// guidance for "minimal" is to use "low" (developers.openai.com/api/docs/models/gpt-5.6-terra,
+// .../guides/latest-model, checked 2026-09-23). Older gpt-5 models keep "minimal".
+const MODEL_PREFIXES_WITHOUT_MINIMAL_EFFORT = ["gpt-5.6"];
+
+function resolveLowestReasoningEffort(normalizedModel) {
+  return MODEL_PREFIXES_WITHOUT_MINIMAL_EFFORT.some((prefix) => normalizedModel.startsWith(prefix))
+    ? "low"
+    : "minimal";
 }
 
 function didLikelyHitCompletionCap(completionTokens, maxCompletionTokens) {
@@ -143,11 +155,13 @@ export async function attemptOpenAiEmptyReplyRecovery({
     timeoutMs,
     `${label} ${model}`,
   );
-  const usage = completion?.usage || {};
+  // Normalised usage for the caller to record (this helper has no ledger context of its own).
+  const usage = normalizeOpenAiCompatibleUsage(completion?.usage);
   return {
     reply: extractOpenAIChatText(completion).trim(),
-    promptTokens: Number(usage.prompt_tokens || 0),
-    completionTokens: Number(usage.completion_tokens || 0),
+    promptTokens: usage.inputTokens,
+    completionTokens: usage.outputTokens,
+    usage,
     finishReason: String(completion?.choices?.[0]?.finish_reason || "").trim(),
     maxCompletionTokens: recoveryMaxCompletionTokens,
   };

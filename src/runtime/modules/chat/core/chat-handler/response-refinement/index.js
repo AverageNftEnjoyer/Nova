@@ -12,6 +12,8 @@ import { replyClaimsNoLiveAccess, buildWebSearchReadableReply } from "../../../r
 import { validateOutputConstraints } from "../../../quality/output-constraints/index.js";
 import { normalizeAssistantReply } from "../../../quality/reply-normalizer/index.js";
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
+import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
+import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 
 export async function refineAssistantReply({
   reply,
@@ -43,9 +45,14 @@ export async function refineAssistantReply({
   openAiRequestTuningForModel,
   responseRoute,
   markRecovery,
+  usageRecorder,
 }) {
-  let promptTokensDelta = 0;
-  let completionTokensDelta = 0;
+  const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, {
+    userContextId,
+    conversationId,
+    provider: activeChatRuntime?.provider,
+  });
+  let usageDelta = emptyLlmUsage();
   let correctionPassesDelta = 0;
   let nextReply = String(reply || "");
   let nextResponseRoute = String(responseRoute || "llm");
@@ -136,8 +143,10 @@ export async function refineAssistantReply({
             `Claude correction ${selectedChatModel}`,
           );
           correctedReply = String(claudeCorrection?.text || "").trim();
-          promptTokensDelta += Number(claudeCorrection?.usage?.promptTokens || 0);
-          completionTokensDelta += Number(claudeCorrection?.usage?.completionTokens || 0);
+          usageDelta = addLlmUsage(
+            usageDelta,
+            llmUsageRecorder.record({ model: selectedChatModel, usage: claudeCorrection?.usage }),
+          );
         } else {
           const correctionCompletion = await withTimeout(
             activeOpenAiCompatibleClient.chat.completions.create({
@@ -154,9 +163,13 @@ export async function refineAssistantReply({
             `OpenAI correction ${modelUsed}`,
           );
           correctedReply = extractOpenAIChatText(correctionCompletion).trim();
-          const correctionUsage = correctionCompletion?.usage || {};
-          promptTokensDelta += Number(correctionUsage.prompt_tokens || 0);
-          completionTokensDelta += Number(correctionUsage.completion_tokens || 0);
+          usageDelta = addLlmUsage(
+            usageDelta,
+            llmUsageRecorder.record({
+              model: modelUsed,
+              usage: normalizeOpenAiCompatibleUsage(correctionCompletion?.usage),
+            }),
+          );
         }
       } catch (correctionErr) {
         console.warn(`[OutputConstraints] correction pass failed: ${describeUnknownError(correctionErr)}`);
@@ -176,6 +189,10 @@ export async function refineAssistantReply({
     }
   }
 
+  const promptTokensDelta = usageDelta.inputTokens;
+  const completionTokensDelta = usageDelta.outputTokens;
+  const cachedInputTokensDelta = usageDelta.cachedInputTokens;
+  const cacheWriteInputTokensDelta = usageDelta.cacheWriteInputTokens;
   const preNormalizedReply = String(nextReply || "");
   const normalizedReply = normalizeAssistantReply(preNormalizedReply);
   broadcastThinkingStatus("Finalizing response", userContextId);
@@ -190,6 +207,8 @@ export async function refineAssistantReply({
         emittedAssistantDelta: didEmitDelta,
         promptTokensDelta,
         completionTokensDelta,
+        cachedInputTokensDelta,
+        cacheWriteInputTokensDelta,
         correctionPassesDelta,
       };
     }
@@ -209,6 +228,8 @@ export async function refineAssistantReply({
     emittedAssistantDelta: didEmitDelta,
     promptTokensDelta,
     completionTokensDelta,
+    cachedInputTokensDelta,
+    cacheWriteInputTokensDelta,
     correctionPassesDelta,
   };
 }

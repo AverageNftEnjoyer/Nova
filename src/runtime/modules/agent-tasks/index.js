@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { getDb } from "../../../db/index.js";
+import { addLlmUsage, emptyLlmUsage, withLlmUsageObserver } from "../../../providers/usage/index.js";
 import { redactSecrets } from "../../../security/secrets/index.js";
 import { estimateTokenCostUsd } from "../llm/providers/index.js";
 import { finalizeDeferredTaskDeletes } from "./cleanup/index.js";
@@ -27,12 +28,12 @@ function leaseExpiryIso() {
   return new Date(Date.now() + LEASE_DURATION_MS).toISOString();
 }
 
+function toTokenCount(value) {
+  return Number.isFinite(Number(value)) ? Math.max(0, Math.round(Number(value))) : 0;
+}
+
 function normalizeResult(value) {
   const result = value && typeof value === "object" ? value : {};
-  const promptTokens = Number.isFinite(Number(result.promptTokens)) ? Math.max(0, Math.round(Number(result.promptTokens))) : 0;
-  const completionTokens = Number.isFinite(Number(result.completionTokens))
-    ? Math.max(0, Math.round(Number(result.completionTokens)))
-    : 0;
   return {
     ok: result.ok !== false,
     reply: String(redactSecrets(String(result.reply || "")) || "").trim().slice(0, MAX_RESULT_CHARS),
@@ -46,8 +47,10 @@ function normalizeResult(value) {
             approvalKey: String(result.pendingApproval.approvalKey || ""),
           }
         : null,
-    promptTokens,
-    completionTokens,
+    promptTokens: toTokenCount(result.promptTokens),
+    completionTokens: toTokenCount(result.completionTokens),
+    cachedInputTokens: toTokenCount(result.cachedInputTokens),
+    cacheWriteInputTokens: toTokenCount(result.cacheWriteInputTokens),
     toolCalls: Array.isArray(result.toolCalls)
       ? [...new Set(result.toolCalls.map((entry) => String(entry || "").trim().slice(0, 128)).filter(Boolean))].slice(0, 128)
       : [],
@@ -76,7 +79,8 @@ function claimQueuedTasks(instanceId, localActiveKeys = new Set()) {
     if (capacity === 0) return [];
 
     const queued = db.prepare(
-      `SELECT user_id, id, prompt, agent, model, permission_mode, worktree_path, attached_files, approved_tools_json
+      `SELECT user_id, id, prompt, agent, model, permission_mode, worktree_path, attached_files, approved_tools_json,
+              attempt_no
        FROM agent_tasks
        WHERE status = 'queued' AND deleted_at IS NULL
        ORDER BY
@@ -105,7 +109,8 @@ function claimQueuedTasks(instanceId, localActiveKeys = new Set()) {
       if (localActiveKeys.has(`${task.user_id}:${task.id}`)) continue;
       if (claimed.length >= capacity) break;
       const result = claim.run(now, instanceId, leaseExpiryIso(), now, task.user_id, task.id);
-      if (result.changes === 1) claimed.push(task);
+      // attempt_no as written by this claim; fences the attempt's token-only write (persistAttemptUsageOnly).
+      if (result.changes === 1) claimed.push({ ...task, attempt_no: (Number(task.attempt_no) || 0) + 1 });
     }
     return claimed;
   });
@@ -121,15 +126,60 @@ function renewLease(instanceId, task) {
   return result.changes === 1;
 }
 
-function persistCompleted(instanceId, task, result) {
-  const estimatedCost = estimateTokenCostUsd(task.model, result.promptTokens, result.completionTokens);
+// Usage of one attempt (one handleInput run). Tokens are CUMULATIVE per task: every persist below ADDS the
+// attempt's usage, so a paused-then-resumed task keeps the tokens it already spent. A user retry of a failed or
+// cancelled task resets the counters in the HUD task store (hud/lib/agents/task-store.ts), so a retry counts afresh.
+function createAttemptUsage() {
+  return { calls: 0, usage: emptyLlmUsage(), costUsd: 0 };
+}
+
+/** Observer for withLlmUsageObserver: totals every LLM call recorded while the attempt runs (even if it throws). */
+function observeAttemptUsage(attempt) {
+  return (record) => {
+    attempt.calls += 1;
+    attempt.usage = addLlmUsage(attempt.usage, record);
+    // An unpriced model adds no cost (agent_tasks.cost_usd keeps its 0-for-unknown convention).
+    if (record?.costUsd !== null && Number.isFinite(Number(record?.costUsd))) attempt.costUsd += Number(record.costUsd);
+  };
+}
+
+/**
+ * The attempt's tokens and cost. Prefers the calls observed through the usage ledger; falls back to the token
+ * fields handleInput returned when no call was observed (e.g. a caller-supplied handleInput that reports totals).
+ */
+function resolveAttemptUsage(task, attempt, result = null) {
+  if (attempt && attempt.calls > 0) {
+    return { ...attempt.usage, costUsd: Number(attempt.costUsd.toFixed(6)) };
+  }
+  const usage = {
+    inputTokens: toTokenCount(result?.promptTokens),
+    outputTokens: toTokenCount(result?.completionTokens),
+    cachedInputTokens: toTokenCount(result?.cachedInputTokens),
+    cacheWriteInputTokens: toTokenCount(result?.cacheWriteInputTokens),
+  };
+  const estimated = estimateTokenCostUsd(task.model, usage.inputTokens, usage.outputTokens, {
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens,
+  });
+  return { ...usage, costUsd: estimated !== null && Number.isFinite(Number(estimated)) ? Number(estimated) : 0 };
+}
+
+const ADD_USAGE_SQL = `tokens_in = tokens_in + ?,
+         tokens_out = tokens_out + ?,
+         cached_input_tokens = cached_input_tokens + ?,
+         cache_write_input_tokens = cache_write_input_tokens + ?,
+         cost_usd = COALESCE(cost_usd, 0) + ?`;
+
+function usageParams(usage) {
+  return [usage.inputTokens, usage.outputTokens, usage.cachedInputTokens, usage.cacheWriteInputTokens, usage.costUsd];
+}
+
+function persistCompleted(instanceId, task, result, usage) {
   getDb().prepare(
     `UPDATE agent_tasks
      SET status = 'completed',
          progress = 100,
-         tokens_in = ?,
-         tokens_out = ?,
-         cost_usd = ?,
+         ${ADD_USAGE_SQL},
          result_text = ?,
          tool_calls = ?,
          approved_tools_json = NULL,
@@ -140,9 +190,7 @@ function persistCompleted(instanceId, task, result) {
          updated_at = ?
      WHERE user_id = ? AND id = ? AND status = 'running' AND lease_owner = ?`,
   ).run(
-    result.promptTokens,
-    result.completionTokens,
-    Number.isFinite(Number(estimatedCost)) ? Number(estimatedCost) : 0,
+    ...usageParams(usage),
     result.reply || "Task completed without a text result.",
     JSON.stringify(result.toolCalls),
     nowIso(),
@@ -153,13 +201,14 @@ function persistCompleted(instanceId, task, result) {
   );
 }
 
-function persistFailed(instanceId, task, error) {
+function persistFailed(instanceId, task, error, usage = resolveAttemptUsage(task, null)) {
   const rawMessage = error instanceof Error ? error.message : String(error || "Agent task failed.");
   const message = String(redactSecrets(rawMessage) || "Agent task failed.").slice(0, MAX_ERROR_CHARS);
   getDb().prepare(
     `UPDATE agent_tasks
      SET status = 'failed',
          progress = CASE WHEN progress < 10 THEN 10 ELSE progress END,
+         ${ADD_USAGE_SQL},
          error = ?,
          approved_tools_json = NULL,
          completed_at = ?,
@@ -167,10 +216,10 @@ function persistFailed(instanceId, task, error) {
          lease_expires_at = NULL,
          updated_at = ?
      WHERE user_id = ? AND id = ? AND status = 'running' AND lease_owner = ?`,
-  ).run(message, nowIso(), nowIso(), task.user_id, task.id, instanceId);
+  ).run(...usageParams(usage), message, nowIso(), nowIso(), task.user_id, task.id, instanceId);
 }
 
-function persistApprovalRequired(instanceId, task, approval) {
+function persistApprovalRequired(instanceId, task, approval, usage = resolveAttemptUsage(task, null)) {
   const now = nowIso();
   const boundedApproval = {
     ...approval,
@@ -183,6 +232,7 @@ function persistApprovalRequired(instanceId, task, approval) {
          pause_reason = 'approval',
          pending_approval_json = ?,
          error = ?,
+         ${ADD_USAGE_SQL},
          lease_owner = NULL,
          lease_expires_at = NULL,
          updated_at = ?
@@ -191,11 +241,26 @@ function persistApprovalRequired(instanceId, task, approval) {
     now,
     JSON.stringify(boundedApproval),
     `Approval required for ${approval.toolName}.`,
+    ...usageParams(usage),
     now,
     task.user_id,
     task.id,
     instanceId,
   );
+}
+
+/**
+ * The user paused, stopped or deleted the task mid-run (the HUD already wrote the new status). Only add the tokens
+ * this attempt spent: fenced on attempt_no so a later attempt's row is never touched, and skipped for deleted tasks.
+ */
+function persistAttemptUsageOnly(task, usage) {
+  if (!usage.inputTokens && !usage.outputTokens) return;
+  getDb().prepare(
+    `UPDATE agent_tasks
+     SET ${ADD_USAGE_SQL},
+         updated_at = ?
+     WHERE user_id = ? AND id = ? AND attempt_no = ? AND deleted_at IS NULL`,
+  ).run(...usageParams(usage), nowIso(), task.user_id, task.id, Number(task.attempt_no) || 0);
 }
 
 async function executeTask(instanceId, task, handleInput, controller) {
@@ -213,6 +278,8 @@ async function executeTask(instanceId, task, handleInput, controller) {
   }, HEARTBEAT_INTERVAL_MS);
   heartbeat.unref?.();
 
+  const attempt = createAttemptUsage();
+  let returnedResult = null;
   try {
     const executionContext = await prepareTaskExecutionContext(task);
     let approvedTools = [];
@@ -230,7 +297,7 @@ async function executeTask(instanceId, task, handleInput, controller) {
     } catch {
       approvedTools = [];
     }
-    const rawResult = await handleInput(executionContext.prompt, {
+    const rawResult = await withLlmUsageObserver(observeAttemptUsage(attempt), () => handleInput(executionContext.prompt, {
       voice: false,
       source: "agent-task",
       sender: "agent-task",
@@ -320,23 +387,28 @@ async function executeTask(instanceId, task, handleInput, controller) {
       customInstructions:
         "Execute this as an autonomous background task. Use available Nova integrations and tools when needed. " +
         "Return a clear final result describing completed work and any blockers.",
-    });
+    }));
     const result = normalizeResult(rawResult);
+    returnedResult = result;
     if (result.errorCode === "AGENT_TASK_APPROVAL_REQUIRED" && result.pendingApproval) {
-      persistApprovalRequired(instanceId, task, result.pendingApproval);
+      persistApprovalRequired(instanceId, task, result.pendingApproval, resolveAttemptUsage(task, attempt, result));
       return;
     }
     if (!result.ok) throw new Error(result.error || "Agent task failed.");
-    persistCompleted(instanceId, task, result);
+    persistCompleted(instanceId, task, result, resolveAttemptUsage(task, attempt, result));
   } catch (error) {
+    // Tokens spent before the failure / pause are recorded too (observed calls, or the returned totals).
+    const usage = resolveAttemptUsage(task, attempt, returnedResult);
     if (!controller.signal.aborted && error?.code === "AGENT_TASK_APPROVAL_REQUIRED") {
       persistApprovalRequired(instanceId, task, {
         toolName: String(error?.toolName || "local mutation"),
         reason: String(error?.message || "Approval required."),
         approvalKey: String(error?.approvalKey || error?.toolName || "local mutation"),
-      });
+      }, usage);
     } else if (!controller.signal.aborted) {
-      persistFailed(instanceId, task, error);
+      persistFailed(instanceId, task, error, usage);
+    } else {
+      persistAttemptUsageOnly(task, usage);
     }
   } finally {
     clearInterval(control);

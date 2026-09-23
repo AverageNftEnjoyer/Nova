@@ -30,6 +30,8 @@ import {
 } from "./runtime-utils/index.js";
 import { runSpotifyDomainService } from "../../../../services/spotify/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
+import { normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
+import { createLlmUsageRecorder } from "../../../core/chat-handler/llm-usage-recorder/index.js";
 
 const SPOTIFY_MIN_THINKING_MS = 650;
 
@@ -168,6 +170,12 @@ Rules for play_smart: plays the user's saved favorite playlist, or uses liked so
 Output ONLY valid JSON, nothing else.`;
 
   let spotifyRaw = "";
+  // The intent-parse call is ledgered (one row per successful call) and reported in the worker summary.
+  const llmUsageRecorder = createLlmUsageRecorder({
+    userContextId,
+    conversationId,
+    provider: activeChatRuntime.provider,
+  });
 
   try {
     ensureSpotifyAssistantStreamStarted();
@@ -192,6 +200,7 @@ Output ONLY valid JSON, nothing else.`;
             OPENAI_REQUEST_TIMEOUT_MS,
             "Claude Spotify parse",
           );
+          llmUsageRecorder.record({ model: selectedChatModel, usage: r.usage });
           spotifyRaw = r.text;
         } else {
           const parse = await withTimeout(
@@ -202,6 +211,7 @@ Output ONLY valid JSON, nothing else.`;
             OPENAI_REQUEST_TIMEOUT_MS,
             "OpenAI Spotify parse",
           );
+          llmUsageRecorder.record({ model: selectedChatModel, usage: normalizeOpenAiCompatibleUsage(parse?.usage) });
           spotifyRaw = extractOpenAIChatText(parse);
         }
         intent = JSON.parse(spotifyRaw);
@@ -316,6 +326,12 @@ Output ONLY valid JSON, nothing else.`;
     broadcastThinkingStatus("", userContextId);
     broadcastState("idle", userContextId);
     summary.latencyMs = Date.now() - startedAt;
+    const usage = llmUsageRecorder.getTotal();
+    summary.promptTokens = usage.inputTokens;
+    summary.completionTokens = usage.outputTokens;
+    summary.cachedInputTokens = usage.cachedInputTokens;
+    summary.cacheWriteInputTokens = usage.cacheWriteInputTokens;
+    summary.totalTokens = usage.inputTokens + usage.outputTokens;
   }
   return normalizeWorkerSummary(summary, {
     defaultRoute: "spotify",

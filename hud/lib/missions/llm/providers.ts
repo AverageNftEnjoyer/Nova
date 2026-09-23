@@ -9,7 +9,13 @@ import "server-only"
 import { loadIntegrationsConfig, type IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { toOpenAiLikeBase, toClaudeBase } from "../utils/config"
-import type { Provider, CompletionResult, CompletionOverride } from "../types/index"
+import {
+  normalizeAnthropicUsage,
+  normalizeOpenAiCompatibleUsage,
+  recordLlmUsageSafe,
+  type LlmUsage,
+} from "../../../../src/providers/usage/index.js"
+import type { Provider, CompletionResult, CompletionOverride, CompletionUsageContext } from "../types/index"
 
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = String(process.env[name] || "").trim()
@@ -41,8 +47,39 @@ async function postJsonWithTimeout(url: string, init: RequestInit): Promise<{ re
   }
 }
 
+/** The user the integrations config was loaded for (same resolution as the integrations store). */
+function resolveScopeUserId(scope?: IntegrationsStoreScope): string {
+  const userId = (typeof scope?.userId === "string" ? scope.userId : "") || (typeof scope?.user?.id === "string" ? scope.user.id : "")
+  return String(userId || "").trim() || "local-user"
+}
+
+/** One llm_usage row per successful completion (source "mission"). Never throws. */
+function recordMissionUsage(
+  provider: Provider,
+  model: string,
+  usage: LlmUsage,
+  scope?: IntegrationsStoreScope,
+  usageContext?: CompletionUsageContext,
+): LlmUsage {
+  recordLlmUsageSafe({
+    userContextId: resolveScopeUserId(scope),
+    source: "mission",
+    refId: String(usageContext?.refId || "").trim(),
+    provider,
+    model,
+    usage,
+  })
+  return usage
+}
+
+function readRawUsage(payload: unknown): unknown {
+  return payload && typeof payload === "object" && "usage" in payload ? (payload as { usage?: unknown }).usage : null
+}
+
 /**
  * Complete text using the configured LLM provider.
+ * Every successful call returns its normalised `usage` and writes one llm_usage row (source "mission",
+ * ref = usageContext.refId). A call that fails (HTTP error, timeout) returns no usage and writes no row.
  */
 export async function completeWithConfiguredLlm(
   systemText: string,
@@ -50,6 +87,7 @@ export async function completeWithConfiguredLlm(
   maxTokens = 2200,
   scope?: IntegrationsStoreScope,
   override?: CompletionOverride,
+  usageContext?: CompletionUsageContext,
 ): Promise<CompletionResult> {
   const config = await loadIntegrationsConfig(scope)
   const resolved = resolveConfiguredLlmProvider(config)
@@ -107,7 +145,8 @@ export async function completeWithConfiguredLlm(
     const text = Array.isArray((payload as { content?: Array<{ type?: string; text?: string }> }).content)
       ? ((payload as { content: Array<{ type?: string; text?: string }> }).content.find((c) => c?.type === "text")?.text || "")
       : ""
-    return { provider, model, text: String(text || "").trim() }
+    const usage = recordMissionUsage(provider, model, normalizeAnthropicUsage(readRawUsage(payload)), scope, usageContext)
+    return { provider, model, text: String(text || "").trim(), usage }
   }
 
   if (provider === "grok") {
@@ -138,7 +177,8 @@ export async function completeWithConfiguredLlm(
       throw new Error(msg || `Grok request failed (${res.status}).`)
     }
     const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
-    return { provider, model, text: text.trim() }
+    const usage = recordMissionUsage(provider, model, normalizeOpenAiCompatibleUsage(readRawUsage(payload)), scope, usageContext)
+    return { provider, model, text: text.trim(), usage }
   }
 
   if (provider === "gemini") {
@@ -169,7 +209,8 @@ export async function completeWithConfiguredLlm(
       throw new Error(msg || `Gemini request failed (${res.status}).`)
     }
     const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
-    return { provider, model, text: text.trim() }
+    const usage = recordMissionUsage(provider, model, normalizeOpenAiCompatibleUsage(readRawUsage(payload)), scope, usageContext)
+    return { provider, model, text: text.trim(), usage }
   }
 
   // OpenAI (default)
@@ -202,5 +243,6 @@ export async function completeWithConfiguredLlm(
     throw new Error(msg || `OpenAI request failed (${res.status}).`)
   }
   const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
-  return { provider: "openai", model, text: text.trim() }
+  const usage = recordMissionUsage("openai", model, normalizeOpenAiCompatibleUsage(readRawUsage(payload)), scope, usageContext)
+  return { provider: "openai", model, text: text.trim(), usage }
 }

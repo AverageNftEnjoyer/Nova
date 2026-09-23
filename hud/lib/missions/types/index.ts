@@ -887,6 +887,22 @@ export interface CompletionResult {
   provider: Provider
   model: string
   text: string
+  /** Normalised usage of the call (inputTokens = total input, cached/cache-write included). */
+  usage: CompletionUsage
+}
+
+/** Same shape as LlmUsage in src/providers/usage. */
+export interface CompletionUsage {
+  inputTokens: number
+  outputTokens: number
+  cachedInputTokens: number
+  cacheWriteInputTokens: number
+}
+
+/** Ledger attribution for one completion (llm_usage row). */
+export interface CompletionUsageContext {
+  /** Mission run id (or other reference) the call belongs to. */
+  refId?: string
 }
 
 export interface CompletionOverride {

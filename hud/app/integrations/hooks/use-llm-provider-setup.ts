@@ -300,6 +300,14 @@ export function useLlmProviderSetup({
 
   const persistedModel = useMemo(() => model.trim() || defaultModel, [defaultModel, model])
 
+  // A stored model that is no longer in the list (e.g. an older default) must still display as itself rather than
+  // as the first option; it keeps working and is only replaced when the user picks another model.
+  const selectableModelOptions = useMemo(() => {
+    const selected = model.trim()
+    if (!selected || modelOptions.some((option) => option.value === selected)) return modelOptions
+    return [...modelOptions, { value: selected, label: `${selected} (legacy)` }]
+  }, [model, modelOptions])
+
   return {
     apiKey,
     setApiKey,
@@ -309,7 +317,7 @@ export function useLlmProviderSetup({
     setModel,
     apiKeyConfigured,
     apiKeyMasked,
-    modelOptions,
+    modelOptions: selectableModelOptions,
     hydrate,
     toggle,
     save,

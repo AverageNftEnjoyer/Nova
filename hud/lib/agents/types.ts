@@ -17,8 +17,11 @@ export interface AgentTask {
   priority: AgentTaskPriority
   permissionMode: AgentPermissionMode
   progress: number
+  /** Total input tokens (cached + cache-write included). Uncached = tokensIn - cachedInputTokens - cacheWriteInputTokens. */
   tokensIn: number
   tokensOut: number
+  cachedInputTokens: number
+  cacheWriteInputTokens: number
   costUsd: number
   error?: string
   result?: string

@@ -14,6 +14,7 @@ process.env.NOVA_DATA_DIR = path.join(tempRoot, "data")
 
 const dbModulePath = path.join(repoRoot, "src", "db", "index.js").replace(/\\/g, "/")
 const dbPathsModulePath = path.join(repoRoot, "src", "db", "paths.js").replace(/\\/g, "/")
+const pricingModulePath = path.join(repoRoot, "src", "providers", "pricing", "index.js").replace(/\\/g, "/")
 
 function transpile(relativePaths) {
   for (const relativePath of relativePaths) {
@@ -26,6 +27,7 @@ function transpile(relativePaths) {
     const rewritten = output.outputText
       .split("../../../src/db/index.js").join(dbModulePath)
       .split("../../../src/db/paths.js").join(dbPathsModulePath)
+      .split("../../../../src/providers/pricing/index.js").join(pricingModulePath)
     fs.writeFileSync(target, rewritten, "utf8")
   }
 }

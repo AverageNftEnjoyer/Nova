@@ -26,6 +26,10 @@ const nextConfig = {
   // window sizes no matter which corner it's pinned to (five bottom-row cards span
   // the full width). Disable it rather than trade one overlap for another.
   devIndicators: false,
+  // The packaged app ships without sharp (~35 MB of native binaries), and every next/image in this
+  // app is a local static asset or data URL, so the /_next/image optimizer adds nothing. Serve the
+  // originals directly.
+  images: { unoptimized: true },
   turbopack: {
     root: workspaceRoot,
   },

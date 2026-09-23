@@ -1,3 +1,5 @@
+import { CLAUDE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROK_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants"
+
 export type AgentStatus = "online" | "busy" | "offline"
 
 export interface WorkerAgentNode {
@@ -226,8 +228,8 @@ export const NOVA_DOMAIN_MANAGERS: DomainManagerNode[] = [
 ]
 
 export const PROVIDER_RAIL = [
-  { id: "openai", label: "OpenAI Adapter", model: "gpt-5 / gpt-4.1" },
-  { id: "claude", label: "Claude Adapter", model: "sonnet-4" },
-  { id: "grok", label: "Grok Adapter", model: "grok-4" },
-  { id: "gemini", label: "Gemini Adapter", model: "gemini-2.5-pro" },
+  { id: "openai", label: "OpenAI Adapter", model: OPENAI_DEFAULT_MODEL },
+  { id: "claude", label: "Claude Adapter", model: CLAUDE_DEFAULT_MODEL },
+  { id: "grok", label: "Grok Adapter", model: GROK_DEFAULT_MODEL },
+  { id: "gemini", label: "Gemini Adapter", model: GEMINI_DEFAULT_MODEL },
 ] as const

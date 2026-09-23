@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { CLAUDE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROK_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants"
 import {
   INTEGRATIONS_UPDATED_EVENT,
   loadIntegrationsSettings,
@@ -79,10 +80,10 @@ function normalizeSpotifyNowPlaying(raw: unknown): HomeSpotifyNowPlaying {
 }
 
 function modelForProvider(provider: LlmProvider, config: IntegrationConfigShape): string {
-  if (provider === "claude") return String(config?.claude?.defaultModel || "claude-sonnet-4-20250514")
-  if (provider === "grok") return String(config?.grok?.defaultModel || "grok-4-0709")
-  if (provider === "gemini") return String(config?.gemini?.defaultModel || "gemini-2.5-pro")
-  return String(config?.openai?.defaultModel || "gpt-4.1")
+  if (provider === "claude") return String(config?.claude?.defaultModel || CLAUDE_DEFAULT_MODEL)
+  if (provider === "grok") return String(config?.grok?.defaultModel || GROK_DEFAULT_MODEL)
+  if (provider === "gemini") return String(config?.gemini?.defaultModel || GEMINI_DEFAULT_MODEL)
+  return String(config?.openai?.defaultModel || OPENAI_DEFAULT_MODEL)
 }
 
 function providerFromValue(value: unknown): LlmProvider {
@@ -188,7 +189,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const [gmailConnected, setGmailConnected] = useState(false)
   const [gcalendarConnected, setGcalendarConnected] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
-  const [activeLlmModel, setActiveLlmModel] = useState("gpt-4.1")
+  const [activeLlmModel, setActiveLlmModel] = useState(OPENAI_DEFAULT_MODEL)
 
   // Keep refs in sync
   // Time the current snapshot was committed; used to project client-side progress for drift checks.

@@ -1,3 +1,10 @@
+import {
+  CLAUDE_MODEL_OPTIONS,
+  GEMINI_MODEL_OPTIONS,
+  GROK_MODEL_OPTIONS,
+  OPENAI_MODEL_OPTIONS,
+  type ModelOption,
+} from "@/app/integrations/constants"
 import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import type { AiIntegrationType, WorkflowStepType } from "./types"
 
@@ -180,50 +187,16 @@ export const AI_PROVIDER_LABELS: Record<AiIntegrationType, string> = {
   gemini: "Gemini",
 }
 
-const OPENAI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
-  { value: "gpt-5.2", label: "GPT-5.2" },
-  { value: "gpt-5.2-pro", label: "GPT-5.2 Pro" },
-  { value: "gpt-5", label: "GPT-5" },
-  { value: "gpt-5-mini", label: "GPT-5 Mini" },
-  { value: "gpt-5-nano", label: "GPT-5 Nano" },
-  { value: "gpt-4.1", label: "GPT-4.1" },
-  { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
-  { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
-  { value: "gpt-4o", label: "GPT-4o" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-]
-
-const CLAUDE_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
-  { value: "claude-opus-4-1-20250805", label: "Claude Opus 4.1" },
-  { value: "claude-opus-4-20250514", label: "Claude Opus 4" },
-  { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-  { value: "claude-3-7-sonnet-latest", label: "Claude 3.7 Sonnet" },
-  { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet" },
-  { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku" },
-]
-
-const GROK_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
-  { value: "grok-4-1-fast-reasoning", label: "Grok 4.1 Fast Reasoning" },
-  { value: "grok-4-1-fast-non-reasoning", label: "Grok 4.1 Fast Non-Reasoning" },
-  { value: "grok-code-fast-1", label: "Grok Code Fast 1" },
-  { value: "grok-4-fast-reasoning", label: "Grok 4 Fast Reasoning" },
-  { value: "grok-4-fast-non-reasoning", label: "Grok 4 Fast Non-Reasoning" },
-  { value: "grok-4-0709", label: "Grok 4 (0709)" },
-  { value: "grok-3", label: "Grok 3" },
-  { value: "grok-3-mini", label: "Grok 3 Mini" },
-]
-
-const GEMINI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = [
-  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
-]
+// Same lists (and default-first order) as the Integrations pickers; a configured model that is not listed is
+// still offered by getModelOptionsForProvider (helpers.tsx).
+const toSelectOptions = (options: readonly ModelOption[]): FluidSelectOption[] =>
+  options.map(({ value, label }) => ({ value, label }))
 
 export const AI_MODEL_OPTIONS: Record<AiIntegrationType, FluidSelectOption[]> = {
-  openai: OPENAI_MODEL_SELECT_OPTIONS,
-  claude: CLAUDE_MODEL_SELECT_OPTIONS,
-  grok: GROK_MODEL_SELECT_OPTIONS,
-  gemini: GEMINI_MODEL_SELECT_OPTIONS,
+  openai: toSelectOptions(OPENAI_MODEL_OPTIONS),
+  claude: toSelectOptions(CLAUDE_MODEL_OPTIONS),
+  grok: toSelectOptions(GROK_MODEL_OPTIONS),
+  gemini: toSelectOptions(GEMINI_MODEL_OPTIONS),
 }
 
 export const AI_DETAIL_LEVEL_OPTIONS: FluidSelectOption[] = [

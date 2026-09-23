@@ -86,6 +86,8 @@ interface AgentTaskRow {
   progress: number
   tokens_in: number
   tokens_out: number
+  cached_input_tokens: number
+  cache_write_input_tokens: number
   cost_usd: number
   error: string | null
   result_text: string | null
@@ -126,6 +128,8 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
     progress: clampInt(row.progress, 0, 100),
     tokensIn: clampInt(row.tokens_in, 0, Number.MAX_SAFE_INTEGER),
     tokensOut: clampInt(row.tokens_out, 0, Number.MAX_SAFE_INTEGER),
+    cachedInputTokens: clampInt(row.cached_input_tokens, 0, Number.MAX_SAFE_INTEGER),
+    cacheWriteInputTokens: clampInt(row.cache_write_input_tokens, 0, Number.MAX_SAFE_INTEGER),
     costUsd: Math.max(0, Number(row.cost_usd) || 0),
     createdAt,
     updatedAt: isoOrUndefined(row.updated_at) ?? createdAt,
@@ -235,13 +239,14 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
   db.prepare(
     `INSERT INTO agent_tasks
        (user_id, id, name, prompt, agent, model, status, priority, permission_mode, progress, tokens_in, tokens_out,
-        cost_usd, error, result_text, tool_calls, attached_files, worktree_path, branch_name, created_at, updated_at,
+        cached_input_tokens, cache_write_input_tokens, cost_usd, error, result_text, tool_calls, attached_files, worktree_path, branch_name, created_at, updated_at,
         started_at, paused_at, completed_at, pause_reason, pending_approval_json, approved_tools_json, deleted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, id) DO UPDATE SET
        name = excluded.name, prompt = excluded.prompt, agent = excluded.agent, model = excluded.model,
        status = excluded.status, priority = excluded.priority, permission_mode = excluded.permission_mode,
        progress = excluded.progress, tokens_in = excluded.tokens_in, tokens_out = excluded.tokens_out,
+       cached_input_tokens = excluded.cached_input_tokens, cache_write_input_tokens = excluded.cache_write_input_tokens,
        cost_usd = excluded.cost_usd, error = excluded.error, result_text = excluded.result_text,
        tool_calls = excluded.tool_calls, attached_files = excluded.attached_files,
        worktree_path = excluded.worktree_path, branch_name = excluded.branch_name,
@@ -263,6 +268,8 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
     task.progress,
     task.tokensIn,
     task.tokensOut,
+    task.cachedInputTokens,
+    task.cacheWriteInputTokens,
     task.costUsd,
     task.error ?? null,
     task.result ?? null,
@@ -458,6 +465,8 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
       task.progress = 0
       task.tokensIn = 0
       task.tokensOut = 0
+      task.cachedInputTokens = 0
+      task.cacheWriteInputTokens = 0
       task.costUsd = 0
       delete task.error
       delete task.result
@@ -526,6 +535,8 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
     progress: 0,
     tokensIn: 0,
     tokensOut: 0,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
     costUsd: 0,
     createdAt: now,
     updatedAt: now,

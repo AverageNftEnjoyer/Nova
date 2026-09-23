@@ -13,6 +13,13 @@ directories:
 # larger, unarchived install directory. There is no asarUnpack.
 asar: false
 
+# Chromium ships ~55 locale packs (~45 MB). The UI is English only; keep en-US.pak.
+electronLanguages:
+  - en-US
+
+# Trims the packaged better-sqlite3 copies to the win32-x64 prebuild (see hud/scripts/after-pack.js).
+afterPack: scripts/after-pack.js
+
 files:
   - .next/**/*
   - public/**/*
@@ -34,6 +41,12 @@ files:
   - "!.next/cache/**"
   - "!.next/types/**"
   - "!node_modules/@next/swc-*/**"
+  # Source maps (~37 MB) are only for debugging the client bundles; the installed app never loads them.
+  - "!.next/**/*.map"
+  # sharp is Next's image optimizer. next.config.js sets `images.unoptimized`, so /_next/image is never
+  # served and sharp (plus its @img/* native binaries) is dead weight.
+  - "!node_modules/@img/**"
+  - "!node_modules/sharp/**"
   # Staged separately (see hud/scripts/prepare-runtime-resources.mjs) and copied in via
   # extraResources below, so it is not also packed here.
   - "!runtime-resources/**"

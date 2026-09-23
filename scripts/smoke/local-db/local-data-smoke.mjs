@@ -27,6 +27,7 @@ const overrides = await import(
 
 // ─── transpile the hud task store ────────────────────────────────────────────
 const dbModulePath = dbPath.replace(/\\/g, "/")
+const pricingModulePath = path.join(repoRoot, "src", "providers", "pricing", "index.js").replace(/\\/g, "/")
 const TASK_FILES = [
   "hud/lib/agents/types.ts",
   "hud/lib/agents/task-events.ts",
@@ -47,7 +48,10 @@ for (const relativePath of TASK_FILES) {
   })
   const target = path.join(tempRoot, "ts", relativePath.replace(/\.ts$/, ".js"))
   fs.mkdirSync(path.dirname(target), { recursive: true })
-  fs.writeFileSync(target, output.outputText.split("../../../src/db/index.js").join(dbModulePath), "utf8")
+  const rewritten = output.outputText
+    .split("../../../src/db/index.js").join(dbModulePath)
+    .split("../../../../src/providers/pricing/index.js").join(pricingModulePath)
+  fs.writeFileSync(target, rewritten, "utf8")
 }
 const require = createRequire(path.join(tempRoot, "ts", "loader.cjs"))
 const store = require("./hud/lib/agents/task-store.js")

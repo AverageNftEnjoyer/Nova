@@ -32,7 +32,7 @@ Auto-update is built and its wiring is checked by `npm run smoke:version-sync`, 
 
 ## Limits
 
-- The installer is about 565 MB because the app ships unarchived (`asar: false`) with all its dependencies, so every update download is large. Trimming it is backlog work.
+- The installed app is about 595 MB (Electron is about 320 MB of that; `next` about 133 MB). Updates download only the changed blocks (blockmap), so they are usually much smaller than a fresh install. Further trimming would mean trimming `next/dist` or moving off Electron, and is not planned.
 
 - Updates cannot be tested from the unpacked build.
 - Unsigned installers keep triggering SmartScreen; that is a certificate cost, not a bug.

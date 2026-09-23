@@ -5,6 +5,7 @@ import {
   GROK_MODEL_OPTIONS,
   GEMINI_MODEL_OPTIONS,
   estimateDailyCostRange,
+  formatModelPriceHint,
   getClaudePriceHint,
 } from "../../constants"
 import type { ProviderDefinition, UseProviderDefinitionsParams } from "../types"
@@ -47,7 +48,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
       baseUrlPlaceholder: "https://api.openai.com/v1",
       baseUrlHint: "Keep https://api.openai.com/v1 unless you are using a compatible proxy endpoint.",
       costEstimate: estimateDailyCostRange(openAISetup.model),
-      priceHint: OPENAI_MODEL_OPTIONS.find((item) => item.value === openAISetup.model)?.priceHint ?? "Model pricing and output quality vary by selection.",
+      priceHint: OPENAI_MODEL_OPTIONS.find((item) => item.value === openAISetup.model)?.priceHint ?? formatModelPriceHint(openAISetup.model),
       usageNote: "Est. uses 20k-40k total tokens/day at a 50/50 input-output split.",
       instructionSteps: [
         "Create an API key from your OpenAI dashboard.",
@@ -109,7 +110,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
       baseUrlPlaceholder: "https://api.x.ai/v1",
       baseUrlHint: "Keep https://api.x.ai/v1 unless you are using a compatible proxy endpoint.",
       costEstimate: estimateDailyCostRange(grokSetup.model),
-      priceHint: GROK_MODEL_OPTIONS.find((item) => item.value === grokSetup.model)?.priceHint ?? "Model pricing and output quality vary by selection.",
+      priceHint: GROK_MODEL_OPTIONS.find((item) => item.value === grokSetup.model)?.priceHint ?? formatModelPriceHint(grokSetup.model),
       usageNote: "Est. uses 20k-40k total tokens/day at a 50/50 input-output split.",
       instructionSteps: [
         "Create an API key from your xAI dashboard.",
@@ -140,7 +141,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
       baseUrlPlaceholder: "https://generativelanguage.googleapis.com/v1beta/openai",
       baseUrlHint: "Keep https://generativelanguage.googleapis.com/v1beta/openai unless you are using a compatible proxy endpoint.",
       costEstimate: estimateDailyCostRange(geminiSetup.model),
-      priceHint: GEMINI_MODEL_OPTIONS.find((item) => item.value === geminiSetup.model)?.priceHint ?? "Model pricing and output quality vary by selection.",
+      priceHint: GEMINI_MODEL_OPTIONS.find((item) => item.value === geminiSetup.model)?.priceHint ?? formatModelPriceHint(geminiSetup.model),
       usageNote: undefined,
       instructionSteps: [
         "Create an API key from your Google AI Studio project.",

@@ -10,6 +10,10 @@
  *
  * Version History:
  *
+ * - V.71 Alpha (2026-09-24): Installer diet + handoff closures complete
+ *     - Much smaller install (about 1,043 MB -> 595 MB, 64k -> 23k files): Turbopack already bundles the UI libraries into `.next`, so `hud/package.json` now lists only what the packaged server loads at runtime (`next`, `react`, `react-dom`, `electron-updater`, `jsdom`) under `dependencies` and everything else under `devDependencies` (electron-builder does not ship those); unused packages removed; Electron ships English locales only; source maps, `.next/dev`, `.next/cache`, `.next/types`, `@next/swc-*` and `sharp` are excluded (`images.unoptimized`); the agent runtime is staged with a production-only `npm ci` instead of a full node_modules copy; better-sqlite3 is trimmed to the win32-x64 binary (`hud/scripts/after-pack.js`). Guarded by the new `smoke:production-routes` (loads every page and GET API route on the packaged build and fails on any unexpected runtime `require`); `npm run package:size` in `hud/` reports where the megabytes go.
+ *     - All release closures from the V.67 handoff are done and the handoff note was removed: release gate green (`npm run verify:release-readiness`), `smoke:agent-tasks` in the chain, `smoke:live-latency` is the separate opt-in live check, real Coinbase unit tests remain backlog, and the packaged build is verified by `smoke:production-boot` and `smoke:production-routes`. Auto-update is built and source-checked but has not yet been run against a real published release (see `docs/release/auto-update.md`).
+ *
  * - V.70 Alpha (2026-09-23): Release gate cleanup + settings mirror hardening + desktop behavior
  *     - Release gate is honest: removed the dead `test:coinbase*` steps (their test files never existed; real Coinbase unit tests are backlog); `smoke:src-latency-gate` moved out of `smoke:src-release` into the opt-in `npm run smoke:live-latency` (needs `NOVA_LIVE_LATENCY=1`, reads the real provider key read-only, runs in a temp data dir); `smoke:agent-tasks` is now part of the release chain.
  *     - Settings mirror: unsent edits and deletes are kept in a durable queue (`nova_ui_storage_pending_v1`) and win over the server copy when newer, so offline edits are no longer reverted on the next launch. `/api/ui-storage` now has per-user rate limits, a 12 MB body cap and generic error messages; added `smoke:ui-storage` (15 checks) to `smoke:local-db`.
@@ -46,7 +50,7 @@
  *     - Home page at the 1024x768 minimum: panels use container queries and truncation instead of clipping; module headers switched from absolute-centered titles to a 3-column grid; bottom row is 2/3/5 columns responsive; crypto prices use compact notation (`$86.4K`); side columns narrow below `xl`.
  *     - Polymarket module header collapses Setup/Trade to icons in narrow panels; Spotify disconnected state redesigned (centered icon + label + Connect); schedule briefing/weather layout tweaks.
  *     - Added `smoke:production-boot` (`scripts/smoke/packaging/production-boot-smoke.mjs`) which boots the packaged `startProductionServices` from `hud/dist/win-unpacked` and proves a queued agent task is claimed. It does not click through `Nova.exe` or test the NSIS installer.
- *     - Removed stale `scripts/test-task-contexts.mjs`; trimmed `server-idle-cost-smoke`. Handoff notes for the remaining closures: `docs/NEXT_INSTANCE.md`.
+ *     - Removed stale `scripts/test-task-contexts.mjs`; trimmed `server-idle-cost-smoke`.
  *
  * - V.66 Alpha (2026-09-21): Idle CPU/RAM reduction + local-API security hardening + test isolation
  *     - Voice loop: mic capture now uses async `spawn` instead of `spawnSync` (no more multi-second agent event-loop stalls while unmuted); failures back off 1s→30s and pause after 5 consecutive errors instead of spinning at 100% CPU.
@@ -465,7 +469,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.70 Alpha"
+export const NOVA_VERSION = "V.71 Alpha"
 
 
 

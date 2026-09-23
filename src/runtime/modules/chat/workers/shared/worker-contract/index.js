@@ -65,6 +65,9 @@ export function normalizeWorkerSummary(summary, input = {}) {
     hadCandidateBeforeRecovery: source.hadCandidateBeforeRecovery === true,
     promptTokens: Math.max(0, normalizeNumber(source.promptTokens, 0)),
     completionTokens: Math.max(0, normalizeNumber(source.completionTokens, 0)),
+    // Subsets of promptTokens (total input): cache reads and cache writes (token-efficiency Stage 0).
+    cachedInputTokens: Math.max(0, normalizeNumber(source.cachedInputTokens, 0)),
+    cacheWriteInputTokens: Math.max(0, normalizeNumber(source.cacheWriteInputTokens, 0)),
     totalTokens: Math.max(0, normalizeNumber(source.totalTokens, 0)),
     estimatedCostUsd: source.estimatedCostUsd == null ? null : Number(source.estimatedCostUsd),
     memoryRecallUsed: normalizeBoolean(source.memoryRecallUsed, false),

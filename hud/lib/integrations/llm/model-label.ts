@@ -8,6 +8,12 @@ export function formatCompactModelLabel(provider: LlmProvider, model: string): s
 
   if (provider === "openai") {
     const known: Record<string, string> = {
+      "gpt-5.6-terra": "GPT-5.6 Terra",
+      "gpt-5.6-sol": "GPT-5.6 Sol",
+      "gpt-5.6-luna": "GPT-5.6 Luna",
+      "gpt-6-sol": "GPT-6 Sol",
+      "gpt-6-astra": "GPT-6 Astra",
+      "gpt-6-luna": "GPT-6 Luna",
       "gpt-5.2": "GPT-5.2",
       "gpt-5.2-pro": "GPT-5.2 Pro",
       "gpt-5": "GPT-5",
@@ -25,6 +31,7 @@ export function formatCompactModelLabel(provider: LlmProvider, model: string): s
   }
 
   if (provider === "grok") {
+    if (modelLower === "grok-build-0.1") return "Build 0.1"
     if (modelLower === "grok-4-1-fast-reasoning") return "4.1 FR"
     if (modelLower === "grok-4-1-fast-non-reasoning") return "4.1 FNR"
     if (modelLower === "grok-4-1") return "4.1"
@@ -38,6 +45,10 @@ export function formatCompactModelLabel(provider: LlmProvider, model: string): s
   }
 
   if (provider === "claude") {
+    if (modelLower === "claude-sonnet-5") return "Sonnet 5"
+    if (modelLower === "claude-opus-5-5") return "Opus 5.5"
+    if (modelLower === "claude-fable-5-1") return "Fable 5.1"
+    if (modelLower.startsWith("claude-haiku-4-5")) return "Haiku 4.5"
     if (modelLower.startsWith("claude-opus-4-1")) return "Opus 4.1"
     if (modelLower.startsWith("claude-opus-4")) return "Opus 4"
     if (modelLower.startsWith("claude-sonnet-4")) return "Sonnet 4"
@@ -48,6 +59,10 @@ export function formatCompactModelLabel(provider: LlmProvider, model: string): s
   }
 
   if (provider === "gemini") {
+    if (modelLower === "gemini-3.8-flash") return "3.8 Flash"
+    if (modelLower === "gemini-3.1-pro-preview") return "3.1 Pro Preview"
+    if (modelLower === "gemini-3.5-flash-lite") return "3.5 Flash Lite"
+    if (modelLower === "gemini-3.1-flash-lite") return "3.1 Flash Lite"
     if (modelLower === "gemini-2.5-pro") return "2.5 Pro"
     if (modelLower === "gemini-2.5-flash") return "2.5 Flash"
     if (modelLower === "gemini-2.5-flash-lite") return "2.5 Flash Lite"

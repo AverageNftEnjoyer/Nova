@@ -15,6 +15,8 @@ import {
   buildEmptyReplyFailureReason,
   shouldAttemptOpenAiEmptyReplyRecovery,
 } from "../prompt-recovery/index.js";
+import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
+import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 
 export async function runClaudeDirectCompletion({
   activeChatRuntime,
@@ -29,7 +31,13 @@ export async function runClaudeDirectCompletion({
   userContextId,
   broadcastAssistantStreamDelta,
   abortSignal,
+  usageRecorder,
 }) {
+  const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, {
+    userContextId,
+    conversationId,
+    provider: activeChatRuntime.provider,
+  });
   let emittedAssistantDelta = false;
   const claudeMessages = [...historyMessages, { role: "user", content: text }];
   const claudeCompletion = hasStrictOutputRequirements
@@ -63,10 +71,14 @@ export async function runClaudeDirectCompletion({
       signal: abortSignal,
     });
 
+  const usage = llmUsageRecorder.record({ model: selectedChatModel, usage: claudeCompletion.usage });
+
   return {
     reply: claudeCompletion.text,
-    promptTokens: claudeCompletion.usage.promptTokens,
-    completionTokens: claudeCompletion.usage.completionTokens,
+    promptTokens: usage.inputTokens,
+    completionTokens: usage.outputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens,
     llmFinishReason: "",
     modelUsed: selectedChatModel,
     emittedAssistantDelta,
@@ -91,10 +103,17 @@ export async function runOpenAiDirectCompletion({
   retries,
   markRecovery,
   abortSignal,
+  usageRecorder,
 }) {
+  // One ledger row per API call (the main create/stream and the empty-reply recovery). activeChatRuntime.provider
+  // names the provider behind the shared OpenAI-compatible client.
+  const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, {
+    userContextId,
+    conversationId,
+    provider: activeChatRuntime.provider,
+  });
   let reply = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
+  let usage = emptyLlmUsage();
   let llmFinishReason = "";
   let emittedAssistantDelta = false;
 
@@ -113,9 +132,7 @@ export async function runOpenAiDirectCompletion({
       OPENAI_REQUEST_TIMEOUT_MS,
       `OpenAI model ${modelUsed}`,
     );
-    const usage = completion?.usage || {};
-    promptTokens = Number(usage.prompt_tokens || 0);
-    completionTokens = Number(usage.completion_tokens || 0);
+    usage = llmUsageRecorder.record({ model: modelUsed, usage: normalizeOpenAiCompatibleUsage(completion?.usage) });
     llmFinishReason = String(completion?.choices?.[0]?.finish_reason || "").trim().toLowerCase();
     reply = extractOpenAIChatText(completion).trim();
   } else {
@@ -134,8 +151,7 @@ export async function runOpenAiDirectCompletion({
       signal: abortSignal,
     });
     reply = streamed.reply;
-    promptTokens = streamed.promptTokens || 0;
-    completionTokens = streamed.completionTokens || 0;
+    usage = llmUsageRecorder.record({ model: modelUsed, usage: streamed.usage });
     llmFinishReason = String(streamed?.finishReason || "").trim().toLowerCase();
   }
 
@@ -144,7 +160,7 @@ export async function runOpenAiDirectCompletion({
       provider: activeChatRuntime.provider,
       reply,
       finishReason: llmFinishReason,
-      completionTokens,
+      completionTokens: usage.outputTokens,
       maxCompletionTokens: openAiMaxCompletionTokens,
     })) {
       broadcastThinkingStatus("Recovering final answer", userContextId);
@@ -154,7 +170,7 @@ export async function runOpenAiDirectCompletion({
         toModel: modelUsed,
         reason: buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
           finishReason: llmFinishReason,
-          completionTokens,
+          completionTokens: usage.outputTokens,
           maxCompletionTokens: openAiMaxCompletionTokens,
         }),
       });
@@ -170,8 +186,7 @@ export async function runOpenAiDirectCompletion({
           signal: abortSignal,
         });
         llmFinishReason = String(recovered.finishReason || llmFinishReason || "").trim().toLowerCase();
-        promptTokens += Number(recovered.promptTokens || 0);
-        completionTokens += Number(recovered.completionTokens || 0);
+        usage = addLlmUsage(usage, llmUsageRecorder.record({ model: modelUsed, usage: recovered.usage }));
         if (recovered.reply) {
           reply = recovered.reply;
         }
@@ -185,7 +200,7 @@ export async function runOpenAiDirectCompletion({
   if (!reply || !reply.trim()) {
     const emptyReplyReason = buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
       finishReason: llmFinishReason,
-      completionTokens,
+      completionTokens: usage.outputTokens,
       maxCompletionTokens: openAiMaxCompletionTokens,
     });
     markRecovery("direct_empty_reply_error", emptyReplyReason, reply);
@@ -200,8 +215,10 @@ export async function runOpenAiDirectCompletion({
 
   return {
     reply,
-    promptTokens,
-    completionTokens,
+    promptTokens: usage.inputTokens,
+    completionTokens: usage.outputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens,
     llmFinishReason,
     modelUsed,
     emittedAssistantDelta,

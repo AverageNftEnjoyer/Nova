@@ -57,7 +57,7 @@ export async function executeAiSummarize(
     const override = node.integration || node.model
       ? { provider: node.integration || undefined, model: node.model || undefined }
       : undefined
-    const result = await completeWithConfiguredLlm(system || "", fullPrompt, 2200, ctx.scope, override)
+    const result = await completeWithConfiguredLlm(system || "", fullPrompt, 2200, ctx.scope, override, { refId: ctx.runId })
     return { ok: true, text: result.text, data: { text: result.text, provider: result.provider, model: result.model } }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -78,7 +78,7 @@ export async function executeAiClassify(
     const override = node.integration || node.model
       ? { provider: node.integration || undefined, model: node.model || undefined }
       : undefined
-    const result = await completeWithConfiguredLlm("", truncateForModel(prompt, MAX_PROMPT_CHARS), 500, ctx.scope, override)
+    const result = await completeWithConfiguredLlm("", truncateForModel(prompt, MAX_PROMPT_CHARS), 500, ctx.scope, override, { refId: ctx.runId })
     const classification = result.text.trim()
     return {
       ok: true,
@@ -104,7 +104,7 @@ export async function executeAiExtract(
     const override = node.integration || node.model
       ? { provider: node.integration || undefined, model: node.model || undefined }
       : undefined
-    const result = await completeWithConfiguredLlm("", truncateForModel(prompt, MAX_PROMPT_CHARS), 2200, ctx.scope, override)
+    const result = await completeWithConfiguredLlm("", truncateForModel(prompt, MAX_PROMPT_CHARS), 2200, ctx.scope, override, { refId: ctx.runId })
     let data: unknown = result.text
     try { data = JSON.parse(result.text) } catch { /* keep as text */ }
     return { ok: true, text: result.text, data }
@@ -129,7 +129,7 @@ export async function executeAiGenerate(
     const override = node.integration || node.model
       ? { provider: node.integration || undefined, model: node.model || undefined }
       : undefined
-    const result = await completeWithConfiguredLlm(node.systemPrompt || "", fullPrompt, 2200, ctx.scope, override)
+    const result = await completeWithConfiguredLlm(node.systemPrompt || "", fullPrompt, 2200, ctx.scope, override, { refId: ctx.runId })
     return { ok: true, text: result.text, data: { text: result.text, provider: result.provider, model: result.model } }
   } catch (err) {
     return { ok: false, error: String(err) }
@@ -160,7 +160,7 @@ export async function executeAiChat(
     const override = node.integration || node.model
       ? { provider: node.integration || undefined, model: node.model || undefined }
       : undefined
-    const result = await completeWithConfiguredLlm(system || "", truncateForModel(combinedPrompt, MAX_PROMPT_CHARS), 2200, ctx.scope, override)
+    const result = await completeWithConfiguredLlm(system || "", truncateForModel(combinedPrompt, MAX_PROMPT_CHARS), 2200, ctx.scope, override, { refId: ctx.runId })
     return { ok: true, text: result.text, data: { text: result.text, provider: result.provider } }
   } catch (err) {
     return { ok: false, error: String(err) }

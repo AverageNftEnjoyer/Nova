@@ -1,6 +1,6 @@
 {
   "name": "novaaio",
-  "version": "0.70.0",
+  "version": "0.71.0",
   "description": "NovaAIO - AI agent desktop application. Unified launcher for the agent backend and Next.js HUD.",
   "type": "module",
   "scripts": {
@@ -91,6 +91,9 @@
     "smoke:src-scheduler-skills": "node scripts/smoke/scheduler/src-scheduler-skills-snapshot-smoke.mjs",
     "smoke:src-missions": "node scripts/smoke/quality/src-mission-quality-smoke.mjs && npm run smoke:src-mission-output-contract && npm run smoke:src-mission-agent-runtime && npm run smoke:src-mission-ts-checks && npm run ops:mission-legacy-audit:strict",
     "smoke:src-prompt": "node scripts/smoke/quality/src-prompt-budget-smoke.mjs",
+    "smoke:token-baseline": "npm run build:agent-core && node scripts/smoke/token-efficiency/token-baseline-harness.mjs",
+    "smoke:token-usage": "node scripts/smoke/token-efficiency/usage-normalize-smoke.mjs && node scripts/smoke/token-efficiency/cost-math-smoke.mjs && node scripts/smoke/token-efficiency/llm-usage-ledger-smoke.mjs",
+    "smoke:openai-request-tuning": "node scripts/smoke/runtime/openai-request-tuning-smoke.mjs",
     "smoke:src-eval": "node scripts/smoke/quality/src-eval-regression-smoke.mjs",
     "smoke:src-release-readiness": "node scripts/smoke/quality/src-release-readiness-smoke.mjs",
     "smoke:src-coinbase-storage": "npm run build:agent-core && node scripts/coinbase/smoke/src-coinbase-storage-smoke.mjs",
@@ -116,6 +119,7 @@
     "smoke:agent-tasks": "npm run build:agent-core && node scripts/smoke/agent-tasks/agent-task-runtime-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-provider-contract-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-store-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-execution-context-smoke.mjs && node scripts/smoke/agent-tasks/agent-tasks-ui-smoke.mjs && node scripts/smoke/agent-tasks/file-drop-smoke.mjs",
     "smoke:version-sync": "node scripts/smoke/packaging/version-sync-smoke.mjs",
     "smoke:production-boot": "node scripts/smoke/packaging/production-boot-smoke.mjs",
+    "smoke:production-routes": "node scripts/smoke/packaging/production-routes-smoke.mjs",
     "db:ensure-native": "node scripts/db/ensure-native.mjs",
     "db:fix-native": "node scripts/db/ensure-native.mjs --fix",
     "smoke:ui-storage": "node scripts/smoke/local-db/ui-storage-smoke.mjs",

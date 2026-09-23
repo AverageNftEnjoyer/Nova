@@ -110,6 +110,8 @@ import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "../direct-
 import { buildPromptContextForTurn } from "../prompt-context-builder/index.js";
 import { refineAssistantReply } from "../response-refinement/index.js";
 import { resolveOrgChartRoutingEnvelope } from "../../../routing/org-chart-routing/index.js";
+import { createLlmUsageRecorder } from "../llm-usage-recorder/index.js";
+import { addLlmUsage, emptyLlmUsage } from "../../../../../../providers/usage/index.js";
 
 
 
@@ -275,6 +277,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     reply: "",
     promptTokens: 0,
     completionTokens: 0,
+    cachedInputTokens: 0,
+    cacheWriteInputTokens: 0,
     totalTokens: 0,
     latencyMs: 0,
     toolCalls: [],
@@ -319,6 +323,16 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     toolLoopGuardrails: null,
     voiceOutputError: "",
   };
+  // Every model call of this turn (tool loop steps + recovery, direct, refinement) records into this recorder: one
+  // llm_usage row per call, and a running total the run summary reports on both the success and the error path.
+  const llmUsageRecorder = createLlmUsageRecorder({
+    userContextId,
+    conversationId,
+    provider: activeChatRuntime.provider,
+  });
+  // ChatKit-served turns report usage themselves (legacy prompt/completion only) and are not ledgered here.
+  let chatKitUsage = emptyLlmUsage();
+  const resolveTurnUsage = () => addLlmUsage(llmUsageRecorder.getTotal(), chatKitUsage);
   const personaWorkspaceDir = resolvePersonaWorkspaceDir(userContextId);
   if (turnPolicy && typeof turnPolicy === "object") {
     runSummary.requestHints.weatherIntent = turnPolicy.weatherIntent === true;
@@ -346,8 +360,6 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 
   let reply = "";
   try {
-    let promptTokens = 0;
-    let completionTokens = 0;
     let modelUsed = selectedChatModel;
     let providerUsed = activeChatRuntime.provider;
     const fastPathStartedAt = Date.now();
@@ -380,8 +392,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       reply = String(serveAttempt.reply || "").trim();
       providerUsed = "openai-chatkit";
       modelUsed = String(serveAttempt.model || selectedChatModel);
-      promptTokens = Number(serveAttempt?.usage?.promptTokens || 0);
-      completionTokens = Number(serveAttempt?.usage?.completionTokens || 0);
+      chatKitUsage = addLlmUsage({
+        inputTokens: serveAttempt?.usage?.promptTokens,
+        outputTokens: serveAttempt?.usage?.completionTokens,
+      });
     } else if (shouldFailClosedOnServeError) {
       responseRoute = "chatkit_fail_closed";
       providerUsed = "openai-chatkit";
@@ -459,10 +473,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           executionFenceCheck,
           consumeTaskApproval,
           reserveTaskEffect,
+          usageRecorder: llmUsageRecorder,
         });
         reply = claudeToolResult.reply;
-        promptTokens = claudeToolResult.promptTokens;
-        completionTokens = claudeToolResult.completionTokens;
         modelUsed = claudeToolResult.modelUsed || selectedChatModel;
       } else if (activeChatRuntime.provider === "claude") {
         llmStartedAt = Date.now();
@@ -481,10 +494,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           userContextId,
           broadcastAssistantStreamDelta,
           abortSignal,
+          usageRecorder: llmUsageRecorder,
         });
         reply = claudeDirect.reply;
-        promptTokens = claudeDirect.promptTokens;
-        completionTokens = claudeDirect.completionTokens;
         emittedAssistantDelta = emittedAssistantDelta || claudeDirect.emittedAssistantDelta === true;
       } else if (shouldRunToolLoop) {
         llmStartedAt = Date.now();
@@ -519,10 +531,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           executionFenceCheck,
           consumeTaskApproval,
           reserveTaskEffect,
+          provider: activeChatRuntime.provider,
+          usageRecorder: llmUsageRecorder,
         });
         reply = toolLoopResult.reply;
-        promptTokens += Number(toolLoopResult.promptTokens || 0);
-        completionTokens += Number(toolLoopResult.completionTokens || 0);
         modelUsed = toolLoopResult.modelUsed || modelUsed;
         runSummary.toolLoopGuardrails = toolLoopResult.toolLoopGuardrails || null;
       } else {
@@ -547,10 +559,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           retries,
           markRecovery,
           abortSignal,
+          usageRecorder: llmUsageRecorder,
         });
         reply = directResult.reply;
-        promptTokens += Number(directResult.promptTokens || 0);
-        completionTokens += Number(directResult.completionTokens || 0);
         modelUsed = directResult.modelUsed || modelUsed;
         emittedAssistantDelta = emittedAssistantDelta || directResult.emittedAssistantDelta === true;
       }
@@ -589,12 +600,11 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       openAiRequestTuningForModel,
       responseRoute,
       markRecovery,
+      usageRecorder: llmUsageRecorder,
     });
     reply = refinement.reply;
     responseRoute = refinement.responseRoute;
     emittedAssistantDelta = emittedAssistantDelta || refinement.emittedAssistantDelta === true;
-    promptTokens += Number(refinement.promptTokensDelta || 0);
-    completionTokens += Number(refinement.completionTokensDelta || 0);
     outputConstraintCorrectionPasses += Number(refinement.correctionPassesDelta || 0);
 
     if (reply && !turnPolicy?.cryptoIntent && !turnPolicy?.weatherIntent) {
@@ -630,11 +640,21 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     const modelForUsage = providerUsed === "openai-chatkit"
       ? (modelUsed || selectedChatModel)
       : (activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel));
+    // Turn totals come from the recorder (every model call of the turn, incl. refinement and recovery calls).
+    // promptTokens is the TOTAL input (cached and cache-write included); uncached = prompt - cached - cacheWrite.
+    const turnUsage = resolveTurnUsage();
+    const promptTokens = turnUsage.inputTokens;
+    const completionTokens = turnUsage.outputTokens;
+    const cachedInputTokens = turnUsage.cachedInputTokens;
+    const cacheWriteInputTokens = turnUsage.cacheWriteInputTokens;
     const totalTokens = promptTokens + completionTokens;
-    const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens);
+    const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens, {
+      cachedInputTokens,
+      cacheWriteInputTokens,
+    });
 
-    appendRawStream({ event: "request_done", source, sessionKey, provider: providerUsed, model: modelForUsage, promptTokens, completionTokens, totalTokens, estimatedCostUsd });
-    console.log(`[LLM] provider=${providerUsed} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} total_tokens=${totalTokens}${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`);
+    appendRawStream({ event: "request_done", source, sessionKey, provider: providerUsed, model: modelForUsage, promptTokens, completionTokens, cachedInputTokens, cacheWriteInputTokens, totalTokens, estimatedCostUsd });
+    console.log(`[LLM] provider=${providerUsed} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} cached_input_tokens=${cachedInputTokens} cache_write_input_tokens=${cacheWriteInputTokens} total_tokens=${totalTokens}${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`);
     broadcast(
       {
         type: "usage",
@@ -642,6 +662,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         model: modelForUsage,
         promptTokens,
         completionTokens,
+        cachedInputTokens,
+        cacheWriteInputTokens,
         totalTokens,
         estimatedCostUsd,
         userContextId: userContextId || undefined,
@@ -673,9 +695,9 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       nlpCorrections: nlpCorrections.length > 0 ? nlpCorrections : undefined,
     });
     if (reply) {
-      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: providerUsed, model: modelForUsage, sessionKey, conversationId: conversationId || undefined, promptTokens, completionTokens, totalTokens });
+      sessionRuntime.appendTranscriptTurn(sessionContext.sessionEntry.sessionId, "assistant", reply, { source, sender: "nova", provider: providerUsed, model: modelForUsage, sessionKey, conversationId: conversationId || undefined, promptTokens, completionTokens, cachedInputTokens, cacheWriteInputTokens, totalTokens });
     }
-    sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens });
+    sessionContext.persistUsage({ model: modelForUsage, promptTokens, completionTokens, cachedInputTokens, cacheWriteInputTokens });
     latencyTelemetry.addStage("transcript_persistence", Date.now() - transcriptStartedAt);
 
     const memoryCaptureStartedAt = Date.now();
@@ -720,6 +742,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runSummary.reply = reply;
     runSummary.promptTokens = promptTokens;
     runSummary.completionTokens = completionTokens;
+    runSummary.cachedInputTokens = cachedInputTokens;
+    runSummary.cacheWriteInputTokens = cacheWriteInputTokens;
     runSummary.totalTokens = totalTokens;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
     runSummary.toolExecutions = toolExecutions;
@@ -791,6 +815,13 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       : null;
     runSummary.ok = false;
     runSummary.reply = errorReply;
+    // Model calls that completed before the error were billed: report them too (the ledger already has them).
+    const errorTurnUsage = resolveTurnUsage();
+    runSummary.promptTokens = errorTurnUsage.inputTokens;
+    runSummary.completionTokens = errorTurnUsage.outputTokens;
+    runSummary.cachedInputTokens = errorTurnUsage.cachedInputTokens;
+    runSummary.cacheWriteInputTokens = errorTurnUsage.cacheWriteInputTokens;
+    runSummary.totalTokens = errorTurnUsage.inputTokens + errorTurnUsage.outputTokens;
     runSummary.toolCalls = Array.from(new Set(observedToolCalls.filter(Boolean)));
     runSummary.toolExecutions = toolExecutions;
     runSummary.retries = retries;

@@ -1,6 +1,7 @@
 import { streamText } from "ai"
 import { requireLocalUser } from "@/lib/auth/local-user"
 import { NextResponse } from "next/server"
+import { OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants/openai-models"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { ensureMissionSchedulerStarted as ensureHudMissionSchedulerStarted } from "@/lib/notifications/scheduler"
@@ -13,7 +14,7 @@ export const runtime = "nodejs"
 function toAiSdkModelId(provider: string, model: string): string {
   const normalizedProvider = String(provider || "").trim().toLowerCase()
   const normalizedModel = String(model || "").trim()
-  if (!normalizedModel) return "openai/gpt-4.1-mini"
+  if (!normalizedModel) return `openai/${OPENAI_DEFAULT_MODEL}`
   if (normalizedProvider === "claude") return `anthropic/${normalizedModel}`
   if (normalizedProvider === "grok") return `xai/${normalizedModel}`
   if (normalizedProvider === "gemini") return `google/${normalizedModel}`

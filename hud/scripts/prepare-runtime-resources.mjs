@@ -81,6 +81,48 @@ function writeTrimmedPackageJson() {
   log("Wrote trimmed runtime package.json.");
 }
 
+// Installs the production dependency closure of the repo-root package.json into the staging dir
+// instead of copying the repo-root node_modules (which carries devDependencies such as typescript and
+// @types/*, plus dev-only tooling, roughly doubling the staged size).
+//
+// The lockfile pins exact versions, so the staged tree matches what was tested. `--ignore-scripts` is
+// safe here: better-sqlite3 >=13 ships a bundled N-API prebuild and has gypfile:false, so nothing
+// needs an install-time build (and skipping scripts means no compiler/SDK is needed on the build
+// machine). The full package.json (with devDependencies) is written first only so `npm ci` accepts
+// the root lockfile as consistent; writeTrimmedPackageJson() overwrites it afterwards, and
+// `--omit=dev` keeps the devDependencies from being installed at all.
+function installProductionNodeModules() {
+  const lockFile = path.join(repoRoot, "package-lock.json");
+  if (!fs.existsSync(lockFile)) {
+    throw new Error(`Root package-lock.json not found at ${lockFile}; cannot stage a reproducible production install.`);
+  }
+  fs.copyFileSync(path.join(repoRoot, "package.json"), path.join(stagingRoot, "package.json"));
+  fs.copyFileSync(lockFile, path.join(stagingRoot, "package-lock.json"));
+  const base = ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"];
+  // Online first (authoritative). If the registry is unreachable, fall back to the npm cache so a
+  // build on a plane still works, provided the cache holds every tarball.
+  const attempts = [base, [...base, "--offline", "--prefer-offline"]];
+  let lastError = null;
+  for (const args of attempts) {
+    try {
+      log(`Running npm ${args.join(" ")} in ${stagingRoot} ...`);
+      execFileSync(npmCmd(), args, { cwd: stagingRoot, stdio: "inherit", shell: process.platform === "win32" });
+      lastError = null;
+      break;
+    } catch (err) {
+      lastError = err;
+      log(`npm ${args.join(" ")} failed (${err?.message || err}).`);
+    }
+  }
+  if (lastError) throw lastError;
+  fs.rmSync(path.join(stagingRoot, "package-lock.json"), { force: true });
+  for (const forbidden of ["typescript", "@types/better-sqlite3", "@types/jsdom", "@types/turndown"]) {
+    if (fs.existsSync(path.join(stagingRoot, "node_modules", forbidden))) {
+      throw new Error(`staged node_modules contains dev-only ${forbidden}; the production install is not clean.`);
+    }
+  }
+}
+
 function resolveElectronVersion() {
   const electronPkgPath = path.join(hudDir, "node_modules", "electron", "package.json");
   if (!fs.existsSync(electronPkgPath)) {
@@ -216,13 +258,13 @@ async function main() {
   cleanStaging();
   copyTree(path.join(repoRoot, "src"), path.join(stagingRoot, "src"), "src/");
   copyTree(path.join(repoRoot, "dist"), path.join(stagingRoot, "dist"), "dist/");
-  copyTree(path.join(repoRoot, "node_modules"), path.join(stagingRoot, "node_modules"), "node_modules/ (full copy)");
   // Repo-root siblings of src/ that ROOT_WORKSPACE_DIR-relative code expects to find (skills
   // baseline/starter catalog, mission/template starters) — see src/runtime/core/constants/index.js
   // and src/runtime/core/workspace-user-root/index.js's NOVA_WORKSPACE_ROOT override, which points
   // ROOT_WORKSPACE_DIR at this staged directory in the packaged app.
   copyTreeIfPresent(path.join(repoRoot, "skills"), path.join(stagingRoot, "skills"), "skills/");
   copyTreeIfPresent(path.join(repoRoot, "templates"), path.join(stagingRoot, "templates"), "templates/");
+  installProductionNodeModules();
   writeTrimmedPackageJson();
   await rebuildBetterSqlite3ForElectron();
   log(`Done. Staged runtime resources at ${stagingRoot}`);

@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb, nowIso, tx } from "../../../../src/db/index.js"
+import { CLAUDE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROK_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants"
 import {
   SecretsUnavailableError,
   decryptSecret,
@@ -311,25 +312,25 @@ const DEFAULT_CONFIG: IntegrationsConfig = {
     connected: false,
     apiKey: "",
     baseUrl: "https://api.openai.com/v1",
-    defaultModel: "gpt-4.1",
+    defaultModel: OPENAI_DEFAULT_MODEL,
   },
   claude: {
     connected: false,
     apiKey: "",
     baseUrl: "https://api.anthropic.com",
-    defaultModel: "claude-sonnet-4-20250514",
+    defaultModel: CLAUDE_DEFAULT_MODEL,
   },
   grok: {
     connected: false,
     apiKey: "",
     baseUrl: "https://api.x.ai/v1",
-    defaultModel: "grok-4-0709",
+    defaultModel: GROK_DEFAULT_MODEL,
   },
   gemini: {
     connected: false,
     apiKey: "",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    defaultModel: "gemini-2.5-pro",
+    defaultModel: GEMINI_DEFAULT_MODEL,
   },
   spotify: {
     connected: false,

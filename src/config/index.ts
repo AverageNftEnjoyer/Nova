@@ -75,7 +75,7 @@ const DEFAULT_CONFIG: Config = {
   agent: {
     name: "nova",
     workspace: DEFAULT_WORKSPACE_ROOT,
-    model: "claude-sonnet-4-5-20250514",
+    model: "claude-sonnet-5",
     maxTokens: 2048,
     apiKey: "",
     bootstrapMaxChars: 20_000,

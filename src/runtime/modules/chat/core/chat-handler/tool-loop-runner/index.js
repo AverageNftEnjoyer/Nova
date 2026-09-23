@@ -16,6 +16,8 @@ import { createToolLoopBudget, capToolCallsPerStep, isLikelyTimeoutError } from 
 import { resolveGmailToolErrorReply } from "../prompt-recovery/index.js";
 import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.js";
 import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
+import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
+import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 
 const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
 
@@ -64,13 +66,17 @@ export async function runToolLoop({
   executionFenceCheck,
   consumeTaskApproval,
   reserveTaskEffect,
+  provider = "",
+  usageRecorder,
 }) {
+  // One ledger row per model call (every step and the recovery call); `provider` is the active runtime's
+  // provider, since this OpenAI-compatible client is shared by openai / grok / gemini.
+  const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, { userContextId, conversationId, provider });
   const loopMessages = [...messages];
   const toolOutputsForRecovery = [];
   let forcedToolErrorReply = "";
   let reply = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
+  let loopUsage = emptyLlmUsage();
 
   const toolLoopBudget = createToolLoopBudget({
     maxDurationMs: Math.max(5000, Number(TOOL_LOOP_MAX_DURATION_MS || 0)),
@@ -132,9 +138,10 @@ export async function runToolLoop({
       throw err;
     }
 
-    const usage = completion?.usage || {};
-    promptTokens += Number(usage.prompt_tokens || 0);
-    completionTokens += Number(usage.completion_tokens || 0);
+    loopUsage = addLlmUsage(
+      loopUsage,
+      llmUsageRecorder.record({ model: modelUsed, usage: normalizeOpenAiCompatibleUsage(completion?.usage) }),
+    );
 
     const choice = completion?.choices?.[0]?.message || {};
     const assistantText = extractOpenAIChatText(completion);
@@ -445,6 +452,11 @@ export async function runToolLoop({
         recoveryTimeoutMs,
         `Tool loop recovery model ${modelUsed}`,
       );
+      // The recovery call is real spend: count it in the loop's tokens and the ledger like any step.
+      loopUsage = addLlmUsage(
+        loopUsage,
+        llmUsageRecorder.record({ model: modelUsed, usage: normalizeOpenAiCompatibleUsage(recovery?.usage) }),
+      );
       reply = extractOpenAIChatText(recovery).trim();
     } catch (recoveryErr) {
       console.warn(`[ToolLoop] recovery completion failed: ${describeUnknownError(recoveryErr)}`);
@@ -511,8 +523,10 @@ export async function runToolLoop({
 
   return {
     reply,
-    promptTokens,
-    completionTokens,
+    promptTokens: loopUsage.inputTokens,
+    completionTokens: loopUsage.outputTokens,
+    cachedInputTokens: loopUsage.cachedInputTokens,
+    cacheWriteInputTokens: loopUsage.cacheWriteInputTokens,
     modelUsed,
     toolLoopGuardrails,
   };

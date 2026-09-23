@@ -151,10 +151,6 @@ export function buildAgentSystemPrompt(params) {
     "Do not say things like 'Source:', 'Confidence:', 'Freshness:', or '(via …)' in any response.",
     "If the user explicitly asks for your source, asks you to fact-check, or says 'where did you get that', reply with ONLY a clickable markdown link — no extra commentary, no labels, just the URL in markdown link format.",
     "",
-    ...buildSkillsSection({
-      skillsPrompt: params.skillsPrompt,
-      isMinimal,
-    }),
     ...buildMemorySection({
       isMinimal,
       memoryPrompt: params.memoryPrompt,
@@ -198,6 +194,11 @@ export function buildAgentSystemPrompt(params) {
     "## Silent Replies",
     `When runtime expects an already-delivered response marker, reply with only: ${SILENT_REPLY_TOKEN}`,
   );
+
+  // Skills are chosen per message, so they go last: everything above stays byte-identical between
+  // calls, which lets providers with automatic prefix caching reuse it.
+  const skillsSection = buildSkillsSection({ skillsPrompt: params.skillsPrompt, isMinimal });
+  if (skillsSection.length > 0) lines.push("", ...skillsSection);
 
   return lines.filter(Boolean).join("\n");
 }

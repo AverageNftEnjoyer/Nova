@@ -42,12 +42,23 @@ export function getDefaultModelForProvider(provider: AiIntegrationType, settings
   return settings[provider].defaultModel.trim() || AI_MODEL_OPTIONS[provider][0]?.value || ""
 }
 
-export function getModelOptionsForProvider(provider: AiIntegrationType, settings: IntegrationsSettings): FluidSelectOption[] {
+/**
+ * Listed models plus any configured default or step model that is no longer listed (an older stored choice), so a
+ * picker always shows the value that will actually run instead of silently displaying the first option.
+ */
+export function getModelOptionsForProvider(
+  provider: AiIntegrationType,
+  settings: IntegrationsSettings,
+  selectedModel?: string,
+): FluidSelectOption[] {
   const base = AI_MODEL_OPTIONS[provider]
-  const configuredDefault = getDefaultModelForProvider(provider, settings)
-  if (!configuredDefault) return base
-  if (base.some((option) => option.value === configuredDefault)) return base
-  return [{ value: configuredDefault, label: configuredDefault }, ...base]
+  const extras: FluidSelectOption[] = []
+  for (const candidate of [getDefaultModelForProvider(provider, settings), String(selectedModel ?? "").trim()]) {
+    if (!candidate) continue
+    if (base.some((option) => option.value === candidate) || extras.some((option) => option.value === candidate)) continue
+    extras.push({ value: candidate, label: `${candidate} (legacy)` })
+  }
+  return extras.length > 0 ? [...extras, ...base] : base
 }
 
 export function renderStepIcon(type: WorkflowStepType, className: string) {

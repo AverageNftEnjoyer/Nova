@@ -6,6 +6,8 @@ import {
 } from "../../../../../core/constants/index.js";
 import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.js";
 import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
+import { addLlmUsage, emptyLlmUsage, normalizeAnthropicUsage } from "../../../../../../providers/usage/index.js";
+import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 
 function claudeBase(value) {
   const trimmed = String(value || "").trim().replace(/\/+$/, "");
@@ -68,7 +70,13 @@ export async function runClaudeToolLoop({
   executionFenceCheck,
   consumeTaskApproval,
   reserveTaskEffect,
+  usageRecorder,
 }) {
+  const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, {
+    userContextId,
+    conversationId,
+    provider: activeChatRuntime?.provider || "claude",
+  });
   const toolDefinitions = availableTools.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -85,8 +93,7 @@ export async function runClaudeToolLoop({
     { role: "user", content: text },
   ];
   const startedAt = Date.now();
-  let promptTokens = 0;
-  let completionTokens = 0;
+  let loopUsage = emptyLlmUsage();
 
   for (let step = 0; step < Math.max(1, Number(TOOL_LOOP_MAX_STEPS || 1)); step += 1) {
     if (abortSignal?.aborted) throw abortSignal.reason || new Error("Agent task aborted.");
@@ -102,8 +109,11 @@ export async function runClaudeToolLoop({
       tools: toolDefinitions,
       signal: abortSignal,
     });
-    promptTokens += Number(response?.usage?.input_tokens || 0);
-    completionTokens += Number(response?.usage?.output_tokens || 0);
+    // Anthropic input_tokens excludes cache reads/writes; the normalised inputTokens is the total input.
+    loopUsage = addLlmUsage(
+      loopUsage,
+      llmUsageRecorder.record({ model: selectedChatModel, usage: normalizeAnthropicUsage(response?.usage) }),
+    );
     const blocks = Array.isArray(response?.content) ? response.content : [];
     const toolUses = blocks.filter((block) => block?.type === "tool_use");
     const textReply = blocks
@@ -114,7 +124,14 @@ export async function runClaudeToolLoop({
 
     if (toolUses.length === 0) {
       if (!textReply) throw new Error("Claude returned no final task result.");
-      return { reply: textReply, promptTokens, completionTokens, modelUsed: selectedChatModel };
+      return {
+        reply: textReply,
+        promptTokens: loopUsage.inputTokens,
+        completionTokens: loopUsage.outputTokens,
+        cachedInputTokens: loopUsage.cachedInputTokens,
+        cacheWriteInputTokens: loopUsage.cacheWriteInputTokens,
+        modelUsed: selectedChatModel,
+      };
     }
 
     messages.push({ role: "assistant", content: blocks });

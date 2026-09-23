@@ -134,9 +134,12 @@ export function withLlmUsageObserver(observer, fn) {
  * observer is swallowed. Returns the ledger row id, or null when nothing was written.
  * `usage` must already be normalised (see normalizers above).
  */
-export function recordLlmUsageSafe({ userContextId, source, refId, conversationId, provider, model, usage, ts } = {}) {
+export function recordLlmUsageSafe(input) {
   let record = null;
   try {
+    // A default parameter only replaces undefined; null or a non-object must not throw either.
+    const { userContextId, source, refId, conversationId, provider, model, usage, ts } =
+      input && typeof input === "object" ? input : {};
     const normalized = addLlmUsage(usage);
     const resolved = resolveLlmUsageSource({ source, refId, conversationId });
     const cost = estimateTokenCostUsd(String(model || ""), normalized.inputTokens, normalized.outputTokens, {

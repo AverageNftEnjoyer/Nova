@@ -43,8 +43,12 @@ npm run electron:build:win
 cd hud
 npm run electron:publish:win
 
-# Verify the packaged build boots (repo root, after electron:build:win)
+# Verify the packaged build boots and every route loads (repo root, after a build)
 npm run smoke:production-boot
+npm run smoke:production-routes
+
+# Where the installed megabytes go (hud/, after a build)
+npm run package:size
 
 # Smoke tests
 cd hud
@@ -147,7 +151,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.70 Alpha**
+Current: **V.71 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

@@ -43,10 +43,10 @@ export const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 export const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 
 // ===== Default Models =====
-export const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
-export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
-export const DEFAULT_GROK_MODEL = "grok-4-0709";
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+export const DEFAULT_CHAT_MODEL = "gpt-5.6-terra";
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5";
+export const DEFAULT_GROK_MODEL = "grok-4.3";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
 // ===== Tool Loop Config =====
 export const TOOL_LOOP_ENABLED = String(process.env.NOVA_TOOL_LOOP_ENABLED || "1").trim() === "1";
@@ -182,6 +182,7 @@ export {
   CLAUDE_MODEL_PRICING_USD_PER_1M,
   GEMINI_MODEL_PRICING_USD_PER_1M,
   GROK_MODEL_PRICING_USD_PER_1M,
+  LEGACY_MODEL_PRICING_USD_PER_1M,
 } from "../../../providers/pricing/index.js";
 
 // ===== Asset Paths =====

@@ -1,28 +1,27 @@
 import type { FluidSelectOption } from "@/components/ui/fluid-select"
-import type { ModelOption, ModelPricing } from "./types"
+import { formatModelPriceHint } from "./pricing"
+import type { ModelOption } from "./types"
+
+export { CLAUDE_MODEL_PRICING_USD_PER_1M } from "../../../../src/providers/pricing/index.js"
+
+// Default first.
+export const CLAUDE_DEFAULT_MODEL = "claude-sonnet-5"
 
 export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
-  { value: "claude-opus-4-1-20250805", label: "Claude Opus 4.1", priceHint: "Highest reasoning quality, premium token cost" },
-  { value: "claude-opus-4-20250514", label: "Claude Opus 4", priceHint: "Advanced reasoning and coding, premium token cost" },
-  { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4", priceHint: "Balanced speed, quality, and cost" },
-  { value: "claude-3-7-sonnet-latest", label: "Claude 3.7 Sonnet", priceHint: "Strong all-around quality at mid-tier cost" },
-  { value: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", priceHint: "Reliable quality with good cost efficiency" },
-  { value: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", priceHint: "Fastest and lowest-cost Claude option" },
+  { value: CLAUDE_DEFAULT_MODEL, label: "Claude Sonnet 5", priceHint: formatModelPriceHint(CLAUDE_DEFAULT_MODEL) },
+  { value: "claude-opus-5-5", label: "Claude Opus 5.5", priceHint: formatModelPriceHint("claude-opus-5-5") },
+  { value: "claude-fable-5-1", label: "Claude Fable 5.1", priceHint: formatModelPriceHint("claude-fable-5-1") },
+  {
+    value: "claude-haiku-4-5-20251001",
+    label: "Claude Haiku 4.5",
+    priceHint: formatModelPriceHint("claude-haiku-4-5-20251001"),
+  },
 ]
-
-export const CLAUDE_MODEL_PRICING_USD_PER_1M: Record<string, ModelPricing> = {
-  "claude-opus-4-1-20250805": { input: 15.0, output: 75.0 },
-  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
-  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
-  "claude-3-7-sonnet-latest": { input: 3.0, output: 15.0 },
-  "claude-3-5-sonnet-latest": { input: 3.0, output: 15.0 },
-  "claude-3-5-haiku-latest": { input: 0.8, output: 4.0 },
-}
 
 function extractHighestVersion(text: string): { major: number; minor: number } {
   const normalized = text.toLowerCase()
   const scopedMatches = [
-    ...normalized.matchAll(/(?:opus|sonnet|haiku)\s*(\d+)(?:[.\-_](\d+))?/g),
+    ...normalized.matchAll(/(?:opus|sonnet|haiku|fable)\s*(\d+)(?:[.\-_](\d+))?/g),
     ...normalized.matchAll(/claude\s*(\d+)(?:[.\-_](\d+))?/g),
   ]
   if (scopedMatches.length === 0) return { major: 0, minor: 0 }
@@ -49,6 +48,7 @@ function extractClaudeDate(model: string): number {
 
 function claudeFamilyWeight(model: string): number {
   const normalized = model.toLowerCase()
+  if (normalized.includes("fable")) return 4
   if (normalized.includes("opus")) return 3
   if (normalized.includes("sonnet")) return 2
   if (normalized.includes("haiku")) return 1
@@ -83,5 +83,4 @@ export const CLAUDE_MODEL_SELECT_FALLBACK: FluidSelectOption[] = sortClaudeOptio
   })),
 )
 
-export const CLAUDE_DEFAULT_MODEL = "claude-sonnet-4-20250514"
 export const CLAUDE_DEFAULT_BASE_URL = "https://api.anthropic.com"

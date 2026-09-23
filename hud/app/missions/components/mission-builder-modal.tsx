@@ -892,7 +892,7 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
                               <FluidSelect
                                 value={step.aiModel ?? ""}
                                 onChange={(next) => updateWorkflowStepAi(step.id, { aiModel: next })}
-                                options={getModelOptionsForProvider(step.aiIntegration ?? resolveDefaultAiIntegration(), integrationsSettings)}
+                                options={getModelOptionsForProvider(step.aiIntegration ?? resolveDefaultAiIntegration(), integrationsSettings, step.aiModel)}
                                 isLight={isLight}
                               />
                             </div>

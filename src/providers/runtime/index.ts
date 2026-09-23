@@ -132,10 +132,10 @@ const DEFAULT_CLAUDE_BASE_URL = "https://api.anthropic.com";
 const DEFAULT_GROK_BASE_URL = "https://api.x.ai/v1";
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
 
-const DEFAULT_CHAT_MODEL = "gpt-4.1-mini";
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-20250514";
-const DEFAULT_GROK_MODEL = "grok-4-0709";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+const DEFAULT_CHAT_MODEL = "gpt-5.6-terra";
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5";
+const DEFAULT_GROK_MODEL = "grok-4.3";
+const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
 const RESERVED_SRC_USER_ENTRY = ".user";
 const RESERVED_SRC_USER_SENTINEL = [

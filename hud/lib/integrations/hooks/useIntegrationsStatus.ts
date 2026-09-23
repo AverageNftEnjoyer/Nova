@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
+import { CLAUDE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROK_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants"
 import {
   INTEGRATIONS_UPDATED_EVENT,
   loadIntegrationsSettings,
@@ -62,10 +63,10 @@ function resolveActiveModelFromProvider(
     gemini?: string
   },
 ): string {
-  if (provider === "claude") return String(models.claude || "claude-sonnet-4-20250514")
-  if (provider === "grok") return String(models.grok || "grok-4-0709")
-  if (provider === "gemini") return String(models.gemini || "gemini-2.5-pro")
-  return String(models.openai || "gpt-4.1")
+  if (provider === "claude") return String(models.claude || CLAUDE_DEFAULT_MODEL)
+  if (provider === "grok") return String(models.grok || GROK_DEFAULT_MODEL)
+  if (provider === "gemini") return String(models.gemini || GEMINI_DEFAULT_MODEL)
+  return String(models.openai || OPENAI_DEFAULT_MODEL)
 }
 
 export function useIntegrationsStatus(): UseIntegrationsStatusReturn {

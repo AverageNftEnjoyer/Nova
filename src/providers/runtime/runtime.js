@@ -16,6 +16,12 @@ import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace
 import { getDb } from "../../db/index.js";
 import { resolveUserContextRoot } from "../../db/paths.js";
 import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
+import {
+  mergeAnthropicStreamUsage,
+  normalizeAnthropicUsage,
+  normalizeOpenAiCompatibleUsage,
+  toLegacyUsageFields,
+} from "../usage/index.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
@@ -567,6 +573,9 @@ function collectOpenAiText(value) {
   return "";
 }
 
+// Usage: these helpers only READ the provider's usage and return it normalised (`usage`, see ../usage). They never
+// write the llm_usage ledger themselves; the caller records exactly one row per successful call with its own
+// provider/conversation context. A call that throws (HTTP error, abort, timeout, broken stream) returns no usage.
 export async function streamOpenAiChatCompletion({
   client,
   model,
@@ -613,8 +622,7 @@ export async function streamOpenAiChatCompletion({
   }
 
   let reply = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
+  let rawUsage = null;
   let sawDelta = false;
   let finishReason = "";
 
@@ -635,18 +643,18 @@ export async function streamOpenAiChatCompletion({
         onDelta(delta);
       }
 
-      const usage = chunk?.usage;
-      if (usage) {
-        promptTokens = Number(usage.prompt_tokens || promptTokens);
-        completionTokens = Number(usage.completion_tokens || completionTokens);
-      }
+      // With include_usage the final chunk carries the whole call's usage (earlier chunks have usage: null).
+      if (chunk?.usage) rawUsage = chunk.usage;
     }
   } finally {
     if (timer) clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   }
 
-  return { reply, promptTokens, completionTokens, sawDelta, finishReason };
+  // Only one of the two create() calls above produced this stream, so this is one API call's usage.
+  const usage = normalizeOpenAiCompatibleUsage(rawUsage);
+  const { promptTokens, completionTokens } = toLegacyUsageFields(usage);
+  return { reply, promptTokens, completionTokens, usage, sawDelta, finishReason };
 }
 
 // ===== Claude API =====
@@ -699,12 +707,11 @@ export async function claudeMessagesCreate({
   const text = Array.isArray(data?.content)
     ? data.content.filter((c) => c?.type === "text").map((c) => c?.text || "").join("\n").trim()
     : "";
+  const usage = normalizeAnthropicUsage(data?.usage);
   return {
     text,
-    usage: {
-      promptTokens: Number(data?.usage?.input_tokens || 0),
-      completionTokens: Number(data?.usage?.output_tokens || 0)
-    }
+    // Normalised usage plus the legacy promptTokens (= total input) / completionTokens fields.
+    usage: { ...usage, ...toLegacyUsageFields(usage) }
   };
 }
 
@@ -763,8 +770,7 @@ export async function claudeMessagesStream({
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
   let text = "";
-  let promptTokens = 0;
-  let completionTokens = 0;
+  let rawUsage = {};
 
   try {
     while (true) {
@@ -798,8 +804,7 @@ export async function claudeMessagesStream({
         if (!payload) continue;
 
         if (eventName === "message_start") {
-          promptTokens = Number(payload?.message?.usage?.input_tokens || promptTokens);
-          completionTokens = Number(payload?.message?.usage?.output_tokens || completionTokens);
+          rawUsage = mergeAnthropicStreamUsage(rawUsage, payload?.message?.usage);
           continue;
         }
 
@@ -813,8 +818,7 @@ export async function claudeMessagesStream({
         }
 
         if (eventName === "message_delta") {
-          promptTokens = Number(payload?.usage?.input_tokens || promptTokens);
-          completionTokens = Number(payload?.usage?.output_tokens || completionTokens);
+          rawUsage = mergeAnthropicStreamUsage(rawUsage, payload?.usage);
           continue;
         }
 
@@ -832,12 +836,10 @@ export async function claudeMessagesStream({
     } catch {}
   }
 
+  const usage = normalizeAnthropicUsage(rawUsage);
   return {
     text,
-    usage: {
-      promptTokens,
-      completionTokens
-    }
+    usage: { ...usage, ...toLegacyUsageFields(usage) }
   };
 }
 

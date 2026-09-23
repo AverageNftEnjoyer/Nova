@@ -42,6 +42,7 @@ export {
 export {
   resolveModelPricing,
   estimateDailyCostRange,
+  formatModelPriceHint,
   getClaudePriceHint,
 } from "./pricing"
 

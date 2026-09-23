@@ -1,6 +1,6 @@
 import type { ChatKitReasoningEffort, ChatKitRuntimeConfig, ChatKitValidationResult } from "../types/index.js";
 
-const DEFAULT_MODEL = "gpt-5-mini";
+const DEFAULT_MODEL = "gpt-5.6-luna";
 const DEFAULT_REASONING: ChatKitReasoningEffort = "low";
 const DEFAULT_TIMEOUT_MS = 20_000;
 
