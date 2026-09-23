@@ -42,6 +42,7 @@ Inside the data directory:
 | `user-context/<userId>/` | Markdown workspace docs (`SOUL.md`, `USER.md`, `AGENTS.md`, `MEMORY.md`, `skills/*/SKILL.md`) and per-user logs | Plain text. Use `resolveUserContextRoot()` from `src/db/paths.js` to build this path. |
 | `memory.db` | Shared agent memory index (separate SQLite file) | Plain |
 | `user-context/<userId>/memory.db` | Per-user memory index used by the tool runtime | Plain |
+| `user-context/<userId>/assets/background/` | Custom background video/image (`<assetId>.<ext>`: mp4, png, jpg, webp, gif). Metadata and the active asset id are in `nova.db` (`kv_state`, namespace `background-assets`). Uploaded through `/api/media/background` (chunked, magic-byte checked, 512 MB video / 25 MB image cap; SVG is rejected because it can carry script). Not stored in browser IndexedDB, so it survives origin/port changes and is included when you copy `user-context/`. | Plain (personal media) |
 | `agent-task-files/<userId>/<taskId>/` | Immutable, size-limited copies of files explicitly attached to Agent Tasks | Plain. Database rows store relative managed paths plus SHA-256 digests; original host paths are not exposed to models or clients. |
 | `sessions.json`, `transcripts/` | Runtime session metadata and conversation transcript artifacts | Plain |
 | `archive/logs/` | Coinbase/ChatKit observability JSONL | Plain; no secrets by design |
@@ -88,12 +89,12 @@ entering keys in the app.
 - Restore **only on the same Windows account** (same user, same PC profile). DPAPI cannot unwrap the key elsewhere.
 - Moving to a new PC or Windows account: copy the data, then delete `keys/master.key.dpapi` and re-enter your API
   keys. Chats, notes and missions carry over; secrets do not (by design).
-- Copy `user-context/` too if you want your markdown docs and skills, and `agent-task-files/` if queued tasks must retain attachments.
+- Copy `user-context/` too if you want your markdown docs, skills and custom background media, and `agent-task-files/` if queued tasks must retain attachments.
 
 ## Purging data
 
 The in-app account-delete flow removes a user's rows (`purgeLocalUserData` in `src/db/index.js`), their
-`user-context/<id>/` folder and managed `agent-task-files/<id>/` attachments. To wipe everything, close Nova and
+`user-context/<id>/` folder (including its background media, purged explicitly via `purgeBackgroundAssets`) and managed `agent-task-files/<id>/` attachments. To wipe everything, close Nova and
 delete the data directory.
 
 ## Native module and packaging

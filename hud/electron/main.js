@@ -1,7 +1,8 @@
 const electron = require('electron')
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = electron
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification, dialog } = electron
 const path = require('path')
 const { fileUrlToPath } = require('./file-url-path')
+const { initAutoUpdater } = require('./auto-updater')
 
 process.env.NEXT_TELEMETRY_DISABLED = '1'
 
@@ -23,6 +24,8 @@ let tray = null
 // { port, stop } once the in-process Next server + runtime scheduler are up (packaged mode only).
 let productionServices = null
 let shuttingDown = false
+// Installed-app auto-update (GitHub Releases); a no-op in dev. See auto-updater.js.
+let updater = null
 
 // Shows the real underlying error, not just the top-level message: production startup failures
 // (Next config/prepare errors especially) are often a wrapper with the actually useful detail in
@@ -177,6 +180,12 @@ function createTray() {
         }
       }
     },
+    {
+      label: 'Check for Updates...',
+      click: () => {
+        void updater?.checkNow({ manual: true })
+      }
+    },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -303,6 +312,7 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
   createWindow()
   createTray()
+  updater = initAutoUpdater({ app, dialog, getMainWindow: () => mainWindow })
   setupIpcHandlers()
 
   app.on('activate', () => {
@@ -325,6 +335,7 @@ app.on('window-all-closed', () => {
 // /entrypoint/index.js). preventDefault + re-quit lets that finish before the process actually exits.
 app.on('before-quit', (event) => {
   app.isQuitting = true
+  updater?.stop()
 
   if (tray) {
     tray.destroy()

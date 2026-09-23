@@ -11,11 +11,17 @@ import {
   resetSettings,
   type UserSettings,
 } from "@/lib/settings/userSettings"
-// Boot music and background video features removed
+import {
+  listBackgroundVideoAssets,
+  removeBackgroundVideoAsset,
+  saveBackgroundVideoBlob,
+  setActiveBackgroundVideoAsset,
+  type BackgroundVideoAssetMeta,
+} from "@/lib/media/backgroundVideoStorage"
 import type { DarkBackgroundType } from "@/lib/settings/userSettings"
 
 const AVATAR_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
-const BACKGROUND_IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|svg)$/i
+const BACKGROUND_IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|gif)$/i
 const BACKGROUND_VIDEO_FILE_PATTERN = /\.(mp4)$/i
 
 export type CropOffset = { x: number; y: number }
@@ -70,14 +76,10 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
 
   // Media errors
   const [avatarError, setAvatarError] = useState<string | null>(null)
-  const [bootMusicError, setBootMusicError] = useState<string | null>(null)
   const [backgroundVideoError, setBackgroundVideoError] = useState<string | null>(null)
 
   // Media libraries
-  // Boot music and background video removed
-  const [bootMusicAssets, setBootMusicAssets] = useState<any[]>([])
-  const [activeBootMusicAssetId, setActiveBootMusicAssetId] = useState<string | null>(null)
-  const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<any[]>([])
+  const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<BackgroundVideoAssetMeta[]>([])
   const [activeBackgroundVideoAssetId, setActiveBackgroundVideoAssetId] = useState<string | null>(null)
 
   // Memory editor
@@ -162,7 +164,10 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   // ─── Media libraries ──────────────────────────────────────────────────────
 
   const refreshMediaLibraries = useCallback(async () => {
-    // Boot music and background video removed
+    const assets = await listBackgroundVideoAssets()
+    setBackgroundVideoAssets(assets)
+    const selectedId = loadUserSettings().app.customBackgroundVideoAssetId ?? null
+    setActiveBackgroundVideoAssetId(selectedId && assets.some((a) => a.id === selectedId) ? selectedId : null)
   }, [])
 
   // ─── Memory ───────────────────────────────────────────────────────────────
@@ -409,45 +414,6 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     setCropOffset({ x: 0, y: 0 })
   }, [cropOffset.x, cropOffset.y, cropSource, cropZoom, getBaseScale, imageSize, updateProfile])
 
-  // ─── Boot music ───────────────────────────────────────────────────────────
-
-  const handleBootMusicUpload = useCallback(async (file: File) => {
-    if (!settings) return
-    const isMp3 = file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
-    if (!isMp3) { setBootMusicError("Only MP3 files are supported."); return }
-    if (file.size > 20 * 1024 * 1024) { setBootMusicError("File is too large. Max size is 20MB."); return }
-    setBootMusicError("Boot music uploads are unavailable in local-only mode.")
-  }, [settings, autoSave, refreshMediaLibraries])
-
-  const removeBootMusic = useCallback(async () => {
-    if (!settings) return
-    const targetId = activeBootMusicAssetId || settings.app.bootMusicAssetId
-    if (!targetId) return
-    const remaining = bootMusicAssets.filter((a) => a.id !== targetId)
-    const nextActive = remaining[0] ?? null
-    try {
-      // Removed
-      await refreshMediaLibraries()
-    } catch {}
-    const newSettings = {
-      ...settings,
-      app: { ...settings.app, bootMusicDataUrl: null, bootMusicFileName: nextActive?.fileName ?? null, bootMusicAssetId: nextActive?.id ?? null },
-    }
-    autoSave(newSettings)
-    setBootMusicError(null)
-  }, [settings, autoSave, activeBootMusicAssetId, bootMusicAssets, refreshMediaLibraries])
-
-  const selectBootMusicAsset = useCallback((assetId: string | null) => {
-    if (!settings) return
-    const selected = assetId ? bootMusicAssets.find((a) => a.id === assetId) ?? null : null
-    // Removed => {})
-    const newSettings = {
-      ...settings,
-      app: { ...settings.app, bootMusicDataUrl: null, bootMusicFileName: selected?.fileName ?? null, bootMusicAssetId: selected?.id ?? null },
-    }
-    autoSave(newSettings)
-  }, [settings, bootMusicAssets, autoSave, refreshMediaLibraries])
-
   // ─── Background video ─────────────────────────────────────────────────────
 
   const handleBackgroundVideoUpload = useCallback(async (file: File) => {
@@ -455,10 +421,24 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const normalizedName = file.name.toLowerCase()
     const isVideo = file.type === "video/mp4" || BACKGROUND_VIDEO_FILE_PATTERN.test(normalizedName)
     const isImage = file.type.startsWith("image/") || BACKGROUND_IMAGE_FILE_PATTERN.test(normalizedName)
-    if (!isVideo && !isImage) { setBackgroundVideoError("Only MP4, JPG, PNG, WEBP, or SVG files are supported."); return }
-    if (isVideo && file.size > 300 * 1024 * 1024) { setBackgroundVideoError("File is too large. Max size is 300MB."); return }
+    if (!isVideo && !isImage) { setBackgroundVideoError("Only MP4, JPG, PNG, WEBP, or GIF files are supported."); return }
+    if (isVideo && file.size > 512 * 1024 * 1024) { setBackgroundVideoError("File is too large. Max size is 512MB."); return }
     if (isImage && file.size > 25 * 1024 * 1024) { setBackgroundVideoError("Image is too large. Max size is 25MB."); return }
-    setBackgroundVideoError("Custom background uploads are unavailable in local-only mode.")
+    setBackgroundVideoError(null)
+    // Stored in the data directory (survives closes, updates and origin changes); saving also makes it the active one.
+    const saved = await saveBackgroundVideoBlob(file, file.name)
+    await refreshMediaLibraries()
+    autoSave({
+      ...settings,
+      app: {
+        ...settings.app,
+        customBackgroundVideoDataUrl: null,
+        customBackgroundVideoFileName: saved.fileName,
+        customBackgroundVideoMimeType: saved.mimeType,
+        customBackgroundVideoAssetId: saved.id,
+        darkModeBackground: "customVideo" as DarkBackgroundType,
+      },
+    })
   }, [settings, autoSave, refreshMediaLibraries])
 
   const removeBackgroundVideo = useCallback(async () => {
@@ -468,7 +448,8 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const remaining = backgroundVideoAssets.filter((a) => a.id !== targetId)
     const nextActive = remaining[0] ?? null
     try {
-      // Removed
+      await removeBackgroundVideoAsset(targetId)
+      await setActiveBackgroundVideoAsset(nextActive?.id ?? null)
       await refreshMediaLibraries()
     } catch {}
     const newSettings = {
@@ -493,7 +474,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
   const selectBackgroundVideoAsset = useCallback((assetId: string | null) => {
     if (!settings) return
     const selected = assetId ? backgroundVideoAssets.find((a) => a.id === assetId) ?? null : null
-    // Removed => {})
+    void setActiveBackgroundVideoAsset(selected?.id ?? null).catch(() => {})
     const newSettings = {
       ...settings,
       app: {
@@ -512,7 +493,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       },
     }
     autoSave(newSettings)
-  }, [settings, backgroundVideoAssets, autoSave, refreshMediaLibraries])
+  }, [settings, backgroundVideoAssets, autoSave])
 
   // ─── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -527,8 +508,6 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       setAuthEmail("")
       void refreshMediaLibraries().catch(() => {
         if (cancelled) return
-        setBootMusicAssets([])
-        setActiveBootMusicAssetId(null)
         setBackgroundVideoAssets([])
         setActiveBackgroundVideoAssetId(null)
       })
@@ -585,12 +564,9 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     handleRequestEmailChange, handleDeleteAccount,
     // Media errors
     avatarError, setAvatarError,
-    bootMusicError, setBootMusicError,
     backgroundVideoError, setBackgroundVideoError,
     // Media libraries
-    bootMusicAssets, activeBootMusicAssetId,
     backgroundVideoAssets, activeBackgroundVideoAssetId,
-    handleBootMusicUpload, removeBootMusic, selectBootMusicAsset,
     handleBackgroundVideoUpload, removeBackgroundVideo, selectBackgroundVideoAsset,
     // Memory
     memoryMarkdown, setMemoryMarkdown,

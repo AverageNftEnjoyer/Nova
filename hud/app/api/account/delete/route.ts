@@ -7,6 +7,7 @@ import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } fr
 import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { getDb, purgeLocalUserData, resolveDataDir } from "../../../../../src/db/index.js"
 import { deleteWorktree } from "@/lib/git/worktree-manager"
+import { purgeBackgroundAssets } from "@/lib/media/background-assets-server"
 
 export const runtime = "nodejs"
 
@@ -122,6 +123,11 @@ export async function POST(req: Request) {
       )
     }
     purgeLocalUserData(userContextId)
+    // Background media files live under user-context/<id>/assets/background (removed again by the prune below);
+    // purging explicitly also clears its nova.db rows and any orphaned files if a row/file mismatch exists.
+    await purgeBackgroundAssets(userContextId).catch((error) => {
+      console.error(`[AccountDelete] Failed to purge background assets: ${String(error instanceof Error ? error.message : error)}`)
+    })
   }
   await pruneLocalUserArtifacts(dataDir, userId)
 

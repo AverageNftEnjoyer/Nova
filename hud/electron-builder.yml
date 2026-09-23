@@ -65,6 +65,14 @@ extraResources:
     filter:
       - "runtime-resources/**/*"
 
+# Auto-update feed: the installed app checks this repo's GitHub Releases (public repo, so no token is
+# needed in the app). `npm run electron:publish:win` uploads the installer + latest.yml; the release is created
+# as a DRAFT and must be published on GitHub before installed apps will see it. See docs/release/auto-update.md.
+publish:
+  provider: github
+  owner: AverageNftEnjoyer
+  repo: Nova
+
 win:
   target:
     - target: nsis
@@ -75,6 +83,7 @@ win:
 
 nsis:
   oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true

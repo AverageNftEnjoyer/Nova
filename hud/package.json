@@ -1,6 +1,6 @@
 {
   "name": "nova-hud",
-  "version": "0.10.0",
+  "version": "0.69.0",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -11,9 +11,11 @@
     "notify:send": "node scripts/send-notification.mjs",
     "electron:dev": "concurrently \"cross-env BROWSER=none NEXT_TELEMETRY_DISABLED=1 npm run dev\" \"wait-on http://127.0.0.1:3000 --timeout 30000 --interval 500 --window 1000 && cross-env NEXT_TELEMETRY_DISABLED=1 electron .\"",
     "electron:prod": "concurrently \"cross-env NEXT_TELEMETRY_DISABLED=1 npm run start\" \"wait-on http://127.0.0.1:3000 --timeout 30000 --interval 500 --window 1000 && cross-env NEXT_TELEMETRY_DISABLED=1 electron .\"",
+    "version:sync": "node scripts/sync-version.mjs",
     "electron:prepare-runtime": "node scripts/prepare-runtime-resources.mjs",
-    "electron:build": "npm run build && npm run electron:prepare-runtime && electron-builder",
-    "electron:build:win": "npm run build && npm run electron:prepare-runtime && electron-builder --win --x64",
+    "electron:build": "npm run version:sync && npm run build && npm run electron:prepare-runtime && electron-builder",
+    "electron:build:win": "npm run version:sync && npm run build && npm run electron:prepare-runtime && electron-builder --win --x64",
+    "electron:publish:win": "npm run version:sync && npm run build && npm run electron:prepare-runtime && electron-builder --win --x64 --publish always",
     "test:smoke": "playwright test",
     "test:smoke:ui": "playwright test --ui",
     "test:smoke:headed": "playwright test --headed"
@@ -59,6 +61,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
+    "electron-updater": "^6.8.9",
     "gsap": "^3.14.2",
     "jsdom": "^28.1.0",
     "lucide-react": "^0.454.0",

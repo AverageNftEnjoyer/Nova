@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react"
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user"
+import { persistUiStorageKey } from "@/lib/settings/ui-storage/client"
 
 export type HomeCryptoAsset = {
   ticker: string
@@ -58,6 +59,7 @@ function writePersistedRange(range: HomeCryptoRange): void {
   if (typeof window === "undefined") return
   try {
     localStorage.setItem(cryptoRangeStorageKey(), range)
+    persistUiStorageKey(cryptoRangeStorageKey(), range)
   } catch {
     // no-op
   }

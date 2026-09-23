@@ -1,5 +1,6 @@
 // User Settings - Persisted across sessions
 import { getActiveUserId } from "@/lib/auth/active-user"
+import { persistUiStorageKey } from "@/lib/settings/ui-storage/client"
 
 export type AccessTier = string
 
@@ -64,12 +65,6 @@ export interface AppSettings {
   soundEnabled: boolean
   voiceEnabled: boolean
   ttsVoice: string // Voice ID for TTS
-  bootAnimationEnabled: boolean
-  bootMusicEnabled: boolean
-  extendedBootMusicEnabled: boolean
-  bootMusicDataUrl: string | null
-  bootMusicFileName: string | null
-  bootMusicAssetId: string | null
   customBackgroundVideoDataUrl: string | null
   customBackgroundVideoFileName: string | null
   customBackgroundVideoMimeType: string | null
@@ -122,12 +117,6 @@ const DEFAULT_SETTINGS: UserSettings = {
     soundEnabled: true,
     voiceEnabled: true,
     ttsVoice: "default",
-    bootAnimationEnabled: true,
-    bootMusicEnabled: true,
-    extendedBootMusicEnabled: false,
-    bootMusicDataUrl: null,
-    bootMusicFileName: null,
-    bootMusicAssetId: null,
     customBackgroundVideoDataUrl: null,
     customBackgroundVideoFileName: null,
     customBackgroundVideoMimeType: null,
@@ -188,7 +177,22 @@ function normalizeLightBackground(_value: unknown): LightBackgroundType {
   return "none"
 }
 
-function normalizeAppSettings(app: AppSettings): AppSettings {
+// Keys removed from AppSettings that older saved settings may still contain. Dropped on load so the
+// next save no longer persists them.
+const REMOVED_APP_SETTING_KEYS = [
+  "bootAnimationEnabled",
+  "bootMusicEnabled",
+  "extendedBootMusicEnabled",
+  "bootMusicDataUrl",
+  "bootMusicFileName",
+  "bootMusicAssetId",
+] as const
+
+function normalizeAppSettings(input: AppSettings): AppSettings {
+  const app: AppSettings = { ...input }
+  for (const key of REMOVED_APP_SETTING_KEYS) {
+    delete (app as unknown as Record<string, unknown>)[key]
+  }
   const background = normalizeBackground(app.background)
   return enforceSpotlightEnabled({
     ...app,
@@ -253,7 +257,9 @@ export function saveUserSettings(settings: UserSettings): void {
     updatedAt: new Date().toISOString(),
   }
 
-  localStorage.setItem(key, JSON.stringify(updated))
+  const json = JSON.stringify(updated)
+  localStorage.setItem(key, json)
+  persistUiStorageKey(key, json)
   window.dispatchEvent(
     new CustomEvent(USER_SETTINGS_UPDATED_EVENT, {
       detail: updated,

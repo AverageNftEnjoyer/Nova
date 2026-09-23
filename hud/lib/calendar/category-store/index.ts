@@ -4,6 +4,8 @@
  * Built-in categories (mission, agent, personal) cannot be removed.
  */
 
+import { persistUiStorageKey } from "@/lib/settings/ui-storage/client"
+
 const STORAGE_KEY = "nova_calendar_categories"
 
 export interface CalendarCategory {
@@ -40,7 +42,9 @@ export function loadCalendarCategories(): CalendarCategory[] {
 
 export function saveCalendarCategories(categories: CalendarCategory[]): void {
   const custom = categories.filter((c) => !c.builtin)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(custom))
+  const json = JSON.stringify(custom)
+  localStorage.setItem(STORAGE_KEY, json)
+  persistUiStorageKey(STORAGE_KEY, json)
 }
 
 export function addCalendarCategory(label: string, color: string): CalendarCategory {

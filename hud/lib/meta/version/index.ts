@@ -10,6 +10,14 @@
  *
  * Version History:
  *
+ * - V.69 Alpha (2026-09-23): Persistent user data + auto-update
+ *     - User settings now persist in `nova.db`: profile (name/photo), app/theme, notifications, personalization, calendar categories and home preferences are mirrored server-side (`/api/ui-storage`, kv_state namespace `ui-storage`, allowlist in `hud/lib/settings/ui-storage/keys.ts`). localStorage is only a fast cache; the app waits for hydration (`UiStorageGate`, 2.5s cap) before rendering, and settings saved only in the browser before this release are uploaded automatically. Fixes settings vanishing when the packaged window's origin changed. The theme bootstrap script now reads the real per-user settings key.
+ *     - Custom background video/image now lives on disk in the data directory (`<dataDir>/user-context/<user>/assets/background/`, `/api/media/background`, chunked upload, Range streaming, svg/bmp rejected, 512 MB video / 25 MB image caps) instead of browser IndexedDB; legacy IndexedDB assets migrate automatically; account delete removes them.
+ *     - Auto-update for the installed app via GitHub Releases (`electron-updater`, `hud/electron/auto-updater.js`): checks 30s after launch and every 6h, downloads in the background, offers Restart now / Later (Later installs on next quit); tray > Check for Updates. Unsigned (no certificate). `npm run electron:publish:win` uploads a draft release; `hud/package.json` version now follows `NOVA_VERSION` automatically (V.68 -> `0.68.0`, `hud/scripts/sync-version.mjs`, run first by every electron build/publish script; `smoke:version-sync` guards it). See `docs/release/auto-update.md`.
+ *     - Removed boot music and boot animation settings/code/assets (`bootMusic*`, `extendedBootMusic*`, `bootAnimationEnabled`, the boot-audio store, four unused ~19 MB audio files). Old saved settings load harmlessly.
+ *     - Tests: `smoke:production-boot` now also proves settings and background media survive a full app restart (new process) and rejects non-allowlisted settings keys; added `smoke:background-assets` and `smoke:version-sync`.
+ *     - Versioning: the app version is `NOVA_VERSION` only. `hud/scripts/sync-version.mjs` (run first by every electron build/publish script) writes `0.XX.0` into `hud/package.json`, the root `package.json` and both lockfiles, so the installer name and the auto-update version always follow it.
+ *
  * - V.68 Alpha (2026-09-23): Voice mode is opt-in + packaged-app launch fixes
  *     - Nova never listens or speaks on its own: the home screen no longer sends a spoken greeting on connect (that greeting is what left Nova stuck on "speaking" at boot), and home TTS announcements only fire in voice mode. Speaking-mode code is unchanged.
  *     - Every launch starts muted. The mute flag moved from localStorage to sessionStorage (`hud/lib/chat/voice-mode`), so voice mode carries across pages in one window but never carries into the next launch.
@@ -18,7 +26,7 @@
  *     - Packaged app: the runtime WebSocket gateway now accepts the HUD's real origin (`NOVA_HUD_PORT` is set to the server port), which fixes the header stuck on DOWN in the .exe.
  *     - Packaged app: the HUD prefers a fixed loopback port (47831, `NOVA_PACKAGED_HUD_PORT` to override) and falls back to a free port if taken. A per-launch random port wiped localStorage (settings, theme) every launch.
  *     - Packaged app: the window's X button now fully quits (previously hid to tray and kept running); `before-quit` stops the in-process server and runtime, with a 10s hard-exit backstop. Minimize-to-tray and tray Quit are unchanged.
- *     - `smoke:production-boot` now also asserts the gateway accepts a WebSocket from the HUD origin; `src-transport-stability-smoke` updated for the `startNovaRuntime({ onReady, handleInput })` signature.
+ *     - `smoke:production-boot` asserts the gateway accepts a WebSocket from the HUD origin; `src-transport-stability-smoke` updated for the `startNovaRuntime({ onReady, handleInput })` signature.
  *
  * - V.67 Alpha (2026-09-22): Desktop .exe packaging fixes + Home page layout fixes
  *     - Packaged Electron now works end to end: the main process hosts the Next.js production server (real API routes, no static `out/index.html` export) and the `src/` runtime scheduler in-process, then loads the loopback URL (`hud/electron/production-server.js`). Replaces the V.66 KNOWN packaging gap.
@@ -450,7 +458,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.68 Alpha"
+export const NOVA_VERSION = "V.69 Alpha"
 
 
 

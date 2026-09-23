@@ -39,6 +39,10 @@ npm run build
 cd hud
 npm run electron:build:win
 
+# Publish an installer + auto-update release to GitHub (needs GH_TOKEN; see docs/release/auto-update.md)
+cd hud
+npm run electron:publish:win
+
 # Verify the packaged build boots (repo root, after electron:build:win)
 npm run smoke:production-boot
 
@@ -131,6 +135,8 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 **When adding features**: Types first → API → UI → tests → leave unstaged
 
+**Releases**: only bump `NOVA_VERSION`; `hud/package.json`, the root `package.json` and both lockfiles follow it automatically (V.XX -> `0.XX.0`) via `npm run version:sync`, which every electron build/publish script runs first; `npm run smoke:version-sync` enforces it. Installed apps auto-update from GitHub Releases (`hud/electron/auto-updater.js`, `docs/release/auto-update.md`)
+
 **Every change**: update `hud/lib/meta/version/index.ts` (history entry + `NOVA_VERSION`), `README.md` and this `CLAUDE.md` wherever the change affects them
 
 **Responsive**: Min 1024x768, target 1920x1080, support 4K
@@ -141,7 +147,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.68 Alpha**
+Current: **V.69 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

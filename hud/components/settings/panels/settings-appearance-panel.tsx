@@ -216,7 +216,7 @@ export function SettingsAppearancePanel({
         <input
           ref={backgroundVideoInputRef}
           type="file"
-          accept=".mp4,video/mp4,.jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"
+          accept=".mp4,video/mp4,.jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
           className="hidden"
           onChange={async (e) => {
             const inputEl = e.currentTarget

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { RefreshCw, Search, X } from "lucide-react"
 
 import { YouTubeIcon } from "@/components/icons"
+import { persistUiStorageKey } from "@/lib/settings/ui-storage/client"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import { cn } from "@/lib/shared/utils"
 
@@ -74,7 +75,9 @@ function readHistoryChannelIds(): string[] {
 function writeHistoryChannelIds(channelIds: string[]): void {
   if (typeof window === "undefined") return
   try {
-    localStorage.setItem(historyStorageKey(), JSON.stringify(channelIds.slice(0, 20)))
+    const json = JSON.stringify(channelIds.slice(0, 20))
+    localStorage.setItem(historyStorageKey(), json)
+    persistUiStorageKey(historyStorageKey(), json)
   } catch {
     // no-op
   }
@@ -103,9 +106,12 @@ function writeManualVideo(item: YouTubeFeedItem | null): void {
   try {
     if (!item) {
       localStorage.removeItem(manualVideoStorageKey())
+      persistUiStorageKey(manualVideoStorageKey(), null)
       return
     }
-    localStorage.setItem(manualVideoStorageKey(), JSON.stringify(item))
+    const json = JSON.stringify(item)
+    localStorage.setItem(manualVideoStorageKey(), json)
+    persistUiStorageKey(manualVideoStorageKey(), json)
   } catch {
     // no-op
   }

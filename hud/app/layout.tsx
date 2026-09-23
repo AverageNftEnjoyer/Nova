@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/lib/context/theme-context"
 import { AccentProvider } from "@/lib/context/accent-context"
 import { AppBackgroundLayer } from "@/components/background/app-background-layer"
 import { PageActiveController } from "@/components/background/page-active-controller"
+import { UiStorageGate } from "@/components/settings/ui-storage-gate"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
@@ -39,17 +40,19 @@ export default function RootLayout({
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-page`}>
         <Script id="nova-theme-bootstrap" strategy="beforeInteractive">
-          {`(function(){try{var raw=localStorage.getItem("nova_user_settings");if(!raw)return;var parsed=JSON.parse(raw);var setting=parsed&&parsed.app&&parsed.app.theme?parsed.app.theme:"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;document.documentElement.classList.remove("dark","light");document.documentElement.classList.add(resolved==="light"?"light":"dark")}catch(e){}})()`}
+          {`(function(){try{var uid=localStorage.getItem("nova_active_user_id")||"local-user";var raw=localStorage.getItem("nova_user_settings:"+uid);if(!raw)return;var parsed=JSON.parse(raw);var setting=parsed&&parsed.app&&parsed.app.theme?parsed.app.theme:"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;document.documentElement.classList.remove("dark","light");document.documentElement.classList.add(resolved==="light"?"light":"dark")}catch(e){}})()`}
         </Script>
-        <ThemeProvider>
-          <AccentProvider>
-            <PageActiveController />
-            <AppBackgroundLayer />
-            <div className="relative z-10">
-              {children}
-            </div>
-          </AccentProvider>
-        </ThemeProvider>
+        <UiStorageGate>
+          <ThemeProvider>
+            <AccentProvider>
+              <PageActiveController />
+              <AppBackgroundLayer />
+              <div className="relative z-10">
+                {children}
+              </div>
+            </AccentProvider>
+          </ThemeProvider>
+        </UiStorageGate>
       </body>
     </html>
   )

@@ -123,6 +123,36 @@ function waitFor(predicate, label, timeoutMs) {
   })
 }
 
+async function uiStorageRequest(port, method, body) {
+  const res = await fetch(`http://127.0.0.1:${port}/api/ui-storage`, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(60_000),
+  })
+  return { status: res.status, body: await res.json() }
+}
+
+async function uploadBackground(port, fileName, bytes) {
+  const base = `http://127.0.0.1:${port}/api/media/background`
+  const json = { "Content-Type": "application/json" }
+  const begin = await fetch(`${base}/uploads`, { method: "POST", headers: json, body: JSON.stringify({ fileName, sizeBytes: bytes.length }), signal: AbortSignal.timeout(60_000) })
+  const started = await begin.json()
+  if (begin.status !== 200) return { status: begin.status, body: started }
+  const chunkBytes = 64 * 1024
+  for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
+    const put = await fetch(`${base}/uploads/${started.uploadId}?offset=${offset}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: bytes.subarray(offset, offset + chunkBytes),
+      signal: AbortSignal.timeout(60_000),
+    })
+    if (put.status !== 200) return { status: put.status, body: await put.json() }
+  }
+  const finish = await fetch(`${base}/uploads/${started.uploadId}`, { method: "POST", signal: AbortSignal.timeout(60_000) })
+  return { status: finish.status, body: await finish.json() }
+}
+
 async function main() {
   assert.equal(
     allowSource || layout === "win-unpacked",
@@ -222,6 +252,48 @@ async function main() {
   assert.ok(Array.isArray(apiBody.tasks), apiText)
   console.log(`[production-boot] GET /api/agent-tasks -> ${apiRes.status} ok=${apiBody.ok} tasks=${apiBody.tasks.length}`)
 
+  // User settings (name, photo, personalization, preferences) are mirrored into nova.db so they survive
+  // closing the app. Write them through the real API here; they are read back after a full restart below.
+  const settingsKey = "nova_user_settings:local-user"
+  const settingsValue = JSON.stringify({
+    profile: { name: "Smoke Tester", avatar: `data:image/png;base64,${"A".repeat(200_000)}` },
+    app: { theme: "light", orbColor: "rose" },
+    personalization: { assistantName: "Aria", preferredCity: "Boston" },
+  })
+  const put = await uiStorageRequest(services.port, "PUT", { items: { [settingsKey]: settingsValue, nova_home_crypto_range: "7d" } })
+  assert.equal(put.status, 200, `PUT /api/ui-storage -> ${put.status} ${JSON.stringify(put.body)}`)
+  assert.equal(put.body.written, 2)
+  const rejected = await uiStorageRequest(services.port, "PUT", { items: { "not_a_synced_key": "x" } })
+  assert.equal(rejected.status, 400, "PUT /api/ui-storage must reject keys outside the synced allowlist")
+  const secretLike = await uiStorageRequest(services.port, "PUT", { items: { nova_integrations_secret: "x" } })
+  assert.equal(secretLike.status, 400, "PUT /api/ui-storage must reject non-allowlisted keys such as integration secrets")
+  const read = await uiStorageRequest(services.port, "GET")
+  assert.equal(read.body.items[settingsKey]?.value, settingsValue, "settings did not round-trip through /api/ui-storage")
+  console.log("[production-boot] /api/ui-storage: settings (incl. 200KB avatar) written, bad keys rejected")
+
+  // Custom background media lives in the data directory (not the browser's IndexedDB): upload it through the real
+  // chunked API, check Range playback, reject a fake mp4, and read it back after a full restart below.
+  const backgroundBytes = Buffer.concat([
+    Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00]),
+    Buffer.alloc(200_000, 7),
+  ])
+  const fakeMp4 = await uploadBackground(services.port, "evil.mp4", Buffer.from("MZ this is not a video, it is an exe"))
+  assert.equal(fakeMp4.status, 415, `fake mp4 must be rejected, got ${fakeMp4.status} ${JSON.stringify(fakeMp4.body)}`)
+  const uploaded = await uploadBackground(services.port, "loop.mp4", backgroundBytes)
+  assert.equal(uploaded.status, 200, `background upload -> ${uploaded.status} ${JSON.stringify(uploaded.body)}`)
+  const backgroundId = uploaded.body.asset.id
+  const backgroundUrl = (port) => `http://127.0.0.1:${port}/api/media/background/${backgroundId}`
+  const slice = await fetch(backgroundUrl(services.port), { headers: { Range: "bytes=100-199" }, signal: AbortSignal.timeout(60_000) })
+  assert.equal(slice.status, 206)
+  assert.equal(slice.headers.get("content-range"), `bytes 100-199/${backgroundBytes.length}`)
+  assert.deepEqual(Buffer.from(await slice.arrayBuffer()), backgroundBytes.subarray(100, 200))
+  assert.equal(
+    fs.readdirSync(path.join(isolatedDataDir, "user-context", "local-user", "assets", "background")).some((name) => name.startsWith(backgroundId)),
+    true,
+    "background file was not written under the data directory",
+  )
+  console.log("[production-boot] /api/media/background: chunked upload, Range 206 and fake-mp4 rejection ok")
+
   const dbFile = path.join(isolatedDataDir, "nova.db")
   assert.equal(fs.existsSync(dbFile), true, `runtime did not create ${dbFile}`)
   assert.equal(isUnder(dbFile, hudDir), false, `nova.db was created inside the app dir: ${dbFile}`)
@@ -262,9 +334,10 @@ async function main() {
         const current = db.prepare(
           "SELECT status, result_text, tokens_in, tokens_out FROM agent_tasks WHERE id = 'packaged-claim'",
         ).get()
-        return current && current.status !== "queued" ? current : null
+        // Wait for a terminal state, not just "not queued": the row is briefly "running" while the fake handler runs.
+        return current && ["completed", "failed", "cancelled", "stopped"].includes(current.status) ? current : null
       },
-      "status to leave queued",
+      "task to reach a terminal status",
       20_000,
     )
 
@@ -289,6 +362,71 @@ async function main() {
   console.log(`[production-boot] stop() returned in ${stopMs}ms`)
 
   assert.equal(await portFree(8765), true, "runtime gateway still listening on 8765 after stop()")
+
+  // "Close and reopen the app": a brand-new PROCESS on the same data dir must still have the settings and the
+  // background media (a real relaunch is a new process; Next also cannot be restarted twice inside one).
+  const reopenScript = `
+    const crypto = require("node:crypto");
+    const { startProductionServices } = require(${JSON.stringify(path.join(hudDir, "electron", "production-server.js"))});
+    (async () => {
+      const services = await startProductionServices({
+        hudDir: ${JSON.stringify(hudDir)},
+        runtimeRoot: ${JSON.stringify(runtimeRoot)},
+        handleInput: async () => ({ ok: true, reply: "n/a" }),
+      });
+      const base = "http://127.0.0.1:" + services.port;
+      const json = async (res) => res.json();
+      const settings = await json(await fetch(base + "/api/ui-storage"));
+      const cleared = await json(await fetch(base + "/api/ui-storage", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: { nova_home_crypto_range: null } }),
+      }));
+      const settingsAfterDelete = await json(await fetch(base + "/api/ui-storage"));
+      const listed = await json(await fetch(base + "/api/media/background"));
+      const whole = await fetch(base + "/api/media/background/${backgroundId}");
+      const wholeBytes = Buffer.from(await whole.arrayBuffer());
+      const removed = await fetch(base + "/api/media/background/${backgroundId}", { method: "DELETE" });
+      const afterRemove = await fetch(base + "/api/media/background/${backgroundId}");
+      await services.stop();
+      process.stdout.write("@@RESULT@@" + JSON.stringify({
+        port: services.port, settings, cleared, settingsAfterDelete, listed,
+        wholeStatus: whole.status, wholeLength: wholeBytes.length,
+        wholeSha: crypto.createHash("sha256").update(wholeBytes).digest("hex"),
+        removedStatus: removed.status, afterRemoveStatus: afterRemove.status,
+      }));
+      process.exit(0);
+    })().catch((error) => { console.error(error); process.exit(1); });
+  `
+  const reopenRun = spawnSync(process.execPath, ["-e", reopenScript], {
+    env: { ...process.env },
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 120_000,
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  assert.equal(reopenRun.status, 0, `reopen process failed: ${reopenRun.stderr || reopenRun.stdout}`)
+  const marker = String(reopenRun.stdout).lastIndexOf("@@RESULT@@")
+  assert.ok(marker >= 0, `reopen process produced no result: ${reopenRun.stdout} ${reopenRun.stderr}`)
+  const reopened = JSON.parse(String(reopenRun.stdout).slice(marker + "@@RESULT@@".length))
+
+  assert.equal(reopened.settings.items[settingsKey]?.value, settingsValue, "settings were lost across an app restart")
+  assert.equal(reopened.settings.items.nova_home_crypto_range?.value, "7d", "preferences were lost across an app restart")
+  assert.equal(reopened.cleared.deleted, 1)
+  assert.equal(reopened.settingsAfterDelete.items.nova_home_crypto_range, undefined, "deleted setting still present")
+  console.log(`[production-boot] settings survived a full restart (new process on port ${reopened.port}); delete works`)
+  assert.equal(reopened.listed.activeId, backgroundId, "active background was lost across an app restart")
+  assert.equal(reopened.wholeStatus, 200)
+  assert.equal(reopened.wholeLength, backgroundBytes.length, "background size changed across a restart")
+  assert.equal(
+    reopened.wholeSha,
+    (await import("node:crypto")).createHash("sha256").update(backgroundBytes).digest("hex"),
+    "background bytes changed across a restart",
+  )
+  assert.equal(reopened.removedStatus, 200)
+  assert.equal(reopened.afterRemoveStatus, 404)
+  console.log("[production-boot] background media survived a full restart; delete works")
+  assert.equal(await portFree(8765), true, "runtime gateway still listening on 8765 after the second stop()")
+
   assert.equal(statStamp(realDevDb), before.dev, "smoke wrote the repo .user/nova.db")
   assert.equal(statStamp(realPackagedDb), before.packaged, "smoke wrote %APPDATA%\\Nova\\nova.db")
   assert.equal(fs.existsSync(path.join(repoRoot, "hud", "_final_boot_datadir")), false)

@@ -1,6 +1,6 @@
 {
   "name": "novaaio",
-  "version": "0.10.0",
+  "version": "0.69.0",
   "description": "NovaAIO - AI agent desktop application. Unified launcher for the agent backend and Next.js HUD.",
   "type": "module",
   "scripts": {
@@ -117,9 +117,11 @@
     "smoke:audit:starter-seeding": "node scripts/smoke/audit/starter-seeding/smoke.mjs",
     "smoke:worktree": "node --experimental-strip-types scripts/smoke/worktree/worktree-smoke.mjs",
     "smoke:agent-tasks": "npm run build:agent-core && node scripts/smoke/agent-tasks/agent-task-runtime-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-provider-contract-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-store-smoke.mjs && node scripts/smoke/agent-tasks/agent-task-execution-context-smoke.mjs && node scripts/smoke/agent-tasks/agent-tasks-ui-smoke.mjs && node scripts/smoke/agent-tasks/file-drop-smoke.mjs",
+    "smoke:version-sync": "node scripts/smoke/packaging/version-sync-smoke.mjs",
     "smoke:production-boot": "node scripts/smoke/packaging/production-boot-smoke.mjs",
     "db:ensure-native": "node scripts/db/ensure-native.mjs",
     "db:fix-native": "node scripts/db/ensure-native.mjs --fix",
+    "smoke:background-assets": "node scripts/smoke/media/background-assets-smoke.mjs",
     "smoke:local-db": "node scripts/smoke/local-db/db-foundation-smoke.mjs && node scripts/smoke/local-db/multiprocess-smoke.mjs && node scripts/smoke/local-db/job-ledger-sqlite-smoke.mjs && node scripts/smoke/local-db/authoritative-persistence-smoke.mjs && node scripts/smoke/local-db/tool-runs-smoke.mjs && node scripts/smoke/local-db/data-paths-smoke.mjs && node scripts/smoke/local-db/no-real-data-writes-smoke.mjs",
     "smoke:encryption": "node scripts/smoke/local-db/encryption-smoke.mjs",
     "smoke:security-guard": "node scripts/smoke/security/local-api-guard-smoke.mjs",
