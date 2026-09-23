@@ -345,7 +345,7 @@ export default function AnalyticsPage() {
                     borderRadius: "8px",
                     color: isLight ? "#1f2937" : "#d1d5db",
                   }}
-                  labelFormatter={(label: any) => {
+                  labelFormatter={(label: unknown) => {
                     if (typeof label === 'string') return new Date(label).toLocaleDateString()
                     return String(label)
                   }}
@@ -381,11 +381,11 @@ export default function AnalyticsPage() {
                     borderRadius: "8px",
                     color: isLight ? "#1f2937" : "#d1d5db",
                   }}
-                  labelFormatter={(label: any) => {
+                  labelFormatter={(label: unknown) => {
                     if (typeof label === 'string') return new Date(label).toLocaleDateString()
                     return String(label)
                   }}
-                  formatter={(value: any) => typeof value === 'number' ? formatCurrency(value) : String(value)}
+                  formatter={(value: unknown) => typeof value === 'number' ? formatCurrency(value) : String(value)}
                 />
                 <Bar dataKey="totalCost" fill="#10b981" name="Cost (USD)" />
               </BarChart>
@@ -421,12 +421,11 @@ export default function AnalyticsPage() {
                     borderRadius: "8px",
                     color: isLight ? "#1f2937" : "#d1d5db",
                   }}
-                  // @ts-expect-error - Recharts type definition is overly strict
-                  formatter={(value: any, name: string, props: any) => {
+                  formatter={(value: unknown, name: unknown, props: { payload?: { cost?: number } }) => {
                     const numValue = typeof value === 'number' ? value : 0
                     return [
-                      `${numValue} tasks (${formatCurrency(props.payload.cost)})`,
-                      name
+                      `${numValue} tasks (${formatCurrency(props.payload?.cost ?? 0)})`,
+                      String(name)
                     ]
                   }}
                 />

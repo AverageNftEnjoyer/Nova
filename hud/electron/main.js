@@ -60,7 +60,9 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      // Throttle timers/animations when the window is hidden or minimized to tray.
+      // Throttle timers/animations while the window is minimized or hidden (Chromium default). The
+      // runtime/scheduler live in this main process and the agent WebSocket is unaffected; only
+      // renderer timers slow down. Minimize goes to the taskbar like any desktop program.
       backgroundThrottling: true,
     },
     // nativeImage (used for this, the tray icon, and notification icons) cannot decode SVG in
@@ -142,14 +144,6 @@ async function createWindow() {
   // Next server and runtime. Nothing keeps running in the background after the window is closed.
   mainWindow.on('closed', () => {
     mainWindow = null
-  })
-
-  // Handle minimize to tray
-  mainWindow.on('minimize', (event) => {
-    if (tray) {
-      event.preventDefault()
-      mainWindow.hide()
-    }
   })
 }
 
@@ -291,42 +285,34 @@ function setupIpcHandlers() {
   })
 }
 
-// Prevent multiple instances
+// Prevent multiple instances. app.quit() is asynchronous and does not stop this script or cancel
+// app.whenReady() callbacks, so ALL startup (window, tray, updater, IPC, the in-process Next
+// server + runtime, which createWindow starts) is registered only when the lock is held. A second
+// launch therefore starts nothing and just exits; the first instance focuses its window.
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
-  // Another instance is already running, quit this one
   app.quit()
 } else {
-  // Second instance attempted to launch - focus the existing window
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
+  app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       if (!mainWindow.isVisible()) mainWindow.show()
       mainWindow.focus()
     }
   })
+
+  app.whenReady().then(() => {
+    createWindow()
+    createTray()
+    updater = initAutoUpdater({ app, dialog, getMainWindow: () => mainWindow })
+    setupIpcHandlers()
+  })
 }
 
-// App lifecycle
-app.whenReady().then(() => {
-  createWindow()
-  createTray()
-  updater = initAutoUpdater({ app, dialog, getMainWindow: () => mainWindow })
-  setupIpcHandlers()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
-    }
-  })
-})
-
+// Windows only: closing the window (X) quits the app.
 app.on('window-all-closed', () => {
-  // Keep app running in background on macOS
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  app.quit()
 })
 
 // Quitting must stop the in-process Next server and runtime scheduler cleanly: close the HTTP
@@ -353,16 +339,5 @@ app.on('before-quit', (event) => {
       .stop()
       .catch((err) => console.error('[Electron] Shutdown error:', err))
       .finally(() => app.quit())
-  }
-})
-
-// Handle deep links (nova://)
-app.setAsDefaultProtocolClient('nova')
-
-app.on('open-url', (event, url) => {
-  event.preventDefault()
-  // Parse nova://task/123 or nova://home
-  if (mainWindow) {
-    mainWindow.webContents.send('deep-link', url)
   }
 })

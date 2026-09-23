@@ -10,9 +10,7 @@ import {
   DEFAULT_CLAUDE_MODEL,
   DEFAULT_GROK_MODEL,
   DEFAULT_GEMINI_MODEL,
-  OPENAI_REQUEST_TIMEOUT_MS,
-  OPENAI_MODEL_PRICING_USD_PER_1M,
-  CLAUDE_MODEL_PRICING_USD_PER_1M
+  OPENAI_REQUEST_TIMEOUT_MS
 } from "../../runtime/core/constants/index.js";
 import { enforceWorkspaceUserStateInvariant } from "../../runtime/core/workspace-user-root/index.js";
 import { getDb } from "../../db/index.js";
@@ -844,22 +842,5 @@ export async function claudeMessagesStream({
 }
 
 // ===== Pricing =====
-export function resolveModelPricing(model) {
-  const exact = OPENAI_MODEL_PRICING_USD_PER_1M[model] || CLAUDE_MODEL_PRICING_USD_PER_1M[model];
-  if (exact) return exact;
-  const normalized = String(model || "").trim().toLowerCase();
-  if (normalized.includes("claude-opus-4")) return { input: 15.0, output: 75.0 };
-  if (normalized.includes("claude-sonnet-4")) return { input: 3.0, output: 15.0 };
-  if (normalized.includes("claude-3-7-sonnet")) return { input: 3.0, output: 15.0 };
-  if (normalized.includes("claude-3-5-sonnet")) return { input: 3.0, output: 15.0 };
-  if (normalized.includes("claude-3-5-haiku")) return { input: 0.8, output: 4.0 };
-  return null;
-}
-
-export function estimateTokenCostUsd(model, promptTokens = 0, completionTokens = 0) {
-  const pricing = resolveModelPricing(model);
-  if (!pricing) return null;
-  const inputCost = (promptTokens / 1_000_000) * pricing.input;
-  const outputCost = (completionTokens / 1_000_000) * pricing.output;
-  return Number((inputCost + outputCost).toFixed(6));
-}
+// Tables and cost math live in ../pricing (dependency-free so the HUD can share them); re-exported for existing callers.
+export { resolveModelPricing, estimateTokenCostUsd } from "../pricing/index.js";

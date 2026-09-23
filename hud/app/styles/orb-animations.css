@@ -148,24 +148,6 @@
   animation: orb-float-4 2.5s ease-in-out infinite;
 }
 
-@keyframes orb-intro {
-  0% {
-    transform: translateY(-100px) scale(4);
-    filter: blur(30px);
-    opacity: 0;
-  }
-  100% {
-    transform: translateY(0) scale(1);
-    filter: blur(0px);
-    opacity: 1;
-  }
-}
-
-.orb-intro {
-  animation: orb-intro 4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  opacity: 0;
-}
-
 @keyframes orb-hue-rotate {
   0% {
     filter: hue-rotate(0deg);

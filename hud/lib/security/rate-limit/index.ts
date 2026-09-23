@@ -112,6 +112,16 @@ export const RATE_LIMIT_POLICIES = {
     limit: readIntEnv("NOVA_RATE_LIMIT_AGENT_TASKS_WRITE_PER_MIN", 60, 1, 500),
     windowMs: 60_000,
   },
+  uiStorageRead: {
+    bucket: "ui-storage-read",
+    limit: readIntEnv("NOVA_RATE_LIMIT_UI_STORAGE_READ_PER_MIN", 60, 1, 1000),
+    windowMs: 60_000,
+  },
+  uiStorageWrite: {
+    bucket: "ui-storage-write",
+    limit: readIntEnv("NOVA_RATE_LIMIT_UI_STORAGE_WRITE_PER_MIN", 120, 1, 1000),
+    windowMs: 60_000,
+  },
   homeNotesRead: {
     bucket: "home-notes-read",
     limit: readIntEnv("NOVA_RATE_LIMIT_HOME_NOTES_READ_PER_MIN", 120, 1, 1000),

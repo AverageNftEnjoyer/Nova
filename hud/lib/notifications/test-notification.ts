@@ -89,7 +89,7 @@ export async function testAllNotifications(): Promise<void> {
 
 // Make test functions available globally in dev mode
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  (window as any).novaTestNotifications = {
+  (window as Window & { novaTestNotifications?: Record<string, () => Promise<void>> }).novaTestNotifications = {
     test: testNotification,
     testTaskSuccess,
     testTaskFailure,

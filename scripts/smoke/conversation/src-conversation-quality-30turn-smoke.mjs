@@ -5,32 +5,13 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 function resolveSmokeUserContextId() {
-  const explicit = String(
+  // Set by live-latency-check.mjs (npm run smoke:live-latency), which seeds the temp data dir's DB.
+  return String(
     process.env.NOVA_SMOKE_USER_CONTEXT_ID
     || process.env.NOVA_USER_CONTEXT_ID
     || process.env.USER_CONTEXT_ID
     || "",
   ).trim();
-  if (explicit) return explicit;
-  const root = path.join(process.env.NOVA_DATA_DIR, "user-context");
-  if (!fs.existsSync(root)) return "";
-  const candidates = fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b))
-    .filter(Boolean);
-  // Priority 1: contexts that have integrations-config.json (real credentials)
-  const withIntegrationsConfig = candidates.filter((name) =>
-    fs.existsSync(path.join(root, name, "state", "integrations-config.json"))
-    || fs.existsSync(path.join(root, name, "integrations-config.json")));
-  if (withIntegrationsConfig.includes("smoke-user-ctx")) return "smoke-user-ctx";
-  if (withIntegrationsConfig.length > 0) return withIntegrationsConfig[0];
-  // Priority 2: well-known smoke context name (may rely on env-var credentials)
-  if (candidates.includes("smoke-user-ctx")) return "smoke-user-ctx";
-  // Priority 3: any available context
-  if (candidates.length > 0) return candidates[0];
-  return "";
 }
 
 function percentile(values, p) {
@@ -87,12 +68,9 @@ const LATENCY_THRESHOLDS_MS = {
 
 const userContextId = resolveSmokeUserContextId();
 if (!userContextId) {
-  const contextRoot = path.join(process.env.NOVA_DATA_DIR, "user-context");
   console.error(
-    `FAIL: no user context found for latency gate.\n`
-    + `  Option 1: set NOVA_SMOKE_USER_CONTEXT_ID=<context-name>\n`
-    + `  Option 2: create ${contextRoot}${path.sep}<name>${path.sep}state${path.sep}integrations-config.json with provider credentials\n`
-    + `  Well-known smoke context directory name: smoke-user-ctx`,
+    "FAIL: no user context. This is a live check; run it via `NOVA_LIVE_LATENCY=1 npm run smoke:live-latency`, "
+    + "which loads provider credentials from your real nova.db (read-only) into an isolated temp data dir.",
   );
   process.exit(1);
 }
@@ -106,11 +84,9 @@ const activeProvider = String(providerRuntime?.activeProvider || "openai").trim(
 const activeConfig = providerRuntime && typeof providerRuntime === "object" ? providerRuntime[activeProvider] : null;
 const activeApiKey = String(activeConfig?.apiKey || "").trim();
 if (!activeApiKey) {
-  const contextRoot = path.join(process.env.NOVA_DATA_DIR, "user-context");
   console.error(
-    `FAIL: missing API key for provider "${activeProvider}" in user context "${userContextId}".\n`
-    + `  Expected: ${contextRoot}${path.sep}${userContextId}${path.sep}state${path.sep}integrations-config.json with "${activeProvider}.apiKey"\n`
-    + `  Or set NOVA_SMOKE_USER_CONTEXT_ID to a context that has an integrations-config.json`,
+    `FAIL: missing API key for provider "${activeProvider}" in user context "${userContextId}". `
+    + "Run via `NOVA_LIVE_LATENCY=1 npm run smoke:live-latency` after connecting a provider in Nova.",
   );
   process.exit(1);
 }

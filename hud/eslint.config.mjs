@@ -10,6 +10,13 @@ const eslintConfig = [
   },
   ...nextVitals,
   ...nextTypeScript,
+  {
+    // Electron main/preload are CommonJS by design (package "type" is not module for these files).
+    files: ["electron/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ];
 
 export default eslintConfig;

@@ -10,6 +10,13 @@
  *
  * Version History:
  *
+ * - V.70 Alpha (2026-09-23): Release gate cleanup + settings mirror hardening + desktop behavior
+ *     - Release gate is honest: removed the dead `test:coinbase*` steps (their test files never existed; real Coinbase unit tests are backlog); `smoke:src-latency-gate` moved out of `smoke:src-release` into the opt-in `npm run smoke:live-latency` (needs `NOVA_LIVE_LATENCY=1`, reads the real provider key read-only, runs in a temp data dir); `smoke:agent-tasks` is now part of the release chain.
+ *     - Settings mirror: unsent edits and deletes are kept in a durable queue (`nova_ui_storage_pending_v1`) and win over the server copy when newer, so offline edits are no longer reverted on the next launch. `/api/ui-storage` now has per-user rate limits, a 12 MB body cap and generic error messages; added `smoke:ui-storage` (15 checks) to `smoke:local-db`.
+ *     - Desktop: minimizing goes to the taskbar like a normal program and everything keeps running (it used to hide to the tray); X still fully quits. A second launch no longer starts another server/runtime (the window/tray/updater now start only in the instance that holds the single-instance lock). Removed the dead `nova://` deep-link code. Windows-only electron-builder config (mac/linux targets removed).
+ *     - Smaller installer: `electron-builder.yml` no longer packs `.next/dev` (307 MB of leftover dev-server cache), `.next/cache`, `.next/types` or Next's `@next/swc-*` compiler binaries (123 MB); the unpacked app dropped from about 1,608 MB to about 1,179 MB and `smoke:production-boot` still passes. The rest is Electron plus the libraries the server loads at runtime; trimming those needs UI import changes (backlog).
+ *     - Cleanup: ESLint is at 0 errors (Electron CommonJS override, real hook error in the create-task modal fixed, five `any` types replaced); removed dead home greeting/intro code and `.orb-intro`; rewrote the stale packaging section of `docs/security/local-data.md` (no asarUnpack, no Electron-ABI rebuild) and updated CLAUDE.md/README.
+ *
  * - V.69 Alpha (2026-09-23): Persistent user data + auto-update
  *     - User settings now persist in `nova.db`: profile (name/photo), app/theme, notifications, personalization, calendar categories and home preferences are mirrored server-side (`/api/ui-storage`, kv_state namespace `ui-storage`, allowlist in `hud/lib/settings/ui-storage/keys.ts`). localStorage is only a fast cache; the app waits for hydration (`UiStorageGate`, 2.5s cap) before rendering, and settings saved only in the browser before this release are uploaded automatically. Fixes settings vanishing when the packaged window's origin changed. The theme bootstrap script now reads the real per-user settings key.
  *     - Custom background video/image now lives on disk in the data directory (`<dataDir>/user-context/<user>/assets/background/`, `/api/media/background`, chunked upload, Range streaming, svg/bmp rejected, 512 MB video / 25 MB image caps) instead of browser IndexedDB; legacy IndexedDB assets migrate automatically; account delete removes them.
@@ -458,7 +465,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.69 Alpha"
+export const NOVA_VERSION = "V.70 Alpha"
 
 
 

@@ -173,7 +173,7 @@ function normalizeDarkBackground(value: unknown, background: BackgroundType): Da
   return background === "none" ? "none" : "black"
 }
 
-function normalizeLightBackground(_value: unknown): LightBackgroundType {
+function normalizeLightBackground(): LightBackgroundType {
   return "none"
 }
 
@@ -198,7 +198,7 @@ function normalizeAppSettings(input: AppSettings): AppSettings {
     ...app,
     background,
     darkModeBackground: normalizeDarkBackground(app.darkModeBackground, background),
-    lightModeBackground: normalizeLightBackground(app.lightModeBackground),
+    lightModeBackground: normalizeLightBackground(),
   })
 }
 

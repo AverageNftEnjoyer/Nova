@@ -4,15 +4,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react"
 import {
   loadUserSettings,
-  normalizeResponseTone,
   ORB_COLORS,
   type OrbColor,
-  type ResponseTone,
   USER_SETTINGS_UPDATED_EVENT,
 } from "@/lib/settings/userSettings"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { useSpotlightEffect } from "@/app/integrations/hooks"
-import { GREETINGS_BY_TONE, pickGreetingForTone } from "../constants"
 
 interface UseHomeVisualsInput {
   isLight: boolean
@@ -29,9 +26,6 @@ function hexToRgbTriplet(hex: string): string {
 }
 
 export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
-  const [hasAnimated, setHasAnimated] = useState(false)
-  const [tone, setTone] = useState<ResponseTone>("neutral")
-  const [welcomeMessage, setWelcomeMessage] = useState(GREETINGS_BY_TONE.neutral[0])
   const [assistantName, setAssistantName] = useState("Nova")
   const [orbColor, setOrbColor] = useState<OrbColor>("violet")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
@@ -51,12 +45,9 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     const nextOrbColor = cached.orbColor ?? settings.app.orbColor
     const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
     const nextAssistantName = String(settings.personalization?.assistantName || "").trim() || "Nova"
-    const nextTone = normalizeResponseTone(settings.personalization?.tone)
     setOrbColor(nextOrbColor)
     setSpotlightEnabled(nextSpotlight)
     setAssistantName(nextAssistantName)
-    setTone(nextTone)
-    setWelcomeMessage(pickGreetingForTone(nextTone))
     writeShellUiCache({
       orbColor: nextOrbColor,
       spotlightEnabled: nextSpotlight,
@@ -64,26 +55,11 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   }, [isLight])
 
   useEffect(() => {
-    const sync = window.setTimeout(() => {
-      const shouldAnimateIntro = sessionStorage.getItem("nova-home-intro-pending") === "true"
-      if (shouldAnimateIntro) {
-        sessionStorage.removeItem("nova-home-intro-pending")
-        setHasAnimated(true)
-      }
-    }, 0)
-
-    return () => window.clearTimeout(sync)
-  }, [tone])
-
-  useEffect(() => {
     const refresh = () => {
       const settings = loadUserSettings()
       setOrbColor(settings.app.orbColor)
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
       setAssistantName(String(settings.personalization?.assistantName || "").trim() || "Nova")
-      const nextTone = normalizeResponseTone(settings.personalization?.tone)
-      setTone(nextTone)
-      setWelcomeMessage(pickGreetingForTone(nextTone))
       writeShellUiCache({
         orbColor: settings.app.orbColor,
         spotlightEnabled: settings.app.spotlightEnabled ?? true,
@@ -119,8 +95,6 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     : ""
 
   return {
-    hasAnimated,
-    welcomeMessage,
     assistantName,
     panelClass,
     panelStyle,

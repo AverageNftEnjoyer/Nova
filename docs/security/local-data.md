@@ -47,7 +47,9 @@ Inside the data directory:
 | `sessions.json`, `transcripts/` | Runtime session metadata and conversation transcript artifacts | Plain |
 | `archive/logs/` | Coinbase/ChatKit observability JSONL | Plain; no secrets by design |
 
-UI-only preferences (theme, orb color) stay in the browser's `localStorage`. Never secrets.
+User settings (profile, theme, notifications, personalization, calendar categories, home preferences) are mirrored into `nova.db` (`kv_state`, namespace `ui-storage`, allowlist in `hud/lib/settings/ui-storage/keys.ts`, via `/api/ui-storage`). Browser `localStorage` is only a fast cache of that mirror. Never secrets.
+
+**Electron browser profile.** Separately from the data directory, Electron keeps its own Chromium profile (Local Storage, IndexedDB, caches) in `%APPDATA%\nova-hud`. It holds nothing that is not also in `nova.db` or on disk (settings are mirrored in `nova.db`, custom background media is in `user-context/<userId>/assets/background/`), so it is safe to delete; Nova rebuilds it and re-hydrates settings from `nova.db`. It is not part of a backup.
 
 Schema is versioned with `PRAGMA user_version` plus a `migration:<n>` marker per applied migration in the `meta` table.
 Migrations live in `src/db/migrations/` and are append-only once merged.
@@ -89,7 +91,7 @@ entering keys in the app.
 - Restore **only on the same Windows account** (same user, same PC profile). DPAPI cannot unwrap the key elsewhere.
 - Moving to a new PC or Windows account: copy the data, then delete `keys/master.key.dpapi` and re-enter your API
   keys. Chats, notes and missions carry over; secrets do not (by design).
-- Copy `user-context/` too if you want your markdown docs, skills and custom background media, and `agent-task-files/` if queued tasks must retain attachments.
+- Copy `user-context/` too if you want your markdown docs, skills and custom background media (`user-context/<userId>/assets/background/`), and `agent-task-files/` if queued tasks must retain attachments. Mirrored settings (`ui-storage`) and background-media metadata live in `nova.db`, so they come along with it. `%APPDATA%\nova-hud` does not need backing up.
 
 ## Purging data
 
@@ -100,8 +102,7 @@ delete the data directory.
 ## Native module and packaging
 
 `better-sqlite3` is a native addon. In development, the database code lives in `src/db` and runs in **plain Node
-processes** (the agent runtime and the Next.js server started by `nova.js`), so the binding must match **Node's** ABI,
-not Electron's.
+processes** (the agent runtime and the Next.js server started by `nova.js`).
 
 - Install with scripts enabled (`npm ci`), or run `npm run db:fix-native` (downloads the prebuilt binary once, falls back
   to `npm rebuild better-sqlite3`, which needs MSVC build tools). Do not install with `--ignore-scripts`.
@@ -109,41 +110,31 @@ not Electron's.
   exits with the exact fix command if it fails.
 - Both processes resolve `better-sqlite3` from the repo-root `node_modules`, so exactly one binding exists in development.
   `hud/next.config.js` lists it in `serverExternalPackages` so Next never bundles the `.node` file.
-- `hud/electron-builder.yml`: `asarUnpack` includes `node_modules/better-sqlite3/**` (a `.node` file cannot load from an
-  asar), and user-data patterns (`.user`, `.nova-data`, `data/`, `keys/`, `*.db*`) are excluded from `files` so a
-  developer's data can never ship in an installer.
-- If the database is ever moved into the Electron main process, rebuild for Electron 44's ABI with `@electron/rebuild`
-  (`npmRebuild: true`). Do not do this while the DB still runs in Node child processes: one binary cannot serve both ABIs.
 
-### Packaging (Closure 4)
+### Packaging
 
-The installed app now hosts one execution plane: Electron's main process starts the Next.js production server
+The installed app hosts one execution plane: Electron's main process starts the Next.js production server
 (`next({ dev: false })`'s custom-server API, API routes included, not a static export) and the `src/` runtime
-scheduler in-process — no spawned child processes, no separately started `npm run dev`. See
-`hud/electron/production-server.js` (started from `hud/electron/main.js`'s production branch) and
-`hud/scripts/prepare-runtime-resources.mjs` (the packaging step that stages the repo-root `src/`, `dist/` and
-`node_modules` into `hud/runtime-resources/`, which `electron-builder.yml`'s `extraResources` then copies to
-`<resourcesPath>/runtime`).
+scheduler in-process, with no spawned child processes. See `hud/electron/production-server.js` (started from the
+production branch of `hud/electron/main.js`) and `hud/scripts/prepare-runtime-resources.mjs` (stages the repo-root
+`src/`, `dist/` and `node_modules` into `hud/runtime-resources/`, which `electron-builder.yml`'s `extraResources` copies
+to `<resourcesPath>/runtime-resources`).
 
-- `NOVA_PACKAGED=1` is now set at the top of `hud/electron/main.js` whenever `app.isPackaged` is true, before the
-  in-process Next server or runtime scheduler start, so `resolveDataDir()` resolves to `%APPDATA%\Nova`.
-- `electron-builder.yml` sets `asar: false` for this app: Next's custom server reads its own `.next` build output off
-  disk at request time, and `better-sqlite3`'s native addon cannot load from inside an asar archive at all, so the
-  whole packaged app ships unarchived rather than fighting either constraint. This is a deliberate, conservative
-  choice made without the ability to install-test it; revisit once someone has verified a real install.
-- Because the DB now runs inside Electron's main process in the packaged build, its `better-sqlite3` copy needs
-  Electron's Node ABI, not plain Node's. `prepare-runtime-resources.mjs` rebuilds **only the staged copy** under
-  `hud/runtime-resources/node_modules/better-sqlite3` for Electron's ABI (via `prebuild-install --runtime electron`,
-  falling back to `@electron/rebuild`); the real repo-root `node_modules/better-sqlite3` used by `nova.js` and
-  `npm run dev` (plain Node child processes) is never touched, and stays on Node's own ABI. One binary cannot serve
-  both ABIs — do not merge these two copies.
-- The supported product is Windows x64 because secrets require Windows DPAPI and the runtime uses PowerShell. The
-  macOS/Linux targets left in `electron-builder.yml` were not part of this closure and remain unsupported: packaging
-  for them would need a non-Windows secrets design first.
-- Not yet done in any session: an actual install-and-launch test of the packaged app (no `npm run dev` running,
-  create an Agent Task, confirm the runtime scheduler claims it, quit cleanly). The pieces above were built and
-  typechecked, and the staging script was run end-to-end producing a real `better-sqlite3` rebuild for Electron's
-  ABI, but that binary was never load-tested inside an actual Electron process.
+- `NOVA_PACKAGED=1` is set at the top of `hud/electron/main.js` whenever `app.isPackaged` is true, before the in-process
+  Next server or runtime scheduler start, so `resolveDataDir()` resolves to `%APPDATA%\Nova`.
+- `electron-builder.yml` sets `asar: false` (there is no `asarUnpack`): Next's custom server reads its own `.next` build
+  output off disk at request time, and the app ships unarchived so the native addon loads from a real directory.
+- **No Electron-ABI rebuild.** `better-sqlite3` ^13 is N-API and ships a bundled prebuild
+  (`prebuilds/win32-x64.node`) that is not pinned to Node's or Electron's ABI, so the same binary serves both.
+  `prepare-runtime-resources.mjs` detects this (`gypfile: false` plus the prebuild present) and skips any rebuild; the
+  repo-root copy used by `nova.js` is never touched.
+- User-data patterns (`.user`, `.nova-data`, `data/`, `keys/`, `*.db*`) are excluded from `files` so a developer's
+  data can never ship in an installer.
+- The supported product is Windows x64 only (secrets require Windows DPAPI and the runtime uses PowerShell).
+  `electron-builder.yml` has only an NSIS (per-user, `perMachine: false`) Windows target.
+- Installed apps update themselves from GitHub Releases; see [`../release/auto-update.md`](../release/auto-update.md).
+  Updates never touch `%APPDATA%\Nova`.
+- `npm run smoke:production-boot` boots the unpacked build (`hud/dist/win-unpacked`) and claims a queued agent task.
 
 ## Tests must never touch real data
 

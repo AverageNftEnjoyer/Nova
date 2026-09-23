@@ -6,13 +6,11 @@ directories:
   output: dist
   buildResources: electron/build
 
-# asar is OFF for this app. Closure 4 moved the DB and the Next.js production server into Electron's
-# main process (see hud/electron/production-server.js): Next's custom server reads its own build
-# output (.next/**) off disk at request time, and better-sqlite3's .node addon cannot load from
-# inside an asar archive at all. Packing everything unarchived avoids both problems outright, at the
-# cost of a larger, unarchived install directory. This is the conservative choice for a closure that
-# could not be install-tested end-to-end in the session that wrote it; re-scoping to asar: true plus
-# targeted asarUnpack entries is a reasonable follow-up once someone has verified a real install.
+# asar is OFF for this app. The DB and the Next.js production server run in Electron's main process
+# (see hud/electron/production-server.js): Next's custom server reads its own build output (.next/**)
+# off disk at request time, and the better-sqlite3 .node addon is loaded from a real directory rather
+# than out of an asar archive. Packing everything unarchived avoids both problems, at the cost of a
+# larger, unarchived install directory. There is no asarUnpack.
 asar: false
 
 files:
@@ -27,6 +25,15 @@ files:
   # replaces the symlink with a real copy). This later include puts that directory back. Without it,
   # `/api/agent-tasks` returns 500: Cannot find module 'better-sqlite3-<hash>'.
   - .next/node_modules/**/*
+  # Size: none of this is needed by the installed app, and together it was over 400 MB of a 565 MB
+  # installer. `.next/dev` is leftover cache from running `npm run dev` in the same folder (307 MB);
+  # `.next/cache` and `.next/types` are build-time only; `@next/swc-*` are Next's compiler binaries
+  # (123 MB), which a running production server never uses. `smoke:production-boot` proves the
+  # packaged server still boots without them. Keep these AFTER the includes above so they win.
+  - "!.next/dev/**"
+  - "!.next/cache/**"
+  - "!.next/types/**"
+  - "!node_modules/@next/swc-*/**"
   # Staged separately (see hud/scripts/prepare-runtime-resources.mjs) and copied in via
   # extraResources below, so it is not also packed here.
   - "!runtime-resources/**"
@@ -88,31 +95,3 @@ nsis:
   createDesktopShortcut: always
   createStartMenuShortcut: true
 
-mac:
-  target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
-  icon: public/images/nova.icns
-  category: public.app-category.developer-tools
-  hardenedRuntime: true
-  gatekeeperAssess: false
-  entitlements: electron/entitlements.mac.plist
-  entitlementsInherit: electron/entitlements.mac.plist
-
-dmg:
-  contents:
-    - x: 130
-      y: 220
-    - x: 410
-      y: 220
-      type: link
-      path: /Applications
-
-linux:
-  target:
-    - AppImage
-    - deb
-  icon: public/images/nova.png
-  category: Development

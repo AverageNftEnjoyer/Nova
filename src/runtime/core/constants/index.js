@@ -176,27 +176,13 @@ export const PROMPT_BUDGET_DEBUG =
   String(process.env.NOVA_PROMPT_BUDGET_DEBUG || "").trim() === "1";
 
 // ===== Model Pricing (USD per 1M tokens) =====
-export const OPENAI_MODEL_PRICING_USD_PER_1M = {
-  "gpt-5.2": { input: 1.75, output: 14.0 },
-  "gpt-5.2-pro": { input: 12.0, output: 96.0 },
-  "gpt-5": { input: 1.25, output: 10.0 },
-  "gpt-5-mini": { input: 0.25, output: 2.0 },
-  "gpt-5-nano": { input: 0.05, output: 0.4 },
-  "gpt-4.1": { input: 2.0, output: 8.0 },
-  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
-  "gpt-4.1-nano": { input: 0.1, output: 0.4 },
-  "gpt-4o": { input: 5.0, output: 15.0 },
-  "gpt-4o-mini": { input: 0.6, output: 2.4 }
-};
-
-export const CLAUDE_MODEL_PRICING_USD_PER_1M = {
-  "claude-opus-4-1-20250805": { input: 15.0, output: 75.0 },
-  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
-  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
-  "claude-3-7-sonnet-latest": { input: 3.0, output: 15.0 },
-  "claude-3-5-sonnet-latest": { input: 3.0, output: 15.0 },
-  "claude-3-5-haiku-latest": { input: 0.8, output: 4.0 }
-};
+// Single source: src/providers/pricing (sources + fetch dates documented there). Re-exported for existing importers.
+export {
+  OPENAI_MODEL_PRICING_USD_PER_1M,
+  CLAUDE_MODEL_PRICING_USD_PER_1M,
+  GEMINI_MODEL_PRICING_USD_PER_1M,
+  GROK_MODEL_PRICING_USD_PER_1M,
+} from "../../../providers/pricing/index.js";
 
 // ===== Asset Paths =====
 export const MPV_PATH = path.join(ROOT_WORKSPACE_DIR, "src", "runtime", "assets", "mpv", "mpv.exe");

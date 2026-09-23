@@ -20,6 +20,10 @@ The installed Nova app updates itself from **GitHub Releases** on `AverageNftEnj
 
 Do not publish a release you have not installed and launched yourself first.
 
+## Status
+
+Auto-update is built and its wiring is checked by `npm run smoke:version-sync`, but it has **not yet been run against a real published release**. The first real release after V.70 is the test: install V.70, publish the next version, and confirm the installed app offers it, downloads it, restarts into it and keeps its data. Until that has happened, treat this feature as unproven.
+
 ## Testing the update path
 
 1. Install the current build with its `Nova-<version>-Setup.exe`.
@@ -27,6 +31,8 @@ Do not publish a release you have not installed and launched yourself first.
 3. In the installed app: tray -> Check for Updates... -> the update downloads -> Restart now -> confirm the new version and that name, photo, settings and background are still there.
 
 ## Limits
+
+- The installer is about 565 MB because the app ships unarchived (`asar: false`) with all its dependencies, so every update download is large. Trimming it is backlog work.
 
 - Updates cannot be tested from the unpacked build.
 - Unsigned installers keep triggering SmartScreen; that is a certificate cost, not a bug.

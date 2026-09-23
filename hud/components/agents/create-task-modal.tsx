@@ -75,11 +75,15 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
 
   const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PROVIDER[agent], [agent])
 
+  // Clear a stale error when the modal closes (adjusting state during render, not in an effect).
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (!open) setError("")
+  }
+
   useEffect(() => {
-    if (!open) {
-      setError("")
-      return
-    }
+    if (!open) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !pending) onClose()
     }

@@ -45,3 +45,11 @@ Before adding a new smoke test:
 1. Pick the best matching domain folder above.
 2. Add/update `package.json` script paths if needed.
 3. If no folder fits, create a new domain folder and document it here in the same PR.
+
+## Backlog and opt-in checks
+
+- Coinbase unit/integration tests (`scripts/coinbase/tests/*.mjs`) never existed; the dead `test:coinbase*` npm scripts were
+  removed. Real Coinbase unit tests are backlog. Coverage today is the `smoke:src-coinbase-*` suites.
+- `npm run smoke:live-latency` is the live 30-turn conversation quality/latency check. It is NOT in the release chain
+  (`smoke:src-release`). It skips with exit 0 unless `NOVA_LIVE_LATENCY=1`; when enabled it reads the provider key from the
+  real `nova.db` read-only and runs the conversation in a temp data dir. See `conversation/live-latency-check.mjs`.

@@ -349,6 +349,7 @@ export function purgeLocalUserData(userId) {
     "messages",
     "thread_summaries",
     "tool_runs",
+    "llm_usage",
     "threads",
     "session_turns",
     "sessions",

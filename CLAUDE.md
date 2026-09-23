@@ -15,7 +15,7 @@ NovaAIO is a local-first desktop AI agent orchestration platform. Fully local, o
 - **Frontend Framework**: Next.js 16 (App Router)
 - **UI**: React 19, TypeScript, Tailwind CSS 4
 - **Desktop**: Electron 44 (packaging for .exe distribution). The packaged main process hosts the Next production server + `src/` runtime in-process (`hud/electron/production-server.js`)
-- **Storage**: One local SQLite database (`nova.db`, `better-sqlite3`, WAL) + localStorage for UI preferences; markdown workspace docs (SOUL/USER/AGENTS/MEMORY/SKILL.md) stay files
+- **Storage**: One local SQLite database (`nova.db`, `better-sqlite3`, WAL) + user settings mirrored into it (`kv_state` namespace `ui-storage`; `localStorage` is only a cache of that mirror); markdown workspace docs (SOUL/USER/AGENTS/MEMORY/SKILL.md) stay files
 - **State Management**: React hooks, WebSocket for real-time updates
 - **Agent Orchestration**: In-memory task queue, SQLite persistence (`agent_tasks`)
 - **Integrations**: Local-only configs stored in `nova.db` (`integration_configs` / `integration_state`); secret fields are encrypted (see Security)
@@ -89,7 +89,7 @@ Inside the data directory:
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
-- `localStorage` - UI-only settings (orb color, theme). Never secrets.
+- `kv_state` namespace `ui-storage` - mirrored user settings (theme, orb color, profile, ...); browser `localStorage` is just a fast cache of this. Never secrets. Electron's own browser profile (`%APPDATA%\nova-hud`) is disposable.
 
 Fresh-data release: there is no importer for the old JSON stores and no `.nova-data/` directory; old files are ignored.
 
@@ -126,7 +126,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 **Storage**: One SQLite `nova.db` in the data directory (`src/db/paths.js`), DPAPI-protected encrypted secrets, markdown workspace docs as files
 
 **Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing
-
+**Electron**: Window mgmt (min 1024x768), single-instance lock. X quits the app (stops the in-process server + runtime); minimize goes to the taskbar and everything keeps running. System tray: Show/Hide/Check for Updates/Quit. Installed builds auto-update from GitHub Releases (`electron/auto-updater.js`, see `docs/release/auto-update.md`). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
 **Electron**: Window mgmt (min 1024x768), system tray, deep linking (nova://). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
 
 ## Development Guidelines
@@ -147,7 +147,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.69 Alpha**
+Current: **V.70 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

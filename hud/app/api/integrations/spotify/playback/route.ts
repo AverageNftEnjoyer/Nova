@@ -43,10 +43,8 @@ export async function POST(req: Request) {
     const payload = parsed.data
     const { userId } = await requireLocalUser()
 
-    let scope: Parameters<typeof controlSpotifyPlayback>[2]
-
     // Local-only mode - simple scope
-    scope = { userId }
+    const scope: Parameters<typeof controlSpotifyPlayback>[2] = { userId }
 
     const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.spotifyPlayback)
     if (!limit.allowed) return rateLimitExceededResponse(limit)

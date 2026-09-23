@@ -21,7 +21,6 @@ interface ElectronAPI {
   windowIsMaximized: () => Promise<boolean>
 
   // Event listeners
-  onDeepLink: (callback: (url: string) => void) => void
   onFileDrop: (callback: (data: { filePath: string }) => void) => () => void
   getPathForFile: (file: File) => string
 

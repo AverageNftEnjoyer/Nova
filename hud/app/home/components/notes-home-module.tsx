@@ -224,7 +224,7 @@ export function NotesHomeModule({
 
           {!notesLoading && notes.length === 0 ? (
             <p className={cn("text-[11px] leading-5", isLight ? "text-s-50" : "text-slate-400")}>
-              No notes yet. Try: "Nova note down I need to see mom this week".
+              No notes yet. Try: &quot;Nova note down I need to see mom this week&quot;.
             </p>
           ) : null}
 

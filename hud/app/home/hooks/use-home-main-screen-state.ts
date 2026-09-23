@@ -48,6 +48,7 @@ export function useHomeMainScreenState() {
     if (readVoiceMuted()) return
     const settings = loadUserSettings()
     if (!settings.app.voiceEnabled) return
+    // `sendGreeting` is useNovaState's legacy name: it is the generic spoken-TTS announcement sender.
     sendGreeting(text, settings.app.ttsVoice, settings.app.voiceEnabled, settings.personalization.assistantName)
   }, [sendGreeting])
 
@@ -173,10 +174,8 @@ export function useHomeMainScreenState() {
     handlePinConvo: conversationState.handlePinConvo,
     novaState,
     connected,
-    hasAnimated: visuals.hasAnimated,
     assistantName: visuals.assistantName,
     orbPalette: visuals.orbPalette,
-    welcomeMessage: visuals.welcomeMessage,
     handleSend: conversationState.handleSend,
     handleSendToChat: conversationState.handleSendToChat,
     handleSendHomeCommand,

@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.69). Actively developed and used daily by the author.
+**Status:** Alpha (V.70). Actively developed and used daily by the author.
 
 ---
 
@@ -192,7 +192,7 @@ cd hud
 npm run electron:build:win
 ```
 
-This builds the HUD, stages the agent runtime (`src/`, `dist/`, runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The installer is written to `hud/dist/`. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory.
+This builds the HUD, stages the agent runtime (`src/`, `dist/`, runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The installer is written to `hud/dist/`. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory. Installed builds update themselves from GitHub Releases (see [docs/release/auto-update.md](docs/release/auto-update.md)). Closing the window (X) quits Nova; minimizing sends it to the taskbar and it keeps running.
 
 To check a packaged build boots without clicking through the installer (from the repo root):
 

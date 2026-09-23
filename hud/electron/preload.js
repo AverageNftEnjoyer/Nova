@@ -4,9 +4,6 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron')
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
   // Event listeners
-  onDeepLink: (callback) => {
-    ipcRenderer.on('deep-link', (event, url) => callback(url))
-  },
   onFileDrop: (callback) => {
     const listener = (_event, data) => callback(data)
     ipcRenderer.on('file-dropped', listener)
