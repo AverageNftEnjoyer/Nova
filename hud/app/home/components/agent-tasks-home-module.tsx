@@ -31,7 +31,7 @@ export function AgentTasksHomeModule({
   className,
   onOpenMissions,
 }: AgentTasksHomeModuleProps) {
-  const { tasks, stats, loading, error, connection, createTask, runAction } = useAgentTasks()
+  const { tasks, stats, loading, error, connection, createTask, runAction, raiseBudget } = useAgentTasks()
   const [createOpen, setCreateOpen] = useState(false)
 
   const handleAction = useCallback(
@@ -143,7 +143,13 @@ export function AgentTasksHomeModule({
           </div>
         ) : (
           <>
-            <TaskList tasks={tasks} isLight={isLight} subPanelClass={subPanelClass} onAction={handleAction} />
+            <TaskList
+              tasks={tasks}
+              isLight={isLight}
+              subPanelClass={subPanelClass}
+              onAction={handleAction}
+              onRaiseBudget={raiseBudget}
+            />
             <button
               type="button"
               onClick={onOpenMissions}

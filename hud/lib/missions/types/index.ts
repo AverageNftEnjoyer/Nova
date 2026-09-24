@@ -903,6 +903,11 @@ export interface CompletionUsage {
 export interface CompletionUsageContext {
   /** Mission run id (or other reference) the call belongs to. */
   refId?: string
+  /**
+   * llm_usage source of the call: "mission" (default) for mission runs and mission generation, "utility" for
+   * one-off helper calls that reuse this client (for example the Gmail summary).
+   */
+  source?: "mission" | "utility"
 }
 
 export interface CompletionOverride {

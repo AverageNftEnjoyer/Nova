@@ -54,6 +54,11 @@ export function normalizeWorkerSummary(summary, input = {}) {
     reply: normalizeText(source.reply, ""),
     error,
     errorMessage: normalizeText(source.errorMessage, ""),
+    // Agent-task control signals (execute-chat-request sets them; the agent-task service pauses on them). Only
+    // present when set, so ordinary summaries keep their shape.
+    ...(normalizeText(source.errorCode, "") ? { errorCode: normalizeText(source.errorCode, "") } : {}),
+    ...(source.pendingApproval && typeof source.pendingApproval === "object" ? { pendingApproval: source.pendingApproval } : {}),
+    ...(source.budgetExhausted && typeof source.budgetExhausted === "object" ? { budgetExhausted: source.budgetExhausted } : {}),
     provider: normalizeText(source.provider, defaultProvider),
     model: normalizeText(source.model, ""),
     toolCalls: normalizeArray(source.toolCalls),

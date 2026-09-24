@@ -37,7 +37,7 @@ Almost everything is paid in full on every call because nothing is cached. That 
 | 3 Memory token budget | **Dropped** | Chat recall is already top-3 × 600 chars inside a 1,000-token cap. The two large memory outputs (`memory_get`, `memory_search`) are tool outputs, covered in Stage 2 below. |
 | 4 Conversation compaction | **Dropped** | Agent tasks are one tool loop (≤ 6 steps, 32 s), not long conversations. Chat history is already a ~1.4k-token sliding window. Summarising would add LLM calls. Resending tool results inside a loop is handled by caching in Stage 1. |
 | 5 Tool output ceilings | **Kept, smaller** | Most tools already cap by characters. `read` is uncapped and `memory_get` allows 32k chars. Gmail already never fetches bodies. |
-| 6 Tiered model routing | **Dropped** | The memory pipeline makes no LLM calls. The only extra calls are the rare output-constraint correction pass, empty-reply recovery and Spotify intent parsing. A classifier would cost more to build and maintain than it saves. |
+| 6 Tiered model routing | **Restored as Stage 6** (user request 2026-09-24; originally dropped for the reason at right) | The memory pipeline makes no LLM calls. The only extra calls are the rare output-constraint correction pass, empty-reply recovery and Spotify intent parsing. A classifier would cost more to build and maintain than it saves. |
 | 7 Per-task budgets | **Kept, adapted** (Stage 4) | Existing limits (6 steps, 32 s) cap the time spent on a task, not the money. A budget adds an explicit cost ceiling and makes spend visible. The degradation order is adapted because compaction was dropped: trim loop context → cheapest model → pause and ask. |
 | 8 Dashboard, gates, report | **Kept** (Stage 5) | Built into the existing Home Analytics panel and `/analytics` page rather than a new dashboard, fed by a per-call usage ledger so chat, agent tasks and missions all count. |
 
@@ -141,6 +141,17 @@ Goal: show the savings and budget state where you already look, and lock the win
 Acceptance: the Home panel and `/analytics` show live ledger data (verified in a browser at 1024×768 and 1920×1080); the gate fails on a deliberately broken prefix; FINAL-REPORT.md is complete; all suites and Playwright are green.
 
 ---
+
+## Stage 6 — Tiered model routing (added 2026-09-24 at the user's request)
+
+The user chose full tiered routing over the smaller "cheap model for side calls" option. Goal: cheap models do cheap work and the user's chosen model does the hard reasoning, with **no quality regression on hard work**.
+
+1. Tag every internal model call with a tier: `trivial` (Spotify intent parsing, output-format correction passes, empty-reply recovery, simple classification or extraction), `standard` (tool-result synthesis, ordinary chat), `hard` (multi-step reasoning, agent-task planning and final synthesis, ambiguous tool routing).
+2. Route: `trivial` → the provider's economy model (the same per-provider setting Stage 4 added); `standard` → the user's selected model unless routing is set to cost-saving; `hard` → the user's selected model, never downgraded. Never switch provider. The mapping lives in one module, configurable in Settings, with routing off by default until the user turns it on (or on for `trivial` only, whichever the stage report justifies).
+3. The classifier is rules first (lane, call site, request shape); a model call is only a fallback, and never for `hard`.
+4. Cache safety: switching model changes the cache, so a tier is decided per call site or per turn, never mid-loop (except Stage 4's budget degradation).
+5. Quality gates: offline smokes prove every call site gets the expected tier and model; the existing routing, conversation and agent-task smokes pass; a live A/B on `hard` prompts only if the user provides a spend ceiling. Any regression on `hard` blocks the stage.
+6. Measure: estimated cost per scenario before/after with the harness and pricing; update the token gate and FINAL-REPORT.md.
 
 ## Decided
 

@@ -11,8 +11,12 @@ import { migration as agentTaskLeases } from "./0010-agent-task-leases.js";
 import { migration as agentTaskExecutionContext } from "./0011-agent-task-execution-context.js";
 import { migration as agentTaskEffects } from "./0012-agent-task-effects.js";
 import { migration as llmUsage } from "./0013-llm-usage.js";
+import { migration as agentTaskBudgets } from "./0014-agent-task-budgets.js";
+import { migration as agentTaskBudgetEvents } from "./0015-agent-task-budget-events.js";
+import { migration as retiredModelIds } from "./0016-retired-model-ids.js";
+import { migration as llmUsageSources } from "./0017-llm-usage-sources.js";
 
 /** Ordered list of `{ version, name, sql }`. Versions are unique, ascending and gap-free. */
-export const MIGRATIONS = Object.freeze([core, integrations, missions, localData, chat, agentTaskFiles, taskContexts, agentTaskWorktree, agentTaskResults, agentTaskLeases, agentTaskExecutionContext, agentTaskEffects, llmUsage]);
+export const MIGRATIONS = Object.freeze([core, integrations, missions, localData, chat, agentTaskFiles, taskContexts, agentTaskWorktree, agentTaskResults, agentTaskLeases, agentTaskExecutionContext, agentTaskEffects, llmUsage, agentTaskBudgets, agentTaskBudgetEvents, retiredModelIds, llmUsageSources]);
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

@@ -105,6 +105,9 @@ export function finalizeHandleInputTurn(input = {}, deps = {}) {
     promptTokens: Number.isFinite(Number(summary.promptTokens)) ? Number(summary.promptTokens) : 0,
     completionTokens: Number.isFinite(Number(summary.completionTokens)) ? Number(summary.completionTokens) : 0,
     totalTokens: Number.isFinite(Number(summary.totalTokens)) ? Number(summary.totalTokens) : 0,
+    // Subsets of promptTokens (cache read / cache write); additive fields, older readers ignore them.
+    cachedInputTokens: Number.isFinite(Number(summary.cachedInputTokens)) ? Number(summary.cachedInputTokens) : 0,
+    cacheWriteInputTokens: Number.isFinite(Number(summary.cacheWriteInputTokens)) ? Number(summary.cacheWriteInputTokens) : 0,
     estimatedCostUsd: Number.isFinite(Number(summary.estimatedCostUsd))
       ? Number(summary.estimatedCostUsd)
       : null,

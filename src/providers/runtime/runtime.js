@@ -658,6 +658,21 @@ export async function streamOpenAiChatCompletion({
 }
 
 // ===== Claude API =====
+/**
+ * Claude `system` with a prompt-cache breakpoint after the static part: tools + static system are cached
+ * (5-minute ephemeral cache; writes bill 1.25x, reads 0.1x of input), the per-turn part is sent uncached after it.
+ * Models below their minimum cacheable length simply don't cache; the request is otherwise unchanged.
+ * https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+ */
+export function buildClaudeCachedSystem(staticPrompt, turnPrompt = "") {
+  const staticText = String(staticPrompt || "").trim();
+  const turnText = String(turnPrompt || "").trim();
+  if (!staticText) return turnText;
+  const blocks = [{ type: "text", text: staticText, cache_control: { type: "ephemeral" } }];
+  if (turnText) blocks.push({ type: "text", text: turnText });
+  return blocks;
+}
+
 function normalizeClaudeMessages(messages, userText) {
   if (Array.isArray(messages) && messages.length > 0) {
     return messages

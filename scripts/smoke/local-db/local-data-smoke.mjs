@@ -1,7 +1,8 @@
 /**
  * W5 smoke: home notes, agent tasks and calendar reschedule overrides on SQLite.
  * Everything runs against throwaway data dirs under the OS temp dir; the real .user / nova.db is never touched.
- * hud TypeScript (the task store) is transpiled to a temp dir, with its src/db import pointed at the real module.
+ * hud TypeScript (the task store) is transpiled to a temp dir by scripts/smoke/lib/hud-task-store.mjs, with its src/
+ * imports pointed at the real modules.
  */
 import assert from "node:assert/strict"
 import fs from "node:fs"
@@ -9,7 +10,7 @@ import { createRequire } from "node:module"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import ts from "typescript"
+import { loadHudTaskStore } from "../lib/hud-task-store.mjs"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 const toUrl = (file) => pathToFileURL(file).href
@@ -25,37 +26,9 @@ const overrides = await import(
   toUrl(path.join(repoRoot, "src", "runtime", "modules", "services", "calendar", "overrides-store", "index.js"))
 )
 
-// ─── transpile the hud task store ────────────────────────────────────────────
-const dbModulePath = dbPath.replace(/\\/g, "/")
-const pricingModulePath = path.join(repoRoot, "src", "providers", "pricing", "index.js").replace(/\\/g, "/")
-const TASK_FILES = [
-  "hud/lib/agents/types.ts",
-  "hud/lib/agents/task-events.ts",
-  "hud/lib/agents/task-stats.ts",
-  "hud/lib/git/worktree-manager.ts",
-  "hud/lib/agents/task-store.ts",
-  "hud/app/integrations/constants/types.ts",
-  "hud/app/integrations/constants/pricing.ts",
-  "hud/app/integrations/constants/openai-models.ts",
-  "hud/app/integrations/constants/claude-models.ts",
-  "hud/app/integrations/constants/grok-models.ts",
-  "hud/app/integrations/constants/gemini-models.ts",
-]
-for (const relativePath of TASK_FILES) {
-  const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8")
-  const output = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-  })
-  const target = path.join(tempRoot, "ts", relativePath.replace(/\.ts$/, ".js"))
-  fs.mkdirSync(path.dirname(target), { recursive: true })
-  const rewritten = output.outputText
-    .split("../../../src/db/index.js").join(dbModulePath)
-    .split("../../../../src/providers/pricing/index.js").join(pricingModulePath)
-  fs.writeFileSync(target, rewritten, "utf8")
-}
-const require = createRequire(path.join(tempRoot, "ts", "loader.cjs"))
-const store = require("./hud/lib/agents/task-store.js")
-const events = require("./hud/lib/agents/task-events.js")
+// ─── load the hud task store (transpiled into tempRoot, src/ imports pointed at the real modules) ───────────
+const { store } = loadHudTaskStore(path.join(tempRoot, "ts"))
+const events = createRequire(path.join(tempRoot, "ts", "loader.cjs"))("./hud/lib/agents/task-events.js")
 
 // ─── harness ─────────────────────────────────────────────────────────────────
 const results = []
@@ -176,7 +149,8 @@ await run("W5-5 tasks: one event per changed task, delete publishes task.deleted
   assert.equal(seen[2].id, task.id)
 })
 
-await run("W5-6 tasks: 300-task cap evicts the oldest finished task only", async () => {
+// V.66 made the cap a hard limit: finished tasks own managed attachment files and are never evicted silently.
+await run("W5-6 tasks: 300-task cap is a hard limit (finished tasks are not evicted); deleting frees a slot", async () => {
   const user = "w5-tasks-cap"
   const created = []
   for (let i = 0; i < 300; i += 1) created.push(await store.createTask(user, { ...TASK_INPUT, name: `t${i}` }))
@@ -185,10 +159,13 @@ await run("W5-6 tasks: 300-task cap evicts the oldest finished task only", async
     const target = tasks.find((t) => t.id === created[5].id)
     target.status = "completed"
   })
+  await assert.rejects(() => store.createTask(user, TASK_INPUT), /Task limit reached/, "a completed task is not evicted")
+  assert.equal(rowCount("agent_tasks", user), 300)
+  assert.equal(await store.deleteTask(user, created[5].id), true)
   const extra = await store.createTask(user, { ...TASK_INPUT, name: "extra" })
   const ids = new Set((await store.listTasks(user)).map((t) => t.id))
   assert.equal(ids.size, 300)
-  assert.equal(ids.has(created[5].id), false, "the completed task was evicted")
+  assert.equal(ids.has(created[5].id), false, "the deleted task is gone")
   assert.equal(ids.has(extra.id), true)
 })
 

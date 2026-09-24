@@ -89,7 +89,7 @@ All user data lives in the **data directory**, resolved by `src/db/paths.js` (`r
 
 Inside the data directory:
 
-- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail)
+- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail), `llm_usage` (one row per LLM call: source chat/agent-task/mission, provider, model, input/output/cached/cache-write tokens, `cost_usd` NULL when unpriced; pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90, range 1-3650). Migrations live in `src/db/migrations/` (13 = `llm_usage` + agent-task cache columns, 14 = agent-task budgets)
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
@@ -125,7 +125,13 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence
+**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $0.25 / 100,000 tokens). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
+
+**LLM usage & cost**: every LLM call goes through `src/providers/usage` (normalised tokens incl. cached) and lands one `llm_usage` row; prices (incl. cached / cache-write rates) only in `src/providers/pricing` (exact model IDs, unknown = unpriced). Default models: `gpt-5.6-terra`, `claude-sonnet-5`, `gemini-3.8-flash`, `grok-4.3`. `/analytics` and the Home Analytics panel read the ledger (`hud/lib/analytics`, `/api/analytics`, `/api/analytics/summary`)
+
+**Prompt caching**: the chat system prompt = static part (identity, policies, persona, runtime, HUD persona) + per-turn part (skills, preferences, recall, web/link context, output rules) appended after it. Nothing per-turn may go into the static part. Claude gets `system` as blocks with `cache_control` on the static block, and the tool loop adds a breakpoint on the latest message; OpenAI/Gemini/Grok cache the stable prefix automatically above their minimum length (Gemini 3.x: 4,096 tokens, so plain Gemini chat turns usually miss). Tool lists stay in registry order; `coinbase_*` / `gmail_*` / `phantom_*` are offered to the model only when that integration is connected (`chat-handler/model-tool-scope`). `npm run smoke:token-gate` fails on prompt/tool-schema growth or a broken cacheable prefix
+
+**Tool output caps**: one registry, `src/tools/core/output-caps`, applied in the executor to every tool result (markers say how much was cut and how to get more; `read` returns a 400-line window without `endLine`). Don't add per-tool truncation
 
 **Storage**: One SQLite `nova.db` in the data directory (`src/db/paths.js`), DPAPI-protected encrypted secrets, markdown workspace docs as files
 
@@ -151,7 +157,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.71 Alpha**
+Current: **V.72 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

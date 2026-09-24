@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../net-guard/index.js";
+import { truncateInline } from "../../core/output-caps/index.js";
 import type { Tool } from "../../core/types/index.js";
 
 const USER_AGENT =
@@ -26,10 +27,7 @@ type WorkerParsedHtmlResponse =
   | { ok: true; title: string; markdown: string }
   | { ok: false; error: string };
 
-function truncate(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
+// FETCH_MAX_RESPONSE_BYTES bounds the download; the result is capped by the executor (core/output-caps).
 
 async function parseHtmlToMarkdownWithWorker(params: {
   html: string;
@@ -154,7 +152,7 @@ export function createWebFetchTool(): Tool {
             () => "",
           );
           const message = detail.trim() || response.statusText || "request failed";
-          return `web_fetch error (${response.status}): ${truncate(message, 800)}`;
+          return `web_fetch error (${response.status}): ${truncateInline(message, 800)}`;
         }
 
         const html = await readResponseTextWithLimit(response, FETCH_MAX_RESPONSE_BYTES);
@@ -163,9 +161,7 @@ export function createWebFetchTool(): Tool {
           finalUrl,
           fallbackTitle: parsed.hostname,
         });
-        let markdown = parsedMarkdown;
-        markdown = truncate(markdown.trim(), 16_000);
-        return `# ${title}\n\nSource: ${finalUrl}\n\n${markdown}`;
+        return `# ${title}\n\nSource: ${finalUrl}\n\n${parsedMarkdown.trim()}`;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `web_fetch error: ${message}`;

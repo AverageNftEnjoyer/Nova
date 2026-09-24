@@ -312,6 +312,8 @@ async function handleInputCore(text, opts = {}) {
     executionFenceCheck: opts.executionFenceCheck,
     consumeTaskApproval: opts.consumeTaskApproval,
     reserveTaskEffect: opts.reserveTaskEffect,
+    // Agent-task budget controller (agent-tasks/budget); execute-chat-request passes it to the tool loops.
+    taskBudget: opts.taskBudget,
   };
 
   // System workers short-circuit before any LLM call.

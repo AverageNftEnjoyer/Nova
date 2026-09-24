@@ -9,7 +9,27 @@
 
 import { randomUUID } from "node:crypto"
 
+import {
+  deleteAgentTaskBudgetEvents,
+  recordAgentTaskBudgetEventSafe,
+} from "../../../src/db/agent-task-budget-events.js"
 import { nowIso, tx, type Database } from "../../../src/db/index.js"
+import {
+  AGENT_TASK_COST_BUDGET_LIMITS,
+  AGENT_TASK_TOKEN_BUDGET_LIMITS,
+  AGENT_TASK_BUDGET_PROVIDERS,
+  budgetStateForSpend,
+  computeBudgetFraction,
+  isValidEconomyModel,
+  normalizeBudgetState,
+  normalizeCostBudgetUsd,
+  normalizeTokenBudget,
+  readAgentTaskBudgetSettings,
+  resolveEffectiveTaskBudget,
+  writeAgentTaskBudgetSettings,
+  type AgentTaskBudgetSettingsPatch,
+  type BudgetSpend,
+} from "../../../src/runtime/modules/agent-tasks/budget-settings/index.js"
 import { resolveModelPricing } from "../../app/integrations/constants/pricing"
 import { createWorktree, deleteWorktree, generateBranchName } from "../git/worktree-manager"
 import {
@@ -25,10 +45,12 @@ import {
   type AgentProvider,
   type AgentTask,
   type AgentTaskAction,
+  type AgentTaskBudgetSettings,
   type AgentTaskPriority,
   type AgentTaskStats,
   type AgentTaskStatus,
   type CreateAgentTaskInput,
+  type RaiseAgentTaskBudgetInput,
 } from "./types"
 
 const MAX_TASKS = 300
@@ -41,6 +63,7 @@ const STATUSES: readonly AgentTaskStatus[] = ["queued", "running", "paused", "co
 const PRIORITIES: readonly AgentTaskPriority[] = ["low", "normal", "high"]
 const PROVIDERS: readonly AgentProvider[] = ["claude", "openai", "gemini", "grok"]
 const PERMISSION_MODES: readonly AgentPermissionMode[] = ["default", "accept-edits", "plan-mode", "dont-ask", "bypass"]
+const BUDGET_SPENT_MESSAGE = "This task already spent its budget. Raise the budget to resume."
 
 export class AgentTaskValidationError extends Error {}
 export class AgentTaskNotFoundError extends Error {}
@@ -104,16 +127,21 @@ interface AgentTaskRow {
   started_at: string | null
   paused_at: string | null
   completed_at: string | null
+  cost_budget_usd: number | null
+  token_budget: number | null
+  budget_state: string | null
 }
 
 /** Validates a stored row; rows that fail are skipped rather than surfaced. */
-function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
+function rowToTask(row: AgentTaskRow, userId: string, budgetSettings: AgentTaskBudgetSettings): AgentTask | null {
   const id = typeof row.id === "string" ? row.id : ""
   const prompt = typeof row.prompt === "string" ? row.prompt : ""
   const agent = pickEnum(row.agent, PROVIDERS)
   const status = pickEnum(row.status, STATUSES)
   const createdAt = isoOrUndefined(row.created_at)
   if (!id || !prompt || !agent || !status || !createdAt) return null
+  const ownCostBudget = normalizeCostBudgetUsd(row.cost_budget_usd)
+  const ownTokenBudget = normalizeTokenBudget(row.token_budget)
 
   const task: AgentTask = {
     id,
@@ -133,7 +161,11 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
     costUsd: Math.max(0, Number(row.cost_usd) || 0),
     createdAt,
     updatedAt: isoOrUndefined(row.updated_at) ?? createdAt,
+    budgetState: normalizeBudgetState(row.budget_state),
+    budget: resolveEffectiveTaskBudget({ costBudgetUsd: ownCostBudget, tokenBudget: ownTokenBudget }, budgetSettings),
   }
+  if (ownCostBudget !== null) task.costBudgetUsd = ownCostBudget
+  if (ownTokenBudget !== null) task.tokenBudget = ownTokenBudget
   if (typeof row.error === "string" && row.error) task.error = row.error
   if (typeof row.result_text === "string" && row.result_text) task.result = row.result_text
   if (typeof row.tool_calls === "string" && row.tool_calls) {
@@ -156,7 +188,9 @@ function rowToTask(row: AgentTaskRow, userId: string): AgentTask | null {
   }
   if (typeof row.worktree_path === "string" && row.worktree_path) task.worktreePath = row.worktree_path
   if (typeof row.branch_name === "string" && row.branch_name) task.branchName = row.branch_name
-  if (row.pause_reason === "user" || row.pause_reason === "approval") task.pauseReason = row.pause_reason
+  if (row.pause_reason === "user" || row.pause_reason === "approval" || row.pause_reason === "budget") {
+    task.pauseReason = row.pause_reason
+  }
   if (typeof row.pending_approval_json === "string" && row.pending_approval_json) {
     try {
       const parsed = JSON.parse(row.pending_approval_json) as {
@@ -222,9 +256,10 @@ function loadTasks(db: Database, userId: string): AgentTask[] {
        ORDER BY a.created_at DESC, a.id ASC`,
     )
     .all(userId) as (AgentTaskRow & { context_id: string | null })[]
+  const budgetSettings = readAgentTaskBudgetSettings(userId)
   const tasks: AgentTask[] = []
   for (const row of rows) {
-    const task = rowToTask(row, userId)
+    const task = rowToTask(row, userId, budgetSettings)
     if (task) {
       if (typeof row.context_id === "string" && row.context_id) {
         task.contextId = row.context_id
@@ -240,8 +275,9 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
     `INSERT INTO agent_tasks
        (user_id, id, name, prompt, agent, model, status, priority, permission_mode, progress, tokens_in, tokens_out,
         cached_input_tokens, cache_write_input_tokens, cost_usd, error, result_text, tool_calls, attached_files, worktree_path, branch_name, created_at, updated_at,
-        started_at, paused_at, completed_at, pause_reason, pending_approval_json, approved_tools_json, deleted_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        started_at, paused_at, completed_at, pause_reason, pending_approval_json, approved_tools_json, deleted_at,
+        cost_budget_usd, token_budget, budget_state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, id) DO UPDATE SET
        name = excluded.name, prompt = excluded.prompt, agent = excluded.agent, model = excluded.model,
        status = excluded.status, priority = excluded.priority, permission_mode = excluded.permission_mode,
@@ -254,7 +290,9 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
        paused_at = excluded.paused_at, completed_at = excluded.completed_at,
        pause_reason = excluded.pause_reason, pending_approval_json = excluded.pending_approval_json,
        approved_tools_json = excluded.approved_tools_json,
-       deleted_at = excluded.deleted_at`,
+       deleted_at = excluded.deleted_at,
+       cost_budget_usd = excluded.cost_budget_usd, token_budget = excluded.token_budget,
+       budget_state = excluded.budget_state`,
   ).run(
     userId,
     task.id,
@@ -291,6 +329,9 @@ function upsertTask(db: Database, userId: string, task: AgentTask): void {
         })))
       : null,
     null,
+    task.costBudgetUsd ?? null,
+    task.tokenBudget ?? null,
+    normalizeBudgetState(task.budgetState),
   )
 }
 
@@ -372,7 +413,10 @@ async function transact<T>(
     const present = new Set(tasks.map((t) => t.id))
     const removed = [...before.keys()].filter((id) => !present.has(id))
 
-    for (const id of removed) db.prepare("DELETE FROM agent_tasks WHERE user_id = ? AND id = ?").run(userId, id)
+    for (const id of removed) {
+      db.prepare("DELETE FROM agent_tasks WHERE user_id = ? AND id = ?").run(userId, id)
+      deleteBudgetHistory(userId, id)
+    }
     for (const task of changed) upsertTask(db, userId, task)
     afterPersist?.(db)
     return { result, changed, removed }
@@ -396,9 +440,44 @@ export function computeTaskCostUsd(model: string, tokensIn: number, tokensOut: n
   return (tokensIn * pricing.input + tokensOut * pricing.output) / 1_000_000
 }
 
-function validateCreateInput(
-  input: CreateAgentTaskInput,
-): Pick<AgentTask, "name" | "prompt" | "agent" | "model" | "priority" | "permissionMode" | "attachedFiles"> {
+// ─── Budgets (token-efficiency Stage 4) ─────────────────────────────────────
+
+const COST_BUDGET_RANGE_TEXT = `between $${AGENT_TASK_COST_BUDGET_LIMITS.min} and $${AGENT_TASK_COST_BUDGET_LIMITS.max}`
+const TOKEN_BUDGET_RANGE_TEXT = `between ${AGENT_TASK_TOKEN_BUDGET_LIMITS.min.toLocaleString("en-US")} and ${AGENT_TASK_TOKEN_BUDGET_LIMITS.max.toLocaleString("en-US")} tokens`
+
+/** Spend as the budget counts it: the task's cost and its total tokens (input incl. cached + output). */
+function taskSpend(task: AgentTask): BudgetSpend {
+  return { spentUsd: task.costUsd, spentTokens: task.tokensIn + task.tokensOut }
+}
+
+function formatSpentUsd(value: number): string {
+  return `$${Number(value.toFixed(4))}`
+}
+
+/**
+ * One submitted budget value: undefined when the field is absent, null when it is explicitly empty (null / ""),
+ * otherwise a valid budget. A provided but invalid value throws a validation error naming the allowed range.
+ */
+function parseBudgetField(value: unknown, kind: "cost" | "tokens"): number | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null || (typeof value === "string" && !value.trim())) return null
+  const normalized = typeof value === "number" || typeof value === "string"
+    ? kind === "cost" ? normalizeCostBudgetUsd(value) : normalizeTokenBudget(value)
+    : null
+  if (normalized !== null) return normalized
+  throw new AgentTaskValidationError(
+    kind === "cost"
+      ? `Cost budget must be ${COST_BUDGET_RANGE_TEXT}.`
+      : `Token budget must be ${TOKEN_BUDGET_RANGE_TEXT}.`,
+  )
+}
+
+type CreateTaskFields = Pick<
+  AgentTask,
+  "name" | "prompt" | "agent" | "model" | "priority" | "permissionMode" | "attachedFiles" | "costBudgetUsd" | "tokenBudget"
+>
+
+function validateCreateInput(input: CreateAgentTaskInput): CreateTaskFields {
   const prompt = String(input?.prompt ?? "").trim()
   if (!prompt) throw new AgentTaskValidationError("Prompt is required.")
   if (prompt.length > MAX_PROMPT_CHARS) {
@@ -412,7 +491,9 @@ function validateCreateInput(
     throw new AgentTaskValidationError(`Model must be ${MAX_MODEL_CHARS} characters or fewer.`)
   }
   const name = String(input?.name ?? "").trim().slice(0, MAX_NAME_CHARS) || defaultTaskName(prompt)
-  const result: Pick<AgentTask, "name" | "prompt" | "agent" | "model" | "priority" | "permissionMode" | "attachedFiles"> = {
+  const costBudgetUsd = parseBudgetField(input?.costBudgetUsd, "cost")
+  const tokenBudget = parseBudgetField(input?.tokenBudget, "tokens")
+  const result: CreateTaskFields = {
     name,
     prompt,
     agent,
@@ -423,6 +504,8 @@ function validateCreateInput(
   if (Array.isArray(input?.attachedFiles) && input.attachedFiles.length > 0) {
     result.attachedFiles = input.attachedFiles.filter((f) => typeof f === "string" && f.trim()).slice(0, 20)
   }
+  if (typeof costBudgetUsd === "number") result.costBudgetUsd = costBudgetUsd
+  if (typeof tokenBudget === "number") result.tokenBudget = tokenBudget
   return result
 }
 
@@ -442,6 +525,13 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
   if (action === "play") {
     if (status === "running" || status === "queued") return
     if (status === "paused") {
+      if (task.pauseReason === "budget") {
+        // Resume re-runs the task from the start, so it needs room left under the (possibly raised) budget.
+        const spend = taskSpend(task)
+        if (computeBudgetFraction(spend, task.budget) >= 1) throw new AgentTaskTransitionError(BUDGET_SPENT_MESSAGE)
+        task.budgetState = budgetStateForSpend(spend, task.budget)
+        delete task.error
+      }
       const approvalIsCurrent = task.pendingApproval
         && Number.isFinite(Date.parse(task.pendingApproval.expiresAt))
         && Date.parse(task.pendingApproval.expiresAt) > Date.now()
@@ -468,6 +558,7 @@ function applyAction(task: AgentTask, action: AgentTaskAction): void {
       task.cachedInputTokens = 0
       task.cacheWriteInputTokens = 0
       task.costUsd = 0
+      task.budgetState = "ok"
       delete task.error
       delete task.result
       delete task.toolCalls
@@ -538,6 +629,8 @@ export async function createTask(userId: string, input: CreateAgentTaskInput): P
     cachedInputTokens: 0,
     cacheWriteInputTokens: 0,
     costUsd: 0,
+    budgetState: "ok",
+    budget: resolveEffectiveTaskBudget(fields, readAgentTaskBudgetSettings(safeUserId)),
     createdAt: now,
     updatedAt: now,
   }
@@ -613,6 +706,116 @@ export async function applyTaskAction(userId: string, id: string, action: AgentT
   return result
 }
 
+/**
+ * Raises the budget of a task paused for its budget and requeues it (the run restarts from the start; steps that
+ * already had side effects are not repeated). Absent fields keep the task's current value; null reverts that
+ * dimension to the user's default. The new effective budget must exceed the spend in every limited dimension.
+ */
+export async function raiseTaskBudget(userId: string, id: string, input: RaiseAgentTaskBudgetInput): Promise<AgentTask> {
+  const cost = parseBudgetField(input?.costBudgetUsd, "cost")
+  const tokens = parseBudgetField(input?.tokenBudget, "tokens")
+  if (cost === undefined && tokens === undefined) {
+    throw new AgentTaskValidationError("Enter a new cost or token budget.")
+  }
+  const safeUserId = sanitizeUserId(userId)
+  const { result } = await transact(safeUserId, (tasks) => {
+    const task = findTask(tasks, id)
+    if (task.status !== "paused" || task.pauseReason !== "budget") {
+      throw new AgentTaskTransitionError("Only a task paused for its budget can have its budget raised.")
+    }
+    const nextCost = cost === undefined ? task.costBudgetUsd ?? null : cost
+    const nextTokens = tokens === undefined ? task.tokenBudget ?? null : tokens
+    const budget = resolveEffectiveTaskBudget(
+      { costBudgetUsd: nextCost, tokenBudget: nextTokens },
+      readAgentTaskBudgetSettings(safeUserId),
+    )
+    const spend = taskSpend(task)
+    if (budget.costUsd !== null && spend.spentUsd >= budget.costUsd) {
+      throw new AgentTaskValidationError(
+        `The cost budget must be above the ${formatSpentUsd(spend.spentUsd)} this task already spent.`,
+      )
+    }
+    if (budget.tokens !== null && spend.spentTokens >= budget.tokens) {
+      throw new AgentTaskValidationError(
+        `The token budget must be above the ${spend.spentTokens.toLocaleString("en-US")} tokens this task already used.`,
+      )
+    }
+    if (nextCost === null) delete task.costBudgetUsd
+    else task.costBudgetUsd = nextCost
+    if (nextTokens === null) delete task.tokenBudget
+    else task.tokenBudget = nextTokens
+    task.budget = budget
+    task.budgetState = budgetStateForSpend(spend, budget)
+    task.status = "queued"
+    delete task.pausedAt
+    delete task.pauseReason
+    delete task.pendingApproval
+    delete task.error
+    return task
+  })
+  // History row (agent_task_budget_events), after the commit. Never throws: the raise itself already succeeded.
+  const spend = taskSpend(result)
+  recordAgentTaskBudgetEventSafe({
+    userId: safeUserId,
+    taskId: result.id,
+    kind: "raised",
+    state: result.budgetState,
+    spentUsd: spend.spentUsd,
+    spentTokens: spend.spentTokens,
+    costBudgetUsd: result.budget.costUsd,
+    tokenBudget: result.budget.tokens,
+    model: result.model,
+  })
+  return result
+}
+
+/** Removes a task's budget event history. Best effort: a failed cleanup must not fail the delete (logged). */
+function deleteBudgetHistory(userId: string, taskId: string): void {
+  try {
+    deleteAgentTaskBudgetEvents(userId, taskId)
+  } catch (error) {
+    console.warn(`Could not remove the budget history of task ${taskId}:`, error)
+  }
+}
+
+/** The user's agent-task budget settings (defaults filled in). */
+export function readTaskBudgetSettings(userId: string): AgentTaskBudgetSettings {
+  return readAgentTaskBudgetSettings(sanitizeUserId(userId))
+}
+
+/**
+ * Validates and saves a settings update. Absent fields keep their value; a null default budget means "no default
+ * limit". Out-of-range budgets, unknown providers and economy models outside the provider's list are rejected.
+ */
+export function updateTaskBudgetSettings(userId: string, update: unknown): AgentTaskBudgetSettings {
+  if (!update || typeof update !== "object" || Array.isArray(update)) {
+    throw new AgentTaskValidationError("Invalid budget settings.")
+  }
+  const source = update as Record<string, unknown>
+  const patch: AgentTaskBudgetSettingsPatch = {}
+  const cost = parseBudgetField(source.defaultCostBudgetUsd, "cost")
+  if (cost !== undefined) patch.defaultCostBudgetUsd = cost
+  const tokens = parseBudgetField(source.defaultTokenBudget, "tokens")
+  if (tokens !== undefined) patch.defaultTokenBudget = tokens
+  if (source.economyModels !== undefined) {
+    const models = source.economyModels
+    if (!models || typeof models !== "object" || Array.isArray(models)) {
+      throw new AgentTaskValidationError("Invalid economy models.")
+    }
+    const economyModels: NonNullable<AgentTaskBudgetSettingsPatch["economyModels"]> = {}
+    for (const [provider, model] of Object.entries(models as Record<string, unknown>)) {
+      const knownProvider = AGENT_TASK_BUDGET_PROVIDERS.find((candidate) => candidate === provider)
+      if (!knownProvider) throw new AgentTaskValidationError(`Unknown provider: ${provider.slice(0, 40)}.`)
+      if (typeof model !== "string" || !isValidEconomyModel(knownProvider, model)) {
+        throw new AgentTaskValidationError(`Choose one of ${knownProvider}'s listed models as its economy model.`)
+      }
+      economyModels[knownProvider] = model.trim().toLowerCase()
+    }
+    patch.economyModels = economyModels
+  }
+  return writeAgentTaskBudgetSettings(sanitizeUserId(userId), patch)
+}
+
 export async function deleteTask(userId: string, id: string): Promise<boolean> {
   const safeUserId = sanitizeUserId(userId)
   const now = nowIso()
@@ -633,6 +836,8 @@ export async function deleteTask(userId: string, id: string): Promise<boolean> {
            pause_reason = NULL, pending_approval_json = NULL
        WHERE user_id = ? AND id = ?`,
     ).run(now, now, now, safeUserId, id)
+    // The history goes with the task (a running attempt writes no more rows: its writes are fenced on 'running').
+    deleteBudgetHistory(safeUserId, id)
     const leaseActive = Boolean(
       row.lease_owner
       && row.lease_expires_at

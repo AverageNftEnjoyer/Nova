@@ -1,6 +1,6 @@
 "use client"
 
-import { File, Loader2, ShieldAlert, X } from "lucide-react"
+import { ChevronDown, File, Loader2, ShieldAlert, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
 import { createPortal } from "react-dom"
 
@@ -11,7 +11,13 @@ import {
   OPENAI_MODEL_OPTIONS,
 } from "@/app/integrations/constants"
 import { FluidSelect } from "@/components/ui/fluid-select"
-import type { AgentPermissionMode, AgentProvider, AgentTaskPriority, CreateAgentTaskInput } from "@/lib/agents/types"
+import type {
+  AgentPermissionMode,
+  AgentProvider,
+  AgentTaskBudgetSettings,
+  AgentTaskPriority,
+  CreateAgentTaskInput,
+} from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
 import { PERMISSION_MODE_LABELS } from "./task-card"
 
@@ -50,6 +56,14 @@ function defaultModelFor(provider: AgentProvider): string {
   return MODEL_OPTIONS_BY_PROVIDER[provider][0]?.value ?? ""
 }
 
+const BUDGET_SETTINGS_URL = "/api/agent-tasks/budget-settings"
+
+/** "" = use the default (undefined); otherwise a number the server range-checks. NaN = not a number. */
+function parseOptionalNumber(value: string): number | undefined {
+  const trimmed = value.trim()
+  return trimmed ? Number(trimmed) : undefined
+}
+
 function basename(filePath: string): string {
   const normalized = filePath.replace(/\\/g, "/")
   const parts = normalized.split("/")
@@ -72,6 +86,10 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
   const [selectedContext, setSelectedContext] = useState<string>("")
   const [newContextName, setNewContextName] = useState("")
   const [showNewContextInput, setShowNewContextInput] = useState(false)
+  const [budgetOpen, setBudgetOpen] = useState(false)
+  const [costBudget, setCostBudget] = useState("")
+  const [tokenBudget, setTokenBudget] = useState("")
+  const [budgetDefaults, setBudgetDefaults] = useState<AgentTaskBudgetSettings | null>(null)
 
   const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PROVIDER[agent], [agent])
 
@@ -108,6 +126,21 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
 
   useEffect(() => {
     if (!open) return
+    // The user's default budgets, shown as placeholders. Optional: on failure the placeholders stay generic.
+    let cancelled = false
+    fetch(BUDGET_SETTINGS_URL, { cache: "no-store", credentials: "include" })
+      .then((res) => res.json())
+      .then((data: { ok?: boolean; settings?: AgentTaskBudgetSettings }) => {
+        if (!cancelled && data.ok && data.settings) setBudgetDefaults(data.settings)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     const unsubscribe = window.electronAPI?.onFileDrop?.((data) => {
       const filePath = String(data?.filePath || "").trim()
       if (!filePath) return
@@ -134,6 +167,13 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     event.preventDefault()
     const trimmedPrompt = prompt.trim()
     if (!trimmedPrompt || pending) return
+    const costBudgetUsd = parseOptionalNumber(costBudget)
+    const tokenBudgetValue = parseOptionalNumber(tokenBudget)
+    if (Number.isNaN(costBudgetUsd) || Number.isNaN(tokenBudgetValue)) {
+      setBudgetOpen(true)
+      setError("Budgets must be numbers. Leave a field empty to use your default.")
+      return
+    }
     setPending(true)
     setError("")
 
@@ -172,6 +212,8 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
       attachedFiles: attachedFiles.length > 0 ? attachedFiles : undefined,
       contextId: finalContextId || undefined,
       useWorktree,
+      costBudgetUsd,
+      tokenBudget: tokenBudgetValue,
     })
     setPending(false)
     if (!result.ok) {
@@ -187,6 +229,9 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     setSelectedContext("")
     setNewContextName("")
     setShowNewContextInput(false)
+    setCostBudget("")
+    setTokenBudget("")
+    setBudgetOpen(false)
     onClose()
   }
 
@@ -453,6 +498,74 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
               Use isolated git worktree (enables parallel agent tasks)
             </span>
           </label>
+
+          <div className={cn("rounded-lg border", isLight ? "border-[#d5dce8]" : "border-white/10")}>
+            <button
+              type="button"
+              onClick={() => setBudgetOpen((value) => !value)}
+              aria-expanded={budgetOpen}
+              className={cn(
+                "flex w-full items-center justify-between px-3 py-2 text-[10px] uppercase tracking-[0.16em] transition-colors",
+                isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/5",
+              )}
+            >
+              Budget (optional)
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", budgetOpen && "rotate-180")} />
+            </button>
+            {budgetOpen ? (
+              <div className="space-y-2 px-3 pb-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass} htmlFor="agent-task-cost-budget">Cost (USD)</label>
+                    <input
+                      id="agent-task-cost-budget"
+                      type="number"
+                      inputMode="decimal"
+                      min={0.01}
+                      max={100}
+                      step={0.01}
+                      value={costBudget}
+                      onChange={(event) => setCostBudget(event.target.value)}
+                      placeholder={
+                        budgetDefaults
+                          ? budgetDefaults.defaultCostBudgetUsd !== null
+                            ? `Default $${budgetDefaults.defaultCostBudgetUsd.toFixed(2)}`
+                            : "Default: no limit"
+                          : "Your default"
+                      }
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass} htmlFor="agent-task-token-budget">Tokens (optional)</label>
+                    <input
+                      id="agent-task-token-budget"
+                      type="number"
+                      inputMode="numeric"
+                      min={1000}
+                      max={10000000}
+                      step={1000}
+                      value={tokenBudget}
+                      onChange={(event) => setTokenBudget(event.target.value)}
+                      placeholder={
+                        budgetDefaults
+                          ? budgetDefaults.defaultTokenBudget !== null
+                            ? `Default ${budgetDefaults.defaultTokenBudget.toLocaleString("en-US")}`
+                            : "Default: no limit"
+                          : "Your default"
+                      }
+                      className={fieldClass}
+                    />
+                  </div>
+                </div>
+                <p className={cn("text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-500")}>
+                  Empty uses your default (Settings, Agent budgets). Budgets are on cost; a token limit is optional, since
+                  cached tokens count in full but cost about a tenth. Near the limit the task switches to an economy
+                  model, then pauses and asks.
+                </p>
+              </div>
+            ) : null}
+          </div>
 
           {error ? <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500">{error}</p> : null}
         </div>

@@ -1,11 +1,105 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  GREP_LINE_MAX_CHARS,
+  READ_DEFAULT_WINDOW_LINES,
+  TOOL_OUTPUT_LIMITS,
+  TOOL_OUTPUT_MARKER_MAX_CHARS,
+  formatTruncationMarker,
+} from "../../core/output-caps/index.js";
 import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js";
 
 const FILE_GREP_MAX_PARALLEL = Math.max(
   1,
   Math.min(24, Number.parseInt(process.env.NOVA_FILE_GREP_MAX_PARALLEL || "8", 10) || 8),
 );
+
+// `read` cuts by whole lines so its marker can name the next startLine. Body + marker stay inside the registry cap,
+// so the executor's central cap never cuts a read result a second time.
+const READ_BODY_MAX_CHARS = TOOL_OUTPUT_LIMITS.read.maxChars - TOOL_OUTPUT_MARKER_MAX_CHARS;
+
+function readLineWindow(raw: string, startLine: unknown, endLine: unknown): string {
+  const lines = raw.split(/\r?\n/);
+  const totalLines = raw.endsWith("\n") ? lines.length - 1 : lines.length;
+  let start = startLine === undefined || startLine === null ? 1 : Number(startLine);
+  let end = endLine === undefined || endLine === null ? Number.NaN : Number(endLine);
+  let hasEnd = !Number.isNaN(end);
+  if (!Number.isFinite(start) || start < 1 || (hasEnd && (!Number.isFinite(end) || end < start))) {
+    // Invalid range: fall back to the default window from the top (it used to return the whole file).
+    start = 1;
+    end = Number.NaN;
+    hasEnd = false;
+  }
+  start = Math.floor(start);
+  if (!hasEnd && start === 1 && totalLines <= READ_DEFAULT_WINDOW_LINES && raw.length <= READ_BODY_MAX_CHARS) {
+    return raw;
+  }
+  if (start > Math.max(totalLines, 1)) {
+    return `read error: startLine ${start} is past the end of the file (${totalLines} lines).`;
+  }
+
+  const rangeEnd = hasEnd
+    ? Math.min(Math.floor(end), lines.length)
+    : Math.min(start + READ_DEFAULT_WINDOW_LINES - 1, lines.length);
+  const kept: string[] = [];
+  let chars = 0;
+  let cutLine: { line: number; shown: number; total: number } | null = null;
+  for (let index = start - 1; index < rangeEnd; index += 1) {
+    const line = lines[index] ?? "";
+    const added = (kept.length > 0 ? 1 : 0) + line.length;
+    if (chars + added > READ_BODY_MAX_CHARS) {
+      if (kept.length === 0) {
+        // A single line longer than the whole budget (minified code, one-line JSON): return its start.
+        kept.push(line.slice(0, READ_BODY_MAX_CHARS));
+        cutLine = { line: index + 1, shown: READ_BODY_MAX_CHARS, total: line.length };
+      }
+      break;
+    }
+    kept.push(line);
+    chars += added;
+  }
+
+  const body = kept.join("\n");
+  const lastShown = start + kept.length - 1;
+  const requestedEnd = hasEnd ? Math.min(Math.floor(end), totalLines) : totalLines;
+  if (cutLine) {
+    const next = cutLine.line < totalLines ? ` Call read with startLine=${cutLine.line + 1} to continue after it.` : "";
+    return body + formatTruncationMarker(
+      `showing the first ${cutLine.shown} of ${cutLine.total} chars of line ${cutLine.line} (file has ${totalLines} lines).`,
+      `The line is too long to return in full; use grep for the part you need.${next}`,
+    );
+  }
+  if (lastShown >= requestedEnd) return body;
+  const notShown = requestedEnd - lastShown;
+  if (hasEnd) {
+    return body + formatTruncationMarker(
+      `showing lines ${start}-${lastShown} of the requested ${start}-${requestedEnd} (file has ${totalLines} lines); ${notShown} lines not shown (${TOOL_OUTPUT_LIMITS.read.maxChars}-char limit).`,
+      `Call read with startLine=${lastShown + 1} and endLine=${requestedEnd} to continue.`,
+    );
+  }
+  return body + formatTruncationMarker(
+    `showing lines ${start}-${lastShown} of ${totalLines}; ${notShown} more lines not shown.`,
+    `Call read with startLine=${lastShown + 1} (and optionally endLine) to continue.`,
+  );
+}
+
+// Chars kept before the first match when a long grep line is cut, so the match shows with some leading context.
+const GREP_LINE_CONTEXT_BEFORE_MATCH = 100;
+
+/**
+ * One matched line as grep shows it. Lines up to GREP_LINE_MAX_CHARS come back whole (trimmed); a longer line is cut
+ * to a window around the first match plus a deterministic note, e.g.
+ * `...<300 chars>... [line cut: chars 4901-5200 of 250000]`.
+ */
+export function formatGrepLine(line: string, re: RegExp): string {
+  const text = line.trim();
+  if (text.length <= GREP_LINE_MAX_CHARS) return text;
+  const matchIndex = re.exec(text)?.index ?? 0;
+  const start = Math.max(0, Math.min(matchIndex - GREP_LINE_CONTEXT_BEFORE_MATCH, text.length - GREP_LINE_MAX_CHARS));
+  const end = start + GREP_LINE_MAX_CHARS;
+  const window = text.slice(start, end);
+  return `${start > 0 ? "..." : ""}${window}${end < text.length ? "..." : ""} [line cut: chars ${start + 1}-${end} of ${text.length}]`;
+}
 
 function assertSafePathSyntax(targetPath: string): void {
   if (targetPath.includes("\0")) throw new Error("Path contains a null byte.");
@@ -134,13 +228,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
     execute: async (input: { path?: string; startLine?: number; endLine?: number }) => {
       const target = await resolveExistingInsideWorkspace(workspaceDir, String(input?.path ?? ""));
       const raw = await fs.readFile(target, "utf8");
-      const start = Number(input?.startLine ?? 1);
-      const end = Number(input?.endLine ?? Number.MAX_SAFE_INTEGER);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) {
-        return raw;
-      }
-      const lines = raw.split(/\r?\n/);
-      return lines.slice(start - 1, end).join("\n");
+      return readLineWindow(raw, input?.startLine, input?.endLine);
     },
   };
 
@@ -252,7 +340,7 @@ export function createFileTools(workspaceDir: string): Tool[] {
             const line = lines[i] ?? "";
             if (re.test(line)) {
               const rel = path.relative(workspaceDir, file).replace(/\\/g, "/");
-              hits.push(`${rel}:${i + 1}: ${line.trim()}`);
+              hits.push(`${rel}:${i + 1}: ${formatGrepLine(line, re)}`);
               if (hits.length >= 200) break;
             }
           }

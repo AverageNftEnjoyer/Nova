@@ -9,6 +9,7 @@ import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { loadIntegrationCatalog } from "@/lib/integrations/catalog/server"
 import { parseJsonObject } from "@/lib/missions/text/cleaning"
 import type {
+  CompletionOverride,
   Mission,
   MissionCategory,
   Provider,
@@ -18,6 +19,9 @@ import { completeWithConfiguredLlm } from "../llm/providers"
 import { runBuildMissionFromPrompt } from "../../../../src/runtime/modules/services/missions/build-from-prompt/index.js"
 import { isMissionAgentGraphEnabled, missionUsesAgentGraph } from "./agent-flags"
 import { validateMissionGraphForVersioning } from "./versioning"
+
+/** llm_usage ref of the build-from-prompt generation call (source "mission"). */
+export const BUILD_FROM_PROMPT_USAGE_REF = "build-from-prompt"
 
 export interface BuildMissionResult {
   mission: Mission
@@ -38,7 +42,18 @@ export async function buildMissionFromPrompt(
     loadIntegrationsConfig,
     loadIntegrationCatalog,
     parseJsonObject,
-    completeWithConfiguredLlm,
+    // The mission id does not exist until after the generation call, so the ledger ref names the flow instead.
+    completeWithConfiguredLlm: (
+      systemText: string,
+      userText: string,
+      maxTokens?: number,
+      scope?: IntegrationsStoreScope,
+      override?: CompletionOverride,
+    ) =>
+      completeWithConfiguredLlm(systemText, userText, maxTokens, scope, override, {
+        source: "mission",
+        refId: BUILD_FROM_PROMPT_USAGE_REF,
+      }),
     isMissionAgentGraphEnabled,
     missionUsesAgentGraph,
     validateMissionGraphForVersioning,

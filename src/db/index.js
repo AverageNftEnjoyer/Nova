@@ -350,6 +350,7 @@ export function purgeLocalUserData(userId) {
     "thread_summaries",
     "tool_runs",
     "llm_usage",
+    "agent_task_budget_events",
     "threads",
     "session_turns",
     "sessions",

@@ -4,6 +4,11 @@ import { requireLocalUser } from "@/lib/auth/local-user"
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
+import {
+  normalizeAnthropicUsage,
+  normalizeOpenAiCompatibleUsage,
+  recordLlmUsageSafe,
+} from "../../../../../src/providers/usage/index.js"
 
 
 export const runtime = "nodejs"
@@ -22,6 +27,23 @@ function toClaudeBase(url: string): string {
   const trimmed = url.trim().replace(/\/+$/, "")
   if (!trimmed) return "https://api.anthropic.com"
   return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed
+}
+
+function readRawUsage(payload: unknown): unknown {
+  return payload && typeof payload === "object" && "usage" in payload ? (payload as { usage?: unknown }).usage : null
+}
+
+/** One llm_usage row (source "utility", ref "nova-suggest") per successful suggestion call. Never throws. */
+function recordSuggestUsage(userId: string, provider: Provider, model: string, payload: unknown): void {
+  const raw = readRawUsage(payload)
+  recordLlmUsageSafe({
+    userContextId: userId,
+    source: "utility",
+    refId: "nova-suggest",
+    provider,
+    model,
+    usage: provider === "claude" ? normalizeAnthropicUsage(raw) : normalizeOpenAiCompatibleUsage(raw),
+  })
 }
 
 function cleanPrompt(raw: string): string {
@@ -115,6 +137,7 @@ export async function POST(req: Request) {
             : ""
         return NextResponse.json({ ok: false, error: msg || `Claude suggest failed (${res.status}).` }, { status: 400 })
       }
+      recordSuggestUsage(userId, "claude", model, payload)
       const text =
         Array.isArray((payload as { content?: Array<{ type?: string; text?: string }> }).content)
           ? ((payload as { content: Array<{ type?: string; text?: string }> }).content.find((c) => c?.type === "text")?.text || "")
@@ -163,6 +186,7 @@ export async function POST(req: Request) {
             : ""
         return NextResponse.json({ ok: false, error: msg || `Grok suggest failed (${res.status}).` }, { status: 400 })
       }
+      recordSuggestUsage(userId, "grok", model, payload)
       const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
       const prompt = cleanPrompt(text)
       if (!prompt) {
@@ -208,6 +232,7 @@ export async function POST(req: Request) {
             : ""
         return NextResponse.json({ ok: false, error: msg || `Gemini suggest failed (${res.status}).` }, { status: 400 })
       }
+      recordSuggestUsage(userId, "gemini", model, payload)
       const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
       const prompt = cleanPrompt(text)
       if (!prompt) {
@@ -252,6 +277,7 @@ export async function POST(req: Request) {
           : ""
       return NextResponse.json({ ok: false, error: msg || `OpenAI suggest failed (${res.status}).` }, { status: 400 })
     }
+    recordSuggestUsage(userId, "openai", model, payload)
     const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
     const prompt = cleanPrompt(text)
     if (!prompt) {

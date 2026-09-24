@@ -15,6 +15,7 @@ import { SettingsNotificationsPanel } from "@/components/settings/panels/setting
 import { SettingsPersonalizationPanel } from "@/components/settings/panels/settings-personalization-panel"
 import { SettingsAccountPanel } from "@/components/settings/panels/settings-account-panel"
 import { SettingsSkillsPanel } from "@/components/settings/settings-skills-panel"
+import { SettingsAgentBudgetsPanel } from "@/components/settings/panels/settings-agent-budgets-panel"
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -250,6 +251,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                 {activeSection === "skills" && (
                   <SettingsSkillsPanel isLight={isLight} />
+                )}
+
+                {activeSection === "agent-budgets" && (
+                  <SettingsAgentBudgetsPanel isLight={isLight} />
                 )}
 
                 {activeSection === "access" && (

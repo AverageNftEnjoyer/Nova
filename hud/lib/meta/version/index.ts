@@ -10,6 +10,11 @@
  *
  * Version History:
  *
+ * - V.72 Alpha (2026-09-24): Context routing
+ *     - Chat context is routed in two parts. The static prefix (identity, policies, persona, runtime, HUD persona) stays byte-identical across turns; the per-turn part (skills, preferences, recall, web and link context, output rules) is appended after it. Nothing that changes per message goes into the static part, so OpenAI, Claude, Gemini, and Grok can cache the repeated prefix. Claude sends `system` as blocks with `cache_control` on the static block, and the tool loop adds a breakpoint on the latest message.
+ *     - The model-facing tool list stays in registry order. `coinbase_*`, `gmail_*`, and `phantom_*` are offered only when that integration is connected (`chat-handler/model-tool-scope`), so the tool-schema prefix stays stable until the user connects or disconnects one. Execution and the domain workers still see the full tool set.
+ *     - Near a task budget, older tool results in the loop are shortened once (`loop-context-trim`) and the task switches to the same-provider economy model, then pauses before a call that would go over. Every tool result is capped in one place (`src/tools/core/output-caps`); `read` returns a 400-line window. `npm run smoke:token-gate` fails if the cacheable prefix breaks or prompt and tool-schema size grows past the measured ceilings.
+ *
  * - V.71 Alpha (2026-09-24): Installer diet + handoff closures complete
  *     - Much smaller install (about 1,043 MB -> 595 MB, 64k -> 23k files): Turbopack already bundles the UI libraries into `.next`, so `hud/package.json` now lists only what the packaged server loads at runtime (`next`, `react`, `react-dom`, `electron-updater`, `jsdom`) under `dependencies` and everything else under `devDependencies` (electron-builder does not ship those); unused packages removed; Electron ships English locales only; source maps, `.next/dev`, `.next/cache`, `.next/types`, `@next/swc-*` and `sharp` are excluded (`images.unoptimized`); the agent runtime is staged with a production-only `npm ci` instead of a full node_modules copy; better-sqlite3 is trimmed to the win32-x64 binary (`hud/scripts/after-pack.js`). Guarded by the new `smoke:production-routes` (loads every page and GET API route on the packaged build and fails on any unexpected runtime `require`); `npm run package:size` in `hud/` reports where the megabytes go.
  *     - All release closures from the V.67 handoff are done and the handoff note was removed: release gate green (`npm run verify:release-readiness`), `smoke:agent-tasks` in the chain, `smoke:live-latency` is the separate opt-in live check, real Coinbase unit tests remain backlog, and the packaged build is verified by `smoke:production-boot` and `smoke:production-routes`. Auto-update is built and source-checked but has not yet been run against a real published release (see `docs/release/auto-update.md`).
@@ -469,7 +474,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.71 Alpha"
+export const NOVA_VERSION = "V.72 Alpha"
 
 
 

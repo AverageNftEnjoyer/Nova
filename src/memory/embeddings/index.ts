@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type Database from "better-sqlite3";
+import { normalizeOpenAiCompatibleUsage, recordLlmUsageSafe } from "../../providers/usage/index.js";
 
 export interface EmbeddingProvider {
   embed(text: string): Promise<number[]>;
@@ -50,11 +51,17 @@ export class OpenAIEmbeddings implements EmbeddingProvider {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly db: Database.Database;
+  private readonly userContextId: string;
 
-  public constructor(params: { apiKey: string; model: string; db: Database.Database }) {
+  /**
+   * userContextId attributes each embedding API call to a user in the llm_usage ledger (source "embedding").
+   * Without one the call is still observable (withLlmUsageObserver) but writes no ledger row.
+   */
+  public constructor(params: { apiKey: string; model: string; db: Database.Database; userContextId?: string }) {
     this.apiKey = params.apiKey;
     this.model = params.model;
     this.db = params.db;
+    this.userContextId = String(params.userContextId || "").trim();
   }
 
   public async embed(text: string): Promise<number[]> {
@@ -112,7 +119,17 @@ export class OpenAIEmbeddings implements EmbeddingProvider {
 
     const payload = (await response.json()) as {
       data?: Array<{ embedding?: number[] }>;
+      usage?: { prompt_tokens?: number; total_tokens?: number };
     };
+    // One ledger row per successful embeddings API call (cache hits above make no call and record nothing).
+    recordLlmUsageSafe({
+      userContextId: this.userContextId,
+      source: "embedding",
+      refId: "memory-index",
+      provider: "openai",
+      model: this.model,
+      usage: normalizeOpenAiCompatibleUsage(payload.usage),
+    });
 
     const data = payload.data ?? [];
     const insert = this.db.prepare(
@@ -138,11 +155,18 @@ export function createEmbeddingProvider(params: {
   model: string;
   apiKey: string;
   db: Database.Database;
+  userContextId?: string;
 }): EmbeddingProvider {
   if (params.provider === "local") {
+    // Local embeddings make no API call, so they never write a ledger row.
     return new LocalEmbeddings();
   }
-  return new OpenAIEmbeddings({ apiKey: params.apiKey, model: params.model, db: params.db });
+  return new OpenAIEmbeddings({
+    apiKey: params.apiKey,
+    model: params.model,
+    db: params.db,
+    userContextId: params.userContextId,
+  });
 }
 
 export { deserializeEmbedding, serializeEmbedding };

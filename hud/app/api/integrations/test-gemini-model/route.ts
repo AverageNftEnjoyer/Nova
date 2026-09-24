@@ -3,6 +3,7 @@ import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { resolveProviderProbeTarget } from "@/lib/security/provider-base-url"
+import { normalizeOpenAiCompatibleUsage, recordLlmUsageSafe } from "../../../../../src/providers/usage/index.js"
 
 
 export const runtime = "nodejs"
@@ -76,6 +77,18 @@ export async function POST(req: Request) {
       )
     }
 
+    // Unlike the other providers' model probes (free GET /models/{id}), this probe is a billed 16-token completion,
+    // so it lands one llm_usage row (source "utility", ref "model-test").
+    recordLlmUsageSafe({
+      userContextId: userId,
+      source: "utility",
+      refId: "model-test",
+      provider: "gemini",
+      model,
+      usage: normalizeOpenAiCompatibleUsage(
+        payload && typeof payload === "object" && "usage" in payload ? (payload as { usage?: unknown }).usage : null,
+      ),
+    })
     return NextResponse.json({ ok: true, model })
   } catch (error) {
     return NextResponse.json(

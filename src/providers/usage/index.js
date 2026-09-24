@@ -20,7 +20,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { insertLlmUsage, maybePruneLlmUsage } from "../../db/llm-usage.js";
 import { estimateTokenCostUsd } from "../pricing/index.js";
 
-export const LLM_USAGE_SOURCES = Object.freeze(["chat", "agent-task", "mission"]);
+export const LLM_USAGE_SOURCES = Object.freeze(["chat", "agent-task", "mission", "utility", "embedding"]);
 const AGENT_TASK_CONVERSATION_PREFIX = "agent-task-";
 
 function toCount(value) {
@@ -41,6 +41,30 @@ export function normalizeOpenAiCompatibleUsage(raw) {
     inputTokens,
     outputTokens: toCount(usage.completion_tokens),
     // cached_tokens is a subset of prompt_tokens; clamp so a malformed payload can't produce negative uncached input.
+    cachedInputTokens: Math.min(cached, inputTokens),
+    cacheWriteInputTokens: 0,
+  };
+}
+
+function sumCachedTokenDetails(details) {
+  const entries = Array.isArray(details) ? details : details && typeof details === "object" ? [details] : [];
+  let cached = 0;
+  for (const entry of entries) cached += toCount(entry?.cached_tokens ?? entry?.cachedTokens);
+  return cached;
+}
+
+/**
+ * OpenAI Responses API usage, as returned raw (`input_tokens`, `input_tokens_details.cached_tokens`) or as the
+ * OpenAI Agents SDK `Usage` of one ModelResponse (`inputTokens`, `inputTokensDetails: [{ cached_tokens }]`).
+ * input_tokens already includes cached tokens (same semantics as prompt_tokens). There is no cache-write count.
+ */
+export function normalizeOpenAiResponsesUsage(raw) {
+  const usage = raw && typeof raw === "object" ? raw : {};
+  const inputTokens = toCount(usage.inputTokens ?? usage.input_tokens);
+  const cached = sumCachedTokenDetails(usage.inputTokensDetails ?? usage.input_tokens_details);
+  return {
+    inputTokens,
+    outputTokens: toCount(usage.outputTokens ?? usage.output_tokens),
     cachedInputTokens: Math.min(cached, inputTokens),
     cacheWriteInputTokens: 0,
   };

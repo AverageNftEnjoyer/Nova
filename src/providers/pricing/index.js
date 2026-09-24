@@ -11,6 +11,8 @@
 //   Anthropic  https://platform.claude.com/docs/en/about-claude/pricing  (+ /models/overview, /model-deprecations)
 //   Google     https://ai.google.dev/gemini-api/docs/pricing  (+ /gemini-api/docs/models)
 //   xAI        https://docs.x.ai/developers/models  (+ /developers/migration/may-15-retirement)
+// Embedding rates (EMBEDDING_MODEL_PRICING_USD_PER_1M) were read from https://developers.openai.com/api/docs/pricing
+// ("Embeddings", standard tier) on 2026-09-24.
 // Models with no verifiable rate are deliberately absent (cost is then null and logged once, see below).
 //
 // *_MODEL_PRICING_USD_PER_1M tables hold the CURRENT models offered in Nova's pickers.
@@ -103,12 +105,20 @@ export const LEGACY_MODEL_PRICING_USD_PER_1M = Object.freeze({
   "grok-3": { input: 1.25, cachedInput: 0.2, output: 2.5 },
 });
 
+// Embedding models bill input tokens only (the pricing page lists no cached-input or output rate).
+export const EMBEDDING_MODEL_PRICING_USD_PER_1M = Object.freeze({
+  "text-embedding-3-small": { input: 0.02, output: 0 },
+  "text-embedding-3-large": { input: 0.13, output: 0 },
+  "text-embedding-ada-002": { input: 0.1, output: 0 },
+});
+
 const PRICING_TABLES = [
   OPENAI_MODEL_PRICING_USD_PER_1M,
   CLAUDE_MODEL_PRICING_USD_PER_1M,
   GEMINI_MODEL_PRICING_USD_PER_1M,
   GROK_MODEL_PRICING_USD_PER_1M,
   LEGACY_MODEL_PRICING_USD_PER_1M,
+  EMBEDDING_MODEL_PRICING_USD_PER_1M,
 ];
 
 /** Exact-ID lookup (case-insensitive). No family-prefix guessing: an unknown ID returns null. */

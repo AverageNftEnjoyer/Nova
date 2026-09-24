@@ -152,6 +152,7 @@ const SCOPED_ONLY_EVENT_TYPES = new Set([
   "calendar:rescheduled",
   "calendar:conflict",
   "youtube:home:updated",
+  "agent-task-budget",
 ]);
 const CALENDAR_EMIT_EVENT_TYPES = new Set([
   "calendar:event:updated",
@@ -830,6 +831,19 @@ function sanitizeCalendarConflicts(value) {
     if (out.length >= 200) break;
   }
   return out;
+}
+
+/**
+ * Agent-task budget event (token-efficiency Stage 4: warning / degraded / exhausted), built by
+ * src/runtime/modules/agent-tasks/budget. Only ever sent to the task owner's sockets; no-op without a user.
+ */
+export function broadcastAgentTaskBudget(payload) {
+  const resolvedUserContextId = resolveEventUserContextId(payload?.userContextId);
+  if (!resolvedUserContextId || !payload || typeof payload !== "object") return;
+  broadcast(
+    { ...payload, type: "agent-task-budget", userContextId: resolvedUserContextId },
+    { userContextId: resolvedUserContextId },
+  );
 }
 
 export function broadcastCalendarEventUpdated({

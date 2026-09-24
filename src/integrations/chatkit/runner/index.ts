@@ -1,8 +1,9 @@
+import { normalizeOpenAiResponsesUsage, recordLlmUsageSafe } from "../../../providers/usage/index.js";
 import { appendChatKitEvent } from "../observability/index.js";
 import { resolveChatKitRuntimeConfig, validateChatKitRuntimeConfig } from "../config/index.js";
 import type { ChatKitRunInput, ChatKitRunResult } from "../types/index.js";
 
-type AgentsSdkModule = {
+export type AgentsSdkModule = {
   Agent: new (params: {
     name: string;
     instructions: string;
@@ -13,14 +14,42 @@ type AgentsSdkModule = {
     };
   }) => unknown;
   Runner: new (params?: { tracingDisabled?: boolean; traceIncludeSensitiveData?: boolean }) => {
-    run: (agent: unknown, input: Array<{ role: string; content: Array<{ type: string; text: string }> }>) => Promise<{
-      finalOutput?: unknown;
-      finalOutputText?: string;
-    }>;
+    run: (agent: unknown, input: Array<{ role: string; content: Array<{ type: string; text: string }> }>) => Promise<AgentsRunResult>;
   };
   withTrace: <T>(name: string, fn: () => Promise<T>) => Promise<T>;
   setTracingDisabled: (disabled: boolean) => void;
 };
+
+/** The part of the Agents SDK RunResult Nova reads. rawResponses holds one entry per model API call. */
+type AgentsRunResult = {
+  finalOutput?: unknown;
+  finalOutputText?: string;
+  rawResponses?: Array<{ usage?: unknown }>;
+};
+
+/**
+ * One llm_usage row per model API call of a finished run (source/ref: mission run when missionRunId is set,
+ * otherwise derived from conversationId like the chat runtime: agent-task-<id> -> agent-task, else chat).
+ * Never throws.
+ */
+export function recordChatKitRunUsage(
+  result: AgentsRunResult | null | undefined,
+  context: { userContextId: string; conversationId: string; missionRunId: string; model: string },
+): number {
+  const responses = Array.isArray(result?.rawResponses) ? result.rawResponses : [];
+  for (const response of responses) {
+    recordLlmUsageSafe({
+      userContextId: context.userContextId,
+      ...(context.missionRunId
+        ? { source: "mission" as const, refId: context.missionRunId }
+        : { conversationId: context.conversationId }),
+      provider: "openai",
+      model: context.model,
+      usage: normalizeOpenAiResponsesUsage(response?.usage),
+    });
+  }
+  return responses.length;
+}
 
 function isAgentsSdkModule(value: unknown): value is AgentsSdkModule {
   const candidate = value as Partial<AgentsSdkModule> | null;
@@ -50,7 +79,11 @@ function toErrorMessage(err: unknown): string {
   return String(err ?? "Unknown error");
 }
 
-export async function runChatKitWorkflow(input: ChatKitRunInput): Promise<ChatKitRunResult> {
+/** `deps.loadSdk` replaces the @openai/agents import (smoke tests drive a fake SDK; no network). */
+export async function runChatKitWorkflow(
+  input: ChatKitRunInput,
+  deps?: { loadSdk?: () => Promise<AgentsSdkModule> },
+): Promise<ChatKitRunResult> {
   const startedAt = Date.now();
   const config = resolveChatKitRuntimeConfig();
   const validation = validateChatKitRuntimeConfig(config);
@@ -118,7 +151,7 @@ export async function runChatKitWorkflow(input: ChatKitRunInput): Promise<ChatKi
 
   let sdk: AgentsSdkModule;
   try {
-    sdk = await loadAgentsSdk();
+    sdk = await (deps?.loadSdk ?? loadAgentsSdk)();
   } catch (err) {
     const errorMessage = toErrorMessage(err);
     appendChatKitEvent({
@@ -159,12 +192,20 @@ export async function runChatKitWorkflow(input: ChatKitRunInput): Promise<ChatKi
         tracingDisabled: true,
         traceIncludeSensitiveData: false,
       });
+      const runPromise = runner.run(agent, [{ role: "user", content: [{ type: "input_text", text: prompt }] }]);
+      // Record on the run itself, not on the race: a run that finishes after the timeout was still billed.
+      // A run that rejects exposes no usage and writes no row.
+      void runPromise.then(
+        (finished) => recordChatKitRunUsage(finished, { userContextId, conversationId, missionRunId, model: config.model }),
+        () => undefined,
+      );
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
-        runner.run(agent, [{ role: "user", content: [{ type: "input_text", text: prompt }] }]),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`ChatKit timed out after ${config.timeoutMs}ms`)), config.timeoutMs),
-        ),
-      ]);
+        runPromise,
+        new Promise<never>((_, reject) => {
+          timeoutTimer = setTimeout(() => reject(new Error(`ChatKit timed out after ${config.timeoutMs}ms`)), config.timeoutMs);
+        }),
+      ]).finally(() => clearTimeout(timeoutTimer));
       const direct = String(result?.finalOutputText || "").trim();
       if (direct) return direct;
       return String(result?.finalOutput ?? "").trim();

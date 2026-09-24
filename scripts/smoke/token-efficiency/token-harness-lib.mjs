@@ -112,6 +112,8 @@ function lastUserText(messages) {
 /**
  * Model behaviour shared by both fake providers. `responder(request, shape)` returns
  *   { text } or { toolCalls: [{ name, input }] }.
+ * Both fakes also take an optional `usageFor(request, shape)` returning { inputTokens, outputTokens } (or null):
+ * the usage the fake reports for that call. Without it, usage is estimated from the request size.
  */
 export function describeRequest(request) {
   return {
@@ -123,7 +125,7 @@ export function describeRequest(request) {
 
 // ── Fake OpenAI-compatible client ────────────────────────────────────────────────────────────────────────────
 
-export function createFakeOpenAiClient({ capture, responder }) {
+export function createFakeOpenAiClient({ capture, responder, usageFor }) {
   let callNo = 0;
   return {
     chat: {
@@ -139,9 +141,10 @@ export function createFakeOpenAiClient({ capture, responder }) {
             function: { name: call.name, arguments: JSON.stringify(call.input || {}) },
           }));
           const text = String(answer.text || "");
+          const forced = typeof usageFor === "function" ? usageFor(copy, "openai") : null;
           const usage = {
-            prompt_tokens: promptTokens,
-            completion_tokens: Math.max(1, countApproxTokens(text || JSON.stringify(toolCalls))),
+            prompt_tokens: forced ? forced.inputTokens : promptTokens,
+            completion_tokens: forced ? forced.outputTokens : Math.max(1, countApproxTokens(text || JSON.stringify(toolCalls))),
             prompt_tokens_details: { cached_tokens: 0 },
           };
           usage.total_tokens = usage.prompt_tokens + usage.completion_tokens;
@@ -175,7 +178,7 @@ export function createFakeOpenAiClient({ capture, responder }) {
 
 // ── Fake Anthropic Messages endpoint (served through the fetch guard) ────────────────────────────────────────
 
-export function createFakeClaudeHandler({ capture, responder }) {
+export function createFakeClaudeHandler({ capture, responder, usageFor }) {
   let callNo = 0;
   return async (url, init = {}) => {
     const body = JSON.parse(String(init.body || "{}"));
@@ -190,9 +193,12 @@ export function createFakeClaudeHandler({ capture, responder }) {
       input: call.input || {},
     }));
     const content = [...(text ? [{ type: "text", text }] : []), ...toolUses];
-    const inputTokens = countApproxTokens(JSON.stringify(copy.system || "")) + countApproxTokens(JSON.stringify(copy.messages || []))
-      + countApproxTokens(JSON.stringify(copy.tools || []));
-    const outputTokens = Math.max(1, countApproxTokens(text || JSON.stringify(toolUses)));
+    const forced = typeof usageFor === "function" ? usageFor(copy, "claude") : null;
+    const inputTokens = forced
+      ? forced.inputTokens
+      : countApproxTokens(JSON.stringify(copy.system || "")) + countApproxTokens(JSON.stringify(copy.messages || []))
+        + countApproxTokens(JSON.stringify(copy.tools || []));
+    const outputTokens = forced ? forced.outputTokens : Math.max(1, countApproxTokens(text || JSON.stringify(toolUses)));
     const usage = { input_tokens: inputTokens, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: outputTokens };
 
     if (body.stream === true) {
@@ -262,6 +268,29 @@ function classifyCall(call) {
   return "direct";
 }
 
+/**
+ * Chars of tool output inside one request: OpenAI-shape `role: "tool"` messages, Claude-shape `tool_result`
+ * blocks. Only the result text is counted (no JSON wrapper), so it tracks what the tools returned.
+ */
+function toolResultChars(shape, request) {
+  const messages = Array.isArray(request?.messages) ? request.messages : [];
+  const textOf = (content) => (typeof content === "string"
+    ? content.length
+    : Array.isArray(content) ? content.reduce((n, part) => n + String(part?.text ?? "").length, 0) : 0);
+  let chars = 0;
+  for (const message of messages) {
+    if (shape !== "claude") {
+      if (message?.role === "tool") chars += textOf(message.content);
+      continue;
+    }
+    if (!Array.isArray(message?.content)) continue;
+    for (const block of message.content) {
+      if (block?.type === "tool_result") chars += textOf(block.content);
+    }
+  }
+  return chars;
+}
+
 /** Metrics for every call of one scenario+shape, in call order. */
 export function computeCallMetrics(calls) {
   let previous = "";
@@ -276,6 +305,7 @@ export function computeCallMetrics(calls) {
     const prefixChars = index === 0 ? 0 : commonPrefixLength(previous, serialized);
     previous = serialized;
     const system = systemText(shape, request);
+    const resultChars = toolResultChars(shape, request);
     return {
       call: index + 1,
       kind: classifyCall(call),
@@ -290,6 +320,8 @@ export function computeCallMetrics(calls) {
       totalChars,
       totalTokens: countApproxTokens(inputJson) + countApproxTokens(toolsJson),
       toolSharePct: totalChars > 0 ? Number(((toolsJson.length / totalChars) * 100).toFixed(1)) : 0,
+      toolResultChars: resultChars,
+      toolResultTokens: Math.ceil(resultChars / 3.5), // same formula as countApproxTokens
       stablePrefixChars: prefixChars,
       stablePrefixTokens: Math.ceil(prefixChars / 3.5), // same formula as countApproxTokens
       serializedChars: serialized.length,
@@ -306,6 +338,7 @@ export function summarizeMetrics(metrics) {
     totalInputTokens: sum("inputTokens"),
     totalToolsTokens: sum("toolsTokens"),
     totalTokens: sum("totalTokens"),
+    totalToolResultTokens: sum("toolResultTokens"),
     avgStablePrefixTokens: later.length ? Math.round(later.reduce((t, m) => t + m.stablePrefixTokens, 0) / later.length) : 0,
     minStablePrefixTokens: later.length ? Math.min(...later.map((m) => m.stablePrefixTokens)) : 0,
   };
@@ -324,6 +357,7 @@ const COLUMNS = [
   ["toolsTokens", "tools ~tok", 10],
   ["totalTokens", "total ~tok", 10],
   ["toolSharePct", "tools %", 7],
+  ["toolResultTokens", "tool res ~tok", 13],
   ["stablePrefixChars", "prefix chars", 12],
   ["stablePrefixTokens", "prefix ~tok", 11],
   ["stablePrefixPct", "prefix %", 8],
@@ -337,7 +371,7 @@ export function formatMetricsTable(title, metrics) {
   }
   const s = summarizeMetrics(metrics);
   lines.push(
-    `  calls=${s.calls}  sum in ~tok=${s.totalInputTokens}  sum tools ~tok=${s.totalToolsTokens}  sum total ~tok=${s.totalTokens}`
+    `  calls=${s.calls}  sum in ~tok=${s.totalInputTokens}  sum tools ~tok=${s.totalToolsTokens}  sum total ~tok=${s.totalTokens}  sum tool res ~tok=${s.totalToolResultTokens}`
     + `  stable prefix ~tok (calls 2+): avg=${s.avgStablePrefixTokens} min=${s.minStablePrefixTokens}`,
   );
   return lines.join("\n");

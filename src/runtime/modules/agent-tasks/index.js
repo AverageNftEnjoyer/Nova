@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 
+import { recordAgentTaskBudgetEventSafe } from "../../../db/agent-task-budget-events.js";
 import { getDb } from "../../../db/index.js";
 import { addLlmUsage, emptyLlmUsage, withLlmUsageObserver } from "../../../providers/usage/index.js";
 import { redactSecrets } from "../../../security/secrets/index.js";
+import { broadcastAgentTaskBudget } from "../../infrastructure/hud-gateway/index.js";
 import { estimateTokenCostUsd } from "../llm/providers/index.js";
+import { AGENT_TASK_BUDGET_EXHAUSTED, createTaskBudgetController } from "./budget/index.js";
+import { isCostBudgetBlind, readAgentTaskBudgetSettings, resolveEffectiveTaskBudget } from "./budget-settings/index.js";
 import { finalizeDeferredTaskDeletes } from "./cleanup/index.js";
 import { prepareTaskExecutionContext } from "./execution-context/index.js";
 
@@ -80,7 +84,7 @@ function claimQueuedTasks(instanceId, localActiveKeys = new Set()) {
 
     const queued = db.prepare(
       `SELECT user_id, id, prompt, agent, model, permission_mode, worktree_path, attached_files, approved_tools_json,
-              attempt_no
+              attempt_no, tokens_in, tokens_out, cost_usd, cost_budget_usd, token_budget, budget_state
        FROM agent_tasks
        WHERE status = 'queued' AND deleted_at IS NULL
        ORDER BY
@@ -249,6 +253,130 @@ function persistApprovalRequired(instanceId, task, approval, usage = resolveAtte
   );
 }
 
+function formatBudgetUsd(value) {
+  // At least cents, up to 4 decimals: $0.25, $0.2512, $1.00.
+  const [whole, fraction] = Number(value || 0).toFixed(4).split(".");
+  return `$${whole}.${fraction.replace(/0+$/, "").padEnd(2, "0")}`;
+}
+
+/** The short message shown on a task paused at its budget (only the dimensions that have a limit). */
+function describeBudgetPause(snapshot) {
+  const parts = [];
+  if (snapshot && Number(snapshot.costBudgetUsd) > 0) {
+    parts.push(`$${Number(snapshot.spentUsd || 0).toFixed(4)} of ${formatBudgetUsd(snapshot.costBudgetUsd)}`);
+  }
+  if (snapshot && Number(snapshot.tokenBudget) > 0) {
+    parts.push(
+      `${Math.round(Number(snapshot.spentTokens || 0)).toLocaleString("en-US")} of `
+        + `${Math.round(Number(snapshot.tokenBudget)).toLocaleString("en-US")} tokens`,
+    );
+  }
+  const spend = parts.length > 0 ? `: ${parts.join(" \u00b7 ")}` : "";
+  return `Paused at its budget${spend}. Resume re-runs the task from the start.`;
+}
+
+/**
+ * Budget event history (agent_task_budget_events): one row per warning / degraded / exhausted transition, written
+ * only after the matching fenced state write succeeded (so a paused / deleted task gets no late rows). Timestamps
+ * are made strictly increasing per attempt so the sequence reads back in order even within one millisecond.
+ * recordAgentTaskBudgetEventSafe never throws: a failed history write never breaks the task.
+ */
+function recordBudgetHistory(task, clock, kind, data) {
+  const ts = Math.max(Number(data?.ts) || Date.now(), clock.lastTs + 1);
+  clock.lastTs = ts;
+  recordAgentTaskBudgetEventSafe({
+    userId: task.user_id,
+    taskId: task.id,
+    kind,
+    state: kind,
+    ts,
+    spentUsd: data?.spentUsd,
+    spentTokens: data?.spentTokens,
+    costBudgetUsd: data?.costBudgetUsd ?? null,
+    tokenBudget: data?.tokenBudget ?? null,
+    model: String(data?.model ?? data?.lastModel ?? ""),
+    economyModel: data?.economyModel ?? null,
+  });
+}
+
+/**
+ * The task's next model call would have gone over its budget (the loop stopped BEFORE that call). Pause it with
+ * pause_reason 'budget' and add the tokens this attempt spent; fenced like persistApprovalRequired. The 'exhausted'
+ * history row is written here, once the pause has landed.
+ */
+function persistBudgetPaused(instanceId, task, snapshot, usage = resolveAttemptUsage(task, null), clock = { lastTs: 0 }) {
+  const now = nowIso();
+  const result = getDb().prepare(
+    `UPDATE agent_tasks
+     SET status = 'paused',
+         paused_at = ?,
+         pause_reason = 'budget',
+         budget_state = 'exhausted',
+         pending_approval_json = NULL,
+         error = ?,
+         ${ADD_USAGE_SQL},
+         lease_owner = NULL,
+         lease_expires_at = NULL,
+         updated_at = ?
+     WHERE user_id = ? AND id = ? AND status = 'running' AND lease_owner = ?`,
+  ).run(now, describeBudgetPause(snapshot), ...usageParams(usage), now, task.user_id, task.id, instanceId);
+  if (result.changes === 1) recordBudgetHistory(task, clock, "exhausted", snapshot);
+}
+
+/** Budget state for the HUD while the task runs (warning / degraded). Fenced to this attempt's lease. */
+function persistBudgetState(instanceId, task, state) {
+  return getDb().prepare(
+    `UPDATE agent_tasks SET budget_state = ?, updated_at = ?
+     WHERE user_id = ? AND id = ? AND status = 'running' AND lease_owner = ?`,
+  ).run(state, nowIso(), task.user_id, task.id, instanceId).changes === 1;
+}
+
+/**
+ * The attempt's budget controller (agent-tasks/budget), or null when the task has no budget (neither its own nor
+ * a user default). Spend of earlier attempts counts: the stored totals are cumulative per task.
+ */
+function createAttemptBudgetController(instanceId, task, onBudgetEvent, clock) {
+  const settings = readAgentTaskBudgetSettings(task.user_id);
+  const budget = resolveEffectiveTaskBudget(
+    { costBudgetUsd: task.cost_budget_usd, tokenBudget: task.token_budget },
+    settings,
+  );
+  if (isCostBudgetBlind(budget, task.model)) {
+    // Not blocked on purpose (the HUD shows the same note on the task): the user can add a token budget.
+    console.warn(
+      `[AgentTasks] Task ${task.id}: no price is known for model "${task.model}", so its cost-only budget cannot `
+        + "stop it. Set a token budget to limit it.",
+    );
+  }
+  const budgetController = createTaskBudgetController({
+    userContextId: task.user_id,
+    taskId: task.id,
+    budget,
+    prior: {
+      spentUsd: Number(task.cost_usd) || 0,
+      spentTokens: toTokenCount(task.tokens_in) + toTokenCount(task.tokens_out),
+    },
+    economyModels: settings.economyModels,
+    onEvent: (event) => {
+      // 'exhausted' is written by persistBudgetPaused together with the pause.
+      // Its history row too (after the pause has landed).
+      if (event.state !== "exhausted") {
+        try {
+          if (persistBudgetState(instanceId, task, event.state)) recordBudgetHistory(task, clock, event.state, event);
+        } catch (error) {
+          console.warn(`[AgentTasks] Budget state write failed: ${String(error?.message || error)}`);
+        }
+      }
+      broadcastAgentTaskBudget(event);
+      if (typeof onBudgetEvent === "function") onBudgetEvent(event);
+    },
+  });
+  if (budgetController && budgetController.getState() !== String(task.budget_state || "ok")) {
+    persistBudgetState(instanceId, task, budgetController.getState());
+  }
+  return budgetController;
+}
+
 /**
  * The user paused, stopped or deleted the task mid-run (the HUD already wrote the new status). Only add the tokens
  * this attempt spent: fenced on attempt_no so a later attempt's row is never touched, and skipped for deleted tasks.
@@ -263,7 +391,7 @@ function persistAttemptUsageOnly(task, usage) {
   ).run(...usageParams(usage), nowIso(), task.user_id, task.id, Number(task.attempt_no) || 0);
 }
 
-async function executeTask(instanceId, task, handleInput, controller) {
+async function executeTask(instanceId, task, handleInput, controller, onBudgetEvent) {
   const control = setInterval(() => {
     const row = getDb().prepare(
       "SELECT status, lease_owner, deleted_at FROM agent_tasks WHERE user_id = ? AND id = ?",
@@ -280,7 +408,17 @@ async function executeTask(instanceId, task, handleInput, controller) {
 
   const attempt = createAttemptUsage();
   let returnedResult = null;
+  let budgetController = null;
+  const budgetHistoryClock = { lastTs: 0 };
   try {
+    budgetController = createAttemptBudgetController(instanceId, task, onBudgetEvent, budgetHistoryClock);
+    const attemptObserver = observeAttemptUsage(attempt);
+    const usageObserver = budgetController
+      ? (record) => {
+          attemptObserver(record);
+          budgetController.observe(record);
+        }
+      : attemptObserver;
     const executionContext = await prepareTaskExecutionContext(task);
     let approvedTools = [];
     try {
@@ -297,7 +435,7 @@ async function executeTask(instanceId, task, handleInput, controller) {
     } catch {
       approvedTools = [];
     }
-    const rawResult = await withLlmUsageObserver(observeAttemptUsage(attempt), () => handleInput(executionContext.prompt, {
+    const rawResult = await withLlmUsageObserver(usageObserver, () => handleInput(executionContext.prompt, {
       voice: false,
       source: "agent-task",
       sender: "agent-task",
@@ -313,6 +451,7 @@ async function executeTask(instanceId, task, handleInput, controller) {
       workspaceDir: executionContext.workspaceDir,
       worktreePath: task.worktree_path || "",
       abortSignal: controller.signal,
+      taskBudget: budgetController ?? undefined,
       executionFenceCheck: () => {
         const row = getDb().prepare(
           "SELECT status, lease_owner, deleted_at FROM agent_tasks WHERE user_id = ? AND id = ?",
@@ -390,6 +529,16 @@ async function executeTask(instanceId, task, handleInput, controller) {
     }));
     const result = normalizeResult(rawResult);
     returnedResult = result;
+    if (result.errorCode === AGENT_TASK_BUDGET_EXHAUSTED || budgetController?.getState() === "exhausted") {
+      persistBudgetPaused(
+        instanceId,
+        task,
+        budgetController?.snapshot() ?? rawResult?.budgetExhausted ?? null,
+        resolveAttemptUsage(task, attempt, result),
+        budgetHistoryClock,
+      );
+      return;
+    }
     if (result.errorCode === "AGENT_TASK_APPROVAL_REQUIRED" && result.pendingApproval) {
       persistApprovalRequired(instanceId, task, result.pendingApproval, resolveAttemptUsage(task, attempt, result));
       return;
@@ -399,7 +548,15 @@ async function executeTask(instanceId, task, handleInput, controller) {
   } catch (error) {
     // Tokens spent before the failure / pause are recorded too (observed calls, or the returned totals).
     const usage = resolveAttemptUsage(task, attempt, returnedResult);
-    if (!controller.signal.aborted && error?.code === "AGENT_TASK_APPROVAL_REQUIRED") {
+    if (!controller.signal.aborted && error?.code === AGENT_TASK_BUDGET_EXHAUSTED) {
+      persistBudgetPaused(
+        instanceId,
+        task,
+        budgetController?.snapshot() ?? error?.snapshot ?? null,
+        usage,
+        budgetHistoryClock,
+      );
+    } else if (!controller.signal.aborted && error?.code === "AGENT_TASK_APPROVAL_REQUIRED") {
       persistApprovalRequired(instanceId, task, {
         toolName: String(error?.toolName || "local mutation"),
         reason: String(error?.message || "Approval required."),
@@ -421,7 +578,13 @@ async function executeTask(instanceId, task, handleInput, controller) {
   }
 }
 
-export function startAgentTaskService({ handleInput }) {
+/**
+ * @param {object} options
+ * @param {Function} options.handleInput  the runtime's chat entry point
+ * @param {(event: object) => void} [options.onBudgetEvent]  test hook: every agent-task-budget event, after it is
+ *   persisted and broadcast
+ */
+export function startAgentTaskService({ handleInput, onBudgetEvent }) {
   if (String(process.env.NOVA_AGENT_TASK_EXECUTION || "1").trim() === "0") {
     console.log("[AgentTasks] Runtime execution disabled by NOVA_AGENT_TASK_EXECUTION=0.");
     return () => {};
@@ -442,7 +605,7 @@ export function startAgentTaskService({ handleInput }) {
         const key = `${task.user_id}:${task.id}`;
         if (active.has(key)) continue;
         const controller = new AbortController();
-        const promise = executeTask(instanceId, task, handleInput, controller)
+        const promise = executeTask(instanceId, task, handleInput, controller, onBudgetEvent)
           .catch((error) => persistFailed(instanceId, task, error))
           .finally(() => active.delete(key));
         active.set(key, { controller, promise });

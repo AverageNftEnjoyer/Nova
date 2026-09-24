@@ -1,3 +1,4 @@
+import { truncateInline } from "../../core/output-caps/index.js";
 import type { Tool } from "../../core/types/index.js";
 import { fetchWithSsrfGuard, readResponseTextWithLimit } from "../net-guard/index.js";
 
@@ -6,10 +7,7 @@ const SEARCH_MAX_RESPONSE_BYTES = 1_000_000;
 const SEARCH_MAX_ERROR_BYTES = 64_000;
 const BRAVE_HOSTNAME_ALLOWLIST = ["api.search.brave.com"];
 
-function truncate(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
+// Snippets are shaped here (400 chars each); the whole result is capped by the executor (core/output-caps).
 
 async function searchBrave(query: string, apiKey: string): Promise<string> {
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
@@ -38,7 +36,7 @@ async function searchBrave(query: string, apiKey: string): Promise<string> {
 
   if (!response.ok) {
     const detail = await readResponseTextWithLimit(response, SEARCH_MAX_ERROR_BYTES).catch(() => "");
-    return `web_search error (${response.status}): ${truncate(detail, 800)}`;
+    return `web_search error (${response.status}): ${truncateInline(detail, 800)}`;
   }
 
   const rawBody = await readResponseTextWithLimit(response, SEARCH_MAX_RESPONSE_BYTES);
@@ -56,11 +54,11 @@ async function searchBrave(query: string, apiKey: string): Promise<string> {
   const lines = results.slice(0, 5).map((result, index) => {
     const title = result.title?.trim() || "Untitled";
     const link = result.url?.trim() || "No URL";
-    const snippet = truncate(result.description?.trim() || "", 400);
+    const snippet = truncateInline(result.description?.trim() || "", 400);
     return `[${index + 1}] ${title}\n${link}\n${snippet}`;
   });
 
-  return truncate(lines.join("\n\n"), 6000);
+  return lines.join("\n\n");
 }
 
 export function createWebSearchTool(params: {

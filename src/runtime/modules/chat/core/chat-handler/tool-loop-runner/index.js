@@ -18,6 +18,9 @@ import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.
 import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
 import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
+import { estimateLoopRequestTokens, trimOpenAiLoopToolResults } from "../loop-context-trim/index.js";
+import { AGENT_TASK_BUDGET_EXHAUSTED } from "../../../../agent-tasks/budget/index.js";
+import { isServerContextTool, withServerToolContext } from "../integration-tool-context/index.js";
 
 const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
 
@@ -68,6 +71,9 @@ export async function runToolLoop({
   reserveTaskEffect,
   provider = "",
   usageRecorder,
+  // Agent-task budget controller (agent-tasks/budget), or undefined. When set it is asked before every model call
+  // and may switch to the economy model, trim earlier tool results, or throw AgentTaskBudgetExhaustedError.
+  taskBudget,
 }) {
   // One ledger row per model call (every step and the recovery call); `provider` is the active runtime's
   // provider, since this OpenAI-compatible client is shared by openai / grok / gemini.
@@ -113,6 +119,15 @@ export async function runToolLoop({
       forcedToolErrorReply =
         "I hit the tool execution time budget before finalizing the response. Please retry with a narrower request.";
       break;
+    }
+    if (taskBudget) {
+      const decision = taskBudget.beforeModelCall({
+        provider,
+        model: modelUsed,
+        estimateInputTokens: () => estimateLoopRequestTokens(loopMessages, openAiToolDefs),
+      });
+      if (decision.trimContext) trimOpenAiLoopToolResults(loopMessages);
+      modelUsed = decision.model;
     }
     try {
       completion = await withTimeout(
@@ -201,15 +216,9 @@ export async function runToolLoop({
       if (toolName) observedToolCalls.push(toolName);
 
       const toolUse = toolRuntime.toOpenAiToolUseBlock(toolCall);
-      if (
-        String(toolUse?.name || "").toLowerCase().startsWith("coinbase_")
-        || String(toolUse?.name || "").toLowerCase().startsWith("gmail_")
-      ) {
-        toolUse.input = {
-          ...(toolUse.input && typeof toolUse.input === "object" ? toolUse.input : {}),
-          userContextId,
-          conversationId,
-        };
+      // gmail_* / coinbase_*: the turn's own user and conversation, never the model's (see integration-tool-context).
+      if (isServerContextTool(toolUse?.name)) {
+        toolUse.input = withServerToolContext(toolUse.name, toolUse.input, { userContextId, conversationId });
       }
       const taskPolicy = permissionMode
         ? {
@@ -433,6 +442,15 @@ export async function runToolLoop({
         latencyTelemetry.incrementCounter("tool_loop_recovery_budget_exhausted");
         throw new Error("tool loop recovery budget exhausted");
       }
+      if (taskBudget) {
+        const decision = taskBudget.beforeModelCall({
+          provider,
+          model: modelUsed,
+          estimateInputTokens: () => estimateLoopRequestTokens(loopMessages),
+        });
+        if (decision.trimContext) trimOpenAiLoopToolResults(loopMessages);
+        modelUsed = decision.model;
+      }
       const recovery = await withTimeout(
         activeOpenAiCompatibleClient.chat.completions.create(
           {
@@ -459,6 +477,8 @@ export async function runToolLoop({
       );
       reply = extractOpenAIChatText(recovery).trim();
     } catch (recoveryErr) {
+      // Out of budget: the task pauses instead of falling back to a canned reply.
+      if (recoveryErr?.code === AGENT_TASK_BUDGET_EXHAUSTED) throw recoveryErr;
       console.warn(`[ToolLoop] recovery completion failed: ${describeUnknownError(recoveryErr)}`);
     }
   }

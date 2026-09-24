@@ -54,6 +54,19 @@ function isMissingSourceError(error: unknown): boolean {
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
+/**
+ * The user a per-user memory index belongs to, for llm_usage attribution of its embedding calls. The runtime keeps
+ * one index per user at `<dataDir>/user-context/<userId>/memory.db` (src/tools/runtime resolveMemoryScope); the
+ * shared/global index has no user and its embedding calls write no ledger row.
+ */
+function resolveMemoryUserContextId(dbPath: string, explicit?: string): string {
+  const direct = String(explicit || "").trim();
+  if (direct) return direct;
+  const userDir = path.dirname(path.resolve(String(dbPath || "")));
+  if (path.basename(path.dirname(userDir)).toLowerCase() !== "user-context") return "";
+  return path.basename(userDir);
+}
+
 function envNumber(name: string, defaultValue: number): number {
   const raw = String(process.env[name] || "").trim();
   if (!raw) return defaultValue;
@@ -94,6 +107,8 @@ export class MemoryIndexManager {
       provider?: EmbeddingProvider;
       staleReindexBudgetMs?: number;
       staleScanTtlMs?: number;
+      /** User the index belongs to (llm_usage attribution); derived from a user-context dbPath when omitted. */
+      userContextId?: string;
     },
   ) {
     this.config = config;
@@ -106,6 +121,7 @@ export class MemoryIndexManager {
       model: config.embeddingModel,
       apiKey: config.embeddingApiKey,
       db: this.db,
+      userContextId: resolveMemoryUserContextId(config.dbPath, deps?.userContextId),
     });
     this.staleReindexBudgetMs = Math.max(
       0,

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { ACTIVE_USER_CHANGED_EVENT, getActiveUserId } from "@/lib/auth/active-user";
+import { AGENT_TASK_BUDGET_WINDOW_EVENT, parseAgentTaskBudgetEvent } from "@/lib/agents/task-budget";
 import { normalizeHandoffOperationToken } from "@/lib/chat/handoff";
 import {
   extractPreferredCityCommand,
@@ -391,6 +392,7 @@ export function useNovaState() {
       "calendar:rescheduled",
       "calendar:conflict",
       "youtube:home:updated",
+      "agent-task-budget",
     ])
 
     const isScopedEventForOtherUser = (payload: Record<string, unknown>): boolean => {
@@ -542,6 +544,12 @@ export function useNovaState() {
             conflicts: data.conflicts.map((item: unknown) => String(item || "").trim()).filter(Boolean),
             ts: Number(data.ts || Date.now()),
           })
+          return
+        }
+
+        if (data.type === "agent-task-budget") {
+          const detail = parseAgentTaskBudgetEvent(data)
+          if (detail) window.dispatchEvent(new CustomEvent(AGENT_TASK_BUDGET_WINDOW_EVENT, { detail }))
           return
         }
 

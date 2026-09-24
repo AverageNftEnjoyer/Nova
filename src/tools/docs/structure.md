@@ -8,6 +8,7 @@ This folder is split by responsibility so runtime wiring and tool behavior are e
 
 - `core/`
   - Policy, protocol, registry, and executor logic.
+  - `output-caps/`: the per-tool output ceilings (and their truncation markers) that the executor applies to every tool result.
   - Owns shared tool typing and conversion helpers.
 - `builtin/`
   - Local/runtime tools (file, exec, memory, coinbase tool adapters).

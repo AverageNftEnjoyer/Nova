@@ -43,6 +43,8 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
       `Summarize these recent inbox emails:\n\n${digestInput}`,
       700,
       { userId },
+      undefined,
+      { source: "utility", refId: "gmail-summary" },
     )
 
     return NextResponse.json({

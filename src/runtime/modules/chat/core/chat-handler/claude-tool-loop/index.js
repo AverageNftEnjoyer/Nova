@@ -8,6 +8,8 @@ import { recordToolRunSafe } from "../../../../../../session/sqlite-store/index.
 import { assertTaskToolAllowed } from "../task-tool-policy/index.js";
 import { addLlmUsage, emptyLlmUsage, normalizeAnthropicUsage } from "../../../../../../providers/usage/index.js";
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
+import { estimateLoopRequestTokens, trimClaudeLoopToolResults } from "../loop-context-trim/index.js";
+import { withServerToolContext } from "../integration-tool-context/index.js";
 
 function claudeBase(value) {
   const trimmed = String(value || "").trim().replace(/\/+$/, "");
@@ -24,6 +26,18 @@ function withTimeout(promise, timeoutMs, label) {
   ]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+// Copy of `messages` with a prompt-cache breakpoint on the last content block, so the next step of the loop
+// reads everything up to here from cache instead of paying for it again. The stored loop messages stay clean.
+export function withLatestMessageCacheBreakpoint(messages) {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (typeof last.content === "string" && !last.content.trim()) return messages; // empty text blocks are rejected
+  const blocks = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...last.content];
+  if (blocks.length === 0) return messages;
+  blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+  return [...messages.slice(0, -1), { ...last, content: blocks }];
 }
 
 async function createMessage({ runtime, model, system, messages, tools, signal }) {
@@ -58,6 +72,9 @@ export async function runClaudeToolLoop({
   historyMessages,
   text,
   availableTools,
+  // The tools offered to the model (execute-chat-request scopes them by connected integrations). Tool calls still
+  // execute against availableTools. Defaults to availableTools.
+  modelTools,
   runtimeTools,
   userContextId,
   conversationId,
@@ -71,13 +88,17 @@ export async function runClaudeToolLoop({
   consumeTaskApproval,
   reserveTaskEffect,
   usageRecorder,
+  // Agent-task budget controller (agent-tasks/budget), or undefined. When set it is asked before every model call
+  // and may switch to the economy model, trim earlier tool results, or throw AgentTaskBudgetExhaustedError.
+  taskBudget,
 }) {
   const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, {
     userContextId,
     conversationId,
     provider: activeChatRuntime?.provider || "claude",
   });
-  const toolDefinitions = availableTools.map((tool) => ({
+  const offeredTools = Array.isArray(modelTools) ? modelTools : availableTools;
+  const toolDefinitions = offeredTools.map((tool) => ({
     name: tool.name,
     description: tool.description,
     input_schema:
@@ -94,6 +115,8 @@ export async function runClaudeToolLoop({
   ];
   const startedAt = Date.now();
   let loopUsage = emptyLlmUsage();
+  // The model of the next call; only a task budget changes it (to the provider's economy model).
+  let currentModel = selectedChatModel;
 
   for (let step = 0; step < Math.max(1, Number(TOOL_LOOP_MAX_STEPS || 1)); step += 1) {
     if (abortSignal?.aborted) throw abortSignal.reason || new Error("Agent task aborted.");
@@ -101,18 +124,30 @@ export async function runClaudeToolLoop({
       throw new Error("Claude agent tool loop exceeded its duration budget.");
     }
 
+    if (taskBudget) {
+      const decision = taskBudget.beforeModelCall({
+        provider: activeChatRuntime?.provider || "claude",
+        model: currentModel,
+        estimateInputTokens: () => estimateLoopRequestTokens(systemPrompt, messages, toolDefinitions),
+      });
+      if (decision.trimContext) trimClaudeLoopToolResults(messages);
+      currentModel = decision.model;
+    }
+
     const response = await createMessage({
       runtime: activeChatRuntime,
-      model: selectedChatModel,
+      model: currentModel,
       system: systemPrompt,
-      messages,
+      // From the second call on, the loop is resending earlier steps: cache them. The first call is often the
+      // only one (no tool needed), so a cache write there would usually be wasted.
+      messages: step > 0 ? withLatestMessageCacheBreakpoint(messages) : messages,
       tools: toolDefinitions,
       signal: abortSignal,
     });
     // Anthropic input_tokens excludes cache reads/writes; the normalised inputTokens is the total input.
     loopUsage = addLlmUsage(
       loopUsage,
-      llmUsageRecorder.record({ model: selectedChatModel, usage: normalizeAnthropicUsage(response?.usage) }),
+      llmUsageRecorder.record({ model: currentModel, usage: normalizeAnthropicUsage(response?.usage) }),
     );
     const blocks = Array.isArray(response?.content) ? response.content : [];
     const toolUses = blocks.filter((block) => block?.type === "tool_use");
@@ -130,7 +165,7 @@ export async function runClaudeToolLoop({
         completionTokens: loopUsage.outputTokens,
         cachedInputTokens: loopUsage.cachedInputTokens,
         cacheWriteInputTokens: loopUsage.cacheWriteInputTokens,
-        modelUsed: selectedChatModel,
+        modelUsed: currentModel,
       };
     }
 
@@ -141,6 +176,9 @@ export async function runClaudeToolLoop({
       const toolName = String(toolUse?.name || "").trim();
       if (toolName) observedToolCalls.push(toolName);
       const startedToolAt = Date.now();
+      // gmail_* / coinbase_*: the turn's own user and conversation, never the model's (same as the OpenAI loop).
+      // A new object: the model's tool_use block stays as sent, since it is resent as history.
+      const toolInput = withServerToolContext(toolName, toolUse?.input, { userContextId, conversationId });
       try {
         const taskPolicy = permissionMode
           ? {
@@ -150,7 +188,7 @@ export async function runClaudeToolLoop({
                 availableTools,
                 approvedTools,
                 executionFenceCheck,
-                toolUse?.input || {},
+                toolInput,
                 consumeTaskApproval,
                 reserveTaskEffect,
               ),
@@ -163,7 +201,7 @@ export async function runClaudeToolLoop({
             {
               id: String(toolUse?.id || ""),
               name: toolName,
-              input: toolUse?.input && typeof toolUse.input === "object" ? toolUse.input : {},
+              input: toolInput,
               type: "tool_use",
             },
             availableTools,
@@ -182,7 +220,7 @@ export async function runClaudeToolLoop({
         recordToolRunSafe(userContextId, {
           threadId: conversationId,
           toolName: toolName || "unknown",
-          input: toolUse?.input || {},
+          input: toolInput,
           output: content,
           status: result?.is_error ? "error" : "success",
           latencyMs: Date.now() - startedToolAt,
@@ -209,7 +247,7 @@ export async function runClaudeToolLoop({
         recordToolRunSafe(userContextId, {
           threadId: conversationId,
           toolName: toolName || "unknown",
-          input: toolUse?.input || {},
+          input: toolInput,
           output: { error: message },
           status: "error",
           latencyMs: Date.now() - startedToolAt,

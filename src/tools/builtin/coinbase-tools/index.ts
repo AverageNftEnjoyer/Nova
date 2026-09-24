@@ -797,6 +797,10 @@ function resolvePersonaMetaFromWorkspace(workspaceDir: string, userContextId: st
   return value;
 }
 
+// Every tool reads `userContextId` / `conversationId` from its input, but the model-facing schemas do not list
+// them: both chat tool loops inject the turn's own values server-side (overriding any model value, see
+// src/runtime/modules/chat/core/chat-handler/integration-tool-context) and the domain workers pass them
+// explicitly. A call without a user id still fails with "Missing userContextId." and never touches any account.
 export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
   const capabilitiesTool: Tool = {
     name: "coinbase_capabilities",
@@ -804,11 +808,7 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
     capabilities: ["network.crypto"],
     input_schema: {
       type: "object",
-      properties: {
-        userContextId: { type: "string", description: "Nova user context ID." },
-        conversationId: { type: "string", description: "Optional conversation ID for audit logs." },
-      },
-      required: ["userContextId"],
+      properties: {},
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>) => {
@@ -852,14 +852,11 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
     input_schema: {
       type: "object",
       properties: {
-        userContextId: { type: "string", description: "Nova user context ID." },
-        conversationId: { type: "string", description: "Optional conversation ID for audit logs." },
         symbolPair: { type: "string", description: "Symbol pair like BTC-USD or ETH-USD." },
         symbol: { type: "string", description: "Single base asset symbol like BTC or ETH." },
         quoteCurrency: { type: "string", description: "Optional quote currency, defaults to USD." },
         bypassCache: { type: "boolean", description: "Set true for hard refresh." },
       },
-      required: ["userContextId"],
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>) => {
@@ -928,11 +925,8 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
     input_schema: {
       type: "object",
       properties: {
-        userContextId: { type: "string", description: "Nova user context ID." },
-        conversationId: { type: "string", description: "Optional conversation ID for audit logs." },
         bypassCache: { type: "boolean", description: "Set true for hard refresh." },
       },
-      required: ["userContextId"],
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>) => {
@@ -1014,12 +1008,9 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
     input_schema: {
       type: "object",
       properties: {
-        userContextId: { type: "string", description: "Nova user context ID." },
-        conversationId: { type: "string", description: "Optional conversation ID for audit logs." },
         limit: { type: "number", description: "Number of recent transactions (1-30)." },
         bypassCache: { type: "boolean", description: "Set true for hard refresh." },
       },
-      required: ["userContextId"],
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>) => {
@@ -1093,12 +1084,9 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
     input_schema: {
       type: "object",
       properties: {
-        userContextId: { type: "string", description: "Nova user context ID." },
-        conversationId: { type: "string", description: "Optional conversation ID for audit logs." },
         transactionLimit: { type: "number", description: "Number of recent transactions to include (1-20)." },
         mode: { type: "string", description: "Report render mode: concise or detailed." },
       },
-      required: ["userContextId"],
       additionalProperties: false,
     },
     execute: async (input: Record<string, unknown>) => {

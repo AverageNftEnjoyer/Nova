@@ -2,14 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import {
+  AGENT_TASK_BUDGET_WINDOW_EVENT,
+  applyBudgetEvent,
+  carryBudgetLive,
+  parseAgentTaskBudgetEvent,
+} from "@/lib/agents/task-budget"
 import { computeTaskStats } from "@/lib/agents/task-stats"
 import type {
   AgentTask,
+  AgentTaskBudgetState,
+  AgentTaskEffectiveBudget,
   AgentTaskEvent,
   AgentTaskStats,
   AgentTaskStatus,
   AgentTaskUiAction,
   CreateAgentTaskInput,
+  RaiseAgentTaskBudgetInput,
 } from "@/lib/agents/types"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { notifyTaskComplete } from "@/lib/notifications/native-notify"
@@ -30,6 +39,8 @@ const STREAM_URL = "/api/agent-tasks/stream"
 const POLL_INTERVAL_MS = 6_000
 const STREAM_RETRY_MS = 30_000
 const STATUSES: readonly AgentTaskStatus[] = ["queued", "running", "paused", "completed", "failed", "cancelled"]
+const BUDGET_STATES: readonly AgentTaskBudgetState[] = ["ok", "warning", "degraded", "exhausted"]
+const NO_BUDGET: AgentTaskEffectiveBudget = { costUsd: null, tokens: null, costSource: "none", tokenSource: "none", active: false }
 
 function normalizeTask(value: unknown): AgentTask | null {
   const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : null
@@ -37,7 +48,14 @@ function normalizeTask(value: unknown): AgentTask | null {
   const id = String(raw.id || "").trim()
   const status = STATUSES.find((candidate) => candidate === raw.status)
   if (!id || !status || !String(raw.createdAt || "").trim()) return null
-  return { ...(raw as unknown as AgentTask), id, status }
+  const task = raw as unknown as AgentTask
+  return {
+    ...task,
+    id,
+    status,
+    budgetState: BUDGET_STATES.find((candidate) => candidate === raw.budgetState) ?? "ok",
+    budget: task.budget && typeof task.budget === "object" ? task.budget : NO_BUDGET,
+  }
 }
 
 function normalizeTasks(value: unknown): AgentTask[] {
@@ -53,7 +71,13 @@ function sortNewestFirst(tasks: AgentTask[]): AgentTask[] {
 function upsertTask(current: AgentTask[], incoming: AgentTask): AgentTask[] {
   const existing = current.find((task) => task.id === incoming.id)
   if (existing && Date.parse(existing.updatedAt) > Date.parse(incoming.updatedAt)) return current
-  return sortNewestFirst([incoming, ...current.filter((task) => task.id !== incoming.id)])
+  return sortNewestFirst([carryBudgetLive(existing, incoming), ...current.filter((task) => task.id !== incoming.id)])
+}
+
+// A full list from the server replaces the held one, keeping each running task's live budget figures.
+function replaceTasks(current: AgentTask[], incoming: AgentTask[]): AgentTask[] {
+  const held = new Map(current.map((task) => [task.id, task]))
+  return incoming.map((task) => carryBudgetLive(held.get(task.id), task))
 }
 
 function normalizeError(value: unknown, fallback: string): string {
@@ -78,6 +102,7 @@ export function useAgentTasks(): {
   refresh: () => Promise<void>
   createTask: (input: CreateAgentTaskInput) => Promise<Result<{ task: AgentTask }>>
   runAction: (id: string, action: AgentTaskUiAction) => Promise<Result>
+  raiseBudget: (id: string, input: RaiseAgentTaskBudgetInput) => Promise<Result>
 } {
   const [tasks, setTasks] = useState<AgentTask[]>([])
   const [loading, setLoading] = useState(true)
@@ -104,7 +129,10 @@ export function useAgentTasks(): {
       const res = await fetch(TASKS_URL, { method: "GET", cache: "no-store", credentials: "include" })
       const data = await parseResponse(res)
       if (!res.ok || !data?.ok) throw new Error(normalizeError(data?.error, "Failed to load tasks."))
-      if (freshnessRef.current === startedAt) setTasks(normalizeTasks(data.tasks))
+      if (freshnessRef.current === startedAt) {
+        const next = normalizeTasks(data.tasks)
+        setTasks((current) => replaceTasks(current, next))
+      }
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tasks.")
@@ -146,7 +174,8 @@ export function useAgentTasks(): {
     const handleMessage = (message: StreamMessage) => {
       if (message.type === "snapshot") {
         freshnessRef.current += 1
-        setTasks(normalizeTasks(message.tasks))
+        const next = normalizeTasks(message.tasks)
+        setTasks((current) => replaceTasks(current, next))
         setLoading(false)
         setError(null)
         setConnection("live")
@@ -197,6 +226,22 @@ export function useAgentTasks(): {
     }
   }, [applyRemove, applyUpsert, refresh, userEpoch])
 
+  // Budget events from the runtime (re-dispatched by useNovaState). They only annotate a held task (budgetState +
+  // budgetLive) and leave updatedAt alone, so they neither bump freshness nor block a newer server row.
+  useEffect(() => {
+    const onBudget = (event: Event) => {
+      const detail = parseAgentTaskBudgetEvent((event as CustomEvent<unknown>).detail)
+      if (!detail) return
+      setTasks((current) =>
+        current.some((task) => task.id === detail.taskId)
+          ? current.map((task) => applyBudgetEvent(task, detail))
+          : current,
+      )
+    }
+    window.addEventListener(AGENT_TASK_BUDGET_WINDOW_EVENT, onBudget)
+    return () => window.removeEventListener(AGENT_TASK_BUDGET_WINDOW_EVENT, onBudget)
+  }, [])
+
   const createTask = useCallback(
     async (input: CreateAgentTaskInput): Promise<Result<{ task: AgentTask }>> => {
       try {
@@ -246,6 +291,28 @@ export function useAgentTasks(): {
     [applyRemove, applyUpsert],
   )
 
+  const raiseBudget = useCallback(
+    async (id: string, input: RaiseAgentTaskBudgetInput): Promise<Result> => {
+      try {
+        const res = await fetch(TASKS_URL, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id, action: "raise-budget", ...input }),
+        })
+        const data = await parseResponse(res)
+        if (!res.ok || !data?.ok) return { ok: false, error: normalizeError(data?.error, "Failed to raise the budget.") }
+        const task = normalizeTask(data.task)
+        if (task) applyUpsert(task)
+        setError(null)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Failed to raise the budget." }
+      }
+    },
+    [applyUpsert],
+  )
+
   const stats = useMemo(() => (loading ? null : computeTaskStats(tasks)), [loading, tasks])
 
   // Track task completion and send native notifications
@@ -267,5 +334,5 @@ export function useAgentTasks(): {
     })
   }, [tasks])
 
-  return { tasks, stats, loading, error, connection, refresh, createTask, runAction }
+  return { tasks, stats, loading, error, connection, refresh, createTask, runAction, raiseBudget }
 }

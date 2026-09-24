@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.71). Actively developed and used daily by the author.
+**Status:** Alpha (V.72). Actively developed and used daily by the author.
 
 ---
 
@@ -54,7 +54,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 
 ### Conversational assistant
 - Streaming chat with tool use, conversation history, and per-user context isolation.
-- Works with **OpenAI, Anthropic (Claude), Gemini, and Grok**. Provider fallback and routing preference (balanced, latency, cost, quality) are configurable.
+- Works with **OpenAI, Anthropic (Claude), Gemini, and Grok**. Provider fallback and routing preference (balanced, latency, cost, quality) are configurable. Default models: `gpt-5.6-terra`, `claude-sonnet-5`, `gemini-3.8-flash`, `grok-4.3`.
 - Persona files (`SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`) let you shape how the assistant talks and what it knows about you.
 
 ### Voice
@@ -71,6 +71,11 @@ I built it to answer a simple question: what does an AI assistant look like when
 - Queue background tasks against Claude, OpenAI, Gemini, or Grok.
 - Play, pause, stop, and delete controls. Up to 5 tasks run at once.
 - Priority levels, permission modes (default, accept-edits, plan-mode, don't-ask, bypass), and live token and cost tracking per task.
+- Per-task budgets (cost and tokens). Defaults and a cheaper same-provider "economy model" per provider are set in **Settings → Agent budgets** (default $0.25 / 100,000 tokens per task). At 80% the task card warns; at 100% the task first trims older tool results and switches to the economy model, then pauses before a call that would go over, with **Resume / Raise budget / Abort** on the card.
+
+### Usage analytics
+- Every LLM call (chat, agent tasks, missions) is recorded in a local per-call ledger: provider, model, input / output / cached tokens and cost.
+- The **Analytics** page shows cost and tokens over time by source, provider and model, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Analytics** panel shows today's spend, tokens with the cached share, and tasks at their budget limit.
 
 ### Memory
 - Hybrid retrieval that combines keyword and embedding search.
@@ -122,6 +127,8 @@ In development NovaAIO runs as two cooperating processes, started together by a 
 ### Engineering decisions worth calling out
 
 - **Bounded tool loops.** Every chat and agent tool loop has limits on step count, total duration, per-call timeout, and calls per step, all configurable. A runaway model can't spin forever.
+- **Prompt caching.** The system prompt is split into a static part (identity, policies, persona files, runtime) that stays byte-identical across turns and a per-turn part after it, so providers can bill the repeated prefix at their cached rate. Claude requests carry `cache_control` breakpoints on the static system block and, in tool loops, on the latest message. The model is only offered Gmail / Coinbase / Phantom tools when that integration is connected, in a fixed order, so the tool list is stable too.
+- **Bounded tool output.** Every tool result passes one output-cap registry (`src/tools/core/output-caps`) before it reaches the model; a cut result ends with a marker that says how much was cut and how to get the rest (`read` returns a 400-line window).
 - **Capability and risk policies.** Tools are gated by policy before they execute, and higher-risk actions can require approval from the HUD.
 - **Network safety.** Web fetch goes through an SSRF guard that blocks requests to private and internal addresses.
 - **Secrets handling.** Stored API keys are encrypted at rest (AES-256-GCM) with a random master key that Windows DPAPI wraps for your Windows account; secrets are never returned unmasked to the browser. See [docs/security/local-data.md](docs/security/local-data.md) for what this does and does not protect against. OAuth flows use signed state, comparisons are timing-safe, and API routes are rate limited per user and per IP.
@@ -176,6 +183,8 @@ There is no encryption key to configure. Nova generates a random master key on f
 
 Integrations (Gmail, Telegram, Discord, Spotify, and so on) are optional and can be set up from the in-app Integrations page.
 
+The per-call usage ledger keeps 90 days by default; set `NOVA_LLM_USAGE_RETENTION_DAYS` (1–3650) to change it.
+
 ### Run
 
 ```bash
@@ -212,6 +221,7 @@ npm run lint         # ESLint for agent and HUD
 npm test             # build + Node test suite
 npm run smoke        # runtime smoke test
 npm run smoke:audit  # audit and regression smokes
+npm run smoke:token-gate  # offline token regression gate (prompt size, tool schemas, cacheable prefix)
 ```
 
 There are more than 130 targeted smoke scripts under `scripts/smoke/`, covering tool-loop guardrails, per-user isolation, routing, scheduler stability, the job ledger, and each integration domain. Browser-level checks live in `hud/tests/smoke/` and run with Playwright (`npm --prefix hud run test:smoke`).

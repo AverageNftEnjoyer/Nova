@@ -12,6 +12,8 @@ export const GEMINI_MODEL_PRICING_USD_PER_1M: Readonly<Record<string, ModelPrici
 export const GROK_MODEL_PRICING_USD_PER_1M: Readonly<Record<string, ModelPricing>>
 /** Deprecated / superseded models that still answer API calls (cost only; not offered in pickers). */
 export const LEGACY_MODEL_PRICING_USD_PER_1M: Readonly<Record<string, ModelPricing>>
+/** OpenAI embedding models (input only; output is 0). */
+export const EMBEDDING_MODEL_PRICING_USD_PER_1M: Readonly<Record<string, ModelPricing>>
 
 export function resolveModelPricing(model: string): ModelPricing | null
 /** promptTokens = total input; the optional split bills cached / cache-write input at their own rates. */

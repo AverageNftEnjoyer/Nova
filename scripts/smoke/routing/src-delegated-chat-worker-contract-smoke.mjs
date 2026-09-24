@@ -90,7 +90,7 @@ await run("P31-C3 delegated chat worker requires executeChatRequest callback", a
   assert.equal(errorText.includes("executeChatRequest"), true);
 });
 
-await run("P31-C4 delegated chat worker preserves fallback diagnostics and non-fatal errors", async () => {
+await run("P31-C4 delegated chat worker preserves recovery diagnostics and non-fatal errors", async () => {
   const out = await runDelegatedChatWorker({
     text: "hello",
     ctx: {},
@@ -103,16 +103,16 @@ await run("P31-C4 delegated chat worker preserves fallback diagnostics and non-f
       ok: true,
       reply: "degraded-but-usable",
       error: "spawn EPERM",
-      fallbackReason: "request_error",
-      fallbackStage: "exception_empty_reply_fallback",
-      hadCandidateBeforeFallback: false,
+      recoveryReason: "request_error",
+      recoveryStage: "exception_empty_reply_fallback",
+      hadCandidateBeforeRecovery: false,
     }),
   });
   assert.equal(out.ok, true);
   assert.equal(out.error, "spawn EPERM");
-  assert.equal(out.fallbackReason, "request_error");
-  assert.equal(out.fallbackStage, "exception_empty_reply_fallback");
-  assert.equal(out.hadCandidateBeforeFallback, false);
+  assert.equal(out.recoveryReason, "request_error");
+  assert.equal(out.recoveryStage, "exception_empty_reply_fallback");
+  assert.equal(out.hadCandidateBeforeRecovery, false);
 });
 
 const passCount = results.filter((r) => r.status === "PASS").length;

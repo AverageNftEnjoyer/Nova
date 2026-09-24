@@ -41,6 +41,7 @@ import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { WeatherHomeModule } from "./weather-home-module"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
 import { NotesHomeModule } from "./notes-home-module"
+import { AnalyticsHomeModule } from "./analytics-home-module"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface HistoryConversationMenuProps {
@@ -308,6 +309,7 @@ export function HomeMainScreen() {
   const presence = getNovaPresence({ agentConnected: connected, novaState })
   const [orbHovered, setOrbHovered] = useState(false)
   const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
+  const openAnalyticsBudgets = () => router.push("/analytics#budgets")
   // ── Panel header helper ──────────────────────────────────────────────────
   const renderPanelHeader = ({
     icon,
@@ -869,25 +871,12 @@ export function HomeMainScreen() {
                     hoverGlow: false,
                   }),
                 })}
-                <button
-                  onClick={openAnalytics}
-                  className={cn(
-                    "mt-2 w-full min-h-0 flex-1 rounded-lg border px-3 @[10rem]:px-4 py-2 @[10rem]:py-3 text-left transition-all duration-150 home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    subPanelClass,
-                  )}
-                >
-                  <div className="flex h-full items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className={cn("truncate text-[10px] @[10rem]:text-xs font-medium uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-500")}>
-                        View Dashboard
-                      </p>
-                      <p className={cn("hidden @[9rem]:block mt-1 truncate text-sm", isLight ? "text-s-70" : "text-slate-300")}>
-                        Task metrics & cost tracking
-                      </p>
-                    </div>
-                    <TrendingUp className={cn("w-5 h-5 shrink-0", isLight ? "text-accent" : "text-accent")} />
-                  </div>
-                </button>
+                <AnalyticsHomeModule
+                  isLight={isLight}
+                  subPanelClass={subPanelClass}
+                  onOpenAnalytics={openAnalytics}
+                  onOpenBudgets={openAnalyticsBudgets}
+                />
               </section>
 
               <WeatherHomeModule

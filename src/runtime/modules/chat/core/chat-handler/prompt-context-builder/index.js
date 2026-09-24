@@ -21,7 +21,7 @@ import { shouldPreloadWebSearch } from "../../../routing/intent-router/index.js"
 import { runtimeToneDirective } from "../../../../audio/voice/index.js";
 import { describeUnknownError, withTimeout } from "../../../../llm/providers/index.js";
 import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../../core/context-prompt/index.js";
-import { buildAgentSystemPrompt, PromptMode } from "../../../../context/system-prompt/index.js";
+import { buildAgentSystemPrompt, buildSkillsPromptBlock, PromptMode } from "../../../../context/system-prompt/index.js";
 import { buildPersonaPrompt } from "../../../../context/bootstrap/index.js";
 import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../../analysis/link-understanding/index.js";
 import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../../prompt/prompt-budget/index.js";
@@ -94,18 +94,20 @@ export async function buildPromptContextForTurn({
   }
 
   const runtimeSkillsPrompt = fastLaneSimpleChat ? "" : buildRuntimeSkillsPrompt(personaWorkspaceDir, text);
+  const promptMode =
+    AGENT_PROMPT_MODE === PromptMode.MINIMAL || AGENT_PROMPT_MODE === PromptMode.NONE
+      ? AGENT_PROMPT_MODE : PromptMode.FULL;
   const { systemPrompt: baseSystemPrompt, tokenBreakdown } = buildSystemPromptWithPersona({
     buildAgentSystemPrompt,
     buildPersonaPrompt,
     workspaceDir: personaWorkspaceDir,
     promptArgs: {
       workspaceDir: ROOT_WORKSPACE_DIR,
-      promptMode:
-        AGENT_PROMPT_MODE === PromptMode.MINIMAL || AGENT_PROMPT_MODE === PromptMode.NONE
-          ? AGENT_PROMPT_MODE : PromptMode.FULL,
+      promptMode,
       memoryCitationsMode: String(process.env.NOVA_MEMORY_CITATIONS_MODE || "off").trim().toLowerCase() === "on" ? "on" : "off",
       userTimezone: process.env.NOVA_USER_TIMEZONE || "America/New_York",
-      skillsPrompt: runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "",
+      // Skills are picked per message, so they are added after the static prompt (below).
+      skillsPrompt: "",
       heartbeatPrompt: process.env.NOVA_HEARTBEAT_PROMPT || "",
       docsPath: process.env.NOVA_DOCS_PATH || "",
       ttsHint: "Keep voice responses concise, clear, and natural.",
@@ -137,6 +139,11 @@ export async function buildPromptContextForTurn({
     runtimeCustomInstructions ? `- Custom instructions: ${runtimeCustomInstructions}` : "",
   ].filter(Boolean).join("\n");
   if (personaOverlay) systemPrompt += `\n\n${personaOverlay}`;
+  // Everything above is identical on every call for this user, model and channel; everything appended
+  // below (skills and the per-turn sections) varies. Callers can send the static part as a cacheable prefix.
+  const staticSystemPrompt = systemPrompt;
+  const skillsBlock = buildSkillsPromptBlock(runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "", promptMode);
+  if (skillsBlock) systemPrompt += `\n\n${skillsBlock}`;
 
   const promptBudgetProfile = resolveDynamicPromptBudget({
     maxPromptTokens: MAX_PROMPT_TOKENS,
@@ -476,6 +483,8 @@ export async function buildPromptContextForTurn({
 
   return {
     systemPrompt,
+    staticSystemPrompt,
+    turnContextPrompt: systemPrompt.slice(staticSystemPrompt.length).trim(),
     historyMessages,
     messages,
     preparedPromptHash,

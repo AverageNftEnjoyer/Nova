@@ -2,6 +2,7 @@ import {
   evaluateToolCapabilityPolicy,
   resolveToolCapabilities,
 } from "../capability-policy/index.js";
+import { applyToolOutputCap } from "../output-caps/index.js";
 import { classifyToolRisk, evaluateToolPolicy } from "../risk-policy/index.js";
 import type {
   AnthropicToolUseBlock,
@@ -68,17 +69,22 @@ export async function executeToolUse(
     };
   }
 
+  // Every result, including the failure text (which echoes the input), goes through the output ceiling.
   try {
     const output = await tool.execute(toolUse.input, policyContext);
     return {
       tool_use_id: toolUse.id,
-      content: output,
+      content: applyToolOutputCap(tool.name, output, toolUse.input),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       tool_use_id: toolUse.id,
-      content: `Tool execution failed: ${message}\nInput:\n${stringifyInput(toolUse.input)}`,
+      content: applyToolOutputCap(
+        tool.name,
+        `Tool execution failed: ${message}\nInput:\n${stringifyInput(toolUse.input)}`,
+        toolUse.input,
+      ),
       is_error: true,
     };
   }

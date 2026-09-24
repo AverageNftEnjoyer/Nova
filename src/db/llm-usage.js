@@ -1,5 +1,6 @@
-// Per-call LLM usage ledger (`llm_usage`, migration 13). One row per LLM API call from chat, agent tasks and
-// missions; the single data source for per-task budgets and usage analytics.
+// Per-call LLM usage ledger (`llm_usage`, migrations 13 and 17). One row per LLM API call from chat, agent tasks,
+// missions, one-off utility calls and memory embeddings; the single data source for per-task budgets and usage
+// analytics.
 //
 // input_tokens is the TOTAL input for the call (cached + cache-write included). Uncached input is
 // input - cached - cache_write, computed by readers. cost_usd is NULL when the model has no known pricing.
@@ -9,9 +10,10 @@
 
 import { randomUUID } from "node:crypto";
 
+import { pruneAgentTaskBudgetEventsBefore } from "./agent-task-budget-events.js";
 import { getDb, nowIso } from "./index.js";
 
-const LLM_USAGE_SOURCES = Object.freeze(["chat", "agent-task", "mission"]);
+export const LLM_USAGE_SOURCES = Object.freeze(["chat", "agent-task", "mission", "utility", "embedding"]);
 const DEFAULT_LLM_USAGE_RETENTION_DAYS = 90;
 const MIN_RETENTION_DAYS = 1;
 const MAX_RETENTION_DAYS = 3650;
@@ -112,14 +114,19 @@ function toNowMs(now) {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-/** Delete rows (all users) older than the retention period. Returns the number of rows removed. */
+/**
+ * Delete rows (all users) older than the retention period. Returns the number of llm_usage rows removed.
+ * Agent-task budget events (migration 15) share the retention period and are pruned in the same pass.
+ */
 export function pruneLlmUsage({ retentionDays, now } = {}) {
   const requested = Number(retentionDays);
   const days = Number.isFinite(requested) && requested > 0
     ? Math.min(MAX_RETENTION_DAYS, Math.max(MIN_RETENTION_DAYS, Math.floor(requested)))
     : resolveLlmUsageRetentionDays();
   const cutoff = new Date(toNowMs(now) - days * DAY_MS).toISOString();
-  return statementsFor(getDb()).prune.run(cutoff).changes;
+  const removed = statementsFor(getDb()).prune.run(cutoff).changes;
+  pruneAgentTaskBudgetEventsBefore(cutoff);
+  return removed;
 }
 
 /**

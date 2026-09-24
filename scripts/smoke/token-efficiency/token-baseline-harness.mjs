@@ -15,6 +15,9 @@
  *   (web_search, web_fetch, gmail_*) get their `execute` replaced by canned results. The executor, the loop
  *   wrappers (wrapWebContent, userContextId injection) and the file tools (ls/read/grep on a fixture workspace)
  *   all run for real. Any other network-bound tool (coinbase_*, browser_agent) throws if called.
+ * - Integrations (Stage 3): the model only sees coinbase_* / gmail_* tools for a connected integration. Scenario
+ *   users have no integration connected, except gmail-triage, whose user gets a Gmail-connected runtime snapshot
+ *   (no tokens; the Gmail tools it calls are canned).
  * - Missions: hud/lib/missions/workflow/executors/ai-executors.ts and hud/lib/missions/llm/providers.ts are
  *   TypeScript inside the Next app. They are transpiled with `typescript` and run in a vm (same technique as
  *   scripts/smoke/scheduler/src-mission-agent-runtime-smoke.mjs); only the integrations store and provider
@@ -40,6 +43,7 @@ process.env.NOVA_EMBEDDING_PROVIDER = "local";
 process.env.NOVA_EXEC_APPROVAL_MODE = process.env.NOVA_EXEC_APPROVAL_MODE || "ask";
 
 import { isolatedDataDir } from "../lib/isolated-data-dir.mjs";
+import { seedRuntimeIntegrations } from "../lib/seed-runtime-integrations.mjs";
 import {
   FAKE_CLAUDE_BASE_URL,
   FAKE_OPENAI_BASE_URL,
@@ -299,6 +303,26 @@ const AGENT_TASK_PLAN = [
 ];
 const AGENT_TASK_REPLY = "Open work report:\n\n1. src/server.js: TODO add request timeouts and graceful shutdown.\n2. src/routes/users.js: TODO validate the email query parameter; TODO paginate the list endpoint.\n3. notes/TODO.md: rate limiting and structured logging are still open.\n\nExpress 5 impact: path-to-regexp v8 changes wildcard syntax (`/*` must be named) and rejected promises now reach the error handler, so the try/catch wrappers in src/routes/users.js can be removed. No blockers found.";
 
+// Stage 2 (tool output ceilings): the same kind of task, but the workspace holds a large log file that the model
+// reads without a line range. Before Stage 2 `read` returned the whole file and every later loop step resent it.
+const LARGE_LOG_LINES = 6_000;
+const LARGE_LOG = Array.from({ length: LARGE_LOG_LINES }, (_, i) => {
+  const level = i % 10 === 7 ? "ERROR" : i % 4 === 0 ? "WARN" : "INFO";
+  const minute = String(Math.floor(i / 60) % 60).padStart(2, "0");
+  const second = String(i % 60).padStart(2, "0");
+  return `2026-09-22T03:${minute}:${second}.000Z ${level} orders-api request=${100000 + i} route=/users status=${level === "ERROR" ? 500 : 200} latencyMs=${(i * 37) % 900}`;
+}).join("\n") + "\n";
+const LARGE_TASK_PROMPT = "Investigate last night's errors in this project: look at the layout, go through the server log, collect the "
+  + "failing requests and produce a short report of what is failing with file references.";
+const LARGE_TASK_PLAN = [
+  [{ name: "ls", input: { path: "." } }],
+  [{ name: "read", input: { path: "logs/server.log" } }],
+  [{ name: "grep", input: { pattern: "ERROR", path: "logs" } }],
+  [{ name: "read", input: { path: "src/routes/users.js" } }],
+];
+const LARGE_TASK_REPLY = "Every ERROR line is a 500 on /users. The route handler in src/routes/users.js has no input validation "
+  + "(see its TODO), so start there; the log shows one failing request in every ten.";
+
 const GMAIL_PROMPT = "Triage my unread mail from the last 24 hours: tell me what needs a reply today, what can wait, and what is noise. "
   + "Give me a prioritized list with one suggested next step each.";
 const GMAIL_PLAN = [
@@ -308,6 +332,17 @@ const GMAIL_PLAN = [
 ];
 const GMAIL_REPLY = "Reply today:\n1. Dana Kim - contract redlines due Thursday: confirm sections 4 and 7 are reviewed.\n2. Priya Shah - Q4 timeline: accept or counter the Tuesday demo slot.\n\nCan wait:\n3. Billing - invoice INV-20931 due in 5 days: schedule payment.\n4. Sam Rivera - lunch: reply by Wednesday.\n5. GitHub - CI failure on main: check build #1842 when you are back at your desk.\n\nNoise:\n6. Weekly Digest newsletter: archive.";
 
+// Runtime snapshot of a user with Gmail connected and nothing else (the shape HUD's agent-sync writes; no token).
+const GMAIL_CONNECTED_SNAPSHOT = {
+  gmail: {
+    connected: true,
+    email: "jack@example.test",
+    activeAccountId: "acct-1",
+    scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+    accounts: [{ id: "acct-1", email: "jack@example.test", enabled: true, scopes: ["https://www.googleapis.com/auth/gmail.readonly"] }],
+  },
+};
+
 const WORKSPACE_FILES = {
   "README.md": "# Orders API\n\nSmall Express service that exposes users and orders for the internal dashboard.\n\n## Running\n\n```\nnpm install\nnpm start\n```\n\nThe server listens on PORT (default 3000). See notes/TODO.md for open work.\n",
   "package.json": JSON.stringify({ name: "orders-api", version: "0.4.2", main: "src/server.js", scripts: { start: "node src/server.js", test: "node --test" }, dependencies: { express: "^5.1.0" } }, null, 2) + "\n",
@@ -316,9 +351,9 @@ const WORKSPACE_FILES = {
   "notes/TODO.md": "# Open work\n\n- [ ] Rate limiting on public routes\n- [ ] Structured logging (pino)\n- [x] Move to Express 5\n",
 };
 
-function createFixtureWorkspace(name) {
+function createFixtureWorkspace(name, extraFiles = {}) {
   const dir = path.join(isolatedDataDir, "token-baseline-workspaces", name);
-  for (const [rel, content] of Object.entries(WORKSPACE_FILES)) {
+  for (const [rel, content] of Object.entries({ ...WORKSPACE_FILES, ...extraFiles })) {
     const file = path.join(dir, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content, "utf8");
@@ -386,10 +421,11 @@ async function runWebResearch(shape) {
   return [summarizeTurn(result)];
 }
 
-async function runAgentTask(scenario, shape, { prompt, plan, reply }) {
+async function runAgentTask(scenario, shape, { prompt, plan, reply, extraFiles, integrations }) {
   const userContextId = `tb-${scenario}-${shape}`;
   const taskId = `tb-${scenario}-${shape}-task`;
-  const workspaceDir = createFixtureWorkspace(`${scenario}-${shape}`);
+  const workspaceDir = createFixtureWorkspace(`${scenario}-${shape}`, extraFiles);
+  if (integrations) seedRuntimeIntegrations(userContextId, integrations);
   await prepareToolScope({ userContextId, workspaceDir });
   begin(scenario, shape, { plan, reply: () => reply });
   // Same options the agent-task service passes (src/runtime/modules/agent-tasks/index.js executeTask).
@@ -575,7 +611,12 @@ const SCENARIOS = [
   ["chat-10-turn", runChat10],
   ["web-research", runWebResearch],
   ["agent-task", (shape) => runAgentTask("agent-task", shape, { prompt: AGENT_TASK_PROMPT, plan: AGENT_TASK_PLAN, reply: AGENT_TASK_REPLY })],
-  ["gmail-triage", (shape) => runAgentTask("gmail-triage", shape, { prompt: GMAIL_PROMPT, plan: GMAIL_PLAN, reply: GMAIL_REPLY })],
+  ["agent-task-large-output", (shape) => runAgentTask("agent-task-large-output", shape, {
+    prompt: LARGE_TASK_PROMPT, plan: LARGE_TASK_PLAN, reply: LARGE_TASK_REPLY, extraFiles: { "logs/server.log": LARGE_LOG },
+  })],
+  ["gmail-triage", (shape) => runAgentTask("gmail-triage", shape, {
+    prompt: GMAIL_PROMPT, plan: GMAIL_PLAN, reply: GMAIL_REPLY, integrations: GMAIL_CONNECTED_SNAPSHOT,
+  })],
   ["mission-run", runMission],
 ];
 const SHAPES = ["openai", "claude"];
@@ -639,6 +680,36 @@ for (const r of scenarioResults) {
     });
   }
 }
+check("agent-task-large-output: every tool result reached the model within its output ceiling (Stage 2)", () => {
+  // Largest cap a tool of this scenario can have (grep 24,000) plus the bounded marker (400).
+  const limit = 24_400;
+  for (const r of scenarioResults.filter((x) => x.scenario === "agent-task-large-output")) {
+    const last = r.calls[r.calls.length - 1]?.request;
+    const contents = (last?.messages || []).flatMap((m) => (m?.role === "tool"
+      ? [m.content]
+      : Array.isArray(m?.content) ? m.content.filter((b) => b?.type === "tool_result").map((b) => b.content) : []));
+    assert.ok(contents.length >= 4, `${r.shape}: expected 4 tool results, saw ${contents.length}`);
+    for (const content of contents) {
+      const text = typeof content === "string" ? content : JSON.stringify(content);
+      assert.ok(text.length <= limit, `${r.shape}: a tool result of ${text.length} chars reached the model`);
+    }
+  }
+});
+function offeredToolNames(request) {
+  return (Array.isArray(request?.tools) ? request.tools : []).map((t) => String(t?.function?.name || t?.name || ""));
+}
+check("tool lists follow connected integrations and stay identical across a scenario's calls (Stage 3)", () => {
+  for (const r of scenarioResults.filter((x) => x.planSteps > 0)) {
+    const lists = r.calls.filter((c) => Array.isArray(c.request.tools) && c.request.tools.length > 0)
+      .map((c) => JSON.stringify(c.request.tools));
+    assert.ok(lists.length > 0, `${r.scenario}/${r.shape}: no tool-loop call`);
+    assert.equal(new Set(lists).size, 1, `${r.scenario}/${r.shape}: tool list changed between calls`);
+    const names = offeredToolNames(r.calls.find((c) => Array.isArray(c.request.tools) && c.request.tools.length > 0).request);
+    assert.ok(!names.some((n) => n.startsWith("coinbase_")), `${r.scenario}/${r.shape}: coinbase tools offered without Coinbase`);
+    const gmailOffered = names.some((n) => n.startsWith("gmail_"));
+    assert.equal(gmailOffered, r.scenario === "gmail-triage", `${r.scenario}/${r.shape}: gmail tools offered=${gmailOffered}`);
+  }
+});
 check("chat-10-turn: 10 turns answered through the LLM path for both shapes", () => {
   for (const r of scenarioResults.filter((x) => x.scenario === "chat-10-turn")) {
     assert.equal(r.turns.length, 10);

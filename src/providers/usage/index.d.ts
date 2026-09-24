@@ -1,4 +1,5 @@
-export type LlmUsageSource = "chat" | "agent-task" | "mission"
+/** utility = one-off helper calls (mission suggestions, model tests, Gmail summary); embedding = memory index. */
+export type LlmUsageSource = "chat" | "agent-task" | "mission" | "utility" | "embedding"
 
 /** Normalised usage for one call (or a sum of calls). inputTokens is the TOTAL input, cached and cache-write included. */
 export interface LlmUsage {
@@ -34,6 +35,8 @@ export interface RecordLlmUsageInput {
 export const LLM_USAGE_SOURCES: readonly LlmUsageSource[]
 export function emptyLlmUsage(): LlmUsage
 export function normalizeOpenAiCompatibleUsage(raw: unknown): LlmUsage
+/** OpenAI Responses API usage (raw snake_case, or an OpenAI Agents SDK `Usage` of one model response). */
+export function normalizeOpenAiResponsesUsage(raw: unknown): LlmUsage
 export function normalizeAnthropicUsage(raw: unknown): LlmUsage
 export function mergeAnthropicStreamUsage(
   accumulator: Record<string, number> | null | undefined,

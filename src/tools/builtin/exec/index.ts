@@ -1,12 +1,8 @@
 import { spawn } from "node:child_process";
 import type { Tool, ToolExecutionPolicyContext } from "../../core/types/index.js";
 
+// Capture limit only; what reaches the model is capped by the executor (core/output-caps, exec: 8,000 chars).
 const MAX_OUTPUT_BYTES = 1024 * 1024;
-
-function truncate(text: string, maxChars = 8000): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
 
 function getCommandBinary(command: string): string {
   return command.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
@@ -80,7 +76,7 @@ function executeCommand(
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n").trim();
-      resolve(truncate(message || output || "(no output)"));
+      resolve(message || output || "(no output)");
     };
     const onAbort = () => {
       aborted = true;

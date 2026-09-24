@@ -138,7 +138,16 @@ export const RAW_STREAM_PATH = String(
 
 
 // ===== Token Limits =====
-const DEFAULT_MAX_PROMPT_TOKENS = 6000;
+// All prompt budgets are in the runtime's estimator (~tok = ceil(chars / 3.5), core/context-prompt).
+//
+// MAX_PROMPT_TOKENS only sizes the chat HISTORY budget (history = max - response reserve - system prompt - user
+// message, then capped by PROMPT_HISTORY_TARGET_TOKENS and SESSION_MAX_HISTORY_TOKENS); a larger value never grows
+// history past its target and adds no tokens by itself. 18,000 keeps the 1,400-token history target for the largest
+// system prompt the runtime can build from persona files: base prompt (~1.1k) + persona files at their 24,000-char
+// load cap (context/bootstrap, ~6.9k) + a full per-turn context budget (5,000) + reserve (1,400) + history (1,400)
+// = ~15.8k, leaving ~2k for the user's message. It is far below the context window of every current model
+// (the smallest in src/providers/pricing is 128k).
+const DEFAULT_MAX_PROMPT_TOKENS = 18000;
 export const MAX_PROMPT_TOKENS = readIntEnv("NOVA_MAX_PROMPT_TOKENS", DEFAULT_MAX_PROMPT_TOKENS, {
   min: 1,
   max: 1_000_000,
@@ -169,6 +178,20 @@ const DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS = 1000;
 export const PROMPT_CONTEXT_SECTION_MAX_TOKENS = readIntEnv(
   "NOVA_PROMPT_CONTEXT_SECTION_MAX_TOKENS",
   DEFAULT_PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+  { min: 1, max: 1_000_000 },
+);
+
+// Per-turn context budget: everything appended AFTER the static system prompt (the skills block and the per-turn
+// sections: preference, identity, personality, continuity, short-term, operator routing, live web search, link
+// context, memory recall, strict output). It is independent of the size of the static persona, so a long persona
+// can no longer starve these sections. Each section keeps its own cap (PROMPT_CONTEXT_SECTION_MAX_TOKENS, 240 on the
+// fast lane); the prompt builder reserves room for the enrichment sections of the turn (web search, link, memory:
+// one section cap each) before it adds the profile sections. 5,000 = skills (~0.3-0.4k) + all three enrichment
+// sections at their cap (3,000) + strict output + ~1.2k for the profile sections even in that worst case.
+const DEFAULT_PROMPT_TURN_CONTEXT_MAX_TOKENS = 5000;
+export const PROMPT_TURN_CONTEXT_MAX_TOKENS = readIntEnv(
+  "NOVA_PROMPT_TURN_CONTEXT_MAX_TOKENS",
+  DEFAULT_PROMPT_TURN_CONTEXT_MAX_TOKENS,
   { min: 1, max: 1_000_000 },
 );
 

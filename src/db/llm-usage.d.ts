@@ -1,4 +1,7 @@
-export type LlmUsageLedgerSource = "chat" | "agent-task" | "mission"
+/** utility = one-off helper calls (mission suggestions, model tests, Gmail summary); embedding = memory index. */
+export type LlmUsageLedgerSource = "chat" | "agent-task" | "mission" | "utility" | "embedding"
+
+export const LLM_USAGE_SOURCES: readonly LlmUsageLedgerSource[]
 
 /** Token counts: inputTokens is the TOTAL input (cached + cache-write included); uncached is computed by readers. */
 export interface LlmUsageLedgerInput {

@@ -52,6 +52,7 @@ import {
   consumeHudOpTokenForSensitiveAction,
 } from "../../../../infrastructure/hud-gateway/index.js";
 import {
+  buildClaudeCachedSystem,
   claudeMessagesCreate,
   claudeMessagesStream,
   describeUnknownError,
@@ -106,6 +107,8 @@ import {
 } from "../prompt-recovery/index.js";
 import { runToolLoop } from "../tool-loop-runner/index.js";
 import { runClaudeToolLoop } from "../claude-tool-loop/index.js";
+import { AGENT_TASK_BUDGET_EXHAUSTED } from "../../../../agent-tasks/budget/index.js";
+import { resolveModelToolsForUser } from "../model-tool-scope/index.js";
 import { runClaudeDirectCompletion, runOpenAiDirectCompletion } from "../direct-completion/index.js";
 import { buildPromptContextForTurn } from "../prompt-context-builder/index.js";
 import { refineAssistantReply } from "../response-refinement/index.js";
@@ -178,7 +181,14 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     runtimeTone, runtimeCommunicationStyle, runtimeAssistantName, runtimeCustomInstructions,
     runtimeProactivity, runtimeHumorLevel, runtimeRiskTolerance, runtimeStructurePreference, runtimeChallengeLevel,
     raw_text: displayText, hudOpToken, abortSignal, permissionMode, approvedTools, workspaceDir,
-    executionFenceCheck, consumeTaskApproval, reserveTaskEffect } = ctx;
+    executionFenceCheck, consumeTaskApproval, reserveTaskEffect, taskBudget } = ctx;
+  // Per-task budgets (Stage 4) only ever apply to agent-task runs; every other turn runs the loops as before.
+  const loopTaskBudget = source === "agent-task" && taskBudget ? taskBudget : undefined;
+  // Calls outside the tool loops (direct completion, output-constraint correction) are not degraded; an agent task
+  // that has already spent its budget pauses before them instead (throws AGENT_TASK_BUDGET_EXHAUSTED, see catch).
+  const guardAgentTaskBudget = (model) => {
+    if (loopTaskBudget && typeof loopTaskBudget.guardCall === "function") loopTaskBudget.guardCall({ model });
+  };
   const scopedUserLabel = String(userContextId || "").trim() || "missing-user-context";
   // displayText: original user text for UI/transcript; text: clean_text for LLM/tools
   const uiText = displayText || text;
@@ -352,6 +362,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   if (useVoice) playThinking();
 
   let systemPrompt = "";
+  // Claude gets the same content as `system` blocks with a cache breakpoint after the static part.
+  let claudeSystemPrompt = "";
   let historyMessages = [];
   let messages = [];
 
@@ -440,6 +452,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         broadcastThinkingStatus,
       });
       systemPrompt = promptContext.systemPrompt;
+      claudeSystemPrompt = buildClaudeCachedSystem(promptContext.staticSystemPrompt, promptContext.turnContextPrompt);
       historyMessages = promptContext.historyMessages;
       messages = promptContext.messages;
       preparedPromptHash = promptContext.preparedPromptHash;
@@ -450,17 +463,23 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       usedMemoryRecall = promptContext.usedMemoryRecall;
       usedWebSearchPreload = promptContext.usedWebSearchPreload;
       usedLinkUnderstanding = promptContext.usedLinkUnderstanding;
-      if (activeChatRuntime.provider === "claude" && shouldRunToolLoop) {
+      // Tools the model is offered: integration-bound tools only when their integration is connected. Execution,
+      // task policy and the domain workers keep using availableTools (see model-tool-scope).
+      // If scoping leaves no tool at all (only integration tools enabled, none connected), answer without a loop.
+      const modelTools = shouldRunToolLoop ? resolveModelToolsForUser(availableTools, userContextId) : [];
+      const runModelToolLoop = shouldRunToolLoop && modelTools.length > 0;
+      if (activeChatRuntime.provider === "claude" && runModelToolLoop) {
         llmStartedAt = Date.now();
         responseRoute = "claude_tool_loop";
         broadcastThinkingStatus("Running agent task", userContextId);
         const claudeToolResult = await runClaudeToolLoop({
           activeChatRuntime,
           selectedChatModel,
-          systemPrompt,
+          systemPrompt: claudeSystemPrompt,
           historyMessages,
           text,
           availableTools,
+          modelTools,
           runtimeTools,
           userContextId,
           conversationId,
@@ -474,17 +493,19 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           consumeTaskApproval,
           reserveTaskEffect,
           usageRecorder: llmUsageRecorder,
+          taskBudget: loopTaskBudget,
         });
         reply = claudeToolResult.reply;
         modelUsed = claudeToolResult.modelUsed || selectedChatModel;
       } else if (activeChatRuntime.provider === "claude") {
         llmStartedAt = Date.now();
         responseRoute = "claude_direct";
+        guardAgentTaskBudget(selectedChatModel);
         broadcastThinkingStatus("Drafting response", userContextId);
         const claudeDirect = await runClaudeDirectCompletion({
           activeChatRuntime,
           selectedChatModel,
-          systemPrompt,
+          systemPrompt: claudeSystemPrompt,
           historyMessages,
           text,
           hasStrictOutputRequirements,
@@ -498,10 +519,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         });
         reply = claudeDirect.reply;
         emittedAssistantDelta = emittedAssistantDelta || claudeDirect.emittedAssistantDelta === true;
-      } else if (shouldRunToolLoop) {
+      } else if (runModelToolLoop) {
         llmStartedAt = Date.now();
         responseRoute = "tool_loop";
-        const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(availableTools);
+        const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(modelTools);
         const toolLoopResult = await runToolLoop({
           activeOpenAiCompatibleClient,
           modelUsed,
@@ -533,6 +554,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           reserveTaskEffect,
           provider: activeChatRuntime.provider,
           usageRecorder: llmUsageRecorder,
+          taskBudget: loopTaskBudget,
         });
         reply = toolLoopResult.reply;
         modelUsed = toolLoopResult.modelUsed || modelUsed;
@@ -541,6 +563,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         llmStartedAt = Date.now();
         broadcastThinkingStatus("Drafting response", userContextId);
         responseRoute = hasStrictOutputRequirements ? "openai_direct_constraints" : "openai_stream";
+        guardAgentTaskBudget(modelUsed);
         const directResult = await runOpenAiDirectCompletion({
           activeChatRuntime,
           activeOpenAiCompatibleClient,
@@ -570,6 +593,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       latencyTelemetry.addStage("llm_generation", Date.now() - llmStartedAt);
     }
 
+    // The only model call refinement can make is the output-constraint correction pass: guard it for agent tasks.
+    if (loopTaskBudget && hasStrictOutputRequirements && !validateOutputConstraints(reply, outputConstraints).ok) {
+      guardAgentTaskBudget(activeChatRuntime.provider === "claude" ? selectedChatModel : modelUsed);
+    }
     const refinement = await refineAssistantReply({
       reply,
       hasStrictOutputRequirements,
@@ -592,7 +619,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       modelUsed,
       activeChatRuntime,
       selectedChatModel,
-      systemPrompt,
+      // Only the Claude branch of refinement reads this.
+      systemPrompt: claudeSystemPrompt || systemPrompt,
       historyMessages,
       messages,
       activeOpenAiCompatibleClient,
@@ -785,7 +813,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     broadcastThinkingStatus("Handling error", userContextId);
     const details = toErrorDetails(err);
     const msg = details.message || "Unknown model error.";
-    const errorReply = "I hit a runtime error while processing your request. Please retry.";
+    const budgetExhausted = err?.code === AGENT_TASK_BUDGET_EXHAUSTED;
+    const errorReply = budgetExhausted
+      ? "Paused: this agent task reached its budget."
+      : "I hit a runtime error while processing your request. Please retry.";
     appendRawStream({ event: "request_error", source, sessionKey, provider: activeChatRuntime.provider, model: selectedChatModel, status: details.status, code: details.code, type: details.type, requestId: details.requestId, message: msg });
     console.error(`[LLM] Chat request failed provider=${activeChatRuntime.provider} model=${selectedChatModel} status=${details.status ?? "n/a"} code=${details.code ?? "n/a"} message=${msg}`);
     markRecovery("request_error", details.code || details.message || "request_error", "");
@@ -813,6 +844,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           approvalKey: String(err?.approvalKey || ""),
         }
       : null;
+    if (budgetExhausted) runSummary.budgetExhausted = err?.snapshot || null;
     runSummary.ok = false;
     runSummary.reply = errorReply;
     // Model calls that completed before the error were billed: report them too (the ledger already has them).

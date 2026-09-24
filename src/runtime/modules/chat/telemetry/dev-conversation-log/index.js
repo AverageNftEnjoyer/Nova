@@ -491,6 +491,11 @@ export function appendDevConversationLog(event = {}) {
           ? Number(event.completionTokens)
           : 0,
         totalTokens: Number.isFinite(Number(event.totalTokens)) ? Number(event.totalTokens) : 0,
+        // Subsets of promptTokens (promptTokens stays the total input).
+        cachedInputTokens: Number.isFinite(Number(event.cachedInputTokens)) ? Number(event.cachedInputTokens) : 0,
+        cacheWriteInputTokens: Number.isFinite(Number(event.cacheWriteInputTokens))
+          ? Number(event.cacheWriteInputTokens)
+          : 0,
         estimatedCostUsd:
           Number.isFinite(Number(event.estimatedCostUsd)) ? Number(event.estimatedCostUsd) : null,
       },

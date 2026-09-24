@@ -4,13 +4,14 @@ import { useMemo } from "react"
 
 import type { AgentTask, AgentTaskStatus, AgentTaskUiAction } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
-import { TaskCard } from "./task-card"
+import { TaskCard, type RaiseTaskBudgetHandler } from "./task-card"
 
 interface TaskListProps {
   tasks: AgentTask[]
   isLight: boolean
   subPanelClass: string
   onAction: (taskId: string, action: AgentTaskUiAction) => Promise<void>
+  onRaiseBudget: RaiseTaskBudgetHandler
 }
 
 const GROUPS: readonly { label: string; statuses: readonly AgentTaskStatus[] }[] = [
@@ -20,7 +21,7 @@ const GROUPS: readonly { label: string; statuses: readonly AgentTaskStatus[] }[]
   { label: "Failed", statuses: ["failed", "cancelled"] },
 ]
 
-export function TaskList({ tasks, isLight, subPanelClass, onAction }: TaskListProps) {
+export function TaskList({ tasks, isLight, subPanelClass, onAction, onRaiseBudget }: TaskListProps) {
   const groups = useMemo(
     () =>
       GROUPS.map((group) => ({
@@ -39,7 +40,14 @@ export function TaskList({ tasks, isLight, subPanelClass, onAction }: TaskListPr
           </h3>
           <div className="space-y-1.5">
             {group.tasks.map((task) => (
-              <TaskCard key={task.id} task={task} isLight={isLight} subPanelClass={subPanelClass} onAction={onAction} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                isLight={isLight}
+                subPanelClass={subPanelClass}
+                onAction={onAction}
+                onRaiseBudget={onRaiseBudget}
+              />
             ))}
           </div>
         </section>

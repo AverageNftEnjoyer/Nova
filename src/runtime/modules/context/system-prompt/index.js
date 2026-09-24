@@ -33,6 +33,15 @@ function buildSkillsSection(params) {
   ];
 }
 
+/**
+ * The Skills section as a standalone block, for callers that place it after the static system prompt
+ * (skills are picked per message, so keeping them out of the static part keeps that part cacheable).
+ */
+export function buildSkillsPromptBlock(skillsPrompt, promptMode = PromptMode.FULL) {
+  if (promptMode !== PromptMode.FULL) return "";
+  return buildSkillsSection({ skillsPrompt, isMinimal: false }).filter(Boolean).join("\n");
+}
+
 function buildMemorySection(params) {
   if (params.isMinimal) return [];
   const trimmedMemoryPrompt = String(params.memoryPrompt || "").trim();

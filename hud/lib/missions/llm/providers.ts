@@ -53,7 +53,7 @@ function resolveScopeUserId(scope?: IntegrationsStoreScope): string {
   return String(userId || "").trim() || "local-user"
 }
 
-/** One llm_usage row per successful completion (source "mission"). Never throws. */
+/** One llm_usage row per successful completion (source usageContext.source, default "mission"). Never throws. */
 function recordMissionUsage(
   provider: Provider,
   model: string,
@@ -63,7 +63,7 @@ function recordMissionUsage(
 ): LlmUsage {
   recordLlmUsageSafe({
     userContextId: resolveScopeUserId(scope),
-    source: "mission",
+    source: usageContext?.source === "utility" ? "utility" : "mission",
     refId: String(usageContext?.refId || "").trim(),
     provider,
     model,
@@ -78,8 +78,8 @@ function readRawUsage(payload: unknown): unknown {
 
 /**
  * Complete text using the configured LLM provider.
- * Every successful call returns its normalised `usage` and writes one llm_usage row (source "mission",
- * ref = usageContext.refId). A call that fails (HTTP error, timeout) returns no usage and writes no row.
+ * Every successful call returns its normalised `usage` and writes one llm_usage row (source
+ * usageContext.source, default "mission"; ref = usageContext.refId). A call that fails (HTTP error, timeout) returns no usage and writes no row.
  */
 export async function completeWithConfiguredLlm(
   systemText: string,

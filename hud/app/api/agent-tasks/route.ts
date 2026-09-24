@@ -10,8 +10,9 @@ import {
   deleteTask,
   getTaskStats,
   listTasks,
+  raiseTaskBudget,
 } from "@/lib/agents/task-store"
-import type { AgentTaskAction, CreateAgentTaskInput } from "@/lib/agents/types"
+import type { AgentTaskAction, CreateAgentTaskInput, RaiseAgentTaskBudgetInput } from "@/lib/agents/types"
 import {
   checkUserRateLimit,
   RATE_LIMIT_POLICIES,
@@ -88,9 +89,22 @@ export async function PATCH(req: Request) {
   if ("response" in auth) return auth.response
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { id?: unknown; action?: unknown }
+    const body = (await req.json().catch(() => ({}))) as {
+      id?: unknown
+      action?: unknown
+      costBudgetUsd?: unknown
+      tokenBudget?: unknown
+    }
     const id = normalizeId(body.id)
     if (!id) return NextResponse.json({ ok: false, error: "Task id is required." }, { status: 400 })
+    if (body.action === "raise-budget") {
+      // Values are validated (range, type) by the store; a non-numeric value is rejected there with a 400.
+      const task = await raiseTaskBudget(auth.userId, id, {
+        costBudgetUsd: body.costBudgetUsd,
+        tokenBudget: body.tokenBudget,
+      } as RaiseAgentTaskBudgetInput)
+      return NextResponse.json({ ok: true, task })
+    }
     const action = ACTIONS.find((candidate) => candidate === body.action)
     if (!action) return NextResponse.json({ ok: false, error: "Unknown action." }, { status: 400 })
     const task = await applyTaskAction(auth.userId, id, action)

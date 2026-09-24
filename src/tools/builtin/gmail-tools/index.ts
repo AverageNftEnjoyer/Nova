@@ -419,6 +419,10 @@ export function isGmailToolName(name: unknown): boolean {
   return GMAIL_TOOL_NAMES.has(String(name || "").trim());
 }
 
+// Every tool reads `userContextId` / `conversationId` from its input, but the model-facing schemas do not list
+// them: both chat tool loops inject the turn's own values server-side (overriding any model value, see
+// src/runtime/modules/chat/core/chat-handler/integration-tool-context) and the Gmail domain service passes them
+// explicitly. A call without a user id still returns BAD_INPUT and never touches any account.
 export function createGmailTools(params: { workspaceDir: string }): Tool[] {
   const capabilities: Tool = {
     name: "gmail_capabilities",
@@ -427,8 +431,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     capabilities: ["integration.gmail.read"],
     input_schema: {
       type: "object",
-      properties: { userContextId: { type: "string" }, conversationId: { type: "string" } },
-      required: ["userContextId"],
+      properties: {},
       additionalProperties: false,
     },
     execute: async (input) => {
@@ -467,7 +470,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "List Gmail accounts configured for this user context.",
     riskLevel: "safe",
     capabilities: ["integration.gmail.read"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" } }, required: ["userContextId"], additionalProperties: false },
+    input_schema: { type: "object", properties: {}, additionalProperties: false },
     execute: async (input) => {
       const ctx = normalizeCtx(input || {});
       if (!ctx.userContextId) return toJson(buildError("gmail_list_accounts", "BAD_INPUT", "Missing userContextId.", "User context is missing.", "Retry from authenticated chat.", false, [GMAIL_SCOPE_READONLY]));
@@ -495,7 +498,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "Verify a required Gmail scope is granted.",
     riskLevel: "safe",
     capabilities: ["integration.gmail.read"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, scope: { type: "string" } }, required: ["userContextId"], additionalProperties: false },
+    input_schema: { type: "object", properties: { scope: { type: "string" } }, additionalProperties: false },
     execute: async (input) => {
       const ctx = normalizeCtx(input || {});
       if (!ctx.userContextId) return toJson(buildError("gmail_scope_check", "BAD_INPUT", "Missing userContextId.", "User context is missing.", "Retry from authenticated chat.", false, [GMAIL_SCOPE_READONLY]));
@@ -512,7 +515,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "List recent Gmail messages.",
     riskLevel: "safe",
     capabilities: ["integration.gmail.read"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, query: { type: "string" }, maxResults: { type: "number" } }, required: ["userContextId"], additionalProperties: false },
+    input_schema: { type: "object", properties: { query: { type: "string" }, maxResults: { type: "number" } }, additionalProperties: false },
     execute: async (input) => {
       const kind = "gmail_list_messages";
       const ctx = normalizeCtx(input || {});
@@ -534,7 +537,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "Get one Gmail message by message ID.",
     riskLevel: "safe",
     capabilities: ["integration.gmail.read"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, messageId: { type: "string" } }, required: ["userContextId", "messageId"], additionalProperties: false },
+    input_schema: { type: "object", properties: { messageId: { type: "string" } }, required: ["messageId"], additionalProperties: false },
     execute: async (input) => {
       const kind = "gmail_get_message";
       const ctx = normalizeCtx(input || {});
@@ -558,7 +561,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "Summarize daily Gmail activity and important emails.",
     riskLevel: "safe",
     capabilities: ["integration.gmail.read"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, timeframeHours: { type: "number" }, maxResults: { type: "number" } }, required: ["userContextId"], additionalProperties: false },
+    input_schema: { type: "object", properties: { timeframeHours: { type: "number" }, maxResults: { type: "number" } }, additionalProperties: false },
     execute: async (input) => {
       const kind = "gmail_daily_summary";
       const ctx = normalizeCtx(input || {});
@@ -601,7 +604,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "Classify importance for recent Gmail messages.",
     riskLevel: "safe",
     capabilities: ["integration.gmail.read"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, maxResults: { type: "number" }, query: { type: "string" } }, required: ["userContextId"], additionalProperties: false },
+    input_schema: { type: "object", properties: { maxResults: { type: "number" }, query: { type: "string" } }, additionalProperties: false },
     execute: async (input) => {
       const kind = "gmail_classify_importance";
       const ctx = normalizeCtx(input || {});
@@ -628,7 +631,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "Forward a Gmail message to a target email.",
     riskLevel: "elevated",
     capabilities: ["integration.gmail.send"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, messageId: { type: "string" }, to: { type: "string" }, note: { type: "string" }, requireExplicitUserConfirm: { type: "boolean" } }, required: ["userContextId", "messageId", "to", "requireExplicitUserConfirm"], additionalProperties: false },
+    input_schema: { type: "object", properties: { messageId: { type: "string" }, to: { type: "string" }, note: { type: "string" }, requireExplicitUserConfirm: { type: "boolean" } }, required: ["messageId", "to", "requireExplicitUserConfirm"], additionalProperties: false },
     execute: async (input, context?: ToolExecutionPolicyContext) => {
       const kind = "gmail_forward_message";
       const ctx = normalizeCtx(input || {});
@@ -690,7 +693,7 @@ export function createGmailTools(params: { workspaceDir: string }): Tool[] {
     description: "Create a Gmail draft reply for a message.",
     riskLevel: "elevated",
     capabilities: ["integration.gmail.send"],
-    input_schema: { type: "object", properties: { userContextId: { type: "string" }, conversationId: { type: "string" }, messageId: { type: "string" }, replyText: { type: "string" }, requireExplicitUserConfirm: { type: "boolean" } }, required: ["userContextId", "messageId", "replyText", "requireExplicitUserConfirm"], additionalProperties: false },
+    input_schema: { type: "object", properties: { messageId: { type: "string" }, replyText: { type: "string" }, requireExplicitUserConfirm: { type: "boolean" } }, required: ["messageId", "replyText", "requireExplicitUserConfirm"], additionalProperties: false },
     execute: async (input, context?: ToolExecutionPolicyContext) => {
       const kind = "gmail_reply_draft";
       const ctx = normalizeCtx(input || {});

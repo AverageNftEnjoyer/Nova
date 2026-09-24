@@ -312,7 +312,9 @@ export function createSessionRuntime({
       sessionKey,
       sessionEntry,
       transcript,
-      persistUsage: ({ model, promptTokens, completionTokens }) => {
+      // promptTokens is the TOTAL input (cached and cache-write included). cachedInputTokens / cacheWriteInputTokens
+      // are carried as additional cumulative counters of that subset; readers of the older fields are unaffected.
+      persistUsage: ({ model, promptTokens, completionTokens, cachedInputTokens, cacheWriteInputTokens }) => {
         updateSessionEntry(effectiveUserContextId, sessionKey, (current) => {
           const latestEntry = current || sessionEntry;
           return {
@@ -327,6 +329,8 @@ export function createSessionRuntime({
               Number(promptTokens || 0) +
               Number(completionTokens || 0),
             contextTokens: Number(latestEntry.contextTokens || 0) + Number(promptTokens || 0),
+            cachedInputTokens: Number(latestEntry.cachedInputTokens || 0) + Number(cachedInputTokens || 0),
+            cacheWriteInputTokens: Number(latestEntry.cacheWriteInputTokens || 0) + Number(cacheWriteInputTokens || 0),
           };
         });
       },

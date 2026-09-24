@@ -1,10 +1,7 @@
 import type { MemoryIndexManager } from "../../../memory/manager/index.js";
 import type { Tool } from "../../core/types/index.js";
 
-function truncate(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated]`;
-}
+// Output caps (memory_search 8,000, memory_get 12,000 chars) are applied by the executor (core/output-caps).
 
 export function createMemoryTools(memoryManager: MemoryIndexManager): Tool[] {
   const memorySearch: Tool = {
@@ -26,15 +23,12 @@ export function createMemoryTools(memoryManager: MemoryIndexManager): Tool[] {
       const topK = Number(input?.top_k ?? 5);
       const results = await memoryManager.search(query, Number.isFinite(topK) ? topK : 5);
       if (results.length === 0) return "No memory results.";
-      return truncate(
-        results
-          .map(
-            (result, index) =>
-              `[${index + 1}] id=${result.chunkId}\nsource=${result.source}\nscore=${result.score.toFixed(4)}\n${result.content}`,
-          )
-          .join("\n\n"),
-        8000,
-      );
+      return results
+        .map(
+          (result, index) =>
+            `[${index + 1}] id=${result.chunkId}\nsource=${result.source}\nscore=${result.score.toFixed(4)}\n${result.content}`,
+        )
+        .join("\n\n");
     },
   };
 
@@ -46,16 +40,27 @@ export function createMemoryTools(memoryManager: MemoryIndexManager): Tool[] {
       type: "object",
       properties: {
         chunk_id: { type: "string" },
+        offset: {
+          type: "number",
+          description: "Character offset to start at (default 0); a truncation note names the next one.",
+        },
       },
       required: ["chunk_id"],
       additionalProperties: false,
     },
-    execute: async (input: { chunk_id?: string }) => {
+    execute: async (input: { chunk_id?: string; offset?: number }) => {
       const chunkId = String(input?.chunk_id ?? "").trim();
       if (!chunkId) return "memory_get error: chunk_id is required";
       const source = await memoryManager.getSourceContentByChunkId(chunkId);
       if (!source) return `memory_get error: no source found for chunk ${chunkId}`;
-      return truncate(source, 32_000);
+      // The executor's cap names the next offset (core/output-caps), so the source can be read part by part.
+      const requestedOffset = Number(input?.offset ?? 0);
+      const offset = Number.isFinite(requestedOffset) && requestedOffset > 0 ? Math.floor(requestedOffset) : 0;
+      if (offset === 0) return source;
+      if (offset >= source.length) {
+        return `memory_get error: offset ${offset} is past the end of this source (${source.length} chars).`;
+      }
+      return source.slice(offset);
     },
   };
 
