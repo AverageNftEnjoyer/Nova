@@ -145,8 +145,10 @@ export const RAW_STREAM_PATH = String(
 // history past its target and adds no tokens by itself. 18,000 keeps the 1,400-token history target for the largest
 // system prompt the runtime can build from persona files: base prompt (~1.1k) + persona files at their 24,000-char
 // load cap (context/bootstrap, ~6.9k) + a full per-turn context budget (5,000) + reserve (1,400) + history (1,400)
-// = ~15.8k, leaving ~2k for the user's message. It is far below the context window of every current model
-// (the smallest in src/providers/pricing is 128k).
+// = ~15.8k, leaving ~2k for the user's message. It is far below the context window of every current picker model
+// (checked 2026-09-24: Claude Haiku 4.5 200k, other current Claude models 1M (platform.claude.com models overview);
+// gpt-5.6-luna 1.05M (developers.openai.com model page); grok-build-0.1 256k, grok-4.7 500k, grok-4.3 1M
+// (docs.x.ai/developers/models); the Gemini models page lists no windows, so Gemini is not verified here).
 const DEFAULT_MAX_PROMPT_TOKENS = 18000;
 export const MAX_PROMPT_TOKENS = readIntEnv("NOVA_MAX_PROMPT_TOKENS", DEFAULT_MAX_PROMPT_TOKENS, {
   min: 1,

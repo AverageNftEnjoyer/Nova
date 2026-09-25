@@ -6,6 +6,7 @@
  */
 
 import type { IntegrationsStoreScope } from "@/lib/integrations/store/server-store"
+import type { ModelCallSite, ModelTier } from "../../../../src/runtime/modules/model-routing/index.js"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -889,6 +890,10 @@ export interface CompletionResult {
   text: string
   /** Normalised usage of the call (inputTokens = total input, cached/cache-write included). */
   usage: CompletionUsage
+  /** Routing tier of the call (only set when the caller passed usageContext.callSite). */
+  tier?: ModelTier | null
+  /** True when `model` is the provider's economy model chosen by Model routing (Settings -> Model routing). */
+  routed?: boolean
 }
 
 /** Same shape as LlmUsage in src/providers/usage. */
@@ -908,6 +913,12 @@ export interface CompletionUsageContext {
    * one-off helper calls that reuse this client (for example the Gmail summary).
    */
   source?: "mission" | "utility"
+  /**
+   * Model-routing call site (src/runtime/modules/model-routing). Set: the call is routed by the user's routing mode
+   * (a trivial call may use the provider's economy model) and its ledger row carries the tier. Unset: the call uses
+   * the selected model exactly as before and records no tier.
+   */
+  callSite?: ModelCallSite
 }
 
 export interface CompletionOverride {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { getDb } from "../../db/index.js";
 import { resolveUserContextRoot } from "../../db/paths.js";
 import { decryptSecret, isSecretCiphertext } from "../../security/secrets/index.js";
+import { resolveCurrentModelId } from "../models/retired-model-aliases/index.js";
 
 export type ProviderName = "openai" | "claude" | "grok" | "gemini";
 
@@ -330,9 +331,10 @@ function resolveProviderConnectedState(connectedFlag: unknown, apiKey: string): 
   return boolFlag(connectedFlag) && apiKey.length > 0;
 }
 
-function parseProviderModel(value: unknown, fallback: string): string {
+/** The stored model, or the fallback; a retired ID is replaced by its current successor (retired-model-aliases). */
+function parseProviderModel(provider: ProviderName, value: unknown, fallback: string): string {
   const candidate = toNonEmptyString(value);
-  return candidate || fallback;
+  return candidate ? resolveCurrentModelId(provider, candidate) : fallback;
 }
 
 function createDefaultGmailRuntime(): GmailRuntime {
@@ -549,25 +551,25 @@ export function loadIntegrationsRuntime(options?: {
         connected: resolveProviderConnectedState(openaiIntegration.connected, openaiApiKey),
         apiKey: openaiApiKey,
         baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
-        model: parseProviderModel(openaiIntegration.defaultModel, DEFAULT_CHAT_MODEL),
+        model: parseProviderModel("openai", openaiIntegration.defaultModel, DEFAULT_CHAT_MODEL),
       },
       claude: {
         connected: resolveProviderConnectedState(claudeIntegration.connected, claudeApiKey),
         apiKey: claudeApiKey,
         baseURL: toNonEmptyString(claudeIntegration.baseUrl).replace(/\/+$/, "") || DEFAULT_CLAUDE_BASE_URL,
-        model: parseProviderModel(claudeIntegration.defaultModel, DEFAULT_CLAUDE_MODEL),
+        model: parseProviderModel("claude", claudeIntegration.defaultModel, DEFAULT_CLAUDE_MODEL),
       },
       grok: {
         connected: resolveProviderConnectedState(grokIntegration.connected, grokApiKey),
         apiKey: grokApiKey,
         baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
-        model: parseProviderModel(grokIntegration.defaultModel, DEFAULT_GROK_MODEL),
+        model: parseProviderModel("grok", grokIntegration.defaultModel, DEFAULT_GROK_MODEL),
       },
       gemini: {
         connected: resolveProviderConnectedState(geminiIntegration.connected, geminiApiKey),
         apiKey: geminiApiKey,
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
-        model: parseProviderModel(geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
+        model: parseProviderModel("gemini", geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL),
       },
       phantom: phantomIntegration,
       polymarket: polymarketIntegration,
@@ -624,7 +626,7 @@ export function loadOpenAiIntegrationRuntime(options?: { userContextId?: string;
     const integration = toRecord(parsed.openai);
     const apiKey = resolveProviderApiKey(integration.apiKey, paths);
     const baseURL = toOpenAiLikeBase(integration.baseUrl, DEFAULT_OPENAI_BASE_URL);
-    const model = parseProviderModel(integration.defaultModel, DEFAULT_CHAT_MODEL);
+    const model = parseProviderModel("openai", integration.defaultModel, DEFAULT_CHAT_MODEL);
     return { apiKey, baseURL, model };
   } catch {
     return {
@@ -645,12 +647,13 @@ export function resolveConfiguredChatRuntime(
     : null;
   const activeProvider = preferredProvider || configuredProvider;
   const activeRuntime = getProviderRuntime(integrations, activeProvider);
-  const preferredModel = toNonEmptyString(options?.preferredModel);
+  // A task / caller model choice may be a stored retired ID (agent_tasks.model): send its current replacement.
+  const preferredModel = resolveCurrentModelId(activeProvider, options?.preferredModel);
   return {
     provider: activeProvider,
     apiKey: toNonEmptyString(activeRuntime.apiKey),
     baseURL: toNonEmptyString(activeRuntime.baseURL),
-    model: preferredModel || toNonEmptyString(activeRuntime.model),
+    model: preferredModel || resolveCurrentModelId(activeProvider, activeRuntime.model),
     connected: boolFlag(activeRuntime.connected),
     strict: true,
     routeReason: preferredProvider ? "task-selected-provider" : "strict-active-provider",

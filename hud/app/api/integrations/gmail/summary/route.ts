@@ -44,7 +44,7 @@ async function handleSummary(req: Request, input: { maxResults?: unknown; accoun
       700,
       { userId },
       undefined,
-      { source: "utility", refId: "gmail-summary" },
+      { source: "utility", refId: "gmail-summary", callSite: "utility.gmail-summary" },
     )
 
     return NextResponse.json({

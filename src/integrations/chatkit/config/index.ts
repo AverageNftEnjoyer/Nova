@@ -1,3 +1,4 @@
+import { resolveCurrentModelId } from "../../../providers/models/retired-model-aliases/index.js";
 import type { ChatKitReasoningEffort, ChatKitRuntimeConfig, ChatKitValidationResult } from "../types/index.js";
 
 const DEFAULT_MODEL = "gpt-5.6-luna";
@@ -36,7 +37,8 @@ export function resolveChatKitRuntimeConfig(): ChatKitRuntimeConfig {
   return {
     enabled,
     apiKey: String(process.env.OPENAI_API_KEY || "").trim(),
-    model: String(process.env.NOVA_CHATKIT_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL,
+    // NOVA_CHATKIT_MODEL may name a retired OpenAI model: use its current replacement.
+    model: resolveCurrentModelId("openai", process.env.NOVA_CHATKIT_MODEL || DEFAULT_MODEL) || DEFAULT_MODEL,
     reasoningEffort: parseReasoningEffort(process.env.NOVA_CHATKIT_REASONING_EFFORT),
     store: toBool(process.env.NOVA_CHATKIT_STORE, false),
     timeoutMs: toInt(process.env.NOVA_CHATKIT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS, 3_000, 120_000),

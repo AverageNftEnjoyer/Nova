@@ -115,6 +115,14 @@ import { refineAssistantReply } from "../response-refinement/index.js";
 import { resolveOrgChartRoutingEnvelope } from "../../../routing/org-chart-routing/index.js";
 import { createLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 import { addLlmUsage, emptyLlmUsage } from "../../../../../../providers/usage/index.js";
+import {
+  approxTokens,
+  classifyTurnTier,
+  isModelUnavailableError,
+  modeRoutesTier,
+  readModelRoutingSettings,
+  resolveModelRoute,
+} from "../../../../model-routing/index.js";
 
 
 
@@ -340,6 +348,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     conversationId,
     provider: activeChatRuntime.provider,
   });
+  // Tiered model routing (Stage 6): the user's mode, read once per turn so every call of the turn sees the same one.
+  const routingSettings = readModelRoutingSettings(userContextId);
   // ChatKit-served turns report usage themselves (legacy prompt/completion only) and are not ledgered here.
   let chatKitUsage = emptyLlmUsage();
   const resolveTurnUsage = () => addLlmUsage(llmUsageRecorder.getTotal(), chatKitUsage);
@@ -373,6 +383,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
   let reply = "";
   try {
     let modelUsed = selectedChatModel;
+    // The model of this turn's main path (Stage 6 routing); the selected model unless the turn is routed.
+    let turnModel = selectedChatModel;
+    // Routing context for the turn's side calls (empty-reply recovery, output correction); null = not routed.
+    let modelRouting = null;
     let providerUsed = activeChatRuntime.provider;
     const fastPathStartedAt = Date.now();
     latencyTelemetry.addStage("fast_path", Date.now() - fastPathStartedAt);
@@ -468,13 +482,99 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       // If scoping leaves no tool at all (only integration tools enabled, none connected), answer without a loop.
       const modelTools = shouldRunToolLoop ? resolveModelToolsForUser(availableTools, userContextId) : [];
       const runModelToolLoop = shouldRunToolLoop && modelTools.length > 0;
+      const openAiToolDefs = activeChatRuntime.provider !== "claude" && runModelToolLoop
+        ? toolRuntime.toOpenAiToolDefinitions(modelTools)
+        : null;
+
+      // Stage 6: the tier of this turn is decided ONCE, here, before its first model call, and stays fixed for the
+      // whole turn (every tool-loop step and the loop's recovery call use the same model, so the loop's cache is
+      // never broken by a model switch; only the Stage 4 budget degradation switches mid-loop). Because the tier is
+      // per turn, in cost-saving mode every standard turn uses the economy model, and that model keeps its own warm
+      // cache across turns: the estimate below therefore assumes the steady state, where the static prefix is warm
+      // on whichever model the turn uses.
+      const turnClass = classifyTurnTier({
+        source,
+        toolLoop: runModelToolLoop,
+        operatorLane: operatorLaneHint,
+        operatorWorker: operatorWorkerHint,
+        text,
+      });
+      const staticPromptTokens = approxTokens(promptContext.staticSystemPrompt);
+      let turnEstimate;
+      // The estimate serialises the whole request; skip it when the mode can't route this tier anyway.
+      if (modeRoutesTier(routingSettings.mode, turnClass.tier)) {
+        const toolTokens = !runModelToolLoop
+          ? 0
+          : approxTokens(openAiToolDefs || modelTools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.input_schema,
+          })));
+        // Tools precede the system prompt in the cached prefix, so a loop's warm prefix includes them.
+        const warmPrefixTokens = staticPromptTokens + toolTokens;
+        turnEstimate = activeChatRuntime.provider === "claude"
+          ? {
+            inputTokens: approxTokens(claudeSystemPrompt) + approxTokens(historyMessages) + approxTokens(text) + toolTokens,
+            mainWarmPrefixTokens: warmPrefixTokens,
+            economyWarmPrefixTokens: warmPrefixTokens,
+            writePrefixTokens: warmPrefixTokens,
+          }
+          : {
+            inputTokens: approxTokens(messages) + toolTokens,
+            mainWarmPrefixTokens: warmPrefixTokens,
+            economyWarmPrefixTokens: warmPrefixTokens,
+          };
+      }
+      const turnRoute = resolveModelRoute({
+        userContextId,
+        provider: activeChatRuntime.provider,
+        model: selectedChatModel,
+        callSite: "chat.turn",
+        tier: turnClass.tier,
+        settings: routingSettings,
+        estimate: turnEstimate,
+      });
+      turnModel = turnRoute.model;
+      modelUsed = turnModel;
+      llmUsageRecorder.setDefaultTier(turnClass.tier);
+      modelRouting = { settings: routingSettings, turnTier: turnClass.tier, userContextId, staticPromptTokens };
+      runSummary.requestHints.modelRouting = {
+        mode: turnRoute.mode,
+        turnTier: turnClass.tier,
+        turnReason: turnClass.reason,
+        routed: turnRoute.routed,
+        reason: turnRoute.reason,
+        model: turnRoute.model,
+        selectedModel: turnRoute.selectedModel,
+      };
+      // A routed turn whose economy model the provider refuses (404 / no access) reruns its branch once on the
+      // selected model. Only when no model call of the turn completed yet: then nothing was streamed, no tool ran
+      // and no row was ledgered, so the rerun is a clean restart. Anything else propagates as before.
+      const callCountBeforeMainPath = llmUsageRecorder.getCallCount();
+      const runTurnMainPath = async (branch) => {
+        try {
+          return await branch(turnModel);
+        } catch (err) {
+          if (!turnRoute.routed || turnModel !== turnRoute.model || !isModelUnavailableError(err)
+            || llmUsageRecorder.getCallCount() !== callCountBeforeMainPath) {
+            throw err;
+          }
+          console.warn(`[ModelRouting] economy model ${turnRoute.model} (${turnRoute.provider}) was refused; using ${turnRoute.selectedModel} for this turn.`);
+          turnModel = turnRoute.selectedModel;
+          modelUsed = turnModel;
+          runSummary.requestHints.modelRouting.model = turnModel;
+          runSummary.requestHints.modelRouting.reason = "economy-model-refused";
+          return branch(turnModel);
+        }
+      };
+
       if (activeChatRuntime.provider === "claude" && runModelToolLoop) {
         llmStartedAt = Date.now();
         responseRoute = "claude_tool_loop";
         broadcastThinkingStatus("Running agent task", userContextId);
-        const claudeToolResult = await runClaudeToolLoop({
+        const claudeToolResult = await runTurnMainPath((model) => runClaudeToolLoop({
           activeChatRuntime,
-          selectedChatModel,
+          selectedChatModel: model,
           systemPrompt: claudeSystemPrompt,
           historyMessages,
           text,
@@ -493,18 +593,19 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           consumeTaskApproval,
           reserveTaskEffect,
           usageRecorder: llmUsageRecorder,
+          hudOpToken,
           taskBudget: loopTaskBudget,
-        });
+        }));
         reply = claudeToolResult.reply;
-        modelUsed = claudeToolResult.modelUsed || selectedChatModel;
+        modelUsed = claudeToolResult.modelUsed || turnModel;
       } else if (activeChatRuntime.provider === "claude") {
         llmStartedAt = Date.now();
         responseRoute = "claude_direct";
-        guardAgentTaskBudget(selectedChatModel);
+        guardAgentTaskBudget(turnModel);
         broadcastThinkingStatus("Drafting response", userContextId);
-        const claudeDirect = await runClaudeDirectCompletion({
+        const claudeDirect = await runTurnMainPath((model) => runClaudeDirectCompletion({
           activeChatRuntime,
-          selectedChatModel,
+          selectedChatModel: model,
           systemPrompt: claudeSystemPrompt,
           historyMessages,
           text,
@@ -516,16 +617,15 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           broadcastAssistantStreamDelta,
           abortSignal,
           usageRecorder: llmUsageRecorder,
-        });
+        }));
         reply = claudeDirect.reply;
         emittedAssistantDelta = emittedAssistantDelta || claudeDirect.emittedAssistantDelta === true;
       } else if (runModelToolLoop) {
         llmStartedAt = Date.now();
         responseRoute = "tool_loop";
-        const openAiToolDefs = toolRuntime.toOpenAiToolDefinitions(modelTools);
-        const toolLoopResult = await runToolLoop({
+        const toolLoopResult = await runTurnMainPath((model) => runToolLoop({
           activeOpenAiCompatibleClient,
-          modelUsed,
+          modelUsed: model,
           messages,
           openAiToolDefs,
           openAiMaxCompletionTokens,
@@ -555,7 +655,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           provider: activeChatRuntime.provider,
           usageRecorder: llmUsageRecorder,
           taskBudget: loopTaskBudget,
-        });
+        }));
         reply = toolLoopResult.reply;
         modelUsed = toolLoopResult.modelUsed || modelUsed;
         runSummary.toolLoopGuardrails = toolLoopResult.toolLoopGuardrails || null;
@@ -564,10 +664,10 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
         broadcastThinkingStatus("Drafting response", userContextId);
         responseRoute = hasStrictOutputRequirements ? "openai_direct_constraints" : "openai_stream";
         guardAgentTaskBudget(modelUsed);
-        const directResult = await runOpenAiDirectCompletion({
+        const directResult = await runTurnMainPath((model) => runOpenAiDirectCompletion({
           activeChatRuntime,
           activeOpenAiCompatibleClient,
-          modelUsed,
+          modelUsed: model,
           messages,
           openAiMaxCompletionTokens,
           openAiRequestTuningForModel,
@@ -583,7 +683,8 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
           markRecovery,
           abortSignal,
           usageRecorder: llmUsageRecorder,
-        });
+          modelRouting,
+        }));
         reply = directResult.reply;
         modelUsed = directResult.modelUsed || modelUsed;
         emittedAssistantDelta = emittedAssistantDelta || directResult.emittedAssistantDelta === true;
@@ -595,7 +696,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 
     // The only model call refinement can make is the output-constraint correction pass: guard it for agent tasks.
     if (loopTaskBudget && hasStrictOutputRequirements && !validateOutputConstraints(reply, outputConstraints).ok) {
-      guardAgentTaskBudget(activeChatRuntime.provider === "claude" ? selectedChatModel : modelUsed);
+      guardAgentTaskBudget(activeChatRuntime.provider === "claude" ? turnModel : modelUsed);
     }
     const refinement = await refineAssistantReply({
       reply,
@@ -618,7 +719,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       retries,
       modelUsed,
       activeChatRuntime,
-      selectedChatModel,
+      selectedChatModel: turnModel,
       // Only the Claude branch of refinement reads this.
       systemPrompt: claudeSystemPrompt || systemPrompt,
       historyMessages,
@@ -629,6 +730,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
       responseRoute,
       markRecovery,
       usageRecorder: llmUsageRecorder,
+      modelRouting,
     });
     reply = refinement.reply;
     responseRoute = refinement.responseRoute;
@@ -667,7 +769,7 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
 
     const modelForUsage = providerUsed === "openai-chatkit"
       ? (modelUsed || selectedChatModel)
-      : (activeChatRuntime.provider === "claude" ? selectedChatModel : (modelUsed || selectedChatModel));
+      : (activeChatRuntime.provider === "claude" ? turnModel : (modelUsed || turnModel));
     // Turn totals come from the recorder (every model call of the turn, incl. refinement and recovery calls).
     // promptTokens is the TOTAL input (cached and cache-write included); uncached = prompt - cached - cacheWrite.
     const turnUsage = resolveTurnUsage();
@@ -676,10 +778,14 @@ export async function executeChatRequest(text, ctx, llmCtx, requestHints = {}) {
     const cachedInputTokens = turnUsage.cachedInputTokens;
     const cacheWriteInputTokens = turnUsage.cacheWriteInputTokens;
     const totalTokens = promptTokens + completionTokens;
-    const estimatedCostUsd = estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens, {
-      cachedInputTokens,
-      cacheWriteInputTokens,
-    });
+    // When routing (or a budget degradation) sent the turn's calls to more than one model, pricing the whole turn
+    // at one model would be wrong: sum each call at its own model instead. A single-model turn keeps the old sum.
+    const estimatedCostUsd = llmUsageRecorder.getModels().length > 1
+      ? llmUsageRecorder.getTotalCostUsd()
+      : estimateTokenCostUsd(modelForUsage, promptTokens, completionTokens, {
+        cachedInputTokens,
+        cacheWriteInputTokens,
+      });
 
     appendRawStream({ event: "request_done", source, sessionKey, provider: providerUsed, model: modelForUsage, promptTokens, completionTokens, cachedInputTokens, cacheWriteInputTokens, totalTokens, estimatedCostUsd });
     console.log(`[LLM] provider=${providerUsed} model=${modelForUsage} prompt_tokens=${promptTokens} completion_tokens=${completionTokens} cached_input_tokens=${cachedInputTokens} cache_write_input_tokens=${cacheWriteInputTokens} total_tokens=${totalTokens}${estimatedCostUsd !== null ? ` estimated_usd=$${estimatedCostUsd}` : ""}`);

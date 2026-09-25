@@ -22,6 +22,7 @@ import {
   normalizeOpenAiCompatibleUsage,
   toLegacyUsageFields,
 } from "../usage/index.js";
+import { resolveCurrentModelId } from "../models/retired-model-aliases/index.js";
 
 // ===== Client Cache =====
 const openAiClientCache = new Map();
@@ -331,9 +332,7 @@ export function loadIntegrationsRuntime(options = {}) {
         connected: resolveProviderConnectedState(openaiIntegration.connected, openaiApiKey),
         apiKey: openaiApiKey,
         baseURL: toOpenAiLikeBase(openaiIntegration.baseUrl, DEFAULT_OPENAI_BASE_URL),
-        model: typeof openaiIntegration.defaultModel === "string" && openaiIntegration.defaultModel.trim()
-          ? openaiIntegration.defaultModel.trim()
-          : DEFAULT_CHAT_MODEL
+        model: resolveStoredProviderModel("openai", openaiIntegration.defaultModel, DEFAULT_CHAT_MODEL)
       },
       claude: {
         connected: resolveProviderConnectedState(claudeIntegration.connected, claudeApiKey),
@@ -341,25 +340,19 @@ export function loadIntegrationsRuntime(options = {}) {
         baseURL: typeof claudeIntegration.baseUrl === "string" && claudeIntegration.baseUrl.trim()
           ? claudeIntegration.baseUrl.trim().replace(/\/+$/, "")
           : DEFAULT_CLAUDE_BASE_URL,
-        model: typeof claudeIntegration.defaultModel === "string" && claudeIntegration.defaultModel.trim()
-          ? claudeIntegration.defaultModel.trim()
-          : DEFAULT_CLAUDE_MODEL
+        model: resolveStoredProviderModel("claude", claudeIntegration.defaultModel, DEFAULT_CLAUDE_MODEL)
       },
       grok: {
         connected: resolveProviderConnectedState(grokIntegration.connected, grokApiKey),
         apiKey: grokApiKey,
         baseURL: toOpenAiLikeBase(grokIntegration.baseUrl, DEFAULT_GROK_BASE_URL),
-        model: typeof grokIntegration.defaultModel === "string" && grokIntegration.defaultModel.trim()
-          ? grokIntegration.defaultModel.trim()
-          : DEFAULT_GROK_MODEL
+        model: resolveStoredProviderModel("grok", grokIntegration.defaultModel, DEFAULT_GROK_MODEL)
       },
       gemini: {
         connected: resolveProviderConnectedState(geminiIntegration.connected, geminiApiKey),
         apiKey: geminiApiKey,
         baseURL: toOpenAiLikeBase(geminiIntegration.baseUrl, DEFAULT_GEMINI_BASE_URL),
-        model: typeof geminiIntegration.defaultModel === "string" && geminiIntegration.defaultModel.trim()
-          ? geminiIntegration.defaultModel.trim()
-          : DEFAULT_GEMINI_MODEL
+        model: resolveStoredProviderModel("gemini", geminiIntegration.defaultModel, DEFAULT_GEMINI_MODEL)
       },
       phantom: phantomIntegration,
       polymarket: polymarketIntegration,
@@ -446,9 +439,7 @@ export function loadOpenAIIntegrationRuntime(options = {}) {
       typeof integration.baseUrl === "string" ? integration.baseUrl : "",
       DEFAULT_OPENAI_BASE_URL
     );
-    const model = typeof integration.defaultModel === "string" && integration.defaultModel.trim()
-      ? integration.defaultModel.trim()
-      : DEFAULT_CHAT_MODEL;
+    const model = resolveStoredProviderModel("openai", integration.defaultModel, DEFAULT_CHAT_MODEL);
     return { apiKey, baseURL, model, sourcePath: configPath };
   } catch {
     return {
@@ -461,6 +452,15 @@ export function loadOpenAIIntegrationRuntime(options = {}) {
 }
 
 // ===== Provider Resolution =====
+/**
+ * The stored model for a provider, or the default when none is stored. A retired ID is replaced by its current
+ * successor (src/providers/models/retired-model-aliases), so a retired model never reaches an API.
+ */
+function resolveStoredProviderModel(provider, storedModel, fallback) {
+  const stored = typeof storedModel === "string" ? storedModel.trim() : "";
+  return stored ? resolveCurrentModelId(provider, stored) : fallback;
+}
+
 function getProviderRuntime(integrations, provider) {
   if (provider === "claude") return integrations.claude;
   if (provider === "grok") return integrations.grok;
@@ -485,12 +485,13 @@ export function resolveConfiguredChatRuntime(integrations, options = {}) {
       ? preferredProvider
       : configuredProvider;
   const activeRuntime = getProviderRuntime(integrations, activeProvider);
-  const preferredModel = String(options?.preferredModel || "").trim();
+  // A task / caller model choice may be a stored retired ID (agent_tasks.model): send its current replacement.
+  const preferredModel = resolveCurrentModelId(activeProvider, options?.preferredModel);
   return {
     provider: activeProvider,
     apiKey: String(activeRuntime?.apiKey || "").trim(),
     baseURL: String(activeRuntime?.baseURL || "").trim(),
-    model: preferredModel || String(activeRuntime?.model || "").trim(),
+    model: preferredModel || resolveCurrentModelId(activeProvider, activeRuntime?.model),
     connected: Boolean(activeRuntime?.connected),
     strict: true,
     routeReason: preferredProvider ? "task-selected-provider" : "strict-active-provider",
@@ -687,6 +688,16 @@ function normalizeClaudeMessages(messages, userText) {
   return [{ role: "user", content: String(userText || "") }];
 }
 
+// The HTTP status (and Anthropic error type) stay on the error, so callers can tell a refused model (404
+// not_found_error) from other failures: tiered model routing (model-routing isModelUnavailableError) retries a
+// refused economy model on the selected model.
+export function claudeHttpError(data, status) {
+  const error = new Error(data?.error?.message || `Claude request failed (${status})`);
+  error.status = status;
+  if (data?.error?.type) error.type = data.error.type;
+  return error;
+}
+
 export async function claudeMessagesCreate({
   apiKey,
   baseURL,
@@ -716,8 +727,7 @@ export async function claudeMessagesCreate({
   });
   const data = await res.json();
   if (!res.ok) {
-    const message = data?.error?.message || `Claude request failed (${res.status})`;
-    throw new Error(message);
+    throw claudeHttpError(data, res.status);
   }
   const text = Array.isArray(data?.content)
     ? data.content.filter((c) => c?.type === "text").map((c) => c?.text || "").join("\n").trim()
@@ -771,8 +781,7 @@ export async function claudeMessagesStream({
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     const data = await res.json();
-    const message = data?.error?.message || `Claude request failed (${res.status})`;
-    throw new Error(message);
+    throw claudeHttpError(data, res.status);
   }
 
   if (!res.body) {

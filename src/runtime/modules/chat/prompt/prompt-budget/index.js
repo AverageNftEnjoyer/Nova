@@ -105,6 +105,18 @@ export function resolveDynamicPromptBudget({
   return resolved;
 }
 
+/**
+ * Appends one "## <title>" section to `prompt`, compacted to fit a token budget. Two budget modes:
+ *
+ * - Per-turn context mode (`turnContextMaxTokens` and `turnContextStart` given): the budget covers only the text
+ *   of `prompt` from char index `turnContextStart` on (the part appended after the static system prompt), so the
+ *   size of the static persona never starves a section. `reservedTokens` keeps that many tokens of the per-turn
+ *   budget free for higher-priority sections that are still to come. Rejection reason: "no_turn_context_budget".
+ * - Legacy mode (those params absent): the whole prompt must fit the system share of the input budget
+ *   (maxPromptTokens - responseReserveTokens - user message - historyTargetTokens). Rejection: "no_system_budget".
+ *
+ * In both modes the section itself is capped at `sectionMaxTokens` (header included).
+ */
 export function appendBudgetedPromptSection({
   prompt,
   sectionTitle,
@@ -114,6 +126,9 @@ export function appendBudgetedPromptSection({
   responseReserveTokens,
   historyTargetTokens,
   sectionMaxTokens,
+  turnContextStart,
+  turnContextMaxTokens,
+  reservedTokens = 0,
   debug = false,
 }) {
   const basePrompt = String(prompt || "");
@@ -123,25 +138,38 @@ export function appendBudgetedPromptSection({
     return { prompt: basePrompt, included: false, compacted: false, reason: "empty_body" };
   }
 
-  const inputBudget = computeInputPromptBudget(maxPromptTokens, responseReserveTokens);
-  const userTokens = countApproxTokens(userMessage || "");
-  const desiredHistoryTokens = Number.isFinite(historyTargetTokens) ? Math.max(0, Math.floor(historyTargetTokens)) : 0;
-  const maxSystemTokens = Math.max(240, inputBudget - userTokens - desiredHistoryTokens);
-  const currentSystemTokens = countApproxTokens(basePrompt);
-  const availableSystemTokens = maxSystemTokens - currentSystemTokens;
-  if (availableSystemTokens <= 28) {
+  const turnMode = Number.isFinite(turnContextMaxTokens) && turnContextMaxTokens > 0
+    && Number.isFinite(turnContextStart) && turnContextStart >= 0;
+  const turnStart = turnMode ? Math.min(basePrompt.length, Math.floor(turnContextStart)) : 0;
+  const reserve = Number.isFinite(reservedTokens) ? Math.max(0, Math.floor(reservedTokens)) : 0;
+  // measure(): the tokens that count against the budget; maxTokens: the budget.
+  const measure = turnMode
+    ? (text) => countApproxTokens(text.slice(turnStart))
+    : (text) => countApproxTokens(text);
+  let maxTokens;
+  if (turnMode) {
+    maxTokens = Math.max(0, Math.floor(turnContextMaxTokens) - reserve);
+  } else {
+    const inputBudget = computeInputPromptBudget(maxPromptTokens, responseReserveTokens);
+    const userTokens = countApproxTokens(userMessage || "");
+    const desiredHistoryTokens = Number.isFinite(historyTargetTokens) ? Math.max(0, Math.floor(historyTargetTokens)) : 0;
+    maxTokens = Math.max(240, inputBudget - userTokens - desiredHistoryTokens);
+  }
+  const noBudgetReason = turnMode ? "no_turn_context_budget" : "no_system_budget";
+  const available = maxTokens - measure(basePrompt);
+  if (available <= 28) {
     if (debug) {
       console.log(
-        `[PromptBudget] skip section="${title}" reason=no_system_budget available=${availableSystemTokens} max_system=${maxSystemTokens}`,
+        `[PromptBudget] skip section="${title}" reason=${noBudgetReason} available=${available} max=${maxTokens} reserved=${reserve}`,
       );
     }
-    return { prompt: basePrompt, included: false, compacted: false, reason: "no_system_budget" };
+    return { prompt: basePrompt, included: false, compacted: false, reason: noBudgetReason };
   }
 
   const sectionHeader = `\n\n## ${title}\n`;
   const headerTokens = countApproxTokens(sectionHeader);
   const maxSection = Number.isFinite(sectionMaxTokens) ? Math.max(48, Math.floor(sectionMaxTokens)) : 320;
-  const sectionBudget = Math.max(0, Math.min(availableSystemTokens, maxSection));
+  const sectionBudget = Math.max(0, Math.min(available, maxSection));
   const bodyBudgetTokens = Math.max(0, sectionBudget - headerTokens);
   if (bodyBudgetTokens <= 18) {
     if (debug) {
@@ -155,22 +183,20 @@ export function appendBudgetedPromptSection({
     return { prompt: basePrompt, included: false, compacted: false, reason: "empty_after_compaction" };
   }
   let nextPrompt = `${basePrompt}${sectionHeader}${bodyForPrompt}`;
-  let nextTokens = countApproxTokens(nextPrompt);
-  if (nextTokens > maxSystemTokens) {
-    const overflow = nextTokens - maxSystemTokens;
+  let nextTokens = measure(nextPrompt);
+  if (nextTokens > maxTokens) {
+    const overflow = nextTokens - maxTokens;
     bodyForPrompt = compactTextToTokenBudget(body, Math.max(20, bodyBudgetTokens - overflow - 8), 120);
     if (!bodyForPrompt) {
       return { prompt: basePrompt, included: false, compacted: false, reason: "overflow_after_compaction" };
     }
     nextPrompt = `${basePrompt}${sectionHeader}${bodyForPrompt}`;
-    nextTokens = countApproxTokens(nextPrompt);
+    nextTokens = measure(nextPrompt);
   }
 
-  if (nextTokens > maxSystemTokens) {
+  if (nextTokens > maxTokens) {
     if (debug) {
-      console.log(
-        `[PromptBudget] skip section="${title}" reason=overflow max_system=${maxSystemTokens} next=${nextTokens}`,
-      );
+      console.log(`[PromptBudget] skip section="${title}" reason=overflow max=${maxTokens} next=${nextTokens}`);
     }
     return { prompt: basePrompt, included: false, compacted: false, reason: "overflow" };
   }
@@ -178,18 +204,26 @@ export function appendBudgetedPromptSection({
   const compacted = normalizeText(bodyForPrompt).length < body.length;
   if (debug) {
     console.log(
-      `[PromptBudget] include section="${title}" compacted=${compacted ? "1" : "0"} section_tokens=${countApproxTokens(bodyForPrompt)} available=${availableSystemTokens}`,
+      `[PromptBudget] include section="${title}" compacted=${compacted ? "1" : "0"} section_tokens=${countApproxTokens(bodyForPrompt)} available=${available} mode=${turnMode ? "turn_context" : "system"}`,
     );
   }
-  return {
+  const result = {
     prompt: nextPrompt,
     included: true,
     compacted,
     reason: compacted ? "compacted" : "full",
     sectionTokens: countApproxTokens(bodyForPrompt),
-    availableSystemTokens,
-    maxSystemTokens,
+    budgetMode: turnMode ? "turn_context" : "system",
   };
+  if (turnMode) {
+    result.availableTurnContextTokens = available;
+    result.maxTurnContextTokens = maxTokens;
+    result.turnContextTokens = nextTokens;
+  } else {
+    result.availableSystemTokens = available;
+    result.maxSystemTokens = maxTokens;
+  }
+  return result;
 }
 
 export function computeHistoryTokenBudget({

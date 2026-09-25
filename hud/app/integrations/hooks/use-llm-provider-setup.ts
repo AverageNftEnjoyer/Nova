@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
 import { saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
 import type { FluidSelectOption } from "@/components/ui/fluid-select"
+import { isRetiredModelId, resolveCurrentModelId } from "../../../../src/providers/models/retired-model-aliases/index.js"
 
 export type IntegrationsSaveTarget =
   | null
@@ -86,7 +87,8 @@ export function useLlmProviderSetup({
     const source = nextSettings[provider]
     setApiKey(source.apiKey || "")
     setBaseUrl(source.baseUrl || defaultBaseUrl)
-    setModel(source.defaultModel || defaultModel)
+    // A cached setting may still name a retired model: show (and save) its current replacement.
+    setModel(resolveCurrentModelId(provider, source.defaultModel, { log: false }) || defaultModel)
     setApiKeyConfigured(Boolean(source.apiKeyConfigured))
     setApiKeyMasked(source.apiKeyMasked || "")
   }, [defaultBaseUrl, defaultModel, provider])
@@ -113,7 +115,7 @@ export function useLlmProviderSetup({
       if (!res.ok || !data?.ok || !Array.isArray(data?.models)) return
       const dynamicOptions = data.models
         .map((item: { id?: string; label?: string }) => ({ value: String(item.id || ""), label: String(item.label || item.id || "") }))
-        .filter((item: FluidSelectOption) => item.value.length > 0)
+        .filter((item: FluidSelectOption) => item.value.length > 0 && !isRetiredModelId(provider, item.value))
 
       const merged = new Map<string, FluidSelectOption>()
       defaultModelOptions.forEach((option) => merged.set(option.value, option))
@@ -127,7 +129,7 @@ export function useLlmProviderSetup({
     } catch {
       // Keep current fallback options on network/credential failure.
     }
-  }, [apiKey, apiKeyConfigured, baseUrl, defaultModelOptions, listModelsEndpoint, model, sortModelOptions])
+  }, [apiKey, apiKeyConfigured, baseUrl, defaultModelOptions, listModelsEndpoint, model, provider, sortModelOptions])
 
   useEffect(() => {
     if (!listModelsEndpoint) return
@@ -301,12 +303,14 @@ export function useLlmProviderSetup({
   const persistedModel = useMemo(() => model.trim() || defaultModel, [defaultModel, model])
 
   // A stored model that is no longer in the list (e.g. an older default) must still display as itself rather than
-  // as the first option; it keeps working and is only replaced when the user picks another model.
+  // as the first option; it keeps working and is only replaced when the user picks another model. A RETIRED model
+  // is never offered: hydrate() already swapped it for its replacement, which is a listed model.
   const selectableModelOptions = useMemo(() => {
     const selected = model.trim()
+    if (isRetiredModelId(provider, selected)) return modelOptions
     if (!selected || modelOptions.some((option) => option.value === selected)) return modelOptions
     return [...modelOptions, { value: selected, label: `${selected} (legacy)` }]
-  }, [model, modelOptions])
+  }, [model, modelOptions, provider])
 
   return {
     apiKey,

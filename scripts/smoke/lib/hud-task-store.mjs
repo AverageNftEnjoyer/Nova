@@ -43,6 +43,23 @@ const HUD_TASK_STORE_SOURCES = [
   "hud/app/integrations/constants/gemini-models.ts",
 ]
 
+const hudRoot = path.join(repoRoot, "hud")
+
+/**
+ * Point every relative require that leaves hud/ (the runtime modules under src/) at its absolute path in the repo,
+ * so the transpiled copies share the SAME src/db (and settings) as the smoke. Requires that stay inside hud/ keep
+ * resolving between the transpiled copies in outDir. Generic on purpose: a new src/ import in the store needs no
+ * edit here. HUD_TASK_STORE_SRC_REWRITES lists the src/ modules the store imports today, for reference.
+ */
+function rewriteRepoImports(code, relativePath) {
+  const sourceDir = path.dirname(path.join(repoRoot, relativePath))
+  return code.replace(/require\((["'])(\.{1,2}\/[^"']+)\1\)/g, (match, quote, specifier) => {
+    const resolved = path.resolve(sourceDir, specifier)
+    const insideHud = resolved === hudRoot || resolved.startsWith(hudRoot + path.sep)
+    return insideHud ? match : `require(${quote}${toPosix(resolved)}${quote})`
+  })
+}
+
 /** Transpile the store and its HUD dependencies into `outDir`; returns the loaded CommonJS modules. */
 export function loadHudTaskStore(outDir) {
   for (const relativePath of HUD_TASK_STORE_SOURCES) {
@@ -50,10 +67,7 @@ export function loadHudTaskStore(outDir) {
     const output = ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
     })
-    let rewritten = output.outputText
-    for (const [specifier, absolute] of Object.entries(HUD_TASK_STORE_SRC_REWRITES)) {
-      rewritten = rewritten.split(specifier).join(absolute)
-    }
+    const rewritten = rewriteRepoImports(output.outputText, relativePath)
     const target = path.join(outDir, relativePath.replace(/\.ts$/, ".js"))
     fs.mkdirSync(path.dirname(target), { recursive: true })
     fs.writeFileSync(target, rewritten, "utf8")

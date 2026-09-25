@@ -144,13 +144,18 @@ function hasMetaTable(db) {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").get());
 }
 
+/** SQL and/or a `run(db)` data step. A migration with neither is a no-op stub. */
+function hasMigrationContent(migration) {
+  return Boolean(String(migration.sql || "").trim()) || typeof migration.run === "function";
+}
+
 /**
- * A migration with SQL is applied iff its `meta` marker exists. An empty-SQL stub is "applied" iff
- * user_version already reached it. Marker-based tracking means a stub that is filled in later is still
- * applied on databases that recorded it as a no-op, whatever order workstreams landed in.
+ * A migration with content (SQL and/or `run`) is applied iff its `meta` marker exists. An empty stub (no SQL, no
+ * run) is "applied" iff user_version already reached it. Marker-based tracking means a stub that is filled in later
+ * is still applied on databases that recorded it as a no-op, whatever order workstreams landed in.
  */
 function isApplied(db, migration, userVersion) {
-  if (!String(migration.sql || "").trim()) return userVersion >= migration.version;
+  if (!hasMigrationContent(migration)) return userVersion >= migration.version;
   if (!hasMetaTable(db)) return false;
   return Boolean(db.prepare("SELECT 1 FROM meta WHERE key = ?").get(migrationMarkerKey(migration.version)));
 }
@@ -162,8 +167,13 @@ function applyMigration(db, migration) {
     const userVersion = readUserVersion(db);
     if (!isApplied(db, migration, userVersion)) {
       const hasSql = Boolean(String(migration.sql || "").trim());
-      if (hasSql) {
-        db.exec(migration.sql);
+      if (hasSql) db.exec(migration.sql);
+      // Data step: same connection, inside this BEGIN IMMEDIATE transaction (a throw rolls back the SQL too).
+      if (typeof migration.run === "function") {
+        const result = migration.run(db);
+        if (isThenable(result)) throw new Error("run(db) must be synchronous (better-sqlite3 transactions cannot span an await).");
+      }
+      if (hasMigrationContent(migration)) {
         db.exec(
           "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)",
         );
@@ -186,8 +196,9 @@ function applyMigration(db, migration) {
 }
 
 /**
- * Bring `db` up to the latest schema. Each migration runs in its own BEGIN IMMEDIATE transaction with the
- * user_version bump inside, so a failure rolls back cleanly and concurrent processes racing to migrate are safe.
+ * Bring `db` up to the latest schema. Each migration (its SQL, then its optional synchronous `run(db)` data step)
+ * runs in its own BEGIN IMMEDIATE transaction with the marker and user_version bump inside, so a failure rolls back
+ * cleanly and concurrent processes racing to migrate are safe.
  * `migrations` is injectable for tests.
  */
 export function runMigrations(db, migrations = MIGRATIONS) {

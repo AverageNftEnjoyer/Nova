@@ -5,6 +5,7 @@ import type { IntegrationsSettings } from "@/lib/integrations/store/client-store
 import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
 import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
 import { resolveTimezone } from "@/lib/shared/timezone"
+import { resolveCurrentModelId } from "../../../src/providers/models/retired-model-aliases/index.js"
 import { AI_MODEL_OPTIONS, STEP_TYPE_OPTIONS } from "./constants"
 import type { AiIntegrationType, MissionListItem, WorkflowStep, WorkflowStepType } from "./types"
 
@@ -38,13 +39,15 @@ export function formatIntegrationLabel(integration: string): string {
   return integration.charAt(0).toUpperCase() + integration.slice(1)
 }
 
+/** The configured default; a retired stored ID shows as its current replacement (retired-model-aliases). */
 export function getDefaultModelForProvider(provider: AiIntegrationType, settings: IntegrationsSettings): string {
-  return settings[provider].defaultModel.trim() || AI_MODEL_OPTIONS[provider][0]?.value || ""
+  return resolveCurrentModelId(provider, settings[provider].defaultModel, { log: false }) || AI_MODEL_OPTIONS[provider][0]?.value || ""
 }
 
 /**
  * Listed models plus any configured default or step model that is no longer listed (an older stored choice), so a
- * picker always shows the value that will actually run instead of silently displaying the first option.
+ * picker always shows the value that will actually run instead of silently displaying the first option. A retired
+ * model is shown as its replacement (which is what runs), never as a "(legacy)" entry.
  */
 export function getModelOptionsForProvider(
   provider: AiIntegrationType,
@@ -53,7 +56,7 @@ export function getModelOptionsForProvider(
 ): FluidSelectOption[] {
   const base = AI_MODEL_OPTIONS[provider]
   const extras: FluidSelectOption[] = []
-  for (const candidate of [getDefaultModelForProvider(provider, settings), String(selectedModel ?? "").trim()]) {
+  for (const candidate of [getDefaultModelForProvider(provider, settings), resolveCurrentModelId(provider, selectedModel, { log: false })]) {
     if (!candidate) continue
     if (base.some((option) => option.value === candidate) || extras.some((option) => option.value === candidate)) continue
     extras.push({ value: candidate, label: `${candidate} (legacy)` })
@@ -158,7 +161,7 @@ export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowSte
       aiPrompt: resolvedType === "ai" ? (typeof step.aiPrompt === "string" ? step.aiPrompt : "") : undefined,
       aiModel: resolvedType === "ai"
         ? (typeof step.aiModel === "string" && step.aiModel.trim().length > 0
-          ? step.aiModel
+          ? resolveCurrentModelId(aiIntegration, step.aiModel, { log: false })
           : getDefaultModelForProvider(aiIntegration, integrationsSettings))
         : undefined,
       aiIntegration: resolvedType === "ai" ? aiIntegration : undefined,

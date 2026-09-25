@@ -18,6 +18,10 @@
  * - Integrations (Stage 3): the model only sees coinbase_* / gmail_* tools for a connected integration. Scenario
  *   users have no integration connected, except gmail-triage, whose user gets a Gmail-connected runtime snapshot
  *   (no tokens; the Gmail tools it calls are canned).
+ * - Per-turn context: the context-sections scenario (3 HUD turns) carries a preference, a link + memory-recall cue and
+ *   a research question, so every enrichment section is measured; its memory recall returns fixed hits (the index
+ *   itself is stubbed). The checks assert those sections and the web-search preload reach the prompt and that the
+ *   per-turn context stays within its budget.
  * - Missions: hud/lib/missions/workflow/executors/ai-executors.ts and hud/lib/missions/llm/providers.ts are
  *   TypeScript inside the Next app. They are transpiled with `typescript` and run in a vm (same technique as
  *   scripts/smoke/scheduler/src-mission-agent-runtime-smoke.mjs); only the integrations store and provider
@@ -26,6 +30,7 @@
  *
  * Usage:  node scripts/smoke/token-efficiency/token-baseline-harness.mjs [--out <file.json>] [--quiet]
  *                 [--include-requests] (full captured payloads in the JSON) [--verbose] (runtime logs)
+ *                 [--routing-mode off|trivial|cost-saving] (Stage 6: model-routing mode saved for every scenario user)
  *   (env NOVA_TOKEN_BASELINE_OUT works like --out). Without --out the JSON goes to the temp data dir only.
  * Needs `npm run build:agent-core` (dist/ tool modules); `npm run smoke:token-baseline` does that first.
  */
@@ -58,6 +63,7 @@ import {
 } from "./token-harness-lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const { countApproxTokens } = await import(pathToFileURL(path.join(repoRoot, "src/runtime/core/context-prompt/index.js")).href);
 
 function parseArgs(argv) {
   const out = {};
@@ -421,6 +427,55 @@ async function runWebResearch(shape) {
   return [summarizeTurn(result)];
 }
 
+// Per-turn context sections (dropped-context fix): a 3-turn HUD chat whose turns carry a preference, a link plus a
+// memory-recall cue, and a research question, so User Preference Memory, Link Context, Live Memory Recall and Live
+// Web Search Context all reach the prompt. web_fetch / web_search are canned (see CANNED_TOOLS); the memory index is
+// replaced by a fixed recall result (real local embeddings would make the hits timing-dependent).
+const CONTEXT_TURNS = [
+  "For future replies, call me Sam and keep your answers short.",
+  `Summarize ${WEB_SEARCH_RESULTS[0][1]} and tell me how it affects the upgrade plan I told you about earlier.`,
+  "What's the latest news on the Node.js 24 LTS release? Summarize the key changes for our upgrade.",
+];
+const CONTEXT_MEMORY_HITS = [
+  { source: "memory/upgrade-plan.md", score: 0.82, content: "Upgrade plan (agreed 2026-09-10): move the orders-api service from Node 20 to Node 24 before April 2026. Blockers: the native bcrypt add-on and url.parse() calls in src/routes. Owner: Sam." },
+  { source: "MEMORY.md", score: 0.61, content: "Sam prefers short answers with the decision first, then at most three bullets." },
+];
+
+function stubMemoryRecall(state) {
+  const hits = CONTEXT_MEMORY_HITS.map((hit) => ({ ...hit }));
+  state.memoryManager = {
+    warmSession() {},
+    async searchWithDiagnostics() {
+      return { results: hits, diagnostics: { source: "token-harness", hits: hits.length } };
+    },
+    async search() {
+      return hits;
+    },
+  };
+}
+
+async function runContextSections(shape) {
+  const userContextId = `tb-context-${shape}`;
+  const conversationId = `tb-context-${shape}-thread`;
+  const state = await prepareToolScope({ userContextId });
+  stubMemoryRecall(state);
+  begin("context-sections", shape, { plan: [], reply: () => "Sam: Node 24 is LTS; plan the bcrypt rebuild and replace url.parse() first." });
+  const turns = [];
+  for (const text of CONTEXT_TURNS) {
+    const result = await handleInput(text, {
+      source: "hud",
+      sender: "hud-user",
+      voice: false,
+      userContextId,
+      conversationId,
+      sessionKeyHint: `agent:nova:hud:user:${userContextId}:dm:${conversationId}`,
+      runtimeSelectionOverride: runtimeSelectionOverride(shape),
+    });
+    turns.push(summarizeTurn(result));
+  }
+  return turns;
+}
+
 async function runAgentTask(scenario, shape, { prompt, plan, reply, extraFiles, integrations }) {
   const userContextId = `tb-${scenario}-${shape}`;
   const taskId = `tb-${scenario}-${shape}-task`;
@@ -618,8 +673,22 @@ const SCENARIOS = [
     prompt: GMAIL_PROMPT, plan: GMAIL_PLAN, reply: GMAIL_REPLY, integrations: GMAIL_CONNECTED_SNAPSHOT,
   })],
   ["mission-run", runMission],
+  ["context-sections", runContextSections],
 ];
 const SHAPES = ["openai", "claude"];
+
+// Stage 6: `--routing-mode off|trivial|cost-saving` saves that model-routing mode for every scenario user before the
+// run (default: nothing saved, so every user gets the built-in default mode). The cost estimate
+// (model-routing-cost.mjs) runs the harness once per mode and prices each call at the model it was sent to.
+const routingMode = String(args["routing-mode"] || "").trim();
+if (routingMode) {
+  const { writeModelRoutingSettings } = await import(pathToFileURL(path.join(repoRoot, "src/runtime/modules/model-routing/index.js")).href);
+  for (const shape of SHAPES) {
+    for (const prefix of ["tb-chat", "tb-web", "tb-context", "tb-agent-task", "tb-agent-task-large-output", "tb-gmail-triage", "tb-mission"]) {
+      writeModelRoutingSettings(`${prefix}-${shape}`, { mode: routingMode });
+    }
+  }
+}
 
 const checks = [];
 function check(name, fn) {
@@ -710,6 +779,39 @@ check("tool lists follow connected integrations and stay identical across a scen
     assert.equal(gmailOffered, r.scenario === "gmail-triage", `${r.scenario}/${r.shape}: gmail tools offered=${gmailOffered}`);
   }
 });
+function systemPromptText(shape, request) {
+  if (shape === "claude") {
+    return Array.isArray(request?.system) ? request.system.map((b) => String(b?.text || "")).join("\n\n") : String(request?.system || "");
+  }
+  const first = (request?.messages || []).find((m) => m?.role === "system");
+  return first ? String(first.content || "") : "";
+}
+// Claude-shape requests carry the per-turn context as its own system block (static block first, cache_control).
+function turnContextBlockText(request) {
+  return Array.isArray(request?.system) && request.system.length > 1 ? String(request.system[request.system.length - 1]?.text || "") : "";
+}
+check("per-turn context sections reach the prompt at default settings (dropped-context fix)", () => {
+  for (const r of scenarioResults.filter((x) => x.scenario === "context-sections")) {
+    const texts = r.calls.map((c) => systemPromptText(r.shape, c.request));
+    for (const section of ["User Preference Memory", "Identity Intelligence", "Link Context", "Live Memory Recall", "Live Web Search Context"]) {
+      assert.ok(texts.some((t) => t.includes(`## ${section}\n`)), `${r.shape}: "${section}" never reached the prompt`);
+    }
+  }
+  // The web-search preload runs a (canned) search on these turns; its result must now be used, not dropped.
+  for (const r of scenarioResults.filter((x) => ["web-research", "agent-task-large-output", "gmail-triage"].includes(x.scenario))) {
+    assert.ok(r.calls.every((c) => systemPromptText(r.shape, c.request).includes("## Live Web Search Context\n")),
+      `${r.scenario}/${r.shape}: the web-search preload result is missing from the prompt`);
+  }
+});
+check("per-turn context stays within NOVA_PROMPT_TURN_CONTEXT_MAX_TOKENS (default 5,000 ~tok) in every scenario", () => {
+  const budget = Number.parseInt(String(process.env.NOVA_PROMPT_TURN_CONTEXT_MAX_TOKENS || "5000"), 10) || 5000;
+  for (const r of scenarioResults.filter((x) => x.shape === "claude")) {
+    for (const call of r.calls) {
+      const tokens = countApproxTokens(turnContextBlockText(call.request));
+      assert.ok(tokens <= budget, `${r.scenario}: per-turn context ${tokens} ~tok > ${budget}`);
+    }
+  }
+});
 check("chat-10-turn: 10 turns answered through the LLM path for both shapes", () => {
   for (const r of scenarioResults.filter((x) => x.scenario === "chat-10-turn")) {
     assert.equal(r.turns.length, 10);
@@ -730,6 +832,7 @@ const report = {
     inputSize: "JSON(messages) for openai, JSON(system)+JSON(messages) for claude; tools reported separately",
   },
   models: MODELS,
+  routingMode: routingMode || "default",
   environment: { node: process.version, platform: process.platform },
   scenarios: scenarioResults.map((r) => {
     const metrics = computeCallMetrics(r.calls);

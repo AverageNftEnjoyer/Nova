@@ -8,7 +8,7 @@
 // long before the money it was meant to protect. A user can still set a default token limit, or one per task.
 //
 // Default cost budget, sized so a normal task on the MOST expensive current model does not reach it. Offline
-// baseline (docs/token-efficiency/PROGRESS.md): the "agent-task" harness scenario (5 tool steps + final answer)
+// baseline (docs/token-efficiency/README.md): the "agent-task" harness scenario (5 tool steps + final answer)
 // sends 30,754 ~tok of input over 6 calls (OpenAI shape; Claude shape 30,390), ~300 output tokens per call (1,800,
 // an assumption: the fake client reports none), all input billed UNCACHED (worst case). Current picker models:
 //     gpt-6-astra        30,754 x $10/M + 1,800 x $50/M = $0.3075 + $0.0900 = $0.398   <- most expensive
@@ -20,6 +20,9 @@
 //   Default: $2.00 = 5.0x today's worst case, 4.2x with +25% input (still >= 3x up to ~+87% input). Cheaper models
 //   rarely come near it, which is intended: the budget is a runaway guard, not a per-model tuning knob.
 //   (Legacy gpt-5.5-pro, 30 / 180 per 1M, is not a picker model: ~$1.25 per such task, so it can reach $2.00.)
+//   Re-checked after the per-turn context fix (2026-09-24 close-out; the scenario now sends 32,144 ~tok OpenAI shape,
+//   31,782 Claude shape): gpt-6-astra 32,144 x $10/M + $0.09 = $0.411, claude-fable-5-1 $0.408; 3x = $1.23, so
+//   $2.00 is 4.9x the worst case.
 
 // Economy models: the cheapest tool-capable model of each provider in Nova's pickers (src/providers/pricing):
 //   openai gpt-5.6-luna (0.20 / 1.20), claude claude-haiku-4-5-20251001 (1.00 / 5.00),

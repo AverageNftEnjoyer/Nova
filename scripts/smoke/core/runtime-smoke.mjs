@@ -8,7 +8,6 @@ import path from "node:path";
 import {
   claudeMessagesCreate,
   describeUnknownError,
-  extractOpenAIChatText,
   getOpenAIClient,
   loadIntegrationsRuntime,
   resolveConfiguredChatRuntime,
@@ -18,9 +17,9 @@ import { extractAutoMemoryFacts } from "../../../src/memory/runtime/index.js";
 import { createSessionRuntime } from "../../../src/session/runtime/index.js";
 import { createToolRuntime } from "../../../src/tools/runtime/index.js";
 import { createWakeWordRuntime } from "../../../src/runtime/audio/wake-runtime/index.js";
+import { seedRuntimeIntegrations } from "../lib/seed-runtime-integrations.mjs";
 
 const results = [];
-const SMOKE_USER_CONTEXT_ID = String(process.env.NOVA_SMOKE_USER_CONTEXT_ID || "").trim();
 
 function record(status, name, detail = "") {
   results.push({ status, name, detail });
@@ -35,40 +34,14 @@ async function run(name, fn) {
   }
 }
 
-function resolveSmokeUserContextId() {
-  const explicit = String(
-    process.env.NOVA_SMOKE_USER_CONTEXT_ID
-    || process.env.NOVA_USER_CONTEXT_ID
-    || process.env.USER_CONTEXT_ID
-    || "",
-  ).trim();
-  if (explicit) return explicit;
-  const root = path.join(process.env.NOVA_DATA_DIR, "user-context");
-  if (!fs.existsSync(root)) return "";
-  const candidates = fs
-    .readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b))
-    .filter(Boolean);
-  if (candidates.length === 1) return candidates[0];
-  if (candidates.includes("smoke-user-ctx")) return "smoke-user-ctx";
-  const withIntegrationsConfig = candidates.filter((name) =>
-    fs.existsSync(path.join(root, name, "state", "integrations-config.json"))
-    || fs.existsSync(path.join(root, name, "integrations-config.json")));
-  if (withIntegrationsConfig.length > 0) return withIntegrationsConfig[0];
-  if (candidates.length > 0) return candidates[0];
-  return "";
-}
-
 function makeRuntime(connectedMap = {}) {
   const c = (key) => Boolean(connectedMap[key]);
   const k = (key) => (c(key) ? `${key}-key` : "");
   return {
     activeProvider: connectedMap.activeProvider ?? "openai",
     openai: { connected: c("openai"), apiKey: k("openai"), baseURL: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
-    claude: { connected: c("claude"), apiKey: k("claude"), baseURL: "https://api.anthropic.com", model: "claude-sonnet-4-20250514" },
-    grok: { connected: c("grok"), apiKey: k("grok"), baseURL: "https://api.x.ai/v1", model: "grok-4-fast-reasoning" },
+    claude: { connected: c("claude"), apiKey: k("claude"), baseURL: "https://api.anthropic.com", model: "claude-sonnet-5" },
+    grok: { connected: c("grok"), apiKey: k("grok"), baseURL: "https://api.x.ai/v1", model: "grok-4.3" },
     gemini: { connected: c("gemini"), apiKey: k("gemini"), baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-pro" },
   };
 }
@@ -83,260 +56,120 @@ await run("Provider strict mode returns active provider for all 4", async () => 
   }
 });
 
-await run("Provider fallback selects ready providers and honors override policy", async () => {
+// V.59 removed the cross-provider fallback: routing is always the active (or task-selected) provider, even when
+// that provider is not connected (the caller reports it instead of silently switching providers).
+await run("Provider routing never falls back to another provider; a task-selected provider wins", async () => {
   const runtime1 = makeRuntime({ activeProvider: "gemini", openai: true });
   const resolved1 = resolveConfiguredChatRuntime(runtime1, { strictActiveProvider: false });
-  assert.equal(resolved1.provider, "openai");
-  assert.equal(resolved1.connected, true);
+  assert.equal(resolved1.provider, "gemini");
+  assert.equal(resolved1.connected, false);
+  assert.equal(resolved1.routeReason, "strict-active-provider");
+  assert.deepEqual(resolved1.rankedCandidates, ["gemini"]);
 
   const runtime2 = makeRuntime({ activeProvider: "openai", openai: true, claude: true, gemini: true, grok: true });
-  const resolved2 = resolveConfiguredChatRuntime(runtime2, { strictActiveProvider: false });
-  assert.equal(resolved2.provider, "openai");
-  assert.equal(resolved2.routeReason, "active-provider-ready");
-
   const resolved2Override = resolveConfiguredChatRuntime(runtime2, {
     strictActiveProvider: false,
     allowActiveProviderOverride: true,
     preference: "cost",
   });
-  assert.equal(resolved2Override.provider, "gemini");
-  assert.equal(resolved2Override.connected, true);
-  assert.equal(Array.isArray(resolved2Override.rankedCandidates), true);
-  assert.equal(resolved2Override.rankedCandidates.includes("gemini"), true);
+  assert.equal(resolved2Override.provider, "openai", "legacy override/preference options are ignored");
 
-  const runtime3 = makeRuntime({ activeProvider: "grok" });
-  const resolved3 = resolveConfiguredChatRuntime(runtime3, { strictActiveProvider: false });
-  assert.equal(resolved3.provider, "grok");
-  assert.equal(resolved3.connected, false);
+  const taskSelected = resolveConfiguredChatRuntime(runtime2, { preferredProvider: "claude", preferredModel: "claude-task-model" });
+  assert.equal(taskSelected.provider, "claude");
+  assert.equal(taskSelected.connected, true);
+  assert.equal(taskSelected.model, "claude-task-model");
+  assert.equal(taskSelected.routeReason, "task-selected-provider");
 });
 
-const loaded = loadIntegrationsRuntime();
-await run("Integrations runtime loads valid provider shape", async () => {
-  assert.ok(["openai", "claude", "grok", "gemini"].includes(loaded.activeProvider));
+// Provider runtime is per-user only (no global fallback): loads read the user's runtime snapshot row in nova.db.
+// The smoke seeds its own user in the isolated temp data dir. Provider endpoints point at a closed loopback port,
+// so the client error paths run without any network egress (live pings live in smoke:src-providers).
+const SMOKE_USER_CONTEXT_ID = "smoke-runtime-user";
+const OFFLINE_BASE_URL = "http://127.0.0.1:9";
+seedRuntimeIntegrations(SMOKE_USER_CONTEXT_ID, {
+  activeLlmProvider: "claude",
+  openai: { connected: true, apiKey: "", baseUrl: OFFLINE_BASE_URL, defaultModel: "gpt-smoke-model" },
+  claude: { connected: true, apiKey: "smoke-claude-key", baseUrl: OFFLINE_BASE_URL, defaultModel: "claude-smoke-model" },
+  grok: { connected: false, apiKey: "smoke-grok-key", baseUrl: OFFLINE_BASE_URL, defaultModel: "grok-smoke-model" },
+  gemini: { connected: false, baseUrl: `${OFFLINE_BASE_URL}/v1beta/openai`, defaultModel: "gemini-smoke-model" },
+});
+
+function assertProviderShape(runtime) {
+  assert.ok(["openai", "claude", "grok", "gemini"].includes(runtime.activeProvider));
   for (const key of ["openai", "claude", "grok", "gemini"]) {
-    assert.equal(typeof loaded[key].connected, "boolean");
-    assert.equal(typeof loaded[key].apiKey, "string");
-    assert.equal(typeof loaded[key].baseURL, "string");
-    assert.equal(typeof loaded[key].model, "string");
+    assert.equal(typeof runtime[key].connected, "boolean");
+    assert.equal(typeof runtime[key].apiKey, "string");
+    assert.equal(typeof runtime[key].baseURL, "string");
+    assert.equal(typeof runtime[key].model, "string");
   }
-});
-
-const resolvedSmokeUserContextId = resolveSmokeUserContextId();
-if (resolvedSmokeUserContextId) {
-  const scopedLoaded = loadIntegrationsRuntime({ userContextId: resolvedSmokeUserContextId });
-  const scopedReadyProviders = ["openai", "claude", "grok", "gemini"].filter((key) =>
-    Boolean(scopedLoaded[key].connected) &&
-    String(scopedLoaded[key].apiKey || "").trim().length > 0 &&
-    String(scopedLoaded[key].model || "").trim().length > 0,
-  );
-  await run(`User-scoped runtime loads valid provider shape (${resolvedSmokeUserContextId})`, async () => {
-    assert.ok(["openai", "claude", "grok", "gemini"].includes(scopedLoaded.activeProvider));
-    for (const key of ["openai", "claude", "grok", "gemini"]) {
-      assert.equal(typeof scopedLoaded[key].connected, "boolean");
-      assert.equal(typeof scopedLoaded[key].apiKey, "string");
-      assert.equal(typeof scopedLoaded[key].baseURL, "string");
-      assert.equal(typeof scopedLoaded[key].model, "string");
-    }
-  });
-
-  await run(`User-scoped runtime has key for connected providers (${resolvedSmokeUserContextId})`, async () => {
-    for (const key of ["openai", "claude", "grok", "gemini"]) {
-      if (!scopedLoaded[key].connected) continue;
-      assert.ok(
-        String(scopedLoaded[key].apiKey || "").trim().length > 0,
-        `${key} marked connected but key is empty`,
-      );
-    }
-  });
-
-  await run(`User-scoped runtime resolves provider route (${resolvedSmokeUserContextId})`, async () => {
-    const scopedResolved = resolveConfiguredChatRuntime(scopedLoaded, { strictActiveProvider: false });
-    if (scopedReadyProviders.length > 0) {
-      assert.equal(scopedResolved.connected, true, `resolved provider "${scopedResolved.provider}" is disconnected`);
-      assert.ok(
-        String(scopedResolved.apiKey || "").trim().length > 0,
-        `resolved provider "${scopedResolved.provider}" key is empty`,
-      );
-      assert.equal(scopedReadyProviders.includes(scopedResolved.provider), true);
-      return;
-    }
-    assert.equal(scopedResolved.connected, false);
-    assert.ok(
-      scopedResolved.routeReason === "active-provider-unavailable" || scopedResolved.routeReason === "strict-active-provider",
-    );
-  });
-
-  if (scopedLoaded.openai.connected && scopedLoaded.openai.apiKey) {
-    await run(`OpenAI user-scoped live ping returns text (${resolvedSmokeUserContextId})`, async () => {
-      const client = getOpenAIClient({ apiKey: scopedLoaded.openai.apiKey, baseURL: scopedLoaded.openai.baseURL });
-      const completion = await withTimeout(
-        client.chat.completions.create({
-          model: scopedLoaded.openai.model,
-          messages: [{ role: "user", content: "Reply with: PING_OK" }],
-          max_completion_tokens: 512,
-        }),
-        30000,
-        "OpenAI user-scoped live ping",
-      );
-      const text = extractOpenAIChatText(completion);
-      const completionTokens = Number(completion?.usage?.completion_tokens || 0);
-      const finishReason = String(completion?.choices?.[0]?.finish_reason || "");
-      assert.ok(
-        String(text || "").trim().length > 0 || (completionTokens > 0 && finishReason.length > 0),
-      );
-    });
-  } else {
-    await run(`OpenAI user-scoped branch path executes (${resolvedSmokeUserContextId})`, async () => {
-      let threw = false;
-      try {
-        const client = getOpenAIClient({ apiKey: "invalid-key", baseURL: scopedLoaded.openai.baseURL });
-        await withTimeout(
-          client.chat.completions.create({
-            model: scopedLoaded.openai.model,
-            messages: [{ role: "user", content: "test" }],
-            max_completion_tokens: 8,
-          }),
-          20000,
-          "OpenAI user-scoped auth-fail path",
-        );
-      } catch {
-        threw = true;
-      }
-      assert.equal(threw, true);
-    });
-  }
-} else {
-  await run("User-scoped runtime validation fallback path executes", async () => {
-    const scopedLoaded = loadIntegrationsRuntime({ userContextId: "smoke-fallback-user" });
-    assert.ok(["openai", "claude", "grok", "gemini"].includes(scopedLoaded.activeProvider));
-    for (const key of ["openai", "claude", "grok", "gemini"]) {
-      assert.equal(typeof scopedLoaded[key].connected, "boolean");
-      assert.equal(typeof scopedLoaded[key].apiKey, "string");
-      assert.equal(typeof scopedLoaded[key].baseURL, "string");
-      assert.equal(typeof scopedLoaded[key].model, "string");
-    }
-  });
 }
 
-if (loaded.openai.connected && loaded.openai.apiKey) {
-  await run("OpenAI live ping returns text", async () => {
-    const client = getOpenAIClient({ apiKey: loaded.openai.apiKey, baseURL: loaded.openai.baseURL });
-    const completion = await withTimeout(
-      client.chat.completions.create({
-        model: loaded.openai.model,
-        messages: [{ role: "user", content: "Reply with: PING_OK" }],
-        max_completion_tokens: 512,
-      }),
-      30000,
-      "OpenAI live ping",
-    );
-    const text = extractOpenAIChatText(completion);
-    const completionTokens = Number(completion?.usage?.completion_tokens || 0);
-    const finishReason = String(completion?.choices?.[0]?.finish_reason || "");
-    assert.ok(
-      String(text || "").trim().length > 0 || (completionTokens > 0 && finishReason.length > 0),
-    );
-  });
-} else {
-  await run("OpenAI branch path executes (expected auth fail when unconfigured)", async () => {
-    let threw = false;
-    try {
-      const client = getOpenAIClient({ apiKey: "invalid-key", baseURL: loaded.openai.baseURL });
-      await withTimeout(
+await run("Integrations runtime requires a userContextId (no global config)", async () => {
+  assert.throws(() => loadIntegrationsRuntime(), /userContextId/);
+});
+
+const loaded = loadIntegrationsRuntime({ userContextId: SMOKE_USER_CONTEXT_ID });
+await run("User-scoped runtime loads the seeded provider snapshot", async () => {
+  assertProviderShape(loaded);
+  assert.equal(loaded.activeProvider, "claude");
+  assert.equal(loaded.claude.connected, true);
+  assert.equal(loaded.claude.apiKey, "smoke-claude-key");
+  assert.equal(loaded.claude.model, "claude-smoke-model");
+  assert.equal(loaded.claude.baseURL, OFFLINE_BASE_URL);
+  assert.equal(loaded.openai.connected, false, "connected flag without a key is not connected");
+  assert.equal(loaded.grok.connected, false, "a key without the connected flag is not connected");
+  assert.equal(loaded.gemini.connected, false);
+  assert.equal(loaded.openai.baseURL, `${OFFLINE_BASE_URL}/v1`);
+});
+
+await run("User-scoped runtime resolves the route to the ready provider", async () => {
+  const resolved = resolveConfiguredChatRuntime(loaded, { strictActiveProvider: false });
+  assert.equal(resolved.provider, "claude");
+  assert.equal(resolved.connected, true);
+  assert.equal(resolved.apiKey, "smoke-claude-key");
+});
+
+await run("Unknown user falls back to a disconnected runtime of valid shape", async () => {
+  const unknown = loadIntegrationsRuntime({ userContextId: "smoke-unknown-user" });
+  assertProviderShape(unknown);
+  for (const key of ["openai", "claude", "grok", "gemini"]) assert.equal(unknown[key].connected, false);
+  assert.equal(resolveConfiguredChatRuntime(unknown, { strictActiveProvider: false }).connected, false);
+});
+
+async function assertOpenAiLikeClientFails(name, runtime) {
+  await run(`${name} client error path executes offline`, async () => {
+    const client = getOpenAIClient({ apiKey: "invalid-key", baseURL: runtime.baseURL });
+    await assert.rejects(() =>
+      withTimeout(
         client.chat.completions.create({
-          model: loaded.openai.model,
+          model: runtime.model,
           messages: [{ role: "user", content: "test" }],
           max_completion_tokens: 8,
         }),
         20000,
-        "OpenAI auth-fail path",
-      );
-    } catch {
-      threw = true;
-    }
-    assert.equal(threw, true);
+        `${name} offline error path`,
+      ));
   });
 }
 
-if (loaded.claude.connected && loaded.claude.apiKey) {
-  await run("Claude live branch returns text", async () => {
-    const response = await withTimeout(
+await assertOpenAiLikeClientFails("OpenAI", loaded.openai);
+await run("Claude client error path executes offline", async () => {
+  await assert.rejects(() =>
+    withTimeout(
       claudeMessagesCreate({
-        apiKey: loaded.claude.apiKey,
+        apiKey: "invalid-key",
         baseURL: loaded.claude.baseURL,
         model: loaded.claude.model,
-        system: "You are a test bot.",
-        userText: "Reply with CLAUDE_OK",
-        maxTokens: 12,
+        system: "test",
+        userText: "test",
+        maxTokens: 8,
       }),
-      30000,
-      "Claude live ping",
-    );
-    assert.ok(String(response.text || "").toUpperCase().includes("CLAUDE"));
-  });
-} else {
-  await run("Claude branch path executes (expected auth fail when unconfigured)", async () => {
-    let threw = false;
-    try {
-      await withTimeout(
-        claudeMessagesCreate({
-          apiKey: "invalid-key",
-          baseURL: "https://api.anthropic.com",
-          model: "claude-sonnet-4-20250514",
-          system: "test",
-          userText: "test",
-          maxTokens: 8,
-        }),
-        20000,
-        "Claude auth-fail path",
-      );
-    } catch {
-      threw = true;
-    }
-    assert.equal(threw, true);
-  });
-}
-
-async function runOpenAiCompatibleCheck(name, runtime, configuredProviderLabel) {
-  if (runtime.connected && runtime.apiKey) {
-    await run(`${name} live branch returns response shape`, async () => {
-      const client = getOpenAIClient({ apiKey: runtime.apiKey, baseURL: runtime.baseURL });
-      const completion = await withTimeout(
-        client.chat.completions.create({
-          model: runtime.model,
-          messages: [{ role: "user", content: `Reply with ${configuredProviderLabel}_OK` }],
-          max_completion_tokens: 512,
-        }),
-        30000,
-        `${name} live ping`,
-      );
-      assert.ok(Array.isArray(completion?.choices));
-      assert.ok(completion.choices.length > 0);
-    });
-  } else {
-    await run(`${name} branch path executes (expected auth fail when unconfigured)`, async () => {
-      let threw = false;
-      try {
-        const client = getOpenAIClient({ apiKey: "invalid-key", baseURL: runtime.baseURL });
-        await withTimeout(
-          client.chat.completions.create({
-            model: runtime.model,
-            messages: [{ role: "user", content: "test" }],
-            max_completion_tokens: 8,
-          }),
-          20000,
-          `${name} auth-fail path`,
-        );
-      } catch {
-        threw = true;
-      }
-      assert.equal(threw, true);
-    });
-  }
-}
-
-await runOpenAiCompatibleCheck("Grok", loaded.grok, "GROK");
-await runOpenAiCompatibleCheck("Gemini", loaded.gemini, "GEMINI");
+      20000,
+      "Claude offline error path",
+    ));
+});
+await assertOpenAiLikeClientFails("Grok", loaded.grok);
+await assertOpenAiLikeClientFails("Gemini", loaded.gemini);
 
 await run("Auto memory extraction captures stable user facts", async () => {
   const nameFacts = extractAutoMemoryFacts("Call me Jack");
@@ -349,7 +182,7 @@ await run("Auto memory extraction captures stable user facts", async () => {
   assert.equal(questionFacts.length, 0);
 });
 
-await run("Session/account isolation keeps per-key transcripts separated", async () => {
+await run("Session/account isolation keeps per-key transcripts separated (nova.db, no legacy files)", async () => {
   const tmpRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "nova-session-smoke-"));
   const runtime = createSessionRuntime({
     sessionStorePath: path.join(tmpRoot, "sessions.json"),
@@ -374,41 +207,10 @@ await run("Session/account isolation keeps per-key transcripts separated", async
   assert.notEqual(a.sessionKey, b.sessionKey);
   assert.notEqual(a.sessionEntry.sessionId, b.sessionEntry.sessionId);
   assert.equal(runtime.resolveUserContextId({ source: "hud", sender: "hud-user:user-a" }), "user-a");
-  const aSessionStorePath = path.join(tmpRoot, "user-context", "user-a", "state", "sessions.json");
-  const bSessionStorePath = path.join(tmpRoot, "user-context", "user-b", "state", "sessions.json");
-  const legacySessionStorePath = path.join(tmpRoot, "sessions.json");
-  const aStore = JSON.parse(await fsp.readFile(aSessionStorePath, "utf8"));
-  const bStore = JSON.parse(await fsp.readFile(bSessionStorePath, "utf8"));
-  const legacyStore = JSON.parse(await fsp.readFile(legacySessionStorePath, "utf8").catch(() => "{}"));
-
-  assert.ok(aStore[a.sessionKey], "user-a key should be in user-a scoped session store");
-  assert.ok(bStore[b.sessionKey], "user-b key should be in user-b scoped session store");
-  assert.equal(Boolean(legacyStore[a.sessionKey]), false, "user-a key should not remain in legacy session store");
-  assert.equal(Boolean(legacyStore[b.sessionKey]), false, "user-b key should not remain in legacy session store");
-
   runtime.appendTranscriptTurn(a.sessionEntry.sessionId, "user", "hello-a");
   runtime.appendTranscriptTurn(b.sessionEntry.sessionId, "user", "hello-b");
-  const aScopedPath = path.join(
-    tmpRoot,
-    "user-context",
-    "user-a",
-    "transcripts",
-    `${a.sessionEntry.sessionId}.jsonl`,
-  );
-  const bScopedPath = path.join(
-    tmpRoot,
-    "user-context",
-    "user-b",
-    "transcripts",
-    `${b.sessionEntry.sessionId}.jsonl`,
-  );
-  const aLegacyPath = path.join(tmpRoot, "transcripts", `${a.sessionEntry.sessionId}.jsonl`);
-  const bLegacyPath = path.join(tmpRoot, "transcripts", `${b.sessionEntry.sessionId}.jsonl`);
-
-  assert.equal(fs.existsSync(aScopedPath), true, "user-a transcript should be user-scoped");
-  assert.equal(fs.existsSync(bScopedPath), true, "user-b transcript should be user-scoped");
-  assert.equal(fs.existsSync(aLegacyPath), false, "user-a transcript should not be written to legacy global path");
-  assert.equal(fs.existsSync(bLegacyPath), false, "user-b transcript should not be written to legacy global path");
+  // Sessions and transcripts live in nova.db (the isolated data dir): the legacy path options write no files.
+  assert.deepEqual(await fsp.readdir(tmpRoot), [], "no session/transcript files are written to the legacy paths");
 
   const a2 = runtime.resolveSessionContext({ sessionKeyHint: "agent:nova:hud:user:user-a:dm:conv-1" });
   const b2 = runtime.resolveSessionContext({ sessionKeyHint: "agent:nova:hud:user:user-b:dm:conv-9" });
@@ -437,7 +239,7 @@ await run("Tool runtime initializes and executes file tool", async () => {
     execApprovalMode: "ask",
     safeBinaries: ["ls", "cat", "grep"],
     webSearchProvider: "brave",
-    webSearchApiKey: String(process.env.BRAVE_API_KEY || "").trim(),
+    webSearchApiKey: "",
     memoryConfig: {
       embeddingProvider: "local",
       embeddingModel: "text-embedding-3-small",
@@ -487,7 +289,7 @@ await run("Tool runtime scopes memory.db per user context", async () => {
     execApprovalMode: "ask",
     safeBinaries: ["ls", "cat", "grep"],
     webSearchProvider: "brave",
-    webSearchApiKey: String(process.env.BRAVE_API_KEY || "").trim(),
+    webSearchApiKey: "",
     memoryConfig: {
       embeddingProvider: "local",
       embeddingModel: "text-embedding-3-small",

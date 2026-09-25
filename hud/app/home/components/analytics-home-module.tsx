@@ -13,9 +13,8 @@ interface AnalyticsHomeModuleProps {
 }
 
 const PLACEHOLDER = "—"
-/** Value + secondary text: one baseline row while the tiles are stacked, two centred lines once they sit side by side. */
-const VALUE_ROW_CLASS =
-  "mt-0.5 flex w-full min-w-0 items-baseline gap-1 @[13rem]:flex-col @[13rem]:items-center @[13rem]:gap-0.5"
+/** Value + secondary text on one baseline row; the secondary text wraps under the value when the tile is too narrow. */
+const VALUE_ROW_CLASS = "mt-0.5 flex w-full min-w-0 flex-wrap items-baseline gap-x-1"
 
 function formatCost(usd: number): string {
   if (usd <= 0) return "$0.00"
@@ -44,9 +43,10 @@ function plural(count: number, word: string): string {
  * Body of the Home "Analytics" panel: today's spend, today's tokens with cache share, and agent tasks at a budget
  * limit. The section and header stay in home-main-screen (they share its local header helpers).
  *
- * Container widths (the panel is an `@container`): below 13rem (the 1/5-width panel at 1024 px) the three tiles are
- * stacked rows, label on top and value + secondary text on one line; from 13rem they sit side by side, centred, with
- * the secondary text (and the cache bar) on its own line. Every text node truncates.
+ * Layout: the panel is a 1/5-width, portrait card at every supported size (about 117×192 px at 1024×768 and
+ * 253×278 px at 1920×1080), so the three tiles are always stacked rows: label on top, then value + secondary text
+ * (which wraps under the value when it does not fit). The panel is an `@container`; from 15rem the text steps up
+ * one size. Every text node truncates.
  */
 export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, onOpenBudgets }: AnalyticsHomeModuleProps) {
   const { summary, loading, error } = useHomeAnalyticsSummary()
@@ -65,7 +65,7 @@ export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, o
     isLight ? "text-s-50" : "text-slate-400",
   )
   const tileClass = cn(
-    "min-w-0 min-h-0 overflow-hidden rounded-sm border px-2 py-0.5 text-left flex flex-col justify-center @[13rem]:items-center @[13rem]:px-1.5 @[13rem]:text-center transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+    "min-w-0 min-h-0 overflow-hidden rounded-sm border px-2 py-0.5 text-left flex flex-col justify-center transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
     subPanelClass,
   )
   const staleHint = error && summary ? " (last update; refresh failed)" : ""
@@ -77,7 +77,7 @@ export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, o
           Usage unavailable
         </p>
       ) : null}
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-3 @[13rem]:grid-cols-3 @[13rem]:grid-rows-1 gap-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-3 gap-1">
         <SpendTile
           summary={summary}
           pending={pending}
@@ -92,7 +92,6 @@ export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, o
           summary={summary}
           pending={pending}
           staleHint={staleHint}
-          isLight={isLight}
           onOpen={onOpenAnalytics}
           tileClass={tileClass}
           labelClass={labelClass}
@@ -158,13 +157,12 @@ function TokensTile({
   summary,
   pending,
   staleHint,
-  isLight,
   onOpen,
   tileClass,
   labelClass,
   valueClass,
   secondaryClass,
-}: TileProps & { staleHint: string; isLight: boolean; onOpen: () => void }) {
+}: TileProps & { staleHint: string; onOpen: () => void }) {
   const tokens = summary ? formatCompact(summary.tokens) : PLACEHOLDER
   const cachedPct = summary ? Math.round(summary.cacheHitRate * 100) : 0
   const label = summary
@@ -176,15 +174,6 @@ function TokensTile({
       <span className={VALUE_ROW_CLASS}>
         <span className={valueClass}>{tokens}</span>
         <span className={secondaryClass}>{pending ? "\u00a0" : `${cachedPct}% cached`}</span>
-      </span>
-      <span
-        aria-hidden="true"
-        className={cn(
-          "mt-1 hidden h-0.5 w-full max-w-16 overflow-hidden rounded-full @[13rem]:block",
-          isLight ? "bg-s-15" : "bg-slate-700/70",
-        )}
-      >
-        <span className="block h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${cachedPct}%` }} />
       </span>
     </button>
   )

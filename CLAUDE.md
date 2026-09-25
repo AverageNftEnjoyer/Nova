@@ -89,7 +89,7 @@ All user data lives in the **data directory**, resolved by `src/db/paths.js` (`r
 
 Inside the data directory:
 
-- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail), `llm_usage` (one row per LLM call: source chat/agent-task/mission, provider, model, input/output/cached/cache-write tokens, `cost_usd` NULL when unpriced; pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90, range 1-3650). Migrations live in `src/db/migrations/` (13 = `llm_usage` + agent-task cache columns, 14 = agent-task budgets)
+- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail), `llm_usage` (one row per LLM call: source chat/agent-task/mission/utility/embedding, provider, model, routing tier, input/output/cached/cache-write tokens, `cost_usd` NULL when unpriced; pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90, range 1-3650). Migrations live in `src/db/migrations/` (13 = `llm_usage` + agent-task cache columns, 14 = agent-task budgets, 15 = `agent_task_budget_events`, 16 = rewrite stored retired model IDs, 17 = `llm_usage` sources `utility` / `embedding`, 18 = `llm_usage.tier`)
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
@@ -125,11 +125,13 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $0.25 / 100,000 tokens). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
+**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $2.00 per task, cost only: the token budget is optional, off by default). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
 
 **LLM usage & cost**: every LLM call goes through `src/providers/usage` (normalised tokens incl. cached) and lands one `llm_usage` row; prices (incl. cached / cache-write rates) only in `src/providers/pricing` (exact model IDs, unknown = unpriced). Default models: `gpt-5.6-terra`, `claude-sonnet-5`, `gemini-3.8-flash`, `grok-4.3`. `/analytics` and the Home Analytics panel read the ledger (`hud/lib/analytics`, `/api/analytics`, `/api/analytics/summary`)
 
 **Prompt caching**: the chat system prompt = static part (identity, policies, persona, runtime, HUD persona) + per-turn part (skills, preferences, recall, web/link context, output rules) appended after it. Nothing per-turn may go into the static part. Claude gets `system` as blocks with `cache_control` on the static block, and the tool loop adds a breakpoint on the latest message; OpenAI/Gemini/Grok cache the stable prefix automatically above their minimum length (Gemini 3.x: 4,096 tokens, so plain Gemini chat turns usually miss). Tool lists stay in registry order; `coinbase_*` / `gmail_*` / `phantom_*` are offered to the model only when that integration is connected (`chat-handler/model-tool-scope`). `npm run smoke:token-gate` fails on prompt/tool-schema growth or a broken cacheable prefix
+
+**Model routing**: one module, `src/runtime/modules/model-routing` (runtime + HUD). Every internal model call has a fixed tier per call site (`MODEL_CALL_SITES`): trivial (correction pass, empty-reply recovery, Spotify parse, mission classify/extract, nova-suggest, Gmail digest), standard, hard (agent tasks, multi-step reasoning, open-ended tool routing, mission generation; never downgraded). A chat turn's tier is decided once per turn by rules (`classifyTurnTier`), never mid-loop. Modes in Settings → Model routing (`kv_state` namespace `model-routing`): `off` (byte-identical requests), `trivial` (default), `cost-saving`. Routed calls go to the same provider's economy model (the Agent budgets setting) only when a cache-aware estimate says it is cheaper; a refused economy model (404) is retried once on the selected model. The tier lands in `llm_usage.tier`
 
 **Tool output caps**: one registry, `src/tools/core/output-caps`, applied in the executor to every tool result (markers say how much was cut and how to get more; `read` returns a 400-line window without `endLine`). Don't add per-tool truncation
 
@@ -137,7 +139,6 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 **Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing
 **Electron**: Window mgmt (min 1024x768), single-instance lock. X quits the app (stops the in-process server + runtime); minimize goes to the taskbar and everything keeps running. System tray: Show/Hide/Check for Updates/Quit. Installed builds auto-update from GitHub Releases (`electron/auto-updater.js`, see `docs/release/auto-update.md`). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
-**Electron**: Window mgmt (min 1024x768), system tray, deep linking (nova://). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
 
 ## Development Guidelines
 
@@ -157,7 +158,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.72 Alpha**
+Current: **V.73 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

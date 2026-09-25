@@ -20,6 +20,9 @@ import {
   CircleAlert,
   CheckCircle2,
   RefreshCw,
+  History,
+  ArrowUpCircle,
+  Layers,
 } from "lucide-react"
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { useTheme } from "@/lib/context/theme-context"
@@ -30,7 +33,20 @@ import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { AGENT_TASK_TERMINAL, type AgentTaskBudgetState } from "@/lib/agents/types"
-import type { AnalyticsData, AnalyticsResponse, BudgetTaskRow } from "@/lib/analytics/types"
+import { systemTimeZone } from "@/lib/analytics/time-zone"
+import {
+  ANALYTICS_TIME_ZONE_PARAM,
+  USAGE_SOURCES,
+  USAGE_SOURCE_LABELS,
+  USAGE_TIER_LABELS,
+  type AnalyticsData,
+  type AnalyticsResponse,
+  type BudgetEventKind,
+  type BudgetEventRow,
+  type BudgetTaskRow,
+  type UsageSource,
+  type UsageTier,
+} from "@/lib/analytics/types"
 import { hexToRgba } from "../home/helpers"
 
 type TimeRange = "today" | "week" | "month" | "all"
@@ -57,6 +73,14 @@ const BUDGET_STATE_META: Record<AgentTaskBudgetState, { label: string; color: st
   warning: { label: "Warning", color: "#f59e0b", Icon: CircleAlert },
   degraded: { label: "Economy model", color: "#f97316", Icon: AlertTriangle },
   exhausted: { label: "Exhausted", color: "#ef4444", Icon: AlertOctagon },
+}
+
+/** What each stored budget event means, for the history list. */
+const BUDGET_EVENT_META: Record<BudgetEventKind, { label: string; color: string; Icon: typeof AlertTriangle }> = {
+  warning: { label: "Warning", color: BUDGET_STATE_META.warning.color, Icon: BUDGET_STATE_META.warning.Icon },
+  degraded: { label: "Economy model", color: BUDGET_STATE_META.degraded.color, Icon: BUDGET_STATE_META.degraded.Icon },
+  exhausted: { label: "Exhausted", color: BUDGET_STATE_META.exhausted.color, Icon: BUDGET_STATE_META.exhausted.Icon },
+  raised: { label: "Budget raised", color: "#6366f1", Icon: ArrowUpCircle },
 }
 
 function providerLabel(provider: string): string {
@@ -149,7 +173,8 @@ export default function AnalyticsPage() {
     async function loadAnalytics() {
       setRefreshing(true)
       try {
-        const response = await fetch(`/api/analytics?days=${days}`, { cache: "no-store", signal: controller.signal })
+        const query = new URLSearchParams({ days: String(days), [ANALYTICS_TIME_ZONE_PARAM]: systemTimeZone() })
+        const response = await fetch(`/api/analytics?${query.toString()}`, { cache: "no-store", signal: controller.signal })
         const data = (await response.json()) as AnalyticsResponse
         if (data.ok && data.analytics) {
           setAnalytics(data.analytics)
@@ -219,11 +244,31 @@ export default function AnalyticsPage() {
     line3: isLight ? "#f59e0b" : "#fbbf24",
     grid: isLight ? "#e5e7eb" : "#374151",
     text: isLight ? "#1f2937" : "#d1d5db",
-    // Stacked-bar series (validated for CVD separation per theme) and the gap stroke between segments.
+    // Stacked-bar series in USAGE_SOURCES order (adjacent pairs validated for CVD separation per theme with the
+    // dataviz palette validator) and the gap stroke between segments.
     series1: "#6366f1",
     series2: isLight ? "#10b981" : "#059669",
     series3: isLight ? "#f59e0b" : "#d97706",
+    series4: isLight ? "#0ea5e9" : "#0284c7",
+    series5: "#db2777",
     surface: isLight ? "#ffffff" : "#0f0f19",
+  }
+
+  /** Color follows the source, never its rank. */
+  const sourceColors: Record<UsageSource, string> = {
+    chat: chartColors.series1,
+    "agent-task": chartColors.series2,
+    mission: chartColors.series3,
+    utility: chartColors.series4,
+    embedding: chartColors.series5,
+  }
+
+  /** Color follows the routing tier; untagged is neutral. */
+  const tierColors: Record<UsageTier, string> = {
+    trivial: chartColors.series2,
+    standard: chartColors.series1,
+    hard: chartColors.series3,
+    untagged: isLight ? "#94a3b8" : "#64748b",
   }
 
   const tooltipStyle: CSSProperties = {
@@ -351,12 +396,11 @@ export default function AnalyticsPage() {
     color: PROVIDER_COLORS[provider] || "#6b7280",
   }))
 
-  const costBySourceData = usage.daily.map((day) => ({
-    date: day.date,
-    chat: day.bySource.chat.costUsd,
-    agentTask: day.bySource["agent-task"].costUsd,
-    mission: day.bySource.mission.costUsd,
-  }))
+  const costBySourceData = usage.daily.map((day) => {
+    const row: Record<string, string | number> = { date: day.date }
+    for (const source of USAGE_SOURCES) row[source] = day.bySource[source]?.costUsd ?? 0
+    return row
+  })
 
   const tokensData = usage.daily.map((day) => ({
     date: day.date,
@@ -364,6 +408,10 @@ export default function AnalyticsPage() {
     uncached: Math.max(0, day.inputTokens - day.cachedInputTokens),
     output: day.outputTokens,
   }))
+
+  // Absent from servers older than Stage 6 (tiered model routing).
+  const byTier = usage.byTier ?? []
+  const tierCostTotal = byTier.reduce((sum, row) => sum + row.costUsd, 0)
 
   const providerCostMax = Math.max(0, ...usage.byProvider.map((row) => row.costUsd))
   const providerTokenMax = Math.max(0, ...usage.byProvider.map((row) => row.inputTokens + row.outputTokens))
@@ -466,6 +514,74 @@ export default function AnalyticsPage() {
     )
   }
 
+  const eventSpendText = (event: BudgetEventRow) => {
+    const parts: string[] = []
+    if (event.costBudgetUsd !== null) parts.push(`${formatUsd(event.spentUsd)} of ${formatUsd(event.costBudgetUsd)}`)
+    if (event.tokenBudget !== null) parts.push(`${formatTokens(event.spentTokens)} of ${formatTokens(event.tokenBudget)} tokens`)
+    if (parts.length === 0) parts.push(`${formatUsd(event.spentUsd)} · ${formatTokens(event.spentTokens)} tokens, no limit`)
+    return parts.join(" · ")
+  }
+
+  const historyRow = (event: BudgetEventRow) => {
+    const meta = BUDGET_EVENT_META[event.kind]
+    const when = new Date(event.ts)
+    const deleted = event.taskName === null
+    const taskLabel = deleted ? "Deleted task" : event.taskName || "Untitled task"
+    const detail =
+      event.kind === "degraded" && event.economyModel
+        ? `Switched to ${event.economyModel}`
+        : event.kind === "raised"
+          ? "Raised by you"
+          : event.model
+    return (
+      <li key={event.id} className="relative pl-4 min-w-0">
+        <span
+          className="absolute -left-1.5 top-1 w-3 h-3 rounded-full border-2"
+          style={{ backgroundColor: meta.color, borderColor: chartColors.surface }}
+          aria-hidden
+        />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+          <time
+            dateTime={event.ts}
+            title={when.toLocaleString()}
+            className={cn("text-xs tabular-nums whitespace-nowrap w-28 shrink-0", textMuted)}
+          >
+            {when.toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
+            {when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+          </time>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap shrink-0",
+              textPrimary,
+            )}
+            style={{ borderColor: hexToRgba(meta.color, 0.45), backgroundColor: hexToRgba(meta.color, isLight ? 0.1 : 0.14) }}
+          >
+            <meta.Icon className="w-3 h-3" style={{ color: meta.color }} aria-hidden />
+            {meta.label}
+          </span>
+          <span
+            className={cn(
+              "text-sm font-medium truncate min-w-0 flex-1 basis-40",
+              deleted ? cn("italic", textMuted) : isLight ? "text-s-80" : "text-slate-200",
+            )}
+            title={deleted ? `Deleted task (${event.taskId})` : taskLabel}
+          >
+            {taskLabel}
+          </span>
+          <span className={cn("text-xs tabular-nums whitespace-nowrap", textSecondary)}>
+            {eventSpendText(event)}
+            {event.fraction > 0 ? ` · ${formatPercent(event.fraction)}` : ""}
+          </span>
+        </div>
+        {detail && (
+          <p className={cn("text-[11px] truncate mt-0.5 sm:pl-31", textMuted)} title={detail}>
+            {detail}
+          </p>
+        )}
+      </li>
+    )
+  }
+
   const bySourceTooltip = (value: unknown) => (typeof value === "number" ? formatUsd(value) : String(value))
   const tokenTooltip = (value: unknown) => (typeof value === "number" ? `${formatTokens(value)} tokens` : String(value))
 
@@ -563,10 +679,20 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="date" stroke={chartColors.text} tick={{ fontSize: 11 }} tickFormatter={formatDayShort} />
                   <YAxis stroke={chartColors.text} tick={{ fontSize: 11 }} tickFormatter={(value: number) => formatUsdTick(value)} width={64} />
                   <Tooltip contentStyle={tooltipStyle} labelFormatter={formatDayLong} formatter={bySourceTooltip} cursor={{ fill: hexToRgba(chartColors.series1, 0.06) }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="chat" stackId="cost" fill={chartColors.series1} stroke={chartColors.surface} strokeWidth={1} name="Chat" />
-                  <Bar dataKey="agentTask" stackId="cost" fill={chartColors.series2} stroke={chartColors.surface} strokeWidth={1} name="Agent tasks" />
-                  <Bar dataKey="mission" stackId="cost" fill={chartColors.series3} stroke={chartColors.surface} strokeWidth={1} name="Missions" radius={[4, 4, 0, 0]} />
+                  {/* Legend in stack (source) order, not recharts' default alphabetical order. */}
+                  <Legend wrapperStyle={{ fontSize: 12 }} itemSorter={null} />
+                  {USAGE_SOURCES.map((source, index) => (
+                    <Bar
+                      key={source}
+                      dataKey={source}
+                      stackId="cost"
+                      fill={sourceColors[source]}
+                      stroke={chartColors.surface}
+                      strokeWidth={1}
+                      name={USAGE_SOURCE_LABELS[source]}
+                      radius={index === USAGE_SOURCES.length - 1 ? [4, 4, 0, 0] : undefined}
+                    />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -584,7 +710,7 @@ export default function AnalyticsPage() {
                   <XAxis dataKey="date" stroke={chartColors.text} tick={{ fontSize: 11 }} tickFormatter={formatDayShort} />
                   <YAxis stroke={chartColors.text} tick={{ fontSize: 11 }} tickFormatter={(value: number) => formatTokens(value)} width={48} />
                   <Tooltip contentStyle={tooltipStyle} labelFormatter={formatDayLong} formatter={tokenTooltip} cursor={{ fill: hexToRgba(chartColors.series1, 0.06) }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} itemSorter={null} />
                   <Bar dataKey="cached" stackId="tokens" fill={chartColors.series2} stroke={chartColors.surface} strokeWidth={1} name="Cached input" />
                   <Bar dataKey="uncached" stackId="tokens" fill={chartColors.series1} stroke={chartColors.surface} strokeWidth={1} name="Uncached input" />
                   <Bar dataKey="output" stackId="tokens" fill={chartColors.series3} stroke={chartColors.surface} strokeWidth={1} name="Output" radius={[4, 4, 0, 0]} />
@@ -641,12 +767,15 @@ export default function AnalyticsPage() {
           <div style={panelStyle} className={cn(panelClass, "p-5 min-w-0")}>
             {sectionTitle(<Gauge className="w-4 h-4 text-accent" />, "By Source")}
             <div className="space-y-2">
-              {usage.bySource.map((row, index) => {
-                const color = [chartColors.series1, chartColors.series2, chartColors.series3][index] ?? "#6b7280"
-                const label = row.source === "chat" ? "Chat" : row.source === "agent-task" ? "Agent tasks" : "Missions"
+              {usage.bySource.map((row) => {
+                const color = sourceColors[row.source] ?? "#6b7280"
+                const label = USAGE_SOURCE_LABELS[row.source] ?? row.source
                 return (
-                  <div key={row.source} className={cn("p-3 rounded-lg border flex items-center justify-between gap-3", insetClass)}>
-                    <span className={cn("flex items-center gap-2 text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>
+                  <div
+                    key={row.source}
+                    className={cn("p-3 rounded-lg border flex items-center justify-between gap-3", insetClass, row.calls === 0 && "opacity-60")}
+                  >
+                    <span className={cn("flex items-center gap-2 text-sm font-medium shrink-0", isLight ? "text-s-80" : "text-slate-200")}>
                       <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} aria-hidden />
                       {label}
                     </span>
@@ -659,6 +788,43 @@ export default function AnalyticsPage() {
               })}
             </div>
           </div>
+        </div>
+
+        {/* By routing tier */}
+        <div style={panelStyle} className={cn(panelClass, "p-5 mb-6 min-w-0")}>
+          {sectionTitle(
+            <Layers className="w-4 h-4 text-accent" />,
+            "By Tier",
+            "Routing tier of each call (Settings → Model routing). Calls from before model routing, embeddings and model tests are untagged.",
+          )}
+          {hasUsage && byTier.length > 0 ? (
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+              {byTier.map((row) => {
+                const color = tierColors[row.tier] ?? tierColors.untagged
+                const share = tierCostTotal > 0 ? row.costUsd / tierCostTotal : 0
+                return (
+                  <div key={row.tier} className={cn("p-3 rounded-lg border min-w-0", insetClass, row.calls === 0 && "opacity-60")}>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className={cn("flex items-center gap-2 text-sm font-medium min-w-0", isLight ? "text-s-80" : "text-slate-200")}>
+                        <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} aria-hidden />
+                        <span className="truncate">{USAGE_TIER_LABELS[row.tier] ?? row.tier}</span>
+                      </span>
+                      <span className={cn("text-sm font-semibold whitespace-nowrap tabular-nums", textPrimary)}>{formatUsd(row.costUsd)}</span>
+                    </div>
+                    <div className={cn("h-1.5 rounded-full overflow-hidden", isLight ? "bg-[#e5e9f0]" : "bg-white/10")}>
+                      <div className="h-full rounded-full" style={{ width: `${share * 100}%`, backgroundColor: color }} />
+                    </div>
+                    <p className={cn("text-[11px] mt-1.5 tabular-nums", textMuted)}>
+                      {formatNumber(row.calls)} calls · {formatTokens(row.inputTokens + row.outputTokens)} tokens
+                      {row.unpricedCalls > 0 ? ` · ${formatNumber(row.unpricedCalls)} unpriced` : ""}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            emptyState(`No LLM calls ${days === 1 ? "today" : "in this range"} yet`, "h-24")
+          )}
         </div>
 
         {/* By model */}
@@ -877,15 +1043,33 @@ export default function AnalyticsPage() {
               </div>
               <div className="min-w-0">
                 <h3 className={cn("text-sm font-semibold mb-1", textPrimary)}>Budget alerts</h3>
-                <p className={cn("text-xs mb-3", textMuted)}>
-                  Current budget state per task, most recently updated first (budget events are not kept as a history)
-                </p>
-                {budgets.events.length > 0 ? (
-                  <div className="space-y-2 max-h-105 overflow-y-auto pr-1">{budgets.events.map((row) => budgetRow(row, true))}</div>
+                <p className={cn("text-xs mb-3", textMuted)}>Current budget state per task, most recently updated first</p>
+                {budgets.alerts.length > 0 ? (
+                  <div className="space-y-2 max-h-105 overflow-y-auto pr-1">{budgets.alerts.map((row) => budgetRow(row, true))}</div>
                 ) : (
                   emptyState("No task is near or over its budget", "h-30")
                 )}
               </div>
+            </div>
+
+            <div className={cn("mt-6 pt-5 border-t min-w-0", isLight ? "border-[#e5e9f0]" : "border-white/10")}>
+              <h3 className={cn("text-sm font-semibold mb-1 flex items-center gap-2", textPrimary)}>
+                <History className="w-4 h-4 text-accent" aria-hidden />
+                Budget history
+              </h3>
+              <p className={cn("text-xs mb-3", textMuted)}>
+                Every warning, switch to the economy model, stop and budget raise for {rangeLabel}, newest first
+                {budgets.historyTruncated ? ` (latest ${budgets.history.length} shown)` : ""}. Spend is as it was at that moment.
+              </p>
+              {budgets.history.length > 0 ? (
+                <div className="max-h-105 overflow-y-auto pr-1">
+                  <ol className={cn("space-y-3 border-l ml-1.5 py-1", isLight ? "border-[#d5dce8]" : "border-white/15")}>
+                    {budgets.history.map(historyRow)}
+                  </ol>
+                </div>
+              ) : (
+                emptyState(`No budget events ${days === 1 ? "today" : "in this range"}`, "h-20")
+              )}
             </div>
           </div>
         </section>

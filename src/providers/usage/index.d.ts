@@ -18,6 +18,8 @@ export interface LlmUsageRecord extends LlmUsage {
   model: string
   /** null when the model has no known pricing. */
   costUsd: number | null
+  /** Routing tier of the call (token-efficiency Stage 6); null when untagged. */
+  tier: "trivial" | "standard" | "hard" | null
 }
 
 export interface RecordLlmUsageInput {
@@ -30,6 +32,8 @@ export interface RecordLlmUsageInput {
   model?: string
   usage?: Partial<LlmUsage> | null
   ts?: string
+  /** Routing tier (src/runtime/modules/model-routing); anything else is stored as null. */
+  tier?: "trivial" | "standard" | "hard" | string | null
 }
 
 export const LLM_USAGE_SOURCES: readonly LlmUsageSource[]

@@ -14,6 +14,7 @@ import {
   recordAgentTaskBudgetEventSafe,
 } from "../../../src/db/agent-task-budget-events.js"
 import { nowIso, tx, type Database } from "../../../src/db/index.js"
+import { resolveCurrentModelId } from "../../../src/providers/models/retired-model-aliases/index.js"
 import {
   AGENT_TASK_COST_BUDGET_LIMITS,
   AGENT_TASK_TOKEN_BUDGET_LIMITS,
@@ -485,7 +486,8 @@ function validateCreateInput(input: CreateAgentTaskInput): CreateTaskFields {
   }
   const agent = pickEnum(input?.agent, PROVIDERS)
   if (!agent) throw new AgentTaskValidationError("Unknown agent.")
-  const model = String(input?.model ?? "").trim()
+  // A retired model ID (retired-model-aliases) is stored as its current replacement, as the pickers show it.
+  const model = resolveCurrentModelId(agent, String(input?.model ?? "").trim(), { log: false })
   if (!model) throw new AgentTaskValidationError("Model is required.")
   if (model.length > MAX_MODEL_CHARS) {
     throw new AgentTaskValidationError(`Model must be ${MAX_MODEL_CHARS} characters or fewer.`)

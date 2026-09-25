@@ -6,8 +6,13 @@ export type TxMode = "deferred" | "immediate" | "exclusive"
 export interface Migration {
   version: number
   name: string
-  /** Empty string = no-op stub. */
+  /** Empty string (and no `run`) = no-op stub. */
   sql: string
+  /**
+   * Optional synchronous data step, run after `sql` on the same connection inside the migration's BEGIN IMMEDIATE
+   * transaction and tracked by the same meta marker. A throw rolls the whole migration back.
+   */
+  run?: (db: Database) => void
 }
 
 export const DB_FILENAME: "nova.db"

@@ -1,6 +1,7 @@
 import "server-only"
 
 import { getDb, nowIso, tx } from "../../../../src/db/index.js"
+import { resolveCurrentModelId } from "../../../../src/providers/models/retired-model-aliases/index.js"
 import { CLAUDE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROK_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants"
 import {
   SecretsUnavailableError,
@@ -409,6 +410,22 @@ function wrapStoredSecret(value: unknown): string {
   return isSecretCiphertext(raw) ? raw : encryptSecret(raw)
 }
 
+/** A stored model choice, with a retired ID replaced by its current successor (src/providers/models/retired-model-aliases). */
+function resolveStoredModel(provider: "openai" | "claude" | "grok" | "gemini", value: string | undefined): string {
+  return resolveCurrentModelId(provider, value)
+}
+
+/** The same replacement on an already-normalised config (a merged partial may carry a retired ID). */
+function withCurrentLlmModels(config: IntegrationsConfig): IntegrationsConfig {
+  return {
+    ...config,
+    openai: { ...config.openai, defaultModel: resolveStoredModel("openai", config.openai.defaultModel) || DEFAULT_CONFIG.openai.defaultModel },
+    claude: { ...config.claude, defaultModel: resolveStoredModel("claude", config.claude.defaultModel) || DEFAULT_CONFIG.claude.defaultModel },
+    grok: { ...config.grok, defaultModel: resolveStoredModel("grok", config.grok.defaultModel) || DEFAULT_CONFIG.grok.defaultModel },
+    gemini: { ...config.gemini, defaultModel: resolveStoredModel("gemini", config.gemini.defaultModel) || DEFAULT_CONFIG.gemini.defaultModel },
+  }
+}
+
 function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined): IntegrationsConfig {
   const rawAgents = raw?.agents && typeof raw.agents === "object"
     ? raw.agents
@@ -562,25 +579,25 @@ function normalizeConfig(raw: DeepPartial<IntegrationsConfig> | null | undefined
       connected: raw?.openai?.connected ?? DEFAULT_CONFIG.openai.connected,
       apiKey: unwrapStoredSecret(raw?.openai?.apiKey),
       baseUrl: raw?.openai?.baseUrl?.trim() || DEFAULT_CONFIG.openai.baseUrl,
-      defaultModel: raw?.openai?.defaultModel?.trim() || DEFAULT_CONFIG.openai.defaultModel,
+      defaultModel: resolveStoredModel("openai", raw?.openai?.defaultModel) || DEFAULT_CONFIG.openai.defaultModel,
     },
     claude: {
       connected: raw?.claude?.connected ?? DEFAULT_CONFIG.claude.connected,
       apiKey: unwrapStoredSecret(raw?.claude?.apiKey),
       baseUrl: raw?.claude?.baseUrl?.trim() || DEFAULT_CONFIG.claude.baseUrl,
-      defaultModel: raw?.claude?.defaultModel?.trim() || DEFAULT_CONFIG.claude.defaultModel,
+      defaultModel: resolveStoredModel("claude", raw?.claude?.defaultModel) || DEFAULT_CONFIG.claude.defaultModel,
     },
     grok: {
       connected: raw?.grok?.connected ?? DEFAULT_CONFIG.grok.connected,
       apiKey: unwrapStoredSecret(raw?.grok?.apiKey),
       baseUrl: raw?.grok?.baseUrl?.trim() || DEFAULT_CONFIG.grok.baseUrl,
-      defaultModel: raw?.grok?.defaultModel?.trim() || DEFAULT_CONFIG.grok.defaultModel,
+      defaultModel: resolveStoredModel("grok", raw?.grok?.defaultModel) || DEFAULT_CONFIG.grok.defaultModel,
     },
     gemini: {
       connected: raw?.gemini?.connected ?? DEFAULT_CONFIG.gemini.connected,
       apiKey: unwrapStoredSecret(raw?.gemini?.apiKey),
       baseUrl: raw?.gemini?.baseUrl?.trim() || DEFAULT_CONFIG.gemini.baseUrl,
-      defaultModel: raw?.gemini?.defaultModel?.trim() || DEFAULT_CONFIG.gemini.defaultModel,
+      defaultModel: resolveStoredModel("gemini", raw?.gemini?.defaultModel) || DEFAULT_CONFIG.gemini.defaultModel,
     },
     spotify: {
       connected:
@@ -1077,7 +1094,7 @@ export async function updateIntegrationsConfig(partial: DeepPartial<Integrations
   warmSecretKey()
   return tx(() => {
     const current = normalizeConfig(readStoredConfig(userId) ?? DEFAULT_CONFIG)
-    const merged = mergeIntegrationsConfig(current, partial)
+    const merged = withCurrentLlmModels(mergeIntegrationsConfig(current, partial))
     writeStoredConfig(userId, toEncryptedStoreConfig(merged))
     return merged
   })

@@ -7,6 +7,10 @@ read_when: ["coinbase", "crypto", "price btc", "portfolio", "my crypto report", 
 
 Use this skill when a user asks for Coinbase crypto data in chat.
 
+## Availability
+
+The `coinbase_*` tools below are only offered when the user's Coinbase integration is connected. If they are not among this request's tools (the system prompt then lists Coinbase as not connected), do not call or pretend to call them and never estimate balances, prices from the account, or transactions: tell the user Coinbase is not connected and that they can connect it on Nova's Integrations page.
+
 ## Command Aliases
 
 - `price btc` -> live spot lookup (`coinbase_spot_price`)

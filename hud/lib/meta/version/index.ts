@@ -10,6 +10,16 @@
  *
  * Version History:
  *
+ * - V.73 Alpha (2026-09-25): Token-efficiency overhaul
+ *     - Prompt caching: the chat system prompt is a byte-stable static prefix plus a per-turn part appended after it; Claude gets `cache_control` on the static block and on the latest tool-loop message; OpenAI / Gemini / Grok cache the stable prefix automatically. Static-prefix changes are counted in telemetry.
+ *     - Usage ledger: every LLM call (chat, agent tasks, missions, utility calls, embeddings) writes one `llm_usage` row with normalised tokens incl. cached / cache-write, cost (NULL when unpriced) and routing tier. `/analytics` and the Home Analytics panel read it (by source, provider, model and tier; cached savings; budget alerts and history; days in the viewer's time zone).
+ *     - Tool output caps in one registry (`src/tools/core/output-caps`) with markers that say how to get more; `read` returns a 400-line window. Integration tools (`coinbase_*`, `gmail_*`, `phantom_*`) are offered to the model only when connected; server-injected ids left the tool schemas.
+ *     - Per-task budgets on cost by default ($2.00 per task; token budget optional), enforced before every model call: warn at 80%, then trim + economy model, then pause. Budget events are stored and shown on `/analytics`. Settings → Agent budgets.
+ *     - Per-turn context fix: skills, preferences, recall, web and link context get their own budget (`NOVA_PROMPT_TURN_CONTEXT_MAX_TOKENS`, default 5,000) and are no longer dropped at default settings; `NOVA_MAX_PROMPT_TOKENS` default 6,000 -> 18,000.
+ *     - Retired model IDs map to their current same-provider replacement at request time; migrations 15 (budget events), 16 (rewrite stored retired model IDs, audited), 17 (`llm_usage` sources `utility` / `embedding`) and 18 (`llm_usage.tier`).
+ *     - Tiered model routing (Settings → Model routing, default "Trivial calls only"): trivial calls (correction passes, empty-reply recovery, Spotify parsing, mission classify / extract, suggestions, Gmail digest) may use the provider's economy model when a cache-aware estimate says it is cheaper; opt-in cost-saving also routes standard calls; hard calls (agent tasks, multi-step reasoning, open-ended tool routing) are never downgraded. Same provider only; a refused economy model is retried once on the selected model.
+ *     - Offline regression gate `npm run smoke:token-gate` and aggregate `npm run smoke:token-efficiency` (in `smoke:src-release`). Details: `docs/token-efficiency/README.md`.
+ *
  * - V.72 Alpha (2026-09-24): Context routing
  *     - Chat context is routed in two parts. The static prefix (identity, policies, persona, runtime, HUD persona) stays byte-identical across turns; the per-turn part (skills, preferences, recall, web and link context, output rules) is appended after it. Nothing that changes per message goes into the static part, so OpenAI, Claude, Gemini, and Grok can cache the repeated prefix. Claude sends `system` as blocks with `cache_control` on the static block, and the tool loop adds a breakpoint on the latest message.
  *     - The model-facing tool list stays in registry order. `coinbase_*`, `gmail_*`, and `phantom_*` are offered only when that integration is connected (`chat-handler/model-tool-scope`), so the tool-schema prefix stays stable until the user connects or disconnects one. Execution and the domain workers still see the full tool set.
@@ -474,7 +484,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.72 Alpha"
+export const NOVA_VERSION = "V.73 Alpha"
 
 
 

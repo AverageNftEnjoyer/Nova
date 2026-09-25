@@ -3,8 +3,10 @@
  *
  * Adversarial inputs go through the REAL executor, and through the real tool wherever that needs no network:
  * - read: a 20,000-line file, with and without a line range, a single huge line, and small files (unchanged).
+ * - grep: a minified line is shown as a bounded window around the match with a per-line note (TC-19).
  * - web_fetch: the real tool (SSRF guard, readability worker) against a stubbed globalThis.fetch and a TEST-NET
- *   IP literal (no DNS, nothing leaves the process).
+ *   IP literal (no DNS, nothing leaves the process). A second module copy with a 50 ms worker timeout proves the
+ *   plain-text fallback returns capped content instead of an error (TC-17, TC-18).
  * - memory_get / memory_search: the real tools over a stub memory manager (huge source, offset paging).
  * - exec: a local `node` child process printing 200,000 chars (approval mode "auto").
  * - browser_agent: needs the agent-browser binary, so a stub tool with the same name returns a huge result through
@@ -125,6 +127,32 @@ await run("TC-5 read small file and small ranges -> unchanged from before Stage 
   assert.match(await call(fileTools, "read", { path: "small.txt", startLine: 9 }), /past the end of the file \(3 lines\)/);
 });
 
+// ── grep ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+await run("TC-19 grep over a minified line -> a window around the match with a per-line note; short lines unchanged", async () => {
+  const grepWs = path.join(isolatedDataDir, "tool-output-caps-grep-ws");
+  fs.mkdirSync(grepWs, { recursive: true });
+  const minified = `${"a=1;".repeat(5_000)}NEEDLE();${"b=2;".repeat(5_000)}`; // 40,009 chars, match at index 20,000
+  fs.writeFileSync(path.join(grepWs, "bundle.min.js"), `${minified}\n  short NEEDLE line  \n`);
+  const tools = createFileTools(grepWs);
+  const out = await call(tools, "grep", { pattern: "needle" });
+  const [first, second] = out.split("\n");
+  assert.equal(second, "bundle.min.js:2: short NEEDLE line", "short lines keep the old format");
+  assert.ok(first.startsWith("bundle.min.js:1: ..."), first.slice(0, 60));
+  assert.match(first, /NEEDLE\(\);/, "the window must contain the match");
+  assert.ok(first.endsWith(`... [line cut: chars 19901-20200 of ${minified.length}]`), first.slice(-80));
+  assert.equal(first.length, "bundle.min.js:1: ".length + 3 + caps.GREP_LINE_MAX_CHARS + 3 + ` [line cut: chars 19901-20200 of ${minified.length}]`.length);
+  assert.equal(await call(tools, "grep", { pattern: "needle" }), out, "repeat call must be byte-identical");
+  // 200 minified hits: every line is bounded, and the whole result still under the grep cap.
+  fs.writeFileSync(path.join(grepWs, "many.min.js"), Array.from({ length: 200 }, () => minified).join("\n"));
+  const many = await call(tools, "grep", { pattern: "needle", path: "many.min.js" });
+  const lines = many.split("\n").filter((line) => line.startsWith("many.min.js:"));
+  assert.ok(lines.length > 50, `grep with a file path must search that file (got ${lines.length} hit lines)`);
+  assert.ok(lines.every((line) => line.length < 400), "every hit line must be bounded");
+  assert.doesNotMatch(many, /bundle\.min\.js/, "a file path must limit the search to that file");
+  assert.ok(many.length <= TOOL_OUTPUT_LIMITS.grep.maxChars + TOOL_OUTPUT_MARKER_MAX_CHARS);
+});
+
 // ── web_fetch ───────────────────────────────────────────────────────────────────────────────────────────────
 
 const PAGE_URL = "http://203.0.113.10/huge-article"; // TEST-NET-3 literal: passes the SSRF guard without DNS
@@ -146,6 +174,40 @@ await run("TC-6 web_fetch huge page (real tool, stubbed fetch) -> capped with a 
   assertCapped(out, TOOL_OUTPUT_LIMITS.web_fetch.maxChars, { mustMatch: [/showed chars 1-18000 of \d+/, /more not shown/, /narrower URL/] });
   assert.equal(await call(tools, "web_fetch", { url: PAGE_URL }), out, "repeat call must be byte-identical");
   assert.deepEqual([...new Set(fetchLog)], [PAGE_URL], "only the stubbed URL may be fetched");
+});
+
+// A second copy of the web_fetch module (new URL = fresh module state) that reads a tiny worker timeout, so the
+// readability worker cannot even start in time: the tool must fall back to plain text instead of returning an error.
+process.env.NOVA_WEB_FETCH_PARSE_WORKER_TIMEOUT_MS = "50";
+const { createWebFetchTool: createWebFetchToolFastTimeout, extractPlainTextFallback } = await import(
+  `${dist("tools/web/web-fetch/index.js")}?worker-timeout-50ms`
+);
+process.env.NOVA_WEB_FETCH_PARSE_WORKER_TIMEOUT_MS = "15000";
+
+await run("TC-17 web_fetch worker timeout on a huge page -> capped plain text with a note, not an error", async () => {
+  const tools = [createWebFetchToolFastTimeout()];
+  const out = await call(tools, "web_fetch", { url: PAGE_URL });
+  assert.doesNotMatch(out, /^web_fetch error/, `fell through to an error: ${out.slice(0, 200)}`);
+  assert.ok(out.startsWith(`# Huge article\n\nSource: ${PAGE_URL}\n\nNote: readable extraction failed (web_fetch worker parse timed out after 50ms)`), `unexpected head: ${out.slice(0, 240)}`);
+  assert.match(out, /showing the page's plain text without formatting\.\n\nHuge article\nParagraph 1: The quick brown fox/);
+  assert.doesNotMatch(out, /<p>|<\/p>|<article>/, "tags must be stripped");
+  assertCapped(out, TOOL_OUTPUT_LIMITS.web_fetch.maxChars, { mustMatch: [/showed chars 1-18000 of \d+/, /narrower URL/] });
+  assert.equal(await call(tools, "web_fetch", { url: PAGE_URL }), out, "repeat call must be byte-identical");
+  assert.deepEqual([...new Set(fetchLog)], [PAGE_URL], "only the stubbed URL may be fetched");
+});
+
+await run("TC-18 plain-text fallback drops scripts/styles/comments, decodes entities, survives broken HTML", async () => {
+  const html = "<!DOCTYPE html><html><head><title>A &amp; B</title><style>p{color:red}</style></head><body>"
+    + "<script>var x = '<p>not text</p>';</script><!-- hidden --><div>one &lt; two&nbsp;&#65;&#x42;</div>"
+    + "<p>a < b</p><SCRIPT type=x>still hidden</SCRIPT ><p>tail</p><script>never closed <p>gone";
+  const { title, markdown } = extractPlainTextFallback(html, "fallback-host");
+  assert.equal(title, "A & B");
+  assert.equal(markdown, "one < two AB\na < b\ntail");
+  assert.equal(extractPlainTextFallback("no tags at all", "host").title, "host");
+  // Linear on a pathological page: 2 MB of unclosed "<script" openers must not backtrack.
+  const started = Date.now();
+  extractPlainTextFallback("<p>x</p>" + "<div>".repeat(200_000) + "<script>".repeat(50_000), "host");
+  assert.ok(Date.now() - started < 3_000, `fallback took ${Date.now() - started}ms`);
 });
 globalThis.fetch = realFetch;
 

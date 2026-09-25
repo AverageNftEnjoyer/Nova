@@ -32,6 +32,12 @@ import { runSpotifyDomainService } from "../../../../services/spotify/index.js";
 import { normalizeWorkerSummary } from "../../shared/worker-contract/index.js";
 import { normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
 import { createLlmUsageRecorder } from "../../../core/chat-handler/llm-usage-recorder/index.js";
+import {
+  approxTokens,
+  readModelRoutingSettings,
+  resolveModelRoute,
+  runWithRouteFallback,
+} from "../../../../model-routing/index.js";
 
 const SPOTIFY_MIN_THINKING_MS = 650;
 
@@ -187,31 +193,49 @@ Output ONLY valid JSON, nothing else.`;
       intent = fastIntent;
     } else {
       try {
+        // Stage 6: intent parsing is a trivial call (JSON extraction), so the user's routing mode may send it to
+        // the provider's economy model. Nothing of it is cached on either model (short, one-off prompt).
+        const parseRoute = resolveModelRoute({
+          userContextId,
+          provider: activeChatRuntime.provider,
+          model: selectedChatModel,
+          callSite: "spotify.intent-parse",
+          settings: readModelRoutingSettings(userContextId),
+          estimate: {
+            inputTokens: approxTokens(spotifySystemPrompt) + approxTokens(text),
+            mainWarmPrefixTokens: 0,
+            economyWarmPrefixTokens: 0,
+          },
+        });
         if (activeChatRuntime.provider === "claude") {
-          const r = await withTimeout(
+          const { result: r, model: parseModel } = await runWithRouteFallback(parseRoute, (model) => withTimeout(
             claudeMessagesCreate({
               apiKey: activeChatRuntime.apiKey,
               baseURL: activeChatRuntime.baseURL,
-              model: selectedChatModel,
+              model,
               system: spotifySystemPrompt,
               userText: text,
               maxTokens: SPOTIFY_INTENT_MAX_TOKENS,
             }),
             OPENAI_REQUEST_TIMEOUT_MS,
             "Claude Spotify parse",
-          );
-          llmUsageRecorder.record({ model: selectedChatModel, usage: r.usage });
+          ));
+          llmUsageRecorder.record({ model: parseModel, usage: r.usage, tier: parseRoute.tier });
           spotifyRaw = r.text;
         } else {
-          const parse = await withTimeout(
+          const { result: parse, model: parseModel } = await runWithRouteFallback(parseRoute, (model) => withTimeout(
             activeOpenAiCompatibleClient.chat.completions.create({
-              model: selectedChatModel,
+              model,
               messages: [{ role: "system", content: spotifySystemPrompt }, { role: "user", content: text }],
             }),
             OPENAI_REQUEST_TIMEOUT_MS,
             "OpenAI Spotify parse",
-          );
-          llmUsageRecorder.record({ model: selectedChatModel, usage: normalizeOpenAiCompatibleUsage(parse?.usage) });
+          ));
+          llmUsageRecorder.record({
+            model: parseModel,
+            usage: normalizeOpenAiCompatibleUsage(parse?.usage),
+            tier: parseRoute.tier,
+          });
           spotifyRaw = extractOpenAIChatText(parse);
         }
         intent = JSON.parse(spotifyRaw);

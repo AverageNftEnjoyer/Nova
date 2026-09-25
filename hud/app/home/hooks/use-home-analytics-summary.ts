@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
 import { AGENT_TASK_BUDGET_WINDOW_EVENT } from "@/lib/agents/task-budget"
-import type { AnalyticsSummary, AnalyticsSummaryResponse } from "@/lib/analytics/types"
+import { systemTimeZone } from "@/lib/analytics/time-zone"
+import { ANALYTICS_TIME_ZONE_PARAM, type AnalyticsSummary, type AnalyticsSummaryResponse } from "@/lib/analytics/types"
 
 /** Figures the Home Analytics panel renders, normalised so a partial payload never breaks the panel. */
 export interface HomeAnalyticsSummary {
@@ -73,7 +74,9 @@ export function useHomeAnalyticsSummary(): HomeAnalyticsSummaryState {
       const controller = new AbortController()
       inFlight = controller
       try {
-        const res = await fetch(SUMMARY_ENDPOINT, {
+        // The viewer's zone decides where "today" starts (exact for half-hour / 45-minute offsets and DST).
+        const url = `${SUMMARY_ENDPOINT}?${ANALYTICS_TIME_ZONE_PARAM}=${encodeURIComponent(systemTimeZone())}`
+        const res = await fetch(url, {
           method: "GET",
           cache: "no-store",
           credentials: "include",

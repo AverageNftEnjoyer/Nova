@@ -142,6 +142,13 @@ export function resolveLlmUsageSource({ source, refId, conversationId } = {}) {
   return { source: "chat", refId: String(refId || conversation).trim() };
 }
 
+const USAGE_TIERS = new Set(["trivial", "standard", "hard"]);
+
+function normalizeUsageTier(value) {
+  const key = String(value ?? "").trim().toLowerCase();
+  return USAGE_TIERS.has(key) ? key : null;
+}
+
 // Observers let a caller (e.g. the agent-task service) see every call recorded inside one async scope, so it can
 // total an attempt's usage even when the run throws. They are notified even if the ledger write fails.
 const observerStorage = new AsyncLocalStorage();
@@ -162,7 +169,7 @@ export function recordLlmUsageSafe(input) {
   let record = null;
   try {
     // A default parameter only replaces undefined; null or a non-object must not throw either.
-    const { userContextId, source, refId, conversationId, provider, model, usage, ts } =
+    const { userContextId, source, refId, conversationId, provider, model, usage, ts, tier } =
       input && typeof input === "object" ? input : {};
     const normalized = addLlmUsage(usage);
     const resolved = resolveLlmUsageSource({ source, refId, conversationId });
@@ -179,6 +186,8 @@ export function recordLlmUsageSafe(input) {
       model: String(model || "").trim(),
       ...normalized,
       costUsd: Number.isFinite(Number(cost)) && cost !== null ? Number(cost) : null,
+      // Routing tier of the call (Stage 6, src/runtime/modules/model-routing); null when untagged.
+      tier: normalizeUsageTier(tier),
     };
   } catch {
     return null;

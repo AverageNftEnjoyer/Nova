@@ -1,16 +1,17 @@
 "use client"
 
 import { Ban, Bookmark, CheckCircle2, Clock, GitBranch, Loader2, Pause, PauseCircle, Play, ShieldAlert, Square, Trash2, XCircle } from "lucide-react"
-import { useEffect, useState, type ComponentType, type FormEvent } from "react"
+import { useEffect, useRef, useState, type ComponentType, type FormEvent } from "react"
 
-import { budgetFraction, hasBudgetHeadroom, taskBudgetSpend } from "@/lib/agents/task-budget"
-import type {
-  AgentPermissionMode,
-  AgentTask,
-  AgentTaskBudgetState,
-  AgentTaskStatus,
-  AgentTaskUiAction,
-  RaiseAgentTaskBudgetInput,
+import { budgetFraction, hasBudgetHeadroom, isCostBudgetBlind, taskBudgetSpend } from "@/lib/agents/task-budget"
+import {
+  AGENT_TASK_TERMINAL,
+  type AgentPermissionMode,
+  type AgentTask,
+  type AgentTaskBudgetState,
+  type AgentTaskStatus,
+  type AgentTaskUiAction,
+  type RaiseAgentTaskBudgetInput,
 } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
 
@@ -101,6 +102,13 @@ const BUDGET_STATE_STYLES: Record<Exclude<AgentTaskBudgetState, "ok">, BudgetSta
 }
 
 const RESUME_NOTE = "Resume re-runs the task from the start. Steps that already had side effects are not repeated."
+// Kept to one short line so a budget-paused card (plus the raise form) fits the Home task list at 1024x768.
+const RESUME_NOTE_SHORT = "Resume restarts the task; side effects are not repeated."
+const SPENT_NOTE_SHORT = "Budget spent: raising it restarts the task."
+const UNPRICED_NOTE = "Unpriced model: the cost budget cannot stop it."
+const UNPRICED_HINT =
+  "Nova records this model's calls at $0, so a cost-only budget never trips. The task is not blocked. " +
+  "Set a token budget (Settings, Agent budgets, or when creating a task) to cap it."
 const MAX_COST_BUDGET_USD = 100
 const MAX_TOKEN_BUDGET = 10_000_000
 
@@ -165,6 +173,12 @@ export function TaskCard({ task, isLight, subPanelClass, onAction, onRaiseBudget
   const [raiseCost, setRaiseCost] = useState("")
   const [raiseTokens, setRaiseTokens] = useState("")
   const [raiseError, setRaiseError] = useState("")
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // Opening the raise form changes the card: keep it in view inside the scrolling task list.
+  useEffect(() => {
+    if (raiseOpen) cardRef.current?.scrollIntoView({ block: "nearest" })
+  }, [raiseOpen])
 
   useEffect(() => {
     const timer = setInterval(() => setClockTick((value) => value + 1), 30_000)
@@ -214,6 +228,7 @@ export function TaskCard({ task, isLight, subPanelClass, onAction, onRaiseBudget
   const budgetStyle = task.budgetState !== "ok" ? BUDGET_STATE_STYLES[task.budgetState] : null
   const showBudget = Boolean(budget?.active) && (budgetShare > 0 || budgetStyle !== null)
   const economyModel = task.budgetLive?.economyModel ?? null
+  const costBudgetBlind = !AGENT_TASK_TERMINAL.includes(task.status) && isCostBudgetBlind(budget, task.model)
 
   const openRaiseForm = () => {
     setRaiseCost(suggestedCostBudget(budget.costUsd, budgetSpend.spentUsd))
@@ -249,6 +264,7 @@ export function TaskCard({ task, isLight, subPanelClass, onAction, onRaiseBudget
 
   return (
     <div
+      ref={cardRef}
       className={cn(
         "home-spotlight-card home-border-glow min-w-0 rounded-md border px-2.5 py-2 transition-opacity",
         subPanelClass,
@@ -379,43 +395,24 @@ export function TaskCard({ task, isLight, subPanelClass, onAction, onRaiseBudget
         </div>
       ) : null}
 
-      {task.error ? (
+      {costBudgetBlind ? (
+        <p
+          className={cn("mt-1 truncate pl-[1.375rem] text-[10px] leading-4", isLight ? "text-amber-700" : "text-amber-300")}
+          title={UNPRICED_HINT}
+        >
+          {UNPRICED_NOTE}
+        </p>
+      ) : null}
+
+      {/* A budget pause shows its spend in the budget bar and its own note below, so its error text is not repeated. */}
+      {task.error && !budgetPaused ? (
         <p className={cn("mt-1.5 line-clamp-2 pl-[1.375rem] text-[10px] leading-4", isLight ? "text-[#a53b3b]" : "text-rose-300")}>{task.error}</p>
       ) : null}
 
       {budgetPaused ? (
-        <div className="mt-1.5 space-y-1.5 pl-[1.375rem]">
-          <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              disabled={isActing || !canResumeBudget}
-              onClick={() => void handleAction("play")}
-              title={canResumeBudget ? "Resume task" : "This task already spent its budget. Raise the budget to resume."}
-              className={cn(budgetButtonClass, playTone)}
-            >
-              <Play className="h-3 w-3" />
-              Resume
-            </button>
-            <button
-              type="button"
-              disabled={isActing}
-              onClick={() => (raiseOpen ? setRaiseOpen(false) : openRaiseForm())}
-              aria-expanded={raiseOpen}
-              className={cn(budgetButtonClass, isLight ? "text-amber-600 hover:bg-amber-500/15" : "text-amber-400 hover:bg-amber-500/20")}
-            >
-              Raise budget
-            </button>
-            <button
-              type="button"
-              disabled={isActing}
-              onClick={() => void handleAction("stop")}
-              className={cn(budgetButtonClass, stopTone)}
-            >
-              <Square className="h-3 w-3" />
-              Abort
-            </button>
-          </div>
+        <div className="mt-1.5 space-y-1 pl-[1.375rem]" title={task.error ?? undefined}>
           {raiseOpen ? (
+            // The form replaces the action row (Cancel brings Resume / Raise budget / Abort back): the card stays short.
             <form onSubmit={(event) => void submitRaise(event)} className="flex flex-wrap items-center gap-1.5">
               {budget.costUsd !== null || budget.tokens === null ? (
                 <label className={cn("inline-flex items-center gap-1 text-[10px]", mutedText)}>
@@ -466,9 +463,40 @@ export function TaskCard({ task, isLight, subPanelClass, onAction, onRaiseBudget
                 <p className={cn("basis-full text-[10px] leading-4", isLight ? "text-[#a53b3b]" : "text-rose-300")}>{raiseError}</p>
               ) : null}
             </form>
-          ) : null}
-          <p className={cn("text-[10px] leading-4", mutedText)}>
-            {canResumeBudget ? RESUME_NOTE : `Its budget is spent: raise it to resume. ${RESUME_NOTE}`}
+          ) : (
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                disabled={isActing || !canResumeBudget}
+                onClick={() => void handleAction("play")}
+                title={canResumeBudget ? "Resume task" : "This task already spent its budget. Raise the budget to resume."}
+                className={cn(budgetButtonClass, playTone)}
+              >
+                <Play className="h-3 w-3" />
+                Resume
+              </button>
+              <button
+                type="button"
+                disabled={isActing}
+                onClick={openRaiseForm}
+                aria-expanded={raiseOpen}
+                className={cn(budgetButtonClass, isLight ? "text-amber-600 hover:bg-amber-500/15" : "text-amber-400 hover:bg-amber-500/20")}
+              >
+                Raise budget
+              </button>
+              <button
+                type="button"
+                disabled={isActing}
+                onClick={() => void handleAction("stop")}
+                className={cn(budgetButtonClass, stopTone)}
+              >
+                <Square className="h-3 w-3" />
+                Abort
+              </button>
+            </div>
+          )}
+          <p className={cn("truncate text-[10px] leading-4", mutedText)} title={canResumeBudget ? RESUME_NOTE : `Its budget is spent: raise it to resume. ${RESUME_NOTE}`}>
+            {canResumeBudget ? RESUME_NOTE_SHORT : SPENT_NOTE_SHORT}
           </p>
         </div>
       ) : null}

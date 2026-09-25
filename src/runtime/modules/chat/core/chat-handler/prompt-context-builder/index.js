@@ -7,7 +7,9 @@ import {
   PROMPT_HISTORY_TARGET_TOKENS,
   PROMPT_MIN_HISTORY_TOKENS,
   PROMPT_CONTEXT_SECTION_MAX_TOKENS,
+  PROMPT_TURN_CONTEXT_MAX_TOKENS,
   PROMPT_BUDGET_DEBUG,
+  TOOL_REGISTRY_ENABLED_TOOLS,
   AGENT_PROMPT_MODE,
   ROOT_WORKSPACE_DIR,
 } from "../../../../../core/constants/index.js";
@@ -20,17 +22,46 @@ import { buildRuntimeSkillsPrompt } from "../../../../context/skills/index.js";
 import { shouldPreloadWebSearch } from "../../../routing/intent-router/index.js";
 import { runtimeToneDirective } from "../../../../audio/voice/index.js";
 import { describeUnknownError, withTimeout } from "../../../../llm/providers/index.js";
-import { buildSystemPromptWithPersona, enforcePromptTokenBound } from "../../../../../core/context-prompt/index.js";
+import { buildSystemPromptWithPersona, countApproxTokens, enforcePromptTokenBound } from "../../../../../core/context-prompt/index.js";
 import { buildAgentSystemPrompt, buildSkillsPromptBlock, PromptMode } from "../../../../context/system-prompt/index.js";
 import { buildPersonaPrompt } from "../../../../context/bootstrap/index.js";
-import { runLinkUnderstanding, formatLinkUnderstandingForPrompt } from "../../../analysis/link-understanding/index.js";
+import { runLinkUnderstanding, formatLinkUnderstandingForPrompt, extractLinksFromMessage } from "../../../analysis/link-understanding/index.js";
 import { appendBudgetedPromptSection, computeHistoryTokenBudget, resolveDynamicPromptBudget } from "../../../prompt/prompt-budget/index.js";
 import { detectSuspiciousPatterns, wrapWebContent } from "../../../../context/external-content/index.js";
 import { hashShadowPayload } from "../../chat-utils/index.js";
+import { resolveUnconnectedIntegrationsForPrompt } from "../model-tool-scope/index.js";
 
 const MEMORY_RECALL_TIMEOUT_MS = readIntEnv("NOVA_MEMORY_RECALL_TIMEOUT_MS", 450, 50, 10_000);
 const WEB_PRELOAD_TIMEOUT_MS = readIntEnv("NOVA_WEB_PRELOAD_TIMEOUT_MS", 900, 50, 30_000);
 const LINK_PRELOAD_TIMEOUT_MS = readIntEnv("NOVA_LINK_PRELOAD_TIMEOUT_MS", 900, 50, 30_000);
+
+// Static-prefix change telemetry (token-efficiency issue 8). The static system prompt is the cacheable prefix; it
+// changes when MEMORY.md is auto-captured, a persona file or HUD persona setting is edited, the model or channel
+// changes, or an integration is connected. Per session key we keep the last static-prompt hash and count changes, so
+// the cache misses this causes can be measured (runSummary.requestHints + the latency counter
+// "static_prompt_prefix_changes" + one log line per change). Bounded: oldest session dropped past the cap.
+const STATIC_PROMPT_TRACKER_MAX_SESSIONS = 256;
+const staticPromptTracker = new Map();
+
+export function trackStaticPromptPrefix(sessionKey, staticSystemPrompt) {
+  const key = String(sessionKey || "").trim() || "unknown-session";
+  const hash = hashShadowPayload(staticSystemPrompt);
+  const chars = String(staticSystemPrompt || "").length;
+  const previous = staticPromptTracker.get(key);
+  const changed = Boolean(previous && previous.hash !== hash);
+  const entry = {
+    hash,
+    chars,
+    turns: (previous?.turns || 0) + 1,
+    changes: (previous?.changes || 0) + (changed ? 1 : 0),
+  };
+  staticPromptTracker.delete(key);
+  staticPromptTracker.set(key, entry);
+  if (staticPromptTracker.size > STATIC_PROMPT_TRACKER_MAX_SESSIONS) {
+    staticPromptTracker.delete(staticPromptTracker.keys().next().value);
+  }
+  return { ...entry, changed, previousChars: previous ? previous.chars : null };
+}
 
 function readIntEnv(name, fallback, minValue, maxValue) {
   const parsed = Number.parseInt(String(process.env[name] || "").trim(), 10);
@@ -126,6 +157,10 @@ export async function buildPromptContextForTurn({
         repoRoot: process.env.ROOT_WORKSPACE_DIR || "",
       },
       workspaceNotes: [],
+      // Per-user and stable until the user connects or disconnects one (see model-tool-scope).
+      unconnectedIntegrations: resolveUnconnectedIntegrationsForPrompt(userContextId, {
+        enabledToolNames: TOOL_REGISTRY_ENABLED_TOOLS,
+      }),
     },
   });
 
@@ -142,6 +177,16 @@ export async function buildPromptContextForTurn({
   // Everything above is identical on every call for this user, model and channel; everything appended
   // below (skills and the per-turn sections) varies. Callers can send the static part as a cacheable prefix.
   const staticSystemPrompt = systemPrompt;
+  const staticPrefix = trackStaticPromptPrefix(sessionKey, staticSystemPrompt);
+  runSummary.requestHints.staticPromptHash = staticPrefix.hash;
+  runSummary.requestHints.staticPromptChanged = staticPrefix.changed;
+  runSummary.requestHints.staticPromptChanges = staticPrefix.changes;
+  if (staticPrefix.changed) {
+    latencyTelemetry.incrementCounter("static_prompt_prefix_changes");
+    console.log(
+      `[PromptCache] static prefix changed session=${sessionKey} changes=${staticPrefix.changes}/${staticPrefix.turns} turns chars=${staticPrefix.previousChars}->${staticPrefix.chars}`,
+    );
+  }
   const skillsBlock = buildSkillsPromptBlock(runtimeSkillsPrompt || process.env.NOVA_SKILLS_PROMPT || "", promptMode);
   if (skillsBlock) systemPrompt += `\n\n${skillsBlock}`;
 
@@ -155,8 +200,33 @@ export async function buildPromptContextForTurn({
   });
   runSummary.requestHints.latencyPolicy = promptBudgetProfile.profile;
 
+  // Per-turn sections are budgeted on their own (PROMPT_TURN_CONTEXT_MAX_TOKENS over the text after the static
+  // prompt), so the size of the static persona cannot starve them. Priority: the enrichment sections this turn will
+  // try (live web search, link context, memory recall) and the strict output requirements are reserved first; the
+  // profile sections (preference, identity, personality, continuity, short-term, operator routing) use the rest.
+  const allowContextEnrichment = !fastLaneSimpleChat;
+  const plannedWebSearchPreload = allowContextEnrichment && shouldPreloadWebSearchForTurn && shouldPreloadWebSearch(text);
+  const plannedLinkPreload = allowContextEnrichment && shouldPreloadWebFetchForTurn
+    && extractLinksFromMessage(text, { maxLinks: 2 }).length > 0;
+  const plannedMemoryRecall = Boolean(
+    allowContextEnrichment && shouldAttemptMemoryRecallForTurn && runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED,
+  );
+  const plannedEnrichmentSections = [plannedWebSearchPreload, plannedLinkPreload, plannedMemoryRecall].filter(Boolean).length;
+  const strictOutputReserveTokens = hasStrictOutputRequirements
+    ? Math.min(
+      promptBudgetProfile.sectionMaxTokens,
+      countApproxTokens(`\n\n## Strict Output Requirements\n${String(outputConstraints?.instructions || "").trim()}`),
+    )
+    : 0;
+  const profileSectionReserveTokens = plannedEnrichmentSections * promptBudgetProfile.sectionMaxTokens + strictOutputReserveTokens;
+  const skippedPromptSections = [];
+  runSummary.requestHints.turnContextBudgetTokens = PROMPT_TURN_CONTEXT_MAX_TOKENS;
+  runSummary.requestHints.promptSectionsSkipped = skippedPromptSections;
+
   const promptBudgetOptions = {
     userMessage: text,
+    turnContextStart: staticSystemPrompt.length,
+    turnContextMaxTokens: PROMPT_TURN_CONTEXT_MAX_TOKENS,
     maxPromptTokens: promptBudgetProfile.maxPromptTokens,
     responseReserveTokens: promptBudgetProfile.responseReserveTokens,
     historyTargetTokens: promptBudgetProfile.historyTargetTokens,
@@ -166,17 +236,25 @@ export async function buildPromptContextForTurn({
   const priorTurns = sessionRuntime.limitTranscriptTurns(sessionContext.transcript, SESSION_MAX_TURNS);
   const rawHistoryMessages = sessionRuntime.transcriptToChatMessages(priorTurns);
 
-  function applyBudgetedSection(sectionTitle, sectionBody) {
+  function noteSkippedSection(sectionTitle, appended) {
+    if (!appended.included && appended.reason !== "empty_body") {
+      skippedPromptSections.push(`${sectionTitle}:${appended.reason}`);
+    }
+    return appended;
+  }
+
+  function applyBudgetedSection(sectionTitle, sectionBody, reservedTokens = profileSectionReserveTokens) {
     const appended = appendBudgetedPromptSection({
       ...promptBudgetOptions,
       prompt: systemPrompt,
       sectionTitle,
       sectionBody,
+      reservedTokens,
     });
     if (appended.included) {
       systemPrompt = appended.prompt;
     }
-    return appended;
+    return noteSkippedSection(sectionTitle, appended);
   }
 
   if (preferencePrompt) {
@@ -275,7 +353,6 @@ export async function buildPromptContextForTurn({
     }
   }
 
-  const allowContextEnrichment = !fastLaneSimpleChat;
   let usedMemoryRecall = false;
   let usedWebSearchPreload = false;
   let usedLinkUnderstanding = false;
@@ -285,7 +362,7 @@ export async function buildPromptContextForTurn({
   }
 
   const enrichmentTasks = [];
-  if (allowContextEnrichment && shouldPreloadWebSearchForTurn && shouldPreloadWebSearch(text)) {
+  if (plannedWebSearchPreload) {
     enrichmentTasks.push(
       withTimeout(
         (async () => {
@@ -342,7 +419,7 @@ export async function buildPromptContextForTurn({
     );
   }
 
-  if (allowContextEnrichment && shouldAttemptMemoryRecallForTurn && runtimeTools?.memoryManager && MEMORY_LOOP_ENABLED) {
+  if (plannedMemoryRecall) {
     enrichmentTasks.push(
       (async () => {
         runtimeTools.memoryManager.warmSession();
@@ -395,7 +472,9 @@ export async function buildPromptContextForTurn({
           prompt: systemPrompt,
           sectionTitle: "Live Web Search Context",
           sectionBody: taskValue.body,
+          reservedTokens: strictOutputReserveTokens,
         });
+        noteSkippedSection("Live Web Search Context", appended);
         if (appended.included) {
           systemPrompt = appended.prompt;
           usedWebSearchPreload = true;
@@ -409,7 +488,9 @@ export async function buildPromptContextForTurn({
           prompt: systemPrompt,
           sectionTitle: "Link Context",
           sectionBody: taskValue.body,
+          reservedTokens: strictOutputReserveTokens,
         });
+        noteSkippedSection("Link Context", appended);
         if (appended.included) {
           systemPrompt = appended.prompt;
           usedLinkUnderstanding = true;
@@ -424,7 +505,9 @@ export async function buildPromptContextForTurn({
           prompt: systemPrompt,
           sectionTitle: "Live Memory Recall",
           sectionBody: taskValue.body,
+          reservedTokens: strictOutputReserveTokens,
         });
+        noteSkippedSection("Live Memory Recall", appended);
         if (appended.included) {
           systemPrompt = appended.prompt;
           usedMemoryRecall = true;
@@ -436,7 +519,7 @@ export async function buildPromptContextForTurn({
   }
 
   if (hasStrictOutputRequirements) {
-    applyBudgetedSection("Strict Output Requirements", outputConstraints.instructions);
+    applyBudgetedSection("Strict Output Requirements", outputConstraints.instructions, 0);
   }
 
   const tokenInfo = enforcePromptTokenBound(systemPrompt, text, MAX_PROMPT_TOKENS);
@@ -455,6 +538,7 @@ export async function buildPromptContextForTurn({
   const historyBudget = trimHistoryMessagesByTokenBudget(rawHistoryMessages, computedHistoryTokenBudget);
   const historyMessages = historyBudget.messages;
   runSummary.requestHints.historyTokenBudget = computedHistoryTokenBudget;
+  runSummary.requestHints.turnContextTokens = countApproxTokens(systemPrompt.slice(staticSystemPrompt.length));
   runSummary.requestHints.historyMessagesInjected = historyMessages.length;
   runSummary.requestHints.historyMessagesTrimmed = historyBudget.trimmed;
   console.log(

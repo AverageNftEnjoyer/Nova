@@ -10,6 +10,13 @@ import { addLlmUsage, emptyLlmUsage, normalizeAnthropicUsage } from "../../../..
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
 import { estimateLoopRequestTokens, trimClaudeLoopToolResults } from "../loop-context-trim/index.js";
 import { withServerToolContext } from "../integration-tool-context/index.js";
+import { consumeHudOpTokenForSensitiveAction } from "../../../../infrastructure/hud-gateway/index.js";
+
+// Gmail actions that send content need a one-time HUD confirmation token in chat (same set and rule as the
+// OpenAI loop, tool-loop-runner). Agent tasks (permissionMode set) are governed by the task tool policy instead.
+const GMAIL_CONFIRM_REQUIRED_ACTIONS = new Set(["gmail_forward_message", "gmail_reply_draft"]);
+const GMAIL_CONFIRM_BLOCKED_MESSAGE =
+  "I need an explicit confirmation action before sending Gmail content. Please confirm and retry.";
 
 function claudeBase(value) {
   const trimmed = String(value || "").trim().replace(/\/+$/, "");
@@ -60,7 +67,10 @@ async function createMessage({ runtime, model, system, messages, tools, signal }
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(String(payload?.error?.message || `Claude request failed (${response.status})`));
+    // Keep the HTTP status on the error: model routing retries a refused economy model (404) on the selected model.
+    const error = new Error(String(payload?.error?.message || `Claude request failed (${response.status})`));
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -88,6 +98,8 @@ export async function runClaudeToolLoop({
   consumeTaskApproval,
   reserveTaskEffect,
   usageRecorder,
+  // One-time HUD confirmation token of this turn (chat only); required for GMAIL_CONFIRM_REQUIRED_ACTIONS.
+  hudOpToken,
   // Agent-task budget controller (agent-tasks/budget), or undefined. When set it is asked before every model call
   // and may switch to the economy model, trim earlier tool results, or throw AgentTaskBudgetExhaustedError.
   taskBudget,
@@ -178,7 +190,45 @@ export async function runClaudeToolLoop({
       const startedToolAt = Date.now();
       // gmail_* / coinbase_*: the turn's own user and conversation, never the model's (same as the OpenAI loop).
       // A new object: the model's tool_use block stays as sent, since it is resent as history.
-      const toolInput = withServerToolContext(toolName, toolUse?.input, { userContextId, conversationId });
+      let toolInput = withServerToolContext(toolName, toolUse?.input, { userContextId, conversationId });
+      if (GMAIL_CONFIRM_REQUIRED_ACTIONS.has(toolName) && !permissionMode) {
+        // The server decides that confirmation is required; the model cannot opt out or confirm on its own.
+        toolInput = { ...toolInput, requireExplicitUserConfirm: true };
+        const confirmState = consumeHudOpTokenForSensitiveAction({
+          userContextId,
+          opToken: hudOpToken,
+          conversationId,
+          action: toolName,
+        });
+        if (!confirmState.ok) {
+          const blockedReason = `sensitive_action_blocked:${confirmState.reason}`;
+          recordToolRunSafe(userContextId, {
+            threadId: conversationId,
+            toolName,
+            input: toolInput,
+            output: { blocked: blockedReason },
+            status: "blocked",
+            latencyMs: 0,
+          });
+          toolExecutions.push({
+            name: toolName,
+            status: "blocked",
+            durationMs: 0,
+            error: blockedReason,
+            resultPreview: "",
+          });
+          // Same outcome as the OpenAI loop's forcedReply: the turn ends with the confirmation request and no
+          // further tool call of this response runs.
+          return {
+            reply: GMAIL_CONFIRM_BLOCKED_MESSAGE,
+            promptTokens: loopUsage.inputTokens,
+            completionTokens: loopUsage.outputTokens,
+            cachedInputTokens: loopUsage.cachedInputTokens,
+            cacheWriteInputTokens: loopUsage.cacheWriteInputTokens,
+            modelUsed: currentModel,
+          };
+        }
+      }
       try {
         const taskPolicy = permissionMode
           ? {

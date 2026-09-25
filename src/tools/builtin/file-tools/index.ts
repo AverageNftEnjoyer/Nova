@@ -326,7 +326,9 @@ export function createFileTools(workspaceDir: string): Tool[] {
       const pattern = String(input?.pattern ?? "");
       if (!pattern) return "grep error: pattern is required";
       const basePath = await resolveExistingInsideWorkspace(workspaceDir, String(input?.path ?? "."));
-      const files = await walk(basePath);
+      // `path` may name one file (it used to walk it as a directory and always answer "No matches.").
+      const baseStat = await fs.stat(basePath);
+      const files = baseStat.isFile() ? [basePath] : await walk(basePath);
       const re = new RegExp(pattern, "i");
       const perFileHits = await mapWithConcurrency(
         files,

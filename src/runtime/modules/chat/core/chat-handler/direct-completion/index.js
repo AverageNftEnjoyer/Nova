@@ -17,6 +17,7 @@ import {
 } from "../prompt-recovery/index.js";
 import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
+import { approxTokens, resolveModelRoute, runWithRouteFallback } from "../../../../model-routing/index.js";
 
 export async function runClaudeDirectCompletion({
   activeChatRuntime,
@@ -104,6 +105,8 @@ export async function runOpenAiDirectCompletion({
   markRecovery,
   abortSignal,
   usageRecorder,
+  // Stage 6 routing context of the turn ({ settings, turnTier, userContextId }), or absent: no routing.
+  modelRouting,
 }) {
   // One ledger row per API call (the main create/stream and the empty-reply recovery). activeChatRuntime.provider
   // names the provider behind the shared OpenAI-compatible client.
@@ -164,10 +167,29 @@ export async function runOpenAiDirectCompletion({
       maxCompletionTokens: openAiMaxCompletionTokens,
     })) {
       broadcastThinkingStatus("Recovering final answer", userContextId);
+      // Stage 6: the recovery is a trivial call (hard inside a hard turn: it then produces that turn's answer).
+      // Cache impact: the turn's model was just sent this exact prompt, and OpenAI-compatible providers cache it
+      // automatically, so on that model the whole prompt is warm; the economy model would read it cold.
+      const recoveryRoute = modelRouting
+        ? resolveModelRoute({
+          userContextId: modelRouting.userContextId || userContextId,
+          provider: activeChatRuntime.provider,
+          model: modelUsed,
+          callSite: "chat.empty-reply-recovery",
+          turnTier: modelRouting.turnTier,
+          settings: modelRouting.settings,
+          estimate: {
+            inputTokens: approxTokens(messages),
+            mainWarmPrefixTokens: approxTokens(messages),
+            economyWarmPrefixTokens: 0,
+          },
+        })
+        : null;
+      const recoveryModel = recoveryRoute ? recoveryRoute.model : modelUsed;
       retries.push({
         stage: "empty_reply_recovery",
         fromModel: modelUsed,
-        toModel: modelUsed,
+        toModel: recoveryModel,
         reason: buildEmptyReplyFailureReason("empty_reply_after_llm_call", {
           finishReason: llmFinishReason,
           completionTokens: usage.outputTokens,
@@ -175,18 +197,25 @@ export async function runOpenAiDirectCompletion({
         }),
       });
       try {
-        const recovered = await attemptOpenAiEmptyReplyRecovery({
-          client: activeOpenAiCompatibleClient,
-          model: modelUsed,
-          messages,
-          timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
-          maxCompletionTokens: openAiMaxCompletionTokens,
-          requestTuning: openAiRequestTuningForModel(modelUsed),
-          label: "OpenAI empty-reply recovery",
-          signal: abortSignal,
-        });
+        const { result: recovered, model: recoveredModel } = await runWithRouteFallback(
+          recoveryRoute || { routed: false, model: recoveryModel },
+          (model) => attemptOpenAiEmptyReplyRecovery({
+            client: activeOpenAiCompatibleClient,
+            model,
+            messages,
+            timeoutMs: OPENAI_REQUEST_TIMEOUT_MS,
+            maxCompletionTokens: openAiMaxCompletionTokens,
+            requestTuning: openAiRequestTuningForModel(model),
+            label: "OpenAI empty-reply recovery",
+            signal: abortSignal,
+          }),
+        );
         llmFinishReason = String(recovered.finishReason || llmFinishReason || "").trim().toLowerCase();
-        usage = addLlmUsage(usage, llmUsageRecorder.record({ model: modelUsed, usage: recovered.usage }));
+        usage = addLlmUsage(usage, llmUsageRecorder.record({
+          model: recoveredModel,
+          usage: recovered.usage,
+          ...(recoveryRoute ? { tier: recoveryRoute.tier } : {}),
+        }));
         if (recovered.reply) {
           reply = recovered.reply;
         }

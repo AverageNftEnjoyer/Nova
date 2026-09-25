@@ -632,7 +632,9 @@ async function handleInputCore(text, opts = {}) {
 
   let runtimeTools = null;
   let availableTools = [];
-  if (turnPolicy.likelyNeedsToolRuntime || autonomousTask) {
+  // The Gmail lane answers from the gmail_* tools (including "not connected: connect Gmail in Integrations"), so a
+  // turn routed there needs the tool runtime even when the turn policy did not predict tool use.
+  if (turnPolicy.likelyNeedsToolRuntime || autonomousTask || preRuntimeRouteDecisions.shouldRouteToGmail === true) {
     const runtimeToolInitStartedAt = Date.now();
     runtimeTools = await toolRuntime.initToolRuntimeIfNeeded({
       userContextId,

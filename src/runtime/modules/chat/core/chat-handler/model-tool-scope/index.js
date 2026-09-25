@@ -9,28 +9,52 @@
 // - Cache safety: the result depends only on the user's stored integration state, never on the turn's text, and
 //   keeps the registry order. The same user gets a byte-identical list on every turn until they connect or
 //   disconnect an integration; that change is a deliberate one-time prefix cache miss.
-// - The state is read from nova.db on every call (one indexed row, no secret is decrypted), with no cache, so a
-//   connection made mid-session shows up on the next turn.
+// - The state is read from nova.db on every call (one indexed row), with no cache, so a connection made mid-session
+//   shows up on the next turn.
+// - Coinbase is "connected" only when its stored key pair actually decrypts (the same test the Coinbase tools
+//   apply). The decryptability result is cached per ciphertext pair (a sha256 of the stored strings, never the
+//   plaintext): each stored pair is decrypted at most once per process while it decrypts, and a failure is retried
+//   after DECRYPT_FAILURE_TTL_MS (so a transient master-key problem does not hide the tools until restart).
+// - The same connected state also feeds one per-user line of the STATIC system prompt
+//   (resolveUnconnectedIntegrationsForPrompt): integrations whose tools are enabled but not connected, so the model
+//   tells the user to connect them in Integrations instead of improvising. It changes only on connect/disconnect.
+
+import { createHash } from "node:crypto";
 
 import { getDb } from "../../../../../../db/index.js";
+import { decryptSecret, isSecretCiphertext } from "../../../../../../security/secrets/index.js";
+
+const DECRYPT_FAILURE_TTL_MS = 60_000;
+const DECRYPT_CACHE_MAX = 256;
+const decryptabilityCache = new Map();
 
 /** Integration-bound tool name prefixes and the stored-state test for "connected". */
 export const INTEGRATION_BOUND_TOOLS = Object.freeze([
   Object.freeze({
     integration: "coinbase",
+    label: "Coinbase",
+    covers: "Coinbase balances, portfolio, prices from the account, transactions and reports",
     prefix: "coinbase_",
-    // Same test as FileBackedCoinbaseCredentialProvider (src/integrations/coinbase/credentials), minus the
-    // decryption: a stored key pair that fails to decrypt keeps the tools, and they report DISCONNECTED as before.
-    isConnected: (state) => state?.connected === true && hasStoredValue(state?.apiKey) && hasStoredValue(state?.apiSecret),
+    // Same test as FileBackedCoinbaseCredentialProvider (src/integrations/coinbase/credentials): connected flag plus
+    // a stored key pair that unwraps (decrypts, or is a non-ciphertext value). A pair that no longer decrypts hides
+    // the tools, which could only report DISCONNECTED.
+    isConnected: (state) => state?.connected === true
+      && hasStoredValue(state?.apiKey)
+      && hasStoredValue(state?.apiSecret)
+      && isStoredSecretPairUsable(state.apiKey, state.apiSecret),
   }),
   Object.freeze({
     integration: "gmail",
+    label: "Gmail",
+    covers: "email, the inbox, unread or recent messages, replies and forwards",
     prefix: "gmail_",
     // Same test as the gmail tools' runtime parse (src/tools/builtin/gmail-tools).
     isConnected: (state) => state?.connected === true,
   }),
   Object.freeze({
     integration: "phantom",
+    label: "Phantom",
+    covers: "the Phantom wallet",
     prefix: "phantom_",
     // Same flag the phantom_capabilities tool reports.
     isConnected: (state) => state?.connected === true,
@@ -39,6 +63,40 @@ export const INTEGRATION_BOUND_TOOLS = Object.freeze([
 
 function hasStoredValue(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/** unwrapStoredSecret semantics (providers/runtime): ciphertext must decrypt; any other non-empty value is usable. */
+function unwrapsToValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  if (!isSecretCiphertext(raw)) return true;
+  return decryptSecret(raw).length > 0;
+}
+
+/**
+ * Whether both stored values unwrap to a value, cached by a hash of the two stored strings. Only a boolean is kept;
+ * the decrypted text is dropped immediately. Successes are cached for the process (a ciphertext never changes its
+ * plaintext); failures for DECRYPT_FAILURE_TTL_MS.
+ */
+export function isStoredSecretPairUsable(apiKey, apiSecret, { now = Date.now() } = {}) {
+  const cacheKey = createHash("sha256").update(`${String(apiKey)}\u0000${String(apiSecret)}`).digest("hex");
+  const cached = decryptabilityCache.get(cacheKey);
+  if (cached && (cached.usable || now - cached.checkedAtMs < DECRYPT_FAILURE_TTL_MS)) return cached.usable;
+  let usable = false;
+  try {
+    usable = unwrapsToValue(apiKey) && unwrapsToValue(apiSecret);
+  } catch {
+    usable = false;
+  }
+  decryptabilityCache.delete(cacheKey);
+  decryptabilityCache.set(cacheKey, { usable, checkedAtMs: now });
+  if (decryptabilityCache.size > DECRYPT_CACHE_MAX) decryptabilityCache.delete(decryptabilityCache.keys().next().value);
+  return usable;
+}
+
+/** Test hook: forget cached decryptability results. */
+export function resetStoredSecretPairCache() {
+  decryptabilityCache.clear();
 }
 
 function normalizeUserContextId(value) {
@@ -101,4 +159,18 @@ export function selectModelTools(availableTools, connectedIntegrations) {
 /** The tool list to send to the model for this user's turn (see the header). */
 export function resolveModelToolsForUser(availableTools, userContextId, options = {}) {
   return selectModelTools(availableTools, resolveConnectedToolIntegrations(userContextId, options));
+}
+
+/**
+ * Integrations whose tools are enabled in this runtime but that the user has not connected, as
+ * [{ integration, label, covers }] in INTEGRATION_BOUND_TOOLS order. Feeds the static system prompt, so it depends
+ * only on stored state and the (process-constant) enabled tool names: stable per user until they connect or
+ * disconnect.
+ */
+export function resolveUnconnectedIntegrationsForPrompt(userContextId, { enabledToolNames = [], ...options } = {}) {
+  const enabled = (Array.isArray(enabledToolNames) ? enabledToolNames : []).map((n) => String(n || "").trim().toLowerCase());
+  const connected = resolveConnectedToolIntegrations(userContextId, options);
+  return INTEGRATION_BOUND_TOOLS
+    .filter((entry) => enabled.some((name) => name.startsWith(entry.prefix)) && !connected.has(entry.integration))
+    .map((entry) => ({ integration: entry.integration, label: entry.label, covers: entry.covers }));
 }

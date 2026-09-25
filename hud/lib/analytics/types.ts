@@ -26,6 +26,22 @@ export const USAGE_SOURCE_LABELS: Record<UsageSource, string> = {
   embedding: "Embeddings",
 }
 
+/**
+ * Routing tier of a ledger row (`llm_usage.tier`, migration 18, token-efficiency Stage 6), or "untagged" for a NULL
+ * tier: rows written before Stage 6, embeddings, model tests and any call made without a routing call site.
+ */
+export type UsageTier = "trivial" | "standard" | "hard" | "untagged"
+
+export const USAGE_TIERS: readonly UsageTier[] = ["trivial", "standard", "hard", "untagged"]
+
+/** Display labels, in USAGE_TIERS order. */
+export const USAGE_TIER_LABELS: Record<UsageTier, string> = {
+  trivial: "Trivial",
+  standard: "Standard",
+  hard: "Hard",
+  untagged: "Untagged",
+}
+
 /** Allowed values of the `days` query parameter of GET /api/analytics. */
 export const ANALYTICS_RANGE_DAYS = { min: 1, max: 90, default: 30 } as const
 
@@ -60,6 +76,10 @@ export interface UsageTotals {
 
 export interface UsageBySourceRow extends UsageTotals {
   source: UsageSource
+}
+
+export interface UsageByTierRow extends UsageTotals {
+  tier: UsageTier
 }
 
 export interface UsageByProviderRow extends UsageTotals {
@@ -114,6 +134,8 @@ export interface UsageAnalytics {
   }
   totals: UsageTotals
   bySource: UsageBySourceRow[]
+  /** Every tier in USAGE_TIERS order (zeros when none). Absent from servers older than Stage 6. */
+  byTier: UsageByTierRow[]
   byProvider: UsageByProviderRow[]
   byModel: UsageByModelRow[]
   daily: UsageDailyRow[]

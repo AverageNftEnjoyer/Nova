@@ -88,7 +88,8 @@ export const LEGACY_MODEL_PRICING_USD_PER_1M = Object.freeze({
   "gemini-2.5-pro": { input: 1.25, cachedInput: 0.125, output: 10.0 },
   "gemini-2.5-flash": { input: 0.3, cachedInput: 0.03, output: 2.5 },
   "gemini-2.5-flash-lite": { input: 0.1, cachedInput: 0.01, output: 0.4 },
-  // xAI: older current-generation models, plus the slugs retired on 2026-05-15 that now redirect to grok-4.3 and
+  // xAI: older current-generation models (grok-4.20-* are still listed on docs.x.ai/developers/models at the
+  // grok-4.3 rates; re-checked 2026-09-24), plus the slugs retired on 2026-05-15 that now redirect to grok-4.3 and
   // are "billed at grok-4.3 pricing" (migration doc). grok-code-fast-1 (-> grok-build-0.1) and grok-3-mini have
   // no documented billing rate and are left unpriced.
   "grok-4.6": { input: 2.0, cachedInput: 0.5, output: 6.0 },

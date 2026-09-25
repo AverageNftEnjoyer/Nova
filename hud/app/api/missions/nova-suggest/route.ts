@@ -2,13 +2,19 @@ import { NextResponse } from "next/server"
 import { requireLocalUser } from "@/lib/auth/local-user"
 
 import { resolveConfiguredLlmProvider } from "@/lib/integrations/llm/provider-selection"
-import { loadIntegrationsConfig } from "@/lib/integrations/store/server-store"
+import { loadIntegrationsConfig, type IntegrationsConfig } from "@/lib/integrations/store/server-store"
 import { checkUserRateLimit, rateLimitExceededResponse, RATE_LIMIT_POLICIES } from "@/lib/security/rate-limit"
 import {
   normalizeAnthropicUsage,
   normalizeOpenAiCompatibleUsage,
   recordLlmUsageSafe,
 } from "../../../../../src/providers/usage/index.js"
+import {
+  approxTokens,
+  resolveModelRoute,
+  runWithRouteFallback,
+  type ModelTier,
+} from "../../../../../src/runtime/modules/model-routing/index.js"
 
 
 export const runtime = "nodejs"
@@ -33,8 +39,11 @@ function readRawUsage(payload: unknown): unknown {
   return payload && typeof payload === "object" && "usage" in payload ? (payload as { usage?: unknown }).usage : null
 }
 
-/** One llm_usage row (source "utility", ref "nova-suggest") per successful suggestion call. Never throws. */
-function recordSuggestUsage(userId: string, provider: Provider, model: string, payload: unknown): void {
+/**
+ * One llm_usage row (source "utility", ref "nova-suggest") per successful suggestion call, with the model that
+ * answered and the routing tier. Never throws.
+ */
+function recordSuggestUsage(userId: string, provider: Provider, model: string, payload: unknown, tier: ModelTier | null): void {
   const raw = readRawUsage(payload)
   recordLlmUsageSafe({
     userContextId: userId,
@@ -43,7 +52,76 @@ function recordSuggestUsage(userId: string, provider: Provider, model: string, p
     provider,
     model,
     usage: provider === "claude" ? normalizeAnthropicUsage(raw) : normalizeOpenAiCompatibleUsage(raw),
+    tier,
   })
+}
+
+/** A provider HTTP error; `status` lets isModelUnavailableError recognise a 404 (model not found). */
+class SuggestHttpError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "SuggestHttpError"
+    this.status = status
+  }
+}
+
+const PROVIDER_LABEL: Record<Provider, string> = { claude: "Claude", grok: "Grok", gemini: "Gemini", openai: "OpenAI" }
+
+/** One suggestion request to `provider` with `model`; returns the parsed payload or throws SuggestHttpError. */
+async function requestSuggestion(
+  provider: Provider,
+  config: IntegrationsConfig,
+  model: string,
+  systemText: string,
+  userText: string,
+): Promise<unknown> {
+  let url: string
+  let headers: Record<string, string>
+  let body: Record<string, unknown>
+  if (provider === "claude") {
+    url = `${toClaudeBase(config.claude.baseUrl)}/v1/messages`
+    headers = {
+      "content-type": "application/json",
+      "x-api-key": config.claude.apiKey.trim(),
+      "anthropic-version": "2023-06-01",
+    }
+    body = { model, max_tokens: 640, system: systemText, messages: [{ role: "user", content: userText }] }
+  } else {
+    const messages = [
+      { role: "system", content: systemText },
+      { role: "user", content: userText },
+    ]
+    headers = { Authorization: `Bearer ${config[provider].apiKey.trim()}`, "Content-Type": "application/json" }
+    if (provider === "openai") {
+      url = `${toOpenAiLikeBase(config.openai.baseUrl, "https://api.openai.com/v1")}/chat/completions`
+      body = { model, max_completion_tokens: 640, messages }
+    } else {
+      const fallbackBase = provider === "grok" ? "https://api.x.ai/v1" : "https://generativelanguage.googleapis.com/v1beta/openai"
+      url = `${toOpenAiLikeBase(config[provider].baseUrl, fallbackBase)}/chat/completions`
+      body = { model, max_tokens: 640, messages }
+    }
+  }
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), cache: "no-store" })
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) {
+    const msg =
+      payload && typeof payload === "object" && "error" in payload
+        ? String((payload as { error?: { message?: string } }).error?.message || "")
+        : ""
+    throw new SuggestHttpError(msg || `${PROVIDER_LABEL[provider]} suggest failed (${res.status}).`, res.status)
+  }
+  return payload
+}
+
+function readSuggestionText(provider: Provider, payload: unknown): string {
+  if (provider === "claude") {
+    return Array.isArray((payload as { content?: Array<{ type?: string; text?: string }> } | null)?.content)
+      ? ((payload as { content: Array<{ type?: string; text?: string }> }).content.find((c) => c?.type === "text")?.text || "")
+      : ""
+  }
+  return String((payload as { choices?: Array<{ message?: { content?: string } }> } | null)?.choices?.[0]?.message?.content || "")
 }
 
 function cleanPrompt(raw: string): string {
@@ -107,189 +185,37 @@ export async function POST(req: Request) {
       "Include expected output structure briefly.",
     ].join("\n")
 
-    if (provider === "claude") {
-      const apiKey = config.claude.apiKey.trim()
-      const model = selected.model
-      const baseUrl = toClaudeBase(config.claude.baseUrl)
-      if (!apiKey) return NextResponse.json({ ok: false, error: "Claude API key is missing." }, { status: 400 })
-      if (!model) return NextResponse.json({ ok: false, error: "Claude default model is missing." }, { status: 400 })
-
-      const res = await fetch(`${baseUrl}/v1/messages`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 640,
-          system: systemText,
-          messages: [{ role: "user", content: userText }],
-        }),
-        cache: "no-store",
-      })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) {
-        const msg =
-          payload && typeof payload === "object" && "error" in payload
-            ? String((payload as { error?: { message?: string } }).error?.message || "")
-            : ""
-        return NextResponse.json({ ok: false, error: msg || `Claude suggest failed (${res.status}).` }, { status: 400 })
-      }
-      recordSuggestUsage(userId, "claude", model, payload)
-      const text =
-        Array.isArray((payload as { content?: Array<{ type?: string; text?: string }> }).content)
-          ? ((payload as { content: Array<{ type?: string; text?: string }> }).content.find((c) => c?.type === "text")?.text || "")
-          : ""
-      const prompt = cleanPrompt(text)
-      if (!prompt) {
-        return NextResponse.json({
-          ok: true,
-          prompt: buildFallbackSuggestion(stepTitle),
-          provider,
-          model,
-          debug: `${debugSelected} fallback=empty-response`,
-        })
-      }
-      return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
-    }
-
-    if (provider === "grok") {
-      const apiKey = config.grok.apiKey.trim()
-      const model = selected.model
-      const baseUrl = toOpenAiLikeBase(config.grok.baseUrl, "https://api.x.ai/v1")
-      if (!apiKey) return NextResponse.json({ ok: false, error: "Grok API key is missing." }, { status: 400 })
-      if (!model) return NextResponse.json({ ok: false, error: "Grok default model is missing." }, { status: 400 })
-
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 640,
-          messages: [
-            { role: "system", content: systemText },
-            { role: "user", content: userText },
-          ],
-        }),
-        cache: "no-store",
-      })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) {
-        const msg =
-          payload && typeof payload === "object" && "error" in payload
-            ? String((payload as { error?: { message?: string } }).error?.message || "")
-            : ""
-        return NextResponse.json({ ok: false, error: msg || `Grok suggest failed (${res.status}).` }, { status: 400 })
-      }
-      recordSuggestUsage(userId, "grok", model, payload)
-      const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
-      const prompt = cleanPrompt(text)
-      if (!prompt) {
-        return NextResponse.json({
-          ok: true,
-          prompt: buildFallbackSuggestion(stepTitle),
-          provider,
-          model,
-          debug: `${debugSelected} fallback=empty-response`,
-        })
-      }
-      return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
-    }
-
-    if (provider === "gemini") {
-      const apiKey = config.gemini.apiKey.trim()
-      const model = selected.model
-      const baseUrl = toOpenAiLikeBase(config.gemini.baseUrl, "https://generativelanguage.googleapis.com/v1beta/openai")
-      if (!apiKey) return NextResponse.json({ ok: false, error: "Gemini API key is missing." }, { status: 400 })
-      if (!model) return NextResponse.json({ ok: false, error: "Gemini default model is missing." }, { status: 400 })
-
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 640,
-          messages: [
-            { role: "system", content: systemText },
-            { role: "user", content: userText },
-          ],
-        }),
-        cache: "no-store",
-      })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) {
-        const msg =
-          payload && typeof payload === "object" && "error" in payload
-            ? String((payload as { error?: { message?: string } }).error?.message || "")
-            : ""
-        return NextResponse.json({ ok: false, error: msg || `Gemini suggest failed (${res.status}).` }, { status: 400 })
-      }
-      recordSuggestUsage(userId, "gemini", model, payload)
-      const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
-      const prompt = cleanPrompt(text)
-      if (!prompt) {
-        return NextResponse.json({
-          ok: true,
-          prompt: buildFallbackSuggestion(stepTitle),
-          provider,
-          model,
-          debug: `${debugSelected} fallback=empty-response`,
-        })
-      }
-      return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
-    }
-
-    const apiKey = config.openai.apiKey.trim()
-    const model = selected.model
-    const baseUrl = toOpenAiLikeBase(config.openai.baseUrl, "https://api.openai.com/v1")
-    if (!apiKey) return NextResponse.json({ ok: false, error: "OpenAI API key is missing." }, { status: 400 })
-    if (!model) return NextResponse.json({ ok: false, error: "OpenAI default model is missing." }, { status: 400 })
-
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        max_completion_tokens: 640,
-        messages: [
-          { role: "system", content: systemText },
-          { role: "user", content: userText },
-        ],
-      }),
-      cache: "no-store",
+    // Step suggestions are a trivial call: Model routing may send them to the provider's economy model.
+    const route = resolveModelRoute({
+      userContextId: userId,
+      provider,
+      model: selected.model,
+      callSite: "utility.nova-suggest",
+      estimate: { inputTokens: approxTokens(systemText) + approxTokens(userText) },
     })
-    const payload = await res.json().catch(() => null)
-    if (!res.ok) {
-      const msg =
-        payload && typeof payload === "object" && "error" in payload
-          ? String((payload as { error?: { message?: string } }).error?.message || "")
-          : ""
-      return NextResponse.json({ ok: false, error: msg || `OpenAI suggest failed (${res.status}).` }, { status: 400 })
+    let answered: { result: unknown; model: string }
+    try {
+      answered = await runWithRouteFallback(route, (model) => requestSuggestion(provider, config, model, systemText, userText))
+    } catch (error) {
+      if (error instanceof SuggestHttpError) {
+        return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
+      }
+      throw error
     }
-    recordSuggestUsage(userId, "openai", model, payload)
-    const text = String((payload as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content || "")
-    const prompt = cleanPrompt(text)
+    const { result: payload, model } = answered
+    recordSuggestUsage(userId, provider, model, payload, route.tier)
+    const routedDebug = model !== selected.model ? ` routed_model=${model}` : ""
+    const prompt = cleanPrompt(readSuggestionText(provider, payload))
     if (!prompt) {
       return NextResponse.json({
         ok: true,
         prompt: buildFallbackSuggestion(stepTitle),
         provider,
         model,
-        debug: `${debugSelected} fallback=empty-response`,
+        debug: `${debugSelected}${routedDebug} fallback=empty-response`,
       })
     }
-    return NextResponse.json({ ok: true, prompt, provider, model, debug: debugSelected })
+    return NextResponse.json({ ok: true, prompt, provider, model, debug: `${debugSelected}${routedDebug}` })
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Nova suggest failed.", debug: debugSelected },

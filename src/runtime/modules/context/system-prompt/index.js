@@ -42,6 +42,25 @@ export function buildSkillsPromptBlock(skillsPrompt, promptMode = PromptMode.FUL
   return buildSkillsSection({ skillsPrompt, isMinimal: false }).filter(Boolean).join("\n");
 }
 
+/**
+ * One static line naming the integrations whose tools this runtime offers but the user has not connected. Their tool
+ * schemas are left out of tool-loop requests (chat-handler/model-tool-scope), so the model is told what to answer
+ * instead. Stable per user: it only changes when they connect or disconnect an integration.
+ * `unconnectedIntegrations`: [{ label, covers }].
+ */
+export function buildUnconnectedIntegrationsLine(unconnectedIntegrations) {
+  const entries = (Array.isArray(unconnectedIntegrations) ? unconnectedIntegrations : [])
+    .map((entry) => ({
+      label: sanitizeForPromptLiteral(entry?.label),
+      covers: sanitizeForPromptLiteral(entry?.covers),
+    }))
+    .filter((entry) => entry.label);
+  if (entries.length === 0) return "";
+  const labels = entries.map((entry) => entry.label).join(", ");
+  const covers = entries.map((entry) => (entry.covers ? `${entry.label}: ${entry.covers}` : entry.label)).join("; ");
+  return `- Not connected for this user: ${labels} (${covers}). Their tools are unavailable. If a request needs one of them, say it is not connected and that the user can connect it on Nova's Integrations page; never guess or invent that data.`;
+}
+
 function buildMemorySection(params) {
   if (params.isMinimal) return [];
   const trimmedMemoryPrompt = String(params.memoryPrompt || "").trim();
@@ -138,7 +157,10 @@ export function buildAgentSystemPrompt(params) {
     "",
     "## Tooling",
     "Tool availability is runtime-dependent.",
-    toolLines.length > 0 ? toolLines.join("\n") : "- No external tool contracts registered in this runtime yet.",
+    toolLines.length > 0
+      ? toolLines.join("\n")
+      : "- When tools are available for a request they are attached to it as tool definitions. Use only those; never claim a tool result you did not receive.",
+    buildUnconnectedIntegrationsLine(params.unconnectedIntegrations),
     "",
     "## Safety",
     "Prioritize user intent and safe operation. Ask when instructions are unclear or risky.",

@@ -307,6 +307,9 @@ export function createToolRuntime(options) {
           topK: memoryConfig.topK,
           syncOnSessionStart: true,
           sourceDirs: scope.sourceDirs,
+        }, {
+          // llm_usage attribution of embedding calls; the shared "global" index belongs to no user (no ledger row).
+          userContextId: scope.scopeId === "global" ? "" : scope.scopeId,
         });
         manager.warmSession();
         return manager;

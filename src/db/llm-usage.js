@@ -14,6 +14,8 @@ import { pruneAgentTaskBudgetEventsBefore } from "./agent-task-budget-events.js"
 import { getDb, nowIso } from "./index.js";
 
 export const LLM_USAGE_SOURCES = Object.freeze(["chat", "agent-task", "mission", "utility", "embedding"]);
+/** Routing tiers (migration 18, Stage 6). Anything else is stored as NULL ("untagged"). */
+export const LLM_USAGE_TIERS = Object.freeze(["trivial", "standard", "hard"]);
 const DEFAULT_LLM_USAGE_RETENTION_DAYS = 90;
 const MIN_RETENTION_DAYS = 1;
 const MAX_RETENTION_DAYS = 3650;
@@ -32,8 +34,8 @@ function statementsFor(db) {
     statements = {
       insert: db.prepare(
         `INSERT INTO llm_usage (user_id, id, ts, source, ref_id, provider, model, input_tokens, output_tokens,
-           cached_input_tokens, cache_write_input_tokens, cost_usd)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           cached_input_tokens, cache_write_input_tokens, cost_usd, tier)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       prune: db.prepare("DELETE FROM llm_usage WHERE ts < ?"),
     };
@@ -66,6 +68,11 @@ function toCostOrNull(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function toTierOrNull(value) {
+  const key = String(value ?? "").trim().toLowerCase();
+  return LLM_USAGE_TIERS.includes(key) ? key : null;
+}
+
 function toIsoOrNow(value) {
   if (typeof value === "string" && value.trim()) {
     const parsed = Date.parse(value);
@@ -95,6 +102,7 @@ export function insertLlmUsage(record) {
     toCount(record.cachedInputTokens),
     toCount(record.cacheWriteInputTokens),
     toCostOrNull(record.costUsd),
+    toTierOrNull(record.tier),
   );
   return id;
 }
@@ -174,6 +182,7 @@ function mapRow(row) {
     cachedInputTokens: Number(row.cached_input_tokens) || 0,
     cacheWriteInputTokens: Number(row.cache_write_input_tokens) || 0,
     costUsd: row.cost_usd === null || row.cost_usd === undefined ? null : Number(row.cost_usd),
+    tier: toTierOrNull(row.tier),
   };
 }
 

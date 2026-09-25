@@ -14,6 +14,7 @@ import { normalizeAssistantReply } from "../../../quality/reply-normalizer/index
 import { summarizeToolResultPreview } from "../../chat-utils/index.js";
 import { addLlmUsage, emptyLlmUsage, normalizeOpenAiCompatibleUsage } from "../../../../../../providers/usage/index.js";
 import { resolveLlmUsageRecorder } from "../llm-usage-recorder/index.js";
+import { approxTokens, resolveModelRoute, runWithRouteFallback } from "../../../../model-routing/index.js";
 
 export async function refineAssistantReply({
   reply,
@@ -46,6 +47,9 @@ export async function refineAssistantReply({
   responseRoute,
   markRecovery,
   usageRecorder,
+  // Stage 6 routing context of the turn ({ settings, turnTier, userContextId, staticPromptTokens }), or absent:
+  // no routing (the correction pass runs on the turn's model, as before).
+  modelRouting,
 }) {
   const llmUsageRecorder = resolveLlmUsageRecorder(usageRecorder, {
     userContextId,
@@ -105,13 +109,7 @@ export async function refineAssistantReply({
     if (!initialConstraintCheck.ok) {
       const correctionStartedAt = Date.now();
       broadcastThinkingStatus("Applying response format", userContextId);
-      retries.push({
-        stage: "output_constraint_correction",
-        fromModel: modelUsed,
-        toModel: modelUsed,
-        reason: initialConstraintCheck.reason,
-      });
-
+      const isClaude = activeChatRuntime.provider === "claude";
       const correctionInstruction = [
         "Rewrite your previous answer to the same user request.",
         `Violation: ${initialConstraintCheck.reason}.`,
@@ -119,55 +117,98 @@ export async function refineAssistantReply({
         outputConstraints.instructions,
         "Return only the corrected answer.",
       ].join("\n");
+      const correctionMessages = isClaude
+        ? [
+          ...historyMessages,
+          { role: "user", content: text },
+          { role: "assistant", content: nextReply },
+          { role: "user", content: correctionInstruction },
+        ]
+        : [
+          ...messages,
+          { role: "assistant", content: nextReply },
+          { role: "user", content: correctionInstruction },
+        ];
+      // Stage 6: the correction pass is always trivial. Cache impact: the turn's model has just cached this prompt's
+      // prefix (Claude: the static system block, which carries cache_control; OpenAI-compatible: the turn's prompt,
+      // cached automatically); the economy model reads it cold. So routing is often refused for Claude: intended.
+      const turnCallModel = isClaude ? selectedChatModel : modelUsed;
+      const correctionRoute = modelRouting
+        ? resolveModelRoute({
+          userContextId: modelRouting.userContextId || userContextId,
+          provider: activeChatRuntime.provider,
+          model: turnCallModel,
+          callSite: "chat.output-correction",
+          turnTier: modelRouting.turnTier,
+          settings: modelRouting.settings,
+          estimate: isClaude
+            ? {
+              inputTokens: approxTokens(systemPrompt) + approxTokens(correctionMessages),
+              mainWarmPrefixTokens: modelRouting.staticPromptTokens,
+              economyWarmPrefixTokens: 0,
+              writePrefixTokens: modelRouting.staticPromptTokens,
+            }
+            : {
+              inputTokens: approxTokens(correctionMessages),
+              mainWarmPrefixTokens: approxTokens(messages),
+              economyWarmPrefixTokens: 0,
+            },
+        })
+        : null;
+      const correctionRouteForRun = correctionRoute || { routed: false, model: turnCallModel };
+      const correctionTier = correctionRoute ? { tier: correctionRoute.tier } : {};
+      retries.push({
+        stage: "output_constraint_correction",
+        fromModel: modelUsed,
+        toModel: correctionRoute ? correctionRoute.model : modelUsed,
+        reason: initialConstraintCheck.reason,
+      });
 
       let correctedReply = "";
       try {
-        if (activeChatRuntime.provider === "claude") {
-          const correctionMessages = [
-            ...historyMessages,
-            { role: "user", content: text },
-            { role: "assistant", content: nextReply },
-            { role: "user", content: correctionInstruction },
-          ];
-          const claudeCorrection = await withTimeout(
-            claudeMessagesCreate({
-              apiKey: activeChatRuntime.apiKey,
-              baseURL: activeChatRuntime.baseURL,
-              model: selectedChatModel,
-              system: systemPrompt,
-              messages: correctionMessages,
-              userText: correctionInstruction,
-              maxTokens: CLAUDE_CHAT_MAX_TOKENS,
-            }),
-            OPENAI_REQUEST_TIMEOUT_MS,
-            `Claude correction ${selectedChatModel}`,
+        if (isClaude) {
+          const { result: claudeCorrection, model: correctionModel } = await runWithRouteFallback(
+            correctionRouteForRun,
+            (model) => withTimeout(
+              claudeMessagesCreate({
+                apiKey: activeChatRuntime.apiKey,
+                baseURL: activeChatRuntime.baseURL,
+                model,
+                system: systemPrompt,
+                messages: correctionMessages,
+                userText: correctionInstruction,
+                maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+              }),
+              OPENAI_REQUEST_TIMEOUT_MS,
+              `Claude correction ${model}`,
+            ),
           );
           correctedReply = String(claudeCorrection?.text || "").trim();
           usageDelta = addLlmUsage(
             usageDelta,
-            llmUsageRecorder.record({ model: selectedChatModel, usage: claudeCorrection?.usage }),
+            llmUsageRecorder.record({ model: correctionModel, usage: claudeCorrection?.usage, ...correctionTier }),
           );
         } else {
-          const correctionCompletion = await withTimeout(
-            activeOpenAiCompatibleClient.chat.completions.create({
-              model: modelUsed,
-              messages: [
-                ...messages,
-                { role: "assistant", content: nextReply },
-                { role: "user", content: correctionInstruction },
-              ],
-              max_completion_tokens: openAiMaxCompletionTokens,
-              ...openAiRequestTuningForModel(modelUsed),
-            }),
-            OPENAI_REQUEST_TIMEOUT_MS,
-            `OpenAI correction ${modelUsed}`,
+          const { result: correctionCompletion, model: correctionModel } = await runWithRouteFallback(
+            correctionRouteForRun,
+            (model) => withTimeout(
+              activeOpenAiCompatibleClient.chat.completions.create({
+                model,
+                messages: correctionMessages,
+                max_completion_tokens: openAiMaxCompletionTokens,
+                ...openAiRequestTuningForModel(model),
+              }),
+              OPENAI_REQUEST_TIMEOUT_MS,
+              `OpenAI correction ${model}`,
+            ),
           );
           correctedReply = extractOpenAIChatText(correctionCompletion).trim();
           usageDelta = addLlmUsage(
             usageDelta,
             llmUsageRecorder.record({
-              model: modelUsed,
+              model: correctionModel,
               usage: normalizeOpenAiCompatibleUsage(correctionCompletion?.usage),
+              ...correctionTier,
             }),
           );
         }

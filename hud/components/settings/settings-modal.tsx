@@ -16,6 +16,7 @@ import { SettingsPersonalizationPanel } from "@/components/settings/panels/setti
 import { SettingsAccountPanel } from "@/components/settings/panels/settings-account-panel"
 import { SettingsSkillsPanel } from "@/components/settings/settings-skills-panel"
 import { SettingsAgentBudgetsPanel } from "@/components/settings/panels/settings-agent-budgets-panel"
+import { SettingsModelRoutingPanel } from "@/components/settings/panels/settings-model-routing-panel"
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -255,6 +256,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                 {activeSection === "agent-budgets" && (
                   <SettingsAgentBudgetsPanel isLight={isLight} />
+                )}
+
+                {activeSection === "model-routing" && (
+                  <SettingsModelRoutingPanel
+                    isLight={isLight}
+                    onNavigateToAgentBudgets={() => setActiveSection("agent-budgets")}
+                  />
                 )}
 
                 {activeSection === "access" && (

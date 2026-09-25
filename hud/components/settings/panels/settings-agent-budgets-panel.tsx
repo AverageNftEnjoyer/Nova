@@ -181,7 +181,7 @@ export function SettingsAgentBudgetsPanel({ isLight }: Props) {
       <div className={cn(getSettingsCardClass(isLight), "p-4")}>
         <p className={cn("mb-0.5 text-sm", isLight ? "text-s-70" : "text-slate-200")}>Economy models</p>
         <p className={cn("mb-3 text-xs", mutedText)}>
-          The cheaper model a task switches to when it nears its budget. Always the same provider, so no other key is needed.
+          The cheaper model a task switches to when it nears its budget. Model routing also uses it. Always the same provider, so no other key is needed.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {PROVIDERS.map((provider) => {

@@ -7,7 +7,11 @@ const __dirname = path.dirname(__filename);
 // context/ lives one level deeper than the modules root.
 const ROOT_DIR = path.join(__dirname, "../../..");
 
-const BOOTSTRAP_FILES = ["SOUL.md", "USER.md", "MEMORY.md", "IDENTITY.md", "AGENTS.md"];
+// The files the chat persona prompt is built from. AGENTS.md is deliberately NOT read here: it is not part of the
+// persona prompt (its tool/execution guidelines overlap the static system prompt, and injecting it would add ~1.5k
+// tokens to every call), and it is written by HUD context sync and the Coinbase preference store, so tracking it in
+// the persona signature only caused needless persona rebuilds. Those writers read it directly by path.
+const BOOTSTRAP_FILES = ["SOUL.md", "USER.md", "MEMORY.md", "IDENTITY.md"];
 const MAX_CHARS_PER_FILE = 20000;
 const MAX_TOTAL_CHARS = 24000;
 const PERSONA_PROMPT_CACHE = new Map();

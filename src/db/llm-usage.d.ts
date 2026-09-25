@@ -3,6 +3,10 @@ export type LlmUsageLedgerSource = "chat" | "agent-task" | "mission" | "utility"
 
 export const LLM_USAGE_SOURCES: readonly LlmUsageLedgerSource[]
 
+/** Routing tier of a call (migration 18, token-efficiency Stage 6); null = untagged. */
+export type LlmUsageLedgerTier = "trivial" | "standard" | "hard"
+export const LLM_USAGE_TIERS: readonly LlmUsageLedgerTier[]
+
 /** Token counts: inputTokens is the TOTAL input (cached + cache-write included); uncached is computed by readers. */
 export interface LlmUsageLedgerInput {
   userId: string
@@ -18,6 +22,8 @@ export interface LlmUsageLedgerInput {
   cacheWriteInputTokens?: number
   /** null = model has no known pricing. */
   costUsd?: number | null
+  /** Routing tier; anything else (or missing) is stored as NULL. */
+  tier?: LlmUsageLedgerTier | string | null
 }
 
 export interface LlmUsageLedgerRow {
@@ -33,6 +39,7 @@ export interface LlmUsageLedgerRow {
   cachedInputTokens: number
   cacheWriteInputTokens: number
   costUsd: number | null
+  tier: LlmUsageLedgerTier | null
 }
 
 export interface LlmUsageLedgerFilter {

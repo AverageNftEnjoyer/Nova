@@ -53,6 +53,8 @@ export async function buildMissionFromPrompt(
       completeWithConfiguredLlm(systemText, userText, maxTokens, scope, override, {
         source: "mission",
         refId: BUILD_FROM_PROMPT_USAGE_REF,
+        // Hard tier: never routed, but the ledger row records the tier.
+        callSite: "mission.build-from-prompt",
       }),
     isMissionAgentGraphEnabled,
     missionUsesAgentGraph,

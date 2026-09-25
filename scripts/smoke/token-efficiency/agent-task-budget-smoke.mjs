@@ -13,7 +13,12 @@
  *          chat ("hud") turn all send byte-identical requests (model, messages, tools) and the same number of calls
  *   ATB-6  the real agent-task service: pause at the budget (row + events), raise budget -> requeue -> re-run from the
  *          start with the earlier spend counted -> completes; stop on a budget-paused task; play without room refused
+ *          + budget event history (agent_task_budget_events): warning -> degraded -> exhausted -> raised -> warning, in
+ *          order; removed with the task
  *   ATB-7  mutation self-check: with enforcement removed (taskBudget not passed to the loop), ATB-3's expectation fails
+ *   ATB-8  defaults (cost-only, $2.00, no token limit; a saved token default is kept), the unpriced-model case, and
+ *          the pre-call guard outside the loops (issue 17): an agent task already over its budget pauses before the
+ *          output-constraint correction pass instead of making it (and makes it when the guard is removed)
  *
  * Offline: temp NOVA_DATA_DIR, fake providers behind a network guard (any real network call fails the run), no API
  * keys. Model usage is scripted per call so the budget fractions are exact. Needs `npm run build:agent-core`.
@@ -91,12 +96,14 @@ const guard = installNetworkGuard({ [`${FAKE_CLAUDE_BASE_URL}/v1/messages`]: (ur
 
 const { handleInput } = await srcModule("src/runtime/modules/chat/core/chat-handler/index.js");
 const { withLlmUsageObserver } = await srcModule("src/providers/usage/index.js");
-const { resolveModelPricing } = await srcModule("src/providers/pricing/index.js");
+const pricingModule = await srcModule("src/providers/pricing/index.js");
+const { resolveModelPricing } = pricingModule;
 const budgetModule = await srcModule("src/runtime/modules/agent-tasks/budget/index.js");
 const settingsModule = await srcModule("src/runtime/modules/agent-tasks/budget-settings/index.js");
 const trimModule = await srcModule("src/runtime/modules/chat/core/chat-handler/loop-context-trim/index.js");
 const { startAgentTaskService } = await srcModule("src/runtime/modules/agent-tasks/index.js");
 const { getDb } = await srcModule("src/db/index.js");
+const { listAgentTaskBudgetEvents } = await srcModule("src/db/agent-task-budget-events.js");
 
 const { createTaskBudgetController, AGENT_TASK_BUDGET_EXHAUSTED, AgentTaskBudgetExhaustedError } = budgetModule;
 const { DEFAULT_ECONOMY_MODELS, resolveEffectiveTaskBudget } = settingsModule;
@@ -228,7 +235,7 @@ await run("ATB-1a no budget -> no controller (callers run exactly as before)", a
   assert.equal(none.active, false);
   assert.equal(createTaskBudgetController({ budget: none }), null);
   const defaults = resolveEffectiveTaskBudget({}, settingsModule.normalizeAgentTaskBudgetSettings({}));
-  assert.deepEqual({ costUsd: defaults.costUsd, tokens: defaults.tokens, active: defaults.active }, { costUsd: 0.25, tokens: 100_000, active: true });
+  assert.deepEqual({ costUsd: defaults.costUsd, tokens: defaults.tokens, active: defaults.active }, { costUsd: 2, tokens: null, active: true });
 });
 
 await run("ATB-1b projection: max(last input, request estimate) + last output, uncached rate; token budgets too", async () => {
@@ -515,7 +522,14 @@ await run("ATB-3x [openai] recovery call over budget even on the economy model: 
 
 // ── ATB-5: no budget -> the loops are unchanged ──────────────────────────────────────────────────────────────
 
-const requestsOf = (calls) => JSON.stringify(calls.map((c) => ({ model: c.request.model, messages: c.request.messages, tools: c.request.tools ?? null })));
+// The identity-intelligence prompt section learns from every turn of the same user (tool affinity scores, update
+// timestamps), so consecutive runs differ there by design; those volatile values are masked before comparing.
+const maskLearnedIdentity = (json) => json
+  .replace(/updated=\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, "updated=<ts>")
+  .replace(/Tool affinity: [^"\\]*/g, "Tool affinity: <learned>");
+const requestsOf = (calls) => maskLearnedIdentity(
+  JSON.stringify(calls.map((c) => ({ model: c.request.model, messages: c.request.messages, tools: c.request.tools ?? null }))),
+);
 
 for (const shape of ["openai", "claude"]) {
   await run(`ATB-5 [${shape}] no budget / budget not reached / chat turn with a controller: byte-identical requests`, async () => {
@@ -575,9 +589,11 @@ const stopService = startAgentTaskService({
   },
 });
 
-// Cost budgets only: the scenarios are sized in dollars (the default 100,000-token budget would otherwise also
-// apply, and an economy model saves no tokens). Saved through the HUD store, read by the runtime service.
-assert.equal(store.updateTaskBudgetSettings(SERVICE_USER, { defaultTokenBudget: null }).defaultTokenBudget, null);
+// Cost budgets only: the scenarios are sized in dollars. That is the built-in default now (no token limit unless the
+// user sets one); checked here through the HUD store, which the runtime service reads the same way.
+assert.equal(store.readTaskBudgetSettings(SERVICE_USER).defaultTokenBudget, null);
+/** A task's budget history, oldest first. */
+const historyOf = (taskId) => listAgentTaskBudgetEvents(SERVICE_USER, { taskId }).reverse();
 
 const taskRow = (id) => db.prepare(
   `SELECT status, pause_reason, budget_state, error, tokens_in, tokens_out, cost_usd, cost_budget_usd, attempt_no, result_text
@@ -629,6 +645,14 @@ await run("ATB-6a service: task pauses at its budget (paused/budget/exhausted, s
   assert.equal(taskRow(task.id).status, "paused");
   const hudView = await store.getTask(SERVICE_USER, task.id);
   assert.deepEqual([hudView.status, hudView.pauseReason, hudView.budgetState], ["paused", "budget", "exhausted"]);
+  // History: the three transitions, in order, with the budget and models of the moment.
+  const history = historyOf(task.id);
+  assert.deepEqual(history.map((e) => e.kind), ["warning", "degraded", "exhausted"]);
+  assert.deepEqual(history.map((e) => e.state), ["warning", "degraded", "exhausted"]);
+  assert.ok(history.every((e) => e.costBudgetUsd === LOOP_BUDGET_USD && e.tokenBudget === null));
+  assert.ok(history[1].economyModel === spec.economy && history[2].economyModel === spec.economy);
+  assert.ok(history[0].ts < history[1].ts && history[1].ts < history[2].ts, "timestamps strictly increase");
+  near(history[2].spentUsd, row.cost_usd, "exhausted row spend");
 });
 
 await run("ATB-6b raise budget -> requeued -> re-run from the start with the earlier spend counted -> completes", async () => {
@@ -664,6 +688,13 @@ await run("ATB-6b raise budget -> requeued -> re-run from the start with the ear
   assert.equal(row.tokens_out, pausedRow.tokens_out + 3 * OUTPUT_TOKENS);
   near(row.cost_usd, pausedRow.cost_usd + 3 * 0.0212, "cost is cumulative across attempts");
   assert.equal(row.budget_state, "warning");
+  // History: attempt 1's sequence, the raise (by the HUD store), then attempt 2's warning.
+  const history = historyOf(task.id);
+  assert.deepEqual(history.map((e) => e.kind), ["warning", "degraded", "exhausted", "raised", "warning"]);
+  const raisedEvent = history[3];
+  assert.deepEqual([raisedEvent.state, raisedEvent.costBudgetUsd, raisedEvent.model], ["ok", 0.3, TERRA]);
+  near(raisedEvent.spentUsd, pausedRow.cost_usd, "raised row spend");
+  assert.equal(history[4].costBudgetUsd, 0.3);
 });
 
 await run("ATB-6c stop on a budget-paused task -> cancelled, no further calls", async () => {
@@ -675,6 +706,11 @@ await run("ATB-6c stop on a budget-paused task -> cancelled, no further calls", 
   await sleep(300);
   assert.equal(taskRow(task.id).status, "cancelled");
   assert.equal(capture.calls.length, callsAtPause, "a model call was made after stop");
+  // Deleting the task removes its budget history; a stopped task records nothing more.
+  assert.deepEqual(historyOf(task.id).map((e) => e.kind), ["warning", "degraded", "exhausted"]);
+  assert.equal(await store.deleteTask(SERVICE_USER, task.id), true);
+  assert.deepEqual(historyOf(task.id), []);
+  assert.ok(historyOf(pausedTask.task.id).length > 0, "another task's history must be kept");
 });
 
 await run("ATB-6d play on a budget-paused task with no room left is refused (task stays paused)", async () => {
@@ -698,6 +734,80 @@ await run("ATB-6d play on a budget-paused task with no room left is refused (tas
 });
 
 stopService();
+
+// ── ATB-8: defaults, unpriced models, pre-call guard outside the loops ─────────────────────────────────────
+
+await run("ATB-8a defaults: cost-only $2.00; an absent token default is no limit, a saved one is kept", async () => {
+  const { normalizeAgentTaskBudgetSettings, computeBudgetFraction, budgetStateForSpend } = settingsModule;
+  assert.equal(settingsModule.DEFAULT_AGENT_TASK_COST_BUDGET_USD, 2);
+  assert.equal(settingsModule.DEFAULT_AGENT_TASK_TOKEN_BUDGET, null);
+  assert.equal(normalizeAgentTaskBudgetSettings({ defaultCostBudgetUsd: 1 }).defaultTokenBudget, null);
+  assert.equal(normalizeAgentTaskBudgetSettings({ defaultTokenBudget: 250_000 }).defaultTokenBudget, 250_000);
+  const saved = store.updateTaskBudgetSettings("atb-defaults", { defaultTokenBudget: 150_000 });
+  assert.deepEqual([saved.defaultCostBudgetUsd, saved.defaultTokenBudget], [2, 150_000]);
+  assert.equal(store.readTaskBudgetSettings("atb-defaults").defaultTokenBudget, 150_000);
+  // Cost-only fraction: millions of (cached) tokens do not count; cost does.
+  const budget = resolveEffectiveTaskBudget({}, normalizeAgentTaskBudgetSettings({}));
+  assert.equal(computeBudgetFraction({ spentUsd: 0.5, spentTokens: 5_000_000 }, budget), 0.25);
+  assert.equal(budgetStateForSpend({ spentUsd: 1.6, spentTokens: 0 }, budget), "warning");
+  // Most expensive CURRENT model of any provider (computed from the pricing tables, so a new pricier model fails
+  // here), the harness agent-task scenario (32,144 ~tok input after the per-turn context fix, 1,800 output) with
+  // +25% input, all uncached: 3x must stay within the default.
+  const currentTables = [
+    pricingModule.OPENAI_MODEL_PRICING_USD_PER_1M,
+    pricingModule.CLAUDE_MODEL_PRICING_USD_PER_1M,
+    pricingModule.GEMINI_MODEL_PRICING_USD_PER_1M,
+    pricingModule.GROK_MODEL_PRICING_USD_PER_1M,
+  ];
+  const taskCost = (rates) => (Math.ceil(32_144 * 1.25) * rates.input + 1_800 * rates.output) / 1e6;
+  const worst = Math.max(...currentTables.flatMap((table) => Object.values(table).map(taskCost)));
+  assert.ok(3 * worst <= settingsModule.DEFAULT_AGENT_TASK_COST_BUDGET_USD, `3 x $${worst.toFixed(4)} > default`);
+});
+
+await run("ATB-8b unpriced model + cost-only budget: flagged (never blocked); a token limit still applies", async () => {
+  const { isCostBudgetBlind } = settingsModule;
+  const costOnly = resolveEffectiveTaskBudget({}, settingsModule.normalizeAgentTaskBudgetSettings({}));
+  assert.equal(isCostBudgetBlind(costOnly, "custom-local-model"), true);
+  assert.equal(isCostBudgetBlind(costOnly, TERRA), false);
+  const withTokens = resolveEffectiveTaskBudget({ tokenBudget: 50_000 }, settingsModule.normalizeAgentTaskBudgetSettings({}));
+  assert.equal(isCostBudgetBlind(withTokens, "custom-local-model"), false);
+  const { controller } = timelineController({ budget: costOnly });
+  controller.observe(record("custom-local-model", 900_000, 1_000, null));
+  assert.deepEqual(controller.beforeModelCall({ provider: "openai", model: "custom-local-model" }), { model: "custom-local-model", trimContext: false });
+  const tokenCapped = timelineController({ budget: withTokens }).controller;
+  tokenCapped.observe(record("custom-local-model", 60_000, 1_000, null));
+  assert.throws(() => tokenCapped.beforeModelCall({ provider: "openai", model: "custom-local-model" }), AgentTaskBudgetExhaustedError);
+});
+
+await run("ATB-8c guardCall: passes under the budget, throws (exhausted) once the spend reached it", async () => {
+  const { controller, events } = timelineController({ budget: costBudget(0.1) });
+  controller.observe(record(TERRA, 1_000, 100, 0.05));
+  controller.guardCall({ model: TERRA });
+  controller.observe(record(TERRA, 1_000, 100, 0.05));
+  assert.throws(() => controller.guardCall({ model: TERRA }), (error) => error.code === AGENT_TASK_BUDGET_EXHAUSTED);
+  assert.deepEqual(events.map((e) => e.reason), ["warning", "exhausted"]);
+});
+
+await run("ATB-8d issue 17: an agent task over its budget pauses before the output-constraint correction call", async () => {
+  const strictPrompt = `${PROMPT} Answer in exactly 3 bullet points.`;
+  // One loop call (no tool step) whose real usage takes the spend over the $0.02 budget; the plain "Done: ..." reply
+  // breaks the 3-bullet rule, so refinement would send a correction call.
+  const over = callUsage(inputTokensForCost(TERRA, 0.021));
+  const runStrict = async (wrap) => {
+    startScenario({ plan: [], usage: [over, callUsage(500)] });
+    const { controller, events } = timelineController({ budget: costBudget(0.02) });
+    const taskBudget = wrap(controller);
+    const turn = await runTurn({ shape: "openai", id: `strict-${events.length}-${Date.now()}`, prompt: strictPrompt, observer: controller.observe, extra: { taskBudget } });
+    return { ...turn, events };
+  };
+  const guarded = await runStrict((controller) => controller);
+  assert.equal(guarded.calls.length, 1, `calls: ${guarded.calls.length}`);
+  assert.equal(guarded.result?.errorCode, AGENT_TASK_BUDGET_EXHAUSTED);
+  assert.deepEqual(guarded.events.map((e) => e.reason), ["warning", "exhausted"]);
+  // Self-check: without the guard the same turn makes the correction call (over the budget).
+  const unguarded = await runStrict((controller) => ({ ...controller, guardCall: undefined }));
+  assert.equal(unguarded.calls.length, 2, `the correction call was expected without the guard (calls: ${unguarded.calls.length})`);
+});
 
 // ── ATB-7: mutation self-check ───────────────────────────────────────────────────────────────────────────────
 

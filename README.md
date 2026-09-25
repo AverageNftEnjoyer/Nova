@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.72). Actively developed and used daily by the author.
+**Status:** Alpha (V.73). Actively developed and used daily by the author.
 
 ---
 
@@ -71,11 +71,12 @@ I built it to answer a simple question: what does an AI assistant look like when
 - Queue background tasks against Claude, OpenAI, Gemini, or Grok.
 - Play, pause, stop, and delete controls. Up to 5 tasks run at once.
 - Priority levels, permission modes (default, accept-edits, plan-mode, don't-ask, bypass), and live token and cost tracking per task.
-- Per-task budgets (cost and tokens). Defaults and a cheaper same-provider "economy model" per provider are set in **Settings → Agent budgets** (default $0.25 / 100,000 tokens per task). At 80% the task card warns; at 100% the task first trims older tool results and switches to the economy model, then pauses before a call that would go over, with **Resume / Raise budget / Abort** on the card.
+- Per-task budgets, on cost by default ($2.00 per task; a token budget is optional). Defaults and a cheaper same-provider "economy model" per provider are set in **Settings → Agent budgets**. At 80% the task card warns; at 100% the task first trims older tool results and switches to the economy model, then pauses before a call that would go over, with **Resume / Raise budget / Abort** on the card.
 
 ### Usage analytics
-- Every LLM call (chat, agent tasks, missions) is recorded in a local per-call ledger: provider, model, input / output / cached tokens and cost.
-- The **Analytics** page shows cost and tokens over time by source, provider and model, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Analytics** panel shows today's spend, tokens with the cached share, and tasks at their budget limit.
+- Every LLM call (chat, agent tasks, missions, utility calls, embeddings) is recorded in a local per-call ledger: provider, model, routing tier, input / output / cached tokens and cost.
+- **Settings → Model routing**: small internal calls (format corrections, empty-reply recovery, Spotify parsing, mission classify / extract steps) can use the same provider's economy model when that is estimated to be cheaper (default: "Trivial calls only"). An opt-in cost-saving mode also routes ordinary chat; agent tasks and multi-step reasoning always keep your selected model.
+- The **Analytics** page shows cost and tokens over time by source, provider, model and routing tier, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Analytics** panel shows today's spend, tokens with the cached share, and tasks at their budget limit.
 
 ### Memory
 - Hybrid retrieval that combines keyword and embedding search.
@@ -183,7 +184,7 @@ There is no encryption key to configure. Nova generates a random master key on f
 
 Integrations (Gmail, Telegram, Discord, Spotify, and so on) are optional and can be set up from the in-app Integrations page.
 
-The per-call usage ledger keeps 90 days by default; set `NOVA_LLM_USAGE_RETENTION_DAYS` (1–3650) to change it.
+The per-call usage ledger keeps 90 days by default; set `NOVA_LLM_USAGE_RETENTION_DAYS` (1–3650) to change it. The per-turn prompt sections (skills, preferences, memory recall, web and link context) have their own budget, `NOVA_PROMPT_TURN_CONTEXT_MAX_TOKENS` (default 5,000); `NOVA_MAX_PROMPT_TOKENS` (default 18,000) sizes the history budget.
 
 ### Run
 
