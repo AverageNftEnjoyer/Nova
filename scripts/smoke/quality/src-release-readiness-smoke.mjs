@@ -51,7 +51,8 @@ const releaseNotes = releaseNotesPath ? read(releaseNotesPath) : "";
 
 await run("P20-C1 release gate scripts are present", async () => {
   const requiredScripts = [
-    "smoke:src-eval",
+    "smoke:fundamental",
+    "smoke:deployments-db",
     "smoke:src-prompt",
     "smoke:src-missions",
     "smoke:src-scheduler",
@@ -62,15 +63,12 @@ await run("P20-C1 release gate scripts are present", async () => {
     "smoke:src-tools",
     "smoke:src-security",
     "smoke:src-memory",
+    "smoke:routing-core",
     "smoke:src-routing",
     "smoke:src-telegram-lane-isolation",
     "smoke:src-plugin-isolation",
-    "smoke:src-security-regression",
     "smoke:src-coinbase-ci",
-    "smoke:src-coinbase-readiness",
-    "smoke:live-latency",
     "smoke:agent-tasks",
-    "smoke:src-delegated-domain",
     "smoke:src-short-term-context-persistence",
     "smoke:src-policy-approval-store",
     "smoke:runtime-hud-policy-approval-handoff",
@@ -86,14 +84,9 @@ await run("P20-C1 release gate scripts are present", async () => {
   }
 });
 
-await run("P20-C1b release gate includes Coinbase CI + readiness hard gates", async () => {
+await run("P20-C1b release gate includes the consolidated Coinbase CI gate", async () => {
   const releaseScript = String(packageJson?.scripts?.["smoke:src-release"] || "");
   assert.equal(releaseScript.includes("smoke:src-coinbase-ci"), true, "missing coinbase CI gate in smoke:src-release");
-  assert.equal(
-    releaseScript.includes("smoke:src-coinbase-readiness"),
-    true,
-    "missing coinbase readiness gate in smoke:src-release",
-  );
 });
 
 await run("P20-C1c release gate includes Telegram delivery hard gate", async () => {
@@ -124,12 +117,28 @@ await run("P20-C1e release gate includes scheduler soak latency hard gate", asyn
 });
 
 await run("P20-C1f routing gate includes telegram lane isolation stress smoke", async () => {
-  const routingScript = String(packageJson?.scripts?.["smoke:src-routing"] || "");
+  const routingScript = String(packageJson?.scripts?.["smoke:routing-core"] || "");
   assert.equal(
     routingScript.includes("smoke:src-telegram-lane-isolation"),
     true,
-    "missing telegram lane isolation stress gate in smoke:src-routing",
+    "missing telegram lane isolation stress gate in smoke:routing-core",
   );
+});
+
+await run("P20-C1i fundamental gate covers persistence, security, routing, tasks, tokens, and browser flows", async () => {
+  const fundamentalScript = String(packageJson?.scripts?.["smoke:fundamental"] || "");
+  for (const requiredGate of [
+    "smoke:local-db",
+    "smoke:encryption",
+    "smoke:security-guard",
+    "smoke:src-security",
+    "smoke:routing-core",
+    "smoke:agent-tasks",
+    "smoke:token-gate",
+    "test:smoke",
+  ]) {
+    assert.equal(fundamentalScript.includes(requiredGate), true, `missing ${requiredGate} in smoke:fundamental`);
+  }
 });
 
 await run("P20-C1g release gate includes isolation closure hard gate", async () => {

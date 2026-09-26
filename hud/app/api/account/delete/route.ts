@@ -8,6 +8,7 @@ import { createCoinbaseStore } from "@/lib/coinbase/reporting"
 import { getDb, purgeLocalUserData, resolveDataDir } from "../../../../../src/db/index.js"
 import { deleteWorktree } from "@/lib/git/worktree-manager"
 import { purgeBackgroundAssets } from "@/lib/media/background-assets-server"
+import { LOCAL_DATA_DELETE_CONFIRMATION, type LocalDataDeleteRequest } from "@/lib/shared/local-data-delete"
 
 export const runtime = "nodejs"
 
@@ -73,7 +74,7 @@ async function revokeAndCleanAgentTasks(userId: string): Promise<void> {
     if (activeLeaseCount() === 0) break
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  if (activeLeaseCount() > 0) throw new Error("Agent Tasks did not stop before account deletion.")
+  if (activeLeaseCount() > 0) throw new Error("Agent Tasks did not stop before local data deletion.")
 
   for (const row of rows) {
     await deleteWorktree(row.id, undefined, true)
@@ -83,14 +84,15 @@ async function revokeAndCleanAgentTasks(userId: string): Promise<void> {
 export async function POST(req: Request) {
   const { userId } = await requireLocalUser()
   const limit = checkUserRateLimit(userId, RATE_LIMIT_POLICIES.accountDelete)
-  if (!limit.allowed) return rateLimitExceededResponse(limit, "Too many delete-account attempts. Try again later.")
+  if (!limit.allowed) return rateLimitExceededResponse(limit, "Too many delete attempts. Try again later.")
 
-  const body = (await req.json()) as { password?: string }
-  const password = String(body.password || "").trim()
-
-  // For local-only mode, just verify a password was provided
-  if (!password) {
-    return NextResponse.json({ ok: false, error: "Password is required." }, { status: 400 })
+  // There are no accounts or passwords: the caller must echo the typed confirmation word.
+  const body = (await req.json().catch(() => null)) as Partial<LocalDataDeleteRequest> | null
+  if (String(body?.confirm ?? "").trim() !== LOCAL_DATA_DELETE_CONFIRMATION) {
+    return NextResponse.json(
+      { ok: false, error: `Type ${LOCAL_DATA_DELETE_CONFIRMATION} to confirm deleting all local data.` },
+      { status: 400 },
+    )
   }
 
   const userContextId = normalizeUserContextId(userId)

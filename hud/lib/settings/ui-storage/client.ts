@@ -217,3 +217,18 @@ export async function hydrateUiStorage(timeoutMs = 2500): Promise<void> {
     // Server unavailable or timed out: keep using the browser cache; queued edits stay durable.
   }
 }
+
+/**
+ * Forget every queued edit (memory and durable queue) without sending it. Used after the server copy was wiped
+ * (Settings -> Local data): the caller then clears browser storage and reloads, so nothing old is re-uploaded.
+ */
+export function discardPendingUiStorageEdits(): void {
+  if (typeof window === "undefined") return
+  if (flushTimer) {
+    clearTimeout(flushTimer)
+    flushTimer = null
+  }
+  for (const key of Object.keys(memoryQueue)) delete memoryQueue[key]
+  memoryValues.clear()
+  writeDurableQueue({})
+}

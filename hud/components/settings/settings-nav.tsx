@@ -1,7 +1,8 @@
 "use client"
 
-import { User, Palette, Volume2, Bell, Sparkles, FileCode2, Gauge, Route, Shield, RotateCcw } from "lucide-react"
+import { User, Palette, Volume2, Bell, Sparkles, FileCode2, Gauge, Route, HardDrive, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { NOVA_VERSION } from "@/lib/meta/version"
 import { cn } from "@/lib/shared/utils"
 
 export const SETTINGS_SECTIONS = [
@@ -13,7 +14,7 @@ export const SETTINGS_SECTIONS = [
   { id: "skills", label: "Skills", icon: FileCode2 },
   { id: "agent-budgets", label: "Agent budgets", icon: Gauge },
   { id: "model-routing", label: "Model routing", icon: Route },
-  { id: "access", label: "Account", icon: Shield },
+  { id: "local-data", label: "Local data", icon: HardDrive },
 ] as const
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"]
@@ -34,6 +35,7 @@ export function SettingsNav({ isLight, activeSection, onSectionChange, onReset }
       <div className={cn("px-4 py-4 border-b", isLight ? "border-[#e2e8f2]" : "border-white/10")}>
         <h2 className={cn("text-base sm:text-lg font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>Settings</h2>
         <p className={cn("text-xs mt-1", isLight ? "text-s-40" : "text-slate-400")}>Tune Nova to your workflow</p>
+        <p className="mt-1.5 font-mono text-[10px] text-accent">{NOVA_VERSION}</p>
       </div>
 
       <div className="no-scrollbar flex-1 p-2.5 overflow-x-auto md:overflow-y-auto md:overflow-x-hidden">

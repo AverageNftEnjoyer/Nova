@@ -13,10 +13,10 @@ import { SettingsAppearancePanel } from "@/components/settings/panels/settings-a
 import { SettingsAudioPanel } from "@/components/settings/panels/settings-audio-panel"
 import { SettingsNotificationsPanel } from "@/components/settings/panels/settings-notifications-panel"
 import { SettingsPersonalizationPanel } from "@/components/settings/panels/settings-personalization-panel"
-import { SettingsAccountPanel } from "@/components/settings/panels/settings-account-panel"
 import { SettingsSkillsPanel } from "@/components/settings/settings-skills-panel"
 import { SettingsAgentBudgetsPanel } from "@/components/settings/panels/settings-agent-budgets-panel"
 import { SettingsModelRoutingPanel } from "@/components/settings/panels/settings-model-routing-panel"
+import { SettingsLocalDataPanel } from "@/components/settings/panels/settings-local-data-panel"
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -29,7 +29,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const isLight = theme === "light"
   const spotlightScopeRef = useRef<HTMLDivElement | null>(null)
 
-  const state = useSettingsState(isOpen, onClose)
+  const state = useSettingsState(isOpen)
 
   // ─── Palette CSS vars ─────────────────────────────────────────────────────
 
@@ -265,30 +265,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   />
                 )}
 
-                {activeSection === "access" && (
-                  <SettingsAccountPanel
+                {activeSection === "local-data" && (
+                  <SettingsLocalDataPanel
                     isLight={isLight}
                     settings={state.settings}
-                    authConfigured={state.authConfigured}
-                    authAuthenticated={state.authAuthenticated}
-                    authEmail={state.authEmail}
-                    authBusy={state.authBusy}
-                    authError={state.authError}
-                    accountBusy={state.accountBusy}
-                    accountMessage={state.accountMessage}
-                    emailModalOpen={state.emailModalOpen}
-                    deleteModalOpen={state.deleteModalOpen}
-                    pendingEmail={state.pendingEmail}
-                    deletePassword={state.deletePassword}
-                    setPendingEmail={state.setPendingEmail}
-                    setDeletePassword={state.setDeletePassword}
-                    setEmailModalOpen={state.setEmailModalOpen}
-                    setDeleteModalOpen={state.setDeleteModalOpen}
-                    navigateToLogin={state.navigateToLogin}
-                    handleSignOut={state.handleSignOut}
-                    handleSendPasswordReset={state.handleSendPasswordReset}
-                    handleRequestEmailChange={state.handleRequestEmailChange}
-                    handleDeleteAccount={state.handleDeleteAccount}
+                    onNavigateToProfile={() => setActiveSection("profile")}
                   />
                 )}
               </>

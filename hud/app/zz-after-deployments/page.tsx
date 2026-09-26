@@ -1,8 +1,8 @@
 import { Suspense } from "react"
 
-import { DeploymentsScreen } from "./components/deployments-screen"
+import { DeploymentsScreen } from "../deployments/components/deployments-screen"
 
-export default function DeploymentsPage() {
+export default function Page() {
   return (
     <Suspense fallback={null}>
       <DeploymentsScreen />

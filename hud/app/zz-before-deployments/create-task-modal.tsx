@@ -15,7 +15,7 @@ import type {
   CreateAgentTaskInput,
 } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
-import { PERMISSION_MODE_LABELS } from "./task-card"
+import { PERMISSION_MODE_LABELS } from "@/components/agents/task-card"
 
 export interface AdvancedTaskFormProps {
   open: boolean

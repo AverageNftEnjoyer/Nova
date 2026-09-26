@@ -19,9 +19,11 @@ interface SpotifyHomeModuleProps {
   sectionRef?: RefObject<HTMLElement | null>
   className?: string
   connected: boolean
+  connecting: boolean
   nowPlaying: HomeSpotifyNowPlaying | null
   error: string | null
   busyAction: string | null
+  onConnectSpotify: () => void
   onOpenIntegrations: () => void
   onTogglePlayPause: () => void
   onNext: () => void
@@ -99,9 +101,11 @@ export function SpotifyHomeModule({
   sectionRef,
   className,
   connected,
+  connecting,
   nowPlaying,
   error,
   busyAction,
+  onConnectSpotify,
   onOpenIntegrations,
   onTogglePlayPause,
   onNext,
@@ -532,12 +536,32 @@ export function SpotifyHomeModule({
               <p className={cn("truncate text-xs font-medium", isLight ? "text-s-70" : "text-slate-300")}>
                 Spotify disconnected
               </p>
-              <button
-                onClick={onOpenIntegrations}
-                className={cn("rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors home-spotlight-card home-border-glow", subPanelClass)}
-              >
-                Connect
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={onConnectSpotify}
+                  disabled={connecting}
+                  className={cn(
+                    "rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors home-spotlight-card home-border-glow disabled:cursor-wait disabled:opacity-60",
+                    subPanelClass,
+                  )}
+                >
+                  {connecting ? "Opening..." : "Connect"}
+                </button>
+                <button
+                  onClick={onOpenIntegrations}
+                  className={cn(
+                    "rounded-lg border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors home-spotlight-card home-border-glow",
+                    subPanelClass,
+                  )}
+                >
+                  Setup
+                </button>
+              </div>
+              {error ? (
+                <p className={cn("max-w-72 text-[10px] leading-4", isLight ? "text-rose-700" : "text-rose-300")}>
+                  {error}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -810,7 +834,7 @@ export function SpotifyHomeModule({
             </div>
           )}
 
-          {error ? (
+          {error && connected ? (
             /device|playback device/i.test(error) ? (
               <div className="mt-1 flex items-center justify-between gap-2">
                 <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>

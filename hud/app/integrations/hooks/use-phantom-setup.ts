@@ -16,7 +16,6 @@ interface UsePhantomSetupParams {
   setSettings: Dispatch<SetStateAction<IntegrationsSettings>>
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
   setIsSavingTarget: Dispatch<SetStateAction<IntegrationsSaveTarget>>
-  onRequireLogin: () => void
 }
 
 function getWalletAddress(value: unknown): string {
@@ -81,7 +80,6 @@ export function usePhantomSetup({
   setSettings,
   setSaveStatus,
   setIsSavingTarget,
-  onRequireLogin,
 }: UsePhantomSetupParams) {
   const [walletAddress, setWalletAddress] = useState("")
   const [walletLabel, setWalletLabel] = useState("")
@@ -194,10 +192,6 @@ export function usePhantomSetup({
     try {
       const res = await fetch("/api/integrations/config", { cache: "no-store" })
       const data = await res.json()
-      if (res.status === 401) {
-        onRequireLogin()
-        return
-      }
       const config = data?.config as IntegrationsSettings | undefined
       if (!config) return
       applyServerConfig(config)
@@ -205,7 +199,7 @@ export function usePhantomSetup({
     } catch {
       // no-op
     }
-  }, [applyServerConfig, onRequireLogin, refreshObservedProviderState])
+  }, [applyServerConfig, refreshObservedProviderState])
 
   const openExternalBrowser = useCallback(async (
     target: "connect" | "install",
@@ -221,10 +215,6 @@ export function usePhantomSetup({
         body: JSON.stringify({ target }),
       })
       const data = await res.json()
-      if (res.status === 401) {
-        onRequireLogin()
-        throw new Error("Session expired. Please sign in again.")
-      }
       if (!res.ok) {
         throw new Error(String(data?.error || messages.failure))
       }
@@ -238,7 +228,7 @@ export function usePhantomSetup({
       })
       return opened
     }
-  }, [onRequireLogin, setSaveStatus])
+  }, [setSaveStatus])
 
   const openBrowserConnect = useCallback(async () => {
     if (typeof window === "undefined") return false
@@ -283,10 +273,6 @@ export function usePhantomSetup({
         }),
       })
       const data = await res.json()
-      if (res.status === 401) {
-        onRequireLogin()
-        throw new Error("Session expired. Please sign in again.")
-      }
       if (!res.ok) {
         throw new Error(String(data?.error || "Failed to save Phantom settings."))
       }
@@ -303,7 +289,7 @@ export function usePhantomSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [applyServerConfig, onRequireLogin, setIsSavingTarget, setSaveStatus])
+  }, [applyServerConfig, setIsSavingTarget, setSaveStatus])
 
   const refreshProviderState = useCallback(async () => {
     const observed = await refreshObservedProviderState({ waitForInjection: true })
@@ -337,10 +323,6 @@ export function usePhantomSetup({
         body: JSON.stringify({ reason }),
       })
       const data = await res.json()
-      if (res.status === 401) {
-        onRequireLogin()
-        throw new Error("Session expired. Please sign in again.")
-      }
       if (!res.ok) {
         throw new Error(String(data?.error || "Failed to disconnect Phantom."))
       }
@@ -361,7 +343,7 @@ export function usePhantomSetup({
       suppressProviderDisconnectRef.current = false
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   useEffect(() => {
     let cancelled = false
@@ -575,10 +557,6 @@ export function usePhantomSetup({
         }),
       })
       const challengeData = await challengeRes.json()
-      if (challengeRes.status === 401) {
-        onRequireLogin()
-        throw new Error("Session expired. Please sign in again.")
-      }
       if (!challengeRes.ok) {
         throw new Error(String(challengeData?.error || "Failed to start Phantom verification."))
       }
@@ -610,10 +588,6 @@ export function usePhantomSetup({
         }),
       })
       const verifyData = await verifyRes.json()
-      if (verifyRes.status === 401) {
-        onRequireLogin()
-        throw new Error("Session expired. Please sign in again.")
-      }
       if (!verifyRes.ok) {
         throw new Error(String(verifyData?.error || "Failed to verify Phantom wallet ownership."))
       }
@@ -635,7 +609,7 @@ export function usePhantomSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, openBrowserConnect, refreshFromServer, refreshObservedProviderState, setIsSavingTarget, setSaveStatus])
+  }, [openBrowserConnect, refreshFromServer, refreshObservedProviderState, setIsSavingTarget, setSaveStatus])
 
   return {
     hydrate,

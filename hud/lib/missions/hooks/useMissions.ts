@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { useRouter } from "next/navigation"
 import { INTEGRATIONS_UPDATED_EVENT } from "@/lib/integrations/store/client-store"
 import { getRuntimeTimezone, resolveTimezone } from "@/lib/shared/timezone"
+import { LocalApiUnauthorizedError } from "@/lib/shared/local-api-auth"
 import type { Mission as NativeMission, MissionNode } from "@/lib/missions/types"
 
 interface MissionListItem {
@@ -102,16 +102,12 @@ export interface UseMissionsReturn {
 }
 
 export function useMissions(): UseMissionsReturn {
-  const router = useRouter()
   const [missionItems, setMissionItems] = useState<MissionListItem[]>([])
 
   const refreshMissionItems = useCallback(() => {
     void fetch("/api/missions?limit=500", { cache: "no-store" })
       .then(async (res) => {
-        if (res.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent("/chat")}`)
-          throw new Error("Unauthorized")
-        }
+        if (res.status === 401) throw new LocalApiUnauthorizedError()
         return res.json()
       })
       .then((data) => {
@@ -125,7 +121,7 @@ export function useMissions(): UseMissionsReturn {
       .catch(() => {
         setMissionItems([])
       })
-  }, [router])
+  }, [])
 
   // Initial load
   useEffect(() => {

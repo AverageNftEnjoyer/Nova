@@ -49,12 +49,13 @@ the real `nova.db` or creates paths in the real data dir.
 | --- | --- |
 | `npm test` | `build:agent-core`, then `test:node`: `node:test` unit suites (`src/**/*.test.*`, `dist/**/*.test.js`) on a temp data dir. Not smokes. |
 | `npm run smoke` | `core/runtime-smoke.mjs` only. |
+| `npm run smoke:fundamental` | The normal functional gate: unit/type checks, runtime, SQLite + deployment migrations, encryption, local API/runtime security, tools, routing core, agent tasks, token regression, and the two Playwright product flows. |
 | `npm run smoke:audit` | The six `audit/*/smoke.mjs` scripts. |
-| `npm run smoke:local-db` | `db-foundation`, `multiprocess`, `job-ledger-sqlite`, `authoritative-persistence`, `tool-runs`, `data-paths`, `no-real-data-writes`, `ui-storage`, `local-data`, `retired-model-ids-migration` (all in `local-db/`). |
+| `npm run smoke:local-db` | `db-foundation`, `multiprocess`, `job-ledger-sqlite`, `authoritative-persistence`, `tool-runs`, `data-paths`, `no-real-data-writes`, `ui-storage`, `local-data`, `retired-model-ids-migration`, and `deployments-migration` (all in `local-db/`). |
 | `npm run smoke:agent-tasks` | `build:agent-core`, then all six `agent-tasks/` smokes. |
 | `npm run smoke:token-usage` | `usage-normalize`, `cost-math`, `llm-usage-ledger`, `claude-cache-system`, then `build:agent-core` and `llm-usage-coverage` (in `token-efficiency/`). |
-| `npm run smoke:token-efficiency` | `build:agent-core`, `smoke:token-usage`, then the harness, `tool-output-caps`, `model-tool-scope`, `agent-task-budget`, `integration-tool-context`, `prompt-context-budget`, `unconnected-integrations`, `model-routing`, `model-routing-e2e`, `model-routing-cost` (in `token-efficiency/`), `providers/retired-model-aliases` and `analytics/analytics-real-writers`. In `smoke:src-release` after the token gate. |
-| `npm run smoke:src-routing` | `build:agent-core`, `routing/src-routing-arbitration-smoke.mjs`, then 28 more routing scripts: operator handlers, finalization, preflight, dispatch, context hints, worker executors, platform-contract persistence, the Discord / Gmail / calendar / diagnostics / files / missions / web-research / market / Polymarket / Telegram / reminders / shutdown / voice-TTS domain smokes, market closure, voice-TTS transport, the calendar / market / Polymarket / reminders / voice-TTS `-live` smokes, and Telegram lane isolation. |
+| `npm run smoke:token-deep` | Optional detailed token/cost diagnostics beyond the fundamental `smoke:token-gate`; not repeated in the release chain. |
+| `npm run smoke:routing-core` | The routing spine only: arbitration, operator handlers/finalization/preflight/dispatch/context/worker executors, platform-contract persistence, and Telegram lane isolation. `smoke:src-routing` aliases this gate. |
 | `npm run smoke:src-scheduler` | `scheduler/src-scheduler-stability`, `smoke:src-scheduler-core-performance`, `smoke:execution-tick-performance`, `smoke:job-ledger`. |
 | `npm run smoke:src-missions` | `quality/src-mission-quality`, `smoke:src-mission-output-contract`, `smoke:src-mission-agent-runtime`, `smoke:src-mission-ts-checks`, `quality/src-mission-legacy-audit-smoke.mjs` (the legacy-node audit on a seeded temp data dir, never the real one). |
 | `npm run smoke:src-security` | `security/src-security-hardening`, then `smoke:src-runtime-hardening`. |
@@ -65,7 +66,7 @@ the real `nova.db` or creates paths in the real data dir.
 | `npm run smoke:src-chatkit-release` | ChatKit runtime config, shadow routing, serve routing, structured workflow, release readiness. |
 | `npm run smoke:spotify` | `smoke:hud-spotify-integration`, `smoke:hud-spotify-boot-spam-throttle`, `smoke:runtime-spotify-isolation`. |
 | `npm run smoke:src-isolation-closure` | User isolation, policy approval store, HUD policy approval handoff, org-chart live, short-term context persistence, reminders live, calendar isolation, retention isolation. |
-| `npm run smoke:src-release` | The release chain: `build:agent-core`, eval, prompt, missions, scheduler, scheduler soak, Discord and Telegram delivery, transport, user isolation, tools, security, memory, routing, plugin isolation, security regression, pending-poll resilience, Coinbase CI, Coinbase readiness, agent tasks, the token regression gate, `smoke:token-efficiency`, isolation closure, release readiness, then `build:hud`. |
+| `npm run smoke:src-release` | The release chain: prompt, missions, scheduler/soak/delivery, transport, user isolation, tools, security, memory, routing core, plugin isolation, pending-poll resilience, Coinbase CI, agent tasks, token regression, isolation closure, release readiness, then `build:hud`. Duplicate meta-runs and the deep token suite are not repeated here. |
 | `npm run verify:release-readiness` | Runs `smoke:src-release` (through `verification/verify-release-readiness.mjs`). |
 | `npm run ops:mission-prod-ready` | `smoke:src-mission-telemetry-reliability` plus two `ops:` scripts. |
 
@@ -88,7 +89,7 @@ All six run in `npm run smoke:agent-tasks` (no per-file scripts).
 
 | File | npm script | What it checks | Needs |
 | --- | --- | --- | --- |
-| `analytics-real-writers-smoke.mjs` | `smoke:analytics` (also in `smoke:token-efficiency`) | Analytics against rows from the REAL writers (chat turns through `handleInput` with a fake model, `recordLlmUsageSafe` for all five sources, budget events through the db module and the HUD task store): totals, by source (incl. utility / embedding), by provider and model, by routing tier (untagged rows included), savings, local-day bucketing in the viewer's time zone (+05:30, +05:45, St John's DST, a whole-hour zone; 15-minute UTC buckets), one indexed range query, budget event history (order, range, user scope, deleted tasks, bound). | build |
+| `analytics-real-writers-smoke.mjs` | `smoke:analytics` (also in optional `smoke:token-deep`) | Analytics against rows from the REAL writers (chat turns through `handleInput` with a fake model, `recordLlmUsageSafe` for all five sources, budget events through the db module and the HUD task store): totals, by source (incl. utility / embedding), by provider and model, by routing tier (untagged rows included), savings, local-day bucketing in the viewer's time zone (+05:30, +05:45, St John's DST, a whole-hour zone; 15-minute UTC buckets), one indexed range query, budget event history (order, range, user scope, deleted tasks, bound). | build |
 
 ### audit/ (6)
 
@@ -227,7 +228,7 @@ Only the telemetry smoke has an npm script. `src-mission-persistence-smoke.mjs` 
 
 | File | npm script | What it checks | Needs |
 | --- | --- | --- | --- |
-| `retired-model-aliases-smoke.mjs` | `smoke:retired-model-aliases` (also in `smoke:token-efficiency`) | Retired model IDs map to the same provider's current model of the same tier (`src/providers/models/retired-model-aliases`): exact IDs and families, case-insensitive, current / still-served / unknown IDs unchanged; the runtime and the HUD mission client send only current IDs for a config that stores a retired one (stubbed fetch, fake client); ChatKit's env model is resolved. | build |
+| `retired-model-aliases-smoke.mjs` | `smoke:retired-model-aliases` (also in optional `smoke:token-deep`) | Retired model IDs map to the same provider's current model of the same tier (`src/providers/models/retired-model-aliases`): exact IDs and families, case-insensitive, current / still-served / unknown IDs unchanged; the runtime and the HUD mission client send only current IDs for a config that stores a retired one (stubbed fetch, fake client); ChatKit's env model is resolved. | build |
 
 ### quality/ (7)
 
@@ -236,7 +237,6 @@ Only the telemetry smoke has an npm script. `src-mission-persistence-smoke.mjs` 
 | File | npm script | What it checks | Needs |
 | --- | --- | --- | --- |
 | `src-chatkit-release-readiness-smoke.mjs` | `smoke:src-chatkit-release-readiness` | ChatKit release gate: reliability, p50/p95/p99 and quality score against the baseline, using recent `archive/logs/chatkit-events.jsonl` if it has at least 8 serve events, else `fixtures/chatkit-release-events.jsonl`. Writes `archive/logs/chatkit-release-readiness-report.json` in the repo. | build |
-| `src-eval-regression-smoke.mjs` | `smoke:src-eval` | Regression gates: runs the transport smoke and prompt fixtures, mission quality and tool behavior checks, and confirms the gate scripts are still wired. Spawns child smokes. | none |
 | `src-mission-legacy-audit-smoke.mjs` | `smoke:mission-legacy-audit` (also in `smoke:src-missions`) | Runs `scripts/ops/mission-legacy-node-audit.mjs --strict --no-report` against a temp data dir seeded with clean and legacy (`sub-workflow`) missions: exit 2 plus the finding, the `--user-context-id` scope, the db is opened read-only (bytes unchanged), `--data-dir` with no db exits 0 without creating one, remediated data passes, an unreadable row fails. | none |
 | `src-mission-quality-smoke.mjs` | `smoke:src-missions` | Mission quality module exposes scoring, guardrails and tunables; workflow output applies guardrails before dispatch; legacy fallback output path removed. | none |
 | `src-prompt-budget-smoke.mjs` | `smoke:src-prompt` | Prompt budget constants and helpers; chat handler uses budgeted context and history; mission AI executors are bounded before LLM calls. | none |
@@ -344,7 +344,6 @@ Only the telemetry smoke has an npm script. `src-mission-persistence-smoke.mjs` 
 | `local-api-guard-smoke.mjs` | `smoke:security-guard` | Local request guard (foreign Host / Origin / Sec-Fetch-Site rejected, loopback allowed), provider base-URL rules (a stored key is never sent to a request-supplied URL), WebSocket origin check on a real local `ws` server, ChatKit tracing and store off. | none |
 | `src-security-hardening-smoke.mjs` | `smoke:src-security` | Private-IP classifier and SSRF guard block internal targets; prompt-injection pattern detection; external-content wrapper sanitizes nested markers. | build |
 | `src-runtime-hardening-regression-smoke.mjs` | `smoke:src-runtime-hardening` (also in `smoke:src-security`) | Source check: no blocking `execSync` in the launcher, async argv spawn for voice capture, no shell-string `execSync` in tool bootstrap, metrics broadcast scoped by `userContextId`. | none |
-| `src-security-regression-net-smoke.mjs` | `smoke:src-security-regression` | Network and security guards, transport and tool-policy regressions, scheduler reliability, safe runtime defaults, and the release chain still has the security, memory, routing and isolation gates. | none |
 | `src-user-context-isolation-smoke.mjs` | `smoke:src-user-isolation` | Per-user scheduler concurrency, supersede keys and inflight caps; user-scoped HUD session keys; transcript and memory isolation; SessionStore scope; gateway ownership; org-chart scoped ids. | build |
 | `src-identity-profile-divergence-smoke.mjs` | `smoke:src-identity-profile-divergence` | Identity profiles stay distinct per user under concurrent scheduler load. | none |
 
@@ -416,7 +415,6 @@ These write their SQLite files to `scripts/coinbase/.tmp/` in the repo, not to t
 | `src-coinbase-rollout-controls-smoke.mjs` | `smoke:src-coinbase-rollout-controls` | Feature flag off, alpha/beta cohorts, deterministic ramp percentage, kill switch, telemetry go/no-go thresholds, rollout KPI report. | build |
 | `src-coinbase-mission-contracts-smoke.mjs` | `smoke:src-coinbase-mission-contracts` | Mostly source checks: prompts map to Coinbase primitives, authenticated data in the scheduler path, data gating, retry and dead-letter, mission metadata in transcripts. | build |
 | `src-coinbase-pnl-personality-comment-smoke.mjs` | `smoke:src-coinbase-pnl-personality` | PnL personality comments: 10 comments for moves of 10% or more, none below the threshold, deterministic per seed. | none |
-| `src-coinbase-readiness-gate.mjs` | `smoke:src-coinbase-readiness` | Runs `smoke:src-coinbase-rollout-controls` with `NOVA_COINBASE_READINESS_MODE=1`. | build |
 
 ## Browser tests (Playwright)
 

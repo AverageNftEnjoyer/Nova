@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.76). Actively developed and used daily by the author.
+**Status:** Alpha (V.77). Actively developed and used daily by the author.
 
 ---
 
@@ -221,17 +221,20 @@ npm run smoke:production-routes   # loads every page and GET API route of the pa
 
 ## Testing
 
-The project leans on smoke tests that exercise real code paths instead of mocks.
+The project leans on smoke tests that exercise real code paths instead of mocks. One command covers the functional gate:
 
 ```bash
-npm run typecheck    # agent + HUD type checks
-npm run lint         # ESLint for agent and HUD
-npm test             # build + Node test suite
-npm run smoke        # runtime smoke test
-npm run smoke:audit  # audit and regression smokes
-npm run smoke:token-gate  # offline token regression gate (prompt size, tool schemas, cacheable prefix)
+npm run smoke:fundamental
 ```
 
-There are more than 130 targeted smoke scripts under `scripts/smoke/`, covering tool-loop guardrails, per-user isolation, routing, scheduler stability, the job ledger, and each integration domain. Browser-level checks live in `hud/tests/smoke/` and run with Playwright (`npm --prefix hud run test:smoke`).
+That runs the Node tests and type checks, the runtime smoke, local SQLite (including deployment migrations), encryption, local API and runtime security, tools, routing core, agent tasks, the token regression gate, and the Playwright product flows in `hud/tests/smoke/`.
+
+```bash
+npm run typecheck         # agent + HUD type checks
+npm run lint              # ESLint for agent and HUD
+npm run smoke:src-release # fuller release chain (scheduler, delivery, Coinbase CI, isolation closure, HUD build)
+```
+
+Individual scripts under `scripts/smoke/` still exist for a single area (routing lane, integration, audit). They are not part of the functional gate. The catalog is [scripts/smoke/README.md](scripts/smoke/README.md).
 
 ---

@@ -97,7 +97,6 @@ const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 2_000
 const SPOTIFY_POLL_INTERVAL_PAUSED_WITH_TRACK_MS = 5_000
 const SPOTIFY_POLL_INTERVAL_IDLE_MS = 8_000
 const SPOTIFY_REQUEST_TIMEOUT_MS = 12_000
-const SPOTIFY_UNAUTHORIZED_REDIRECT_COOLDOWN_MS = 2_500
 // Only replace the now-playing snapshot when the server progress differs from the
 // client-interpolated progress by more than this (avoids re-rendering on every poll).
 const SPOTIFY_PROGRESS_DRIFT_THRESHOLD_MS = 1_500
@@ -181,7 +180,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   // Stable ref for connected — avoids refreshSpotifyNowPlaying re-creation on connect change
   const spotifyConnectedRef = useRef(false)
   const spotifyUnauthorizedRef = useRef(false)
-  const spotifyUnauthorizedRedirectAtRef = useRef(0)
   const spotifyOAuthPopupRef = useRef<Window | null>(null)
   const spotifyOAuthPopupWatchRef = useRef<number | null>(null)
   const [spotifyLoading, setSpotifyLoading] = useState(false)
@@ -248,13 +246,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     setSpotifyConnected(false)
     setSpotifyNowPlaying(null)
     setSpotifyError("Spotify session expired. Reconnect in Integrations.")
-    const onLoginRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/login")
-    if (onLoginRoute) return
-    const now = Date.now()
-    if (now - spotifyUnauthorizedRedirectAtRef.current < SPOTIFY_UNAUTHORIZED_REDIRECT_COOLDOWN_MS) return
-    spotifyUnauthorizedRedirectAtRef.current = now
-    router.push("/login")
-  }, [router])
+  }, [])
 
   const refreshSpotifyNowPlaying = useCallback(async (connectedHint?: boolean, options?: RefreshSpotifyOptions) => {
     if (spotifyUnauthorizedRef.current) {
@@ -447,7 +439,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
       if (res.status === 401) throw new Error("Unauthorized")
       const data = await res.json()
       spotifyUnauthorizedRef.current = false
-      spotifyUnauthorizedRedirectAtRef.current = 0
       preserveSpotifyCacheUntilServerSyncRef.current = false
       const config = data?.config || {}
       const provider = providerFromValue(config?.activeLlmProvider)
@@ -570,7 +561,6 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   useEffect(() => {
     const onUpdate = () => {
       spotifyUnauthorizedRef.current = false
-      spotifyUnauthorizedRedirectAtRef.current = 0
       preserveSpotifyCacheUntilServerSyncRef.current = false
       const local = loadIntegrationsSettings()
       applyLocalSettings(local)

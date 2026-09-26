@@ -18,7 +18,6 @@ interface UseYouTubeSetupParams {
   setSettings: Dispatch<SetStateAction<IntegrationsSettings>>
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
   setIsSavingTarget: Dispatch<SetStateAction<IntegrationsSaveTarget>>
-  onRequireLogin: () => void
 }
 
 type YouTubePermissionPatch = Partial<IntegrationsSettings["youtube"]["permissions"]>
@@ -27,7 +26,6 @@ export function useYouTubeSetup({
   setSettings,
   setSaveStatus,
   setIsSavingTarget,
-  onRequireLogin,
 }: UseYouTubeSetupParams) {
   const [youtubeRedirectUri, setYouTubeRedirectUri] = useState(YOUTUBE_DEFAULT_REDIRECT_URI)
   const [youtubeChannelId, setYouTubeChannelId] = useState("")
@@ -193,10 +191,6 @@ export function useYouTubeSetup({
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok || !data?.authUrl) {
-          if (res.status === 401) {
-            onRequireLogin()
-            throw new Error("Session expired. Please sign in again.")
-          }
           throw new Error(data?.error || "Failed to start YouTube OAuth.")
         }
         return String(data.authUrl)
@@ -260,7 +254,7 @@ export function useYouTubeSetup({
       .catch((error) => {
         setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to start YouTube OAuth." })
       })
-  }, [onRequireLogin, setSaveStatus])
+  }, [setSaveStatus])
 
   const saveYouTubeConfig = useCallback(async () => {
     setSaveStatus(null)
@@ -298,10 +292,6 @@ export function useYouTubeSetup({
       })
       const data = await res.json()
       if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to disconnect YouTube.")
       }
       await refreshFromServer()
@@ -311,7 +301,7 @@ export function useYouTubeSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   const testYouTubeConnection = useCallback(async () => {
     setSaveStatus(null)
@@ -323,10 +313,6 @@ export function useYouTubeSetup({
       })
       const data = await res.json()
       if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "YouTube probe failed.")
       }
       await refreshFromServer()
@@ -339,7 +325,7 @@ export function useYouTubeSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   const updateYouTubePermissions = useCallback(async (patch: YouTubePermissionPatch) => {
     setSaveStatus(null)
@@ -357,10 +343,6 @@ export function useYouTubeSetup({
       })
       const data = await res.json()
       if (!res.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to update YouTube permissions.")
       }
       await refreshFromServer()
@@ -372,7 +354,7 @@ export function useYouTubeSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   return {
     youtubeRedirectUri,

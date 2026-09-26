@@ -8,14 +8,12 @@ interface UseSpotifySetupParams {
   setSettings: Dispatch<SetStateAction<IntegrationsSettings>>
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
   setIsSavingTarget: Dispatch<SetStateAction<IntegrationsSaveTarget>>
-  onRequireLogin: () => void
 }
 
 export function useSpotifySetup({
   setSettings,
   setSaveStatus,
   setIsSavingTarget,
-  onRequireLogin,
 }: UseSpotifySetupParams) {
   const [spotifyClientId, setSpotifyClientId] = useState("")
   const [spotifyRedirectUri, setSpotifyRedirectUri] = useState(SPOTIFY_DEFAULT_REDIRECT_URI)
@@ -151,10 +149,6 @@ export function useSpotifySetup({
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok || !data?.authUrl) {
-          if (res.status === 401) {
-            onRequireLogin()
-            throw new Error("Session expired. Please sign in again.")
-          }
           throw new Error(data?.error || "Failed to start Spotify OAuth.")
         }
         return String(data.authUrl)
@@ -218,7 +212,7 @@ export function useSpotifySetup({
       .catch((error) => {
         setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to start Spotify OAuth." })
       })
-  }, [onRequireLogin, setSaveStatus, spotifyClientId])
+  }, [setSaveStatus, spotifyClientId])
 
   const saveSpotifyConfig = useCallback(async () => {
     if (!spotifyClientId.trim()) {
@@ -261,10 +255,6 @@ export function useSpotifySetup({
       })
       const data = await res.json()
       if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to disconnect Spotify.")
       }
       await refreshFromServer()
@@ -274,7 +264,7 @@ export function useSpotifySetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   const testSpotifyConnection = useCallback(async () => {
     setSaveStatus(null)

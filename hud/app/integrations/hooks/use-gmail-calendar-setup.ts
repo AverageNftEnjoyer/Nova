@@ -7,7 +7,6 @@ interface UseGmailCalendarSetupParams {
   setSettings: Dispatch<SetStateAction<IntegrationsSettings>>
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
   setIsSavingTarget: Dispatch<SetStateAction<IntegrationsSaveTarget>>
-  onRequireLogin: () => void
 }
 
 type CalendarPermissionPatch = Partial<IntegrationsSettings["gcalendar"]["permissions"]>
@@ -17,7 +16,6 @@ export function useGmailCalendarSetup({
   setSettings,
   setSaveStatus,
   setIsSavingTarget,
-  onRequireLogin,
 }: UseGmailCalendarSetupParams) {
   const [selectedAccountId, setSelectedAccountId] = useState("")
   const popupRef = useRef<Window | null>(null)
@@ -172,10 +170,6 @@ export function useGmailCalendarSetup({
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok || !data?.authUrl) {
-          if (res.status === 401) {
-            onRequireLogin()
-            throw new Error("Session expired. Please sign in again.")
-          }
           throw new Error(data?.error || "Failed to start Google Calendar OAuth.")
         }
         return String(data.authUrl)
@@ -224,7 +218,6 @@ export function useGmailCalendarSetup({
         })
       })
   }, [
-    onRequireLogin,
     setSaveStatus,
     settings.gmail.connected,
     settings.gmail.oauthClientId,
@@ -244,10 +237,6 @@ export function useGmailCalendarSetup({
       })
       const data = await res.json()
       if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to disconnect Gmail Calendar.")
       }
       await refreshFromServer()
@@ -263,7 +252,7 @@ export function useGmailCalendarSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   const updateCalendarPermissions = useCallback(async (patch: CalendarPermissionPatch) => {
     setSaveStatus(null)
@@ -281,10 +270,6 @@ export function useGmailCalendarSetup({
       })
       const data = await res.json()
       if (!res.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to update calendar permissions.")
       }
       await refreshFromServer()
@@ -296,7 +281,7 @@ export function useGmailCalendarSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   return {
     selectedAccountId,

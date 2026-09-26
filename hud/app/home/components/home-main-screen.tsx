@@ -40,6 +40,7 @@ import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
 import { NotesHomeModule } from "./notes-home-module"
 import { AnalyticsHomeModule } from "./analytics-home-module"
+import { WeatherLocationPopup } from "./weather-location-popup"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface HistoryConversationMenuProps {
@@ -189,8 +190,10 @@ export function HomeMainScreen() {
     spotifyConnected,
     youtubeConnected,
     spotifyNowPlaying,
+    spotifyConnecting,
     spotifyError,
     spotifyBusyAction,
+    connectSpotify,
     toggleSpotifyPlayback,
     spotifyNextTrack,
     spotifyPreviousTrack,
@@ -333,6 +336,7 @@ export function HomeMainScreen() {
 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [spotifyPopupOpen, setSpotifyPopupOpen] = useState(false)
+  const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
   const [historyChatsOpen, setHistoryChatsOpen] = useState(true)
@@ -470,9 +474,15 @@ export function HomeMainScreen() {
               </div>
               <div />
               <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                <div
-                  className={cn("hidden lg:flex h-11 items-center gap-2 rounded-lg px-3", subPanelClass)}
-                  title={homeWeatherError || (preferredWeatherCity ? homeWeather?.conditionLabel || "Loading weather" : "Set a preferred city in Settings")}
+                <button
+                  type="button"
+                  onClick={() => setWeatherPopupOpen(true)}
+                  className={cn(
+                    "hidden lg:flex h-11 items-center gap-2 rounded-lg px-3 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    subPanelClass,
+                  )}
+                  title={homeWeatherError || (preferredWeatherCity ? homeWeather?.conditionLabel || "Loading weather" : "Set your weather city")}
+                  aria-label={preferredWeatherCity ? `Change weather city from ${preferredWeatherCity}` : "Set weather city"}
                 >
                   <CloudSun className="h-4 w-4 text-accent" />
                   <div className="min-w-0">
@@ -485,7 +495,7 @@ export function HomeMainScreen() {
                       {homeWeather?.locationLabel || preferredWeatherCity || "Not configured"}
                     </p>
                   </div>
-                </div>
+                </button>
                 <button
                   type="button"
                   onClick={() => setSpotifyPopupOpen((current) => !current)}
@@ -858,10 +868,12 @@ export function HomeMainScreen() {
             sectionRef={spotifyModuleSectionRef}
             className="h-full w-full"
             connected={spotifyConnected}
+            connecting={spotifyConnecting}
             nowPlaying={spotifyNowPlaying}
             error={spotifyError}
             busyAction={spotifyBusyAction}
-            onOpenIntegrations={openIntegrations}
+            onConnectSpotify={() => { void connectSpotify() }}
+            onOpenIntegrations={() => goToIntegrations("spotify")}
             onTogglePlayPause={toggleSpotifyPlayback}
             onNext={spotifyNextTrack}
             onPrevious={spotifyPreviousTrack}
@@ -870,6 +882,17 @@ export function HomeMainScreen() {
           />
         </div>
       </>
+    ) : null}
+    {weatherPopupOpen ? (
+      <WeatherLocationPopup
+        isLight={isLight}
+        panelClass={panelClass}
+        subPanelClass={subPanelClass}
+        currentCity={preferredWeatherCity}
+        weatherLoading={homeWeatherLoading}
+        weatherError={homeWeatherError}
+        onClose={() => setWeatherPopupOpen(false)}
+      />
     ) : null}
     <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
   </div>

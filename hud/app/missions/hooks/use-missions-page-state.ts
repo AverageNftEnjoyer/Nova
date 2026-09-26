@@ -9,6 +9,7 @@ import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type Integrations
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
 import { getRuntimeTimezone, resolveTimezone } from "@/lib/shared/timezone"
+import { LocalApiUnauthorizedError, localApiErrorMessage } from "@/lib/shared/local-api-auth"
 
 import {
   AI_PROVIDER_LABELS,
@@ -1221,10 +1222,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         enabled: true,
       })
       const data = response.data as BuildMissionResponse
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       if (!response.ok) {
         throw new Error([data?.error || "Failed to generate mission draft.", data?.debug ? `(${data.debug})` : ""].filter(Boolean).join(" "))
       }
@@ -1276,7 +1274,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     } finally {
       setNovaGeneratingMission(false)
     }
-  }, [detectedTimezone, integrationsSettings, mapWorkflowStepsForBuilder, novaMissionPrompt, router])
+  }, [detectedTimezone, integrationsSettings, mapWorkflowStepsForBuilder, novaMissionPrompt])
 
   const novaSuggestForAiStep = useCallback(async (stepId: string) => {
     const step = workflowSteps.find((item) => item.id === stepId && item.type === "ai")
@@ -1353,10 +1351,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     if (!input?.silent) setMissionReliabilityLoading(true)
     try {
       const response = await fetchMissionReliabilityApi({ days })
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Unauthorized")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       const data = response.data as MissionReliabilityResponse
       if (!response.ok || data?.ok !== true) {
         throw new Error(data?.error || "Failed to load mission reliability.")
@@ -1367,23 +1362,20 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         Number.isFinite(Number(data.lookbackDays)) ? Number(data.lookbackDays) : days,
       )
       setMissionReliabilityLastUpdatedAt(Date.now())
-    } catch {
+    } catch (error) {
       if (!input?.silent) {
-        setStatus({ type: "error", message: "Failed to load mission reliability." })
+        setStatus({ type: "error", message: localApiErrorMessage(error, "Failed to load mission reliability.") })
       }
     } finally {
       if (!input?.silent) setMissionReliabilityLoading(false)
     }
-  }, [missionReliabilityLookbackDays, router])
+  }, [missionReliabilityLookbackDays])
 
   const refreshSchedules = useCallback(async () => {
     if (schedules.length === 0) setLoading(true)
     try {
       const response = await fetchMissionsApi()
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Unauthorized")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       const data = response.data
       if (!response.ok || data?.ok === false) {
         throw new Error(String(data?.error || "Failed to load missions."))
@@ -1396,8 +1388,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       setBaselineById(buildBaselineById(next))
       writeShellUiCache({ missionSchedules: next })
       void refreshMissionReliability({ silent: true })
-    } catch {
-      setStatus({ type: "error", message: "Failed to load missions." })
+    } catch (error) {
+      setStatus({ type: "error", message: localApiErrorMessage(error, "Failed to load missions.") })
       if (schedules.length === 0) {
         const cached = getCachedMissionSchedules()
         setSchedules(cached)
@@ -1406,7 +1398,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     } finally {
       setLoading(false)
     }
-  }, [refreshMissionReliability, router, schedules.length])
+  }, [refreshMissionReliability, schedules.length])
 
   useEffect(() => {
     const refreshIntegrationSettings = () => {
@@ -1543,10 +1535,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
     const pollQueueMetrics = async () => {
       const response = await fetchMissionQueueMetrics()
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        return
-      }
       const metrics = response.data?.metrics
       if (!response.ok || response.data?.ok !== true || !metrics) return
       if (cancelled) return
@@ -1598,7 +1586,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       clearTimer()
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [router])
+  }, [])
 
   useEffect(() => {
     writeShellUiCache({ missionSchedules: schedules })
@@ -1648,10 +1636,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         for (const { entry, response } of statusResponses) {
           if (cancelled) break
 
-          if (response.status === 401) {
-            router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-            break
-          }
+          if (response.status === 401) break
           const data = response.data as MissionRunStatusResponse
           if (!response.ok || data?.ok !== true || !data.run) continue
 
@@ -1749,7 +1734,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       stopTimer()
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
-  }, [hasQueuedRuns, refreshSchedules, router])
+  }, [hasQueuedRuns, refreshSchedules])
 
   useEffect(() => {
     const refresh = () => {
@@ -1875,10 +1860,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         profile: "strict",
         scheduleId: editingMissionId || undefined,
       })
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       const data = response.data
       if (!response.ok || !data?.autofix) {
         throw new Error(data?.error || "Failed to preview workflow fixes.")
@@ -1903,7 +1885,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     } finally {
       setWorkflowAutofixLoading(false)
     }
-  }, [buildWorkflowSummaryDraft, editingMissionId, router, workflowSteps.length])
+  }, [buildWorkflowSummaryDraft, editingMissionId, workflowSteps.length])
 
   const toggleWorkflowAutofixSelection = useCallback((candidateId: string) => {
     setWorkflowAutofixSelectionById((prev) => ({
@@ -1932,10 +1914,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         profile: "strict",
         scheduleId: editingMissionId || undefined,
       })
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       const data = response.data
       if (!response.ok || !data?.autofix) {
         throw new Error(data?.error || "Failed to apply workflow fixes.")
@@ -1967,7 +1946,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     applyAutofixSummaryToBuilder,
     buildWorkflowSummaryDraft,
     editingMissionId,
-    router,
     workflowAutofixSelectionById,
     workflowSteps.length,
   ])
@@ -2013,10 +1991,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       let existingMission: NativeMission | null = null
       if (isEditing && editingMissionId) {
         const existingResponse = await fetchMissionById(editingMissionId)
-        if (existingResponse.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-          throw new Error("Session expired. Please sign in again.")
-        }
+        if (existingResponse.status === 401) throw new LocalApiUnauthorizedError()
         const existingPayload = existingResponse.data as { mission?: unknown; error?: string }
         if (!existingResponse.ok) {
           throw new Error(existingPayload?.error || "Failed to load mission before save.")
@@ -2067,10 +2042,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
       const response = await saveMissionRecord(missionPayload)
       const data = response.data as { ok?: boolean; mission?: unknown; error?: string }
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       if (!response.ok || data?.ok !== true) {
         throw new Error(data?.error || (isEditing ? "Failed to save mission." : "Failed to create mission."))
       }
@@ -2243,10 +2215,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setStatus(null)
     try {
       const fetchResponse = await fetchMissionById(mission.id)
-      if (fetchResponse.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (fetchResponse.status === 401) throw new LocalApiUnauthorizedError()
       const fetchData = fetchResponse.data as { mission?: unknown; error?: string }
       if (!fetchResponse.ok) throw new Error(fetchData?.error || "Failed to load mission.")
       const existingMission = normalizeMissionRecord(fetchData?.mission)
@@ -2262,10 +2231,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       }
 
       const saveResponse = await saveMissionRecord(nextMission)
-      if (saveResponse.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (saveResponse.status === 401) throw new LocalApiUnauthorizedError()
       const saveData = saveResponse.data as { ok?: boolean; mission?: unknown; error?: string }
       if (!saveResponse.ok || saveData?.ok !== true) {
         throw new Error(saveData?.error || "Failed to save mission.")
@@ -2282,7 +2248,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     } finally {
       setItemBusy(mission.id, false)
     }
-  }, [baselineById, detectedTimezone, router, setItemBusy, updateLocalSchedule])
+  }, [baselineById, detectedTimezone, setItemBusy, updateLocalSchedule])
 
   const deleteMission = useCallback(async (id: string) => {
     setItemBusy(id, true)
@@ -2290,10 +2256,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     try {
       const response = await deleteMissionById(id)
       const data = response.data as { deleted?: boolean; reason?: string; error?: string }
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       if (!response.ok) throw new Error(data?.error || "Failed to delete mission")
       if (!data?.deleted) {
         const reason = data?.reason === "not_found" ? "Mission was already removed." : "Mission was not deleted."
@@ -2317,7 +2280,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     } finally {
       setItemBusy(id, false)
     }
-  }, [refreshSchedules, router, setItemBusy])
+  }, [refreshSchedules, setItemBusy])
 
   const confirmDeleteMission = useCallback(async () => {
     if (!pendingDeleteMission) return
@@ -2387,10 +2350,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const editMissionFromActions = useCallback(async (mission: MissionListItem) => {
     try {
       const response = await fetchMissionById(mission.id)
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       const payload = response.data as { mission?: unknown }
       const candidate = payload?.mission as NativeMission | undefined
       if (response.ok && candidate && typeof candidate.id === "string" && Array.isArray(candidate.nodes)) {
@@ -2405,15 +2365,12 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       })
       return
     }
-  }, [applyNativeMissionToBuilder, router])
+  }, [applyNativeMissionToBuilder])
 
   const duplicateMission = useCallback(async (mission: MissionListItem) => {
     try {
       const response = await fetchMissionById(mission.id)
-      if (response.status === 401) {
-        router.replace(`/login?next=${encodeURIComponent("/missions")}`)
-        throw new Error("Session expired. Please sign in again.")
-      }
+      if (response.status === 401) throw new LocalApiUnauthorizedError()
       const payload = response.data as { mission?: unknown }
       const candidate = payload?.mission as NativeMission | undefined
       if (response.ok && candidate && typeof candidate.id === "string" && Array.isArray(candidate.nodes)) {
@@ -2428,7 +2385,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       })
       return
     }
-  }, [applyNativeMissionToBuilder, router])
+  }, [applyNativeMissionToBuilder])
 
   const runMissionNow = useCallback(async (
     mission: MissionListItem,

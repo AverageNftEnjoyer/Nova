@@ -348,6 +348,14 @@ export function kvList(userId, namespace) {
 export function purgeLocalUserData(userId) {
   const uid = requireText("userId", userId).trim();
   const tables = [
+    // Deployment aggregates first: their runs link to job_runs / agent_tasks rows purged below.
+    "deployment_events",
+    "deployment_effects",
+    "deployment_steps",
+    "deployment_attachments",
+    "deployment_legacy_links",
+    "deployment_runs",
+    "deployments",
     "job_audit_events",
     "job_runs",
     "mission_artifacts",

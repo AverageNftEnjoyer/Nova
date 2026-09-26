@@ -13,6 +13,7 @@ import {
 } from "@/lib/integrations/navigation"
 import { cn } from "@/lib/shared/utils"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
+import { LOCAL_API_UNAUTHORIZED_MESSAGE } from "@/lib/shared/local-api-auth"
 import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
 import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
@@ -181,32 +182,27 @@ function IntegrationsPageContent() {
     setSettings,
     setSaveStatus,
     setIsSavingTarget,
-    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
   const gmailCalendarSetup = useGmailCalendarSetup({
     settings,
     setSettings,
     setSaveStatus,
     setIsSavingTarget,
-    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
   const spotifySetup = useSpotifySetup({
     setSettings,
     setSaveStatus,
     setIsSavingTarget,
-    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
   const phantomSetup = usePhantomSetup({
     setSettings,
     setSaveStatus,
     setIsSavingTarget,
-    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
   const youtubeSetup = useYouTubeSetup({
     setSettings,
     setSaveStatus,
     setIsSavingTarget,
-    onRequireLogin: () => router.push(`/login?next=${encodeURIComponent("/integrations")}`),
   })
   const hydrateOpenAISetup = openAISetup.hydrate
   const hydrateClaudeSetup = claudeSetup.hydrate
@@ -242,10 +238,6 @@ function IntegrationsPageContent() {
         }),
       })
       const data = await res.json()
-      if (res.status === 401) {
-        router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
-        return
-      }
       if (!res.ok || !data?.config) {
         throw new Error(String(data?.error || "Failed to connect Polymarket."))
       }
@@ -265,10 +257,6 @@ function IntegrationsPageContent() {
         method: "POST",
       })
       const data = await res.json()
-      if (res.status === 401) {
-        router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
-        return
-      }
       if (!res.ok || !data?.config) {
         throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
       }
@@ -290,10 +278,6 @@ function IntegrationsPageContent() {
         body: JSON.stringify({ liveTradingEnabled: enabled }),
       })
       const data = await res.json()
-      if (res.status === 401) {
-        router.push(`/login?next=${encodeURIComponent("/integrations?setup=polymarket")}`)
-        return
-      }
       if (!res.ok || !data?.config) {
         throw new Error(String(data?.error || "Failed to update Polymarket settings."))
       }
@@ -317,12 +301,8 @@ function IntegrationsPageContent() {
       }))
       .then(({ ok, status, data }) => {
         if (cancelled) return
-        if (!ok) {
-          if (status === 401 || status === 403) {
-            router.push(`/login?next=${encodeURIComponent("/integrations")}`)
-            return
-          }
-        }
+        // Falls back to the cached settings below; a runtime-token 401 is surfaced instead of silently ignored.
+        if (!ok && status === 401) setSaveStatus({ type: "error", message: LOCAL_API_UNAUTHORIZED_MESSAGE })
         const config = data?.config as IntegrationsSettings | undefined
         if (!config) {
           const fallback = loadIntegrationsSettings()
@@ -657,7 +637,7 @@ function IntegrationsPageContent() {
     return () => {
       cancelled = true
     }
-  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydratePhantomSetup, hydrateSpotifySetup, hydrateYouTubeSetup, router])
+  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydratePhantomSetup, hydrateSpotifySetup, hydrateYouTubeSetup])
 
   useEffect(() => {
     const refresh = () => {

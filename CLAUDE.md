@@ -53,6 +53,9 @@ npm run smoke:production-routes
 # Where the installed megabytes go (hud/, after a build)
 npm run package:size
 
+# Functional smoke gate (runtime, SQLite, security, routing core, tasks, tokens, Playwright)
+npm run smoke:fundamental
+
 # Smoke tests
 cd hud
 npm run test:smoke
@@ -163,7 +166,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.76 Alpha**
+Current: **V.77 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

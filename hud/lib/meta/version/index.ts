@@ -10,6 +10,13 @@
  *
  * Version History:
  *
+ * - V.77 Alpha (2026-09-26): Home Spotify and weather popups
+ *     - Home's disconnected Spotify control now launches OAuth directly, refreshes playback state after authorization, and keeps Integrations setup available when OAuth is not configured.
+ *     - The Home weather summary now opens a matching location popup; saved cities update weather immediately and persist through the SQLite-backed settings mirror.
+ *     - Settings shows the Nova version and replaces the obsolete account, email, password and sign-out UI with a Local data panel: where Nova keeps data on this PC, and a type-DELETE "Delete all local data" (`/api/account/delete` now takes `{ confirm: "DELETE" }` instead of a password the page never sent, and the purge also clears Deployments and the window's cached settings).
+ *     - Removed every dead `/login` redirect (the page was deleted in V.62) from Missions, Integrations, Polymarket, Home Spotify and Settings; a runtime-token 401 now shows one "restart Nova" message (`hud/lib/shared/local-api-auth`) and integration 401s show their own reconnect error.
+ *     - `npm run smoke:fundamental` is the functional gate. The release chain no longer repeats eval, security-net, Coinbase readiness, per-lane routing, or the deep token suite; those three duplicate wrappers were removed and deployment migrations joined `smoke:local-db`.
+ *
  * - V.76 Alpha (2026-09-26): Online presence label
  *     - Nova's connected default presence now reads ONLINE instead of IDLE.
  *
@@ -503,7 +510,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.76 Alpha"
+export const NOVA_VERSION = "V.77 Alpha"
 
 
 

@@ -9,7 +9,6 @@ interface UseGmailSetupParams {
   setSettings: Dispatch<SetStateAction<IntegrationsSettings>>
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
   setIsSavingTarget: Dispatch<SetStateAction<IntegrationsSaveTarget>>
-  onRequireLogin: () => void
 }
 
 export function useGmailSetup({
@@ -17,7 +16,6 @@ export function useGmailSetup({
   setSettings,
   setSaveStatus,
   setIsSavingTarget,
-  onRequireLogin,
 }: UseGmailSetupParams) {
   const [gmailClientId, setGmailClientId] = useState("")
   const [gmailClientSecret, setGmailClientSecret] = useState("")
@@ -160,10 +158,6 @@ export function useGmailSetup({
       .then(async (res) => {
         const data = await res.json()
         if (!res.ok || !data?.authUrl) {
-          if (res.status === 401) {
-            onRequireLogin()
-            throw new Error("Session expired. Please sign in again.")
-          }
           throw new Error(data?.error || "Failed to start Gmail OAuth.")
         }
         return String(data.authUrl)
@@ -228,7 +222,7 @@ export function useGmailSetup({
       .catch((error) => {
         setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to start Gmail OAuth." })
       })
-  }, [gmailClientId, gmailClientSecret, gmailClientSecretConfigured, onRequireLogin, setSaveStatus])
+  }, [gmailClientId, gmailClientSecret, gmailClientSecretConfigured, setSaveStatus])
 
   const saveGmailConfig = useCallback(async () => {
     const payload: Record<string, unknown> = {
@@ -295,10 +289,6 @@ export function useGmailSetup({
       })
       const data = await res.json()
       if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to disconnect Gmail.")
       }
       await refreshFromServer()
@@ -308,7 +298,7 @@ export function useGmailSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   const setPrimaryGmailAccount = useCallback(async (accountId: string) => {
     const nextId = String(accountId || "").trim().toLowerCase()
@@ -350,10 +340,6 @@ export function useGmailSetup({
       })
       const data = await res.json()
       if (!res.ok || !data?.ok) {
-        if (res.status === 401) {
-          onRequireLogin()
-          throw new Error("Session expired. Please sign in again.")
-        }
         throw new Error(data?.error || "Failed to update Gmail account.")
       }
       await refreshFromServer()
@@ -366,7 +352,7 @@ export function useGmailSetup({
     } finally {
       setIsSavingTarget(null)
     }
-  }, [onRequireLogin, refreshFromServer, setIsSavingTarget, setSaveStatus])
+  }, [refreshFromServer, setIsSavingTarget, setSaveStatus])
 
   return {
     gmailClientId,

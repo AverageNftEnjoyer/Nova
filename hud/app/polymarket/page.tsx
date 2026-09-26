@@ -307,10 +307,6 @@ function PolymarketPageContent() {
         const res = await fetch("/api/integrations/config", { cache: "no-store" })
         const data = await res.json()
         if (cancelled) return
-        if (res.status === 401) {
-          router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
-          return
-        }
         const config = data?.config as IntegrationsSettings | undefined
         if (!res.ok || !config) return
         setSettings((prev) => applyPolymarketConfig(prev, config.polymarket))
@@ -333,7 +329,7 @@ function PolymarketPageContent() {
       window.removeEventListener("focus", handleFocus)
       document.removeEventListener("visibilitychange", handleVisibility)
     }
-  }, [router])
+  }, [])
 
   useEffect(() => {
     if (marketFeedQueryKeyRef.current !== marketFeedQueryKey) {
@@ -374,10 +370,9 @@ function PolymarketPageContent() {
     }
 
     fetch(url.toString(), { cache: "no-store" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
-      .then(({ ok, status, data }) => {
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
         if (cancelled) return
-        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !Array.isArray(data?.markets)) throw new Error(String(data?.error || "Failed to load Polymarket markets."))
         const nextChunk = data.markets
           .map((entry: unknown) => normalizePolymarketMarket(entry))
@@ -416,7 +411,7 @@ function PolymarketPageContent() {
       })
 
     return () => { cancelled = true }
-  }, [deferredSearch, marketFeedQueryKey, marketOffset, marketSortMode, requestedSlug, router, selectedTag])
+  }, [deferredSearch, marketFeedQueryKey, marketOffset, marketSortMode, requestedSlug, selectedTag])
 
   useEffect(() => {
     if (!feedLoadMoreRef.current) return
@@ -443,17 +438,16 @@ function PolymarketPageContent() {
     let cancelled = false
     setLoadingPortfolio(true)
     fetch("/api/polymarket/portfolio", { cache: "no-store" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
-      .then(({ ok, status, data }) => {
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
         if (cancelled) return
-        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !Array.isArray(data?.positions)) throw new Error("Failed to load positions.")
         setPositions(data.positions as PolymarketPosition[])
       })
       .catch(() => !cancelled && setPositions([]))
       .finally(() => !cancelled && setLoadingPortfolio(false))
     return () => { cancelled = true }
-  }, [router, settings.polymarket.connected])
+  }, [settings.polymarket.connected])
 
   useEffect(() => {
     if (requestedSide === "buy" || requestedSide === "sell") {
@@ -482,10 +476,9 @@ function PolymarketPageContent() {
     setLoadingOrderBook(true)
     setOrderBookError("")
     fetch(`/api/polymarket/book/${encodeURIComponent(selectedTokenId)}`, { cache: "no-store" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
-      .then(({ ok, status, data }) => {
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
         if (cancelled) return
-        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !data?.book) throw new Error(String(data?.error || "Failed to load orderbook."))
         const normalized = normalizePolymarketOrderBook(data.book, selectedTokenId)
         setOrderBook(normalized)
@@ -497,17 +490,16 @@ function PolymarketPageContent() {
       })
       .finally(() => !cancelled && setLoadingOrderBook(false))
     return () => { cancelled = true }
-  }, [selectedMarket, selectedTokenId, router])
+  }, [selectedMarket, selectedTokenId])
 
   useEffect(() => {
     let cancelled = false
     setLoadingLeaderboard(true)
     setLeaderboardError("")
     fetch(`/api/polymarket/leaderboard?window=${leaderboardWindow}&limit=10`, { cache: "no-store" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
-      .then(({ ok, status, data }) => {
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
         if (cancelled) return
-        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !Array.isArray(data?.leaderboard)) throw new Error(String(data?.error || "Failed to load leaderboard."))
         const rows = data.leaderboard
           .map((entry: unknown, index: number) => normalizePolymarketLeaderboardEntry(entry, index + 1))
@@ -521,7 +513,7 @@ function PolymarketPageContent() {
       })
       .finally(() => !cancelled && setLoadingLeaderboard(false))
     return () => { cancelled = true }
-  }, [leaderboardWindow, router])
+  }, [leaderboardWindow])
 
   useEffect(() => {
     if (!selectedTokenId) {
@@ -534,10 +526,9 @@ function PolymarketPageContent() {
     setLoadingHistory(true)
     setHistoryError("")
     fetch(`/api/polymarket/history/${encodeURIComponent(selectedTokenId)}?range=${historyRange}`, { cache: "no-store" })
-      .then(async (res) => ({ ok: res.ok, status: res.status, data: await res.json() }))
-      .then(({ ok, status, data }) => {
+      .then(async (res) => ({ ok: res.ok, data: await res.json() }))
+      .then(({ ok, data }) => {
         if (cancelled) return
-        if (status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
         if (!ok || !Array.isArray(data?.points)) throw new Error(String(data?.error || "Failed to load chart history."))
         const points = data.points
           .map((entry: unknown) => {
@@ -558,7 +549,7 @@ function PolymarketPageContent() {
       })
       .finally(() => !cancelled && setLoadingHistory(false))
     return () => { cancelled = true }
-  }, [historyRange, selectedTokenId, router])
+  }, [historyRange, selectedTokenId])
 
   useEffect(() => {
     if (!selectedTokenId) return
@@ -593,7 +584,6 @@ function PolymarketPageContent() {
         body: JSON.stringify({ walletAddress: binding.walletAddress, signatureType: 0, liveTradingEnabled: settings.polymarket.liveTradingEnabled }),
       })
       const data = await res.json()
-      if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to connect Polymarket."))
       setSettings((prev) => applyPolymarketConfig(prev, data.config))
       setStatus(`Connected ${binding.walletAddress} on Polygon.`)
@@ -609,7 +599,6 @@ function PolymarketPageContent() {
     try {
       const res = await fetch("/api/polymarket/disconnect", { method: "POST" })
       const data = await res.json()
-      if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
       setSettings((prev) => applyPolymarketConfig(prev, data.config))
       setOpenOrders([]); setRecentTrades([]); setPositions([]); setStatus("Disconnected Polymarket.")
@@ -629,7 +618,6 @@ function PolymarketPageContent() {
         body: JSON.stringify({ liveTradingEnabled: nextValue }),
       })
       const data = await res.json()
-      if (res.status === 401) return void router.push(`/login?next=${encodeURIComponent("/polymarket")}`)
       if (!res.ok || !data?.config) throw new Error(String(data?.error || "Failed to update Polymarket settings."))
       setSettings((prev) => applyPolymarketConfig(prev, data.config))
     } catch (reason) {

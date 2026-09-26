@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { useRouter } from "next/navigation"
+import { LocalApiUnauthorizedError } from "@/lib/shared/local-api-auth"
 import { CLAUDE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, GROK_DEFAULT_MODEL, OPENAI_DEFAULT_MODEL } from "@/app/integrations/constants"
 import {
   INTEGRATIONS_UPDATED_EVENT,
@@ -70,7 +70,6 @@ function resolveActiveModelFromProvider(
 }
 
 export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
-  const router = useRouter()
   const initialIntegrations = useMemo(() => loadIntegrationsSettings(), [])
   const [integrationsHydrated] = useState(true)
   const [telegramConnected, setTelegramConnected] = useState(Boolean(initialIntegrations.telegram.connected))
@@ -116,10 +115,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
   useEffect(() => {
     void fetch("/api/integrations/config", { cache: "no-store" })
       .then(async (res) => {
-        if (res.status === 401) {
-          router.replace(`/login?next=${encodeURIComponent("/chat")}`)
-          throw new Error("Unauthorized")
-        }
+        if (res.status === 401) throw new LocalApiUnauthorizedError()
         return res.json()
       })
       .then((data) => {
@@ -174,17 +170,14 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
         }))
       })
       .catch(() => {})
-  }, [router])
+  }, [])
 
   // Listen for updates
   useEffect(() => {
     const onUpdate = () => {
       void fetch("/api/integrations/config", { cache: "no-store" })
         .then(async (res) => {
-          if (res.status === 401) {
-            router.replace(`/login?next=${encodeURIComponent("/chat")}`)
-            throw new Error("Unauthorized")
-          }
+          if (res.status === 401) throw new LocalApiUnauthorizedError()
           return res.json()
         })
         .then((data) => {
@@ -225,7 +218,7 @@ export function useIntegrationsStatus(): UseIntegrationsStatusReturn {
     }
     window.addEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
     return () => window.removeEventListener(INTEGRATIONS_UPDATED_EVENT, onUpdate as EventListener)
-  }, [router])
+  }, [])
 
   // Toggle handlers
   const handleToggleTelegramIntegration = useCallback(() => {

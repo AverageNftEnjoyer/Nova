@@ -1,8 +1,6 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { useRouter } from "next/navigation"
-import { setActiveUserId } from "@/lib/auth/active-user"
 import {
   isBlockedAssistantName,
   loadUserSettings,
@@ -53,26 +51,9 @@ function responseErrorMessage(data: Record<string, unknown>, fallback: string): 
   return fallback
 }
 
-export function useSettingsState(isOpen: boolean, onClose: () => void) {
-  const router = useRouter()
-
+export function useSettingsState(isOpen: boolean) {
   // Core settings
   const [settings, setSettings] = useState<UserSettings | null>(null)
-
-  // Auth
-  const [authConfigured, setAuthConfigured] = useState(false)
-  const [authAuthenticated, setAuthAuthenticated] = useState(false)
-  const [authEmail, setAuthEmail] = useState("")
-  const [authBusy, setAuthBusy] = useState(false)
-  const [authError, setAuthError] = useState("")
-
-  // Account modals
-  const [emailModalOpen, setEmailModalOpen] = useState(false)
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
-  const [pendingEmail, setPendingEmail] = useState("")
-  const [deletePassword, setDeletePassword] = useState("")
-  const [accountBusy, setAccountBusy] = useState(false)
-  const [accountMessage, setAccountMessage] = useState("")
 
   // Media errors
   const [avatarError, setAvatarError] = useState<string | null>(null)
@@ -135,10 +116,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     pendingWorkspaceSyncDataRef.current = payload
     if (workspaceSyncTimeoutRef.current !== null) window.clearTimeout(workspaceSyncTimeoutRef.current)
     if (options?.immediate) {
-      void pushWorkspaceContextSync(payload, serialized).catch((error) => {
-        const message = error instanceof Error ? error.message : "Failed to sync workspace context."
-        setAuthError(message)
-      })
+      void pushWorkspaceContextSync(payload, serialized)
       return
     }
     workspaceSyncTimeoutRef.current = window.setTimeout(async () => {
@@ -146,10 +124,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       const nextPayload = pendingWorkspaceSyncDataRef.current
       const nextSerialized = pendingWorkspaceSyncPayloadRef.current
       if (!nextPayload || !nextSerialized) return
-      void pushWorkspaceContextSync(nextPayload, nextSerialized).catch((error) => {
-        const message = error instanceof Error ? error.message : "Failed to sync workspace context."
-        setAuthError(message)
-      })
+      void pushWorkspaceContextSync(nextPayload, nextSerialized)
     }, 650)
   }, [pushWorkspaceContextSync])
 
@@ -207,72 +182,6 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       setMemorySaving(false)
     }
   }, [memoryMarkdown])
-
-  // ─── Auth ─────────────────────────────────────────────────────────────────
-
-  const navigateToLogin = useCallback(() => {
-    const nextPath = typeof window !== "undefined" ? window.location.pathname : "/home"
-    router.push(`/login?next=${encodeURIComponent(nextPath || "/home")}`)
-    onClose()
-  }, [onClose, router])
-
-  const handleSignOut = useCallback(async () => {
-    setAuthBusy(true)
-    setAuthError("")
-    try {
-      setActiveUserId(null)
-      setAuthAuthenticated(false)
-      setAuthEmail("")
-      navigateToLogin()
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Failed to sign out.")
-    } finally {
-      setAuthBusy(false)
-    }
-  }, [navigateToLogin])
-
-  const handleSendPasswordReset = useCallback(async () => {
-    setAuthBusy(true)
-    setAuthError("")
-    try {
-      throw new Error("Authentication not available in local-only mode.")
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "Failed to send reset email.")
-    } finally {
-      setAuthBusy(false)
-    }
-  }, [])
-
-  const handleRequestEmailChange = useCallback(async () => {
-    setAccountBusy(true)
-    setAccountMessage("")
-    try {
-      throw new Error("Authentication not available in local-only mode.")
-    } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : "Failed to request email change.")
-    } finally {
-      setAccountBusy(false)
-    }
-  }, [])
-
-  const handleDeleteAccount = useCallback(async () => {
-    setAccountBusy(true)
-    setAccountMessage("")
-    try {
-      const res = await fetch("/api/account/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
-      const data = await readJsonResponseOrThrow(res, "Invalid account deletion response payload.")
-      if (!res.ok) throw new Error(responseErrorMessage(data, "Failed to delete local data."))
-      setActiveUserId(null)
-      navigateToLogin()
-    } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : "Failed to delete local data.")
-    } finally {
-      setAccountBusy(false)
-    }
-  }, [navigateToLogin])
 
   // ─── Profile updaters ─────────────────────────────────────────────────────
 
@@ -501,11 +410,6 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     let cancelled = false
     if (isOpen) {
       setSettings(loadUserSettings())
-      setAuthConfigured(true)
-      setAccountMessage("")
-      // Local-only mode - no authentication
-      setAuthAuthenticated(false)
-      setAuthEmail("")
       void refreshMediaLibraries().catch(() => {
         if (cancelled) return
         setBackgroundVideoAssets([])
@@ -523,10 +427,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
       const pendingPayload = pendingWorkspaceSyncDataRef.current
       const pendingSerialized = pendingWorkspaceSyncPayloadRef.current
       if (pendingPayload && pendingSerialized) {
-        void pushWorkspaceContextSync(pendingPayload, pendingSerialized).catch((error) => {
-          const message = error instanceof Error ? error.message : "Failed to sync workspace context."
-          setAuthError(message)
-        })
+        void pushWorkspaceContextSync(pendingPayload, pendingSerialized)
       }
     }
   }, [pushWorkspaceContextSync])
@@ -540,10 +441,7 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     const pendingPayload = pendingWorkspaceSyncDataRef.current
     const pendingSerialized = pendingWorkspaceSyncPayloadRef.current
     if (pendingPayload && pendingSerialized) {
-      void pushWorkspaceContextSync(pendingPayload, pendingSerialized).catch((error) => {
-        const message = error instanceof Error ? error.message : "Failed to sync workspace context."
-        setAuthError(message)
-      })
+      void pushWorkspaceContextSync(pendingPayload, pendingSerialized)
     }
   }, [isOpen, pushWorkspaceContextSync])
 
@@ -552,16 +450,6 @@ export function useSettingsState(isOpen: boolean, onClose: () => void) {
     settings, setSettings,
     handleReset,
     updateProfile, updateApp, updateNotifications, updatePersonalization,
-    // Auth
-    authConfigured, authAuthenticated, authEmail, authBusy, authError,
-    navigateToLogin, handleSignOut, handleSendPasswordReset,
-    // Account modals
-    emailModalOpen, setEmailModalOpen,
-    deleteModalOpen, setDeleteModalOpen,
-    pendingEmail, setPendingEmail,
-    deletePassword, setDeletePassword,
-    accountBusy, accountMessage,
-    handleRequestEmailChange, handleDeleteAccount,
     // Media errors
     avatarError, setAvatarError,
     backgroundVideoError, setBackgroundVideoError,

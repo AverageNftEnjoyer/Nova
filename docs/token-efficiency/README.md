@@ -58,7 +58,7 @@ Cost-saving routing (estimated): 10-turn chat −90% on OpenAI (terra → luna),
 
 ## Tests and the regression gate
 
-- `npm run smoke:token-efficiency`: every token-efficiency smoke (usage, harness, caps, tool scope, budgets, integration context, prompt budget, unconnected integrations, routing, routing cost, retired models, analytics). Runs in `smoke:src-release`.
+- `npm run smoke:token-deep`: optional detailed token-efficiency diagnostics (usage, caps, tool scope, budgets, integration context, prompt budget, unconnected integrations, routing, retired models, analytics). It is intentionally not repeated in `smoke:src-release`.
 - `npm run smoke:token-gate`: the offline gate. Each harness scenario has ceilings (call size, tool schemas, uncached part) and floors (stable prefix). No API keys, no network. `--self-test` proves it fails on a broken prefix, a bloated prompt and a missing scenario.
 - **Changing a gate threshold:** re-measure (`node scripts/smoke/token-efficiency/token-baseline-harness.mjs --out tb.json --quiet`, then `node scripts/smoke/token-efficiency/token-regression-gate.mjs --report tb.json`), set ceilings = measured × 1.1 rounded up to 50 and floors = × 0.9 rounded down to 50, update `THRESHOLDS` in the script with the date, and explain why in the release's version history entry.
 - `npm run smoke:token-baseline`: prints the per-scenario numbers.
