@@ -40,6 +40,7 @@ import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
 import { NotesHomeModule } from "./notes-home-module"
 import { AnalyticsHomeModule } from "./analytics-home-module"
+import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
 import { WeatherLocationPopup } from "./weather-location-popup"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
@@ -143,6 +144,18 @@ const FALLBACK_CRYPTO_ASSETS = [
   { symbol: "DOGE", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
 ] as const
 
+// Coin identity dots on the Crypto Prices tiles. XRP's brand black is lightened so it reads on dark panels.
+const CRYPTO_BRAND_COLORS: Readonly<Record<string, string>> = {
+  BTC: "#f7931a",
+  ETH: "#627eea",
+  SOL: "#9945ff",
+  SUI: "#4da2ff",
+  XRP: "#9aa9b9",
+  DOGE: "#c2a633",
+}
+const SPARK_WIDTH = 100
+const SPARK_HEIGHT = 32
+
 export function HomeMainScreen() {
   const router = useRouter()
   const pageActive = usePageActive()
@@ -170,6 +183,9 @@ export function HomeMainScreen() {
     handleArchiveConvo,
     openMissions,
     openTaskDeployment,
+    newDeploymentOpen,
+    closeNewDeployment,
+    nova,
     openCalendar,
     openIntegrations,
     openDevLogs,
@@ -205,6 +221,7 @@ export function HomeMainScreen() {
     homeWeather,
     homeWeatherLoading,
     homeWeatherError,
+    refreshHomeWeather,
     orbPalette,
   } = useHomeMainScreenState()
   const isLight = muteHydrated && rawIsLight
@@ -227,6 +244,21 @@ export function HomeMainScreen() {
       style: "currency",
       currency: "USD",
       maximumFractionDigits: decimals,
+    }).format(value)
+  }
+  // Narrow crypto tiles (1024px window): whole dollars from $100, two significant digits under $1.
+  const fmtUsdShort = (value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return "-"
+    const abs = Math.abs(value)
+    if (abs >= 1000) return fmtUsd(value)
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      ...(abs >= 100
+        ? { maximumFractionDigits: 0 }
+        : abs >= 1
+          ? { maximumFractionDigits: 2 }
+          : { maximumSignificantDigits: 2 }),
     }).format(value)
   }
   const fmtPct = (value: number) => {
@@ -660,6 +692,7 @@ export function HomeMainScreen() {
               className="min-h-0 flex-1"
               onOpenMissions={openMissions}
               onCreateDeployment={openTaskDeployment}
+              onPrefetchDeployment={preloadNewDeploymentModal}
             />
 
             {/* ── Bottom row: markets, YouTube, and analytics ── */}
@@ -690,51 +723,76 @@ export function HomeMainScreen() {
                     </button>
                   ),
                 })}
-                <div className="mt-2 grid min-h-0 flex-1 grid-cols-1 @[20rem]:grid-cols-2 auto-rows-fr gap-1">
+                <div className="mt-2 grid min-h-0 flex-1 grid-cols-2 grid-rows-3 gap-1.5">
                   {cryptoRows.map((asset) => {
                     const up = asset.changePct >= 0
-                    const trendStroke = up ? "#34d399" : "#fb7185"
+                    const trendColor = up ? "#34d399" : "#fb7185"
+                    const line = sparklinePoints(asset.chart, SPARK_WIDTH, SPARK_HEIGHT)
+                    const gradientId = `home-crypto-spark-${asset.symbol}`
                     return (
                     <div
                       key={asset.symbol}
                       className={cn(
-                        "flex min-w-0 items-center justify-between gap-1 px-2 py-1 rounded-sm home-spotlight-card home-border-glow",
+                        "@container/tile relative flex min-h-0 min-w-0 flex-col justify-between overflow-hidden rounded-md px-2 py-1.5 home-spotlight-card home-border-glow",
                         subPanelClass,
                       )}
                     >
-                      <span className={cn("shrink-0 text-[11px] font-semibold", isLight ? "text-s-60" : "text-slate-400")}>
-                          {asset.symbol}
-                        </span>
-                      <div className="mx-1 hidden min-w-0 flex-1 @[11rem]:block">
-                        <svg
-                          viewBox="0 0 56 12"
-                          className="h-3 w-full"
-                          preserveAspectRatio="none"
-                          aria-hidden="true"
-                        >
-                          <polyline
-                            points={sparklinePoints(asset.chart)}
-                            fill="none"
-                            stroke={trendStroke}
-                            strokeWidth="1.25"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
+                      {/* Area chart sits behind the text, bottom-anchored, like a market app tile. */}
+                      <svg
+                        viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-3/5 w-full"
+                        preserveAspectRatio="none"
+                        aria-hidden="true"
+                      >
+                        <defs>
+                          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={trendColor} stopOpacity={isLight ? 0.22 : 0.28} />
+                            <stop offset="100%" stopColor={trendColor} stopOpacity="0" />
+                          </linearGradient>
+                        </defs>
+                        <polygon points={`0,${SPARK_HEIGHT} ${line} ${SPARK_WIDTH},${SPARK_HEIGHT}`} fill={`url(#${gradientId})`} />
+                        <polyline
+                          points={line}
+                          fill="none"
+                          stroke={trendColor}
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          vectorEffect="non-scaling-stroke"
+                          opacity={0.9}
+                        />
+                      </svg>
+                      <div className="relative flex min-w-0 items-center justify-between gap-1">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: CRYPTO_BRAND_COLORS[asset.symbol] ?? "var(--accent-primary)" }}
+                            aria-hidden="true"
                           />
-                        </svg>
-                      </div>
-                      <div className="flex min-w-0 shrink-0 items-baseline gap-1.5">
-                        <p
+                          <span className={cn("truncate text-[11px] font-semibold tracking-wide", isLight ? "text-s-70" : "text-slate-300")}>
+                            {asset.symbol}
+                          </span>
+                        </span>
+                        <span
                           className={cn(
-                            "truncate text-[12px] font-semibold tabular-nums leading-tight",
-                            isLight ? "text-s-90" : "text-slate-100",
+                            "shrink-0 rounded px-1 py-px text-[8px] font-semibold tabular-nums leading-tight @[100px]/tile:text-[9px]",
+                            up
+                              ? isLight ? "bg-emerald-500/12 text-emerald-600" : "bg-emerald-400/12 text-emerald-300"
+                              : isLight ? "bg-rose-500/12 text-rose-600" : "bg-rose-400/12 text-rose-300",
                           )}
                         >
-                          {fmtUsd(asset.price)}
-                        </p>
-                        <p className={cn("shrink-0 truncate text-[10px] tabular-nums", up ? "text-emerald-400" : "text-rose-400")}>
                           {fmtPct(asset.changePct)}
-                        </p>
+                        </span>
                       </div>
+                      <p
+                        className={cn(
+                          "relative truncate text-[12px] font-semibold tabular-nums leading-tight @[100px]/tile:text-[14px]",
+                          isLight ? "text-s-90" : "text-slate-50",
+                        )}
+                      >
+                        <span className="hidden @[100px]/tile:inline">{fmtUsd(asset.price)}</span>
+                        <span className="@[100px]/tile:hidden">{fmtUsdShort(asset.price)}</span>
+                      </p>
                     </div>
                     )
                   })}
@@ -886,15 +944,26 @@ export function HomeMainScreen() {
     {weatherPopupOpen ? (
       <WeatherLocationPopup
         isLight={isLight}
-        panelClass={panelClass}
         subPanelClass={subPanelClass}
         currentCity={preferredWeatherCity}
         weatherLoading={homeWeatherLoading}
         weatherError={homeWeatherError}
+        onRetry={refreshHomeWeather}
         onClose={() => setWeatherPopupOpen(false)}
       />
     ) : null}
     <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    {newDeploymentOpen ? (
+      <LazyNewDeploymentModal
+        isLight={isLight}
+        nova={nova}
+        initialTab="describe"
+        onClose={closeNewDeployment}
+        onOpenDeployments={openMissions}
+        onOpenGuidedBuilder={() => router.push("/missions?create=builder&returnTo=/home")}
+        onViewAutomations={() => router.push("/missions?returnTo=/home")}
+      />
+    ) : null}
   </div>
   )
 }

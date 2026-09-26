@@ -40,51 +40,51 @@ check("types.ts includes attachedFiles in CreateAgentTaskInput", () => {
   assert.ok(inputInterface?.includes("attachedFiles"), "CreateAgentTaskInput missing attachedFiles field")
 })
 
-check("create-task-modal has File icon import", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form has File icon import", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /import \{[^}]*File[^}]*\} from "lucide-react"/, "File icon not imported")
 })
 
-check("create-task-modal has attachedFiles state", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form has attachedFiles state", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /useState<string\[\]>\(\[\]\)/, "attachedFiles state not found")
 })
 
-check("create-task-modal has isDragging state", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form has isDragging state", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /isDragging/, "isDragging state not found")
 })
 
-check("create-task-modal has removeFile function", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form has removeFile function", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /removeFile/, "removeFile function not found")
 })
 
-check("create-task-modal has dropzone UI with drag handlers", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form has dropzone UI with drag handlers", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /onDragOver/, "onDragOver handler not found")
   assert.match(modal, /onDragLeave/, "onDragLeave handler not found")
   assert.match(modal, /onDrop/, "onDrop handler not found")
 })
 
-check("create-task-modal includes attachedFiles in onCreate call", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form includes attachedFiles in onCreate call", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /attachedFiles:.*attachedFiles/, "attachedFiles not passed to onCreate")
 })
 
-check("create-task-modal clears attachedFiles on success", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form clears attachedFiles on success", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /setAttachedFiles\(\[\]\)/, "attachedFiles not cleared on success")
 })
 
-check("create-task-modal listens for Electron file drops", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form listens for Electron file drops", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /electronAPI\?\.onFileDrop/, "onFileDrop listener not found")
   assert.match(modal, /return \(\) => \{[\s\S]*unsubscribe\(\)/, "file-drop listener is not removed on cleanup")
 })
 
-check("create-task-modal reads dropped file paths", () => {
-  const modal = read("components/agents/create-task-modal.tsx")
+check("advanced-task-form reads dropped file paths", () => {
+  const modal = read("components/agents/advanced-task-form.tsx")
   assert.match(modal, /e\.dataTransfer\?\.files/, "drop handler does not read dropped files")
   assert.match(modal, /getPathForFile\(file\)/, "drop handler does not resolve the Electron file path")
 })

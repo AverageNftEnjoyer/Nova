@@ -398,7 +398,7 @@ The final model remains a design decision. The recommended baseline is:
 | --- | --- |
 | Settings dialog | `hud/components/settings/settings-modal.tsx` |
 | Avatar crop | Nested in Settings |
-| Create task | `hud/components/agents/create-task-modal.tsx` |
+| New deployment (Simple + Advanced task/automation) | `hud/app/deployments/components/new-deployment-modal.tsx` (task form: `hud/components/agents/advanced-task-form.tsx`) |
 | Mission builder | `hud/app/missions/components/mission-builder-modal.tsx` |
 | Mission canvas | `hud/app/missions/components/mission-canvas-modal.tsx` |
 | Delete mission | `hud/app/missions/components/delete-mission-dialog.tsx` |

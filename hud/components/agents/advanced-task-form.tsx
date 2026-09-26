@@ -15,6 +15,7 @@ import type {
   AgentTaskProviderOption,
   CreateAgentTaskInput,
 } from "@/lib/agents/types"
+import { primaryButtonClass, selectedSurfaceClass } from "@/lib/shared/surfaces"
 import { cn } from "@/lib/shared/utils"
 import { PERMISSION_MODE_LABELS } from "./task-card"
 
@@ -266,7 +267,7 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
       onSubmit={(event) => void handleSubmit(event)}
       className="@container flex h-full min-h-0 flex-col"
     >
-      <div className="module-hover-scroll min-h-0 flex-1 overflow-y-auto px-1">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-1">
         <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
           {/* What the agent should do */}
           <div className="flex min-w-0 flex-col gap-4">
@@ -408,7 +409,7 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
                       className={cn(
                         "flex-1 rounded-md px-2 text-xs capitalize transition-colors",
                         priority === option
-                          ? cn("border border-accent-30 bg-accent-10 font-medium", isLight ? "text-s-90" : "text-slate-100")
+                          ? cn("border font-medium", selectedSurfaceClass(isLight))
                           : isLight
                             ? "text-s-60 hover:text-s-90"
                             : "text-slate-400 hover:text-slate-100",
@@ -579,9 +580,9 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
           type="submit"
           disabled={!canSubmit}
           className={cn(
-            "inline-flex h-10 items-center gap-2 rounded-lg border border-accent-30 bg-accent-10 px-4 text-sm font-medium transition-colors",
+            "inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors",
             "home-spotlight-card home-border-glow home-spotlight-card--hover disabled:cursor-not-allowed disabled:opacity-45",
-            isLight ? "text-s-90" : "text-slate-100",
+            primaryButtonClass(isLight),
           )}
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4 text-accent" />}

@@ -10,6 +10,15 @@
  *
  * Version History:
  *
+ * - V.79 Alpha (2026-09-26): Deployment popup and Home polish
+ *     - New deployment is a popup, not a page: Home's Agent Tasks "+" (and the /deployments buttons and `?mode=` / `&kind=` deep links) opens a Settings-style dialog over the current page with Describe it (Simple manager), One-off task and Automation (builder/canvas). It loads on demand, preloads on hover, reuses the page's Nova connection, and the ReactFlow canvas is its own chunk.
+ *     - Fixed the light bar that flashed down the right edge when opening Deployments: /deployments was the only route whose document scrolled, so the native scrollbar appeared. The page is now a fixed full-height shell like Home, and `color-scheme` follows the theme so native scrollbars and select popups are dark in dark mode.
+ *     - /deployments redesigned in Home's style: header with presence and four stat tiles, a Deployments list (kind, runs, latest-run status, updated), and a live Runs panel with Approve and run / Deny for runs awaiting review and Cancel for active runs. Stream events coalesce into one refetch and the lists load in parallel; the page chunk dropped from 1.2 MB to 0.5 MB in dev.
+ *     - The Advanced task form was rebuilt in Settings' field styles with a themed context picker and worktree switch (`components/agents/advanced-task-form.tsx`); the dead dialog-mode `CreateTaskModal` was removed. Selected states use a neutral surface with an accent border (`lib/shared/surfaces`), so they stay visible with white or black accents.
+ *     - Popups (New deployment, weather) use a neutral shadow instead of the colored glow.
+ *     - Home Crypto Prices is a 2x3 grid of market tiles (coin dot, change badge, larger price, area sparkline); narrow tiles switch to a shorter price format instead of truncating.
+ *     - The weather location popup is a centered modal like Settings (Escape closes it). Weather requests retry transient Open-Meteo failures (408/429/5xx/network) twice before showing an error, and saving an unchanged city refetches it.
+
  * - V.78 Alpha (2026-09-26): Functional smoke gate
  *     - `npm run smoke:fundamental` is the functional gate: runtime, SQLite, encryption, security, tools, routing core, agent tasks, the token gate, and Playwright.
  *     - Removed per-change smokes: audit findings, workstreams, ChatKit gates, perf guards, live checks, and one script per integration lane. The release chain keeps prompt, missions, scheduler, delivery, security, routing core, Coinbase CI, agent tasks, the token gate, and isolation closure.
@@ -19,7 +28,6 @@
  *     - The Home weather summary now opens a matching location popup; saved cities update weather immediately and persist through the SQLite-backed settings mirror.
  *     - Settings shows the Nova version and replaces the obsolete account, email, password and sign-out UI with a Local data panel: where Nova keeps data on this PC, and a type-DELETE "Delete all local data" (`/api/account/delete` now takes `{ confirm: "DELETE" }` instead of a password the page never sent, and the purge also clears Deployments and the window's cached settings).
  *     - Removed every dead `/login` redirect (the page was deleted in V.62) from Missions, Integrations, Polymarket, Home Spotify and Settings; a runtime-token 401 now shows one "restart Nova" message (`hud/lib/shared/local-api-auth`) and integration 401s show their own reconnect error.
- *     - `npm run smoke:fundamental` is the functional gate. Per-change smokes (audit findings, workstreams, ChatKit gates, perf guards, live checks, and one script per integration lane) were removed. The release chain keeps prompt, missions, scheduler, delivery, security, routing core, Coinbase CI, agent tasks, the token gate, and isolation closure.
  *
  * - V.76 Alpha (2026-09-26): Online presence label
  *     - Nova's connected default presence now reads ONLINE instead of IDLE.
@@ -514,7 +522,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.77 Alpha"
+export const NOVA_VERSION = "V.79 Alpha"
 
 
 

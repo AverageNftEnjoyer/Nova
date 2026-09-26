@@ -131,7 +131,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**Deployments**: `/deployments` is the user-facing creation surface. Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
+**Deployments**: `/deployments` lists deployments and runs; creation happens in the `NewDeploymentModal` popup (`hud/app/deployments/components/new-deployment-modal.tsx`, opened from Home or /deployments; `?mode=` / `&kind=` deep links open it over /deployments). Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
 
 **Agent Tasks**: Real managerial task executor and compatibility API. Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $2.00 per task, cost only: the token budget is optional, off by default). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
 
@@ -166,7 +166,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.77 Alpha**
+Current: **V.79 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

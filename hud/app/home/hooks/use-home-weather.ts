@@ -274,12 +274,41 @@ function pickBestGeocodeResult(results: OpenMeteoGeocodeResult[], rawCity: strin
   return preferByPopulation[0] || withCoords[0]
 }
 
+// Open-Meteo occasionally answers a single request with a 429/5xx or drops the connection; one blip
+// should not leave "temporarily unavailable" on Home until the next reload, so transient failures retry.
+const WEATHER_RETRY_DELAYS_MS = [700, 2000] as const
+
+function isTransientWeatherStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer)
+      reject(new DOMException("Aborted", "AbortError"))
+    }, { once: true })
+  })
+}
+
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { method: "GET", cache: "no-store", signal })
-  if (!response.ok) {
-    throw new Error(`weather_request_failed:${response.status}`)
+  for (let attempt = 0; ; attempt += 1) {
+    const retryDelay = WEATHER_RETRY_DELAYS_MS[attempt]
+    let response: Response
+    try {
+      response = await fetch(url, { method: "GET", cache: "no-store", signal })
+    } catch (error) {
+      if (signal?.aborted || retryDelay === undefined) throw error
+      await waitForRetry(retryDelay, signal)
+      continue
+    }
+    if (response.ok) return response.json() as Promise<T>
+    if (!isTransientWeatherStatus(response.status) || retryDelay === undefined) {
+      throw new Error(`weather_request_failed:${response.status}`)
+    }
+    await waitForRetry(retryDelay, signal)
   }
-  return response.json() as Promise<T>
 }
 
 async function fetchHomeWeatherForCity(city: string, signal?: AbortSignal): Promise<HomeWeatherSnapshot> {

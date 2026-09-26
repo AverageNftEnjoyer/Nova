@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { CloudSun, LoaderCircle, MapPin, Save, X } from "lucide-react"
 
 import {
@@ -12,25 +12,34 @@ import { cn } from "@/lib/shared/utils"
 
 interface WeatherLocationPopupProps {
   isLight: boolean
-  panelClass: string
   subPanelClass: string
   currentCity: string
   weatherLoading: boolean
   weatherError: string | null
+  /** Refetches the saved city; saving an unchanged city does not change settings, so it would not refetch. */
+  onRetry: () => void
   onClose: () => void
 }
 
 export function WeatherLocationPopup({
   isLight,
-  panelClass,
   subPanelClass,
   currentCity,
   weatherLoading,
   weatherError,
+  onRetry,
   onClose,
 }: WeatherLocationPopupProps) {
   const [city, setCity] = useState(currentCity)
   const [validationError, setValidationError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose])
 
   const saveCity = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -39,25 +48,32 @@ export function WeatherLocationPopup({
       setValidationError("Enter a city, optionally followed by a state or country.")
       return
     }
-    updatePersonalization({ preferredCity: normalizedCity })
+    if (normalizedCity === normalizePreferredCity(currentCity)) {
+      onRetry()
+    } else {
+      updatePersonalization({ preferredCity: normalizedCity })
+    }
     onClose()
   }
 
   return (
-    <>
+    <div className="fixed inset-0 z-[130] flex items-center justify-center p-3 sm:p-6">
       <button
         type="button"
-        className="fixed inset-0 z-[130] cursor-default bg-black/25"
+        className={cn("absolute inset-0 cursor-default backdrop-blur-sm", isLight ? "bg-[#0a122433]" : "bg-black/45")}
         onClick={onClose}
         aria-label="Close weather location"
       />
+      {/* Centered like the Settings modal, same surface, border and shadow treatment. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="weather-location-title"
         className={cn(
-          "fixed right-4 top-16 z-[135] w-[min(24rem,calc(100vw-2rem))] rounded-xl border p-3 shadow-2xl backdrop-blur-xl home-spotlight-shell",
-          panelClass,
+          "relative z-10 w-full max-w-md rounded-2xl border p-5",
+          isLight
+            ? "border-[#d9e0ea] bg-white shadow-[0_24px_60px_-30px_rgba(15,23,42,0.3)]"
+            : "border-white/20 bg-white/6 backdrop-blur-2xl shadow-[0_24px_60px_-28px_rgba(0,0,0,0.7)]",
         )}
       >
         <div className="flex items-center justify-between gap-3">
@@ -152,6 +168,6 @@ export function WeatherLocationPopup({
           </div>
         </form>
       </div>
-    </>
+    </div>
   )
 }

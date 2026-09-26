@@ -27,7 +27,7 @@ export function AutomationPanel({
   )
 
   return (
-    <div className="module-hover-scroll flex h-full min-h-0 flex-col overflow-y-auto">
+    <div className="no-scrollbar flex h-full min-h-0 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-4 px-1 py-4">
         <div>
           <h3 className={cn("text-lg font-semibold tracking-tight", strongText)}>Build an automation</h3>

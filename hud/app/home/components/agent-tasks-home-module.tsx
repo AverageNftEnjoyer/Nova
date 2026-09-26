@@ -16,6 +16,8 @@ interface AgentTasksHomeModuleProps {
   className?: string
   onOpenMissions: () => void
   onCreateDeployment: () => void
+  /** Warms the New deployment popup's code on hover/focus so the click opens it instantly. */
+  onPrefetchDeployment?: () => void
 }
 
 function formatCostToday(cost: number): string {
@@ -31,6 +33,7 @@ export function AgentTasksHomeModule({
   className,
   onOpenMissions,
   onCreateDeployment,
+  onPrefetchDeployment,
 }: AgentTasksHomeModuleProps) {
   const { tasks, stats, loading, error, connection, runAction, raiseBudget } = useAgentTasks()
 
@@ -68,7 +71,15 @@ export function AgentTasksHomeModule({
           />
         </h2>
         <div className="flex items-center justify-end gap-1">
-          <button type="button" onClick={onCreateDeployment} title="New deployment" aria-label="New deployment" className={iconButtonClass}>
+          <button
+            type="button"
+            onClick={onCreateDeployment}
+            onPointerEnter={onPrefetchDeployment}
+            onFocus={onPrefetchDeployment}
+            title="New deployment"
+            aria-label="New deployment"
+            className={iconButtonClass}
+          >
             <Plus className={iconClass} />
           </button>
           <button type="button" onClick={onOpenMissions} title="Open Deployments" aria-label="Open Deployments" className={iconButtonClass}>
@@ -117,6 +128,8 @@ export function AgentTasksHomeModule({
               <button
                 type="button"
                 onClick={onCreateDeployment}
+                onPointerEnter={onPrefetchDeployment}
+                onFocus={onPrefetchDeployment}
                 className={cn(
                   "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11px] font-medium transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
                   subPanelClass,

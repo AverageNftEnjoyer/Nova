@@ -9,9 +9,11 @@ const read = (rel) => fs.readFileSync(path.join(hudRoot, rel), "utf8");
 const uiFiles = [
   "components/agents/task-card.tsx",
   "components/agents/task-list.tsx",
-  "components/agents/create-task-modal.tsx",
+  "components/agents/advanced-task-form.tsx",
   "app/home/components/agent-tasks-home-module.tsx",
   "app/deployments/page.tsx",
+  "app/deployments/components/deployments-screen.tsx",
+  "app/deployments/components/new-deployment-modal.tsx",
 ];
 
 let passed = 0;
@@ -35,8 +37,12 @@ check("home-main-screen wires AgentTasksHomeModule and NotesHomeModule", () => {
   assert.doesNotMatch(screen, /Placeholder(One|Two)HomeModule/);
 });
 
-check("module is driven by useAgentTasks and opens Deployments", () => {
+check("module is driven by useAgentTasks and opens the New deployment popup in place", () => {
   const mod = read("app/home/components/agent-tasks-home-module.tsx");
+  const state = read("app/home/hooks/use-home-main-screen-state.ts");
+  const screen = read("app/home/components/home-main-screen.tsx");
+  assert.doesNotMatch(state, /router\.push\("\/deployments\?mode=/, "New deployment must not navigate away from Home");
+  assert.match(screen, /<LazyNewDeploymentModal/);
   assert.match(mod, /useAgentTasks\(\)/);
   assert.match(mod, /onCreateDeployment/);
   assert.doesNotMatch(mod, /<CreateTaskModal/);
@@ -62,7 +68,7 @@ check("task list groups Running / Queued / Completed / Failed", () => {
 
 check("modal wires all 5 permission modes and the bypass warning", () => {
   const card = read("components/agents/task-card.tsx");
-  const modal = read("components/agents/create-task-modal.tsx");
+  const modal = read("components/agents/advanced-task-form.tsx");
   for (const mode of ["default", "accept-edits", "plan-mode", "dont-ask", "bypass"]) {
     assert.ok(card.includes(mode), `permission label missing: ${mode}`);
   }
@@ -72,7 +78,7 @@ check("modal wires all 5 permission modes and the bypass warning", () => {
 });
 
 check("advanced form loads configured provider options from the server", () => {
-  const modal = read("components/agents/create-task-modal.tsx");
+  const modal = read("components/agents/advanced-task-form.tsx");
   const selection = read("lib/integrations/llm/provider-selection.ts");
   assert.match(modal, /TASK_OPTIONS_URL = "\/api\/agent-tasks\/options"/);
   assert.match(modal, />Provider</);

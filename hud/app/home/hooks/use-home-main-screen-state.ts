@@ -27,6 +27,7 @@ export function useHomeMainScreenState() {
   const { theme } = useTheme()
   const isLight = theme === "light"
 
+  const nova = useNovaState()
   const {
     state: novaState,
     thinkingStatus,
@@ -38,7 +39,7 @@ export function useHomeMainScreenState() {
     agentMessages,
     latestUsage,
     clearAgentMessages,
-  } = useNovaState()
+  } = nova
 
   const visuals = useHomeVisuals({ isLight })
 
@@ -144,7 +145,10 @@ export function useHomeMainScreenState() {
   const handleSidebarToggle = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
   const openMissions = useCallback(() => router.push("/deployments"), [router])
-  const openTaskDeployment = useCallback(() => router.push("/deployments?mode=advanced&kind=task"), [router])
+  // "New deployment" is a popup over Home, not a page change; it shares Home's Nova connection.
+  const [newDeploymentOpen, setNewDeploymentOpen] = useState(false)
+  const openTaskDeployment = useCallback(() => setNewDeploymentOpen(true), [])
+  const closeNewDeployment = useCallback(() => setNewDeploymentOpen(false), [])
   const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
@@ -201,6 +205,9 @@ export function useHomeMainScreenState() {
     refreshCryptoMarket: cryptoMarket.refreshCryptoMarket,
     openMissions,
     openTaskDeployment,
+    newDeploymentOpen,
+    closeNewDeployment,
+    nova,
     openCalendar,
     openIntegrations,
     openDevLogs,

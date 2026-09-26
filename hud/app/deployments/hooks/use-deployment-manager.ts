@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 
-import { useNovaState, type NovaState } from "@/lib/chat/hooks/useNovaState"
+import type { NovaState, useNovaState } from "@/lib/chat/hooks/useNovaState"
 import type { Deployment, DeploymentPlan, DeploymentRun } from "@/lib/deployments/types"
 
 /** How long the manager waits for Nova's streamed proposal before asking the server to plan on its own. */
@@ -17,6 +17,12 @@ function buildPlanningPrompt(outcome: string): string {
     `Outcome: ${outcome}`,
   ].join("\n")
 }
+
+/** The slice of the page's existing Nova connection the manager needs; it never opens a socket of its own. */
+export type DeploymentNovaConnection = Pick<
+  ReturnType<typeof useNovaState>,
+  "agentMessages" | "connected" | "sendToAgent" | "state" | "streamingAssistantId" | "thinkingStatus"
+>
 
 export interface DeploymentManager {
   connected: boolean
@@ -38,7 +44,10 @@ export interface DeploymentManager {
  * Simple mode: sends a strict planning request over Nova's WebSocket, then has the server validate the
  * streamed proposal into a versioned deployment (`/api/deployments/plan`) before anything can launch.
  */
-export function useDeploymentManager(onStatus: (message: string) => void): DeploymentManager {
+export function useDeploymentManager(
+  nova: DeploymentNovaConnection,
+  onStatus: (message: string) => void,
+): DeploymentManager {
   const [input, setInput] = useState("")
   const [requests, setRequests] = useState<string[]>([])
   const [plannedDeployment, setPlannedDeployment] = useState<Deployment | null>(null)
@@ -48,7 +57,7 @@ export function useDeploymentManager(onStatus: (message: string) => void): Deplo
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState("")
   const [conversationId] = useState(() => `deployment-manager-${crypto.randomUUID()}`)
-  const { agentMessages, connected, sendToAgent, state: novaState, streamingAssistantId, thinkingStatus } = useNovaState()
+  const { agentMessages, connected, sendToAgent, state: novaState, streamingAssistantId, thinkingStatus } = nova
   const processedAssistantId = useRef("")
 
   const managerMessages = useMemo(

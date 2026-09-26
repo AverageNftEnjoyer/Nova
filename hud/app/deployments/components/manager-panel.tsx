@@ -3,6 +3,7 @@
 import { CheckCircle2, Loader2, Rocket, Send, Sparkles } from "lucide-react"
 import { useEffect, useRef } from "react"
 
+import { primaryButtonClass, selectedSurfaceClass } from "@/lib/shared/surfaces"
 import { cn } from "@/lib/shared/utils"
 import type { DeploymentManager } from "../hooks/use-deployment-manager"
 import { StatusChip } from "./deployment-ui"
@@ -42,7 +43,7 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div ref={scrollRef} className="module-hover-scroll min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
         {!hasConversation ? (
           <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 py-6 text-center">
             <span className={cn("grid h-11 w-11 place-items-center rounded-xl border", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25")}>
@@ -76,8 +77,8 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
               <article
                 key={`${request}-${index}`}
                 className={cn(
-                  "ml-auto max-w-[85%] rounded-lg border border-accent-30 bg-accent-10 px-3.5 py-2.5 text-sm leading-6",
-                  strongText,
+                  "ml-auto max-w-[85%] rounded-lg border px-3.5 py-2.5 text-sm leading-6",
+                  selectedSurfaceClass(isLight),
                 )}
               >
                 {request}
@@ -136,9 +137,9 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
                   onClick={() => void manager.launch()}
                   disabled={launching}
                   className={cn(
-                    "mt-4 inline-flex h-9 items-center gap-2 rounded-lg border border-accent-30 bg-accent-10 px-4 text-sm font-medium transition-colors disabled:opacity-50",
+                    "mt-4 inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50",
                     "home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    strongText,
+                    primaryButtonClass(isLight),
                   )}
                 >
                   {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4 text-accent" />}
@@ -186,8 +187,8 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
             disabled={busy || !input.trim()}
             aria-label="Send deployment request"
             className={cn(
-              "grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-accent-30 bg-accent-10 transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-              strongText,
+              "grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+              primaryButtonClass(isLight),
             )}
           >
             <Send className="h-4 w-4" />
