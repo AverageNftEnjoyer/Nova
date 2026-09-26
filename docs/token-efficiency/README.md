@@ -62,7 +62,6 @@ Cost-saving routing (estimated): 10-turn chat −90% on OpenAI (terra → luna),
 - `npm run smoke:token-gate`: the offline gate. Each harness scenario has ceilings (call size, tool schemas, uncached part) and floors (stable prefix). No API keys, no network. `--self-test` proves it fails on a broken prefix, a bloated prompt and a missing scenario.
 - **Changing a gate threshold:** re-measure (`node scripts/smoke/token-efficiency/token-baseline-harness.mjs --out tb.json --quiet`, then `node scripts/smoke/token-efficiency/token-regression-gate.mjs --report tb.json`), set ceilings = measured × 1.1 rounded up to 50 and floors = × 0.9 rounded down to 50, update `THRESHOLDS` in the script with the date, and explain why in the release's version history entry.
 - `npm run smoke:token-baseline`: prints the per-scenario numbers.
-- Live check (opt-in, costs money): `NOVA_LIVE_TOKEN_CHECK=1 npm run smoke:live-token-check`. It reads the active provider key read-only, runs in a temp data dir, and stops at 80% of a $1 cap.
 
 ## Open items
 

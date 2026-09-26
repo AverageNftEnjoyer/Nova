@@ -27,21 +27,13 @@ import Database from "better-sqlite3"
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
 const REPRESENTATIVE_SMOKES = [
-  "scripts/smoke/audit/p1-it-word-regression/smoke.mjs",
-  "scripts/smoke/audit/p2-rule-newline/smoke.mjs",
-  "scripts/smoke/audit/p5-workspace-write/smoke.mjs",
-  "scripts/smoke/audit/p6-skills-depth/smoke.mjs",
-  "scripts/smoke/audit/skills-apostrophe/smoke.mjs",
-  "scripts/smoke/audit/starter-seeding/smoke.mjs",
   "scripts/smoke/routing/src-policy-approval-store-smoke.mjs",
   "scripts/smoke/routing/src-short-term-context-persistence-smoke.mjs",
-  "scripts/smoke/routing/src-tool-runtime-bootstrap-smoke.mjs",
-  "scripts/smoke/missions/src-mission-persistence-smoke.mjs",
-  "scripts/smoke/scheduler/src-scheduler-skills-snapshot-smoke.mjs",
-  "scripts/smoke/hud/hud-thread-delete-transcript-smoke.mjs",
-  "scripts/smoke/runtime/spotify-user-context-isolation-smoke.mjs",
   "scripts/smoke/local-db/tool-runs-smoke.mjs",
   "scripts/smoke/local-db/data-paths-smoke.mjs",
+  "scripts/smoke/local-db/ui-storage-smoke.mjs",
+  "scripts/smoke/local-db/encryption-smoke.mjs",
+  "scripts/smoke/calendar/hud-calendar-isolation-smoke.mjs",
 ]
 
 function realDbCandidates() {

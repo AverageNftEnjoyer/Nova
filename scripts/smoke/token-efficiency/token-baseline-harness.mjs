@@ -679,7 +679,7 @@ const SHAPES = ["openai", "claude"];
 
 // Stage 6: `--routing-mode off|trivial|cost-saving` saves that model-routing mode for every scenario user before the
 // run (default: nothing saved, so every user gets the built-in default mode). The cost estimate
-// (model-routing-cost.mjs) runs the harness once per mode and prices each call at the model it was sent to.
+// smoke:model-routing prices each call at the model it was sent to.
 const routingMode = String(args["routing-mode"] || "").trim();
 if (routingMode) {
   const { writeModelRoutingSettings } = await import(pathToFileURL(path.join(repoRoot, "src/runtime/modules/model-routing/index.js")).href);

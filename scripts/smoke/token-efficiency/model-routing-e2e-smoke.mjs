@@ -2,7 +2,7 @@
  * Tiered model routing, end to end (token-efficiency Stage 6), through the real handleInput.
  *
  * The module-level rules are covered by model-routing-smoke.mjs (MR-1..MR-7), the mission client / nova-suggest
- * routing by llm-usage-coverage-smoke.mjs (M1-M5) and the harness invariants by model-routing-cost.mjs. This smoke
+ * routing by llm-usage-coverage-smoke.mjs (M1-M5) and the harness. This smoke
  * checks the runtime wiring: the `model` field each captured request actually carried, and the llm_usage rows
  * (model + tier) the turn ledgered.
  *

@@ -9,7 +9,7 @@
 
 ## Validation Commands
 - `npm.cmd run smoke:src-release-readiness`
-- `npm.cmd run smoke:src-chatkit-release`
+- `npm.cmd run smoke:fundamental`
 - `npm.cmd run smoke:src-release`
 
 ## Gate Evidence

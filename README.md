@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.77). Actively developed and used daily by the author.
+**Status:** Alpha (V.78). Actively developed and used daily by the author.
 
 ---
 
@@ -235,6 +235,6 @@ npm run lint              # ESLint for agent and HUD
 npm run smoke:src-release # fuller release chain (scheduler, delivery, Coinbase CI, isolation closure, HUD build)
 ```
 
-Individual scripts under `scripts/smoke/` still exist for a single area (routing lane, integration, audit). They are not part of the functional gate. The catalog is [scripts/smoke/README.md](scripts/smoke/README.md).
+Per-change smokes (a separate script for each integration lane, audit finding, or workstream) are not part of the suite. The catalog of what remains is [scripts/smoke/README.md](scripts/smoke/README.md).
 
 ---
