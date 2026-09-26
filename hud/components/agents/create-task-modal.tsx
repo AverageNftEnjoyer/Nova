@@ -4,46 +4,31 @@ import { ChevronDown, File, Loader2, ShieldAlert, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
 import { createPortal } from "react-dom"
 
-import {
-  CLAUDE_MODEL_OPTIONS,
-  GEMINI_MODEL_OPTIONS,
-  GROK_MODEL_OPTIONS,
-  OPENAI_MODEL_OPTIONS,
-} from "@/app/integrations/constants"
 import { FluidSelect } from "@/components/ui/fluid-select"
 import type {
   AgentPermissionMode,
   AgentProvider,
   AgentTaskBudgetSettings,
+  AgentTaskOptionsResponse,
   AgentTaskPriority,
+  AgentTaskProviderOption,
   CreateAgentTaskInput,
 } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
 import { PERMISSION_MODE_LABELS } from "./task-card"
 
-interface CreateTaskModalProps {
+export interface AdvancedTaskFormProps {
   open: boolean
   isLight: boolean
   onClose: () => void
   onCreate: (input: CreateAgentTaskInput) => Promise<{ ok: true } | { ok: false; error: string }>
+  mode?: "dialog" | "embedded"
 }
+
+type CreateTaskModalProps = Omit<AdvancedTaskFormProps, "mode">
 
 const PROMPT_MAX_LENGTH = 4000
 const NAME_MAX_LENGTH = 80
-
-const PROVIDER_OPTIONS: { value: AgentProvider; label: string }[] = [
-  { value: "claude", label: "Claude" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "grok", label: "Grok" },
-]
-
-const MODEL_OPTIONS_BY_PROVIDER: Record<AgentProvider, { value: string; label: string }[]> = {
-  claude: CLAUDE_MODEL_OPTIONS.map(({ value, label }) => ({ value, label })),
-  openai: OPENAI_MODEL_OPTIONS.map(({ value, label }) => ({ value, label })),
-  gemini: GEMINI_MODEL_OPTIONS.map(({ value, label }) => ({ value, label })),
-  grok: GROK_MODEL_OPTIONS.map(({ value, label }) => ({ value, label })),
-}
 
 const PRIORITY_OPTIONS: AgentTaskPriority[] = ["low", "normal", "high"]
 
@@ -52,11 +37,8 @@ const PERMISSION_OPTIONS = (Object.keys(PERMISSION_MODE_LABELS) as AgentPermissi
   label: PERMISSION_MODE_LABELS[value],
 }))
 
-function defaultModelFor(provider: AgentProvider): string {
-  return MODEL_OPTIONS_BY_PROVIDER[provider][0]?.value ?? ""
-}
-
 const BUDGET_SETTINGS_URL = "/api/agent-tasks/budget-settings"
+const TASK_OPTIONS_URL = "/api/agent-tasks/options"
 
 /** "" = use the default (undefined); otherwise a number the server range-checks. NaN = not a number. */
 function parseOptionalNumber(value: string): number | undefined {
@@ -70,9 +52,17 @@ function basename(filePath: string): string {
   return parts[parts.length - 1] || filePath
 }
 
-export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTaskModalProps) {
-  const [agent, setAgent] = useState<AgentProvider>("claude")
-  const [model, setModel] = useState(() => defaultModelFor("claude"))
+export function AdvancedTaskForm({
+  open,
+  isLight,
+  onClose,
+  onCreate,
+  mode = "dialog",
+}: AdvancedTaskFormProps) {
+  const [agent, setAgent] = useState<AgentProvider>("openai")
+  const [model, setModel] = useState("")
+  const [providerOptions, setProviderOptions] = useState<AgentTaskProviderOption[]>([])
+  const [optionsLoading, setOptionsLoading] = useState(true)
   const [prompt, setPrompt] = useState("")
   const [name, setName] = useState("")
   const [priority, setPriority] = useState<AgentTaskPriority>("normal")
@@ -91,7 +81,15 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
   const [tokenBudget, setTokenBudget] = useState("")
   const [budgetDefaults, setBudgetDefaults] = useState<AgentTaskBudgetSettings | null>(null)
 
-  const modelOptions = useMemo(() => MODEL_OPTIONS_BY_PROVIDER[agent], [agent])
+  const selectedProvider = useMemo(
+    () => providerOptions.find((option) => option.provider === agent),
+    [agent, providerOptions],
+  )
+  const modelOptions = selectedProvider?.models ?? []
+  const providerSelectOptions = useMemo(
+    () => providerOptions.map((option) => ({ value: option.provider, label: option.label })),
+    [providerOptions],
+  )
 
   // Clear a stale error when the modal closes (adjusting state during render, not in an effect).
   const [wasOpen, setWasOpen] = useState(open)
@@ -99,6 +97,46 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     setWasOpen(open)
     if (!open) setError("")
   }
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    fetch(TASK_OPTIONS_URL, { cache: "no-store", credentials: "include" })
+      .then(async (res) => {
+        const data = (await res.json()) as AgentTaskOptionsResponse & { error?: string }
+        if (!res.ok || !data.ok) throw new Error(data.error || "Failed to load configured providers.")
+        if (cancelled) return
+        setProviderOptions(data.providers)
+        const initial = data.active
+          ? data.providers.find((option) => option.provider === data.active?.provider)
+          : data.providers[0]
+        if (initial) {
+          setAgent(initial.provider)
+          setModel(
+            initial.models.some((option) => option.value === data.active?.model)
+              ? data.active?.model ?? initial.defaultModel
+              : initial.defaultModel,
+          )
+          setError("")
+        } else {
+          setModel("")
+          setError("Connect an LLM provider in Integrations before creating a task.")
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setProviderOptions([])
+          setModel("")
+          setError(loadError instanceof Error ? loadError.message : "Failed to load configured providers.")
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setOptionsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -160,7 +198,8 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
   const handleAgentChange = (value: string) => {
     const next = value as AgentProvider
     setAgent(next)
-    setModel(defaultModelFor(next))
+    const provider = providerOptions.find((option) => option.provider === next)
+    setModel(provider?.defaultModel ?? provider?.models[0]?.value ?? "")
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -241,16 +280,15 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
     isLight ? "border-[#d5dce8] bg-white text-s-90 placeholder:text-s-50" : "border-white/10 bg-black/40 text-slate-100 placeholder:text-slate-500",
   )
 
-  return createPortal(
-    <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/56 p-4">
-      <button type="button" className="absolute inset-0" onClick={() => !pending && onClose()} aria-label="Close create task dialog" />
+  const form = (
       <form
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create task"
+        role={mode === "dialog" ? "dialog" : undefined}
+        aria-modal={mode === "dialog" ? "true" : undefined}
+        aria-label={mode === "dialog" ? "Create task" : "Advanced task settings"}
         onSubmit={(event) => void handleSubmit(event)}
         className={cn(
-          "relative z-10 max-h-full w-full max-w-lg overflow-y-auto rounded-[1.25rem] border shadow-[0_28px_84px_-34px_rgba(0,0,0,0.68)]",
+          "relative z-10 max-h-full w-full overflow-y-auto rounded-[1.25rem] border shadow-[0_28px_84px_-34px_rgba(0,0,0,0.68)]",
+          mode === "dialog" && "max-w-lg",
           isLight ? "border-[#d5dce8] bg-white/96" : "border-white/10 bg-[#05070a]/95",
         )}
       >
@@ -259,26 +297,42 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
             <p className={cn("text-[10px] uppercase tracking-[0.16em]", isLight ? "text-s-50" : "text-slate-400")}>Agent Tasks</p>
             <h2 className={cn("text-sm font-semibold", isLight ? "text-s-90" : "text-slate-100")}>Create Task</h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={pending}
-            aria-label="Close"
-            className={cn("rounded p-1.5 transition-colors", isLight ? "text-s-70 hover:bg-black/5" : "text-slate-300 hover:bg-white/10")}
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {mode === "dialog" ? (
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={pending}
+              aria-label="Close"
+              className={cn("rounded p-1.5 transition-colors", isLight ? "text-s-70 hover:bg-black/5" : "text-slate-300 hover:bg-white/10")}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
 
         <div className="space-y-3 px-4 py-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <span className={labelClass}>Agent</span>
-              <FluidSelect value={agent} options={PROVIDER_OPTIONS} onChange={handleAgentChange} isLight={isLight} />
+              <span className={labelClass}>Provider</span>
+              <FluidSelect
+                value={agent}
+                options={providerSelectOptions}
+                onChange={handleAgentChange}
+                isLight={isLight}
+                placeholder={optionsLoading ? "Loading…" : "No providers connected"}
+                disabled={optionsLoading || providerSelectOptions.length === 0}
+              />
             </div>
             <div>
               <span className={labelClass}>Model</span>
-              <FluidSelect value={model} options={modelOptions} onChange={setModel} isLight={isLight} />
+              <FluidSelect
+                value={model}
+                options={modelOptions}
+                onChange={setModel}
+                isLight={isLight}
+                placeholder={optionsLoading ? "Loading…" : "No models available"}
+                disabled={optionsLoading || modelOptions.length === 0}
+              />
             </div>
           </div>
 
@@ -571,17 +625,19 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
         </div>
 
         <div className={cn("flex justify-end gap-2 border-t px-4 py-3", isLight ? "border-[#d5dce8]" : "border-white/10")}>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={pending}
-            className={cn("rounded-lg px-3 py-1.5 text-sm transition-colors", isLight ? "text-s-70 hover:bg-black/5" : "text-slate-300 hover:bg-white/10")}
-          >
-            Cancel
-          </button>
+          {mode === "dialog" ? (
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={pending}
+              className={cn("rounded-lg px-3 py-1.5 text-sm transition-colors", isLight ? "text-s-70 hover:bg-black/5" : "text-slate-300 hover:bg-white/10")}
+            >
+              Cancel
+            </button>
+          ) : null}
           <button
             type="submit"
-            disabled={pending || !prompt.trim()}
+            disabled={pending || optionsLoading || !model || !prompt.trim()}
             className="inline-flex items-center gap-2 rounded-lg bg-accent-20 px-3 py-1.5 text-sm font-medium text-accent transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
           >
             {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -589,7 +645,19 @@ export function CreateTaskModal({ open, isLight, onClose, onCreate }: CreateTask
           </button>
         </div>
       </form>
+  )
+
+  if (mode === "embedded") return form
+
+  return createPortal(
+    <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/56 p-4">
+      <button type="button" className="absolute inset-0" onClick={() => !pending && onClose()} aria-label="Close create task dialog" />
+      {form}
     </div>,
     document.body,
   )
+}
+
+export function CreateTaskModal(props: CreateTaskModalProps) {
+  return <AdvancedTaskForm {...props} mode="dialog" />
 }

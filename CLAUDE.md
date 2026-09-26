@@ -35,7 +35,9 @@ npm run electron:dev
 cd hud
 npm run build
 
-# Build Windows executable (build + electron:prepare-runtime + electron-builder)
+# Build Windows executable (build:package + electron:prepare-runtime + electron-builder)
+# build:package = next build with NOVA_NEXT_STANDALONE_TRACE=1 (output: "standalone"); after-pack.js needs its
+# trace to prune node_modules/next, so a plain `npm run build` before electron-builder fails on purpose
 cd hud
 npm run electron:build:win
 
@@ -43,7 +45,8 @@ npm run electron:build:win
 cd hud
 npm run electron:publish:win
 
-# Verify the packaged build boots and every route loads (repo root, after a build)
+# Verify the packaged build boots and every route loads (repo root, after a build). Both confine module
+# resolution to the packaged tree and use the install dir as cwd, so nothing falls back to the repo's node_modules/dist
 npm run smoke:production-boot
 npm run smoke:production-routes
 
@@ -59,7 +62,7 @@ npm run test:smoke
 
 ```
 hud/                    # Next.js frontend
-  app/                  # Routes (home, chat, missions, integrations, agents)
+  app/                  # Routes (home, chat, missions, integrations, analytics, markets)
     api/                # API routes (tasks, missions, integrations)
   components/           # React components (agents, chat, settings, ui)
   lib/                  # Libraries (agents, integrations, missions, settings)
@@ -72,7 +75,7 @@ src/                    # Backend runtime
 ## Key Configuration Files
 
 - `hud/package.json` - Dependencies, scripts, Electron config
-- `hud/electron-builder.yml` - Electron build configuration (`asar: false`; runtime staged to `resources/runtime-resources` by `hud/scripts/prepare-runtime-resources.mjs`)
+- `hud/electron-builder.yml` - Electron build configuration (`asar: false`; runtime staged to `resources/runtime-resources` by `hud/scripts/prepare-runtime-resources.mjs`; every exclusion is commented with its reason). `hud/scripts/after-pack.js` prunes the packaged `next`/`react-dom` to Next's standalone trace and trims better-sqlite3; `hud/electron/production-server.js` runs Next with the build's serialized config (`__NEXT_PRIVATE_STANDALONE_CONFIG`, as Next's generated standalone server does)
 - `hud/next.config.js` - Next.js config (JS, not TS: the packaged server cannot transpile a `.ts` config)
 - `hud/tsconfig.json` - TypeScript configuration
 - `hud/tailwind.config.ts` - Tailwind CSS configuration
@@ -89,7 +92,7 @@ All user data lives in the **data directory**, resolved by `src/db/paths.js` (`r
 
 Inside the data directory:
 
-- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail), `llm_usage` (one row per LLM call: source chat/agent-task/mission/utility/embedding, provider, model, routing tier, input/output/cached/cache-write tokens, `cost_usd` NULL when unpriced; pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90, range 1-3650). Migrations live in `src/db/migrations/` (13 = `llm_usage` + agent-task cache columns, 14 = agent-task budgets, 15 = `agent_task_budget_events`, 16 = rewrite stored retired model IDs, 17 = `llm_usage` sources `utility` / `embedding`, 18 = `llm_usage.tier`)
+- `nova.db` (+ `-wal`, `-shm`) - the SQLite database: integrations, Deployments and runs/events/effects, missions, job ledger, agent tasks, notes, chat threads/messages, sessions, `kv_state` (per-user preferences and small state), `tool_runs` (redacted tool-call audit trail), `llm_usage` (one row per LLM call: source chat/agent-task/mission/utility/embedding, provider, model, routing tier, input/output/cached/cache-write tokens, `cost_usd` NULL when unpriced; pruned after `NOVA_LLM_USAGE_RETENTION_DAYS`, default 90, range 1-3650). Migrations live in `src/db/migrations/` (13 = `llm_usage` + agent-task cache columns, 14 = agent-task budgets, 15 = `agent_task_budget_events`, 16 = rewrite stored retired model IDs, 17 = `llm_usage` sources `utility` / `embedding`, 18 = `llm_usage.tier`, 19 = deployment domain/event/effect/legacy-link tables, 20 = deployment launch idempotency)
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
@@ -125,7 +128,9 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**Agent Tasks**: Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $2.00 per task, cost only: the token budget is optional, off by default). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
+**Deployments**: `/deployments` is the user-facing creation surface. Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
+
+**Agent Tasks**: Real managerial task executor and compatibility API. Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $2.00 per task, cost only: the token budget is optional, off by default). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
 
 **LLM usage & cost**: every LLM call goes through `src/providers/usage` (normalised tokens incl. cached) and lands one `llm_usage` row; prices (incl. cached / cache-write rates) only in `src/providers/pricing` (exact model IDs, unknown = unpriced). Default models: `gpt-5.6-terra`, `claude-sonnet-5`, `gemini-3.8-flash`, `grok-4.3`. `/analytics` and the Home Analytics panel read the ledger (`hud/lib/analytics`, `/api/analytics`, `/api/analytics/summary`)
 
@@ -137,7 +142,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 **Storage**: One SQLite `nova.db` in the data directory (`src/db/paths.js`), DPAPI-protected encrypted secrets, markdown workspace docs as files
 
-**Missions**: DAG workflow engine, ReactFlow canvas, durable job ledger with SQLite backing
+**Missions**: Compatibility automation definition/DAG engine and ReactFlow editor behind Advanced Deployments. Deterministic graph runs use the durable SQLite job ledger. Mission agent nodes are routing metadata and must not be presented as live specialists until they call the real runtime.
 **Electron**: Window mgmt (min 1024x768), single-instance lock. X quits the app (stops the in-process server + runtime); minimize goes to the taskbar and everything keeps running. System tray: Show/Hide/Check for Updates/Quit. Installed builds auto-update from GitHub Releases (`electron/auto-updater.js`, see `docs/release/auto-update.md`). Icons use `electron/icons/nova.ico` (nativeImage cannot decode SVG). Packaged mode sets `NOVA_PACKAGED=1` and `NOVA_WORKSPACE_ROOT`; agent tasks run in the `src/` runtime scheduler, not via Electron IPC
 
 ## Development Guidelines
@@ -158,7 +163,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.73 Alpha**
+Current: **V.75 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

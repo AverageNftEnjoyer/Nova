@@ -1,6 +1,6 @@
 {
   "name": "novaaio",
-  "version": "0.73.0",
+  "version": "0.75.0",
   "description": "NovaAIO - AI agent desktop application. Unified launcher for the agent backend and Next.js HUD.",
   "type": "module",
   "scripts": {
@@ -207,7 +207,6 @@
     "jsdom": "^28.1.0",
     "nspell": "^2.1.5",
     "openai": "^6.17.0",
-    "systeminformation": "^5.30.7",
     "turndown": "^7.2.2",
     "ws": "^8.19.0"
   },

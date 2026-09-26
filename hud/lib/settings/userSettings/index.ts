@@ -107,9 +107,9 @@ const DEFAULT_SETTINGS: UserSettings = {
   },
   app: {
     theme: "dark",
-    accentColor: "violet",
-    orbColor: "violet",
-    spotlightColor: "violet",
+    accentColor: "white",
+    orbColor: "white",
+    spotlightColor: "white",
     background: "default",
     darkModeBackground: "black",
     lightModeBackground: "none",

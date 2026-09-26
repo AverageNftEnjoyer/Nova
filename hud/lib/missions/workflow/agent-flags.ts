@@ -11,11 +11,11 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
 }
 
 export function isMissionAgentGraphEnabled(): boolean {
-  return readBooleanEnv("NOVA_MISSIONS_AGENT_GRAPH_ENABLED", true)
+  return readBooleanEnv("NOVA_MISSIONS_AGENT_GRAPH_ENABLED", false)
 }
 
 export function isMissionAgentExecutorEnabled(): boolean {
-  return readBooleanEnv("NOVA_MISSIONS_AGENT_EXECUTOR_ENABLED", true)
+  return readBooleanEnv("NOVA_MISSIONS_AGENT_EXECUTOR_ENABLED", false)
 }
 
 export function nodeUsesAgentGraph(node: Pick<MissionNode, "type">): boolean {

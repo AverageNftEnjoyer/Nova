@@ -11,6 +11,7 @@ const uiFiles = [
   "components/agents/task-list.tsx",
   "components/agents/create-task-modal.tsx",
   "app/home/components/agent-tasks-home-module.tsx",
+  "app/deployments/page.tsx",
 ];
 
 let passed = 0;
@@ -34,10 +35,11 @@ check("home-main-screen wires AgentTasksHomeModule and NotesHomeModule", () => {
   assert.doesNotMatch(screen, /Placeholder(One|Two)HomeModule/);
 });
 
-check("module is driven by useAgentTasks and opens the create modal", () => {
+check("module is driven by useAgentTasks and opens Deployments", () => {
   const mod = read("app/home/components/agent-tasks-home-module.tsx");
   assert.match(mod, /useAgentTasks\(\)/);
-  assert.match(mod, /<CreateTaskModal/);
+  assert.match(mod, /onCreateDeployment/);
+  assert.doesNotMatch(mod, /<CreateTaskModal/);
   assert.match(mod, /<TaskList/);
   assert.doesNotMatch(mod, /setInterval/);
 });
@@ -69,10 +71,15 @@ check("modal wires all 5 permission modes and the bypass warning", () => {
   assert.match(modal, /Bypass allows elevated operations/);
 });
 
-check("modal offers all four providers from the shared model option constants", () => {
+check("advanced form loads configured provider options from the server", () => {
   const modal = read("components/agents/create-task-modal.tsx");
+  const selection = read("lib/integrations/llm/provider-selection.ts");
+  assert.match(modal, /TASK_OPTIONS_URL = "\/api\/agent-tasks\/options"/);
+  assert.match(modal, />Provider</);
+  assert.match(selection, /listConfiguredLlmProviders/);
+  assert.match(selection, /validateConfiguredLlmSelection/);
   for (const constant of ["CLAUDE_MODEL_OPTIONS", "OPENAI_MODEL_OPTIONS", "GEMINI_MODEL_OPTIONS", "GROK_MODEL_OPTIONS"]) {
-    assert.ok(modal.includes(constant), `missing ${constant}`);
+    assert.ok(selection.includes(constant), `missing ${constant}`);
   }
 });
 

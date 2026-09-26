@@ -62,7 +62,7 @@ export function DevLogsScreen() {
   const { state: novaState, connected: agentConnected } = useNovaState()
   const isLight = theme === "light"
   const presence = getNovaPresence({ agentConnected, novaState })
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const palette = ORB_COLORS[orbColor]
   const [showRaw, setShowRaw] = useState(false)

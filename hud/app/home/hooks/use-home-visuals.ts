@@ -27,17 +27,15 @@ function hexToRgbTriplet(hex: string): string {
 
 export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
   const [assistantName, setAssistantName] = useState("Nova")
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
 
   const homeShellRef = useRef<HTMLDivElement | null>(null)
   const pipelineSectionRef = useRef<HTMLElement | null>(null)
   const scheduleSectionRef = useRef<HTMLElement | null>(null)
   const analyticsSectionRef = useRef<HTMLElement | null>(null)
-  const devToolsSectionRef = useRef<HTMLElement | null>(null)
   const integrationsSectionRef = useRef<HTMLElement | null>(null)
   const spotifyModuleSectionRef = useRef<HTMLElement | null>(null)
-  const agentModuleSectionRef = useRef<HTMLElement | null>(null)
 
   useLayoutEffect(() => {
     const cached = readShellUiCache()
@@ -105,9 +103,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     pipelineSectionRef,
     scheduleSectionRef,
     analyticsSectionRef,
-    devToolsSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
-    agentModuleSectionRef,
   }
 }

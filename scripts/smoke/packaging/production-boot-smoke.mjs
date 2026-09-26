@@ -20,6 +20,7 @@
  */
 import "../lib/isolated-data-dir.mjs"
 import { isolatedDataDir } from "../lib/isolated-data-dir.mjs"
+import { installPackageResolutionGuard } from "../lib/package-resolution-guard.mjs"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createRequire } from "node:module"
@@ -49,6 +50,11 @@ const runtimeRoot = path.resolve(
     || path.join(repoRoot, "hud", "dist", "win-unpacked", "resources", "runtime-resources"),
 )
 const layout = hudDir.includes(`${path.sep}win-unpacked${path.sep}`) ? "win-unpacked" : "source"
+// Packaged layout only: a source-tree run legitimately resolves from the repo node_modules.
+const resolutionGuard = layout === "win-unpacked" ? installPackageResolutionGuard({ repoRoot }) : null
+// An installed app runs with its install directory (the win-unpacked equivalent) as cwd, not the repo.
+// Mirror that so cwd-relative lookups cannot silently find the repo's dist/ or node_modules.
+if (layout === "win-unpacked") process.chdir(path.resolve(hudDir, "..", ".."))
 
 function statStamp(file) {
   if (!fs.existsSync(file)) return null
@@ -157,7 +163,7 @@ async function main() {
   assert.equal(
     allowSource || layout === "win-unpacked",
     true,
-    `Packaged layout missing at ${hudDir}. From hud/, run: npm run build && npm run electron:prepare-runtime && npx electron-builder --win --x64 --dir`,
+    `Packaged layout missing at ${hudDir}. From hud/, run: npm run build:package && npm run electron:prepare-runtime && npx electron-builder --win --x64 --dir`,
   )
   assert.equal(fs.existsSync(path.join(hudDir, "electron", "production-server.js")), true, `missing production-server.js under ${hudDir}`)
   assert.equal(fs.existsSync(path.join(runtimeRoot, "src", "runtime", "core", "entrypoint", "index.js")), true, `missing runtime entrypoint under ${runtimeRoot}`)
@@ -430,6 +436,13 @@ async function main() {
   assert.equal(statStamp(realDevDb), before.dev, "smoke wrote the repo .user/nova.db")
   assert.equal(statStamp(realPackagedDb), before.packaged, "smoke wrote %APPDATA%\\Nova\\nova.db")
   assert.equal(fs.existsSync(path.join(repoRoot, "hud", "_final_boot_datadir")), false)
+  if (resolutionGuard) {
+    const blocked = resolutionGuard.blocked()
+    console.log(
+      `[production-boot] resolution confined to the packaged tree; ${blocked.length} repo-only lookups answered "not found"` +
+        (blocked.length ? `:\n  ${blocked.join("\n  ")}` : ""),
+    )
+  }
   console.log("[production-boot] PASS")
 }
 

@@ -191,7 +191,7 @@ function PolymarketPageContent() {
   const marketFeedQueryKeyRef = useRef("")
 
   const [settings, setSettings] = useState<IntegrationsSettings>(() => loadIntegrationsSettings())
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [orbHovered, setOrbHovered] = useState(false)

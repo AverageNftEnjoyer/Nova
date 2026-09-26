@@ -94,6 +94,19 @@ export interface CreateAgentTaskInput {
   tokenBudget?: number | null
 }
 
+export interface AgentTaskProviderOption {
+  provider: AgentProvider
+  label: string
+  defaultModel: string
+  models: Array<{ value: string; label: string }>
+}
+
+export interface AgentTaskOptionsResponse {
+  ok: true
+  providers: AgentTaskProviderOption[]
+  active: { provider: AgentProvider; model: string } | null
+}
+
 /** PATCH /api/agent-tasks { id, action: "raise-budget", ...RaiseAgentTaskBudgetInput }. null = back to the default. */
 export interface RaiseAgentTaskBudgetInput {
   costBudgetUsd?: number | null

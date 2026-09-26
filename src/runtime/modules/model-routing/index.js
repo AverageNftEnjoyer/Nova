@@ -64,6 +64,7 @@ export const MODEL_CALL_SITES = Object.freeze({
   "mission.ai-generate": "standard",
   "mission.ai-chat": "standard",
   "mission.build-from-prompt": "hard",
+  "deployment.plan": "hard",
   "utility.nova-suggest": "trivial",
   "utility.gmail-summary": "trivial",
 });

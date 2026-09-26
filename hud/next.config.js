@@ -18,8 +18,34 @@ process.env.BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA = "true"
 
 const workspaceRoot = path.resolve(__dirname, "..")
 
+// Packaging builds only (`npm run build:package`, used by every electron:build* script): emit Next's
+// output file trace for the server itself. With `output: "standalone"` Next also traces
+// `next/dist/server/next` + `lib/start-server` (the entry hud/electron/production-server.js loads via
+// `require('next')`) into `.next/next-server.js.nft.json` and copies the traced files to
+// `.next/standalone`. hud/scripts/after-pack.js uses that copy as the allowlist for the packaged
+// `node_modules/next` and `node_modules/react-dom` (~120 MB of dev/experimental/webpack runtimes, ESM
+// builds and maps otherwise ship). The app still runs through the custom in-process server with the
+// regular `.next` layout; `.next/standalone` itself never ships (see electron-builder.yml).
+//
+// Off for `npm run dev` / `npm run build` / `npm run start`: at runtime Next only warns
+// ('"next start" does not work with "output: standalone"') when this is set, and the packaged app
+// loads this file with the env var unset, so it never sees the flag either.
+const packagingTrace = process.env.NOVA_NEXT_STANDALONE_TRACE === "1"
+  ? {
+      output: "standalone",
+      // Several API routes read files under dynamic repo-root paths, so Turbopack traces the whole
+      // project into their route traces, and standalone would copy hud/dist (every previous
+      // installer + win-unpacked, 600+ MB) and the staged runtime into .next/standalone on each
+      // build. Neither is loaded by the Next server. Patterns are resolved from the hud/ project root.
+      outputFileTracingExcludes: {
+        "/*": ["dist/**/*", "runtime-resources/**/*"],
+      },
+    }
+  : {}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  ...packagingTrace,
   // Native addon used by src/db (imported via ../src, resolved from the repo-root node_modules). Never bundle the .node binary.
   serverExternalPackages: ["better-sqlite3"],
   // The dev-mode "N" indicator overlaps card content on the home screen at small

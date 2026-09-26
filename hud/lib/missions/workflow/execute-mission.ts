@@ -28,6 +28,11 @@ import { validateMissionGraphForVersioning } from "./versioning"
 import { resolveTimezone } from "@/lib/shared/timezone"
 import { computeRetryDelayMs, shouldRetry } from "../retry-policy"
 import { isMissionAgentExecutorEnabled, isMissionAgentGraphEnabled, missionUsesAgentGraph } from "./agent-flags"
+import {
+  isDeploymentRunCancelled,
+  reserveDeploymentEffect,
+  settleDeploymentEffect,
+} from "../../../../src/db/deployment-effects.js"
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Expression Resolver
@@ -738,6 +743,29 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
         }
       : { maxAttempts: 1, backoffMs: 0 }
 
+    const effectKey = `mission-node:${node.id}`
+    const effectReservation = outputTypes.has(node.type)
+      ? reserveDeploymentEffect({
+          userId: userContextId,
+          runId,
+          effectKey,
+          toolName: node.type,
+          leaseToken: executionSlot.slot?.leaseToken || "",
+        })
+      : null
+    if (effectReservation?.duplicate) {
+      return {
+        node,
+        kind: "executed",
+        startedAt,
+        endedAt: new Date().toISOString(),
+        retryCount: 0,
+        output: effectReservation.status === "committed"
+          ? { ok: true, text: "Side effect already committed; duplicate execution skipped.", data: effectReservation.result }
+          : { ok: false, error: "Side effect is already reserved by another live attempt.", errorCode: "EFFECT_FENCED" },
+      }
+    }
+
     let output: NodeOutput & { port?: string } = { ok: false, error: "Node executor was not invoked.", errorCode: "EXECUTOR_UNREACHABLE" }
     let retryCount = 0
     for (let nodeAttempt = 1; nodeAttempt <= runtimePolicy.maxAttempts; nodeAttempt++) {
@@ -751,6 +779,16 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
       if (runtimePolicy.backoffMs > 0) {
         await delay(runtimePolicy.backoffMs)
       }
+    }
+    if (effectReservation?.tracked) {
+      settleDeploymentEffect({
+        userId: userContextId,
+        runId,
+        effectKey,
+        leaseToken: executionSlot.slot?.leaseToken || "",
+        ok: output.ok,
+        result: output,
+      })
     }
 
     return {
@@ -914,6 +952,11 @@ async function executeMissionCore(input: ExecuteMissionInput): Promise<ExecuteMi
   }
 
   while (readyNodeIds.length > 0) {
+    if (isDeploymentRunCancelled({ userId: userContextId, runId })) {
+      const reason = "Deployment run cancelled."
+      executionSlot.slot?.reportOutcome(false, reason)
+      return { ok: false, skipped: false, reason, outputs, nodeTraces }
+    }
     const frontierNodes = readyNodeIds
       .map((nodeId) => orderedNodeById.get(nodeId))
       .filter((node): node is MissionNode => Boolean(node))

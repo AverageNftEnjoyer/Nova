@@ -559,7 +559,7 @@ function applyScheduleViewToMission(params: {
 
 export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageStateInput) {
   const router = useRouter()
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)

@@ -9,7 +9,7 @@ interface AccentContextValue {
 }
 
 const AccentContext = createContext<AccentContextValue>({
-  accentColor: "violet",
+  accentColor: "white",
   setAccentColor: () => {},
 })
 
@@ -28,7 +28,7 @@ export function AccentProvider({ children }: { children: ReactNode }) {
       const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
       return result
         ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
-        : "139, 92, 246"
+        : "203, 213, 225"
     }
 
     root.style.setProperty("--accent-primary", primary)

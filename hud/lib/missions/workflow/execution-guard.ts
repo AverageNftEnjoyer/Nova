@@ -54,8 +54,7 @@ export async function acquireMissionExecutionSlot(input: {
   const { userContextId, missionId, missionRunId, maxAttempts } = input
 
   if (!userContextId || !missionId || !missionRunId) {
-    // Missing context — allow execution but skip ledger tracking
-    return { ok: true, slot: makeNoopSlot() }
+    return { ok: false, reason: "Mission execution requires user, mission, and run identifiers." }
   }
 
   // 1. Enqueue the run record
@@ -72,9 +71,8 @@ export async function acquireMissionExecutionSlot(input: {
     if (enqueueResult.error === "duplicate_idempotency_key") {
       return { ok: false, reason: "Duplicate run — already enqueued with this ID." }
     }
-    // Job ledger unavailable — fail open so we don't block all missions during DB outage
-    console.warn("[ExecutionGuard] Failed to enqueue job run, proceeding without ledger:", enqueueResult.error)
-    return { ok: true, slot: makeNoopSlot() }
+    console.warn("[ExecutionGuard] Failed to enqueue job run:", enqueueResult.error)
+    return { ok: false, reason: `Mission run could not be recorded: ${enqueueResult.error || "ledger unavailable"}` }
   }
 
   // 2. Claim the run (checks concurrency caps atomically)
@@ -131,16 +129,6 @@ export async function acquireMissionExecutionSlot(input: {
         }
       },
     },
-  }
-}
-
-/** Noop slot used when ledger tracking is skipped (missing context, DB outage). */
-function makeNoopSlot(): MissionExecutionSlot {
-  return {
-    jobRunId: "",
-    leaseToken: "",
-    reportOutcome: () => undefined,
-    release: async () => undefined,
   }
 }
 

@@ -10,6 +10,8 @@ interface AnalyticsHomeModuleProps {
   onOpenAnalytics: () => void
   /** Opens the analytics dashboard at its budgets section (`/analytics#budgets`). */
   onOpenBudgets: () => void
+  /** Opens runtime traces and diagnostics from the Analytics panel. */
+  onOpenDevLogs: () => void
 }
 
 const PLACEHOLDER = "—"
@@ -48,7 +50,13 @@ function plural(count: number, word: string): string {
  * (which wraps under the value when it does not fit). The panel is an `@container`; from 15rem the text steps up
  * one size. Every text node truncates.
  */
-export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, onOpenBudgets }: AnalyticsHomeModuleProps) {
+export function AnalyticsHomeModule({
+  isLight,
+  subPanelClass,
+  onOpenAnalytics,
+  onOpenBudgets,
+  onOpenDevLogs,
+}: AnalyticsHomeModuleProps) {
   const { summary, loading, error } = useHomeAnalyticsSummary()
   const pending = !summary
 
@@ -77,7 +85,7 @@ export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, o
           Usage unavailable
         </p>
       ) : null}
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-3 gap-1">
+      <div className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-1">
         <SpendTile
           summary={summary}
           pending={pending}
@@ -109,6 +117,19 @@ export function AnalyticsHomeModule({ isLight, subPanelClass, onOpenAnalytics, o
           valueClass={valueClass}
           secondaryClass={secondaryClass}
         />
+        <button
+          type="button"
+          onClick={onOpenDevLogs}
+          className={tileClass}
+          aria-label="Open runtime logs and diagnostics"
+          title="Open runtime logs and diagnostics"
+        >
+          <span className={cn("block w-full", labelClass)}>Runtime logs</span>
+          <span className={VALUE_ROW_CLASS}>
+            <span className={valueClass}>Open</span>
+            <span className={secondaryClass}>traces &amp; errors</span>
+          </span>
+        </button>
       </div>
     </div>
   )

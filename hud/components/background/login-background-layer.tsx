@@ -25,7 +25,7 @@ export function LoginBackgroundLayer() {
   const { theme } = useTheme()
   const isLight = theme === "light"
   const [mounted, setMounted] = useState(false)
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
 
   useEffect(() => {
     Promise.resolve().then(() => setMounted(true))

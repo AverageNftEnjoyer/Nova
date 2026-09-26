@@ -665,15 +665,15 @@ export function YouTubeHomeModule({
         ref={sectionRef}
         style={panelStyle}
         className={cn(
-          `${panelClass} home-spotlight-shell p-0 min-h-0 flex flex-col overflow-hidden`,
+          `${panelClass} home-spotlight-shell @container p-0 min-h-0 flex flex-col overflow-hidden`,
           selectedItem ? "youtube-compositor-safe" : null,
           className,
         )}
       >
         <div className="px-2.5 pt-2 pb-1 flex items-center justify-between gap-2">
-          <div className="inline-flex items-center gap-2">
-            <YouTubeIcon className="w-4 h-4" />
-            <h2 className={cn("text-xs uppercase tracking-[0.2em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>YouTube News</h2>
+          <div className="inline-flex min-w-0 items-center gap-1.5">
+            <YouTubeIcon className="h-4 w-4 shrink-0" />
+            <h2 className={cn("min-w-0 truncate text-[10px] @[13rem]:text-xs uppercase tracking-[0.1em] @[13rem]:tracking-[0.16em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>YouTube News</h2>
           </div>
           <div className="inline-flex items-center gap-1.5">
             <button

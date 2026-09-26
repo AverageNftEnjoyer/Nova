@@ -23,6 +23,7 @@ interface FluidSelectProps {
   menuClassName?: string
   optionClassName?: string
   optionActiveClassName?: string
+  disabled?: boolean
 }
 
 export function FluidSelect({
@@ -36,6 +37,7 @@ export function FluidSelect({
   menuClassName,
   optionClassName,
   optionActiveClassName,
+  disabled = false,
 }: FluidSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [hoveredValue, setHoveredValue] = useState<string | null>(null)
@@ -122,9 +124,13 @@ export function FluidSelect({
         <button
           ref={buttonRef}
           type="button"
-          onClick={() => setIsOpen((v) => !v)}
+          disabled={disabled}
+          onClick={() => {
+            if (!disabled) setIsOpen((v) => !v)
+          }}
           className={cn(
             "h-9 w-full rounded-md border px-3 text-left text-sm transition-colors inline-flex items-center justify-between",
+            disabled && "cursor-not-allowed opacity-55",
             isLight
               ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 hover:bg-[#eef3fb]"
               : "border-white/12 bg-white/6 text-slate-100 backdrop-blur-md hover:bg-white/10",
@@ -150,7 +156,7 @@ export function FluidSelect({
                     exit={{ opacity: 0, y: -6, height: 0 }}
                     transition={{ duration: 0.14, ease: "easeOut" }}
                     style={{ left: menuStyle.left, top: menuStyle.top, width: menuStyle.width, maxHeight: menuStyle.maxHeight }}
-                    className="fixed z-80"
+                    className="fixed z-[160]"
                   >
                     <motion.div
                       className={cn(

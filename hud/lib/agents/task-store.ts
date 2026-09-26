@@ -33,6 +33,8 @@ import {
 } from "../../../src/runtime/modules/agent-tasks/budget-settings/index.js"
 import { resolveModelPricing } from "../../app/integrations/constants/pricing"
 import { createWorktree, deleteWorktree, generateBranchName } from "../git/worktree-manager"
+import { validateConfiguredLlmSelection } from "../integrations/llm/provider-selection"
+import { loadIntegrationsConfig } from "../integrations/store/server-store"
 import {
   deleteTaskAttachmentFiles,
   ingestTaskAttachments,
@@ -606,6 +608,14 @@ export async function getTask(userId: string, id: string): Promise<AgentTask | n
 export async function createTask(userId: string, input: CreateAgentTaskInput): Promise<AgentTask> {
   const fields = validateCreateInput(input)
   const safeUserId = sanitizeUserId(userId)
+  const integrations = await loadIntegrationsConfig({ userId: safeUserId })
+  try {
+    validateConfiguredLlmSelection(integrations, fields.agent, fields.model)
+  } catch (error) {
+    throw new AgentTaskValidationError(
+      error instanceof Error ? error.message : "The selected provider and model are not configured.",
+    )
+  }
   const now = nowIso()
   const taskId = randomUUID()
   const contextId = typeof input.contextId === "string" ? input.contextId.trim() : ""

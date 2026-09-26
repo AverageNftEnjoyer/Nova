@@ -47,6 +47,32 @@ files:
   # served and sharp (plus its @img/* native binaries) is dead weight.
   - "!node_modules/@img/**"
   - "!node_modules/sharp/**"
+  # @emnapi/runtime is only there for sharp's wasm build (dropped above).
+  - "!node_modules/@emnapi/**"
+  # Build-time-only dependencies of `next`: browserslist data (caniuse-lite, baseline-browser-mapping)
+  # and the PostCSS pinned for Next's CSS pipeline. `next build` uses them; the production server
+  # does not, and Next's own standalone trace (see below) leaves all three out. Nothing else in the
+  # production closure depends on them (`npm ls <name> --omit=dev` shows next as the only parent).
+  - "!node_modules/caniuse-lite/**"
+  - "!node_modules/baseline-browser-mapping/**"
+  - "!node_modules/postcss/**"
+  # Source maps in dependencies are debugging aids only (node_modules/next and react-dom are further
+  # pruned to Next's output file trace by hud/scripts/after-pack.js).
+  - "!node_modules/**/*.map"
+  # `npm run build:package` writes Next's standalone trace here. after-pack.js reads it as the
+  # allowlist for node_modules/next and react-dom, but the copy itself must not ship: it duplicates
+  # .next and node_modules.
+  - "!.next/standalone/**"
+  # Build/deploy metadata the production server never reads: output-file-trace manifests (`*.nft.json`,
+  # ~5 MB: most API routes trace the whole project) and the build's `trace`/`trace-build` event logs.
+  - "!.next/**/*.nft.json"
+  - "!.next/trace"
+  - "!.next/trace-build"
+  # jsdom is a Next default server-external: the compiled routes require the dereferenced
+  # `.next/node_modules/jsdom-<hash>` copy (kept above), never plain `jsdom`, and Electron main does not
+  # use it. Its dependencies (whatwg-url, cssstyle, ...) stay: that copy resolves them from here.
+  # hud/scripts/after-pack.js fails the build if a compiled chunk ever requires plain `jsdom`.
+  - "!node_modules/jsdom/**"
   # Staged separately (see hud/scripts/prepare-runtime-resources.mjs) and copied in via
   # extraResources below, so it is not also packed here.
   - "!runtime-resources/**"
@@ -79,11 +105,27 @@ files:
 # rebuild. electron-builder's own `npmRebuild` (default true) only walks node_modules inside `files`
 # above (hud's own), which does not include better-sqlite3, so it never touches this staged copy or
 # the repo-root copy used by `nova.js`.
+#
+# electron-builder's default excludes (`*.d.ts`, VCS files, lockfiles, ...) apply to `files` only, not
+# to extraResources, so the ones that matter are repeated here. None of this is loaded at runtime:
+#   - source maps (~17 MB)
+#   - TypeScript files (~15 MB): declarations (incl. @types/node + @types/ws, pulled in by
+#     @openai/agents-realtime) and sources that zod/openai/ajv ship next to their compiled JS (zod exposes
+#     them only under its custom `@zod/source` export condition). Node refuses to type-strip anything
+#     under node_modules, so a .ts file there can never be loaded anyway.
+#   - README/CHANGELOG/CONTRIBUTING markdown (LICENSE files are kept)
+#   - @mixmark-io/domino's test suite (7 MB; turndown's DOM, `main` is ./lib)
+#   - the runtime's own unit tests (`src/**/*.test.*`; nothing imports them)
 extraResources:
   - from: .
     to: .
     filter:
       - "runtime-resources/**/*"
+      - "!runtime-resources/node_modules/**/*.map"
+      - "!runtime-resources/node_modules/**/*.{ts,mts,cts}"
+      - "!runtime-resources/node_modules/**/{README,Readme,readme,CHANGELOG,changelog,HISTORY,History,CONTRIBUTING}.md"
+      - "!runtime-resources/node_modules/@mixmark-io/domino/test/**"
+      - "!runtime-resources/src/**/*.test.*"
 
 # Auto-update feed: the installed app checks this repo's GitHub Releases (public repo, so no token is
 # needed in the app). `npm run electron:publish:win` uploads the installer + latest.yml; the release is created

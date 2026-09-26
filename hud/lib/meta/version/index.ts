@@ -10,6 +10,22 @@
  *
  * Version History:
  *
+ * - V.75 Alpha (2026-09-25): Unified Deployment Platform
+ *     - Added one `/deployments` workspace: Simple uses Nova's live WebSocket manager to produce a strict, server-validated task-or-automation plan; Advanced exposes the configured provider/model task form and the guided Mission builder/canvas.
+ *     - Added canonical Deployment and DeploymentRun records, immutable run revisions, replayable SQLite event streaming, attachments, durable side-effect reservations, idempotent launch keys, and Mission/Agent Task compatibility links (migrations 19-20).
+ *     - Managerial tasks execute through the real Agent Task `handleInput` tool loop; automations execute through the leased Mission job ledger. Both project into one lifecycle with review, budget, pause/resume, cancellation, lease fencing, and terminal-state synchronization.
+ *     - Existing Missions project as Advanced Deployments with unchanged IDs; terminal legacy Agent Tasks project once as historical runs while active tasks remain on their existing scheduler. Mission agent graph nodes are labeled as routing metadata until they invoke the live specialist runtime.
+ *     - Fixed FluidSelect portal layering above dialogs and made the Advanced task form reusable, configured-provider-only, active-model-aware, and protected by server-side provider/model membership validation.
+ *
+ * - V.74 Alpha (2026-09-25): Home analytics consolidation
+ *     - Removed the separate Home Dev Tools panel and its background metrics polling. Runtime traces and errors are now linked from the Home Analytics panel alongside spend, tokens, and budgets.
+ *     - Removed the static Agent Chart preview and `/agents` route; operational agent work remains in the expanded Agent Tasks workspace.
+ *     - Reorganized Home around Agent Tasks: Polymarket moved to the right rail; equal-size Crypto, YouTube, Analytics, and Notes modules share the lower row; Spotify opens from a header icon; compact weather moved to the header.
+ *     - White is now the fresh-install default for the UI accent, Nova orb, and cursor spotlight; existing saved choices remain user-controlled.
+ *     - Leaner installer (163.8 MB -> 123.6 MB; unpacked 597 MB / 23,120 files -> 405 MB / ~10,100 files). Packaging builds use `npm run build:package` (`output: "standalone"` via `NOVA_NEXT_STANDALONE_TRACE=1`), and `hud/scripts/after-pack.js` prunes the packaged `next` / `react-dom` to Next's own output-file trace (`next` ~130 MB -> ~14 MB). `production-server.js` runs Next with the build's serialized config like Next's generated standalone server, so build-only webpack hooks are skipped.
+ *     - Not shipped any more: `.next/standalone`, the `.nft.json` trace manifests and `trace` logs under `.next`, next's build-only dependencies (caniuse-lite, baseline-browser-mapping, postcss, @emnapi), the unused top-level `node_modules/jsdom` (routes load the hashed `.next/node_modules/jsdom-<hash>` copy; after-pack fails the build otherwise), dependency source maps, and from the runtime: TypeScript files, source maps, READMEs/CHANGELOGs, domino's test suite and the runtime's own `.test.` files. Removed the unused root `systeminformation` dependency.
+ *     - Packaging smokes (`smoke:production-boot` / `smoke:production-routes`) now confine module resolution to the packaged tree and run with the install directory as cwd. Before, anything missing from the package silently resolved from the repo's own `node_modules`/`dist`. This exposed that Coinbase report routes loaded `dist/` relative to cwd; `hud/lib/coinbase/reporting.ts` now prefers `NOVA_WORKSPACE_ROOT` (the staged runtime).
+ *
  * - V.73 Alpha (2026-09-25): Token-efficiency overhaul
  *     - Prompt caching: the chat system prompt is a byte-stable static prefix plus a per-turn part appended after it; Claude gets `cache_control` on the static block and on the latest tool-loop message; OpenAI / Gemini / Grok cache the stable prefix automatically. Static-prefix changes are counted in telemetry.
  *     - Usage ledger: every LLM call (chat, agent tasks, missions, utility calls, embeddings) writes one `llm_usage` row with normalised tokens incl. cached / cache-write, cost (NULL when unpriced) and routing tier. `/analytics` and the Home Analytics panel read it (by source, provider, model and tier; cached savings; budget alerts and history; days in the viewer's time zone).
@@ -484,7 +500,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.73 Alpha"
+export const NOVA_VERSION = "V.75 Alpha"
 
 
 

@@ -282,7 +282,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "agent-supervisor",
     label: "Operator",
-    description: "Nova commander node. Routes work through councils and domain managers.",
+    description: "Routing metadata for the command spine; it does not invoke a live specialist runtime.",
     category: "agents",
     icon: "Crown",
     color: "bg-indigo-500/10",
@@ -295,7 +295,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "agent-worker",
     label: "Council/Manager/Worker",
-    description: "Org-chart agent node for councils, domain managers, and worker agents.",
+    description: "Org-chart routing metadata; it does not invoke a live specialist runtime.",
     category: "agents",
     icon: "Users",
     color: "bg-indigo-500/10",
@@ -308,7 +308,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "agent-handoff",
     label: "Handoff",
-    description: "Explicit ownership transfer between two agents in the command spine.",
+    description: "Record an ownership transition in graph state; no live agent handoff is executed.",
     category: "agents",
     icon: "ArrowRightLeft",
     color: "bg-indigo-500/10",
@@ -360,7 +360,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "agent-audit",
     label: "Audit Agent",
-    description: "Dedicated audit council node for policy checks and trace validation.",
+    description: "Audit routing metadata for policy traces; it is not a live audit specialist.",
     category: "agents",
     icon: "ShieldCheck",
     color: "bg-indigo-500/10",

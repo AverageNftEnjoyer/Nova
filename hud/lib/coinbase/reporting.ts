@@ -85,7 +85,12 @@ function escapeCsv(value: unknown): string {
 
 async function resolveCoinbaseDistModulePath(): Promise<string> {
   const cwd = process.cwd()
+  // Packaged app: hud/electron/production-server.js points NOVA_WORKSPACE_ROOT at the staged
+  // resources/runtime-resources tree (src/, dist/, node_modules/). The process cwd there is not the
+  // repo, so the cwd-relative dev candidates below would miss or pick up an unrelated dist/.
+  const packagedRuntimeRoot = String(process.env.NOVA_WORKSPACE_ROOT || "").trim()
   const candidates = [
+    ...(packagedRuntimeRoot ? [path.resolve(packagedRuntimeRoot, "dist", "integrations", "coinbase", "index.js")] : []),
     path.resolve(cwd, "..", "dist", "integrations", "coinbase", "index.js"),
     path.resolve(cwd, "dist", "integrations", "coinbase", "index.js"),
   ]

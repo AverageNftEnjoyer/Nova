@@ -89,8 +89,27 @@ async function startProductionServices({ hudDir, runtimeRoot, handleInput } = {}
   return { port, stop }
 }
 
+// Packaging builds (`npm run build:package`) are `output: "standalone"` builds, and the packaged
+// node_modules/next is pruned to Next's standalone trace (hud/scripts/after-pack.js). That trace covers
+// the server as Next's generated `.next/standalone/server.js` runs it: with the build's serialized config
+// in `__NEXT_PRIVATE_STANDALONE_CONFIG`, so next.config.js is not re-loaded and build-only hooks
+// (loadWebpackHook -> next/dist/compiled/webpack, not traced) are skipped. Do the same here, from the
+// config the build wrote to .next/required-server-files.json. Without it the pruned server fails in
+// prepare() with "Cannot find module 'next/dist/compiled/webpack/webpack-lib'". A non-standalone build
+// (e.g. a source-tree smoke run) keeps the normal next.config.js load path.
+function applyStandaloneConfig(hudDir) {
+  const fs = require('fs')
+  const manifestPath = path.join(hudDir, '.next', 'required-server-files.json')
+  if (!fs.existsSync(manifestPath)) return
+  const { config } = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  if (config?.output === 'standalone') {
+    process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(config)
+  }
+}
+
 function startNextServer(hudDir) {
   return new Promise((resolve, reject) => {
+    applyStandaloneConfig(hudDir)
     let next
     try {
       // Resolves hud's own `next` install via normal Node resolution (hudDir/node_modules/next).

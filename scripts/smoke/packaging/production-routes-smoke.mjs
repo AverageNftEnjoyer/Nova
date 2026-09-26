@@ -14,10 +14,11 @@
  *     answers < 500 (redirects are not followed). The body must never contain "Cannot find module" or
  *     "MODULE_NOT_FOUND". Routes that legitimately answer 5xx are listed in ALLOWED_5XX with a reason.
  *
- * Requires `hud/dist/win-unpacked` (from `npm run build && npm run electron:prepare-runtime &&
+ * Requires `hud/dist/win-unpacked` (from `npm run build:package && npm run electron:prepare-runtime &&
  * npx electron-builder --win --x64 --dir`, run in hud/).
  */
 import "../lib/isolated-data-dir.mjs"
+import { installPackageResolutionGuard } from "../lib/package-resolution-guard.mjs"
 import assert from "node:assert/strict"
 import { builtinModules, createRequire } from "node:module"
 import fs from "node:fs"
@@ -42,6 +43,12 @@ const runtimeRoot = path.resolve(
   process.env.NOVA_PRODUCTION_SMOKE_RUNTIME
     || path.join(repoRoot, "hud", "dist", "win-unpacked", "resources", "runtime-resources"),
 )
+
+// This smoke always targets a packaged layout: confine module resolution to it (see the guard).
+const resolutionGuard = installPackageResolutionGuard({ repoRoot })
+// An installed app runs with its install directory (the win-unpacked equivalent) as cwd, not the repo.
+// Mirror that so cwd-relative lookups cannot silently find the repo's dist/ or node_modules.
+process.chdir(path.resolve(hudDir, "..", ".."))
 
 // Routes that may legitimately answer >= 500 with no credentials/network in this sandbox. Keep this
 // empty unless a route is proven to do so, and always say why.
@@ -204,7 +211,7 @@ async function main() {
   assert.equal(
     fs.existsSync(path.join(hudDir, "electron", "production-server.js")),
     true,
-    `Packaged layout missing at ${hudDir}. From hud/, run: npm run build && npm run electron:prepare-runtime && npx electron-builder --win --x64 --dir`,
+    `Packaged layout missing at ${hudDir}. From hud/, run: npm run build:package && npm run electron:prepare-runtime && npx electron-builder --win --x64 --dir`,
   )
   assert.equal(fs.existsSync(path.join(runtimeRoot, "src", "runtime", "core", "entrypoint", "index.js")), true, `missing runtime entrypoint under ${runtimeRoot}`)
 
@@ -258,6 +265,11 @@ async function main() {
   for (const line of allowedHits) console.log(`[production-routes] ${line}`)
   assert.equal(failures.length, 0, `route sweep failures:\n${failures.map((line) => `  ${line}`).join("\n")}`)
   assert.equal(await portFree(8765), true, "runtime gateway still listening on 8765 after stop()")
+  const blocked = resolutionGuard.blocked()
+  console.log(
+    `[production-routes] resolution confined to the packaged tree; ${blocked.length} repo-only lookups answered "not found"` +
+      (blocked.length ? `:\n  ${blocked.join("\n  ")}` : ""),
+  )
   console.log(`[production-routes] PASS (${pages.length + apis.length} routes)`)
 }
 

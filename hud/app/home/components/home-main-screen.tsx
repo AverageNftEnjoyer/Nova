@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import type { Conversation } from "@/lib/chat/conversations"
-import { Blocks, Settings, Activity, Network, Bot, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
+import { Blocks, Settings, CloudSun, X, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
 import { ScheduleBriefing } from "./schedule-briefing"
 import { WindowControls } from "@/components/window/window-controls"
 import {
@@ -28,7 +28,6 @@ import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { cn } from "@/lib/shared/utils"
-import { NOVA_DOMAIN_MANAGERS } from "@/app/agents/agent-chart-data"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { usePageActive } from "@/lib/hooks/use-page-active"
@@ -38,7 +37,6 @@ import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { SpotifyHomeModule } from "./spotify-home-module"
 import { YouTubeHomeModule } from "./youtube-home-module"
 import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
-import { WeatherHomeModule } from "./weather-home-module"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
 import { NotesHomeModule } from "./notes-home-module"
 import { AnalyticsHomeModule } from "./analytics-home-module"
@@ -144,12 +142,6 @@ const FALLBACK_CRYPTO_ASSETS = [
   { symbol: "DOGE", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
 ] as const
 
-const COMMODITIES = [
-  { name: "Gold", price: "$2,184", change: "+0.6%", up: true },
-  { name: "WTI", price: "$77.30", change: "-0.3%", up: false },
-  { name: "Nat Gas", price: "$2.11", change: "+1.8%", up: true },
-] as const
-
 export function HomeMainScreen() {
   const router = useRouter()
   const pageActive = usePageActive()
@@ -163,8 +155,6 @@ export function HomeMainScreen() {
     scheduleSectionRef,
     integrationsSectionRef,
     spotifyModuleSectionRef,
-    agentModuleSectionRef,
-    devToolsSectionRef,
     panelStyle,
     panelClass,
     subPanelClass,
@@ -178,12 +168,11 @@ export function HomeMainScreen() {
     handleRenameConvo,
     handleArchiveConvo,
     openMissions,
+    openTaskDeployment,
     openCalendar,
     openIntegrations,
     openDevLogs,
-    openAgents,
     openAnalytics,
-    devToolsMetrics,
     integrationBadgeClass,
     goToIntegrations,
     telegramConnected,
@@ -217,10 +206,6 @@ export function HomeMainScreen() {
   } = useHomeMainScreenState()
   const isLight = muteHydrated && rawIsLight
 
-  const fmt = (value: unknown) => {
-    const n = Number(value)
-    return Number.isFinite(n) ? n.toLocaleString("en-US") : "0"
-  }
   const fmtUsd = (value: number) => {
     if (!Number.isFinite(value) || value <= 0) return "-"
     const abs = Math.abs(value)
@@ -246,14 +231,6 @@ export function HomeMainScreen() {
     const sign = value > 0 ? "+" : ""
     return `${sign}${value.toFixed(2)}%`
   }
-  const devMetricTiles = [
-    { label: "Total Traces", value: fmt(devToolsMetrics.totalTraces), color: "" },
-    { label: "Errors", value: fmt(devToolsMetrics.errors), color: "text-rose-400" },
-    { label: "Warnings", value: fmt(devToolsMetrics.warnings), color: "text-amber-300" },
-    { label: "Avg Latency", value: `${fmt(devToolsMetrics.avgLatencyMs)}ms`, color: "" },
-    { label: "Total Tokens", value: fmt(devToolsMetrics.totalTokens), color: "" },
-    { label: "Avg Quality", value: devToolsMetrics.avgQuality.toFixed(1), color: "" },
-  ] as const
   const sparklinePoints = (values: readonly number[], width = 56, height = 12): string => {
     const points = Array.isArray(values) ? values.filter((v) => Number.isFinite(v)) : []
     if (points.length === 0) return `0,${height / 2} ${width},${height / 2}`
@@ -298,12 +275,6 @@ export function HomeMainScreen() {
     { icon: <PolymarketIcon className="w-6 h-6" />, connected: polymarketConnected, label: "Polymarket", setup: "polymarket" },
   ] as const
 
-  const previewManagers = NOVA_DOMAIN_MANAGERS.slice(0, 3)
-  const previewWorkerCount = NOVA_DOMAIN_MANAGERS.reduce((sum, m) => sum + m.workers.length, 0)
-  const previewOnlineCount = NOVA_DOMAIN_MANAGERS.reduce(
-    (sum, m) => sum + m.workers.filter((w) => w.status === "online").length,
-    0,
-  )
   const activeConversations = conversations.filter((conversation) => !conversation.archived)
   const archivedConversations = conversations.filter((conversation) => conversation.archived)
   const presence = getNovaPresence({ agentConnected: connected, novaState })
@@ -361,6 +332,7 @@ export function HomeMainScreen() {
   )
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [spotifyPopupOpen, setSpotifyPopupOpen] = useState(false)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
   const [historyChatsOpen, setHistoryChatsOpen] = useState(true)
@@ -491,13 +463,45 @@ export function HomeMainScreen() {
                           {presence.label}
                         </span>
                       </div>
-                      <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Home Control Surface</p>
+                      <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Home</p>
                     </div>
                   </div>
                 </div>
               </div>
               <div />
               <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                <div
+                  className={cn("hidden lg:flex h-11 items-center gap-2 rounded-lg px-3", subPanelClass)}
+                  title={homeWeatherError || (preferredWeatherCity ? homeWeather?.conditionLabel || "Loading weather" : "Set a preferred city in Settings")}
+                >
+                  <CloudSun className="h-4 w-4 text-accent" />
+                  <div className="min-w-0">
+                    <p className={cn("truncate text-[11px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>
+                      {homeWeather?.temperatureF !== null && homeWeather?.temperatureF !== undefined
+                        ? `${Math.round(homeWeather.temperatureF)}°`
+                        : homeWeatherLoading ? "—" : "Weather"}
+                    </p>
+                    <p className={cn("max-w-24 truncate text-[9px]", isLight ? "text-s-50" : "text-slate-400")}>
+                      {homeWeather?.locationLabel || preferredWeatherCity || "Not configured"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSpotifyPopupOpen((current) => !current)}
+                  className={cn("relative h-11 w-11 rounded-lg transition-colors home-spotlight-card home-border-glow", subPanelClass)}
+                  aria-label={spotifyConnected ? "Open Spotify controls" : "Connect Spotify"}
+                  title={spotifyConnected ? "Spotify" : "Connect Spotify"}
+                >
+                  <SpotifyIcon className="mx-auto h-5 w-5" />
+                  <span
+                    className={cn(
+                      "absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full",
+                      spotifyConnected ? "bg-emerald-400" : isLight ? "bg-slate-400" : "bg-slate-600",
+                    )}
+                    aria-hidden="true"
+                  />
+                </button>
                 <div className={cn("flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg home-spotlight-card home-border-glow", subPanelClass)}>
                   <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface")}>
                     {profileAvatar ? (
@@ -638,66 +642,18 @@ export function HomeMainScreen() {
 
             {/* ── ZONE 2: Center column ──────────────────────────────────── */}
             <div className="flex-1 flex flex-col gap-1.5 min-w-0 min-h-0">
-            {/* ── Top row: YouTube + Spotify + Polymarket (left of Integrations) ── */}
-            <div className="shrink-0 min-h-0 flex flex-col lg:flex-row lg:items-stretch gap-1.5 lg:h-[clamp(13rem,26vh,18.5rem)]">
-              <YouTubeHomeModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                className="w-full lg:w-52 xl:w-[24rem] 2xl:w-[26rem] min-w-0 h-[clamp(13rem,26vh,18.5rem)] lg:h-full shrink-0"
-                connected={youtubeConnected}
-                onOpenIntegrations={openIntegrations}
-              />
-              <SpotifyHomeModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                sectionRef={spotifyModuleSectionRef}
-                className="w-full lg:w-44 xl:w-67 min-w-0 h-[clamp(13rem,26vh,18.5rem)] lg:h-full shrink-0"
-                connected={spotifyConnected}
-                nowPlaying={spotifyNowPlaying}
-                error={spotifyError}
-                busyAction={spotifyBusyAction}
-                onOpenIntegrations={openIntegrations}
-                onTogglePlayPause={toggleSpotifyPlayback}
-                onNext={spotifyNextTrack}
-                onPrevious={spotifyPreviousTrack}
-                onPlaySmart={spotifyPlaySmart}
-                onSeek={seekSpotify}
-              />
-              <PolymarketLiveLinesModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                className="w-full lg:flex-1 min-w-0 h-[clamp(13rem,26vh,18.5rem)] lg:h-full"
-                onOpenIntegrations={openIntegrations}
-                onOpenPolymarket={() => router.push("/polymarket")}
-              />
-            </div>
+            <AgentTasksHomeModule
+              isLight={isLight}
+              panelClass={panelClass}
+              subPanelClass={subPanelClass}
+              panelStyle={panelStyle}
+              className="min-h-0 flex-1"
+              onOpenMissions={openMissions}
+              onCreateDeployment={openTaskDeployment}
+            />
 
-            <div className="grid min-h-0 flex-[3] grid-cols-4 gap-1.5">
-              <AgentTasksHomeModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                className="col-span-2 min-h-0 h-full"
-                onOpenMissions={openMissions}
-              />
-              <NotesHomeModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                className="col-span-2 min-h-0 h-full"
-              />
-            </div>
-
-            {/* ── Bottom row: market + dev + history panels ── */}
-            <div className="grid min-h-[11rem] flex-[2] grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 shrink-0">
+            {/* ── Bottom row: markets, YouTube, and analytics ── */}
+            <div className="grid h-[clamp(11rem,25vh,16rem)] min-h-[11rem] grid-cols-4 gap-1.5 shrink-0">
 
               {/* Crypto Prices */}
               <section
@@ -775,88 +731,17 @@ export function HomeMainScreen() {
                 </div>
               </section>
 
-              {/* Commodities */}
-              <section
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <BarChart2 className="w-4 h-4 text-accent shrink-0" />,
-                  title: "Commodities",
-                })}
-                <p className={cn("hidden @[10rem]:block text-[11px] mt-0.5 truncate", isLight ? "text-s-50" : "text-slate-400")}>
-                  Placeholder pricing tiles
-                </p>
-                <div className="mt-2 grid min-h-0 flex-1 grid-rows-3 gap-1">
-                  {COMMODITIES.map((c) => (
-                    <div
-                      key={c.name}
-                      className={cn(
-                        "flex min-h-0 min-w-0 items-center justify-between gap-2 rounded-sm border px-2 home-spotlight-card home-border-glow",
-                        subPanelClass,
-                      )}
-                    >
-                      <span className={cn("min-w-[2.5rem] flex-1 truncate text-[11px] @[10rem]:text-[12px] font-medium", isLight ? "text-s-80" : "text-slate-200")}>{c.name}</span>
-                      <div className="flex shrink-0 items-baseline gap-1 @[10rem]:gap-2">
-                        <span
-                          className={cn(
-                            "text-[11px] @[10rem]:text-[13px] font-semibold tabular-nums",
-                            isLight ? "text-s-90" : "text-slate-100",
-                          )}
-                        >
-                          {c.price}
-                        </span>
-                        <span className={cn("hidden @[8rem]:inline text-[10px] tabular-nums", c.up ? "text-emerald-400" : "text-rose-400")}>
-                          {c.change}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <YouTubeHomeModule
+                isLight={isLight}
+                panelClass={panelClass}
+                subPanelClass={subPanelClass}
+                panelStyle={panelStyle}
+                className="min-h-0 h-full"
+                connected={youtubeConnected}
+                onOpenIntegrations={openIntegrations}
+              />
 
-              {/* Dev Tools */}
-              <section
-                ref={devToolsSectionRef}
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <Activity className="w-4 h-4 text-accent shrink-0" />,
-                  title: "Dev Tools",
-                  action: renderGearButton({
-                    onClick: openDevLogs,
-                    label: "Open dev logs",
-                    groupName: "macro-dev-gear",
-                    hoverGlow: false,
-                  }),
-                })}
-                <div className="mt-2 grid min-h-0 flex-1 grid-cols-2 @[11rem]:grid-cols-3 gap-1">
-                  {devMetricTiles.map(({ label, value, color }) => (
-                    <div
-                      key={label}
-                      className={cn(
-                        "min-w-0 rounded-sm border px-1.5 py-1 text-center home-spotlight-card home-border-glow",
-                        subPanelClass,
-                      )}
-                    >
-                      <p className={cn("truncate text-[8px] @[11rem]:text-[9px] uppercase tracking-widest", isLight ? "text-s-50" : "text-slate-500")}>
-                        {label}
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-0.5 truncate text-[13px] @[11rem]:text-[15px] font-semibold tabular-nums leading-tight",
-                          color || (isLight ? "text-s-90" : "text-slate-100"),
-                        )}
-                      >
-                        {value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              {/* Analytics Quick Access */}
+              {/* Analytics and runtime diagnostics */}
               <section
                 style={panelStyle}
                 className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
@@ -876,23 +761,22 @@ export function HomeMainScreen() {
                   subPanelClass={subPanelClass}
                   onOpenAnalytics={openAnalytics}
                   onOpenBudgets={openAnalyticsBudgets}
+                  onOpenDevLogs={openDevLogs}
                 />
               </section>
 
-              <WeatherHomeModule
+              <NotesHomeModule
                 isLight={isLight}
                 panelClass={panelClass}
                 subPanelClass={subPanelClass}
                 panelStyle={panelStyle}
-                preferredCity={preferredWeatherCity}
-                weather={homeWeather}
-                weatherLoading={homeWeatherLoading}
-                weatherError={homeWeatherError}
+                className="min-h-0 h-full"
               />
+
             </div>
             </div>
 
-          {/* ── ZONE 3: Right column (Integrations / Agent Chart) ── */}
+          {/* ── ZONE 3: Right column (Integrations / Polymarket) ── */}
           <div className="w-56 xl:w-67 shrink-0 flex flex-col gap-1.5 min-h-0">
 
             {/* Integrations */}
@@ -935,89 +819,58 @@ export function HomeMainScreen() {
               </div>
             </section>
 
-            {/* Agent Chart */}
-            <section
-              ref={agentModuleSectionRef}
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell px-3 py-2 min-h-0 flex-1 flex flex-col`}
-            >
-              {renderPanelHeader({
-                icon: <Network className="w-4 h-4 text-accent" />,
-                title: "Agent Chart",
-                action: renderGearButton({
-                  onClick: openAgents,
-                  label: "Open agent chart",
-                  groupName: "agents-gear",
-                  hoverGlow: false,
-                }),
-              })}
-              <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar">
-                <div
-                  className={cn(
-                    "rounded-md border px-2 py-1.5 home-spotlight-card home-border-glow",
-                    isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="inline-flex items-center gap-1.5">
-                      <Bot className="w-3.5 h-3.5 text-accent" />
-                      <p className={cn("text-[11px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>
-                        Nova Operator
-                      </p>
-                    </div>
-                    <span className="rounded-full border border-emerald-300/40 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-emerald-200">
-                      online
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
-                  {previewManagers.map((manager) => (
-                    <button
-                      key={manager.id}
-                      onClick={openAgents}
-                      className={cn(
-                        "rounded-md border px-1.5 py-1 text-left transition-colors home-spotlight-card home-border-glow",
-                        isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
-                      )}
-                    >
-                      <p className={cn("text-[10px] font-semibold truncate", isLight ? "text-s-80" : "text-slate-200")}>
-                        {manager.label}
-                      </p>
-                      <p className={cn("text-[9px] mt-0.5", isLight ? "text-s-50" : "text-slate-400")}>
-                        {manager.workers.length} workers
-                      </p>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-1.5">
-                  <div
-                    className={cn(
-                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
-                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
-                    )}
-                  >
-                    <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Managers</p>
-                    <p className="text-[12px] font-semibold">{NOVA_DOMAIN_MANAGERS.length}</p>
-                  </div>
-                  <div
-                    className={cn(
-                      "rounded-md border px-1.5 py-1 home-spotlight-card home-border-glow",
-                      isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface",
-                    )}
-                  >
-                    <p className="text-[9px] uppercase tracking-[0.08em] opacity-70">Online</p>
-                    <p className="text-[12px] font-semibold">
-                      {previewOnlineCount}/{previewWorkerCount}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </section>
+            <PolymarketLiveLinesModule
+              isLight={isLight}
+              panelClass={panelClass}
+              subPanelClass={subPanelClass}
+              panelStyle={panelStyle}
+              className="min-h-0 flex-1 h-full"
+              onOpenIntegrations={openIntegrations}
+              onOpenPolymarket={() => router.push("/polymarket")}
+            />
 
           </div>
         </div>
       </div>
     </div>
+    {spotifyPopupOpen ? (
+      <>
+        <button
+          type="button"
+          className="fixed inset-0 z-[120] cursor-default bg-black/25"
+          onClick={() => setSpotifyPopupOpen(false)}
+          aria-label="Close Spotify controls"
+        />
+        <div className="fixed right-4 top-16 z-[125] h-[22rem] w-[min(26rem,calc(100vw-2rem))]">
+          <button
+            type="button"
+            onClick={() => setSpotifyPopupOpen(false)}
+            className={cn("absolute right-2 top-2 z-10 h-7 w-7 rounded-md border", subPanelClass)}
+            aria-label="Close Spotify controls"
+          >
+            <X className="mx-auto h-3.5 w-3.5" />
+          </button>
+          <SpotifyHomeModule
+            isLight={isLight}
+            panelClass={panelClass}
+            subPanelClass={subPanelClass}
+            panelStyle={panelStyle}
+            sectionRef={spotifyModuleSectionRef}
+            className="h-full w-full"
+            connected={spotifyConnected}
+            nowPlaying={spotifyNowPlaying}
+            error={spotifyError}
+            busyAction={spotifyBusyAction}
+            onOpenIntegrations={openIntegrations}
+            onTogglePlayPause={toggleSpotifyPlayback}
+            onNext={spotifyNextTrack}
+            onPrevious={spotifyPreviousTrack}
+            onPlaySmart={spotifyPlaySmart}
+            onSeek={seekSpotify}
+          />
+        </div>
+      </>
+    ) : null}
     <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
   </div>
   )

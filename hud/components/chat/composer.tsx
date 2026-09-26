@@ -95,7 +95,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
   const isLight = theme === "light"
   const [value, setValue] = useState("")
   // Keep SSR and initial client render deterministic to avoid hydration mismatch.
-  const [accentColor, setAccentColor] = useState<AccentColor>("violet")
+  const [accentColor, setAccentColor] = useState<AccentColor>("white")
   const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)

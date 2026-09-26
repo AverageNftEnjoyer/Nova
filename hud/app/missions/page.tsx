@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { Settings } from "lucide-react"
 
 import { useTheme } from "@/lib/context/theme-context"
@@ -34,6 +34,7 @@ function MissionsPageContent() {
   const [canvasModalOpen, setCanvasModalOpen] = useState(false)
   const [canvasMission, setCanvasMission] = useState<Mission | null>(null)
   const [canvasSaving, setCanvasSaving] = useState(false)
+  const openedFromDeploymentRef = useRef(false)
   const { theme } = useTheme()
   const pageActive = usePageActive()
   const { state: novaState, connected: agentConnected } = useNovaState()
@@ -147,6 +148,13 @@ function MissionsPageContent() {
   } = useMissionsPageState({ isLight, returnTo })
 
   const editId = searchParams.get("editId")
+  const createMode = searchParams.get("create")
+  useEffect(() => {
+    if (createMode !== "builder" || openedFromDeploymentRef.current) return
+    openedFromDeploymentRef.current = true
+    setBuilderOpen(true)
+  }, [createMode, setBuilderOpen])
+
   useEffect(() => {
     if (!editId || loading || builderOpen) return
     const target = schedules.find((s) => s.id === editId)
@@ -316,7 +324,7 @@ function MissionsPageContent() {
             <div ref={heroHeaderRef} className="mb-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <button
-                  onClick={() => router.push("/home")}
+                  onClick={() => router.push(returnTo || "/home")}
                   onMouseEnter={() => setOrbHovered(true)}
                   onMouseLeave={() => setOrbHovered(false)}
                   className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"

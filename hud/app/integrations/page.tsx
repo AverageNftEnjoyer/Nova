@@ -129,7 +129,7 @@ function IntegrationsPageContent() {
   )
   const [showCoinbaseApiSecret, setShowCoinbaseApiSecret] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
-  const [orbColor, setOrbColor] = useState<OrbColor>("violet")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
   const [profile, setProfile] = useState<UserProfile>({
     name: "User",
     avatar: null,

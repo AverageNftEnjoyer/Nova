@@ -1,9 +1,8 @@
 "use client"
 
 import { ArrowUpRight, Bot, Loader2, Plus } from "lucide-react"
-import { useCallback, useState, type CSSProperties } from "react"
+import { useCallback, type CSSProperties } from "react"
 
-import { CreateTaskModal } from "@/components/agents/create-task-modal"
 import { TaskList } from "@/components/agents/task-list"
 import type { AgentTaskUiAction } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
@@ -16,6 +15,7 @@ interface AgentTasksHomeModuleProps {
   panelStyle: CSSProperties | undefined
   className?: string
   onOpenMissions: () => void
+  onCreateDeployment: () => void
 }
 
 function formatCostToday(cost: number): string {
@@ -30,9 +30,9 @@ export function AgentTasksHomeModule({
   panelStyle,
   className,
   onOpenMissions,
+  onCreateDeployment,
 }: AgentTasksHomeModuleProps) {
-  const { tasks, stats, loading, error, connection, createTask, runAction, raiseBudget } = useAgentTasks()
-  const [createOpen, setCreateOpen] = useState(false)
+  const { tasks, stats, loading, error, connection, runAction, raiseBudget } = useAgentTasks()
 
   const handleAction = useCallback(
     async (taskId: string, action: AgentTaskUiAction) => {
@@ -40,8 +40,6 @@ export function AgentTasksHomeModule({
     },
     [runAction],
   )
-  const closeCreate = useCallback(() => setCreateOpen(false), [])
-
   const running = stats?.running ?? 0
   const statItems = [
     { label: "Running", value: String(running), active: running > 0 },
@@ -70,10 +68,10 @@ export function AgentTasksHomeModule({
           />
         </h2>
         <div className="flex items-center justify-end gap-1">
-          <button type="button" onClick={() => setCreateOpen(true)} title="Create task" aria-label="Create task" className={iconButtonClass}>
+          <button type="button" onClick={onCreateDeployment} title="New deployment" aria-label="New deployment" className={iconButtonClass}>
             <Plus className={iconClass} />
           </button>
-          <button type="button" onClick={onOpenMissions} title="Open Mission Hub" aria-label="Open Mission Hub" className={iconButtonClass}>
+          <button type="button" onClick={onOpenMissions} title="Open Deployments" aria-label="Open Deployments" className={iconButtonClass}>
             <ArrowUpRight className={iconClass} />
           </button>
         </div>
@@ -113,12 +111,12 @@ export function AgentTasksHomeModule({
             <Bot className={cn("h-6 w-6", mutedText)} />
             <p className={cn("text-[12px] font-medium", isLight ? "text-s-80" : "text-slate-200")}>No tasks yet</p>
             <p className={cn("max-w-[18rem] text-[11px] leading-4", mutedText)}>
-              Queue a job for an agent to run in the background. Automations live in the Mission Hub.
+              Deploy a one-off task or reusable automation from one workspace.
             </p>
             <div className="mt-1 flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setCreateOpen(true)}
+                onClick={onCreateDeployment}
                 className={cn(
                   "inline-flex h-7 items-center gap-1 rounded-md border px-2.5 text-[11px] font-medium transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
                   subPanelClass,
@@ -126,7 +124,7 @@ export function AgentTasksHomeModule({
                 )}
               >
                 <Plus className="h-3 w-3" />
-                New task
+                New deployment
               </button>
               <button
                 type="button"
@@ -136,7 +134,7 @@ export function AgentTasksHomeModule({
                   mutedText,
                 )}
               >
-                Mission Hub
+                Deployments
                 <ArrowUpRight className="h-3 w-3" />
               </button>
             </div>
@@ -158,14 +156,12 @@ export function AgentTasksHomeModule({
                 mutedText,
               )}
             >
-              Open Mission Hub
+              Open Deployments
               <ArrowUpRight className="h-3 w-3" />
             </button>
           </>
         )}
       </div>
-
-      <CreateTaskModal open={createOpen} isLight={isLight} onClose={closeCreate} onCreate={createTask} />
     </section>
   )
 }

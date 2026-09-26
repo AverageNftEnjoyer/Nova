@@ -11,6 +11,7 @@ export type ModelCallSite =
   | "mission.ai-generate"
   | "mission.ai-chat"
   | "mission.build-from-prompt"
+  | "deployment.plan"
   | "utility.nova-suggest"
   | "utility.gmail-summary"
 

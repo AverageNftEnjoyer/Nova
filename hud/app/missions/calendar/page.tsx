@@ -1138,7 +1138,7 @@ export default function MissionsCalendarPage() {
   const shellRef = useRef<HTMLDivElement | null>(null)
 
   const [orbHovered,          setOrbHovered]          = useState(false)
-  const [orbColor,            setOrbColor]            = useState<OrbColor>("violet")
+  const [orbColor,            setOrbColor]            = useState<OrbColor>("white")
   const [settingsOpen,        setSettingsOpen]        = useState(false)
   const [profileName,         setProfileName]         = useState("User")
   const [profileAvatar,       setProfileAvatar]       = useState<string | null>(null)

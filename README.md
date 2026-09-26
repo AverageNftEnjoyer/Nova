@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.73). Actively developed and used daily by the author.
+**Status:** Alpha (V.75). Actively developed and used daily by the author.
 
 ---
 
@@ -38,10 +38,10 @@ I built it to answer a simple question: what does an AI assistant look like when
 | <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
 | Configurable dashboard with weather, schedule, notes, agent tasks, and live modules | Streaming chat with tool calls and approvals |
 
-| Missions | Agent Tasks |
+| Deployments | Deployment Activity |
 | :---: | :---: |
-| <img src="docs/screenshots/missions-canvas.png" alt="Mission workflow canvas" width="440"> | <img src="docs/screenshots/agent-tasks.png" alt="Agent tasks module" width="440"> |
-| Visual workflow builder for scheduled automations | Run, pause, and stop background agent tasks with cost tracking |
+| <img src="docs/screenshots/missions-canvas.png" alt="Deployment automation canvas" width="440"> | <img src="docs/screenshots/agent-tasks.png" alt="Deployment task activity" width="440"> |
+| Simple Nova manager plus Advanced task and automation editors | One lifecycle for background tasks and scheduled automations |
 
 | Integrations | Voice |
 | :---: | :---: |
@@ -61,13 +61,18 @@ I built it to answer a simple question: what does an AI assistant look like when
 - Wake-word activation. The wake word follows whatever name you give the assistant.
 - Text-to-speech through Fish Audio with switchable voices.
 
-### Missions (automation workflows)
+### Deployments
+- **Simple** is a live Nova manager conversation: describe an outcome, review a validated task-or-automation plan, then launch it.
+- **Advanced** exposes connected provider/model selection, permissions, context/files, worktrees, budgets, and the guided Mission builder or graph canvas.
+- Every launch has a canonical DeploymentRun, immutable definition revision, replayable event history, idempotency key, and cancellation/review controls.
+
+### Automation workflows
 - A visual canvas built on React Flow with 30+ node types across triggers, data, AI, logic, transforms, and outputs.
 - Missions run as a dependency graph with parallel branches.
 - A job ledger with idempotency keys and retry handling keeps scheduled runs from double-firing or getting lost.
 - Deliver results to Telegram, Discord, Slack, or email.
 
-### Agent Tasks
+### Background task execution
 - Queue background tasks against Claude, OpenAI, Gemini, or Grok.
 - Play, pause, stop, and delete controls. Up to 5 tasks run at once.
 - Priority levels, permission modes (default, accept-edits, plan-mode, don't-ask, bypass), and live token and cost tracking per task.
@@ -76,7 +81,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 ### Usage analytics
 - Every LLM call (chat, agent tasks, missions, utility calls, embeddings) is recorded in a local per-call ledger: provider, model, routing tier, input / output / cached tokens and cost.
 - **Settings → Model routing**: small internal calls (format corrections, empty-reply recovery, Spotify parsing, mission classify / extract steps) can use the same provider's economy model when that is estimated to be cheaper (default: "Trivial calls only"). An opt-in cost-saving mode also routes ordinary chat; agent tasks and multi-step reasoning always keep your selected model.
-- The **Analytics** page shows cost and tokens over time by source, provider, model and routing tier, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Analytics** panel shows today's spend, tokens with the cached share, and tasks at their budget limit.
+- The **Analytics** page shows cost and tokens over time by source, provider, model and routing tier, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Analytics** panel shows today's spend, tokens with the cached share, tasks at their budget limit, and a link to runtime traces and errors.
 
 ### Memory
 - Hybrid retrieval that combines keyword and embedding search.
@@ -106,8 +111,8 @@ In development NovaAIO runs as two cooperating processes, started together by a 
 │  HUD  (Next.js / React)  │ ◄──────────────────────► │  Agent Runtime (Node.js) │
 │  localhost:3000          │      localhost:8765      │                          │
 │                          │                          │  chat handler + routing  │
-│  chat · home · missions  │                          │  tool loop + policies    │
-│  agents · integrations   │                          │  memory · skills         │
+│  chat · home · deployments│                         │  tool loop + policies    │
+│  analytics · integrations│                          │  memory · skills         │
 │  Electron shell          │                          │  voice loop · scheduler  │
 └──────────────────────────┘                          └──────────────────────────┘
              │                                                       │
@@ -122,7 +127,8 @@ In development NovaAIO runs as two cooperating processes, started together by a 
 | `src/memory/` | Embeddings, hybrid search, chunking, MMR, temporal decay |
 | `src/providers/` | LLM provider clients and runtime |
 | `src/skills/` + `skills/` | Skill discovery and the bundled skills |
-| `hud/lib/missions/` | Mission types, DAG executor, job ledger, scheduler |
+| `hud/lib/deployments/` | Canonical deployment definitions, runs, events, and compatibility projection |
+| `hud/lib/missions/` | Automation graph types, DAG executor, job ledger, scheduler |
 | `scripts/smoke/` | Smoke and regression tests, grouped by area |
 
 ### Engineering decisions worth calling out
@@ -202,12 +208,13 @@ cd hud
 npm run electron:build:win
 ```
 
-This builds the HUD, stages the agent runtime (`src/`, `dist/`, runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The installer is written to `hud/dist/`. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory. Installed builds update themselves from GitHub Releases (see [docs/release/auto-update.md](docs/release/auto-update.md)). Closing the window (X) quits Nova; minimizing sends it to the taskbar and it keeps running.
+This builds the HUD with `npm run build:package` (a Next.js build that also writes Next's output-file trace), stages the agent runtime (`src/`, `dist/`, production-only runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The packaged Next.js install is pruned to exactly the files that trace lists, and build-only files (typings, source maps, tests, docs) are left out. The installer is about 124 MB and is written to `hud/dist/`; `npm run package:size` (in `hud/`) shows where the megabytes go. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory. Installed builds update themselves from GitHub Releases (see [docs/release/auto-update.md](docs/release/auto-update.md)). Closing the window (X) quits Nova; minimizing sends it to the taskbar and it keeps running.
 
 To check a packaged build boots without clicking through the installer (from the repo root):
 
 ```bash
-npm run smoke:production-boot   # boots hud/dist/win-unpacked in Node and claims a queued agent task
+npm run smoke:production-boot     # boots hud/dist/win-unpacked in Node and claims a queued agent task
+npm run smoke:production-routes   # loads every page and GET API route of the packaged build
 ```
 
 ---

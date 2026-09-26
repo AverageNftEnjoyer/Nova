@@ -9,7 +9,6 @@ import { loadUserSettings } from "@/lib/settings/userSettings"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
 import { useHomeConversations } from "./use-home-conversations"
-import { useHomeDevTools } from "./use-home-dev-tools"
 import { useHomeIntegrations } from "./use-home-integrations"
 import { useHomeCryptoMarket } from "./use-home-crypto-market"
 import { useHomeVisuals } from "./use-home-visuals"
@@ -54,7 +53,6 @@ export function useHomeMainScreenState() {
 
   const integrations = useHomeIntegrations({ latestUsage, speakTts })
   const cryptoMarket = useHomeCryptoMarket()
-  const devTools = useHomeDevTools()
   const weather = useHomeWeather()
   const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
 
@@ -145,11 +143,11 @@ export function useHomeMainScreenState() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const handleSidebarToggle = useCallback(() => setSidebarOpen((prev) => !prev), [])
 
-  const openMissions = useCallback(() => router.push("/missions"), [router])
+  const openMissions = useCallback(() => router.push("/deployments"), [router])
+  const openTaskDeployment = useCallback(() => router.push("/deployments?mode=advanced&kind=task"), [router])
   const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
-  const openAgents = useCallback(() => router.push("/agents"), [router])
   const openChat = useCallback(() => router.push("/chat"), [router])
   const openAnalytics = useCallback(() => router.push("/analytics"), [router])
 
@@ -189,10 +187,8 @@ export function useHomeMainScreenState() {
     pipelineSectionRef: visuals.pipelineSectionRef,
     scheduleSectionRef: visuals.scheduleSectionRef,
     analyticsSectionRef: visuals.analyticsSectionRef,
-    devToolsSectionRef: visuals.devToolsSectionRef,
     integrationsSectionRef: visuals.integrationsSectionRef,
     spotifyModuleSectionRef: visuals.spotifyModuleSectionRef,
-    agentModuleSectionRef: visuals.agentModuleSectionRef,
     panelStyle: visuals.panelStyle,
     panelClass: visuals.panelClass,
     subPanelClass: visuals.subPanelClass,
@@ -204,14 +200,13 @@ export function useHomeMainScreenState() {
     cryptoError: cryptoMarket.cryptoError,
     refreshCryptoMarket: cryptoMarket.refreshCryptoMarket,
     openMissions,
+    openTaskDeployment,
     openCalendar,
     openIntegrations,
     openDevLogs,
-    openAgents,
     openChat,
     openAnalytics,
     liveActivity,
-    devToolsMetrics: devTools.devToolsMetrics,
     integrationBadgeClass: integrations.integrationBadgeClass,
     goToIntegrations: integrations.goToIntegrations,
     telegramConnected: integrations.telegramConnected,

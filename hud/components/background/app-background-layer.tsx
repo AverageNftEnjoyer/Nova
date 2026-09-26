@@ -19,7 +19,7 @@ import {
   loadBackgroundVideoObjectUrl,
 } from "@/lib/media/backgroundVideoStorage"
 
-const PERSISTENT_BACKGROUND_PATHS = ["/login", "/home", "/chat", "/missions", "/integrations", "/history", "/dev-logs", "/agents"] as const
+const PERSISTENT_BACKGROUND_PATHS = ["/login", "/home", "/chat", "/deployments", "/missions", "/integrations", "/history", "/dev-logs"] as const
 
 function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
   const settings = loadUserSettings()
