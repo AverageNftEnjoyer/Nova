@@ -359,7 +359,7 @@ hud.stdout.on("data", (chunk) => {
     exec(
       `start "" msedge.exe ` +
       `--new-window ` +
-      `--app=${hudBaseUrl}/boot-right ` +
+      `--app=${hudBaseUrl}/home ` +
       `--start-maximized ` +
       `--window-position=${x},${y} ` +
       `--window-size=${width},${height} ` +
@@ -372,12 +372,10 @@ hud.stdout.on("data", (chunk) => {
     if (process.env.NOVA_FORCE_WINDOW_MOVE === "1") {
       setTimeout(() => {
         moveWindowToMonitor(hudTitle, primaryMonitor);
-        moveWindowToMonitor("boot-right", primaryMonitor);
         moveWindowToMonitor("NOVA", primaryMonitor);
       }, 2000);
       setTimeout(() => {
         moveWindowToMonitor(hudTitle, primaryMonitor);
-        moveWindowToMonitor("boot-right", primaryMonitor);
         moveWindowToMonitor("NOVA", primaryMonitor);
       }, 5000);
     }

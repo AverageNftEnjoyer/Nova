@@ -198,7 +198,7 @@
  * - V.50 Alpha (2026-03-08): Nova-native login shell overhaul
  *     - Rebuilt `/login` into a full Nova shell surface with orb-aligned spotlight panels, responsive split layout, and stronger session-routing context across sign-in, sign-up, forgot, and reset modes.
  *     - Added a dedicated login background layer that reuses Nova's atmospheric gradients and floating-line treatment so authentication feels integrated with the HUD instead of detached.
- *     - Preserved existing auth contracts, Google OAuth flow, boot-right redirect behavior, and hydration-safe theme/orb synchronization while modernizing the access experience.
+ *     - Preserved existing auth contracts, Google OAuth flow, and hydration-safe theme/orb synchronization while modernizing the access experience.
  *
  * - V.49 Alpha (2026-03-07): Job-ledger completion RPC cutover
  *     - Replaced the last client-side `completeRun()` write path with a single server-side RPC so job completion timestamps and duration accounting now use the database clock.

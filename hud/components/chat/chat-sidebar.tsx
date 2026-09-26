@@ -6,7 +6,6 @@ import {
   Plus,
   Trash2,
   Settings,
-  RotateCcw,
   User,
   MoreHorizontal,
   Pencil,
@@ -44,7 +43,6 @@ interface ChatSidebarProps {
   onRename?: (id: string, title: string) => void
   onArchive?: (id: string, archived: boolean) => void
   onPin?: (id: string, pinned: boolean) => void
-  onReplayBoot?: () => void
   novaState?: NovaState
   agentConnected?: boolean
   runningNowLabel?: string
@@ -100,7 +98,6 @@ export function ChatSidebar({
   onRename,
   onArchive,
   onPin,
-  onReplayBoot,
   novaState,
   agentConnected,
   runningNowLabel,
@@ -627,19 +624,6 @@ export function ChatSidebar({
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
-              {onReplayBoot && (
-                <button
-                  onClick={onReplayBoot}
-                  className={cn(
-                    "appearance-none h-8 w-8 rounded-lg flex items-center justify-center transition-colors",
-                    noGlowCardClass,
-                  )}
-                  aria-label="Replay boot sequence"
-                  title="Replay boot sequence"
-                >
-                  <RotateCcw className="w-4 h-4 text-s-50 hover:text-accent transition-colors" />
-                </button>
-              )}
               <button
                 onClick={() => setSettingsOpen(true)}
                 className={cn(

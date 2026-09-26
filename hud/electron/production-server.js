@@ -2,7 +2,7 @@
 //
 // The Electron main process hosts both the Next.js production server (API routes, not a static
 // export) and the `src/` runtime scheduler in-process — no spawned child processes, no separately
-// started `npm run dev`. This mirrors what `nova.js` does for the dev "boot-right" launcher (two
+// started `npm run dev`. This mirrors what `nova.js` does for the dev launcher (two
 // processes talking over a shared HTTP token), except both halves now share one Node process.
 //
 // Layout this module expects on disk (see hud/electron-builder.yml + hud/scripts/prepare-runtime-resources.mjs):
