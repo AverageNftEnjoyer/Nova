@@ -182,7 +182,10 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
   const spotifyConnectedRef = useRef(false)
   const spotifyUnauthorizedRef = useRef(false)
   const spotifyUnauthorizedRedirectAtRef = useRef(0)
+  const spotifyOAuthPopupRef = useRef<Window | null>(null)
+  const spotifyOAuthPopupWatchRef = useRef<number | null>(null)
   const [spotifyLoading, setSpotifyLoading] = useState(false)
+  const [spotifyConnecting, setSpotifyConnecting] = useState(false)
   const [spotifyError, setSpotifyError] = useState<string | null>(null)
   const [spotifyBusyAction, setSpotifyBusyAction] = useState<SpotifyPlaybackAction | null>(null)
   const preserveSpotifyCacheUntilServerSyncRef = useRef(false)
@@ -438,53 +441,131 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     setIntegrationsHydrated(true)
   }, [applyLocalSettings])
 
-  useEffect(() => {
-    void fetch("/api/integrations/config", { cache: "no-store" })
-      .then(async (res) => {
-        if (res.status === 401) {
-          throw new Error("Unauthorized")
-        }
-        return res.json()
-      })
-      .then((data) => {
-        spotifyUnauthorizedRef.current = false
-        spotifyUnauthorizedRedirectAtRef.current = 0
-        preserveSpotifyCacheUntilServerSyncRef.current = false
-        const config = data?.config || {}
-        const provider = providerFromValue(config?.activeLlmProvider)
-        setTelegramConnected(Boolean(config?.telegram?.connected))
-        setDiscordConnected(Boolean(config?.discord?.connected))
-        setSlackConnected(Boolean(config?.slack?.connected))
-        setBraveConnected(Boolean(config?.brave?.connected))
-        setCoinbaseConnected(Boolean(config?.coinbase?.connected))
-        setOpenaiConnected(Boolean(config?.openai?.connected))
-        setClaudeConnected(Boolean(config?.claude?.connected))
-        setGrokConnected(Boolean(config?.grok?.connected))
-        setGeminiConnected(Boolean(config?.gemini?.connected))
-        const spotifyIsConnected = Boolean(config?.spotify?.connected)
-        setSpotifyConnected(spotifyIsConnected)
-        setYouTubeConnected(Boolean(config?.youtube?.connected))
-        if (!spotifyIsConnected) {
-          setSpotifyNowPlaying(null)
-          setSpotifyError(null)
-        } else {
-          void refreshSpotifyNowPlaying(true)
-        }
-        setGmailConnected(Boolean(config?.gmail?.connected))
-        setGcalendarConnected(Boolean(config?.gcalendar?.connected))
-        setActiveLlmProvider(provider)
-        setActiveLlmModel(modelForProvider(provider, config))
-      })
-      .catch((error) => {
-        if (error instanceof Error && error.message === "Unauthorized") {
-          markSpotifyUnauthorized()
-        }
-        // Keep cached spotify snapshot visible if server sync fails during boot.
-      })
-      .finally(() => {
-        preserveSpotifyCacheUntilServerSyncRef.current = false
-      })
+  const refreshIntegrationsFromServer = useCallback(async () => {
+    try {
+      const res = await fetch("/api/integrations/config", { cache: "no-store", credentials: "include" })
+      if (res.status === 401) throw new Error("Unauthorized")
+      const data = await res.json()
+      spotifyUnauthorizedRef.current = false
+      spotifyUnauthorizedRedirectAtRef.current = 0
+      preserveSpotifyCacheUntilServerSyncRef.current = false
+      const config = data?.config || {}
+      const provider = providerFromValue(config?.activeLlmProvider)
+      setTelegramConnected(Boolean(config?.telegram?.connected))
+      setDiscordConnected(Boolean(config?.discord?.connected))
+      setSlackConnected(Boolean(config?.slack?.connected))
+      setBraveConnected(Boolean(config?.brave?.connected))
+      setCoinbaseConnected(Boolean(config?.coinbase?.connected))
+      setOpenaiConnected(Boolean(config?.openai?.connected))
+      setClaudeConnected(Boolean(config?.claude?.connected))
+      setGrokConnected(Boolean(config?.grok?.connected))
+      setGeminiConnected(Boolean(config?.gemini?.connected))
+      const spotifyIsConnected = Boolean(config?.spotify?.connected)
+      setSpotifyConnected(spotifyIsConnected)
+      setYouTubeConnected(Boolean(config?.youtube?.connected))
+      if (!spotifyIsConnected) {
+        setSpotifyNowPlaying(null)
+      } else {
+        setSpotifyError(null)
+        await refreshSpotifyNowPlaying(true)
+      }
+      setGmailConnected(Boolean(config?.gmail?.connected))
+      setGcalendarConnected(Boolean(config?.gcalendar?.connected))
+      setActiveLlmProvider(provider)
+      setActiveLlmModel(modelForProvider(provider, config))
+    } catch (error) {
+      if (error instanceof Error && error.message === "Unauthorized") {
+        markSpotifyUnauthorized()
+      }
+      // Keep cached Spotify state visible when the server sync fails.
+    } finally {
+      preserveSpotifyCacheUntilServerSyncRef.current = false
+    }
   }, [markSpotifyUnauthorized, refreshSpotifyNowPlaying])
+
+  useEffect(() => {
+    void refreshIntegrationsFromServer()
+  }, [refreshIntegrationsFromServer])
+
+  const clearSpotifyOAuthPopupWatch = useCallback(() => {
+    if (spotifyOAuthPopupWatchRef.current !== null) {
+      window.clearInterval(spotifyOAuthPopupWatchRef.current)
+      spotifyOAuthPopupWatchRef.current = null
+    }
+  }, [])
+
+  const connectSpotify = useCallback(async () => {
+    setSpotifyConnecting(true)
+    setSpotifyError(null)
+    try {
+      const returnTo = "/home?spotifyPopup=1"
+      const res = await fetch(
+        `/api/integrations/spotify/connect?mode=json&returnTo=${encodeURIComponent(returnTo)}`,
+        { cache: "no-store", credentials: "include" },
+      )
+      const data = await res.json()
+      if (!res.ok || !data?.authUrl) {
+        throw new Error(String(data?.error || "Failed to start Spotify authorization."))
+      }
+
+      const width = 620
+      const height = 760
+      const left = Math.max(0, Math.floor(window.screenX + (window.outerWidth - width) / 2))
+      const top = Math.max(0, Math.floor(window.screenY + (window.outerHeight - height) / 2))
+      const popup = window.open(
+        String(data.authUrl),
+        "nova-spotify-oauth",
+        `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+      )
+      if (!popup) {
+        throw new Error("Spotify authorization was blocked. Allow popups for Nova and try again.")
+      }
+
+      spotifyOAuthPopupRef.current = popup
+      clearSpotifyOAuthPopupWatch()
+      spotifyOAuthPopupWatchRef.current = window.setInterval(() => {
+        const activePopup = spotifyOAuthPopupRef.current
+        if (activePopup && !activePopup.closed) return
+        clearSpotifyOAuthPopupWatch()
+        spotifyOAuthPopupRef.current = null
+        setSpotifyConnecting(false)
+      }, 500)
+    } catch (error) {
+      clearSpotifyOAuthPopupWatch()
+      spotifyOAuthPopupRef.current = null
+      setSpotifyConnecting(false)
+      setSpotifyError(error instanceof Error ? error.message : "Failed to start Spotify authorization.")
+    }
+  }, [clearSpotifyOAuthPopupWatch])
+
+  useEffect(() => {
+    const onSpotifyOAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      const payload = event.data as { type?: string; status?: string; message?: string } | null
+      if (!payload || payload.type !== "nova:spotify-oauth") return
+
+      clearSpotifyOAuthPopupWatch()
+      if (spotifyOAuthPopupRef.current && !spotifyOAuthPopupRef.current.closed) {
+        spotifyOAuthPopupRef.current.close()
+      }
+      spotifyOAuthPopupRef.current = null
+      setSpotifyConnecting(false)
+
+      if (payload.status === "success") {
+        setSpotifyError(null)
+        void refreshIntegrationsFromServer()
+      } else {
+        setSpotifyError(payload.message || "Spotify authorization failed.")
+      }
+    }
+
+    window.addEventListener("message", onSpotifyOAuthMessage)
+    return () => {
+      window.removeEventListener("message", onSpotifyOAuthMessage)
+      clearSpotifyOAuthPopupWatch()
+      spotifyOAuthPopupRef.current = null
+    }
+  }, [clearSpotifyOAuthPopupWatch, refreshIntegrationsFromServer])
 
   useEffect(() => {
     const onUpdate = () => {
@@ -661,8 +742,10 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
     youtubeConnected,
     spotifyNowPlaying,
     spotifyLoading,
+    spotifyConnecting,
     spotifyError,
     spotifyBusyAction,
+    connectSpotify,
     refreshSpotifyNowPlaying,
     toggleSpotifyPlayback,
     spotifyNextTrack,

@@ -163,7 +163,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.75 Alpha**
+Current: **V.76 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

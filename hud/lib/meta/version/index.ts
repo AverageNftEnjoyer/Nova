@@ -10,6 +10,9 @@
  *
  * Version History:
  *
+ * - V.76 Alpha (2026-09-26): Online presence label
+ *     - Nova's connected default presence now reads ONLINE instead of IDLE.
+ *
  * - V.75 Alpha (2026-09-25): Unified Deployment Platform
  *     - Added one `/deployments` workspace: Simple uses Nova's live WebSocket manager to produce a strict, server-validated task-or-automation plan; Advanced exposes the configured provider/model task form and the guided Mission builder/canvas.
  *     - Added canonical Deployment and DeploymentRun records, immutable run revisions, replayable SQLite event streaming, attachments, durable side-effect reservations, idempotent launch keys, and Mission/Agent Task compatibility links (migrations 19-20).
@@ -500,7 +503,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.75 Alpha"
+export const NOVA_VERSION = "V.76 Alpha"
 
 
 
